@@ -32,11 +32,11 @@ headless, and checks screenshots.
 
 | Spec | Title | Status |
 |---|---|---|
-| — | Scene serialization and validation | planned |
-| — | Inspection/control protocol | planned |
-| — | MCP server | planned |
-| — | Headless CLI (run, step, screenshot, test) | planned |
-| — | Project format (`shard.json`, `AGENTS.md` generation) | planned |
+| [0009](0009-project-format.md) | Project format (`shard.json`, layout, generated agent docs) | accepted |
+| [0010](0010-scene-files.md) | Scene files (validation, load/save, presets, procedural refs) | accepted |
+| [0011](0011-protocol.md) | Inspection and control protocol | accepted |
+| [0012](0012-cli.md) | Headless CLI and gameplay tests | accepted |
+| [0013](0013-mcp-server.md) | MCP server | accepted |
 
 ## M4 — Assets
 
