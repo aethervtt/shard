@@ -58,23 +58,28 @@ Surfaces:
 The engine is model-agnostic. We build it with Claude; users can drive it with anything that
 speaks MCP, or with plain code.
 
-## Proof project: a Habbo Hotel-style game
+## Proof project: a No Man's Sky-style game
 
-The first game an agent builds with Shard is a Habbo-like: isometric 3D rooms, avatars, furniture,
-chat. It is small enough to finish and touches most of the engine:
+The first game an agent builds with Shard is a No Man's Sky-style explorer (not a copy): seeded
+star systems, procedural planets you can land on, walk, and fly away from, with generated terrain,
+flora, and creatures. It's the purest expression of the engine's thesis: almost nothing in it is
+hand-placed. The agent authors generators and rules, and the seed does the rest.
 
-| Habbo feature | Engine capability it proves |
+| Game feature | Engine capability it proves |
 |---|---|
-| Tile rooms, walls, floors | procedural room/mesh generation, scenes |
-| Furniture (place, rotate, stack) | prefabs, data assets, procedural props, picking |
-| Click-to-walk | raycasting, grid pathfinding, animation |
-| Avatars (walk, sit, wave) | glTF, skinning, animation state machines |
-| Chat bubbles, navigator, inventory | HUD/UI, world-anchored UI, text rendering |
-| Room lighting, ambience | PBR, shadows, audio |
-| Other people in the room | bots first, then the networking plugin |
+| Galaxy map, star systems from a seed | procedural generation at scale, seeded RNG forks, instancing (the galaxy demo is the seed of this) |
+| Planets you can land on | cube-sphere terrain, quadtree LOD, GPU compute heightfields, streaming |
+| Seamless space ↔ surface flight | large-world coordinates (floating origin), camera/physics precision |
+| Biomes, weather, day/night | procedural materials, atmosphere scattering, PBR in physical units, exposure |
+| Flora and rocks everywhere | GPU scatter, instanced foliage (buffers, not entities), LOD, culling |
+| Creatures | procedural meshes and skeletons, animation, simple AI/navigation on terrain |
+| Walking, jetpack, ship | character controller with spherical gravity, rigid-body flight (Rapier) |
+| Scanner, inventory, HUD | UI, world-anchored markers, text rendering |
+| Ambience | spatial audio, procedural soundscapes |
 
-Furniture should be procedural where possible (a generator per furniture family, with parameters),
-so the agent can make new items without a 3D artist. Avatars can start from a CC0 rigged model.
+Everything generated is derived from `(seed, generator parameters)` and cached by that key, so a
+planet looks the same every visit and agents can iterate on a generator and compare results.
+Multiplayer is out of scope for the proof project.
 
 ## Engine feature map
 
@@ -145,15 +150,21 @@ for, not built yet.
 - v1: scenes, prefabs with overrides as patches, nested composition, data assets
   ("scriptable objects"), variants
 
+**Large worlds**
+- v1: floating origin (camera-relative rendering, periodic world re-centering) and double-precision
+  positions for far-apart objects; planet-scale and system-scale coordinate frames
+
 **Procedural generation**
 - v1: noise library (CPU WASM + GPU compute), heightmap terrain with chunked LOD, splat texturing,
-  rule-based scatter (props, foliage), procedural meshes (furniture, rooms, rocks), seeded graphs
+  rule-based scatter (props, foliage), procedural meshes (rocks, plants, structures), seeded graphs
+- v1: planets: cube-sphere terrain with quadtree LOD, biomes, GPU compute heightfields, streaming
+- v1: star systems and a galaxy map generated from a seed
 - Generators are assets: parameters + seed in, entities/meshes/textures out, cached by input hash
 - Later: wave function collapse, dungeon/level generators, L-systems
 
 **Game services**
 - v1: save/load (serialize world subsets), settings, localization tables
-- Later: networking plugin (client/server state sync) for the Habbo multiplayer step, achievements
+- Later: networking plugin (client/server state sync), achievements
 
 **Tooling and the agent layer**
 - v1: headless runner, protocol, MCP server, screenshots, frame stepping, input recording/replay
@@ -246,7 +257,8 @@ my-game/
 
 - A drag-and-drop editor. The SDK allows one; we don't build it.
 - WebGL2.
-- Cross-machine bit-exact determinism.
+- Cross-machine bit-exact determinism. (Generation is deterministic per platform: same seed, same
+  planet on the same build.)
 - Visual scripting.
 
 ## Roadmap

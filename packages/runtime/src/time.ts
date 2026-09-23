@@ -1,4 +1,4 @@
-import { defineResource } from '@shard/core'
+import { defineResource, type Rng } from '@shard/core'
 
 export interface TimeData {
   /** Seconds since the previous frame. */
@@ -26,4 +26,8 @@ export const Time = defineResource<TimeData>('core/Time', {
 
 export const FixedTime = defineResource<FixedTimeData>('core/FixedTime', {
   description: 'Fixed-step time. Read step in FixedUpdate systems; alpha for interpolation.',
+})
+
+export const GlobalRng = defineResource<Rng>('core/GlobalRng', {
+  description: 'The app root random stream, seeded from AppOptions.seed. Fork it per system.',
 })

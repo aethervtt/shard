@@ -128,8 +128,10 @@ next frame. Unknown values are a type error and throw `app/invalid-state`.
   `apply_deferred`; revisit if flush cost shows up in profiles.
 - **`FixedUpdate` defaults to 60 Hz.** Matches most displays; configurable per app. When the step
   cap is hit, the excess whole steps are dropped.
-- **Commands get their own tick.** The world tick advances before a system's commands apply, so the
-  system sees its own spawns as `added` on its next run.
+- **The tick advances after every system run.** Anything written afterwards (the system's commands,
+  later systems, code outside systems between frames) gets a newer tick than the run, so the system
+  sees it as changed next time. (Originally the tick only advanced when commands were applied, which
+  hid writes made between frames; found while building 0004.)
 - **Plugins may add plugins in `build`.** They join the same dependency-ordered build pass.
 - **Single world.** The renderer reads the main world during extraction; no separate render world.
   Revisit if pipelined rendering becomes necessary.

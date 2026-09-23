@@ -382,3 +382,51 @@ describe('stats', () => {
     expect(table.bytes).toBeGreaterThan(0)
   })
 })
+
+describe('required components', () => {
+  const Global = defineComponent('test/Global', { m: t.affine3x4 })
+  const Local = defineComponent('test/Local', { x: t.f32 }, { requires: [Global] })
+  const Visible = defineTag('test/Visible')
+  const Mesh = defineComponent('test/Mesh', { id: t.u32 }, { requires: [Local, Visible] })
+
+  it('adds required components transitively on spawn, with defaults', () => {
+    const world = new World()
+    const e = world.spawn([Mesh, { id: 3 }])
+    expect(world.has(e, Local)).toBe(true)
+    expect(world.has(e, Global)).toBe(true)
+    expect(world.has(e, Visible)).toBe(true)
+    expect(world.get(e, Global).m).toEqual([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0])
+  })
+
+  it('keeps explicitly given values for required components', () => {
+    const world = new World()
+    const e = world.spawn([Mesh, { id: 1 }], [Local, { x: 5 }])
+    expect(world.get(e, Local).x).toBe(5)
+  })
+
+  it('adds them in a single archetype move on add()', () => {
+    const world = new World()
+    const e = world.spawn([Position, { value: [1, 2, 3] }])
+    const before = world.stats().archetypes
+    world.add(e, Mesh, { id: 9 })
+    // One new archetype: {Position, Mesh, Local, Global, Visible}. No intermediate tables.
+    expect(world.stats().archetypes).toBe(before + 1)
+    expect(world.get(e, Position).value).toEqual([1, 2, 3])
+    expect(world.has(e, Global)).toBe(true)
+  })
+
+  it('fires onAdd for required components', () => {
+    const world = new World()
+    const added: string[] = []
+    world.observe(onAdd(Global), () => added.push('global'))
+    world.spawn(Local)
+    expect(added).toEqual(['global'])
+  })
+
+  it('lists requirements in describe()', () => {
+    const world = new World()
+    world.spawn(Mesh)
+    const mesh = world.registry.describe().components.find((c) => c.name === 'test/Mesh')
+    expect(mesh?.requires).toEqual(['test/Local', 'test/Visible'])
+  })
+})

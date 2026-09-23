@@ -10,7 +10,8 @@ import {
   Update,
   type World,
 } from '@shard/core'
-import { createGpuContext, type GpuContext } from '@shard/gpu'
+import { GpuBuffer } from '@shard/gpu'
+import { Gpu, Graph, RenderSet, VIEW_TARGET, Window } from '@shard/render'
 import { definePlugin, FixedTime, Time } from '@shard/runtime'
 import galaxyWgsl from './galaxy.wgsl?raw'
 
@@ -127,85 +128,71 @@ const gravity = defineSystem({
 
 // --- rendering ---------------------------------------------------------------
 
-interface Renderer {
-  gpu: GpuContext
-  pipeline: GPURenderPipeline
-  uniforms: Float32Array
-  uniformBuffer: GPUBuffer
-  capacity: number
-  positions: GPUBuffer
-  velocities: GPUBuffer
-  bindGroup: GPUBindGroup
+interface GalaxyGpu {
+  positions: GpuBuffer
+  velocities: GpuBuffer
+  uniforms: GpuBuffer
+  uniformData: Float32Array
+  module: GPUShaderModule
+  count: number
+  bindGroup: GPUBindGroup | undefined
+  /** Buffer versions the bind group was built against. */
+  bound: string
 }
 
-const RendererResource = defineResource<Renderer>('galaxy/Renderer')
+const GalaxyGpuResource = defineResource<GalaxyGpu>('galaxy/Gpu')
 
-function allocateStarBuffers(r: Renderer, capacity: number): void {
-  r.positions?.destroy()
-  r.velocities?.destroy()
-  const size = capacity * 3 * 4
-  const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-  r.positions = r.gpu.device.createBuffer({ size, usage })
-  r.velocities = r.gpu.device.createBuffer({ size, usage })
-  r.bindGroup = r.gpu.device.createBindGroup({
-    layout: r.pipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: r.uniformBuffer } },
-      { binding: 1, resource: { buffer: r.positions } },
-      { binding: 2, resource: { buffer: r.velocities } },
-    ],
-  })
-  r.capacity = capacity
-}
-
-const render = defineSystem({
-  name: 'galaxy/render',
-  description: 'Uploads ECS columns to storage buffers and draws one instanced quad per star.',
+/** Uploads ECS columns as-is into storage buffers, plus the camera uniforms. */
+const prepare = defineSystem({
+  name: 'galaxy/prepare',
+  description: 'Uploads star columns and camera uniforms to the GPU.',
   setup: (world) => ({ stars: world.query({ with: [Position, Velocity] }) }),
   run: ({ stars }, world) => {
-    const r = world.resource(RendererResource)
-    const { device, context, canvas } = r.gpu
-    r.gpu.resize()
-
-    const count = stars.count()
-    if (count > r.capacity) allocateStarBuffers(r, Math.max(count, r.capacity * 2))
-
-    // The columns are already in GPU layout: upload each table's slice as-is.
+    const g = world.resource(GalaxyGpuResource)
+    const window = world.resource(Window)
     let offset = 0
     for (const table of stars.tables) {
       const n = table.count * 3
-      device.queue.writeBuffer(r.positions, offset * 4, table.column(Position, 'value'), 0, n)
-      device.queue.writeBuffer(r.velocities, offset * 4, table.column(Velocity, 'value'), 0, n)
+      g.positions.ensureCapacity((offset + n) * 4)
+      g.velocities.ensureCapacity((offset + n) * 4)
+      g.positions.write(table.column(Position, 'value'), offset * 4, 0, n)
+      g.velocities.write(table.column(Velocity, 'value'), offset * 4, 0, n)
       offset += n
     }
+    g.count = offset / 3
 
-    const aspect = canvas.width / canvas.height
+    const aspect = window.width / window.height
     const elapsed = world.resource(Time).elapsed
-    r.uniforms[0] = Math.min(1, 1 / aspect) * 0.95
-    r.uniforms[1] = Math.min(1, aspect) * 0.95
-    r.uniforms[2] = elapsed * 0.05
-    r.uniforms[3] = 1.0 + Math.sin(elapsed * 0.1) * 0.15
-    r.uniforms[4] = 2.2 / Math.min(canvas.width, canvas.height)
-    device.queue.writeBuffer(r.uniformBuffer, 0, r.uniforms)
-
-    const encoder = device.createCommandEncoder()
-    const pass = encoder.beginRenderPass({
-      colorAttachments: [
-        {
-          view: context.getCurrentTexture().createView(),
-          clearValue: { r: 0.01, g: 0.012, b: 0.02, a: 1 },
-          loadOp: 'clear',
-          storeOp: 'store',
-        },
-      ],
-    })
-    pass.setPipeline(r.pipeline)
-    pass.setBindGroup(0, r.bindGroup)
-    pass.draw(6, count)
-    pass.end()
-    device.queue.submit([encoder.finish()])
+    const u = g.uniformData
+    u[0] = Math.min(1, 1 / aspect) * 0.95
+    u[1] = Math.min(1, aspect) * 0.95
+    u[2] = elapsed * 0.05
+    u[3] = 1.0 + Math.sin(elapsed * 0.1) * 0.15
+    u[4] = 2.2 / Math.min(window.width, window.height)
+    g.uniforms.write(u)
   },
 })
+
+function pipelineDescriptor(g: GalaxyGpu, format: GPUTextureFormat): GPURenderPipelineDescriptor {
+  return {
+    label: 'galaxy/stars',
+    layout: 'auto',
+    vertex: { module: g.module, entryPoint: 'vs_main' },
+    fragment: {
+      module: g.module,
+      entryPoint: 'fs_main',
+      targets: [
+        {
+          format,
+          blend: {
+            color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+            alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+          },
+        },
+      ],
+    },
+  }
+}
 
 // --- HUD ---------------------------------------------------------------------
 
@@ -223,7 +210,7 @@ const hud = defineSystem({
 
     const timings = world.resource(ProfilerResource).all()
     const rows = Object.entries(timings)
-      .filter(([name]) => name !== 'galaxy/hud')
+      .filter(([name]) => name !== 'galaxy/hud' && !name.startsWith('render/'))
       .map(([name, t]) => `${name.padEnd(20)} ${t.avg.toFixed(2).padStart(6)} ms`)
     state.el.textContent = [
       `stars    ${world.entityCount.toLocaleString()}`,
@@ -237,10 +224,10 @@ const hud = defineSystem({
 
 // --- plugin ------------------------------------------------------------------
 
-export function galaxyPlugin(options: { canvas: HTMLCanvasElement; stars: number; seed: number }) {
+export function galaxyPlugin(options: { stars: number; seed: number }) {
   return definePlugin({
     name: 'galaxy',
-    dependencies: ['core/time'],
+    dependencies: ['core/time', 'render'],
     build(app) {
       app
         .insertResource(Population, { target: options.stars })
@@ -248,42 +235,55 @@ export function galaxyPlugin(options: { canvas: HTMLCanvasElement; stars: number
         .addSystems(Startup, seed)
         .addSystems(Update, population)
         .addSystems(FixedUpdate, gravity)
-        .addSystems(Last, render, hud.after(render))
+        .addSystems(Last, prepare.inSet(RenderSet.Prepare), hud.after(RenderSet.Graph))
     },
-    // GPU setup is async, so it happens in ready(), before Startup.
-    async ready(app) {
-      const gpu = await createGpuContext({ canvas: options.canvas })
-      const module = gpu.device.createShaderModule({ code: galaxyWgsl })
-      const pipeline = gpu.device.createRenderPipeline({
-        layout: 'auto',
-        vertex: { module, entryPoint: 'vs_main' },
-        fragment: {
-          module,
-          entryPoint: 'fs_main',
-          targets: [
-            {
-              format: gpu.format,
-              blend: {
-                color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
-                alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
-              },
-            },
-          ],
+    // Runs after the render plugin's ready(), so the GPU exists.
+    ready(app) {
+      const gpu = app.world.resource(Gpu)
+      const storage = { usage: GPUBufferUsage.STORAGE, size: options.stars * 12 }
+      const uniformData = new Float32Array(8)
+      const g: GalaxyGpu = {
+        positions: new GpuBuffer(gpu, { label: 'galaxy/positions', ...storage }),
+        velocities: new GpuBuffer(gpu, { label: 'galaxy/velocities', ...storage }),
+        uniforms: new GpuBuffer(gpu, {
+          label: 'galaxy/uniforms',
+          usage: GPUBufferUsage.UNIFORM,
+          size: 32,
+        }),
+        uniformData,
+        module: gpu.device.createShaderModule({ label: 'galaxy', code: galaxyWgsl }),
+        count: 0,
+        bindGroup: undefined,
+        bound: '',
+      }
+      app.insertResource(GalaxyGpuResource, g)
+
+      app.world.resource(Graph).addNode('galaxy', {
+        kind: 'render',
+        writes: [VIEW_TARGET],
+        color: [{ resource: VIEW_TARGET, clear: { r: 0.01, g: 0.012, b: 0.02, a: 1 } }],
+        run: (ctx) => {
+          const pipeline = ctx.gpu.pipelines.render(pipelineDescriptor(g, ctx.view.target.format))
+          if (!pipeline) return // still compiling: skip this frame
+          const versions = `${g.positions.version}/${g.velocities.version}/${g.uniforms.version}/${ctx.gpu.generation}`
+          if (!g.bindGroup || g.bound !== versions) {
+            g.bindGroup = ctx.gpu.device.createBindGroup({
+              label: 'galaxy/bind-group',
+              layout: pipeline.getBindGroupLayout(0),
+              entries: [
+                { binding: 0, resource: { buffer: g.uniforms.buffer } },
+                { binding: 1, resource: { buffer: g.positions.buffer } },
+                { binding: 2, resource: { buffer: g.velocities.buffer } },
+              ],
+            })
+            g.bound = versions
+          }
+          const pass = ctx.renderPass!
+          pass.setPipeline(pipeline)
+          pass.setBindGroup(0, g.bindGroup)
+          pass.draw(6, g.count)
         },
       })
-      const uniforms = new Float32Array(8)
-      const renderer = {
-        gpu,
-        pipeline,
-        uniforms,
-        uniformBuffer: gpu.device.createBuffer({
-          size: uniforms.byteLength,
-          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        }),
-        capacity: 0,
-      } as Renderer
-      allocateStarBuffers(renderer, options.stars)
-      app.insertResource(RendererResource, renderer)
     },
   })
 }

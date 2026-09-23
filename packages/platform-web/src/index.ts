@@ -49,3 +49,5 @@ export function createWebPlatform(options: WebPlatformOptions = {}): Platform {
     },
   }
 }
+
+export { createDomInputSource } from './input'

@@ -1,6 +1,6 @@
 # 0005 — GPU layer and render graph
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@shard/gpu`, `@shard/render`
 - **Depends on:** 0003, 0004
 
@@ -126,21 +126,52 @@ without a browser.
 
 ## Acceptance criteria
 
-- [ ] The galaxy demo is ported to `GpuBuffer` + a graph node and keeps its frame time.
-- [ ] Nodes run in dependency order; a cycle throws `render/graph-cycle` naming the nodes;
+- [x] The galaxy demo is ported to `GpuBuffer` + a graph node and keeps its frame time.
+- [x] Nodes run in dependency order; a cycle throws `render/graph-cycle` naming the nodes;
       nodes whose outputs are unused don't run.
-- [ ] Transient textures with equal descriptors are reused across frames (pool size stable over
+- [x] Transient textures with equal descriptors are reused across frames (pool size stable over
       1,000 frames).
-- [ ] Equal pipeline descriptors return the same cached pipeline; draws are skipped (not
+- [x] Equal pipeline descriptors return the same cached pipeline; draws are skipped (not
       blocked) while a pipeline compiles.
-- [ ] A deliberately invalid pipeline produces `gpu/validation` with the pipeline's label.
-- [ ] With `timestamp-query`, per-node GPU timings appear in the profiler.
-- [ ] `captureView` returns correct pixels for a cleared-to-color view, in the browser and in Node
+- [x] A deliberately invalid pipeline produces `gpu/validation` with the pipeline's label.
+- [x] With `timestamp-query`, per-node GPU timings appear in the profiler (verified in the browser:
+      `gpu:galaxy` ≈ 3.5 ms in the playground; Dawn on Metal returns unusable stamps, which the
+      timer discards).
+- [x] `captureView` returns correct pixels for a cleared-to-color view, in the browser and in Node
       via Dawn.
-- [ ] Two cameras render to two targets in one frame.
+- [x] Two cameras render to two targets in one frame.
+
+## Implementation notes
+
+What was built, where it differs from or sharpens the design above:
+
+- **`createGpuContext({ canvas?, gpu?, features?, requiredFeatures? })`.** `gpu` is the WebGPU entry
+  point; in Node, `@shard/gpu/node` wraps Dawn (`createNodeGpuContext`, `installWebGpuGlobals`). It's
+  a separate subpath so browser bundles never load the native module. The canvas is configured with
+  `COPY_SRC` so the swapchain can be captured.
+- **`GpuContext`** owns `pipelines` (`PipelineCache`) and `layouts` (`LayoutCache`), an `errors` ring,
+  `onError` / `onDeviceLost` listeners, `validate(label, fn)` (error scope → `gpu/validation` with the
+  label), `recreate()` after loss, and a `generation` counter that `GpuBuffer`, `OffscreenTarget`,
+  the texture pool, and the GPU timer check to rebuild on a new device.
+- **Descriptor keys** serialize plain data and key GPU objects by identity; labels are ignored, so
+  two descriptors that differ only in label share a pipeline.
+- **`GpuBuffer.write(data, byteOffset, start, count)`** grows as needed and bumps `version`; users
+  rebuild bind groups when versions change (the galaxy does).
+- **Graph nodes** declare `kind`, `reads`, `writes` (names or transient texture descriptors),
+  `after`, `sideEffects`, and for render nodes `color` / `depth` attachments. An attachment without a
+  `clear` loads, and counts as reading the resource's previous writers. The view's output is the
+  `VIEW_TARGET` resource.
+- **Views** (`Views` resource) are rebuilt every frame by extract systems. With a canvas and no
+  views, the plugin adds a `'window'` view (`windowView` option, default true).
+- **GPU timer** discards samples that are zero or out of order. Dawn on Metal (Node) produces only
+  those, so GPU timings are a browser feature in practice.
+- **`captureView(world, view)`** resolves after the next frame with RGBA8 pixels (BGRA swapchains
+  are swizzled). **`describeRender(world)`** adds views, compiling pipelines, skipped draws, and the
+  last five GPU errors.
+- **Dawn check passed:** the `webgpu` package renders and reads back from plain Node on macOS in
+  about a second; GPU tests run on it. Its timestamp path can crash in some standalone uses, so
+  nothing depends on Dawn timestamps.
 
 ## Open questions
 
-- **Deferred to implementation:** whether the `webgpu` npm package (Dawn) is stable enough on
-  macOS/Windows/Linux for CI. Checked first when this spec is built; if it isn't, GPU tests and
-  headless capture run in headless Chromium via Playwright instead. The API doesn't change either way.
+None.

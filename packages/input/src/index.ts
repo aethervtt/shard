@@ -1,0 +1,40 @@
+export {
+  type ActionDef,
+  type ActionMapDef,
+  ActionState,
+  type Axis1dAction,
+  type Axis2dAction,
+  actionMapSchema,
+  type ButtonAction,
+  defineActions,
+  type Interaction,
+} from './actions'
+export { type ParsedBinding, parseBinding } from './bindings'
+export {
+  GAMEPAD_AXES,
+  GAMEPAD_BUTTONS,
+  type GamepadAxis,
+  type GamepadButton,
+  GamepadState,
+  GamepadsState,
+  KeyboardState,
+  MouseState,
+  type Touch,
+  TouchesState,
+} from './devices'
+export {
+  addActions,
+  describeInput,
+  Gamepads,
+  type InjectedInput,
+  type InputPluginOptions,
+  InputQueue,
+  injectInput,
+  inputPlugin,
+  Keyboard,
+  Mouse,
+  startRecording,
+  startReplay,
+  stopRecording,
+  Touches,
+} from './plugin'

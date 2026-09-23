@@ -29,12 +29,21 @@ importers:
       '@shard/gpu':
         specifier: workspace:*
         version: link:../../packages/gpu
+      '@shard/mesh':
+        specifier: workspace:*
+        version: link:../../packages/mesh
       '@shard/platform-web':
         specifier: workspace:*
         version: link:../../packages/platform-web
+      '@shard/render':
+        specifier: workspace:*
+        version: link:../../packages/render
       '@shard/runtime':
         specifier: workspace:*
         version: link:../../packages/runtime
+      '@shard/transform':
+        specifier: workspace:*
+        version: link:../../packages/transform
     devDependencies:
       '@webgpu/types':
         specifier: ^0.1.74
@@ -51,9 +60,21 @@ importers:
       '@shard/gpu':
         specifier: workspace:*
         version: link:../../packages/gpu
+      '@shard/mesh':
+        specifier: workspace:*
+        version: link:../../packages/mesh
       '@shard/platform-tauri':
         specifier: workspace:*
         version: link:../../packages/platform-tauri
+      '@shard/render':
+        specifier: workspace:*
+        version: link:../../packages/render
+      '@shard/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
+      '@shard/transform':
+        specifier: workspace:*
+        version: link:../../packages/transform
       '@tauri-apps/api':
         specifier: ^2.11.1
         version: 2.11.1
@@ -76,6 +97,9 @@ importers:
       ajv:
         specifier: ^8.20.0
         version: 8.20.0
+      gl-matrix:
+        specifier: ^3.4.4
+        version: 3.4.4
 
   packages/gpu:
     dependencies:
@@ -83,9 +107,33 @@ importers:
         specifier: workspace:*
         version: link:../core
     devDependencies:
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
       '@webgpu/types':
         specifier: ^0.1.74
         version: 0.1.74
+      webgpu:
+        specifier: 0.6.1
+        version: 0.6.1
+
+  packages/input:
+    dependencies:
+      '@shard/core':
+        specifier: workspace:*
+        version: link:../core
+      '@shard/platform':
+        specifier: workspace:*
+        version: link:../platform
+      '@shard/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+
+  packages/mesh:
+    dependencies:
+      '@shard/core':
+        specifier: workspace:*
+        version: link:../core
 
   packages/platform:
     dependencies:
@@ -117,11 +165,76 @@ importers:
         specifier: workspace:*
         version: link:../platform
 
+  packages/render:
+    dependencies:
+      '@shard/core':
+        specifier: workspace:*
+        version: link:../core
+      '@shard/gpu':
+        specifier: workspace:*
+        version: link:../gpu
+      '@shard/mesh':
+        specifier: workspace:*
+        version: link:../mesh
+      '@shard/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@shard/shader':
+        specifier: workspace:*
+        version: link:../shader
+      '@shard/transform':
+        specifier: workspace:*
+        version: link:../transform
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+      '@webgpu/types':
+        specifier: ^0.1.74
+        version: 0.1.74
+      webgpu:
+        specifier: 0.6.1
+        version: 0.6.1
+
   packages/runtime:
     dependencies:
       '@shard/core':
         specifier: workspace:*
         version: link:../core
+
+  packages/shader:
+    dependencies:
+      '@shard/core':
+        specifier: workspace:*
+        version: link:../core
+      '@shard/gpu':
+        specifier: workspace:*
+        version: link:../gpu
+      '@shard/platform':
+        specifier: workspace:*
+        version: link:../platform
+      wesl:
+        specifier: 0.7.31
+        version: 0.7.31
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+      '@webgpu/types':
+        specifier: ^0.1.74
+        version: 0.1.74
+      webgpu:
+        specifier: 0.6.1
+        version: 0.6.1
+
+  packages/transform:
+    dependencies:
+      '@shard/core':
+        specifier: workspace:*
+        version: link:../core
+      '@shard/runtime':
+        specifier: workspace:*
+        version: link:../runtime
 
 packages:
 
@@ -551,6 +664,15 @@ packages:
     resolution: {integrity: sha512-NUPRluOfOiTKBKvWPtSD4PhFvWCqOi0BGStNWs57X9js7XGTprSmFoz5F0tWhR4WPjNeR9jXqdC7/UpSJTnlRg==}
     engines: {node: '>=18'}
 
+  debug@4.4.3:
+    resolution: {integrity: sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==}
+    engines: {node: '>=6.0'}
+    peerDependencies:
+      supports-color: '*'
+    peerDependenciesMeta:
+      supports-color:
+        optional: true
+
   detect-libc@2.1.2:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
@@ -584,6 +706,9 @@ packages:
     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
+
+  gl-matrix@3.4.4:
+    resolution: {integrity: sha512-latSnyDNt/8zYUB6VIJ6PCh2jBjJX6gnDsoCZ7LyW7GkqrD51EWwa9qCoGixj8YqBtETQK/xY7OmpTF8xz1DdQ==}
 
   json-schema-traverse@1.0.0:
     resolution: {integrity: sha512-NM8/P9n3XjXhIZn1lLhkFaACTOURQXjWhV4BA/RnOv8xvgqtqpAX9IO4mRQxSx1Rlo4tqzeqb0sOlruaOy3dug==}
@@ -660,6 +785,9 @@ packages:
 
   magic-string@1.4.1:
     resolution: {integrity: sha512-8lyCu36ErXR0J9uaGKlKQoiLZKmtI63YGLE8G2o9jyRPdr4X47LusSOwgOJOzcVtp81fTAAjxR7BwKz682Jhow==}
+
+  ms@2.1.3:
+    resolution: {integrity: sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==}
 
   nanoid@3.3.19:
     resolution: {integrity: sha512-Y2tUNy4ouw6tq5oDSKeQYGOyhkUBhNOcGV/02KC+6kd9eDGqdZd++mjMiIDilrBYvjEnCYvVtsuHCuP+okSfug==}
@@ -810,6 +938,12 @@ packages:
         optional: true
       jsdom:
         optional: true
+
+  webgpu@0.6.1:
+    resolution: {integrity: sha512-T+B65/j2jhyFjbWHsVZ4TJw0nk0RVT27lG+nL3V5IIYMsvuVYKYOUli/yJhMpwvXAwqVPZehakWvTjxk+mK8LQ==}
+
+  wesl@0.7.31:
+    resolution: {integrity: sha512-raDIkgW3HkOMGLKm4M7RllKVW/1Zc/L2S0FijknKY7IKEagbc4nMyKIjCiVncgRDGAIbEswo6btcGvzOf7Cyvg==}
 
   why-is-node-running@2.3.0:
     resolution: {integrity: sha512-hUrmaWBdVDcxvYqnyh09zunKzROWjbZTiNy8dBEjkS7ehEDQibXJ7XvlmtbwuTclUiIyN+CyXQD4Vmko8fNm8w==}
@@ -1079,6 +1213,10 @@ snapshots:
 
   chai@6.2.2: {}
 
+  debug@4.4.3:
+    dependencies:
+      ms: 2.1.3
+
   detect-libc@2.1.2: {}
 
   es-module-lexer@2.3.2: {}
@@ -1099,6 +1237,8 @@ snapshots:
 
   fsevents@2.3.3:
     optional: true
+
+  gl-matrix@3.4.4: {}
 
   json-schema-traverse@1.0.0: {}
 
@@ -1154,6 +1294,8 @@ snapshots:
   magic-string@1.4.1:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.6.0
+
+  ms@2.1.3: {}
 
   nanoid@3.3.19: {}
 
@@ -1274,6 +1416,15 @@ snapshots:
       '@types/node': 26.6.2
     transitivePeerDependencies:
       - msw
+
+  webgpu@0.6.1:
+    dependencies:
+      '@webgpu/types': 0.1.74
+      debug: 4.4.3
+    transitivePeerDependencies:
+      - supports-color
+
+  wesl@0.7.31: {}
 
   why-is-node-running@2.3.0:
     dependencies:

@@ -34,6 +34,9 @@ export type FieldKind =
   | 'vec3'
   | 'vec4'
   | 'quat'
+  | 'mat3'
+  | 'mat4'
+  | 'affine3x4'
   | 'color'
   | 'enum'
   | 'entity'
@@ -273,6 +276,16 @@ export type Vec4 = [number, number, number, number]
 export type Quat = [number, number, number, number]
 export type Color = [number, number, number, number]
 
+type Tuple<N extends number, Acc extends number[] = []> = Acc['length'] extends N
+  ? Acc
+  : Tuple<N, [...Acc, number]>
+/** Column-major 3x3. */
+export type Mat3 = Tuple<9>
+/** Column-major 4x4. */
+export type Mat4 = Tuple<16>
+/** Top three rows of an affine 4x4, row by row (see `affine` in math). */
+export type Affine3x4 = Tuple<12>
+
 function readStrided(c: Column, r: number, n: number): number[] {
   const out = new Array<number>(n)
   const base = r * n
@@ -315,7 +328,10 @@ function numberArraySchema(n: number, options: FieldOptions<unknown>): JsonSchem
   return { type: 'array', items, minItems: n, maxItems: n }
 }
 
-function vectorField<V extends number[]>(kind: 'vec2' | 'vec3' | 'vec4' | 'quat', zero: V) {
+function vectorField<V extends number[]>(
+  kind: 'vec2' | 'vec3' | 'vec4' | 'quat' | 'mat3' | 'mat4' | 'affine3x4',
+  zero: V,
+) {
   const n = zero.length
   return callable<V, 'f32'>((options) =>
     makeField<V, 'f32'>({
@@ -706,6 +722,9 @@ export const t = {
   vec3: vectorField<Vec3>('vec3', [0, 0, 0]),
   vec4: vectorField<Vec4>('vec4', [0, 0, 0, 0]),
   quat: vectorField<Quat>('quat', [0, 0, 0, 1]),
+  mat3: vectorField<Mat3>('mat3', [1, 0, 0, 0, 1, 0, 0, 0, 1]),
+  mat4: vectorField<Mat4>('mat4', [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]),
+  affine3x4: vectorField<Affine3x4>('affine3x4', [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]),
   color,
   enum: enumField,
   entity,

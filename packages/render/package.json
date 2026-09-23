@@ -1,0 +1,26 @@
+{
+  "name": "@shard/render",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@shard/core": "workspace:*",
+    "@shard/gpu": "workspace:*",
+    "@shard/runtime": "workspace:*",
+    "@shard/mesh": "workspace:*",
+    "@shard/shader": "workspace:*",
+    "@shard/transform": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "@webgpu/types": "^0.1.74",
+    "webgpu": "0.6.1"
+  }
+}

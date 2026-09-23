@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./math": "./src/math/index.ts"
   },
   "scripts": {
     "typecheck": "tsc -p .",
@@ -12,6 +13,7 @@
     "bench": "vitest run --config vitest.bench.config.ts"
   },
   "devDependencies": {
-    "ajv": "^8.20.0"
+    "ajv": "^8.20.0",
+    "gl-matrix": "^3.4.4"
   }
 }

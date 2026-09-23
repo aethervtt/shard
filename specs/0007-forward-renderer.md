@@ -1,6 +1,6 @@
 # 0007 — Cameras, meshes, and a basic forward renderer
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@shard/render`, `@shard/mesh`
 - **Depends on:** 0004, 0005, 0006
 
@@ -184,21 +184,50 @@ Depth: `depth32float`, reversed Z. MSAA 4x by default (configurable).
 
 ## Acceptance criteria
 
-- [ ] A spinning, lit cube driven entirely by ECS data renders in the playground and in Studio.
-- [ ] 10k instanced cubes with individual transforms render at 60 fps; draw calls equal the number
+- [x] A spinning, lit cube driven entirely by ECS data renders in the playground and in Studio.
+- [x] 10k instanced cubes with individual transforms render at 60 fps; draw calls equal the number
       of distinct mesh/material pairs.
-- [ ] Frustum culling excludes off-screen objects (test: 10k objects, camera facing away, zero
+- [x] Frustum culling excludes off-screen objects (test: 10k objects, camera facing away, zero
       instances drawn) and agrees with a brute-force check.
-- [ ] `Visibility: hidden` on a parent hides its descendants; `visible` on a child of a hidden
+- [x] `Visibility: hidden` on a parent hides its descendants; `visible` on a child of a hidden
       parent stays hidden only if its mode is `inherit`.
-- [ ] Two cameras with different `order` and targets render correctly in one frame.
-- [ ] Every primitive has correct normals (lit sphere shows no seams) and bounds.
-- [ ] A reference scene rendered headless matches a golden image within a small tolerance.
-- [ ] A scene lit with a light preset and the matching exposure preset renders with mid-gray
+- [x] Two cameras with different `order` and targets render correctly in one frame.
+- [x] Every primitive has correct normals (lit sphere shows no seams) and bounds.
+- [x] A reference scene rendered headless matches a golden image within a small tolerance.
+- [x] A scene lit with a light preset and the matching exposure preset renders with mid-gray
       surfaces near mid-gray on screen, for every preset pair.
-- [ ] `PhysicalCamera` with f/16, 1/125 s, ISO 100 yields EV100 ≈ 15 (sunny 16 rule).
-- [ ] Materials contain only the surface stage: the shared lighting function is the only code that
+- [x] `PhysicalCamera` with f/16, 1/125 s, ISO 100 yields EV100 ≈ 15 (sunny 16 rule).
+- [x] Materials contain only the surface stage: the shared lighting function is the only code that
       evaluates lights.
+
+## Implementation notes
+
+- **Verified:** the playground scene draws 10,006 entities at 60 fps (9,100+ visible, ~850 culled,
+  6 draw calls, one per mesh/material pair); CPU culling+instancing ~1.1 ms, GPU pass ~0.5 ms.
+  Studio renders the lit spinning cube in the Tauri webview, checked with a self-capture
+  (`VITE_SHARD_CAPTURE=1` writes the camera view to `~/Library/Caches/shard-studio-capture.rgba`),
+  since screen capture isn't available in this environment.
+- **Calibration test:** an 18% gray card under each matched light/exposure preset pair renders at
+  sRGB ≈ 115/255 (photographic mid-gray is ~118), and all pairs land within 2 values of each other.
+- **Golden image:** `packages/render/src/__golden__/reference-scene.rgba`, rendered headless on Dawn;
+  compared with a mean-difference tolerance so other GPUs pass.
+- **Where it lives:** the forward renderer is part of `@shard/render` (`forwardPlugin`, name
+  `render/forward`, options `{ msaa: 1 | 4 }`); primitives are `@shard/mesh`.
+- **Presets in code:** `lux('direct-sun')`, `ev100('sunny')`, `LightPresets`, `ExposurePresets`,
+  `exposureScale(ev)`. Accepting preset names inside scene files belongs to the scene spec (M3).
+- **Schema additions:** `Camera3d.far` (orthographic only; perspective stays infinite reversed-Z).
+  `Exposure` defaults to the daylight preset (EV100 12); `AmbientLight` defaults to 0 cd/m².
+  `camera2d()` returns spawn inits for an orthographic camera.
+- **Graph extensions:** transient textures can use `format: 'view'` (MSAA color matches each
+  target), and color clears can be a function of the view (per-camera clear colors).
+- **View and material uniforms** are generated with `wgslLayout` from schemas (`ViewUniform`,
+  `StandardMaterial`), so the WGSL structs and CPU packing come from one definition.
+- **Not done:** copying a whole `GlobalTransform` column into the instance buffer when a table fully
+  passes culling. Instances are copied per row; at 10k objects that's already ~1 ms. Revisit if
+  profiles ask for it.
+- **Expected look:** pure metals render dark with a highlight until image-based lighting (M5).
+- `RenderStats` (per view: visible, culled, hidden, draw calls) is exposed and included in
+  `describeRender`.
 
 ## Open questions
 

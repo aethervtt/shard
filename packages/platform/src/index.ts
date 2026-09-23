@@ -10,6 +10,30 @@ export interface Platform {
   readonly log: Logger
 }
 
+export type MouseButton = 'left' | 'middle' | 'right' | 'back' | 'forward'
+
+/**
+ * Raw input as the platform sees it. The input plugin drains these once per frame. `action` events
+ * are synthetic (injected by tests or agents) and go through the same stream so they're recorded
+ * and replayed like everything else.
+ */
+export type RawInputEvent =
+  | { type: 'key'; code: string; pressed: boolean }
+  | { type: 'mouse-button'; button: MouseButton; pressed: boolean }
+  | { type: 'mouse-move'; x: number; y: number; dx: number; dy: number }
+  | { type: 'wheel'; dx: number; dy: number }
+  | { type: 'touch'; id: number; phase: 'start' | 'move' | 'end'; x: number; y: number }
+  | { type: 'gamepad'; index: number; connected: boolean; buttons: number[]; axes: number[] }
+  | { type: 'focus'; focused: boolean }
+  | { type: 'action'; name: string; pressed: boolean; value?: number }
+
+/** Where raw input comes from: DOM listeners in a browser or webview, nothing when headless. */
+export interface InputSource {
+  /** Appends events since the last drain (and polls devices like gamepads). */
+  drain(out: RawInputEvent[]): void
+  dispose(): void
+}
+
 export type FileChangeKind = 'create' | 'modify' | 'remove'
 
 export interface FileChangeEvent {

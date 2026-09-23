@@ -1,0 +1,18 @@
+{
+  "name": "@shard/input",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@shard/core": "workspace:*",
+    "@shard/platform": "workspace:*",
+    "@shard/runtime": "workspace:*"
+  }
+}

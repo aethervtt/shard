@@ -1,6 +1,6 @@
 # 0008 — Input and action maps
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@shard/input`
 - **Depends on:** 0002, 0003
 
@@ -125,19 +125,35 @@ The MCP layer (M3) exposes this so an agent can play the game.
 
 ## Acceptance criteria
 
-- [ ] Keyboard, mouse, wheel, touch, and gamepad state update once per frame with correct
+- [x] Keyboard, mouse, wheel, touch, and gamepad state update once per frame with correct
       `pressed` / `justPressed` / `justReleased` semantics.
-- [ ] Blur releases all held inputs.
-- [ ] Action values combine bindings correctly: composites normalize diagonals, dead zones apply,
+- [x] Blur releases all held inputs.
+- [x] Action values combine bindings correctly: composites normalize diagonals, dead zones apply,
       the strongest binding wins.
-- [ ] Action names are type-checked; unknown binding strings fail validation with a list of valid
+- [x] Action names are type-checked; unknown binding strings fail validation with a list of valid
       names.
-- [ ] Disabled contexts produce no action values.
-- [ ] Hold, tap, and double-tap fire `started`/`performed`/`canceled` at the right frames, and
+- [x] Disabled contexts produce no action values.
+- [x] Hold, tap, and double-tap fire `started`/`performed`/`canceled` at the right frames, and
       behave identically in a replay.
-- [ ] Injected input behaves identically to real input.
-- [ ] A 600-frame recorded session replayed headless produces the same world hash as the original
+- [x] Injected input behaves identically to real input.
+- [x] A 600-frame recorded session replayed headless produces the same world hash as the original
       run.
+
+## Implementation notes
+
+- **Sources:** `InputSource` and `RawInputEvent` live in `@shard/platform`. `createDomInputSource`
+  (in `platform-web`) serves both browsers and the Tauri webview. Headless apps omit the source.
+- **Binding grammar as built:** `Key:<code>` (allowlisted codes, so typos fail), `Mouse:<Left|Middle|
+  Right|Back|Forward|WheelX|WheelY|DeltaX|DeltaY>`, `Gamepad:<button|axis|LeftStick|RightStick>`
+  (any connected pad), `Touch:Any`. Touch zones are deferred to the UI spec.
+- **Contexts** are whole action maps: `state.enabled = false`. Tie them to game states from game
+  systems.
+- **Injected actions** (`injectInput(world, { action: 'game/Controls.jump', pressed })`) enter the
+  same raw stream as `action` events, so they're recorded, replayed, and run through interactions.
+- **Recording format:** JSON lines, a `{ "frames": n }` header then `{ "f": frame, "e": [events] }`
+  for each frame with input. Replay ignores live input until it ends.
+- Gamepad stick Y is up-positive (the DOM's is down-positive).
+- Not yet wired into the playground demos; the next demo that needs controls will use it.
 
 ## Open questions
 

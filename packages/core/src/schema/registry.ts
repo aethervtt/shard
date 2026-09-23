@@ -11,6 +11,7 @@ export interface RegistryDescription {
     description?: string
     version: number
     tag: boolean
+    requires: string[]
     schema: JsonSchema
   }[]
   resources: { name: string; description?: string }[]
@@ -61,6 +62,7 @@ export class Registry {
           ...description,
           version: def.version,
           tag: def.isTag,
+          requires: def.requires.map((r) => r.name),
           schema: def.jsonSchema(),
         })
       } else if (def.kind === 'resource') {

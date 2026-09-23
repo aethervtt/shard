@@ -7,6 +7,7 @@ import {
   Profiler,
   ProfilerResource,
   type ResourceDef,
+  Rng,
   Schedule,
   type ScheduleLabel,
   ShardError,
@@ -21,7 +22,7 @@ import {
 import type { Plugin } from './plugin'
 import type { Runner } from './runners'
 import { OnEnter, OnExit, type StateDef } from './state'
-import { FixedTime, type FixedTimeData, Time, type TimeData } from './time'
+import { FixedTime, type FixedTimeData, GlobalRng, Time, type TimeData } from './time'
 
 export interface AppOptions {
   /** FixedUpdate rate. Default 60. */
@@ -30,6 +31,8 @@ export interface AppOptions {
   maxFixedSteps?: number
   /** Clock for profiling, in ms. Defaults to `performance.now`. */
   now?: () => number
+  /** Seed for the `GlobalRng` resource. Default 0. */
+  seed?: number
 }
 
 export interface AppDescription {
@@ -83,6 +86,7 @@ export class App {
     this.maxFixedSteps = options.maxFixedSteps ?? 5
     this.now = options.now ?? (() => performance.now())
     this.world.insertResource(ProfilerResource, this.profiler)
+    this.world.insertResource(GlobalRng, new Rng(options.seed ?? 0))
     this.addPlugin(TimePlugin)
   }
 

@@ -27,6 +27,11 @@ export interface ComponentOptions {
   version?: number
   /** Upgrades JSON written at version `from` to version `from + 1`. */
   migrate?: (from: number, json: unknown) => unknown
+  /**
+   * Components added automatically (with defaults) whenever this one is added, transitively.
+   * Spawning `Mesh3d` brings `Transform`, which brings `GlobalTransform`.
+   */
+  requires?: readonly ComponentDef[]
 }
 
 export interface ComponentDef<F extends Fields = Fields> {
@@ -40,6 +45,8 @@ export interface ComponentDef<F extends Fields = Fields> {
   readonly version: number
   /** Column descriptors, in field order. ECS tables are built from this alone. */
   readonly layout: readonly ColumnLayout[]
+  /** Components added along with this one. */
+  readonly requires: readonly ComponentDef[]
   defaults(): InferFields<F>
   serialize(value: InferFields<F>): JsonObject
   /** Validates, then converts. Throws the first validation error. */
@@ -94,6 +101,7 @@ export function defineComponent<const F extends Fields>(
     description: options.description,
     version,
     layout,
+    requires: options.requires ?? [],
     defaults: () => defaultsOf(fields),
     serialize: (value) => objectToJson(fields, value as Record<string, unknown>),
     deserialize(json, ctx) {

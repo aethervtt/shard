@@ -169,10 +169,20 @@ export class World implements TickSource {
       return
     }
 
+    // One move, straight to the archetype with `def` and everything it requires.
     const target = this.tableWith(table, def)
     const newRow = this.moveEntity(index, table, row, target)
     target.initComponent(def, newRow, init)
+    const added = target.components
+    for (let i = 0; i < added.length; i++) {
+      const c = added[i]!
+      if (c !== def && !table.has(c)) target.initComponent(c, newRow, undefined)
+    }
     this.fire('add', entity, def, undefined)
+    for (let i = 0; i < added.length; i++) {
+      const c = added[i]!
+      if (c !== def && !table.has(c)) this.fire('add', entity, c, undefined)
+    }
   }
 
   /** Removes a component. Returns false if the entity didn't have it. */
@@ -217,6 +227,28 @@ export class World implements TickSource {
     const previous = this.hasObservers('set', def) ? table.readComponent(def, row) : undefined
     table.writeComponent(def, row, values as Record<string, unknown>)
     this.fire('set', entity, def, previous)
+  }
+
+  /** The table holding the entity's components. For system code that walks relationships. */
+  entityTable(entity: Entity): Table {
+    return this.tables[this.tableOf[this.locate(entity)]!]!
+  }
+
+  /** The entity's row in its table. Valid until the next structural change. */
+  entityRow(entity: Entity): number {
+    return this.rowOf[this.locate(entity)]!
+  }
+
+  /**
+   * Like `entityTable` / `entityRow` but without the liveness check, for hot relationship walks
+   * where the caller already knows the entity is alive (e.g. entries of a `Children` list).
+   */
+  entityTableUnchecked(entity: Entity): Table {
+    return this.tables[this.tableOf[entity % MAX_ENTITIES]!]!
+  }
+
+  entityRowUnchecked(entity: Entity): number {
+    return this.rowOf[entity % MAX_ENTITIES]!
   }
 
   componentsOf(entity: Entity): readonly ComponentDef[] {
@@ -421,15 +453,17 @@ export class World implements TickSource {
     this.tableOf[index] = table.id
     this.rowOf[index] = row
     this.aliveCount++
+    // Required components not given explicitly start at their defaults.
+    const components = table.components
+    for (let c = 0; c < components.length; c++) {
+      if (!initsInclude(inits, components[c]!)) table.initComponent(components[c]!, row, undefined)
+    }
     for (let i = 0; i < inits.length; i++) {
       const init = inits[i]!
       if (Array.isArray(init)) table.initComponent(init[0], row, init[1] as Record<string, unknown>)
       else table.initComponent(init as ComponentDef, row, undefined)
     }
-    for (let i = 0; i < inits.length; i++) {
-      const init = inits[i]!
-      this.fire('add', entity, (Array.isArray(init) ? init[0] : init) as ComponentDef, undefined)
-    }
+    for (let c = 0; c < components.length; c++) this.fire('add', entity, components[c]!, undefined)
   }
 
   private moveEntity(index: number, from: Table, row: number, to: Table): number {
@@ -443,12 +477,24 @@ export class World implements TickSource {
     return newRow
   }
 
+  /** The archetype with `def` and everything `def` requires (transitively) added. Cached. */
   private tableWith(table: Table, def: ComponentDef): Table {
     let next = table.addEdges.get(def.id)
     if (next) return next
-    next = table.has(def) ? table : this.getOrCreateTable([...table.components, def].sort(byId))
+    const components = [...table.components]
+    const stack = [def]
+    while (stack.length > 0) {
+      const c = stack.pop()!
+      if (components.includes(c)) continue
+      this.ensureRegistered(c)
+      components.push(c)
+      stack.push(...c.requires)
+    }
+    next =
+      components.length === table.components.length
+        ? table
+        : this.getOrCreateTable(components.sort(byId))
     table.addEdges.set(def.id, next)
-    if (next !== table) next.removeEdges.set(def.id, table)
     return next
   }
 
@@ -459,7 +505,6 @@ export class World implements TickSource {
       ? this.getOrCreateTable(table.components.filter((c) => c.id !== def.id))
       : table
     table.removeEdges.set(def.id, next)
-    if (next !== table) next.addEdges.set(def.id, table)
     return next
   }
 
@@ -548,6 +593,14 @@ export class World implements TickSource {
     const index = parent % MAX_ENTITIES
     this.tables[this.tableOf[index]!]!.markChanged(Children, this.rowOf[index]!)
   }
+}
+
+function initsInclude(inits: readonly ComponentInit[], def: ComponentDef): boolean {
+  for (let i = 0; i < inits.length; i++) {
+    const init = inits[i]!
+    if ((Array.isArray(init) ? init[0] : init) === def) return true
+  }
+  return false
 }
 
 function missingComponent(entity: Entity, name: string): ShardError {

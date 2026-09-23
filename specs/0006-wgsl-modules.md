@@ -1,6 +1,6 @@
 # 0006 — WGSL module system
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@shard/shader`
 - **Depends on:** 0002, 0005
 
@@ -137,20 +137,49 @@ reload keep the old pipeline and surface the error; they never blank the screen.
 
 ## Acceptance criteria
 
-- [ ] Imports, nested imports, and import cycles (`shader/link-cycle`) work in browser and Node.
-- [ ] `@if` with defines produces distinct cached variants; equal inputs hit the cache.
-- [ ] An override replaces a hook; the default is callable by alias; a signature mismatch throws
+- [x] Imports and nested imports work in browser and Node. Module import cycles are allowed (WESL
+      semantics, like Rust modules); actual recursion is illegal WGSL and surfaces as a mapped
+      `shader/compile` error. Unknown imports, even unused ones, fail with `shader/link-unknown-module`.
+- [x] `@if` with defines produces distinct cached variants; equal inputs hit the cache.
+- [x] An override replaces a hook; the default is callable by alias; a signature mismatch throws
       `shader/hook-signature-mismatch`.
-- [ ] A WGSL compile error reports the original file, line, and column.
-- [ ] `wgslLayout` matches WGSL alignment rules for every supported type, verified by compiling
+- [x] A WGSL compile error reports the original file, line, and column.
+- [x] `wgslLayout` matches WGSL alignment rules for every supported type, verified by compiling
       the struct and comparing offsets from a shader that writes `offsetOf`-style probes.
-- [ ] Editing a shader file rebuilds dependent pipelines without dropping frames; a broken edit
+- [x] Editing a shader file rebuilds dependent pipelines without dropping frames; a broken edit
       keeps the previous pipeline and reports the error.
-- [ ] Decision recorded: `wesl` package adopted or replaced, with the reason.
+- [x] Decision recorded: `wesl` package adopted or replaced, with the reason.
+
+## Implementation notes
+
+- **Decision: `wesl` adopted** (0.7.31). It met every criterion: imports across packages, `@if` /
+  `@if(!X)`, a source map (`destToSrc`) that points back to the original module, pure JS (browser and
+  Node), and ~2 ms to link a 9 KB shader against the 5 ms budget. Engine and plugin packages are
+  passed as WESL library bundles; the root's own package is local, with `packageName` set so
+  `import project::…` / `import shard::…` resolve from inside it.
+- **Gaps filled on top of `wesl`:** it resolves imports lazily and ignores unused unknown ones, so
+  the library checks every import up front. Its link errors carry `weslLocation`; we turn that into
+  `shader/link-unresolved` with `path: 'shaders/x.wesl:line:col'`.
+- **Hook syntax as drafted:** `@hook fn` in the defining module, `override fn module::name(...)` in
+  the override module. The pre-pass renames the hook's body to `name__default`, points the override
+  module's import of `name` at it, and makes `name` forward to the winning override. WESL's mangler
+  emits the default under the override's import alias (e.g. `base_pbr_input`).
+- **`ShaderLibrary`** holds modules by path (`package::dir::name`, validated), each with an origin
+  (file path) for errors. `link(request)` is cached per (root, enabled defines, overrides) until
+  any module changes. `module(gpu, request)` returns the last module that compiled cleanly:
+  undefined until the first one does, then the previous module until an edit compiles, so broken
+  edits never blank the screen. One `GPUShaderModule` per distinct code string, so relinking after
+  an unrelated edit doesn't invalidate pipelines.
+- **Compile errors:** the library compiles a scoped probe module, maps the first
+  `getCompilationInfo()` error through the source map, and reports
+  `shader/compile` with `path: 'shaders/x.wesl:line:col'`.
+- **`watch(platform, dir, pkg)`** maps files to module paths (`shaders/water/foam.wesl` →
+  `project::water::foam`) and re-registers them on change.
+- **`wgslLayout(def)`** covers f32, i8–i32 (as i32), u8–u32 (as u32), bool and enums (as u32),
+  vec2/3/4, quat, color, mat3 (column padding), mat4, and affine3x4 (`array<vec4f, 3>`). Offsets
+  were verified on the GPU: a compute shader reads every member of the generated struct from a
+  packed buffer and writes it back out. f64 and object fields throw `shader/unsupported-field`.
 
 ## Open questions
 
-- **Deferred to implementation:** the exact hook syntax (`@hook` / `override fn` as above, or a
-  variant that plays better with WESL tooling). The mechanism is fixed: last override wins, the
-  default stays callable by alias, signatures must match. The chosen syntax is recorded here
-  when this spec is built.
+None.

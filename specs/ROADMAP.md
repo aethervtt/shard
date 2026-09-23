@@ -12,7 +12,7 @@ The engine skeleton, fully headless and tested.
 | [0001](0001-ecs-core.md) | ECS core | implemented |
 | [0002](0002-component-schema.md) | Component schema and reflection | implemented |
 | [0003](0003-app-plugins-scheduler.md) | App, plugins, and scheduler | implemented |
-| [0004](0004-math-transforms.md) | Math, transforms, hierarchy propagation | accepted |
+| [0004](0004-math-transforms.md) | Math, transforms, hierarchy propagation | implemented |
 
 ## M2 — First pixels, the engine's way
 
@@ -20,10 +20,10 @@ A spinning PBR-lit cube driven by ECS, in the playground and in Studio.
 
 | Spec | Title | Status |
 |---|---|---|
-| [0005](0005-gpu-render-graph.md) | GPU layer and render graph | accepted |
-| [0006](0006-wgsl-modules.md) | WGSL module system (imports, defines, hooks) | accepted |
-| [0007](0007-forward-renderer.md) | Cameras, meshes, basic forward renderer | accepted |
-| [0008](0008-input.md) | Input and action maps | accepted |
+| [0005](0005-gpu-render-graph.md) | GPU layer and render graph | implemented |
+| [0006](0006-wgsl-modules.md) | WGSL module system (imports, defines, hooks) | implemented |
+| [0007](0007-forward-renderer.md) | Cameras, meshes, basic forward renderer | implemented |
+| [0008](0008-input.md) | Input and action maps | implemented |
 
 ## M3 — The agent loop
 
@@ -73,19 +73,22 @@ headless, and checks screenshots.
 | — | Prefabs, overrides, data assets | planned |
 | — | Save/load, settings, localization | planned |
 
-## M7 — Procedural generation
+## M7 — Procedural generation and large worlds
 
 | Spec | Title | Status |
 |---|---|---|
 | — | Noise library (WASM + compute) | planned |
 | — | Generators as assets | planned |
-| — | Terrain (heightmap, chunked LOD, splatting) | planned |
-| — | Scatter and procedural meshes | planned |
+| — | Large-world coordinates (floating origin, double-precision positions) | planned |
+| — | Planet terrain (cube-sphere, quadtree LOD, GPU heightfields, streaming) | planned |
+| — | Atmosphere scattering and sky | planned |
+| — | Scatter, foliage, and procedural meshes | planned |
+| — | Star systems and galaxy generation | planned |
 
-## M8 — Proof project: Habbo-like
+## M8 — Proof project: No Man's Sky-style explorer
 
-An agent builds it end to end: tile rooms, procedural furniture, avatars, click-to-walk,
-chat bubbles, bots. Networking follows as its own spec.
+An agent builds it end to end from generators: a seeded galaxy, star systems, planets you can land
+on and leave, procedural flora and creatures, a ship, a scanner, and a HUD.
 
 ## M9 — Export
 

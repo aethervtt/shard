@@ -13,7 +13,10 @@
     "@shard/core": "workspace:*",
     "@shard/gpu": "workspace:*",
     "@shard/platform-web": "workspace:*",
-    "@shard/runtime": "workspace:*"
+    "@shard/runtime": "workspace:*",
+    "@shard/render": "workspace:*",
+    "@shard/mesh": "workspace:*",
+    "@shard/transform": "workspace:*"
   },
   "devDependencies": {
     "@webgpu/types": "^0.1.74",

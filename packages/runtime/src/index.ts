@@ -16,4 +16,4 @@ export {
   type StateValue,
   setState,
 } from './state'
-export { FixedTime, type FixedTimeData, Time, type TimeData } from './time'
+export { FixedTime, type FixedTimeData, GlobalRng, Time, type TimeData } from './time'

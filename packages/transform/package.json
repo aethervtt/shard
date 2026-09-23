@@ -1,0 +1,18 @@
+{
+  "name": "@shard/transform",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests",
+    "bench": "vitest run --config vitest.bench.config.ts"
+  },
+  "dependencies": {
+    "@shard/core": "workspace:*",
+    "@shard/runtime": "workspace:*"
+  }
+}

@@ -155,10 +155,10 @@ export class Schedule {
       }
       options.profiler?.record(system.name, options.now() - start)
       ctx.lastRunTick = ctx.thisRunTick
-      if (ctx.commands.length > 0) {
-        world.incrementTick()
-        ctx.commands.apply()
-      }
+      // Anything written from here on (commands, later systems, code outside systems between
+      // frames) gets a newer tick than this run, so this system sees it as changed next time.
+      world.incrementTick()
+      if (ctx.commands.length > 0) ctx.commands.apply()
     }
   }
 

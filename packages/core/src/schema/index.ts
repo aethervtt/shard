@@ -8,6 +8,7 @@ export {
   type TagDef,
 } from './component'
 export type {
+  Affine3x4,
   AnyField,
   AssetRef,
   Color,
@@ -20,6 +21,8 @@ export type {
   FieldValue,
   InferFields,
   InitFields,
+  Mat3,
+  Mat4,
   NumericStorage,
   Quat,
   ResolvedAsset,

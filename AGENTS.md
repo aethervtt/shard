@@ -39,6 +39,11 @@ when touching ECS storage, queries, or anything else on a per-frame path.
 - **Hot paths don't allocate.** In per-frame code (systems, render, ECS iteration): no closures,
   no array/object literals, no `for…of` over iterators that allocate. Use TypedArrays and reuse
   scratch objects. Add a benchmark when you touch a hot path.
+- **Hot loops: prefer out-parameters and inlined math.** V8 boxes a non-integer number returned
+  from a call it doesn't inline, so `dot`/`length`/`rng.float()`-style calls in a per-frame loop can
+  allocate. Functions that write into `out` never do. Avoid `Math.hypot` in hot code: it allocates
+  when not inlined (use `Math.sqrt(x * x + y * y + z * z)`). Shared math called with many array types may
+  also not inline at all; inlining `fromTRS` in transform propagation was a 3.5x win.
 - **One schema drives everything.** Don't hand-write serializers, validators, or inspector code
   for components; derive them from the component schema.
 - **Tests sit next to code** as `*.test.ts`. Engine logic must be testable headless (no GPU, no DOM).

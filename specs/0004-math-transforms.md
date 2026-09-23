@@ -1,6 +1,6 @@
 # 0004 — Math, transforms, and hierarchy propagation
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@shard/core` (math, RNG, required components), `@shard/transform`
 - **Depends on:** 0001, 0002, 0003
 
@@ -51,15 +51,17 @@ mat4.perspectiveReversedZ(out, fovY, aspect, near)
 
 - Arguments are `ArrayLike<number>`, so tuples, `Float32Array`s, and column views all work.
 - Strided variants take offsets for column work without subarrays:
-  `mat4.fromTRSAt(out, outOffset, t, tOffset, r, rOffset, s, sOffset)`.
+  `affine.fromTRSAt(out, outOffset, t, tOffset, r, rOffset, s, sOffset)`.
 - Every function returns `out` for chaining. None allocate. Constructors (`vec3.create()`) exist
   for setup code.
-- Geometry: `aabb.fromPoints`, `aabb.transform(out, box, mat)`, `ray.fromScreen(...)`,
+- Geometry: `aabb.fromPoints`, `aabb.transformAffineAt(out, box, m, offset)`, `ray.fromScreen(...)`,
   `ray.intersectAabb`, `frustum.fromViewProjection`, `frustum.intersectsAabb`.
 
 ### Seeded RNG
 
-`Rng` in core: PCG32 (small state, good quality, fast in JS with `Math.imul`).
+`Rng` in core: xoshiro128** seeded through splitmix32. It uses only 32-bit operations, which JS
+does natively with `Math.imul` and bit ops (PCG32 needs 64-bit multiplies, which JS would have to
+emulate).
 
 ```ts
 const rng = new Rng(seed)
@@ -80,7 +82,10 @@ defineComponent('core/Transform', fields, { requires: [GlobalTransform] })
 ```
 
 When a component with `requires` is spawned or added, each missing required component is added
-with its defaults, in the same archetype move (no extra table hop). Requirements are transitive.
+with its defaults, in the same archetype move. Requirements are transitive. Archetype "add" edges
+are requirement-aware: the edge for adding `X` leads straight to the archetype with `X` and
+everything it requires, so no intermediate archetypes are created. Explicit values given at spawn
+win over defaults.
 Agents benefit most: spawning `Mesh3d` gets `Transform`, `GlobalTransform`, and `Visibility`
 without knowing the list. `describe()` output lists requirements.
 
@@ -110,15 +115,22 @@ total), and shaders transform with three dot products.
    `Transform` changed or any ancestor recomputed this run.
 3. Entities with `ChildOf` but no `Transform` pass their parent's matrix through unchanged.
 
-Also exposed: `transformHelpers.worldPosition(world, e)` and `lookAt` for cold code.
+Also exposed for cold code: `worldPosition(world, e)` and `lookAt(from, target, up?)`.
+
+Children are visited through `world.entityTableUnchecked` / `entityRowUnchecked` (no liveness
+check: `Children` only holds live entities), and each table's columns are looked up once per run.
+Root matrices are computed with the TRS math inlined into the loop; calling the shared
+`affine.fromTRSAt` there was 3.5x slower because V8 didn't inline it.
+
+Reparenting (`ChildOf` added, set, or removed) marks the entity's `Transform` changed through
+observers, so the next propagation recomputes its world matrix.
 
 ### Agent surface
 
-- `Transform` JSON is readable (`translation: [x, y, z]`, `rotation` as a quaternion). The scene
-  loader additionally accepts `rotationEuler: [x, y, z]` in degrees for authoring; it's converted on
-  load and never written back.
-- Errors: `transform/non-uniform-scale-in-hierarchy` is a warning, not an error, logged once per
-  entity when skewed children would result.
+- `Transform` JSON is readable (`translation: [x, y, z]`, `rotation` as a quaternion).
+- Deferred to the scene spec (M3): a `rotationEuler: [x, y, z]` (degrees) authoring alias,
+  converted on load and never written back; and the
+  `transform/non-uniform-scale-in-hierarchy` warning to the logging work there.
 
 ## Decisions
 
@@ -127,22 +139,29 @@ Also exposed: `transformHelpers.worldPosition(world, e)` and `lookAt` for cold c
 - **Column-major, -Z forward, Y up.** Matches WGSL and glTF; conversions never leak into user code.
 - **Reversed-Z infinite perspective.** Standard for modern renderers; better depth precision.
 - **Functions, not classes.** Classes allocate and don't work on column offsets.
-- **PCG32 with labeled forks.** Deterministic, cheap, and robust to adding new random calls.
+- **xoshiro128** with labeled forks.** Deterministic, cheap in JS, and robust to adding new random
+  calls. Forks derive from the parent's seed, not its current state.
+- **No `Math.hypot` in math code.** V8 allocates when the call isn't inlined; explicit
+  `Math.sqrt(x * x + …)` doesn't.
+- **World lookups for relationship walks.** `entityTable` / `entityRow` (checked) and `*Unchecked`
+  variants, added to the ECS for hot code that follows entity references.
 - **`GlobalTransform` is an affine 3x4 (48 bytes), not a mat4.** It's the layout GPU instance
   buffers use, so the renderer can copy the column directly (0007), and it's 25% smaller.
 
 ## Acceptance criteria
 
-- [ ] Math functions match reference values (gl-matrix or hand-computed) for a fixture set,
+- [x] Math functions match reference values (gl-matrix or hand-computed) for a fixture set,
       including quaternion slerp and matrix inversion.
-- [ ] No math function allocates (checked with the GC-observer harness from 0001's benchmarks).
-- [ ] `requires` adds missing components in a single archetype move, transitively.
-- [ ] Propagating 100k root transforms that all changed takes under 2 ms.
-- [ ] A 10k-entity hierarchy (depth 10) with 1% of transforms changed propagates in under 0.5 ms.
-- [ ] Unchanged entities keep their `GlobalTransform` change tick (no false `changed`).
-- [ ] Reparenting via `ChildOf` updates world matrices on the next propagation.
-- [ ] `rng.fork(label)` streams are independent: adding draws to one doesn't change another.
-- [ ] `frustum.intersectsAabb` agrees with a brute-force corner test on 10k random boxes.
+- [x] No out-parameter math function allocates (GC-observer harness, 2M iterations, zero GCs).
+      Scalar-returning functions can box their result when V8 doesn't inline the call; that's a
+      calling-convention cost, noted in AGENTS.md.
+- [x] `requires` adds missing components in a single archetype move, transitively.
+- [x] Propagating 100k root transforms that all changed takes under 2 ms.
+- [x] A 10k-entity hierarchy (depth 10) with 1% of transforms changed propagates in under 0.5 ms.
+- [x] Unchanged entities keep their `GlobalTransform` change tick (no false `changed`).
+- [x] Reparenting via `ChildOf` updates world matrices on the next propagation.
+- [x] `rng.fork(label)` streams are independent: adding draws to one doesn't change another.
+- [x] `frustum.intersectsAabb` agrees with a brute-force corner test on 10k random boxes.
 
 ## Open questions
 

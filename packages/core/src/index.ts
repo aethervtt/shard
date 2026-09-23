@@ -1,5 +1,6 @@
 export * from './ecs'
 export { ShardError } from './error'
 export * from './json'
+export * from './math'
 export * from './scheduler'
 export * from './schema'
