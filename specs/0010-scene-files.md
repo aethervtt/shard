@@ -90,7 +90,7 @@ room for that without changing.
 - `procedural:<primitive>?<params>` makes a mesh from `@shard/mesh` primitives, cached by the full
   string. This is the seed of M7's generators-as-assets: a generator is just a richer
   `procedural:` source.
-- File paths (`assets/ship.glb#Mesh0`) are accepted by the format and resolved once the asset
+- File paths (`assets/ship.glb#Mesh/Hull`) are accepted by the format and resolved once the asset
   database exists (M4); until then they fail with `scene/asset-unavailable`.
 
 ### Authoring conveniences

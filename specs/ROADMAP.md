@@ -42,10 +42,10 @@ headless, and checks screenshots.
 
 | Spec | Title | Status |
 |---|---|---|
-| — | Asset database (GUIDs, `.meta`, cache, invalidation, hot reload) | planned |
-| — | glTF/GLB loader | planned |
-| — | Textures (KTX2 pipeline, fallback) | planned |
-| — | User scripts: bundling and hot reload | planned |
+| [0014](0014-asset-database.md) | Asset database (GUIDs, `.meta`, cache, invalidation, hot reload) | accepted |
+| [0015](0015-gltf-loader.md) | glTF/GLB loader | accepted |
+| [0016](0016-textures.md) | Textures (KTX2 pipeline, fallback, material slots, previews) | accepted |
+| [0017](0017-user-scripts.md) | User scripts: bundling and hot reload | accepted |
 
 ## M5 — Renderer v1
 
@@ -65,7 +65,9 @@ headless, and checks screenshots.
 
 | Spec | Title | Status |
 |---|---|---|
-| — | Skeletal animation and state machines | planned |
+| — | Skeletal animation (skinning, clips, blending, masks, root motion) | planned |
+| — | Animation state machines | planned |
+| — | IK, bone attachments, retargeting | planned |
 | — | Physics 3D and 2D (Rapier) | planned |
 | — | Audio (Web Audio, spatial) | planned |
 | — | UI/HUD (flexbox, world-anchored) | planned |

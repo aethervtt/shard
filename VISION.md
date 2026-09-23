@@ -117,8 +117,12 @@ for, not built yet.
 - CPU particles for small counts or gameplay-coupled effects
 
 **Animation**
-- v1: skeletal skinning, clips, blending, state machines, morph targets, property tweens
-- Later: IK, root motion, retargeting
+- v1: skeletal skinning, clips, blending and layer masks, state machines, morph targets,
+  property tweens, root motion
+- v1: joints are entities, so attaching a weapon or a ship part to a bone is parenting
+- v1: IK (two-bone, look-at, chains), foot placement on terrain, retargeting between skeletons of
+  different proportions (procedural creatures share clips)
+- Later: full-body IK, ragdolls, motion matching
 
 **Physics** (Rapier via WASM, one plugin each)
 - v1: 3D rigid bodies, colliders, raycasts, character controller
@@ -142,7 +146,7 @@ for, not built yet.
 
 **Assets**
 - v1: asset database, stable GUIDs, `.meta` sidecars, content-addressed cache, dependency-graph
-  invalidation, hot reload, async loading, handles with reference counting
+  invalidation, hot reload, async loading, unloading by reachability from the world
 - glTF/GLB, images (KTX2 + fallback), audio, fonts, shaders
 - Later: streaming, bundles, compression presets per platform
 
