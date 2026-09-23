@@ -11,6 +11,8 @@ export interface LinkRequest {
   defines?: Readonly<Record<string, boolean>>
   /** Override modules, in order; the last one wins per hook. */
   overrides?: readonly string[]
+  /** Names what the variant is for in errors, e.g. `material my-game/Lava`. */
+  label?: string
 }
 
 export interface SourceLocation {
@@ -126,6 +128,34 @@ export class ShaderLibrary {
     })
   }
 
+  /**
+   * Registers every `.wesl`/`.wgsl` file under `dir` (recursively) as `pkg::path::name`. Hosts load a
+   * project's `shaders/` folder with it, then `watch` for edits.
+   */
+  async loadDir(platform: Platform, dir: string, pkg: string): Promise<string[]> {
+    const list = platform.fs.list
+    if (!list) return []
+    const loaded: string[] = []
+    const prefix = dir.replace(/\/+$/, '')
+    const walk = async (rel: string): Promise<void> => {
+      for (const entry of await list.call(platform.fs, rel ? `${prefix}/${rel}` : prefix)) {
+        const path = rel ? `${rel}/${entry.name}` : entry.name
+        if (entry.kind === 'dir') await walk(path)
+        else if (/\.(wesl|wgsl)$/.test(entry.name)) {
+          const module = `${pkg}::${path
+            .replace(/\.(wesl|wgsl)$/, '')
+            .split('/')
+            .join('::')}`
+          const file = `${prefix}/${path}`
+          this.register(module, await platform.fs.readText(file), file)
+          loaded.push(module)
+        }
+      }
+    }
+    await walk('')
+    return loaded
+  }
+
   /** Links a variant. Results are cached until any module changes. */
   link(request: LinkRequest): Promise<LinkedShader> {
     const key = variantKey(request)
@@ -159,7 +189,7 @@ export class ShaderLibrary {
           if (s.good?.code !== linked.code) {
             s.pending = linked.code
             const error = await compile(gpu, linked)
-            if (error) gpu.reportError(error)
+            if (error) gpu.reportError(labelled(error, request.label))
             else
               s.good = {
                 code: linked.code,
@@ -172,7 +202,10 @@ export class ShaderLibrary {
         },
         (err: unknown) => {
           gpu.reportError(
-            err instanceof ShardError ? err : new ShardError('shader/link', String(err)),
+            labelled(
+              err instanceof ShardError ? err : new ShardError('shader/link', String(err)),
+              request.label,
+            ),
           )
           s.pending = undefined
         },
@@ -321,9 +354,14 @@ function linkError(
   originOf: (file: string) => string | undefined,
   fallback: string | undefined,
 ): ShardError {
-  const message = (err instanceof Error ? err.message : String(err)).split('\n')[0]!
-  const loc = (err as { weslLocation?: { file: string; line: number; column: number } })
-    .weslLocation
+  let message = (err instanceof Error ? err.message : String(err)).split('\n')[0]!
+  let loc = (err as { weslLocation?: { file: string; line: number; column: number } }).weslLocation
+  // Parse errors carry the location in the message instead: `./pkg/file.wesl:2:14 error: ...`.
+  const prefix = /^(\.\/\S+?):(\d+):(\d+)\s+error:\s*(.*)$/.exec(message)
+  if (!loc && prefix) {
+    loc = { file: prefix[1]!, line: Number(prefix[2]), column: Number(prefix[3]) }
+    message = prefix[4]!
+  }
   const origin = (loc && originOf(loc.file)) ?? fallback
   const path = origin && loc ? `${origin}:${loc.line}:${loc.column}` : origin
   return new ShardError('shader/link-unresolved', message.replace(/ in file: \S+$/, ''), { path })
@@ -341,6 +379,15 @@ async function compile(gpu: GpuContext, linked: LinkedShader): Promise<ShardErro
   const where = linked.locate(first.offset)
   const path = where ? `${where.module}:${where.line}:${where.column}` : undefined
   return new ShardError('shader/compile', `${first.message}${path ? ` (${path})` : ''}`, { path })
+}
+
+/** Prefixes an error's message with what the shader was for. */
+function labelled(error: ShardError, label: string | undefined): ShardError {
+  if (!label) return error
+  return new ShardError(error.code, `${label}: ${error.message}`, {
+    path: error.path,
+    hint: error.hint,
+  })
 }
 
 function variantKey(request: LinkRequest): string {

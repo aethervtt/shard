@@ -1,4 +1,5 @@
 import {
+  type ComponentDef,
   First,
   FixedUpdate,
   Last,
@@ -44,6 +45,20 @@ export interface AppDescription {
 
 type SystemInput = SystemDef<unknown> | SystemConfig
 
+/**
+ * A protocol method a plugin contributes (`physics.raycast`). The protocol server serves every
+ * app method next to its built-in ones, so packages expose themselves without the protocol
+ * importing them.
+ */
+export interface AppMethod {
+  /** `<area>.<verb>`, e.g. `physics.raycast`. */
+  name: string
+  description: string
+  /** Parameter schema (`defineSchema`); the protocol validates params against it. */
+  params: ComponentDef
+  handler(ctx: { app: App; world: World }, params: Record<string, unknown>): unknown
+}
+
 /** Order the built-in schedules run in, for `describe()`. */
 const FRAME_SCHEDULES = [Startup, First, PreUpdate, FixedUpdate, Update, PostUpdate, Last]
 
@@ -83,6 +98,7 @@ export class App {
   private startupDone = false
   private accumulator = 0
   private readonly frameListeners = new Set<(frame: number) => void>()
+  private readonly appMethods = new Map<string, AppMethod>()
   /** The plugin whose `build` is running, so registrations can be attributed to it. */
   private building: string | undefined
   private readonly owned = new Map<
@@ -118,6 +134,22 @@ export class App {
       this.pending.push(plugin)
     }
     return this
+  }
+
+  /** Adds protocol methods (see `AppMethod`). A second method with a taken name throws. */
+  addMethod(...methods: AppMethod[]): this {
+    for (const method of methods) {
+      if (this.appMethods.has(method.name)) {
+        throw new ShardError('app/duplicate-method', `Method "${method.name}" was added twice`)
+      }
+      this.appMethods.set(method.name, method)
+    }
+    return this
+  }
+
+  /** Methods plugins added, in the order they were added. */
+  get methods(): readonly AppMethod[] {
+    return [...this.appMethods.values()]
   }
 
   addSystems(schedule: ScheduleLabel, ...systems: SystemInput[]): this {

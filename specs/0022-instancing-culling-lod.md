@@ -1,7 +1,7 @@
 # 0022 — Instancing, culling, and LOD
 
-- **Status:** accepted
-- **Packages:** `@shard/render`
+- **Status:** implemented
+- **Packages:** `@shard/render`, `@shard/core`, `@shard/gltf`, `@shard/protocol`
 - **Depends on:** 0007, 0018, 0020
 
 ## Context
@@ -100,15 +100,97 @@ applied in the cull pass.
 
 ## Acceptance criteria
 
-- [ ] After the first frame, a static scene of 100k instances uploads 0 instance bytes per frame.
+- [x] After the first frame, a static scene of 100k instances uploads 0 instance bytes per frame.
       Moving 100 of them uploads roughly 100 × 64 bytes.
-- [ ] 200k instances across 20 mesh types (plus 4 shadow cascades) render at 60 fps at 1080p on
+- [x] 200k instances across 20 mesh types (plus 4 shadow cascades) render at 60 fps at 1080p on
       the dev machine, with CPU render preparation under 1 ms.
-- [ ] GPU and CPU culling produce the same visible sets for camera and shadow views of a fixture.
-- [ ] LOD switches at the configured screen sizes and doesn't flicker when the size oscillates
+- [x] GPU and CPU culling produce the same visible sets for camera and shadow views of a fixture.
+- [x] LOD switches at the configured screen sizes and doesn't flicker when the size oscillates
       within the hysteresis band (test). Shadows use the camera's level.
-- [ ] `VisibilityRange` hides props beyond `end` in the camera and shadow views.
-- [ ] Every existing golden image is unchanged by the new instancing path.
+- [x] `VisibilityRange` hides props beyond `end` in the camera and shadow views.
+- [x] Every existing golden image is unchanged by the new instancing path.
+
+## Implementation notes
+
+- **One instance buffer for every batch.** Every `Mesh3d` entity owns a slot in a single
+  storage buffer of 64-byte records:
+  - the affine transform rows (48 bytes);
+  - the batch index, or `LOD_BIT | set` for an entity with `Lod`;
+  - the flags (visible, caster, receiver, has range, has LOD);
+  - the visibility range as two f16s;
+  - the entity id.
+
+  Batches own no instance memory. The bounding sphere is per batch, taken from the mesh's box (its
+  half-diagonal), and scaled per slot by the largest axis of the transform. Freed slots go on a
+  free list. There's no compaction: a slot's index never changes while its entity lives.
+- **Uploads follow change ticks.** Dirty slots upload in coalesced runs. `render.describe`
+  reports `culling.uploadedBytes`. With 200k static instances it's 0, and moving 100 uploads
+  exactly 6400 bytes.
+- **Skipping unchanged tables took a core change.** Visiting every row each frame costs ~6 ns a
+  row, which is 1.2 ms at 200k, over budget before anything else runs. Now:
+  - `Table` tracks the newest change tick per component (`lastChanged(def)`, and `touch(def)` for
+    code that writes `changedTicks()` directly, as transform propagation does).
+  - It also tracks `lastStructural`, the tick a row last moved in or out. That's needed because
+    rows that move tables keep their old change ticks.
+  - `compute-visibility` now marks only rows whose visibility flips.
+
+  `prepare-instances` skips any table where nothing changed, and CPU preparation for 200k static
+  instances dropped from 1.3 ms to 0.03 ms.
+- **The cull is one compute pass per frame.** It has three dispatches: reset the indirect
+  arguments, cull camera views, cull shadow views (cascades, spot maps, point faces). Every
+  (view, batch) pair gets an indirect draw with `indirect-first-instance`.
+  - Visible entries are `slot | level << 28`, so the vertex stage gets the LOD level too.
+  - Nothing is read back within the frame. Counts reach `RenderStats` and `render.describe`
+    through an async readback a frame or two late. `GpuCuller.whenIdle()` lets tests wait for
+    them.
+- **What stays on the CPU:**
+  - Transparent instances. They need a back-to-front sort, and only the members of blended batches
+    are visited.
+  - Everything, on devices without `indirect-first-instance`, or with `Culler.enabled = false`.
+    The CPU path runs the same tests in the same order with f32 math, so the sets match exactly
+    (tested for a camera, 4 cascades, and a spot light over 600 mixed instances).
+- **Cascade fitting on the GPU path** can't take the union of what each cascade culled, so it fits
+  to the bounds of every shadow caster (cached until an instance changes).
+- **LOD:**
+  - `Lod.levels` holds up to 8 levels.
+  - Selection mirrors `selectLod` exactly. From no previous level it takes the first threshold the
+    size reaches. After that, a level changes only once the size crosses a threshold by more than
+    `hysteresis`. Smaller than the last level means not drawn.
+  - The chosen level is kept per camera, per slot, on the GPU, and each camera's shadow views read
+    its choice without updating it.
+- **`VisibilityRange` has no fade margin:** it's a hard cut at `start` and `end`. Fading needs the
+  dithered crossfade that LOD transitions also lack.
+- **glTF import:** a `lods` import setting (`auto` by default, or `none`).
+  - `auto` turns an `MSFT_lod` chain, or sibling nodes named `<name>_LOD0`, `_LOD1`…, into one
+    entity with `Lod` (named `<name>` in the second case).
+  - Level k uses the same primitive of each lower node's mesh.
+  - `MSFT_screencoverage` is a fraction of screen area, so its square root becomes the
+    `screenSize`. Without it, levels step down by 4× and the last level always draws.
+- **Agent surface:**
+  - `render.describe` has a `culling` section with the mode (gpu or cpu), instances, batches, LOD
+    sets, and bytes uploaded.
+  - It also reports CPU time for the three preparation systems (total and each), the cull pass's
+    GPU time, and per view: batches, visible count, per-LOD counts, the shadow view count, and
+    whether culling is frozen.
+  - `render.capture { debug: 'lod' }` tints meshes by level: green, yellow, orange, red.
+  - `{ debug: 'culling' }` freezes the camera's cull frustum and eye, and they stay frozen across
+    later captures until `{ debug: 'none' }`.
+- **Measured:** the playground's `#crowd` demo, at 1920×1080 in Chrome on the dev machine (Apple
+  M4):
+  - The scene is 200k static instances of 20 mesh types with LOD chains (every fifth a small prop
+    with a 120 m `VisibilityRange`), under a sun with 4 cascades, with the camera orbiting.
+  - It runs at 60 fps with a 5.9 ms GPU frame, 78k instances visible, and 0.08 ms of CPU
+    preparation.
+  - `?nolod` (every instance at full detail) is geometry-bound at 49 fps. Frame time scales
+    linearly with instance count, so the triangles are the cost there.
+- **Found along the way:**
+  - The culler kept references to the caller's reused plane arrays, so every view culled with the
+    last view's frustum. It copies them now.
+  - WESL rejects `set` and `local` as identifiers.
+  - The visible buffer lacked `COPY_SRC`, so test readbacks came back as zeros.
+  - `setRange` ran for every ranged row each frame and allocated in `toHalf`. It runs on change
+    now.
+  - The asset preview's render loop didn't wait for skipped draws, the way `settle` does.
 
 ## Open questions
 

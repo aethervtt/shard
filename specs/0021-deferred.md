@@ -1,6 +1,6 @@
 # 0021 — Deferred rendering path
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@shard/render`
 - **Depends on:** 0007, 0018, 0019, 0020
 
@@ -87,14 +87,60 @@ transparent. The renderer decides per material. Agents don't choose.
 
 ## Acceptance criteria
 
-- [ ] A fixture scene (directional plus 64 point lights, shadows, IBL, mixed materials) renders in
+- [x] A fixture scene (directional plus 64 point lights, shadows, IBL, mixed materials) renders in
       forward and deferred within tolerance of each other (mean absolute difference < 2 levels).
-- [ ] A scene with 1000 point lights and 4× overdraw renders faster in deferred than in forward
+- [x] A scene with 1000 point lights and 4× overdraw renders faster in deferred than in forward
       (GPU timings), and at 60 fps at 1080p on the dev machine.
-- [ ] A transparent material and an unlit custom material in a deferred view render forward, in
+- [x] A transparent material and an unlit custom material in a deferred view render forward, in
       the correct depth order (golden image).
-- [ ] Each G-buffer debug buffer is captured as a golden image.
-- [ ] Switching a camera's `RenderPath` at runtime takes effect the next frame without errors.
+- [x] Each G-buffer debug buffer is captured as a golden image.
+- [x] Switching a camera's `RenderPath` at runtime takes effect the next frame without errors.
+
+## Implementation notes
+
+- **No separate plugin:** the forward renderer installs the deferred nodes, so adding
+  `RenderPath { mode: 'deferred' }` to a camera is all it takes. Deferred views are always single-
+  sampled: MSAA is dropped for them, and they anti-alias in post (0023).
+- **G-buffer as specified**, with two packing details, both in `shard::pbr::gbuffer`:
+  - gbuffer0's alpha holds the material's occlusion (it feeds both diffuse and specular IBL
+    occlusion).
+  - `NotShadowReceiver` survives the G-buffer as +2 on the metallic channel.
+
+  gbuffer2 is `rg11b10ufloat` when the device has `rg11b10ufloat-renderable`, which
+  `createGpuContext` now requests whenever the adapter has it (along with
+  `indirect-first-instance` and `float32-filterable`). Otherwise it's `rgba16float`.
+- **Passes:**
+  - `deferred-gbuffer` draws deferrable batches with the material's vertex and surface stages.
+  - `deferred-lighting` is a fullscreen fragment pass. It rebuilds the world position from depth
+    through `invViewProj` and calls the same `apply_lighting` as forward, so directional shadows,
+    clusters, IBL, and ambient are shared by construction, and adds the pre-exposed emissive.
+  - `deferred-forward` draws the opaque batches the G-buffer can't take (custom lighting) with
+    their forward pipelines, over the lit result.
+  - Then `sky` and `forward-transparent`.
+
+  Every pass depth-tests against the same depth buffer.
+- **Graph rule change:** "readers run after every writer" can't express read-then-write-later
+  (the lighting pass reads `scene-depth`, and `deferred-forward` writes it afterwards). Readers now
+  run after writers in their own and earlier phases, and before writers in later phases. Existing
+  orderings are unchanged.
+- **Routing:** each batch knows whether it's deferrable (standard lighting, not blended). Culling
+  a deferred view sorts non-deferrable opaque slots into a separate `forwardOnly` list, and
+  transparent ones into the back-to-front list.
+- **Debug views:** G-buffer channels are debug views (`setDebugView(world, camera, 'albedo')`, or
+  `captureGBuffer`). The channel renders into an 8-bit `gbuffer-debug` buffer. A forward view asked
+  for one fills a G-buffer for that frame, with its own single-sample depth. Depth comes from
+  `captureBuffer(world, view, 'depth')`. `render.capture { buffer }` takes the channel names.
+- **Agent surface:** `render.describe` gains a `deferred` section per view: the path, G-buffer
+  bytes, deferred and forward mesh counts, and why each forward mesh went forward (custom lighting
+  by type, or transparent). GPU time per pass is in the profiler as before. `gpu:frame` is new: first
+  pass start to last pass end, which stays meaningful on tile-based GPUs, where per-pass timestamps
+  overlap and sum to more than the frame.
+- **Measured:** the playground's `#deferred` demo is 1000 point lights over four screen-covering
+  layers of alpha-tested foliage (the case where early depth rejection can't hide overdraw), at
+  1920×1080 in Chrome on the dev machine (Apple M4). Both paths run at 60 fps. The GPU frame takes
+  9.3 ms forward and 5.0–6.2 ms deferred.
+- **Found along the way:** the lighting node first listed the shadow passes only in `after`, so
+  the graph culled cascades in deferred views. The lava-in-deferred comparison caught it.
 
 ## Open questions
 

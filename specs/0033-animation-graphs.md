@@ -1,0 +1,125 @@
+# 0033 — Animation state machines
+
+- **Status:** accepted
+- **Packages:** `@shard/animation`
+- **Depends on:** 0031, 0032
+
+## Context
+
+A character plays idle, walk, run, jump, fall, and land, and chooses among them from its speed,
+ground state, and inputs. Writing that in systems means every game rebuilds the same state
+machine with crossfades and timing bugs. Every engine ships an animation graph for this.
+
+For Shard the graph is a data asset: an agent writes states, transitions, and conditions in JSON,
+validates it, and watches the state change through the protocol while a test drives parameters.
+
+## Goals
+
+- `*.animgraph.json` data assets: parameters, layers, states, transitions with conditions,
+  durations, and exit times.
+- States that play a clip, a 1D blend space (by speed), or a 2D blend space (by direction).
+- Layers with masks and weights, reusing 0032's player.
+- Parameters set from code or bound to component fields, so most graphs need no glue code.
+- Current state, transition progress, and parameters visible through the protocol.
+
+## Non-goals
+
+- Visual graph editing. Nested state machines beyond one level of sub-states.
+- Generic per-entity gameplay state machines (a separate core feature; this is for animation).
+
+## Design
+
+### Graph files
+
+```json
+{
+  "parameters": {
+    "speed": { "type": "float", "bind": { "component": "physics/CharacterState", "field": "velocity", "op": "length" } },
+    "grounded": { "type": "bool", "bind": { "component": "physics/CharacterState", "field": "grounded" } },
+    "attack": { "type": "trigger" }
+  },
+  "layers": [{
+    "name": "base",
+    "entry": "locomotion",
+    "states": {
+      "locomotion": { "blend1d": { "parameter": "speed", "clips": [[0, "#idle"], [1.5, "#walk"], [5, "#run"]] } },
+      "fall": { "clip": "#fall", "loop": "loop" },
+      "land": { "clip": "#land", "loop": "once" }
+    },
+    "transitions": [
+      { "from": "locomotion", "to": "fall", "when": "!grounded", "duration": 0.15 },
+      { "from": "fall", "to": "land", "when": "grounded", "duration": 0.05 },
+      { "from": "land", "to": "locomotion", "exitTime": 0.8, "duration": 0.2 }
+    ]
+  }, {
+    "name": "upper", "mask": { "path": "data/masks/upper-body.mask.json" }, "weight": 1,
+    "entry": "none",
+    "states": { "none": {}, "swing": { "clip": "#swing", "loop": "once" } },
+    "transitions": [
+      { "from": "none", "to": "swing", "when": "attack", "duration": 0.1 },
+      { "from": "swing", "to": "none", "exitTime": 1, "duration": 0.2 }
+    ]
+  }],
+  "clips": { "idle": { "path": "assets/hero.glb#Animation/Idle" } }
+}
+```
+
+- `#name` refers to the file's `clips` table, so a graph can be pointed at another model's clips by
+  changing one block.
+- Conditions are a small expression language: parameter names, `!`, `&&`, `||`, comparisons with
+  numbers (`speed > 0.1`), and triggers (consumed when a transition takes them). It's parsed at
+  import, and errors point at the character in the condition.
+- `from: "*"` is an any-state transition. Transitions are checked in file order, first match wins.
+- Blend spaces: 1D interpolates the two nearest clips by the parameter, and syncs their normalized
+  times so feet don't slide. 2D (`blend2d` with `x` and `y` parameters) uses the three nearest
+  samples (barycentric in a Delaunay triangulation made at import).
+
+### Runtime
+
+```ts
+Animator { graph: handle('AnimationGraph') }
+AnimatorParams { values: json }                   // current parameters, readable and patchable
+setAnimParam(world, entity, 'attack', true)       // triggers reset once consumed
+```
+
+- The `animation/graph` system runs in `PostUpdate` before sampling. It reads bound parameters,
+  evaluates transitions per layer, and writes the resulting layers (with crossfade weights) into
+  the entity's `AnimationPlayer`. The player then samples as in 0032.
+- Entering a state sends `AnimatorStateEntered { entity, layer, state }`, so gameplay can hook
+  "landed" or "swing hit" without polling.
+- Parsed conditions compile to a flat opcode array per transition, evaluated without allocation.
+
+### Agent surface
+
+- `animation.describe` adds, per layer: current state, the transition in progress and its
+  progress, time in state, and the parameter values.
+- The graph's JSON Schema is published and `shard validate` checks graphs: unknown states, clips,
+  and parameters, unreachable states (a warning), and conditions that don't parse.
+- A skill, `animate-a-character.md`: import a model, write a graph, bind speed, test that the
+  state changes when the character moves.
+- **Errors:** `animgraph/unknown-state`, `animgraph/unknown-parameter`, `animgraph/bad-condition`,
+  `animgraph/unreachable-state` (warning).
+
+## Decisions
+
+- **Parameters can bind to component fields.** Most locomotion graphs read speed and ground state,
+  which already live in components. Binding them keeps glue systems out of games.
+- **Graphs drive the player; they don't replace it.** Everything 0032 can do is available to
+  graphs, and a game can still play clips directly for cutscenes.
+- **Condition strings, compiled once.** They're shorter to write than nested JSON, and parsing at
+  import means runtime cost is a few opcodes.
+
+## Acceptance criteria
+
+- [ ] A test graph moves locomotion → fall → land → locomotion as the bound `grounded` flips, with
+      each transition's duration, and sends `AnimatorStateEntered` for each.
+- [ ] A 1D blend space at `speed` 3.25 plays walk and run at weights 0.5 each, with synced times.
+- [ ] A 2D blend space at a direction between samples weights the three nearest clips
+      barycentrically.
+- [ ] A trigger fires one transition and resets. An any-state transition takes priority by order.
+- [ ] A condition with a typo fails validation with a pointer to the condition and the column.
+- [ ] 200 animators evaluate in under 0.5 ms per frame (bench), with no steady-state allocations.
+
+## Open questions
+
+- None blocking.

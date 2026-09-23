@@ -38,6 +38,10 @@ export interface TextureInit {
   mipmaps?: boolean
   /** Keep CPU pixels after upload (default true for textures made in code). */
   cpu?: boolean
+  /** 6 for a cube map: each level holds the faces +X, -X, +Y, -Y, +Z, -Z one after another. */
+  faces?: number
+  /** Color is already multiplied by alpha (sprites blend it as is). */
+  premultiplied?: boolean
 }
 
 /**
@@ -53,9 +57,19 @@ export class Texture {
   levels: Uint8Array[] | undefined
   mipCount: number
   keepCpu: boolean
+  /** 1, or 6 for a cube map. */
+  faces: number
   version = 0
 
-  constructor(init: Required<Omit<TextureInit, 'mipmaps'>>) {
+  /** Color is already multiplied by alpha. */
+  premultiplied: boolean
+
+  constructor(
+    init: Required<Omit<TextureInit, 'mipmaps' | 'faces' | 'premultiplied'>> & {
+      faces?: number
+      premultiplied?: boolean
+    },
+  ) {
     this.width = init.width
     this.height = init.height
     this.format = init.format
@@ -63,6 +77,8 @@ export class Texture {
     this.levels = init.mips
     this.mipCount = init.mips.length
     this.keepCpu = init.cpu
+    this.faces = init.faces ?? 1
+    this.premultiplied = init.premultiplied ?? false
     Texture.validate(this)
   }
 
@@ -70,7 +86,7 @@ export class Texture {
     const format = init.format ?? 'rgba8unorm'
     const usage = init.usage ?? 'color'
     let mips = init.mips
-    if (init.mipmaps && mips.length === 1 && format === 'rgba8unorm') {
+    if (init.mipmaps && mips.length === 1 && format === 'rgba8unorm' && (init.faces ?? 1) === 1) {
       mips = buildMips(
         { width: init.width, height: init.height, kind: 'u8', data: mips[0]! },
         { usage, mipmaps: true, maxSize: 16384, flipY: false, premultiplyAlpha: false },
@@ -83,6 +99,8 @@ export class Texture {
       usage,
       mips,
       cpu: init.cpu ?? true,
+      faces: init.faces ?? 1,
+      premultiplied: init.premultiplied ?? false,
     })
   }
 
@@ -96,6 +114,8 @@ export class Texture {
       mips: init.mips,
       mipmaps: init.mipmaps ?? this.mipCount > 1,
       cpu: this.keepCpu,
+      faces: init.faces ?? this.faces,
+      premultiplied: init.premultiplied ?? this.premultiplied,
     })
     this.width = next.width
     this.height = next.height
@@ -103,6 +123,8 @@ export class Texture {
     this.usage = next.usage
     this.levels = next.levels
     this.mipCount = next.mipCount
+    this.faces = next.faces
+    this.premultiplied = next.premultiplied
     this.version++
   }
 
@@ -115,7 +137,7 @@ export class Texture {
       const h = Math.max(1, this.height >> l)
       total += Math.ceil(w / info.block) * Math.ceil(h / info.block) * info.bytes
     }
-    return total
+    return total * this.faces
   }
 
   private static validate(t: Texture): void {
@@ -125,7 +147,7 @@ export class Texture {
     t.levels?.forEach((level, l) => {
       const w = Math.max(1, t.width >> l)
       const h = Math.max(1, t.height >> l)
-      const expected = Math.ceil(w / info.block) * Math.ceil(h / info.block) * info.bytes
+      const expected = Math.ceil(w / info.block) * Math.ceil(h / info.block) * info.bytes * t.faces
       if (level.byteLength < expected) {
         throw new ShardError(
           'texture/invalid',
@@ -192,6 +214,7 @@ export async function textureFromKtx2(
       usage: ktx.usage,
       mips: out.levels,
       cpu: options.cpu ?? false,
+      premultiplied: ktx.premultiplied,
     })
   }
   const format: TextureFormat = ktx.usage === 'hdr' ? 'rgba16float' : 'rgba8unorm'
@@ -202,6 +225,8 @@ export async function textureFromKtx2(
     usage: ktx.usage,
     mips: ktx.levels,
     cpu: options.cpu ?? false,
+    faces: ktx.faces,
+    premultiplied: ktx.premultiplied,
   })
 }
 
@@ -215,6 +240,8 @@ export const TextureAssetType = defineAssetType<Texture>('Texture', {
     existing.usage = next.usage
     existing.levels = next.levels
     existing.mipCount = next.mipCount
+    existing.faces = next.faces
+    existing.premultiplied = next.premultiplied
     existing.version++
   },
 })

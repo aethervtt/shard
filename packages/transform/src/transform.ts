@@ -178,6 +178,7 @@ export const propagateTransforms = defineSystem({
       const changed = c.changed!
       const globalChanged = c.globalChanged!
       const children = c.children
+      let moved = false
       for (let i = 0; i < n; i++) {
         const dirty = changed[i]! > since
         if (dirty) {
@@ -217,12 +218,14 @@ export const propagateTransforms = defineSystem({
           g[o + 10] = (1 - xx - yy) * sz
           g[o + 11] = tr[i3 + 2]!
           globalChanged[i] = tick
+          moved = true
         }
         if (children !== undefined) {
           const list = children[i]
           if (list) propagateChildren(walk, list, g, i * 12, dirty)
         }
       }
+      if (moved) table.touch(GlobalTransform)
     }
   },
 })
@@ -267,7 +270,10 @@ function propagateChildren(
         // No local transform: inherit the parent's world matrix unchanged.
         affine.copyAt(matrix, offset, parent, parentOffset)
       }
-      if (dirty) c.globalChanged![row] = walk.tick
+      if (dirty) {
+        c.globalChanged![row] = walk.tick
+        table.touch(GlobalTransform)
+      }
     }
     const grandchildren = c.children?.[row]
     if (grandchildren) propagateChildren(walk, grandchildren, matrix, offset, dirty)

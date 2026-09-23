@@ -15,9 +15,23 @@ import {
 import { type MipChain, type TextureUsage, toHalf } from './mips'
 
 const USAGE_KEY = 'shard.usage'
+const PREMULTIPLIED_KEY = 'shard.premultiplied'
+const KHR_DF_FLAG_ALPHA_PREMULTIPLIED = 1
 
-/** Writes an uncompressed KTX2: RGBA8 (sRGB-tagged for color) or RGBA16F for hdr, every level. */
-export function writeKtx2(chain: MipChain, usage: TextureUsage): Uint8Array {
+/**
+ * Writes an uncompressed KTX2: RGBA8 (sRGB-tagged for color) or RGBA16F for hdr, every level. With
+ * `faces: 6` it's a cube map, and each level holds the six faces one after another.
+ */
+/**
+ * A mip chain as KTX2. `premultiplied` marks color already multiplied by alpha (the DFD flag,
+ * plus a key the engine reads back).
+ */
+export function writeKtx2(
+  chain: MipChain,
+  usage: TextureUsage,
+  faces = 1,
+  premultiplied = false,
+): Uint8Array {
   const hdr = usage === 'hdr'
   const c = createDefaultContainer()
   c.vkFormat = hdr
@@ -29,6 +43,7 @@ export function writeKtx2(chain: MipChain, usage: TextureUsage): Uint8Array {
   c.pixelWidth = chain.width
   c.pixelHeight = chain.height
   c.levelCount = chain.levels.length
+  c.faceCount = faces
   c.supercompressionScheme = KHR_SUPERCOMPRESSION_NONE
   c.levels = chain.levels.map((level) => {
     const bytes: Uint8Array<ArrayBuffer> = hdr
@@ -51,6 +66,10 @@ export function writeKtx2(chain: MipChain, usage: TextureUsage): Uint8Array {
     sampleLower: hdr ? 0xbf800000 : 0,
     sampleUpper: hdr ? 0x3f800000 : 255,
   }))
+  if (premultiplied) {
+    dfd.flags = KHR_DF_FLAG_ALPHA_PREMULTIPLIED
+    c.keyValue[PREMULTIPLIED_KEY] = 'true'
+  }
   c.keyValue[USAGE_KEY] = usage
   return write(c)
 }
@@ -67,6 +86,10 @@ export interface Ktx2Data {
   srgb: boolean
   /** The original file, for the Basis transcoder. */
   bytes: Uint8Array
+  /** 1, or 6 for a cube map (each level holds the faces in order +X, -X, +Y, -Y, +Z, -Z). */
+  faces: number
+  /** Color is already multiplied by alpha. */
+  premultiplied: boolean
 }
 
 export function readKtx2(bytes: Uint8Array): Ktx2Data {
@@ -80,14 +103,10 @@ export function readKtx2(bytes: Uint8Array): Ktx2Data {
       { cause },
     )
   }
-  if (c.layerCount > 1 || c.faceCount > 1 || c.pixelDepth > 1) {
-    throw new ShardError(
-      'texture/unsupported-format',
-      'Array, cube, and 3D KTX2 textures come later',
-      {
-        hint: 'Use a single 2D image for now.',
-      },
-    )
+  if (c.layerCount > 1 || (c.faceCount !== 1 && c.faceCount !== 6) || c.pixelDepth > 1) {
+    throw new ShardError('texture/unsupported-format', 'Array and 3D KTX2 textures come later', {
+      hint: 'Use a 2D image or a cube map (6 faces).',
+    })
   }
   const dfd = c.dataFormatDescriptor[0]
   const basis =
@@ -98,6 +117,11 @@ export function readKtx2(bytes: Uint8Array): Ktx2Data {
           ? 'uastc'
           : undefined
       : undefined
+  if (c.faceCount === 6 && basis) {
+    throw new ShardError('texture/unsupported-format', 'Basis-compressed cube maps come later', {
+      hint: 'Store cube maps uncompressed (RGBA16F for HDR environments).',
+    })
+  }
   if (c.vkFormat === 0 && !basis) {
     throw new ShardError(
       'texture/unsupported-format',
@@ -110,9 +134,22 @@ export function readKtx2(bytes: Uint8Array): Ktx2Data {
       : l.levelData,
   )
   const srgb = dfd?.transferFunction === 2
-  const tagged = c.keyValue[USAGE_KEY]
+  const raw = c.keyValue[USAGE_KEY]
+  // ktx-parse returns text values as strings, or as bytes when they aren't NUL-terminated.
+  const tagged =
+    typeof raw === 'string'
+      ? raw
+      : raw instanceof Uint8Array
+        ? new TextDecoder().decode(raw)
+        : undefined
   const usage = (
-    typeof tagged === 'string' ? tagged.replace(/\0+$/, '') : srgb ? 'color' : 'data'
+    c.vkFormat === VK_FORMAT_R16G16B16A16_SFLOAT
+      ? 'hdr'
+      : tagged
+        ? tagged.replace(/\0+$/, '')
+        : srgb
+          ? 'color'
+          : 'data'
   ) as TextureUsage
   return {
     width: c.pixelWidth,
@@ -123,12 +160,17 @@ export function readKtx2(bytes: Uint8Array): Ktx2Data {
     usage,
     srgb,
     bytes,
+    faces: c.faceCount,
+    premultiplied:
+      c.keyValue[PREMULTIPLIED_KEY] !== undefined ||
+      ((dfd?.flags ?? 0) & KHR_DF_FLAG_ALPHA_PREMULTIPLIED) !== 0,
   }
 }
 
 /** Re-tags a KTX2 (e.g. one the Basis encoder wrote) with the engine's usage key. */
-export function tagKtx2(bytes: Uint8Array, usage: TextureUsage): Uint8Array {
+export function tagKtx2(bytes: Uint8Array, usage: TextureUsage, premultiplied = false): Uint8Array {
   const c = read(bytes)
   c.keyValue[USAGE_KEY] = usage
+  if (premultiplied) c.keyValue[PREMULTIPLIED_KEY] = 'true'
   return write(c)
 }

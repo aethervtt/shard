@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./testing": "./src/testing.ts"
   },
   "scripts": {
     "typecheck": "tsc -p .",
@@ -21,6 +22,7 @@
     "@shard/transform": "workspace:*"
   },
   "devDependencies": {
+    "@shard/platform-node": "workspace:*",
     "@types/node": "^26.6.2",
     "@webgpu/types": "^0.1.74",
     "webgpu": "0.6.1"

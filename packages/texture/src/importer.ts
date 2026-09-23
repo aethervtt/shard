@@ -121,7 +121,7 @@ export async function importImageBytes(
       settings.compression,
       settings.mipmaps,
     )
-    const out = tagKtx2(encoded, usage)
+    const out = tagKtx2(encoded, usage, settings.premultiplyAlpha)
     const ktx = readKtx2(out)
     return {
       bytes: out,
@@ -137,7 +137,7 @@ export async function importImageBytes(
   }
   if (settings.compression !== 'none') warn('HDR textures are stored uncompressed (rgba16float).')
   const chain = buildMips(image, settings)
-  const out = writeKtx2(chain, usage)
+  const out = writeKtx2(chain, usage, 1, settings.premultiplyAlpha)
   return {
     bytes: out,
     info: {

@@ -44,9 +44,35 @@ export const GltfImportSettings = defineSchema(
     generateNormals: t.enum(['missing', 'always', 'never'], {
       description: 'Flat normals for primitives without them ("missing"), for all, or never.',
     }),
+    lods: t.enum(['auto', 'none'], {
+      description:
+        'Level of detail: "auto" turns MSFT_lod chains and sibling nodes named <name>_LOD0, _LOD1… into one entity with a render/Lod component; "none" imports every node as is.',
+    }),
+    materialTypes: t.json({
+      default: {},
+      description:
+        'Material types by glTF material name: { "Lava*": "my-game/Lava" } (* matches anything). A material\'s extras.shardMaterial names a type directly. Imported materials are StandardMaterial otherwise.',
+    }),
   },
   { description: 'Import settings for .gltf and .glb files.' },
 )
+
+/** The project material type a glTF material maps to, by extras or by name pattern. */
+function materialTypeFor(
+  material: { name?: string; extras?: unknown },
+  patterns: unknown,
+): string | undefined {
+  const extra = (material.extras as { shardMaterial?: unknown } | undefined)?.shardMaterial
+  if (typeof extra === 'string') return extra
+  if (!patterns || typeof patterns !== 'object') return undefined
+  const name = material.name ?? ''
+  for (const [pattern, type] of Object.entries(patterns as Record<string, unknown>)) {
+    if (typeof type !== 'string') continue
+    const re = new RegExp(`^${pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')}$`)
+    if (re.test(name)) return type
+  }
+  return undefined
+}
 
 // --- skins and animations (played by M6) --------------------------------------------
 
@@ -135,6 +161,7 @@ const SUPPORTED_EXTENSIONS = new Set([
   'KHR_materials_emissive_strength',
   'KHR_mesh_quantization',
   'KHR_texture_transform',
+  'MSFT_lod',
 ])
 
 function sanitize(name: string): string {
@@ -349,6 +376,8 @@ interface Settings {
   cameras: boolean
   lights: boolean
   generateNormals: 'missing' | 'always' | 'never'
+  materialTypes: Record<string, string>
+  lods: 'auto' | 'none'
 }
 
 async function loadBuffers(doc: GltfDocument, bin: Uint8Array | undefined, ctx: ImportContext) {
@@ -693,10 +722,11 @@ export const GltfImporter = defineImporter({
         ctx.warn,
         `/materials/${i}`,
       )
+      const materialType = materialTypeFor(m, settings.materialTypes)
       assets.push({
         label: materialLabels[i]!,
         type: 'Material',
-        json,
+        json: materialType ? { type: materialType, ...(json as object) } : json,
         ...(dependencies.length ? { dependencies } : {}),
       })
     }
@@ -752,9 +782,74 @@ export const GltfImporter = defineImporter({
     const lights =
       (
         doc.extensions?.KHR_lights_punctual as
-          | { lights?: { type: string; intensity?: number; color?: number[] }[] }
+          | {
+              lights?: {
+                type: string
+                intensity?: number
+                color?: number[]
+                range?: number
+                spot?: { innerConeAngle?: number; outerConeAngle?: number }
+              }[]
+            }
           | undefined
       )?.lights ?? []
+
+    // LOD chains: a base node and its lower levels (MSFT_lod ids, or _LOD<n> siblings), with the
+    // MSFT screen coverage when the file has one.
+    type LodChain = { ids: number[]; coverage: number[] | undefined }
+    const lodOn = settings.lods !== 'none'
+    const msftLower = new Set<number>()
+    if (lodOn) {
+      for (const node of nodes) {
+        const ids = (node.extensions?.MSFT_lod as { ids?: number[] } | undefined)?.ids
+        for (const id of ids ?? []) msftLower.add(id)
+      }
+    }
+    const LOD_NAME = /^(.*)_LOD(\d+)$/i
+    /** The siblings to build, and the LOD chain of each base node among them. */
+    const lodGroups = (indices: readonly number[]) => {
+      const chains = new Map<number, LodChain>()
+      if (!lodOn) return { build: indices, chains }
+      const build: number[] = []
+      const byName = new Map<string, { level: number; ni: number }[]>()
+      for (const ni of indices) {
+        if (msftLower.has(ni)) continue
+        const node = nodes[ni]
+        const ids = (node?.extensions?.MSFT_lod as { ids?: number[] } | undefined)?.ids
+        if (ids?.length) {
+          const coverage = (node?.extras as { MSFT_screencoverage?: number[] } | undefined)
+            ?.MSFT_screencoverage
+          chains.set(ni, { ids, coverage })
+          build.push(ni)
+          continue
+        }
+        const match = LOD_NAME.exec(node?.name ?? '')
+        if (match && node?.mesh !== undefined) {
+          const group = byName.get(match[1]!) ?? []
+          group.push({ level: Number(match[2]), ni })
+          byName.set(match[1]!, group)
+          continue
+        }
+        build.push(ni)
+      }
+      for (const group of byName.values()) {
+        group.sort((a, b) => a.level - b.level)
+        const [base, ...lower] = group
+        build.push(base!.ni)
+        if (lower.length) chains.set(base!.ni, { ids: lower.map((l) => l.ni), coverage: undefined })
+      }
+      return { build, chains }
+    }
+    /**
+     * Screen size (diameter / viewport height) for LOD level k of n. MSFT coverage is a fraction of
+     * the screen's area, so its square root; without one, each level halves twice, and the last
+     * level always draws.
+     */
+    const lodScreenSize = (k: number, n: number, coverage: number[] | undefined) => {
+      const c = coverage?.[k]
+      if (c !== undefined) return Math.sqrt(Math.max(0, c))
+      return k === n - 1 ? 0 : 0.25 / 4 ** k
+    }
 
     const buildScene = (roots: number[], record: boolean) => {
       const deps = new Set<string>()
@@ -768,6 +863,7 @@ export const GltfImporter = defineImporter({
         parentMatrix: number[],
         top: boolean,
         stack: Set<number>,
+        lod?: LodChain,
       ): SceneEntity => {
         const node = nodes[ni]
         if (!node) throw new ShardError('gltf/invalid', `No node ${ni}`, { path: `/nodes/${ni}` })
@@ -775,8 +871,11 @@ export const GltfImporter = defineImporter({
           throw new ShardError('gltf/invalid', `Node ${ni} is its own ancestor`, {
             path: `/nodes/${ni}`,
           })
-        let name = sanitize(node.name ?? `Node${ni}`)
-        for (let k = 2; siblings.has(name); k++) name = `${sanitize(node.name ?? `Node${ni}`)}_${k}`
+        // A _LOD0 base names the entity without its suffix.
+        const baseName =
+          lod && LOD_NAME.test(node.name ?? '') ? LOD_NAME.exec(node.name!)![1]! : node.name
+        let name = sanitize(baseName ?? `Node${ni}`)
+        for (let k = 2; siblings.has(name); k++) name = `${sanitize(baseName ?? `Node${ni}`)}_${k}`
         siblings.add(name)
         const path = parentPath ? `${parentPath}/${name}` : name
         if (record && !nodePaths.has(ni)) nodePaths.set(ni, path)
@@ -803,6 +902,26 @@ export const GltfImporter = defineImporter({
               'render/Mesh3d': { mesh: { path: `#${label}` } },
             }
             deps.add(`#${label}`)
+            if (lod) {
+              // Level k of this primitive is the same primitive of the k-th lower node's mesh.
+              const levels = [label]
+              for (const id of lod.ids) {
+                const lower = nodes[id]?.mesh
+                const lowerLabel = lower === undefined ? undefined : primLabels[lower]?.[pi]
+                if (lowerLabel) levels.push(lowerLabel)
+              }
+              if (levels.length > 1) {
+                comps['render/Lod'] = {
+                  levels: levels.map((l, k) => {
+                    deps.add(`#${l}`)
+                    return {
+                      mesh: { path: `#${l}` },
+                      screenSize: lodScreenSize(k, levels.length, lod.coverage),
+                    }
+                  }),
+                }
+              }
+            }
             if (materialIndex !== undefined && materialLabels[materialIndex]) {
               comps['render/MeshMaterial'] = {
                 material: { path: `#${materialLabels[materialIndex]}` },
@@ -859,14 +978,39 @@ export const GltfImporter = defineImporter({
               illuminance: light.intensity ?? 1,
               color: [...(light.color ?? [1, 1, 1]), 1],
             }
+          } else if (light?.type === 'point' || light?.type === 'spot') {
+            // glTF point and spot intensity is candela; ours is luminous power (lm = cd · 4π).
+            const candela = light.intensity ?? 1
+            // No range means infinite: end where the light falls to 0.01 lux.
+            const range = light.range ?? Math.min(1000, Math.max(1, Math.sqrt(candela / 0.01)))
+            const value: Record<string, unknown> = {
+              intensity: candela * 4 * Math.PI,
+              color: [...(light.color ?? [1, 1, 1]), 1],
+              range: range * (typeof rootScale === 'number' ? rootScale : 1),
+            }
+            if (light.type === 'spot') {
+              const deg = 180 / Math.PI
+              const outer = light.spot?.outerConeAngle ?? Math.PI / 4
+              value.outerAngle = Math.min(89.9, Math.max(0.1, outer * deg))
+              value.innerAngle = Math.min(
+                value.outerAngle as number,
+                (light.spot?.innerConeAngle ?? 0) * deg,
+              )
+              components['render/SpotLight'] = value as never
+            } else {
+              components['render/PointLight'] = value as never
+            }
           } else if (light) {
-            ctx.warn(`${light.type} lights arrive with renderer v1 (M5); skipped.`, `/nodes/${ni}`)
+            ctx.warn(`Unknown light type "${light.type}"; skipped.`, `/nodes/${ni}`)
           }
         }
         const next = new Set<string>()
         const childStack = new Set(stack).add(ni)
-        for (const child of node.children ?? [])
-          children.push(build(child, next, path, world, false, childStack))
+        const groups = lodGroups(node.children ?? [])
+        for (const child of groups.build)
+          children.push(
+            build(child, next, path, world, false, childStack, groups.chains.get(child)),
+          )
         return {
           name,
           components: components as Record<string, Record<string, JsonValue>>,
@@ -874,8 +1018,17 @@ export const GltfImporter = defineImporter({
         }
       }
       const top = new Set<string>()
-      const entities = roots.map((ni) =>
-        build(ni, top, '', matrixOf([0, 0, 0], [0, 0, 0, 1], [1, 1, 1]), true, new Set()),
+      const rootGroups = lodGroups(roots)
+      const entities = rootGroups.build.map((ni) =>
+        build(
+          ni,
+          top,
+          '',
+          matrixOf([0, 0, 0], [0, 0, 0, 1], [1, 1, 1]),
+          true,
+          new Set(),
+          rootGroups.chains.get(ni),
+        ),
       )
       const file: SceneFile = { version: 1, entities }
       const bounds = Number.isFinite(min[0]!) ? { min, max } : null

@@ -43,6 +43,176 @@ Brings along: `core/GlobalTransform`.
 | `scale` | number[3] | `[1,1,1]` |  | Scale along local axes. |
 | `rotationEuler` | number[3] | | degrees | Scene files only: rotation as X, then Y, then Z degrees. |
 
+## `particles/ParticleEmitterOverrides`
+
+Gameplay control of a ParticleSystem: its spawn rate, read every frame.
+
+Brings along: `particles/ParticleSystem`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `emitter` | string | `""` |  | Emitter name to change (empty: every emitter). |
+| `spawnRate` | number | `-1` |  | Particles per second, replacing the effect's rate (negative: the effect's own). |
+| `spawnScale` | number | `1` | ≥ 0 | Multiplies the spawn rate (thrust → exhaust). |
+
+## `particles/ParticleSystem`
+
+Runs a particle effect at the entity's transform.
+
+Brings along: `core/Transform`, `render/Visibility`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `effect` | null or asset ref | `null` |  | The effect (*.particles.json) to run. |
+| `playing` | boolean | `true` |  | Spawns and simulates. Off: frozen in place. |
+| `seed` | integer | `0` | ≥ 0, ≤ 4294967295 | Random seed: the same seed replays the same particles. |
+| `timeScale` | number | `1` | ≥ 0 | Simulation speed. |
+| `space` | `"world"` \| `"local"` | `"world"` |  | world: particles stay where they were emitted (a moving ship leaves its exhaust behind). local: they move with the entity (an engine's glow). |
+| `backend` | `"gpu"` \| `"cpu"` | `"gpu"` |  | gpu: compute shaders, for any count. cpu: the same effect simulated in TypeScript, for small counts that gameplay reads. |
+
+## `physics/Collider`
+
+A collision shape. Uses the entity’s world transform (scale included). Without a RigidBody on it or an ancestor, it is fixed.
+
+Brings along: `core/Transform`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `shape` | `"ball"` \| `"cuboid"` \| `"capsule"` \| `"cylinder"` \| `"cone"` \| `"convex"` \| `"trimesh"` \| `"heightfield"` \| `"segment"` \| `"polyline"` | `"ball"` |  | ball: radius. cuboid: halfExtents. capsule, cylinder, cone: radius and halfHeight (along Y). convex and trimesh: mesh or points. heightfield: heightfield and halfExtents. segment and polyline (2D): points or mesh. |
+| `radius` | number | `0.5` | ≥ 0, m |  |
+| `halfExtents` | number[3] | `[0.5,0.5,0.5]` | m | cuboid: half size per axis. heightfield: half width (x), height scale (y), half depth (z). |
+| `halfHeight` | number | `0.5` | ≥ 0, m | Half the length of a capsule’s middle, or half a cylinder’s or cone’s height. |
+| `mesh` | null or asset ref | `null` |  | convex, trimesh, and polyline: the mesh whose vertices make the shape. |
+| `points` | number[3][] | `[]` |  | convex, polyline, and segment without a mesh: points in local space (2D reads x and y). |
+| `heightfield` | object | `{"rows":0,"cols":0,"heights":[]}` |  | heightfield: the height samples. |
+| `friction` | number | `0.5` | ≥ 0 |  |
+| `restitution` | number | `0` | ≥ 0 | Bounciness: 0 stops, 1 bounces back fully. |
+| `density` | number | `1` | ≥ 0, kg/m³ | Mass from volume. Ignored when the body has Mass. |
+| `sensor` | boolean | `false` |  | Detects overlaps without colliding. |
+| `layers` | integer | `1` | ≥ 0, ≤ 65535 | Bitmask: the collision layers this collider is in. |
+| `mask` | integer | `65535` | ≥ 0, ≤ 65535 | Bitmask: the layers it collides with. Both sides must accept each other. |
+| `events` | boolean | `false` |  | Send CollisionEvent when contacts start and stop. |
+| `forceThreshold` | number | `0` | ≥ 0, N | Send ContactForceEvent when the contact force exceeds this (0: never). |
+
+## `physics/ExternalForce`
+
+A continuous force on the body, e.g. thrust. Set to zero to stop.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `force` | number[3] | `[0,0,0]` | N | World-space force applied every step. |
+| `torque` | number[3] | `[0,0,0]` | N·m |  |
+
+## `physics/ExternalImpulse`
+
+A one-off push: a jump, an explosion, a hit.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `impulse` | number[3] | `[0,0,0]` | N·s | Applied once at the next step, then zeroed. |
+| `torque` | number[3] | `[0,0,0]` | N·m·s |  |
+
+## `physics/GravitySource`
+
+Point gravity toward the entity (a planet). Pulls dynamic bodies and sets character up.
+
+Brings along: `core/Transform`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `strength` | number | `9.81` | m/s² | Acceleration toward this entity at `radius` (at any distance if constant). |
+| `radius` | number | `1` | ≥ 0, m | Surface radius; inverse-square falloff is 1 here. |
+| `range` | number | `0` | ≥ 0, m | No pull beyond this distance (0: no limit). |
+| `falloff` | `"inverse-square"` \| `"constant"` | `"inverse-square"` |  |  |
+
+## `physics/Joint`
+
+Connects this entity’s body to another body.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `kind` | `"fixed"` \| `"revolute"` \| `"prismatic"` \| `"spherical"` \| `"rope"` | `"fixed"` |  |  |
+| `other` | null or integer or string | `null` |  | The body this one is jointed to. |
+| `anchor` | number[3] | `[0,0,0]` | m | Joint point in this body’s local space. |
+| `otherAnchor` | number[3] | `[0,0,0]` | m | Joint point in the other body’s local space. |
+| `axis` | number[3] | `[0,1,0]` |  | revolute: hinge axis. prismatic: slide axis (local to this body). |
+| `limits` | number[2] | `[0,0]` |  | revolute (rad), prismatic (m): [min, max], off when equal. rope: [_, max length]. |
+| `motorVelocity` | number | `0` |  | revolute, prismatic: drive at this speed (0: off). |
+| `motorFactor` | number | `1` | ≥ 0 | How hard the motor drives. |
+
+## `physics/Mass`
+
+Sets a body’s mass directly instead of from collider density.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `mass` | number | `1` | ≥ 0, kg | The body’s total mass. |
+
+## `physics/RigidBody`
+
+A physics body. Colliders on this entity and on descendants without their own body make its shape. Moves the entity’s Transform.
+
+Brings along: `core/Transform`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `kind` | `"dynamic"` \| `"fixed"` \| `"kinematic-position"` \| `"kinematic-velocity"` | `"dynamic"` |  | dynamic: moved by forces and contacts. fixed: never moves. kinematic-position: follows its Transform. kinematic-velocity: moves by its Velocity. |
+| `gravityScale` | number | `1` |  | Multiplies gravity for this body. |
+| `linearDamping` | number | `0` | ≥ 0 | Slows linear motion over time (1/s). |
+| `angularDamping` | number | `0` | ≥ 0 | Slows rotation over time (1/s). |
+| `ccd` | boolean | `false` |  | Continuous collision detection: fast bodies (bullets) do not tunnel. |
+| `canSleep` | boolean | `true` |  | Stops simulating the body while it rests. |
+| `dominance` | integer | `0` | ≥ -127, ≤ 127 | Higher dominance pushes lower without being pushed back. |
+| `lockTranslation` | number[3] | `[0,0,0]` |  | Per axis: 1 locks movement along that world axis. |
+| `lockRotation` | number[3] | `[0,0,0]` |  | Per axis: 1 locks rotation around that axis. In 2D, z locks rotation. |
+
+## `physics/Velocity`
+
+A body’s velocity. Written by physics each step; writing it sets the body’s velocity.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `linear` | number[3] | `[0,0,0]` | m/s | World-space linear velocity. |
+| `angular` | number[3] | `[0,0,0]` | rad/s | World-space angular velocity (2D: z). |
+
+## `render/Antialiasing`
+
+Anti-aliasing for a camera. Without it: MSAA in forward views (per forwardPlugin), none in deferred ones.
+
+Brings along: `render/Camera3d`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `mode` | `"none"` \| `"fxaa"` \| `"taa"` \| `"msaa"` | `"msaa"` |  | msaa: 4 samples, forward views only; fxaa: cheap edge smoothing after tonemapping; taa: jittered frames blended over time (smoothest, also cleans shading); none. |
+
+## `render/AutoExposure`
+
+Adapts Exposure.ev100 to the scene's measured brightness each frame, starting from the camera's exposure (PhysicalCamera included).
+
+Brings along: `render/Camera3d`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `minEv` | number or `"indoor"` \| `"outdoor"` | `-2` |  | Darkest exposure it adapts to (EV100). Presets: indoor 3, outdoor 9. Presets: indoor, outdoor. |
+| `maxEv` | number or `"indoor"` \| `"outdoor"` | `16` |  | Brightest exposure it adapts to (EV100). Presets: indoor 10, outdoor 16. Presets: indoor, outdoor. |
+| `compensation` | number | `0` |  | EV stops added to the metered brightness: +1 is twice as bright. |
+| `speedUp` | number | `3` | ≥ 0.01, EV/s | Adaptation speed when the scene gets brighter. |
+| `speedDown` | number | `1` | ≥ 0.01, EV/s | Adaptation speed when the scene gets darker. |
+| `metering` | `"average"` \| `"center"` \| `"spot"` | `"average"` |  | average: the whole view; center: weighted toward the middle; spot: the middle 10% only. |
+
+## `render/Bloom`
+
+Light bleeding around bright areas, from a downsampled blur chain. Add to a camera.
+
+Brings along: `render/Camera3d`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `intensity` | number or `"subtle"` \| `"strong"` | `0.15` |  | How much of the blurred image mixes in. With threshold 0 the mix conserves energy. Presets: subtle 0.08, strong 0.3. Presets: subtle, strong. |
+| `threshold` | number | `0` | ≥ 0, cd/m² | Only luminance above this blooms (0: everything, the physically based default). Set it for a stylized glow on emissive panels. |
+| `knee` | number | `0.5` | ≥ 0, ≤ 1 | Softness of the threshold, as a fraction of it. |
+| `radius` | number | `0.8` | ≥ 0, ≤ 1 | Spread: 0 keeps the glow tight, 1 spreads it over the whole view. |
+
 ## `render/Camera3d`
 
 Renders the scene from this entity, looking down its -Z axis.
@@ -60,6 +230,23 @@ Brings along: `core/Transform`, `render/Exposure`.
 | `clearColor` | string or number[4] | `[0.0056,0.0065,0.0091,1]` |  | Background (linear). |
 | `target` | null or asset ref | `null` |  | Offscreen target, or null for the window. |
 
+## `render/ColorGrading`
+
+The look: white balance, saturation, contrast, lift/gamma/gain in HDR before the tonemap curve, then an optional LUT.
+
+Brings along: `render/Camera3d`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `temperature` | number | `0` | ≥ -1, ≤ 1 | White balance: -1 cool (blue), +1 warm (orange). |
+| `tint` | number | `0` | ≥ -1, ≤ 1 | White balance: -1 green, +1 magenta. |
+| `saturation` | number | `1` | ≥ 0, ≤ 2 | 0 gray, 1 unchanged. |
+| `contrast` | number | `1` | ≥ 0, ≤ 2 | Around mid gray; 1 unchanged. |
+| `lift` | number[3] | `[0,0,0]` |  | Added to shadows (per channel). |
+| `gamma` | number[3] | `[1,1,1]` |  | Midtone power (per channel). |
+| `gain` | number[3] | `[1,1,1]` |  | Highlight multiplier (per channel). |
+| `lut` | null or asset ref | `null` |  | A 32³ look-up table as a 1024×32 PNG strip (32 slices of red × green, blue across slices), applied after tonemapping. |
+
 ## `render/ComputedVisibility`
 
 Computed from Visibility and the parent chain each frame. Do not write.
@@ -70,16 +257,43 @@ _Computed by the engine; never written in scene files._
 |---|---|---|---|---|
 | `visible` | boolean | `true` |  | Final visibility after inheritance. |
 
+## `render/DepthOfField`
+
+Defocus blur from the thin-lens circle of confusion: PhysicalCamera's aperture and focal length (without one: f/2.8 at the lens matching fovY).
+
+Brings along: `render/Camera3d`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `mode` | `"gaussian"` \| `"bokeh"` | `"gaussian"` |  | gaussian: soft; bokeh: disc-shaped highlights like a real lens. |
+| `focusDistance` | number | `10` | ≥ 0.01, m | Distance that is in focus. |
+| `maxBlur` | number | `0.02` | ≥ 0, ≤ 0.1 | Largest blur radius, as a fraction of the view height. |
+
 ## `render/DirectionalLight`
 
-Sun-like light shining along its -Z axis. The first one found is used.
+Sun-like light shining along its -Z axis. Up to 4 are lit; the first with shadows gets cascaded shadow maps.
 
 Brings along: `core/Transform`.
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `color` | string or number[4] | `"#ffffff"` |  | Light color (linear). |
-| `illuminance` | number or `"direct-sun"` \| `"daylight"` \| `"overcast"` \| `"indoor"` \| `"twilight"` | `10000` | lux | Presets: direct-sun 100000, daylight 10000, overcast 1000, indoor 400, twilight 10. Presets: direct-sun, daylight, overcast, indoor, twilight. |
+| `illuminance` | number or `"direct-sun"` \| `"daylight"` \| `"overcast"` \| `"indoor"` \| `"twilight"` \| `"moonlight"` | `10000` | lux | Presets: direct-sun 100000, daylight 10000, overcast 1000, indoor 400, twilight 10, moonlight 0.3. Presets: direct-sun, daylight, overcast, indoor, twilight, moonlight. |
+| `shadows` | boolean | `false` |  | Casts shadows (within the shadow budget). |
+| `shadowBias` | number | `0.02` | ≥ 0, m | Moves receivers toward the light before the depth test. Fixes acne. |
+| `shadowNormalBias` | number | `1.5` | ≥ 0 | Moves receivers along their normal, in shadow-map texels. Fixes acne at grazing angles. |
+| `shadowSoftness` | number | `0` | ≥ 0 | PCF filter radius in texels beyond the base 3x3 (0 = 3x3). Softer edges. |
+| `cascades` | object | `{"count":4,"maxDistance":150,"splitLambda":0.8}` |  | How cascaded shadow maps divide the view. |
+
+## `render/EnvironmentMap`
+
+Image-based lighting for a camera: ambient light and reflections from an HDR environment, prefiltered on the GPU.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `texture` | null or asset ref | `null` |  | An HDR texture: an equirectangular .hdr (usage "hdr") or a cube-map KTX2. |
+| `intensity` | number or `"overcast-sky"` \| `"clear-sky"` | `5000` | cd/m² | Luminance a texel value of 1.0 represents. HDR files are relative; this ties them to physical units. Presets: overcast-sky 2000, clear-sky 8000. Presets: overcast-sky, clear-sky. |
+| `rotation` | number | `0` | deg | Rotation of the environment about +Y. |
 
 ## `render/Exposure`
 
@@ -89,11 +303,47 @@ Camera exposure in EV100. Presets: sunny 15.3, daylight 12, overcast 8.6, indoor
 |---|---|---|---|---|
 | `ev100` | number or `"sunny"` \| `"daylight"` \| `"overcast"` \| `"indoor"` \| `"twilight"` | `11.965784` |  | How bright the scene may be. Match it to the light: EV100 = log2(lux / 2.5). Presets: sunny, daylight, overcast, indoor, twilight. |
 
+## `render/Fog`
+
+Exponential height fog, lit by the environment (or ambient light) and the sun. Applied to everything, sky included.
+
+Brings along: `render/Camera3d`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `color` | string or number[4] | `[0.6,0.7,0.85,1]` |  | Fog albedo: tints the sky's and sun's light it scatters (linear). |
+| `density` | number | `0.02` | ≥ 0, 1/m | Extinction at height 0: 0.02 hides things ~150 m away. |
+| `heightFalloff` | number | `0.1` | ≥ 0, 1/m | How fast fog thins with height (0: uniform). |
+| `start` | number | `0` | ≥ 0, m | Clear distance from the camera. |
+| `sunScattering` | number | `0.5` | ≥ 0, ≤ 1 | Glow toward the sun (forward scattering). |
+
+## `render/InstanceSlot`
+
+The entity's slot in the renderer's persistent instance buffer. Do not write.
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `slot` | integer | `0` | ≥ 0, ≤ 4294967295 | GPU instance slot + 1 (0 = none yet). Managed by the renderer. |
+
+## `render/Lod`
+
+Level of detail: the drawn mesh follows the entity's size on screen, chosen per camera (shadows use the camera's choice). Replaces Mesh3d.mesh.
+
+Brings along: `render/Mesh3d`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `levels` | object[] | `[]` |  | From most to least detailed, with decreasing screenSize. Smaller than the last level: not drawn. |
+| `hysteresis` | number | `0.1` | ≥ 0, ≤ 0.9 | A level changes only once the size crosses a threshold by this fraction. |
+| `bias` | number | `0` |  | Scales every size by 2^bias: positive keeps detail longer, negative drops it sooner. |
+
 ## `render/Mesh3d`
 
 Draws a mesh at this entity's transform.
 
-Brings along: `core/Transform`, `render/Visibility`.
+Brings along: `core/Transform`, `render/Visibility`, `render/InstanceSlot`.
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
@@ -106,6 +356,29 @@ The material a Mesh3d is drawn with.
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `material` | null or asset ref | `null` |  | Standard material; a neutral gray when absent. |
+
+## `render/MotionBlur`
+
+Blur along screen motion, for the time the shutter is open: PhysicalCamera.shutterSpeed (without one, half a frame).
+
+Brings along: `render/Camera3d`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `samples` | integer | `8` | ≥ 2, ≤ 32 | Samples along the motion. |
+| `maxBlur` | number | `0.05` | ≥ 0, ≤ 0.25 | Longest blur, as a fraction of the view height. |
+
+## `render/NotShadowCaster`
+
+Tag: this mesh casts no shadows.
+
+Tag (no fields).
+
+## `render/NotShadowReceiver`
+
+Tag: shadows are not applied to this mesh.
+
+Tag (no fields).
 
 ## `render/PhysicalCamera`
 
@@ -121,6 +394,91 @@ Brings along: `render/Camera3d`.
 | `sensorHeight` | number | `24` | ≥ 1, mm | Sensor height (35mm film: 24). |
 | `focalLength` | number | `0` | ≥ 0, mm | Lens focal length. When > 0, sets Camera3d.fovY from the sensor height. |
 
+## `render/PixelPerfect`
+
+Crisp pixel art on an orthographic camera: renders at one texel per pixel (Camera3d.orthoHeight × pixelsPerUnit tall), then scales up by the largest whole number that fits the target, with nearest sampling. The camera's orthoHeight is adjusted to fill the letterboxed area exactly.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `pixelsPerUnit` | number | `16` | ≥ 0.01 | Texels per world unit: the art resolution (16 for 16-px tiles one unit wide). |
+| `snap` | boolean | `true` |  | Moves the camera and sprites in whole texels, so scrolling never shimmers. |
+
+## `render/PointLight`
+
+Light emitted equally in all directions, in lumens (intensity lm / 4π candela), with physical inverse-square falloff windowed to zero at range.
+
+Brings along: `core/Transform`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `color` | string or number[4] | `"#ffffff"` |  | Light color (linear). |
+| `intensity` | number or `"candle"` \| `"bulb-40w"` \| `"bulb"` \| `"floodlight"` | `800` | lm | Luminous power. Presets: candle 12, bulb-40w 450, bulb 800, floodlight 20000. Presets: candle, bulb-40w, bulb, floodlight. |
+| `range` | number | `20` | ≥ 0.01, m | Where the light's contribution is windowed to zero (and where culling stops). |
+| `radius` | number | `0` | ≥ 0, m | Emitter size: softens specular highlights. |
+| `shadows` | boolean | `false` |  | Casts shadows (within the shadow budget). |
+| `shadowBias` | number | `0.02` | ≥ 0, m | Moves receivers toward the light before the depth test. Fixes acne. |
+| `shadowNormalBias` | number | `1` | ≥ 0 | Moves receivers along their normal, in shadow-map texels. Fixes acne at grazing angles. |
+| `shadowSoftness` | number | `0` | ≥ 0 | PCF filter radius in texels beyond the base 3x3 (0 = 3x3). Softer edges. |
+
+## `render/ProceduralSky`
+
+A single-scattering atmosphere lit by the brightest DirectionalLight, in cd/m² consistent with its illuminance. Drawn as the background, and baked into the environment so image-based lighting follows the time of day.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `turbidity` | number | `2` | ≥ 1, ≤ 10 | Haze: aerosol density. 1 is very clear, 10 is hazy. |
+| `rayleigh` | number | `1` | ≥ 0 | Multiplies molecular (blue) scattering. |
+| `mie` | number | `1` | ≥ 0 | Multiplies aerosol (white haze) scattering. |
+| `groundAlbedo` | string or number[4] | `[0.3,0.3,0.3,1]` |  | Ground below the horizon. |
+| `sunDiskSize` | number | `1` | ≥ 0 | Sun disk radius, as a multiple of the real sun's (0.27°). 0 hides the disk. |
+
+## `render/RenderPath`
+
+How a camera shades opaque geometry. Materials work in both; custom-lit and transparent ones always draw forward.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `mode` | `"forward"` \| `"deferred"` | `"forward"` |  | forward: simpler, supports MSAA, fine up to a few hundred lights. deferred: lights each pixel once (heavy overdraw, many lights) and gives G-buffer effects; anti-alias with FXAA or TAA. |
+
+## `render/Skybox`
+
+Draws the camera's environment map behind everything. Replaces the clear color.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `brightness` | number | `1` | ≥ 0 | Multiplies the environment's luminance in the background (not its lighting). |
+
+## `render/SpotLight`
+
+A cone of light along -Z. Brightness is lm / 4π candela regardless of the cone's width.
+
+Brings along: `core/Transform`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `color` | string or number[4] | `"#ffffff"` |  | Light color (linear). |
+| `intensity` | number or `"candle"` \| `"bulb-40w"` \| `"bulb"` \| `"floodlight"` | `800` | lm | Luminous power. Presets: candle 12, bulb-40w 450, bulb 800, floodlight 20000. Presets: candle, bulb-40w, bulb, floodlight. |
+| `range` | number | `20` | ≥ 0.01, m | Where the light's contribution is windowed to zero (and where culling stops). |
+| `radius` | number | `0` | ≥ 0, m | Emitter size: softens specular highlights. |
+| `shadows` | boolean | `false` |  | Casts shadows (within the shadow budget). |
+| `shadowBias` | number | `0.02` | ≥ 0, m | Moves receivers toward the light before the depth test. Fixes acne. |
+| `shadowNormalBias` | number | `1` | ≥ 0 | Moves receivers along their normal, in shadow-map texels. Fixes acne at grazing angles. |
+| `shadowSoftness` | number | `0` | ≥ 0 | PCF filter radius in texels beyond the base 3x3 (0 = 3x3). Softer edges. |
+| `innerAngle` | number | `30` | ≥ 0, ≤ 89, deg | Full brightness inside this angle from the axis. |
+| `outerAngle` | number | `45` | ≥ 0.1, ≤ 89.9, deg | No light outside this angle from the axis. |
+
+## `render/Ssao`
+
+Screen-space ambient occlusion: darkens ambient and environment light in creases and contact areas.
+
+Brings along: `render/Camera3d`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `radius` | number | `0.5` | ≥ 0.01, m | How far occluders count. |
+| `intensity` | number | `1` | ≥ 0, ≤ 4 | Strength of the darkening. |
+| `quality` | `"low"` \| `"medium"` \| `"high"` | `"medium"` |  | Slice directions × steps searched: low 1×4, medium 2×4, high 3×6. |
+
 ## `render/StandardMaterial`
 
 The standard PBR material (GGX). A material asset, not an entity component.
@@ -133,7 +491,7 @@ The standard PBR material (GGX). A material asset, not an entity component.
 | `emissive` | string or number[4] | `"#ffffff"` |  | Emitted color (linear), scaled by emissiveLuminance. |
 | `emissiveLuminance` | number | `0` | ≥ 0, cd/m² | Emitted luminance. 0 = not emissive. |
 | `doubleSided` | boolean | `false` |  | Draw back faces too (no culling). |
-| `alphaMode` | `"opaque"` \| `"mask"` | `"opaque"` |  | opaque ignores alpha; mask discards pixels with alpha below alphaCutoff. |
+| `alphaMode` | `"opaque"` \| `"mask"` \| `"alpha"` \| `"additive"` \| `"premultiplied"` | `"opaque"` |  | opaque ignores alpha; mask discards pixels below alphaCutoff; alpha blends (transparent, drawn after opaque, sorted back to front); additive adds light (glows); premultiplied expects color already multiplied by alpha. |
 | `alphaCutoff` | number | `0.5` | ≥ 0, ≤ 1 | Alpha threshold for alphaMode "mask". |
 | `normalScale` | number | `1` |  | Strength of the normal map. |
 | `occlusionStrength` | number | `1` | ≥ 0, ≤ 1 | Strength of the occlusion map. |
@@ -143,16 +501,42 @@ The standard PBR material (GGX). A material asset, not an entity component.
 | `occlusionTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Ambient occlusion in R (linear). |
 | `emissiveTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Emission color (sRGB), multiplied with emissive. |
 
+## `render/Tonemapping`
+
+Tonemapping for a camera. Without it, cameras use the default curve with dithering.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `curve` | `"aces"` \| `"agx"` \| `"pbr-neutral"` \| `"reinhard"` \| `"none"` | `"agx"` |  | How HDR becomes display color. agx: saturated highlights (glows, lava, neon) keep their hue; aces: punchy filmic contrast; pbr-neutral: faithful product colors (Khronos); reinhard: simple, soft; none: clamp only, for measuring. |
+| `dither` | boolean | `true` |  | Adds ±1 LSB noise against banding. |
+
 ## `render/ViewUniform`
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `viewProj` | number[16] | `[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]` |  |  |
+| `view` | number[16] | `[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]` |  |  |
+| `invViewProj` | number[16] | `[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]` |  |  |
 | `cameraPosition` | number[3] | `[0,0,0]` |  |  |
 | `exposure` | number | `0` |  |  |
-| `lightDirection` | number[3] | `[0,0,0]` |  |  |
-| `lightColor` | number[3] | `[0,0,0]` |  |  |
+| `viewport` | number[4] | `[0,0,0,0]` |  |  |
+| `clusterParams` | number[4] | `[0,0,0,0]` |  |  |
 | `ambient` | number[3] | `[0,0,0]` |  |  |
+| `envParams` | number[4] | `[0,0,0,0]` |  |  |
+| `viewProjNoJitter` | number[16] | `[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]` |  |  |
+| `prevViewProj` | number[16] | `[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]` |  |  |
+| `jitter` | number[4] | `[0,0,0,0]` |  |  |
+
+## `render/Vignette`
+
+Darkens the edges of the image.
+
+Brings along: `render/Camera3d`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `intensity` | number | `0.3` | ≥ 0, ≤ 1 | Darkening at the corners. |
+| `smoothness` | number | `0.5` | ≥ 0.01, ≤ 1 | How gradually it falls off. |
 
 ## `render/Visibility`
 
@@ -163,6 +547,17 @@ Brings along: `render/ComputedVisibility`.
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `mode` | `"inherit"` \| `"visible"` \| `"hidden"` | `"inherit"` |  | 'inherit' follows the parent; 'visible' shows even under a hidden parent; 'hidden' hides this and inheriting children. |
+
+## `render/VisibilityRange`
+
+Distance culling from the camera, for small props. Applies to the camera's shadow views too.
+
+Brings along: `render/Mesh3d`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `start` | number | `0` | ≥ 0, m | Hidden when the camera is closer than this. |
+| `end` | number | `100` | ≥ 0, m | Hidden at this distance from the camera and beyond (shadows too). |
 
 ## `scene/SceneInstance`
 
@@ -183,6 +578,63 @@ _Computed by the engine; never written in scene files._
 | `scene` | string | `""` |  | Id of the scene this entity was loaded from. |
 | `path` | string | `""` |  | Path within the scene, e.g. "ship/camera". |
 
+## `sprite/Sprite`
+
+A textured quad in the entity's XY plane: a texture or an atlas region, tinted, flipped, and anchored.
+
+Brings along: `core/Transform`, `render/Visibility`, `sprite/SpriteSlot`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `texture` | null or asset ref | `null` |  | The image to draw (ignored when atlas and region are set). |
+| `atlas` | null or asset ref | `null` |  | An atlas to draw a region of. |
+| `region` | string | `""` |  | Atlas region name, e.g. "hero/idle_0". |
+| `color` | string or number[4] | `"#ffffff"` |  | Tint, multiplied in (linear). |
+| `flipX` | boolean | `false` |  | Mirror left to right. |
+| `flipY` | boolean | `false` |  | Mirror top to bottom. |
+| `anchor` | number[2] | `[0.5,0.5]` |  | Pivot in normalized sprite space (0, 0 top left): where the entity's position sits. An atlas region with its own pivot (not the center) uses that instead. |
+| `size` | number[2] | `[0,0]` | m | World size. Zero: the image (or region) size in pixels ÷ Sprite2dSettings.pixelsPerUnit. Screen sprites: pixels. |
+| `layer` | integer | `0` | ≥ -32768, ≤ 32767 | Draw-order band: higher draws over lower. Within a band, sprites sort by Sprite2dSettings.sort. |
+| `blend` | `"alpha"` \| `"additive"` \| `"opaque"` | `"alpha"` |  | alpha: premultiplied blending, sorted. additive: glows. opaque: alpha-tested at 0.5, writes depth, no sorting needed. |
+| `space` | `"world"` \| `"screen"` | `"world"` |  | world: in the scene, lit by nothing, under post-processing. screen: an overlay after tonemapping, positioned in pixels from the view's top left. |
+
+## `sprite/SpriteAnimation`
+
+Plays a SpriteClip on this entity's Sprite: sets its atlas and region each frame.
+
+Brings along: `sprite/Sprite`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `clip` | null or asset ref | `null` |  | The frame animation to play. |
+| `playing` | boolean | `true` |  | Advances each frame. A once clip clears it at its end. |
+| `speed` | number | `1` |  | Playback rate: 2 is twice as fast, negative plays backward. |
+| `time` | number | `0` | s | Position in the clip. |
+
+## `sprite/SpriteSlot`
+
+The sprite's slot in the renderer's sprite buffer. Do not write.
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `slot` | integer | `0` | ≥ 0, ≤ 4294967295 | Slot + 1 (0 = none yet). |
+
+## `sprite/Tilemap`
+
+Tile layers drawn over the entity's XY plane: tile (x, y) covers [x, x+1] × [−y−1, −y] tile sizes, rows going down from the top.
+
+Brings along: `core/Transform`, `render/Visibility`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `atlas` | null or asset ref | `null` |  | Tile N draws region N − 1. |
+| `data` | null or asset ref | `null` |  | The tile layers. |
+| `tileSize` | number[2] | `[1,1]` | m | World size of one tile. |
+| `chunkSize` | integer | `32` | ≥ 4, ≤ 256 | Tiles per chunk side: chunks are the unit of culling and re-upload. |
+| `layer` | integer | `0` | ≥ -32768, ≤ 32767 | Draw-order band, like Sprite.layer (tilemaps draw first in a band). |
+
 ## `star-explorer/Ship`
 
 A ship the player flies: steer with arrows or the left stick, thrust with W.
@@ -194,3 +646,46 @@ A ship the player flies: steer with arrows or the left stick, thrust with W.
 | `acceleration` | number | `15` | ≥ 0, m/s² | Thrust acceleration. |
 | `drag` | number | `0.4` | ≥ 0 | Fraction of speed lost per second without thrust. |
 | `turnRate` | number | `1.2` | ≥ 0, rad/s | Steering speed. |
+
+## `text/ScreenText`
+
+Text over the finished image (after tonemapping), placed in pixels from a view corner.
+
+Brings along: `render/Visibility`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `value` | string | `""` |  | The text. "\n" breaks a line. |
+| `font` | null or asset ref | `null` |  | An imported font (.ttf, .otf). |
+| `color` | string or number[4] | `"#ffffff"` |  | Fill color (linear). |
+| `align` | `"left"` \| `"center"` \| `"right"` | `"left"` |  | Line alignment within the block. |
+| `anchor` | number[2] | `[0.5,0.5]` |  | Pivot of the text block, y up: [0, 0] bottom left, [1, 1] top right. |
+| `maxWidth` | number | `0` | ≥ 0 | Wrap lines longer than this (0: never wrap). |
+| `lineHeight` | number | `1.2` | ≥ 0.1 | Distance between baselines, as a multiple of the size. |
+| `weight` | number | `0` | ≥ -0.25, ≤ 0.25 | Thickens (+) or thins (−) the strokes, in em fractions of the distance range. |
+| `outline` | object | `{"width":0,"color":"#000000"}` |  | An outline around the glyphs, from the distance field. |
+| `shadow` | object | `{"offset":[0,0],"softness":0,"color":"#00000099"}` |  | A soft shadow or glow behind the glyphs. |
+| `size` | number | `24` | ≥ 0 | Height of one em, in pixels. |
+| `corner` | `"top-left"` \| `"top"` \| `"top-right"` \| `"left"` \| `"center"` \| `"right"` \| `"bottom-left"` \| `"bottom"` \| `"bottom-right"` | `"top-left"` |  | The view point it's positioned from. |
+| `position` | number[2] | `[0,0]` |  | Offset from the corner in pixels, x right, y down. |
+
+## `text/Text`
+
+Text in the world, in the entity's XY plane (or facing the camera): MSDF glyphs, sharp at any size and angle.
+
+Brings along: `core/Transform`, `render/Visibility`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `value` | string | `""` |  | The text. "\n" breaks a line. |
+| `font` | null or asset ref | `null` |  | An imported font (.ttf, .otf). |
+| `color` | string or number[4] | `"#ffffff"` |  | Fill color (linear). |
+| `align` | `"left"` \| `"center"` \| `"right"` | `"left"` |  | Line alignment within the block. |
+| `anchor` | number[2] | `[0.5,0.5]` |  | Pivot of the text block, y up: [0, 0] bottom left, [1, 1] top right. |
+| `maxWidth` | number | `0` | ≥ 0 | Wrap lines longer than this (0: never wrap). |
+| `lineHeight` | number | `1.2` | ≥ 0.1 | Distance between baselines, as a multiple of the size. |
+| `weight` | number | `0` | ≥ -0.25, ≤ 0.25 | Thickens (+) or thins (−) the strokes, in em fractions of the distance range. |
+| `outline` | object | `{"width":0,"color":"#000000"}` |  | An outline around the glyphs, from the distance field. |
+| `shadow` | object | `{"offset":[0,0],"softness":0,"color":"#00000099"}` |  | A soft shadow or glow behind the glyphs. |
+| `size` | number | `1` | ≥ 0, m | Height of one em, in world units. |
+| `billboard` | boolean | `false` |  | Always face the camera (labels, markers). |

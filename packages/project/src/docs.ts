@@ -1,4 +1,4 @@
-import { allImporters, type ImporterDef } from '@shard/assets'
+import { allAssetSchemas, allImporters, type ImporterDef } from '@shard/assets'
 import { allComponents, type ComponentDef, type JsonSchema } from '@shard/core'
 import { sceneJsonSchema } from '@shard/scene'
 import { BUILTIN_PLUGINS, type ManifestValue, manifestJsonSchema } from './manifest'
@@ -211,6 +211,178 @@ New files get a usage from their name (\`*_normal*\`, \`*rough*\`, \`*_orm*\`, \
 use textures through slots: \`"baseColorTexture": { "texture": { "path": "assets/rock.png" } }\`
 (also metallicRoughnessTexture, normalTexture, occlusionTexture, emissiveTexture).
 `,
+  'write-a-material.md': `# Write a material
+
+A material type is a schema plus a shader that overrides hooks. Lighting, shadows, and post effects
+keep working because the shader only changes the surface.
+
+1. Define it in \`scripts/\`:
+
+   \`\`\`ts
+   export const Lava = project.material('Lava', {
+     fields: {
+       crackColor: t.color({ default: [1, 0.3, 0.05, 1] }),
+       crackLuminance: t.f32({ default: 20000, unit: 'cd/m²' }),
+       flow: t.vec2({ default: [0.02, 0], description: 'UV scroll per second.' }),
+       cracks: t.handle('Texture', { description: 'Crack mask (R).' }),
+     },
+     shader: 'project::lava',
+   })
+   \`\`\`
+
+2. Write \`shaders/lava.wesl\`. The generated module \`material::lava\` has the uniform (\`Lava\`)
+   and one texture and sampler per texture field (\`Lava_cracks\`, \`Lava_cracks_sampler\`):
+
+   \`\`\`wesl
+   import shard::pbr::types::{ VertexOutput, PbrInput };
+   import shard::pbr::standard::standard_input;
+   import shard::globals::globals;
+   import material::lava::{ Lava, Lava_cracks, Lava_cracks_sampler };
+
+   override fn pbr_input(in: VertexOutput) -> PbrInput {
+     var p = standard_input(in);
+     let uv = in.uv + Lava.flow * globals.time;
+     let crack = textureSample(Lava_cracks, Lava_cracks_sampler, uv).r;
+     p.emissive += Lava.crackColor.rgb * Lava.crackLuminance * crack;
+     return p;
+   }
+   \`\`\`
+
+   Hooks: \`vertex_position(position, normal, uv) -> vec3f\` (object-space displacement, applied in
+   every pass, shadows included), \`pbr_input(in) -> PbrInput\` (the surface), and
+   \`fragment_output(color) -> vec4f\` (pre-exposed HDR, before tonemapping). With
+   \`extends: 'none'\`, override \`shade(in) -> vec4f\` instead: it returns radiance in cd/m² and
+   alpha, and no lighting runs.
+
+3. Use it in a material file: \`{ "type": "<project>/Lava", "crackLuminance": 30000,
+   "cracks": { "path": "assets/cracks.png" } }\`. Leaving out \`"type"\` means the standard material.
+4. Check it: \`shard validate --json\` (bad fields are reported by path), then MCP \`preview_asset\`
+   on the material file. Shader errors appear in \`recent_errors\` as \`shaders/lava.wesl:line:col\`,
+   and the last shader that compiled keeps running.
+`,
+  'make-2d.md': `# Make 2D: sprites, animation, tilemaps
+
+Add \`"sprite"\` to \`plugins\` in \`shard.json\`. 2D uses the same renderer as 3D (HDR, post effects).
+
+1. An atlas. Either drop images in a folder and add \`assets/sprites/hero.atlas-pack.json\`
+   (\`{}\` packs \`assets/sprites/hero/*.png\`; regions are the file names), or write
+   \`hero.atlas.json\`: \`{ "texture": { "path": "assets/sheet.png" }, "grid": { "columns": 8,
+   "rows": 4, "cellWidth": 16, "cellHeight": 16 } }\` (regions \`cell0\`, \`cell1\`, …) and/or
+   \`"regions": [{ "name": "idle_0", "rect": [x, y, w, h] }]\`.
+2. A sprite: \`"sprite/Sprite": { "atlas": { "path": "assets/sprites/hero.atlas-pack.json" },
+   "region": "idle_0", "layer": 1 }\`. No \`size\`: pixels ÷ \`Sprite2dSettings.pixelsPerUnit\` (100).
+   Higher \`layer\` draws on top; within a layer, higher z does. \`"space": "screen"\` makes an
+   overlay positioned in pixels.
+3. Animation: \`walk.clip.json\` = \`{ "atlas": {...}, "frames": [{ "region": "walk_0",
+   "duration": 0.1 }, ...], "loop": "loop", "events": [{ "frame": 2, "name": "step" }] }\`, then
+   \`"sprite/SpriteAnimation": { "clip": { "path": "assets/walk.clip.json" } }\`. Read events with
+   \`world.reader(SpriteAnimationEvent)\`.
+4. Tilemaps: \`level.tilemap.json\` layers are base64 u16 tiles (atlas region + 1, 0 empty), and
+   \`"sprite/Tilemap": { "atlas": ..., "data": ..., "tileSize": [1, 1] }\`. Edit at runtime with
+   \`setTile(world, map, x, y, tile)\`; only that chunk re-uploads.
+5. Pixel art: \`"render/PixelPerfect": { "pixelsPerUnit": 16 }\` on an orthographic camera.
+6. Check: \`shard validate\`, MCP \`preview_asset\` on the atlas (regions outlined and numbered) or
+   the clip, and \`render.describe\` → \`sprites\` (draw calls, sprites per layer, tilemap chunks).
+`,
+  'show-text.md': `# Show text
+
+Add \`"text"\` to \`plugins\` in \`shard.json\` and put a \`.ttf\` or \`.otf\` under \`assets/\` (import
+settings: \`charset\`, \`size\`, \`range\`, \`fallback\` fonts for missing characters).
+
+- In the world: \`"text/Text": { "value": "Scanner 7", "font": { "path": "assets/fonts/Inter.ttf" },
+  "size": 0.5, "billboard": true }\`. \`size\` is the em height in meters.
+- On screen: \`"text/ScreenText": { "value": "Fuel 82%", "font": ..., "size": 24, "corner":
+  "top-right", "position": [-16, 16] }\` (pixels from the corner, y down).
+- Style: \`outline: { width: 0.03, color }\`, \`shadow: { offset: [0.05, -0.05], softness: 0.3, color }\`
+  (offset 0 with softness is a glow), \`weight\`. Wrap with \`maxWidth\`; \`align\` and \`anchor\` place it.
+- Size before placing: MCP \`measure_text\` returns width, height, and lines. \`preview_asset\` on the
+  font shows a specimen. Missing characters: \`render.describe\` → \`text.missing\`.
+`,
+  'add-physics.md': `# Add physics
+
+Add \`"physics3d"\` (or \`"physics2d"\` for a 2D game, never both) to \`plugins\` in \`shard.json\`.
+Bodies and colliders are components, so scenes, prefabs, and \`patch_entity\` create and change them:
+
+\`\`\`json
+{ "name": "crate", "components": {
+  "core/Transform": { "translation": [0, 3, 0] },
+  "physics/RigidBody": { "kind": "dynamic" },
+  "physics/Collider": { "shape": "cuboid", "halfExtents": [0.5, 0.5, 0.5], "restitution": 0.2 } } }
+\`\`\`
+
+- Kinds: \`dynamic\` (forces and contacts move it), \`fixed\`, \`kinematic-position\` (follows its
+  Transform), \`kinematic-velocity\` (moves by \`physics/Velocity\`). A \`Collider\` without a body is fixed.
+- Shapes: ball (\`radius\`), cuboid (\`halfExtents\`), capsule, cylinder, cone (\`radius\`, \`halfHeight\`
+  along Y), convex and trimesh (\`mesh\`: a Mesh asset, or \`points\`), heightfield, segment, polyline.
+  Scale in the Transform scales the shape. Colliders on children without their own body attach to
+  the nearest ancestor body (one compound body).
+- Move bodies with \`physics/Velocity\`, \`physics/ExternalForce\` (every step), or
+  \`physics/ExternalImpulse\` (once). Writing a dynamic body's Transform teleports it.
+- Layers: \`layers\` and \`mask\` are 16-bit masks; two colliders touch when each one's mask has the
+  other's layer. Planets: \`physics/GravitySource\` on the planet, and \`physics/Config\` gravity \`[0, 0, 0]\`.
+- Events: set \`events: true\` on a collider (sensors too) and read \`physics/CollisionEvent\`
+  (\`started\` / \`stopped\`, the two collider entities and their bodies).
+- Queries in code: \`world.resource(Physics).raycast(origin, dir, { mask }, hit)\`. From tools:
+  \`physics_raycast\`, \`physics_overlap\`, \`physics_describe\`. See shapes with
+  \`screenshot\` \`"overlays": ["colliders"]\`.
+
+Check a fall with a gameplay test:
+
+\`\`\`ts
+test('the crate lands', async ({ game }) => {
+  await game.load('scenes/main.scene.json')
+  await game.step(120)
+  expect(game.get('crate', 'core/Transform').translation[1]).toBeCloseTo(0.5, 1)
+})
+\`\`\`
+`,
+  'make-particles.md': `# Make a particle effect
+
+Add \`"particles"\` to \`plugins\` in \`shard.json\`. An effect is \`assets/fx/<name>.particles.json\`,
+validated against \`.shard/schemas/particle-effect.schema.json\` (errors point into the file):
+
+\`\`\`json
+{ "emitters": [{ "name": "exhaust", "capacity": 20000, "spawn": { "rate": 4000 },
+  "shape": { "type": "cone", "angle": 8, "radius": 0.2 },
+  "init": { "lifetime": [0.3, 0.6], "speed": [18, 25], "size": [0.2, 0.35], "color": "#9ad4ff" },
+  "update": [{ "module": "drag", "coefficient": 1.5 }, { "module": "curl-noise", "strength": 2 },
+    { "module": "color-over-life", "gradient": [[0, "#e9f6ff", 1], [1, "#1a3a7a", 0]] }],
+  "render": { "blend": "additive", "emissive": 4000 } }] }
+\`\`\`
+
+- Values: a number or \`[min, max]\`; curves \`[[t, v], …]\`; gradients \`[[t, color, alpha], …]\`.
+- Modules: gravity, drag, velocity-over-life, curl-noise, attractor, rotation, color-over-life,
+  size-over-life, collision (bounces off what the camera sees).
+- Use it: \`"particles/ParticleSystem": { "effect": { "path": "assets/fx/exhaust.particles.json" } }\`;
+  \`space: "local"\` keeps particles attached. Drive it from gameplay with
+  \`particles/ParticleEmitterOverrides\` (\`spawnScale\`). Saving the file updates the running effect.
+- Look: MCP \`preview_asset\` on the file shows it after one second; \`render.describe\` →
+  \`particles\` gives alive counts.
+`,
+  'inspect-a-scene.md': `# Find what's wrong in a scene
+
+When a screenshot looks wrong, connect the pixels to entities:
+
+1. \`screenshot\` with \`"overlays": ["bounds", "labels"]\`: every mesh gets its outline and its scene
+   path. Add \`"filter": "ship/"\` to label one subtree. Other overlays: lights, cameras, cascades,
+   normals, axes.
+2. \`pick\` a pixel that looks wrong (same coordinates as the screenshot): its path, position, and
+   normal. Or \`raycast\` from a point, e.g. straight down to find the ground.
+3. \`get_entity\` on that path, \`patch_entity\` the fix, and screenshot again with the same overlays.
+
+In your own systems, draw with gizmos (they last one frame, or \`duration\` seconds):
+
+\`\`\`ts
+const g = world.resource(Gizmos)
+g.line(from, to, [1, 0.2, 0.2, 1])
+g.arrow(position, target, [1, 1, 0, 1], { width: 2 })
+g.sphere(center, radius, [0, 1, 1, 1], { depthTest: false })
+g.label(position, 'target', [1, 1, 1, 1])
+\`\`\`
+
+\`list_gizmos\` shows what was drawn as data. \`pick(world, camera, x, y)\` and
+\`raycast(world, origin, direction)\` from \`@shard/render\` do the same in code.
+`,
   'debug-with-screenshots.md': `# Look at the game
 
 - \`shard screenshot <scene> --out shot.png --frames 60\` renders headless (no window needed).
@@ -282,6 +454,9 @@ export function generateDocs(
   }
   for (const [name, content] of Object.entries(SKILLS))
     files[`.agents/skills/${name}`] = content.replaceAll('<project>', manifest.name)
+  for (const [file, schema] of allAssetSchemas()) {
+    files[`.shard/schemas/${file}`] = `${JSON.stringify(schema(), null, 2)}\n`
+  }
   for (const def of allComponents()) {
     if (def.name.startsWith('test/')) continue
     files[`.shard/schemas/components/${def.name.replace('/', '.')}.json`] =

@@ -23,7 +23,7 @@ import {
   t,
   type World,
 } from '@shard/core'
-import { MaterialAsset, Materials, Meshes, StandardMaterial } from '@shard/render'
+import { Materials, Meshes, materialFromJson, validateMaterial } from '@shard/render'
 import type { Plugin } from '@shard/runtime'
 import { SCENE_VERSION, type SceneEntity, type SceneFile } from './format'
 import { PROCEDURAL_MESHES, parseProcedural } from './procedural'
@@ -378,8 +378,7 @@ function resolveAssets(
       if (entry.type === 'Material') {
         const store = world.tryResource(Materials)
         if (!store) return undefined
-        const value = StandardMaterial.deserialize(entry.value)
-        const ref = store.add(new MaterialAsset(value), `${sceneId}${path}`)
+        const ref = store.add(materialFromJson(entry.value), `${sceneId}${path}`)
         resolved = { guid: ref.guid!, path, type: 'Material' }
       } else {
         const proc = parseProcedural(entry.procedural, entry.params)
@@ -538,8 +537,8 @@ export function validateScene(
       for (const [name, entry] of Object.entries(file.assets)) {
         const base = pointer('/assets', name)
         if (entry?.type === 'Material') {
-          for (const e of StandardMaterial.validate(entry.value))
-            errors.push(rebase(e, `${base}/value`))
+          // The value may name a material type ("type": "my-game/Lava"); its schema validates it.
+          for (const e of validateMaterial(entry.value)) errors.push(rebase(e, `${base}/value`))
         } else if (entry?.type === 'Mesh') {
           try {
             parseProcedural(entry.procedural, entry.params, base)

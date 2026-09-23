@@ -346,8 +346,12 @@ describe('MCP server', () => {
         'project_status',
         'reload_project',
         'typecheck',
+        'physics_raycast',
       ]),
     )
+    expect(tools.find((t) => t.name === 'physics_raycast')!.inputSchema).toMatchObject({
+      required: ['origin', 'direction'],
+    })
     expect(tools.find((t) => t.name === 'patch_entity')!.inputSchema).toMatchObject({
       required: ['entity'],
     })

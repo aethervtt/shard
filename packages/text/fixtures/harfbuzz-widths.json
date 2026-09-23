@@ -1,0 +1,48 @@
+{
+ "Inter-Regular.ttf": {
+  "unitsPerEm": 2048,
+  "strings": {
+   "AVATAR": 7664,
+   "AVATAR|nokern": 8292,
+   "To be, or not to be": 17741,
+   "To be, or not to be|nokern": 17921,
+   "Wavy Toyota LTA": 16529,
+   "Wavy Toyota LTA|nokern": 17264,
+   "Hello, World!": 12386,
+   "Hello, World!|nokern": 12458,
+   "Kerning: AV Ta Yo P. F. Te Vo": 28007,
+   "Kerning: AV Ta Yo P. F. Te Vo|nokern": 28905,
+   "Łódź Żółć Ærø": 14165,
+   "Łódź Żółć Ærø|nokern": 14199,
+   "fjord offal": 9327,
+   "fjord offal|nokern": 9473,
+   "1234567890": 12144,
+   "1234567890|nokern": 12173,
+   "\"Quoted\" 'text' — dash…": 24107,
+   "\"Quoted\" 'text' — dash…|nokern": 24153,
+   "Typography is the art": 20593,
+   "Typography is the art|nokern": 20719
+  }
+ },
+ "Inter-legacykern.ttf": {
+  "unitsPerEm": 2048,
+  "strings": {
+   "AVATAR": 8142,
+   "AVATAR|nokern": 8292,
+   "To be, or not to be": 17801,
+   "To be, or not to be|nokern": 17921,
+   "Wavy Toyota LTA": 16944,
+   "Wavy Toyota LTA|nokern": 17264,
+   "Hello, World!": 12458,
+   "Hello, World!|nokern": 12458,
+   "Kerning: AV Ta Yo P. F. Te Vo": 28755,
+   "Kerning: AV Ta Yo P. F. Te Vo|nokern": 28905,
+   "fjord offal": 9473,
+   "fjord offal|nokern": 9473,
+   "1234567890": 12173,
+   "1234567890|nokern": 12173,
+   "Typography is the art": 20719,
+   "Typography is the art|nokern": 20719
+  }
+ }
+}

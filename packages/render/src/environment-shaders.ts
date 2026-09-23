@@ -1,0 +1,470 @@
+/** WGSL for environments: prefiltering (compute), the atmosphere, IBL, and the sky background. */
+export const ENVIRONMENT_SHADERS: Record<string, string> = {
+  'shard::env::common': `
+const PI: f32 = 3.14159265359;
+
+/** The direction through texel uv (0..1, top-left origin) of cube face +X, -X, +Y, -Y, +Z, -Z. */
+fn cube_dir(face: u32, uv: vec2f) -> vec3f {
+  let s = uv.x * 2.0 - 1.0;
+  let t = uv.y * 2.0 - 1.0;
+  switch face {
+    case 0u: { return normalize(vec3f(1.0, -t, -s)); }
+    case 1u: { return normalize(vec3f(-1.0, -t, s)); }
+    case 2u: { return normalize(vec3f(s, 1.0, t)); }
+    case 3u: { return normalize(vec3f(s, -1.0, -t)); }
+    case 4u: { return normalize(vec3f(s, -t, 1.0)); }
+    default: { return normalize(vec3f(-s, -t, -1.0)); }
+  }
+}
+
+/** Equirectangular uv of a direction: u = 0.5 looks along +X, v = 0 is straight up. */
+fn equirect_uv(d: vec3f) -> vec2f {
+  return vec2f(atan2(d.z, d.x) / (2.0 * PI) + 0.5, acos(clamp(d.y, -1.0, 1.0)) / PI);
+}
+
+fn hammersley(i: u32, n: u32) -> vec2f {
+  return vec2f(f32(i) / f32(n), f32(reverseBits(i)) * 2.3283064365386963e-10);
+}
+
+/** A GGX-distributed half vector around n (alpha = roughness²). */
+fn importance_ggx(xi: vec2f, n: vec3f, a: f32) -> vec3f {
+  let phi = 2.0 * PI * xi.x;
+  let cos_theta = sqrt((1.0 - xi.y) / (1.0 + (a * a - 1.0) * xi.y));
+  let sin_theta = sqrt(max(0.0, 1.0 - cos_theta * cos_theta));
+  let h = vec3f(cos(phi) * sin_theta, sin(phi) * sin_theta, cos_theta);
+  let up = select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 0.0, 1.0), abs(n.z) < 0.999);
+  let tx = normalize(cross(up, n));
+  let ty = cross(n, tx);
+  return normalize(tx * h.x + ty * h.y + n * h.z);
+}
+
+/** The nine real spherical harmonics basis functions (bands 0-2) at a unit direction. */
+fn sh_basis(d: vec3f) -> array<f32, 9> {
+  return array<f32, 9>(
+    0.282095,
+    0.488603 * d.y,
+    0.488603 * d.z,
+    0.488603 * d.x,
+    1.092548 * d.x * d.y,
+    1.092548 * d.y * d.z,
+    0.315392 * (3.0 * d.z * d.z - 1.0),
+    1.092548 * d.x * d.z,
+    0.546274 * (d.x * d.x - d.y * d.y),
+  );
+}`,
+
+  'shard::env::from_equirect': `
+import shard::env::common::{ cube_dir, equirect_uv };
+
+@group(0) @binding(0) var input: texture_2d<f32>;
+@group(0) @binding(1) var input_sampler: sampler;
+@group(0) @binding(2) var output: texture_storage_2d_array<rgba16float, write>;
+
+@compute @workgroup_size(8, 8, 1)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let size = textureDimensions(output).x;
+  if (id.x >= size || id.y >= size) { return; }
+  var c = vec3f(0.0);
+  // 2x2 supersampling: a 512² face covers several equirect texels near the poles.
+  for (var j = 0u; j < 2u; j++) {
+    for (var i = 0u; i < 2u; i++) {
+      let uv = (vec2f(id.xy) + (vec2f(f32(i), f32(j)) + 0.5) * 0.5) / f32(size);
+      c += textureSampleLevel(input, input_sampler, equirect_uv(cube_dir(id.z, uv)), 0.0).rgb;
+    }
+  }
+  textureStore(output, id.xy, id.z, vec4f(c * 0.25, 1.0));
+}`,
+
+  'shard::env::from_cube': `
+import shard::env::common::cube_dir;
+
+@group(0) @binding(0) var input: texture_cube<f32>;
+@group(0) @binding(1) var input_sampler: sampler;
+@group(0) @binding(2) var output: texture_storage_2d_array<rgba16float, write>;
+
+@compute @workgroup_size(8, 8, 1)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let size = textureDimensions(output).x;
+  if (id.x >= size || id.y >= size) { return; }
+  let uv = (vec2f(id.xy) + 0.5) / f32(size);
+  let c = textureSampleLevel(input, input_sampler, cube_dir(id.z, uv), 0.0).rgb;
+  textureStore(output, id.xy, id.z, vec4f(c, 1.0));
+}`,
+
+  'shard::env::downsample': `
+@group(0) @binding(0) var src: texture_2d_array<f32>;
+@group(0) @binding(1) var dst: texture_storage_2d_array<rgba16float, write>;
+
+@compute @workgroup_size(8, 8, 1)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let size = textureDimensions(dst).x;
+  if (id.x >= size || id.y >= size) { return; }
+  let p = vec2i(id.xy) * 2;
+  let face = i32(id.z);
+  let c = textureLoad(src, p, face, 0) + textureLoad(src, p + vec2i(1, 0), face, 0)
+    + textureLoad(src, p + vec2i(0, 1), face, 0) + textureLoad(src, p + vec2i(1, 1), face, 0);
+  textureStore(dst, id.xy, id.z, vec4f(c.rgb * 0.25, 1.0));
+}`,
+
+  'shard::env::sh': `
+import shard::env::common::{ PI, cube_dir, sh_basis };
+
+@group(0) @binding(0) var src: texture_2d_array<f32>;
+/** Output: SH9 coefficients already convolved with the cosine lobe and divided by π. */
+@group(0) @binding(1) var<storage, read_write> sh: array<vec4f, 9>;
+
+var<workgroup> acc: array<array<vec4f, 9>, 64>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(local_invocation_index) t: u32) {
+  let n = textureDimensions(src).x;
+  var c: array<vec4f, 9>;
+  for (var k = 0u; k < 9u; k++) { c[k] = vec4f(0.0); }
+  let total = 6u * n * n;
+  for (var i = t; i < total; i += 64u) {
+    let face = i / (n * n);
+    let r = i % (n * n);
+    let x = r % n;
+    let y = r / n;
+    let uv = (vec2f(f32(x), f32(y)) + 0.5) / f32(n);
+    let st = uv * 2.0 - 1.0;
+    // Solid angle of the texel.
+    let w = 4.0 / (f32(n * n) * pow(1.0 + dot(st, st), 1.5));
+    let radiance = textureLoad(src, vec2u(x, y), face, 0).rgb;
+    let b = sh_basis(cube_dir(face, uv));
+    for (var k = 0u; k < 9u; k++) { c[k] += vec4f(radiance * b[k] * w, w); }
+  }
+  acc[t] = c;
+  workgroupBarrier();
+  for (var stride = 32u; stride > 0u; stride = stride / 2u) {
+    if (t < stride) {
+      for (var k = 0u; k < 9u; k++) { acc[t][k] += acc[t + stride][k]; }
+    }
+    workgroupBarrier();
+  }
+  if (t == 0u) {
+    // Normalize the solid angles to exactly 4π, then apply the cosine lobe (Â_l / π).
+    let norm = 4.0 * PI / acc[0][0].w;
+    let band = array<f32, 9>(1.0, 2.0 / 3.0, 2.0 / 3.0, 2.0 / 3.0, 0.25, 0.25, 0.25, 0.25, 0.25);
+    for (var k = 0u; k < 9u; k++) { sh[k] = vec4f(acc[0][k].rgb * norm * band[k], 0.0); }
+  }
+}`,
+
+  'shard::env::specular': `
+import shard::env::common::{ PI, cube_dir, hammersley, importance_ggx };
+import shard::pbr::brdf::d_ggx;
+
+struct Params { roughness: f32, source_size: f32, size: f32, _pad: f32 }
+
+@group(0) @binding(0) var src: texture_cube<f32>;
+@group(0) @binding(1) var src_sampler: sampler;
+@group(0) @binding(2) var dst: texture_storage_2d_array<rgba16float, write>;
+@group(0) @binding(3) var<uniform> params: Params;
+
+const SAMPLES: u32 = 64u;
+
+/** GGX prefiltering with filtered importance sampling (Křivánek & Colbert): n = v = r. */
+@compute @workgroup_size(8, 8, 1)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let size = u32(params.size);
+  if (id.x >= size || id.y >= size) { return; }
+  let n = cube_dir(id.z, (vec2f(id.xy) + 0.5) / f32(size));
+  if (params.roughness <= 0.0) {
+    let c = textureSampleLevel(src, src_sampler, n, log2(params.source_size / f32(size)));
+    textureStore(dst, id.xy, id.z, vec4f(c.rgb, 1.0));
+    return;
+  }
+  let a = params.roughness * params.roughness;
+  let omega_p = 4.0 * PI / (6.0 * params.source_size * params.source_size);
+  var color = vec3f(0.0);
+  var weight = 0.0;
+  for (var i = 0u; i < SAMPLES; i++) {
+    let h = importance_ggx(hammersley(i, SAMPLES), n, a);
+    let l = normalize(2.0 * dot(n, h) * h - n);
+    let n_dot_l = dot(n, l);
+    if (n_dot_l <= 0.0) { continue; }
+    let n_dot_h = max(dot(n, h), 0.0);
+    // pdf of l with v = n: D(h) · (n·h) / (4 (v·h)) = D / 4.
+    let pdf = d_ggx(n_dot_h, a) * 0.25 + 1e-6;
+    let omega_s = 1.0 / (f32(SAMPLES) * pdf);
+    let lod = max(0.5 * log2(omega_s / omega_p) + 1.0, 0.0);
+    color += textureSampleLevel(src, src_sampler, l, lod).rgb * n_dot_l;
+    weight += n_dot_l;
+  }
+  textureStore(dst, id.xy, id.z, vec4f(color / max(weight, 1e-6), 1.0));
+}`,
+
+  'shard::env::brdf_lut': `
+import shard::env::common::{ hammersley, importance_ggx };
+import shard::pbr::brdf::v_smith_ggx_correlated;
+
+@group(0) @binding(0) var lut: texture_storage_2d<rgba16float, write>;
+
+const SAMPLES: u32 = 256u;
+
+/** Split-sum BRDF scale and bias: x = n·v, y = roughness. Same visibility term as direct light. */
+@compute @workgroup_size(8, 8, 1)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let dim = textureDimensions(lut);
+  if (id.x >= dim.x || id.y >= dim.y) { return; }
+  let n_dot_v = (f32(id.x) + 0.5) / f32(dim.x);
+  let roughness = (f32(id.y) + 0.5) / f32(dim.y);
+  let a = roughness * roughness;
+  let v = vec3f(sqrt(1.0 - n_dot_v * n_dot_v), 0.0, n_dot_v);
+  let n = vec3f(0.0, 0.0, 1.0);
+  var scale = 0.0;
+  var bias = 0.0;
+  for (var i = 0u; i < SAMPLES; i++) {
+    let h = importance_ggx(hammersley(i, SAMPLES), n, a);
+    let l = 2.0 * dot(v, h) * h - v;
+    let n_dot_l = max(l.z, 0.0);
+    let n_dot_h = max(h.z, 0.0);
+    let v_dot_h = max(dot(v, h), 0.0);
+    if (n_dot_l <= 0.0) { continue; }
+    let g_vis = v_smith_ggx_correlated(n_dot_v, n_dot_l, a) * 4.0 * n_dot_l * v_dot_h / max(n_dot_h, 1e-6);
+    let fc = pow(1.0 - v_dot_h, 5.0);
+    scale += (1.0 - fc) * g_vis;
+    bias += fc * g_vis;
+  }
+  textureStore(lut, id.xy, vec4f(scale / f32(SAMPLES), bias / f32(SAMPLES), 0.0, 1.0));
+}`,
+
+  'shard::sky::atmosphere': `
+const SKY_PI: f32 = 3.14159265359;
+const R_GROUND: f32 = 6360000.0;
+const R_TOP: f32 = 6420000.0;
+const H_RAYLEIGH: f32 = 8000.0;
+const H_MIE: f32 = 1200.0;
+const BETA_RAYLEIGH: vec3f = vec3f(5.802e-6, 13.558e-6, 33.1e-6);
+const BETA_MIE: f32 = 3.996e-6;
+const MIE_G: f32 = 0.8;
+/** The viewer's height above the ground (m). */
+const VIEW_HEIGHT: f32 = 10.0;
+
+struct SkyParams {
+  /** Toward the sun (xyz), illuminance in lux (w). */
+  sun: vec4f,
+  /** turbidity, rayleigh, mie, sun disk size. */
+  params: vec4f,
+  ground: vec4f,
+  _pad: vec4f,
+}
+
+/** Near and far distances along d from o to the sphere of radius r (negative: no hit). */
+fn ray_sphere(o: vec3f, d: vec3f, r: f32) -> vec2f {
+  let b = dot(o, d);
+  let c = dot(o, o) - r * r;
+  let disc = b * b - c;
+  if (disc < 0.0) { return vec2f(-1.0, -1.0); }
+  let s = sqrt(disc);
+  return vec2f(-b - s, -b + s);
+}
+
+/** Rayleigh and Mie optical depth from p to the top of the atmosphere along l; x < 0 if the ground is in the way. */
+fn optical_depth(p: vec3f, l: vec3f) -> vec2f {
+  let ground = ray_sphere(p, l, R_GROUND);
+  if (ground.x > 0.0) { return vec2f(-1.0, -1.0); }
+  let t_top = ray_sphere(p, l, R_TOP).y;
+  let steps = 8;
+  let dt = t_top / f32(steps);
+  var depth = vec2f(0.0);
+  for (var i = 0; i < steps; i++) {
+    let q = p + l * (dt * (f32(i) + 0.5));
+    let h = length(q) - R_GROUND;
+    depth += vec2f(exp(-h / H_RAYLEIGH), exp(-h / H_MIE)) * dt;
+  }
+  return depth;
+}
+
+fn mie_phase(mu: f32) -> f32 {
+  // Cornette-Shanks.
+  let g2 = MIE_G * MIE_G;
+  return 3.0 / (8.0 * SKY_PI) * ((1.0 - g2) * (1.0 + mu * mu)) / ((2.0 + g2) * pow(1.0 + g2 - 2.0 * MIE_G * mu, 1.5));
+}
+
+/**
+ * Single-scattered sky luminance (cd/m²) toward d: Rayleigh and Mie in-scattering of the sun along
+ * the view ray, plus the lit ground below the horizon. Scales with the sun's illuminance.
+ */
+fn sky_luminance(d: vec3f, sky: SkyParams) -> vec3f {
+  let sun = normalize(sky.sun.xyz);
+  let o = vec3f(0.0, R_GROUND + VIEW_HEIGHT, 0.0);
+  let beta_r = BETA_RAYLEIGH * sky.params.y;
+  let beta_m = BETA_MIE * sky.params.z * sky.params.x;
+  let beta_m_ext = beta_m * 1.11;
+  let ground = ray_sphere(o, d, R_GROUND);
+  let hits_ground = ground.x > 0.0;
+  let t_max = select(ray_sphere(o, d, R_TOP).y, ground.x, hits_ground);
+  let mu = dot(d, sun);
+  let phase_r = 3.0 / (16.0 * SKY_PI) * (1.0 + mu * mu);
+  let phase_m = mie_phase(mu);
+  let steps = 16;
+  var view_depth = vec2f(0.0);
+  var inscatter = vec3f(0.0);
+  var t_prev = 0.0;
+  for (var i = 0; i < steps; i++) {
+    // Samples bunch up near the viewer, where the air is densest.
+    let f = (f32(i) + 1.0) / f32(steps);
+    let t = t_max * f * f;
+    let dt = t - t_prev;
+    let p = o + d * (t_prev + dt * 0.5);
+    t_prev = t;
+    let h = length(p) - R_GROUND;
+    let density = vec2f(exp(-h / H_RAYLEIGH), exp(-h / H_MIE));
+    view_depth += density * dt * 0.5;
+    let sun_depth = optical_depth(p, sun);
+    if (sun_depth.x >= 0.0) {
+      let tau = beta_r * (view_depth.x + sun_depth.x) + beta_m_ext * (view_depth.y + sun_depth.y);
+      inscatter += exp(-tau) * (beta_r * density.x * phase_r + vec3f(beta_m * density.y * phase_m)) * dt;
+    }
+    view_depth += density * dt * 0.5;
+  }
+  var color = inscatter * sky.sun.w;
+  if (hits_ground) {
+    let pg = o + d * t_max;
+    let up = normalize(pg);
+    let view_t = exp(-(beta_r * view_depth.x + beta_m_ext * view_depth.y));
+    let sun_depth = optical_depth(pg + up, sun);
+    if (sun_depth.x >= 0.0) {
+      let sun_t = exp(-(beta_r * sun_depth.x + beta_m_ext * sun_depth.y));
+      color += view_t * sky.ground.rgb / SKY_PI * sky.sun.w * max(dot(up, sun), 0.0) * sun_t;
+    }
+  }
+  return color;
+}
+
+/** Transmittance from the viewer to space along d (for the sun disk). */
+fn sky_transmittance(d: vec3f, sky: SkyParams) -> vec3f {
+  let o = vec3f(0.0, R_GROUND + VIEW_HEIGHT, 0.0);
+  let depth = optical_depth(o, d);
+  if (depth.x < 0.0) { return vec3f(0.0); }
+  let beta_r = BETA_RAYLEIGH * sky.params.y;
+  let beta_m_ext = BETA_MIE * sky.params.z * sky.params.x * 1.11;
+  return exp(-(beta_r * depth.x + beta_m_ext * depth.y));
+}`,
+
+  'shard::env::sky': `
+import shard::env::common::cube_dir;
+import shard::sky::atmosphere::{ SkyParams, sky_luminance };
+
+@group(0) @binding(0) var<uniform> sky: SkyParams;
+@group(0) @binding(1) var dst: texture_storage_2d_array<rgba16float, write>;
+
+/** Bakes the sky (without the sun disk: the DirectionalLight is the sun) into a cube face. */
+@compute @workgroup_size(8, 8, 1)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let size = textureDimensions(dst).x;
+  if (id.x >= size || id.y >= size) { return; }
+  let d = cube_dir(id.z, (vec2f(id.xy) + 0.5) / f32(size));
+  textureStore(dst, id.xy, id.z, vec4f(min(sky_luminance(d, sky), vec3f(6.0e7)), 1.0));
+}`,
+
+  'shard::pbr::environment': `
+import shard::view::view;
+import shard::pbr::types::PbrInput;
+
+@group(0) @binding(9) var env_specular: texture_cube<f32>;
+@group(0) @binding(10) var env_lut: texture_2d<f32>;
+@group(0) @binding(11) var env_sampler: sampler;
+/** SH9, convolved with the cosine lobe and divided by π: dot with the basis = irradiance / π. */
+@group(0) @binding(12) var<storage, read> env_sh: array<vec4f, 9>;
+@group(0) @binding(13) var env_source: texture_cube<f32>;
+
+const ENV_SPECULAR_MIPS: f32 = 5.0;
+
+/** A direction in the environment's frame: rotated by -rotation about +Y. */
+fn env_rotate(d: vec3f) -> vec3f {
+  let c = view.envParams.y;
+  let s = view.envParams.z;
+  return vec3f(c * d.x - s * d.z, d.y, s * d.x + c * d.z);
+}
+
+/** Irradiance / π from SH9 (a luminance, in the environment's units). */
+fn env_irradiance(n: vec3f) -> vec3f {
+  let d = env_rotate(n);
+  var e = env_sh[0].rgb * 0.282095;
+  e += env_sh[1].rgb * 0.488603 * d.y;
+  e += env_sh[2].rgb * 0.488603 * d.z;
+  e += env_sh[3].rgb * 0.488603 * d.x;
+  e += env_sh[4].rgb * 1.092548 * d.x * d.y;
+  e += env_sh[5].rgb * 1.092548 * d.y * d.z;
+  e += env_sh[6].rgb * 0.315392 * (3.0 * d.z * d.z - 1.0);
+  e += env_sh[7].rgb * 1.092548 * d.x * d.z;
+  e += env_sh[8].rgb * 0.546274 * (d.x * d.x - d.y * d.y);
+  return max(e, vec3f(0.0));
+}
+
+/**
+ * Split-sum image-based lighting: irradiance(n) · diffuse · (1 − F) · occlusion
+ * + prefiltered(r, roughness) · (F₀·A + B), in cd/m².
+ */
+fn environment_light(p: PbrInput, n: vec3f, v: vec3f) -> vec3f {
+  let n_dot_v = clamp(dot(n, v), 1e-4, 1.0);
+  let f0 = mix(vec3f(0.04), p.base_color, p.metallic);
+  let diffuse_color = p.base_color * (1.0 - p.metallic);
+  // Fresnel with roughness (Lagarde): rough surfaces don't reach full grazing reflectance.
+  let f = f0 + (max(vec3f(1.0 - p.roughness), f0) - f0) * pow(1.0 - n_dot_v, 5.0);
+  let r = reflect(-v, n);
+  let prefiltered = textureSampleLevel(env_specular, env_sampler, env_rotate(r), p.roughness * ENV_SPECULAR_MIPS).rgb;
+  let ab = textureSampleLevel(env_lut, env_sampler, vec2f(n_dot_v, p.roughness), 0.0).rg;
+  // Specular occlusion from ambient occlusion (Lagarde & de Rousiers).
+  let ao = p.occlusion;
+  let spec_ao = clamp(pow(n_dot_v + ao, exp2(-16.0 * p.roughness - 1.0)) - 1.0 + ao, 0.0, 1.0);
+  let diffuse = env_irradiance(n) * diffuse_color * (vec3f(1.0) - f) * ao;
+  let specular = prefiltered * (f0 * ab.x + ab.y) * spec_ao;
+  return (diffuse + specular) * view.envParams.x;
+}
+
+/** The environment's own radiance toward d (the background), in cd/m². */
+fn environment_background(d: vec3f) -> vec3f {
+  return textureSampleLevel(env_source, env_sampler, env_rotate(d), 0.0).rgb * view.envParams.x;
+}`,
+
+  'shard::sky::background': `
+import shard::view::view;
+import shard::pbr::environment::environment_background;
+import shard::sky::atmosphere::{ SkyParams, sky_transmittance };
+
+struct Background {
+  /** brightness, 1 when a procedural sky draws its sun disk, sun disk angular radius, disk luminance. */
+  params: vec4f,
+  sky: SkyParams,
+}
+
+@group(1) @binding(0) var<uniform> background: Background;
+
+struct BackgroundOutput {
+  @builtin(position) clip: vec4f,
+  @location(0) ndc: vec2f,
+}
+
+/** A fullscreen triangle at depth 0 (reversed-Z infinity): it only draws where nothing else did. */
+@vertex fn vs(@builtin(vertex_index) i: u32) -> BackgroundOutput {
+  let xy = vec2f(f32((i << 1u) & 2u), f32(i & 2u)) * 2.0 - 1.0;
+  var out: BackgroundOutput;
+  out.clip = vec4f(xy, 0.0, 1.0);
+  out.ndc = xy;
+  return out;
+}
+
+@fragment fn fs(in: BackgroundOutput) -> @location(0) vec4f {
+  let near = view.invViewProj * vec4f(in.ndc, 1.0, 1.0);
+  let far = view.invViewProj * vec4f(in.ndc, 0.5, 1.0);
+  let d = normalize(far.xyz / far.w - near.xyz / near.w);
+  var color = environment_background(d) * background.params.x;
+  if (background.params.y > 0.5) {
+    let sun = normalize(background.sky.sun.xyz);
+    let angle = acos(clamp(dot(d, sun), -1.0, 1.0));
+    let radius = background.params.z;
+    if (angle < radius * 1.2) {
+      // A soft edge and a little limb darkening.
+      let x = clamp(angle / radius, 0.0, 1.0);
+      let edge = 1.0 - smoothstep(0.9, 1.2, angle / radius);
+      let limb = 1.0 - 0.6 * (1.0 - sqrt(max(0.0, 1.0 - x * x)));
+      color += background.params.w * sky_transmittance(d, background.sky) * edge * limb;
+    }
+  }
+  // Pre-exposed, and kept inside what rgba16float holds.
+  return vec4f(min(color * view.exposure, vec3f(60000.0)), 1.0);
+}`,
+}

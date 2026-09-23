@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ChildOf, quat } from '@shard/core'
@@ -12,10 +12,12 @@ import { MaterialAsset, Materials, Meshes, RenderTargets } from './assets'
 import { Camera3d, Exposure, ExposurePresets, LightPresets, PhysicalCamera } from './camera'
 import { forwardPlugin, Mesh3d, MeshMaterial } from './forward'
 import { AmbientLight, DirectionalLight } from './lights'
-import { captureView, describeRender, renderPlugin, Shaders } from './plugin'
+import { captureView, describeRender, renderPlugin } from './plugin'
 import { ENGINE_SHADERS } from './shaders'
 import { RenderStats } from './stats'
 import { OffscreenTarget } from './target'
+import { compareGolden, pixel, renderView, settle } from './testing'
+import { Tonemapping } from './view'
 import { ComputedVisibility, Visibility } from './visibility'
 
 let gpu: GpuContext
@@ -39,21 +41,42 @@ async function scene(size = 64) {
   return { app, world: app.world, target, targetRef }
 }
 
-/** Renders frames until shaders and pipelines are compiled, then captures. */
-async function render(app: App, view: string) {
-  for (let i = 0; i < 40; i++) {
-    app.update(1 / 60)
-    await app.world.resource(Shaders).whenIdle()
-    await gpu.pipelines.whenIdle()
-  }
-  const shot = captureView(app.world, view)
-  app.update(1 / 60)
-  return shot
-}
+const render = renderView
+const here = dirname(fileURLToPath(import.meta.url))
 
-function pixel(image: { width: number; data: Uint8Array }, x: number, y: number) {
-  const o = (y * image.width + x) * 4
-  return [...image.data.slice(o, o + 4)]
+async function referenceScene(tonemap?: { curve: 'aces'; dither: boolean }) {
+  const { world, app, targetRef } = await scene(64)
+  const meshes = world.resource(Meshes)
+  const materials = world.resource(Materials)
+  const red = materials.add(new MaterialAsset({ baseColor: [0.8, 0.1, 0.1, 1], roughness: 0.4 }))
+  const metal = materials.add(
+    new MaterialAsset({ baseColor: [0.9, 0.9, 0.9, 1], metallic: 1, roughness: 0.25 }),
+  )
+  world.spawn(
+    [Mesh3d, { mesh: meshes.add(plane({ size: 10 })) }],
+    [Transform, { translation: [0, -1, 0] }],
+  )
+  world.spawn(
+    [Mesh3d, { mesh: meshes.add(cube()) }],
+    [MeshMaterial, { material: red }],
+    [Transform, { translation: [-1, -0.5, 0], rotation: q(0, 0.5, 0) }],
+  )
+  world.spawn(
+    [Mesh3d, { mesh: meshes.add(sphere({ radius: 0.6 })) }],
+    [MeshMaterial, { material: metal }],
+    [Transform, { translation: [1, -0.4, 0] }],
+  )
+  world.spawn(
+    [DirectionalLight, { illuminance: LightPresets.daylight }],
+    [Transform, { rotation: q(-0.8, 0.6, 0) }],
+  )
+  world.resource(AmbientLight).brightness = 1500
+  const cam = world.spawn(
+    [Camera3d, { target: targetRef }],
+    ...(tonemap ? [[Tonemapping, tonemap] as const] : []),
+    [Transform, { translation: [0, 2, 5], rotation: lookAt([0, 2, 5], [0, -0.5, 0]) }],
+  )
+  return render(app, `camera:${cam}`)
 }
 
 describe('forward renderer', () => {
@@ -77,56 +100,28 @@ describe('forward renderer', () => {
     expect(stats).toMatchObject({ visible: 1, culled: 0, drawCalls: 1 })
   })
 
-  it('matches a golden image of a reference scene', async () => {
-    const { world, app, targetRef } = await scene(64)
-    const meshes = world.resource(Meshes)
-    const materials = world.resource(Materials)
-    const red = materials.add(new MaterialAsset({ baseColor: [0.8, 0.1, 0.1, 1], roughness: 0.4 }))
-    const metal = materials.add(
-      new MaterialAsset({ baseColor: [0.9, 0.9, 0.9, 1], metallic: 1, roughness: 0.25 }),
-    )
-    world.spawn(
-      [Mesh3d, { mesh: meshes.add(plane({ size: 10 })) }],
-      [Transform, { translation: [0, -1, 0] }],
-    )
-    world.spawn(
-      [Mesh3d, { mesh: meshes.add(cube()) }],
-      [MeshMaterial, { material: red }],
-      [Transform, { translation: [-1, -0.5, 0], rotation: q(0, 0.5, 0) }],
-    )
-    world.spawn(
-      [Mesh3d, { mesh: meshes.add(sphere({ radius: 0.6 })) }],
-      [MeshMaterial, { material: metal }],
-      [Transform, { translation: [1, -0.4, 0] }],
-    )
-    world.spawn(
-      [DirectionalLight, { illuminance: LightPresets.daylight }],
-      [Transform, { rotation: q(-0.8, 0.6, 0) }],
-    )
-    world.resource(AmbientLight).brightness = 1500
-    const cam = world.spawn(
-      [Camera3d, { target: targetRef }],
-      [Transform, { translation: [0, 2, 5], rotation: lookAt([0, 2, 5], [0, -0.5, 0]) }],
-    )
-    const image = await render(app, `camera:${cam}`)
+  it('matches the reference scene golden (HDR, AgX)', async () => {
+    const image = await referenceScene()
+    expect(compareGolden(here, 'reference-scene', image).mean).toBeLessThan(1.5)
+  })
 
-    const here = dirname(fileURLToPath(import.meta.url))
-    const golden = join(here, '__golden__', 'reference-scene.rgba')
-    if (!existsSync(golden)) {
-      mkdirSync(dirname(golden), { recursive: true })
-      writeFileSync(golden, image.data)
-      console.warn(`Wrote new golden image: ${golden}`)
-    }
-    const expected = new Uint8Array(readFileSync(golden))
+  it('with ACES, matches the M2 in-shader tonemap on every surface', async () => {
+    const image = await referenceScene({ curve: 'aces', dither: false })
+
+    // The M2 golden tonemapped with ACES inside the material shader, straight into the display
+    // target. The HDR path must match it on every surface. The background differs by design: the
+    // clear color now goes through the tonemap curve like everything else.
+    const old = new Uint8Array(readFileSync(join(here, '__golden__', 'reference-scene-m2.rgba')))
+    const bg = [...old.slice(0, 4)]
     let sum = 0
-    let max = 0
-    for (let i = 0; i < expected.length; i++) {
-      const d = Math.abs(expected[i]! - image.data[i]!)
-      sum += d
-      max = Math.max(max, d)
+    let n = 0
+    for (let i = 0; i < old.length; i += 4) {
+      if (old[i] === bg[0] && old[i + 1] === bg[1] && old[i + 2] === bg[2]) continue
+      for (let c = 0; c < 3; c++) sum += Math.abs(old[i + c]! - image.data[i + c]!)
+      n += 3
     }
-    expect(sum / expected.length).toBeLessThan(1.5)
-    expect(max).toBeLessThan(40)
+    expect(n).toBeGreaterThan(old.length / 3)
+    expect(sum / n).toBeLessThan(2)
   })
 
   it('renders an 18% gray card near mid-gray for every matched light/exposure preset pair', async () => {
@@ -241,12 +236,16 @@ describe('forward renderer', () => {
       [Camera3d, { target: second, clearColor: [0, 0, 1, 1], order: 0 }],
       Transform,
     )
-    for (let i = 0; i < 3; i++) app.update(1 / 60)
+    await settle(app)
     const shots = [captureView(world, `camera:${a}`), captureView(world, `camera:${b}`)]
     app.update(1 / 60)
     const [ia, ib] = await Promise.all(shots)
-    expect(pixel(ia!, 0, 0)).toEqual([255, 0, 0, 255])
-    expect(pixel(ib!, 0, 0)).toEqual([0, 0, 255, 255])
+    // Clear colors are HDR like everything else: pure red goes through the tonemap curve (AgX
+    // desaturates it slightly, as it does any fully saturated color).
+    const [r, g, b0] = pixel(ia!, 0, 0)
+    expect(r! - Math.max(g!, b0!)).toBeGreaterThan(120)
+    const [r1, g1, b1] = pixel(ib!, 0, 0)
+    expect(b1! - Math.max(r1!, g1!)).toBeGreaterThan(120)
     expect(describeRender(world).views.map((v) => v.order)).toEqual([1, 0])
   })
 

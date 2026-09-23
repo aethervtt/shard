@@ -185,6 +185,41 @@ describe('change detection', () => {
     world.add(e, Frozen)
     expect(world.query({ changed: [Health] }).entities(since)).toEqual([])
   })
+
+  it('tracks per table the newest change tick of each component, and the last row move', () => {
+    const world = new World()
+    const a = world.spawn(Health, Position)
+    world.spawn(Health, Position)
+    const table = world.entityTable(a)
+    const since = world.tick
+    world.incrementTick()
+    expect(table.lastChanged(Health)).toBeLessThanOrEqual(since)
+    expect(table.lastStructural).toBeLessThanOrEqual(since)
+
+    world.set(a, Health, { current: 5 })
+    expect(table.lastChanged(Health)).toBeGreaterThan(since)
+    expect(table.lastChanged(Position)).toBeLessThanOrEqual(since)
+
+    const later = world.tick
+    world.incrementTick()
+    table.changedTicks(Position)[1] = world.tick
+    table.touch(Position)
+    expect(table.lastChanged(Position)).toBeGreaterThan(later)
+    table.markChanged(Health, 0)
+    expect(table.lastChanged(Health)).toBeGreaterThan(later)
+
+    // A row moving in keeps its old ticks, so the move itself is what says "look again".
+    const moved = world.spawn(Health, Position, Frozen)
+    const frozen = world.entityTable(moved)
+    const settled = world.tick
+    world.incrementTick()
+    world.remove(a, Health)
+    expect(table.lastStructural).toBeGreaterThan(settled)
+    world.add(moved, Velocity)
+    expect(world.entityTable(moved).lastStructural).toBeGreaterThan(settled)
+    expect(world.entityTable(moved).lastChanged(Health)).toBeLessThanOrEqual(settled)
+    expect(frozen.lastStructural).toBeGreaterThan(settled)
+  })
 })
 
 describe('commands', () => {

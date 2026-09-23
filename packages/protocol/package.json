@@ -18,6 +18,7 @@
     "@shard/render": "workspace:*",
     "@shard/runtime": "workspace:*",
     "@shard/scene": "workspace:*",
+    "@shard/text": "workspace:*",
     "@shard/texture": "workspace:*",
     "@shard/transform": "workspace:*"
   },

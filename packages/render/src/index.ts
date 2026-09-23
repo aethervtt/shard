@@ -4,11 +4,17 @@ export {
   MaterialAssetType,
   MaterialImporter,
   Materials,
+  type MaterialValue,
   MeshAsset,
   Meshes,
+  materialFields,
+  materialFromJson,
+  materialTypeOf,
   RenderTargets,
+  STANDARD_TYPE,
   StandardMaterial,
   type StandardMaterialValue,
+  validateMaterial,
 } from './assets'
 export {
   applyPhysicalCameras,
@@ -27,14 +33,86 @@ export {
   lux,
   PhysicalCamera,
 } from './camera'
-export { type ForwardPluginOptions, forwardPlugin, Mesh3d, MeshMaterial } from './forward'
 export {
+  CLUSTER_COUNT,
+  CLUSTER_X,
+  CLUSTER_Y,
+  CLUSTER_Z,
+  ClusterBuffers,
+  type ClusterStats,
+  clusterAabb,
+  clusterAabbs,
+  clusterLightsCpu,
+  clusterRange,
+  MAX_LIGHTS_PER_CLUSTER,
+  ViewLightList,
+} from './clusters'
+export { Culler, GpuCuller, readVisibleSlots, visibleSlots } from './culling'
+export {
+  captureShadowMap,
+  DEBUG_VIEWS,
+  type DebugView,
+  describeCulling,
+  describeLighting,
+  readBuffer,
+  readTextureLayer,
+  setDebugView,
+} from './debug-views'
+export {
+  captureGBuffer,
+  describeDeferred,
+  GBUFFER_CHANNELS,
+  type GBufferChannel,
+} from './deferred'
+export {
+  type CameraEnvironment,
+  DefaultEnvironment,
+  type DefaultEnvironmentValue,
+  describeEnvironment,
+  Environment,
+  EnvironmentMap,
+  type EnvironmentMapValue,
+  EnvironmentPresets,
+  EnvironmentStore,
+  Environments,
+  ProceduralSky,
+  type ProceduralSkyValue,
+  Skybox,
+} from './environment'
+export {
+  type ForwardPluginOptions,
+  type ForwardState,
+  ForwardStateResource,
+  forwardPlugin,
+  PICK_TARGETS,
+  sceneColor,
+  type ViewGpu,
+  viewBindGroup,
+} from './forward'
+export { LABEL_FONT, labelWidth } from './gizmo-font'
+export {
+  GIZMO_LINE_FLOATS,
+  type GizmoOptions,
+  GizmoStore,
+  Gizmos,
+  packGizmoColor,
+} from './gizmos'
+export {
+  GpuAssets,
+  GpuAssetsResource,
+  type GpuMaterial,
+  type GpuMesh,
+  type GpuTexture,
+} from './gpu-assets'
+export {
+  type CapturedBuffer,
   type CapturedImage,
   type ColorAttachment,
   type DepthAttachment,
   type NodeContext,
   type NodeDescriptor,
   RenderGraph,
+  RenderPhase,
   type RenderView,
   type ResolvedGraph,
   type ResourceRef,
@@ -42,13 +120,92 @@ export {
   type TransientTexture,
   VIEW_TARGET,
 } from './graph'
-export { AmbientLight, type AmbientLightValue, DirectionalLight } from './lights'
 export {
+  type Batch,
+  createDrawList,
+  type DrawItem,
+  type DrawList,
+  INSTANCE_BYTES,
+  INSTANCE_FLOATS,
+  InstanceFlags,
+  InstanceSlot,
+  InstanceStore,
+  Instances,
+  LOD_BIT,
+  Lod,
+  lodSize,
+  Mesh3d,
+  MeshMaterial,
+  NotShadowCaster,
+  NotShadowReceiver,
+  selectLod,
+  VisibilityRange,
+} from './instances'
+export {
+  AmbientLight,
+  type AmbientLightValue,
+  CascadeSettings,
+  DirectionalLight,
+  LIGHT_FLOATS,
+  LightingSettings,
+  type LightingSettingsValue,
+  type LightRecord,
+  LightStore,
+  Lights,
+  type LuminousPowerPreset,
+  LuminousPowerPresets,
+  lumens,
+  PointLight,
+  SpotLight,
+} from './lights'
+export { registerMaterialModule, typeOrdinal } from './material-pipelines'
+export {
+  allMaterialTypes,
+  BLEND_MODES,
+  type BlendMode,
+  defineMaterial,
+  findMaterialType,
+  isTransparent,
+  MaterialType,
+  type MaterialTypeOptions,
+  materialModulePath,
+  onMaterialTypeChange,
+} from './materials'
+export {
+  DebugOverlays,
+  type DebugOverlaysValue,
+  defineOverlay,
+  isOverlayOn,
+  OVERLAYS,
+  type Overlay,
+  type OverlayDef,
+  type OverlayFilter,
+  overlayNames,
+  setOverlays,
+} from './overlays'
+export {
+  type PickDrawer,
+  type PickHit,
+  Picking,
+  pick,
+  primaryView,
+  type RaycastOptions,
+  raycast,
+} from './picking'
+export {
+  PixelPerfect,
+  type PixelPerfectLayout,
+  PixelTargets,
+  pixelPerfectLayout,
+} from './pixel-perfect'
+export {
+  captureBuffer,
   captureView,
   describeRender,
   Gpu,
   GpuDeviceLost,
   Graph,
+  RenderDescribers,
   type RenderPluginOptions,
   RenderSet,
   renderPlugin,
@@ -58,12 +215,45 @@ export {
 } from './plugin'
 export { TexturePool } from './pool'
 export {
+  ANTIALIASING_MODES,
+  Antialiasing,
+  AutoExposure,
+  Bloom,
+  ColorGrading,
+  cocRadiusPixels,
+  DepthOfField,
+  Fog,
+  METERING_MODES,
+  MotionBlur,
+  PostEffect,
+  type PostSettings,
+  SSAO_QUALITIES,
+  Ssao,
+  Vignette,
+} from './post'
+export {
+  bloomLevels,
+  describePost,
+  ExposureMeters,
+  type ExposureState,
+  histogramEv,
+  POST_NODES,
+  whiteBalance,
+} from './post-nodes'
+export {
   ENGINE_SHADERS,
   materialLayout,
   registerEngineShaders,
   ViewUniform,
   viewLayout,
 } from './shaders'
+export {
+  Cascades,
+  cascadeSplits,
+  LocalShadows,
+  ShadowsResource,
+  sliceSphere,
+} from './shadows'
 export { GpuMemory, type GpuMemoryData, RenderStats, type ViewStats } from './stats'
 export {
   OffscreenTarget,
@@ -72,4 +262,16 @@ export {
   WindowTarget,
 } from './target'
 export { GpuTimer } from './timer'
+export {
+  type CameraData,
+  Cameras,
+  cameraOf,
+  DEFAULT_CURVE,
+  RenderPath,
+  TONEMAP_CURVES,
+  type TonemapCurve,
+  Tonemapping,
+  ViewSettings,
+  viewAliases,
+} from './view'
 export { ComputedVisibility, computeVisibility, Visibility } from './visibility'

@@ -1,4 +1,4 @@
-import { AssetServerResource, assetServer } from '@shard/assets'
+import { AssetServerResource, assetServer, findAssetPreview } from '@shard/assets'
 import { quat, ShardError, vec3, type World } from '@shard/core'
 import {
   captureView,
@@ -96,7 +96,13 @@ async function renderPreview(
   for (const def of [Meshes, Materials, Textures, SceneAssets] as const) {
     app.world.insertResource(def as never, world.initResource(def as never))
   }
-  app.addPlugin(TransformPlugin, renderPlugin({ gpu, target }), forwardPlugin(), ScenePlugin)
+  app.addPlugin(
+    TransformPlugin,
+    // The game's shader library, so materials with project shaders preview with them.
+    renderPlugin({ gpu, target, shaders: world.resource(Shaders) }),
+    forwardPlugin(),
+    ScenePlugin,
+  )
   try {
     await app.init()
     await server.load(path)
@@ -171,7 +177,9 @@ async function renderPreview(
       await gpu.pipelines.whenIdle()
       const stats = [...(app.world.tryResource(RenderStats)?.values() ?? [])]
       const pending = stats.reduce((n, v) => n + v.pending, 0)
-      if (i >= 3 && pending === 0 && gpu.pipelines.pending === 0) break
+      if (i >= 3 && pending === 0 && gpu.pipelines.pending === 0 && gpu.pipelines.skipped === 0) {
+        break
+      }
       await new Promise((r) => setTimeout(r, 2))
     }
     const shot = captureView(app.world, `camera:${entities.get('camera')}`)
@@ -207,7 +215,10 @@ export async function previewAsset(
     }
     return renderPreview(world, entry.path, entry.type, width, height)
   }
+  // Asset types from other packages (atlases, sprite clips, …) register their own.
+  const custom = findAssetPreview(entry.type)
+  if (custom) return custom(world, entry.path, width, height)
   throw new ShardError('protocol/no-preview', `${entry.type} assets have no preview`, {
-    hint: 'Previews exist for textures, materials, meshes, and scenes.',
+    hint: 'Previews exist for textures, materials, meshes, scenes, and types that register one.',
   })
 }

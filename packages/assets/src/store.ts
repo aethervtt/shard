@@ -58,4 +58,13 @@ export class AssetStore<T, K extends string = string> {
   get size(): number {
     return this.items.size
   }
+
+  /** Every loaded asset with its guid. */
+  entries(): IterableIterator<[string, T]> {
+    return this.items.entries()
+  }
+
+  values(): IterableIterator<T> {
+    return this.items.values()
+  }
 }

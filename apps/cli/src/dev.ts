@@ -1,7 +1,7 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync, watch } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { dirname, join, resolve, sep } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { assetServer } from '@shard/assets'
 import { type ShardError, World } from '@shard/core'
@@ -15,6 +15,27 @@ import { EXIT } from './output'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const runnerDir = resolve(here, '../runner')
+
+/** Every shader file under the project's `shaders/`, with its source. */
+function projectShaders(root: string): { file: string; source: string }[] {
+  const dir = join(root, 'shaders')
+  if (!existsSync(dir)) return []
+  const out: { file: string; source: string }[] = []
+  const walk = (d: string) => {
+    for (const entry of readdirSync(d, { withFileTypes: true })) {
+      const full = join(d, entry.name)
+      if (entry.isDirectory()) walk(full)
+      else if (/\.(wesl|wgsl)$/.test(entry.name)) {
+        out.push({
+          file: relative(root, full).split(sep).join('/'),
+          source: readFileSync(full, 'utf8'),
+        })
+      }
+    }
+  }
+  walk(dir)
+  return out
+}
 
 /** The engine's packages folder, found through `@shard/core`'s location. */
 function packagesDir(): string {
@@ -112,6 +133,12 @@ export async function dev(ctx: CommandContext): Promise<number> {
           res.end(b.code)
           return
         }
+        if (url.pathname === '/@shard/shaders.json') {
+          res.setHeader('content-type', 'application/json')
+          res.setHeader('cache-control', 'no-store')
+          res.end(JSON.stringify(projectShaders(root)))
+          return
+        }
         if (url.pathname.startsWith('/@shard/files/')) {
           const rel = decodeURIComponent(url.pathname.slice('/@shard/files/'.length))
           const file = resolve(root, rel)
@@ -170,6 +197,20 @@ export async function dev(ctx: CommandContext): Promise<number> {
     },
   })
 
+  // Shader edits go to the page as they're saved; it relinks and keeps the old one if broken.
+  const shaderDir = join(root, 'shaders')
+  const shaderWatcher = existsSync(shaderDir)
+    ? watch(shaderDir, { recursive: true }, (_, name) => {
+        if (!name || !/\.(wesl|wgsl)$/.test(name)) return
+        const full = join(shaderDir, name)
+        if (!existsSync(full)) return
+        send('shard:shader', {
+          file: relative(root, full).split(sep).join('/'),
+          source: readFileSync(full, 'utf8'),
+        })
+      })
+    : undefined
+
   ctx.out.result(
     { url: address, hub: `ws://127.0.0.1:${hubPort}`, project: manifest.name },
     `shard dev: ${manifest.name} at ${address}\nThe page connects to the tool hub at ws://127.0.0.1:${hubPort} (run \`shard mcp --attach\` to drive it).\nSaving a script or asset reloads it in place.`,
@@ -180,6 +221,7 @@ export async function dev(ctx: CommandContext): Promise<number> {
   })
   stopCode()
   stopAssets()
+  shaderWatcher?.close()
   await bundler.dispose()
   await server.close()
   return EXIT.ok

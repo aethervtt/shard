@@ -36,7 +36,7 @@ export const Manifest = defineSchema(
     plugins: t.list(t.string, {
       default: ['render/forward', 'input'],
       description:
-        'Engine plugins to enable, by name: render, render/forward, input, core/transform.',
+        'Engine plugins to enable, by name: render, render/forward, sprite, text, particles, physics3d, physics2d, input, core/transform.',
     }),
   },
   { description: 'shard.json: the project manifest.' },
@@ -84,6 +84,11 @@ export const BUILTIN_PLUGINS = {
   render: 'GPU device, render graph, views, shaders',
   'render/forward':
     'cameras, meshes, standard material, lights (includes render and core/transform)',
+  sprite: 'sprites, atlases, frame animation, tilemaps (includes render/forward)',
+  text: 'Text and ScreenText with imported fonts (includes render/forward)',
+  particles: 'GPU particle effects from *.particles.json (includes render/forward)',
+  physics3d: 'Rapier 3D rigid bodies, colliders, joints, raycasts (includes core/transform)',
+  physics2d: 'Rapier 2D physics in the XY plane (includes core/transform)',
   input: 'keyboard, mouse, gamepad, touch, action maps',
   'core/transform': 'Transform and hierarchy propagation',
 } as const

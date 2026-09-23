@@ -55,31 +55,37 @@ agent needs to see what's on screen.
 
 | Spec | Title | Status |
 |---|---|---|
-| [0018](0018-lights-shadows.md) | Lights and shadows (point, spot, clustered Forward+, cascaded shadows) | accepted |
-| [0019](0019-hdr-ibl-sky.md) | HDR, tonemapping, image-based lighting, and sky | accepted |
-| [0020](0020-extensible-materials.md) | Extensible materials | accepted |
-| [0021](0021-deferred.md) | Deferred rendering path (G-buffer, per-camera forward/deferred) | accepted |
-| [0022](0022-instancing-culling-lod.md) | Instancing, GPU culling, and LOD | accepted |
-| [0023](0023-post-processing.md) | Post-processing (bloom, auto exposure, DoF, motion blur, TAA, SSAO, fog, grading) | accepted |
-| [0024](0024-2d.md) | 2D: sprites, atlases, tilemaps | accepted |
-| [0025](0025-text.md) | Text rendering (MSDF) | accepted |
-| [0026](0026-particles.md) | GPU particles | accepted |
-| [0027](0027-debug-draw-picking.md) | Debug drawing and picking | accepted |
+| [0018](0018-lights-shadows.md) | Lights and shadows (point, spot, clustered Forward+, cascaded shadows) | implemented |
+| [0019](0019-hdr-ibl-sky.md) | HDR, tonemapping, image-based lighting, and sky | implemented |
+| [0020](0020-extensible-materials.md) | Extensible materials | implemented |
+| [0021](0021-deferred.md) | Deferred rendering path (G-buffer, per-camera forward/deferred) | implemented |
+| [0022](0022-instancing-culling-lod.md) | Instancing, GPU culling, and LOD | implemented |
+| [0023](0023-post-processing.md) | Post-processing (bloom, auto exposure, DoF, motion blur, TAA, SSAO, fog, grading) | implemented |
+| [0024](0024-2d.md) | 2D: sprites, atlases, tilemaps | implemented |
+| [0025](0025-text.md) | Text rendering (MSDF) | implemented |
+| [0026](0026-particles.md) | GPU particles | implemented |
+| [0027](0027-debug-draw-picking.md) | Debug drawing and picking | implemented |
 | — | 2D lighting and shadows (builds on 0024) | planned |
 
 ## M6 — Gameplay systems
 
+Things that move, collide, animate, make noise, and remember: physics and a character that walks
+around a planet, prefabs and data assets for reuse, skeletal animation with graphs and IK, audio,
+UI, navigation, and saves. Each one exposes its state to agents as data.
+
 | Spec | Title | Status |
 |---|---|---|
-| — | Skeletal animation (skinning, clips, blending, masks, root motion) | planned |
-| — | Animation state machines | planned |
-| — | IK, bone attachments, retargeting | planned |
-| — | Physics 3D and 2D (Rapier) | planned |
-| — | Audio (Web Audio, spatial) | planned |
-| — | UI/HUD (flexbox, world-anchored) | planned |
-| — | Navigation (grid A*, navmesh) | planned |
-| — | Prefabs, overrides, data assets | planned |
-| — | Save/load, settings, localization | planned |
+| [0028](0028-physics.md) | Physics 3D and 2D (Rapier) | implemented |
+| [0029](0029-character-controller.md) | Character controller (slopes, steps, spherical gravity) | accepted |
+| [0030](0030-prefabs.md) | Prefabs, overrides, and variants | accepted |
+| [0031](0031-data-assets.md) | Data assets (project-defined types, variants) | accepted |
+| [0032](0032-skeletal-animation.md) | Skeletal animation (skinning, clips, blending, masks, morph targets, root motion) | accepted |
+| [0033](0033-animation-graphs.md) | Animation state machines and blend spaces | accepted |
+| [0034](0034-ik-retargeting.md) | IK, bone attachments, and retargeting | accepted |
+| [0035](0035-audio.md) | Audio (Web Audio, spatial, buses, headless voices) | accepted |
+| [0036](0036-ui.md) | UI and HUD (flexbox, themes, world-anchored) | accepted |
+| [0037](0037-navigation.md) | Navigation (grid A*, navmesh, agents) | accepted |
+| [0038](0038-save-settings-localization.md) | Save/load, settings, and localization | accepted |
 
 ## M7 — Procedural generation and large worlds
 

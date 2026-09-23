@@ -25,6 +25,17 @@ const COMPRESSED_TEXTURE_FEATURES: GPUFeatureName[] = [
   'texture-compression-etc2',
 ]
 
+/**
+ * Optional features the renderer uses when present, requested whenever the adapter has them:
+ * an 11/11/10 float G-buffer target, indirect draws with a first instance (GPU culling), and
+ * filterable 32-bit float textures.
+ */
+const RENDERER_FEATURES: GPUFeatureName[] = [
+  'rg11b10ufloat-renderable',
+  'indirect-first-instance',
+  'float32-filterable',
+]
+
 export interface DeviceLostInfo {
   reason: string
   message: string
@@ -188,6 +199,7 @@ async function requestDevice(options: CreateGpuContextOptions) {
     ...(options.requiredFeatures ?? []),
     ...[
       ...(options.features ?? []),
+      ...RENDERER_FEATURES,
       ...(options.compressedTextures === false ? [] : COMPRESSED_TEXTURE_FEATURES),
     ].filter((f, i, all) => all.indexOf(f) === i && adapter.features.has(f)),
   ]

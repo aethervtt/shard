@@ -7,6 +7,8 @@ export interface ViewStats {
   /** Meshes skipped because their mesh or material isn't loaded yet (or failed). */
   pending: number
   drawCalls: number
+  /** Pipeline changes in the opaque pass (sorting keeps these near the number of material types). */
+  pipelineSwitches?: number
 }
 
 export const RenderStats = defineResource<Map<string, ViewStats>>('render/Stats', {

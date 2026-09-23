@@ -18,6 +18,7 @@ export {
 } from './importer'
 export { type Ktx2Data, readKtx2, tagKtx2, writeKtx2 } from './ktx2'
 export { buildMips, type MipChain, type MipOptions, type TextureUsage, toHalf } from './mips'
+export { type PackItem, type PackResult, packRects, SkylinePacker } from './pack'
 export {
   FORMAT_INFO,
   setTextureCapabilities,

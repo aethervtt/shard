@@ -36,4 +36,50 @@ Files: `*.gltf`, `*.glb`
 | `cameras` | boolean | `false` |  | Spawn the file's cameras. |
 | `lights` | boolean | `false` |  | Spawn the file's lights (KHR_lights_punctual). |
 | `generateNormals` | `"missing"` \| `"always"` \| `"never"` | `"missing"` |  | Flat normals for primitives without them ("missing"), for all, or never. |
+| `lods` | `"auto"` \| `"none"` | `"auto"` |  | Level of detail: "auto" turns MSFT_lod chains and sibling nodes named <name>_LOD0, _LOD1… into one entity with a render/Lod component; "none" imports every node as is. |
+| `materialTypes` | any | `{}` |  | Material types by glTF material name: { "Lava*": "my-game/Lava" } (* matches anything). A material's extras.shardMaterial names a type directly. Imported materials are StandardMaterial otherwise. |
+
+## `particles`
+
+Files: `*.particles.json`
+
+No import settings.
+
+## `data/atlas`
+
+Files: `*.atlas.json`
+
+No import settings.
+
+## `atlas-pack`
+
+Files: `*.atlas-pack.json`
+
+No import settings.
+
+## `data/clip`
+
+Files: `*.clip.json`
+
+No import settings.
+
+## `data/tilemap`
+
+Files: `*.tilemap.json`
+
+No import settings.
+
+## `font`
+
+Files: `*.ttf`, `*.otf`
+
+| Setting | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `charset` | `"latin"` \| `"latin-extended"` \| `"custom"` | `"latin"` |  | Glyphs to put in the atlas. latin: ASCII, Latin-1, and typographic punctuation. latin-extended: plus Latin Extended-A. custom: the characters of customCharset. |
+| `customCharset` | string | `""` |  | The characters to include when charset is custom. |
+| `size` | integer | `48` | ≥ 8, ≤ 512 | Atlas pixels per em. |
+| `range` | number | `4` | ≥ 1, ≤ 32 | Distance range in atlas pixels. Larger allows wider outlines and glows, at the cost of atlas space. |
+| `fallback` | string[] | `[]` |  | Fonts (paths) tried in order for characters this font lacks. |
+| `kerning` | boolean | `true` |  | Import kerning pairs. |
+| `outlines` | boolean | `true` |  | Keep the font file in the artifact, so characters outside the charset are generated at runtime. |
 

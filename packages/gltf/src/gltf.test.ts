@@ -179,6 +179,135 @@ describe('importing the Khronos samples', () => {
     expect(red.value.metallic).toBe(0)
   })
 
+  it('imports KHR_lights_punctual point and spot lights in physical units', async () => {
+    const root = project({})
+    const gltf = {
+      asset: { version: '2.0' },
+      extensionsUsed: ['KHR_lights_punctual'],
+      extensions: {
+        KHR_lights_punctual: {
+          lights: [
+            { type: 'point', intensity: 100, color: [1, 0.5, 0.25], range: 12 },
+            {
+              type: 'spot',
+              intensity: 50,
+              spot: { innerConeAngle: Math.PI / 8, outerConeAngle: Math.PI / 4 },
+            },
+          ],
+        },
+      },
+      scenes: [{ nodes: [0, 1] }],
+      nodes: [
+        { name: 'bulb', translation: [0, 2, 0], extensions: { KHR_lights_punctual: { light: 0 } } },
+        { name: 'spot', extensions: { KHR_lights_punctual: { light: 1 } } },
+      ],
+    }
+    mkdirSync(join(root, 'assets'), { recursive: true })
+    writeFileSync(join(root, 'assets/lights.gltf'), JSON.stringify(gltf))
+    writeFileSync(
+      join(root, 'assets/lights.gltf.meta'),
+      JSON.stringify({ guid: 'c'.repeat(32), settings: { lights: true } }),
+    )
+    const s = await server(root)
+    const scene = (await s.artifact('assets/lights.gltf#Scene')).json as {
+      entities: { name: string; components: Record<string, Record<string, unknown>> }[]
+    }
+    const find = (name: string): Record<string, Record<string, unknown>> => {
+      const walk = (
+        list: typeof scene.entities,
+      ): Record<string, Record<string, unknown>> | undefined => {
+        for (const e of list) {
+          if (e.name === name) return e.components
+          const inner = walk((e as { children?: typeof scene.entities }).children ?? [])
+          if (inner) return inner
+        }
+        return undefined
+      }
+      return walk(scene.entities)!
+    }
+    const bulb = find('bulb')['render/PointLight']!
+    expect(bulb.intensity).toBeCloseTo(100 * 4 * Math.PI, 3) // candela → lumens
+    expect(bulb.range).toBe(12)
+    expect(bulb.color).toEqual([1, 0.5, 0.25, 1])
+    const spot = find('spot')['render/SpotLight']!
+    expect(spot.intensity).toBeCloseTo(50 * 4 * Math.PI, 3)
+    expect(spot.outerAngle).toBeCloseTo(45, 5)
+    expect(spot.innerAngle).toBeCloseTo(22.5, 5)
+    // No range in the file: it ends where the light falls to 0.01 lux.
+    expect(spot.range).toBeCloseTo(Math.sqrt(50 / 0.01), 3)
+  })
+
+  it('turns MSFT_lod chains and _LOD<n> siblings into Lod components', async () => {
+    const root = project({})
+    // One triangle, shared by three meshes (the importer doesn't care that levels look alike).
+    const tri = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0])
+    const uri = `data:application/octet-stream;base64,${Buffer.from(tri.buffer).toString('base64')}`
+    const prim = { attributes: { POSITION: 0 } }
+    const gltf = {
+      asset: { version: '2.0' },
+      extensionsUsed: ['MSFT_lod'],
+      buffers: [{ byteLength: 36, uri }],
+      bufferViews: [{ buffer: 0, byteLength: 36 }],
+      accessors: [
+        {
+          bufferView: 0,
+          componentType: 5126,
+          count: 3,
+          type: 'VEC3',
+          min: [0, 0, 0],
+          max: [1, 1, 0],
+        },
+      ],
+      meshes: [
+        { name: 'hi', primitives: [prim] },
+        { name: 'mid', primitives: [prim] },
+        { name: 'lo', primitives: [prim] },
+      ],
+      scenes: [{ nodes: [0, 3, 4, 5] }],
+      nodes: [
+        {
+          name: 'Tree',
+          mesh: 0,
+          extensions: { MSFT_lod: { ids: [1, 2] } },
+          extras: { MSFT_screencoverage: [0.25, 0.04, 0.0004] },
+        },
+        { name: 'TreeMid', mesh: 1 },
+        { name: 'TreeLo', mesh: 2 },
+        { name: 'Rock_LOD1', mesh: 1 },
+        { name: 'Rock_LOD0', mesh: 0 },
+        { name: 'Rock_LOD2', mesh: 2 },
+      ],
+    }
+    mkdirSync(join(root, 'assets'), { recursive: true })
+    writeFileSync(join(root, 'assets/lods.gltf'), JSON.stringify(gltf))
+    const s = await server(root)
+    type Entity = { name: string; components: Record<string, Record<string, unknown>> }
+    const scene = (await s.artifact('assets/lods.gltf#Scene')).json as { entities: Entity[] }
+    expect(scene.entities.map((e) => e.name)).toEqual(['Tree', 'Rock'])
+    type Levels = { levels: { mesh: { path: string }; screenSize: number }[] }
+    const tree = scene.entities[0]!.components['render/Lod'] as Levels
+    expect(tree.levels.map((l) => l.mesh.path)).toEqual(['#Mesh/hi', '#Mesh/mid', '#Mesh/lo'])
+    // Screen coverage is a fraction of the screen's area; screenSize is a diameter.
+    expect(tree.levels.map((l) => l.screenSize)).toEqual([0.5, 0.2, 0.02])
+    const rock = scene.entities[1]!.components['render/Lod'] as Levels
+    expect(rock.levels.map((l) => l.mesh.path)).toEqual(['#Mesh/hi', '#Mesh/mid', '#Mesh/lo'])
+    expect(rock.levels.map((l) => l.screenSize)).toEqual([0.25, 0.0625, 0])
+
+    writeFileSync(
+      join(root, 'assets/lods.gltf.meta'),
+      JSON.stringify({ guid: 'd'.repeat(32), settings: { lods: 'none' } }),
+    )
+    const flat = await server(root)
+    const plain = (await flat.artifact('assets/lods.gltf#Scene')).json as { entities: Entity[] }
+    expect(plain.entities.map((e) => e.name)).toEqual([
+      'Tree',
+      'Rock_LOD1',
+      'Rock_LOD0',
+      'Rock_LOD2',
+    ])
+    expect(plain.entities.some((e) => e.components['render/Lod'])).toBe(false)
+  })
+
   it("imports CesiumMan's skin and animation with rest poses", async () => {
     const s = await server(
       project({ 'assets/CesiumMan.glb': 'CesiumMan/glTF-Binary/CesiumMan.glb' }),

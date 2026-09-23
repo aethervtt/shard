@@ -8,6 +8,7 @@ export const LightPresets = {
   overcast: 1_000,
   indoor: 400,
   twilight: 10,
+  moonlight: 0.3,
 } as const
 
 export type LightPreset = keyof typeof LightPresets

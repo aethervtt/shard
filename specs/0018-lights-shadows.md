@@ -1,6 +1,6 @@
 # 0018 — Lights and shadows (Forward+)
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@shard/render`
 - **Depends on:** 0005, 0006, 0007, 0016
 
@@ -118,17 +118,79 @@ The schema presets follow the physical-units convention from 0007, as `LightPres
 
 ## Acceptance criteria
 
-- [ ] An 800 lm point light 2 m above a white Lambertian plane produces the analytic luminance
+- [x] An 800 lm point light 2 m above a white Lambertian plane produces the analytic luminance
       `L = (800/4π)/2² · ρ/π` at the point below it, within 2%, read back from an HDR capture.
-- [ ] 256 point lights in a scene render at 60 fps at 1920×1080 in the browser on the dev machine,
+- [x] 256 point lights in a scene render at 60 fps at 1920×1080 in the browser on the dev machine,
       with GPU timings reported. The golden image matches in headless Dawn.
-- [ ] GPU and CPU clustering produce the same light lists for a fixture scene.
-- [ ] Directional, spot, and point shadows render as authored (golden images). Moving the camera by
+- [x] GPU and CPU clustering produce the same light lists for a fixture scene.
+- [x] Directional, spot, and point shadows render as authored (golden images). Moving the camera by
       less than a texel doesn't change cascade shadow edges (pixel-identical).
-- [ ] `NotShadowCaster` and `NotShadowReceiver` remove an entity from shadow maps or shadow lookups.
-- [ ] Lights over the shadow budget are reported in `render.describe` and lit without shadows.
-- [ ] Changing a light's intensity or color re-uploads only that light (asserted through upload
+- [x] `NotShadowCaster` and `NotShadowReceiver` remove an entity from shadow maps or shadow lookups.
+- [x] Lights over the shadow budget are reported in `render.describe` and lit without shadows.
+- [x] Changing a light's intensity or color re-uploads only that light (asserted through upload
       counters).
+
+## Implementation notes
+
+- **Components as built:** all three light types have `shadows`, `shadowBias` (meters: the receiver
+  moves toward the light), `shadowNormalBias` (shadow-map texels along the surface normal), and
+  `shadowSoftness` (texels of PCF radius beyond 3×3). `DirectionalLight.cascades` is
+  `{ count: 4, maxDistance: 150, splitLambda: 0.8 }`. Up to four directional lights are lit; the
+  first with `shadows` gets the cascades. Lights default to `shadows: false`, so existing scenes
+  render as before. `render/NotShadowCaster` and `render/NotShadowReceiver` are tags.
+- **Presets:** lux stays in `LightPresets` (with `moonlight: 0.3` added). Lumens are a different
+  unit, so they're a separate `LuminousPowerPresets` (`candle`, `bulb-40w`, `bulb`, `floodlight`)
+  with a `lumens()` helper, and they're the intensity schema's presets.
+- **Light buffer:** `LightStore` holds 80-byte records in slots, `LightingSettings.maxLights`
+  (1024) of them. A record is rewritten only when its transform or component changed, and only
+  records whose f32 values differ are uploaded, in coalesced runs. `uploadedLights` and
+  `uploadedBytes` are the counters the upload test reads, and `render.describe` reports them.
+- **Clusters:** the CPU frustum-culls lights per view and writes a view-space list (position,
+  range, spot axis, cos outer). The GPU pass reads that list. Cluster AABBs are computed on the
+  CPU and uploaded only when the projection changes, so both paths test the same boxes and the
+  GPU and CPU lists match exactly (256 lights, 0 mismatches). Each cluster has a fixed slot of
+  128 indices rather than an atomically compacted list: no atomics, and a deterministic order.
+  `clusterFar` lives in `LightingSettings` (0 = the camera's far plane, or 1 km). Point and spot
+  lights don't reach fragments beyond it. The maximum and overflow counts come back through an
+  async readback one frame late, for `render.describe` and the `render/cluster-overflow` warning.
+- **Cascades:** each slice's bounding sphere comes from the projection alone, so its size doesn't
+  change as the camera turns. The center is snapped to texels on all three light-space axes. Culling
+  uses the four sides and the far side only; the depth range then reaches back to the nearest
+  culled caster (quantized). With a static scene, moving the camera less than a texel leaves the
+  cascade maps bit-identical (test).
+- **Spot and point shadows:** spots use a perspective map slightly wider than the cone. Points
+  render six faces into a 2D array layer each, a little wider than 90° so PCF taps near an edge
+  stay on the face. The receiver picks the face by major axis and projects with the same matrices,
+  so there are no cube-map conventions to get wrong. Spot and point maps are shared by all
+  cameras, render once per frame, and grow their arrays when more layers are needed. Cascade
+  arrays are per camera.
+- **Budget ranking:** lights rank by the angular size of their influence sphere from the main
+  (lowest-order) camera; lights outside its frustum rank below every visible one. Over-budget
+  lights keep lighting, without shadows. They're listed in `render.describe` and logged once as
+  `render/shadow-budget`.
+- **Filtering:** a comparison sampler (`greater-equal`, reversed-Z) with 3×3 bilinear taps, or a
+  16-tap Poisson disk rotated per pixel when `shadowSoftness > 0`. Masked materials run the
+  surface stage in the shadow pass and discard, so their shadows have the same holes.
+- **Graph nodes:** `light-clusters` (compute), `shadows/cascades`, and `shadows/local` (spots and
+  points together, since they're shared per frame) run before `forward-opaque`. Shadow views are
+  culled on the CPU here. 0022 moves that to the GPU.
+- **Spherical emitters:** `radius` widens the specular lobe (Karis' roughness modification,
+  energy-normalized).
+- **Agent surface:** `render.describe` gains a `lighting` section with per-view visible lights
+  (type, intensity, range, whether each casts shadows), cluster statistics, cascade splits, the
+  shadow budget, and upload counters. `render.capture` takes
+  `debug: 'clusters' | 'cascades' | 'shadow-map:<light>[:<layer>]'`; shadow maps come back as
+  grayscale depth. In code the same things are `setDebugView`, `captureShadowMap`, and
+  `describeLighting`.
+- **glTF:** `KHR_lights_punctual` point and spot lights now import (candela × 4π → lumens, cone
+  angles in degrees). A missing range ends where the light falls to 0.01 lux.
+- **Measured:** the playground's `#lights` demo (256 moving point lights, 4 with point shadows,
+  and a shadowed moon) runs at 60 fps at 1920×1080 in Chrome on the dev machine (Apple M4), with
+  per-pass GPU timestamps in the HUD. On Apple GPUs, passes overlap, so those timestamps don't sum
+  to the frame time. The golden images render headless on Dawn.
+- **Groundwork that landed with this spec:** the HDR target and tonemap pass (0019), and the
+  persistent instance slots every view culls from (0022). The luminance test needs HDR readback,
+  and shadow views need a shared instance buffer.
 
 ## Open questions
 

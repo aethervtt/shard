@@ -1,16 +1,39 @@
 import { ShardError } from '@shard/core'
+import { particlesPlugin } from '@shard/particles'
 import { connectToHub, createProtocolServer, DEFAULT_HUB_PORT } from '@shard/protocol'
-import { forwardPlugin, renderPlugin } from '@shard/render'
+import { describeRender, forwardPlugin, renderPlugin } from '@shard/render'
 import { App, animationFrameRunner } from '@shard/runtime'
+import { spritePlugin } from '@shard/sprite'
 import { TransformPlugin } from '@shard/transform'
+import { crowdPlugin } from './crowd'
+import { deferredPlugin } from './deferred'
+import { iblPlugin, skyPlugin } from './environment'
 import { galaxyPlugin, Population } from './galaxy'
+import { applyResolution, hudPlugin } from './hud'
+import { lightsPlugin } from './lights'
+import { particlesDemoPlugin } from './particles'
+import { postPlugin } from './post'
 import { scenePlugin } from './scene'
+import { spritesPlugin } from './sprites'
 
 const canvas = document.getElementById('viewport') as HTMLCanvasElement
 const hud = document.getElementById('hud') as HTMLElement
-const demo = location.hash === '#galaxy' ? 'galaxy' : 'scene'
+const DEMOS = [
+  'scene',
+  'galaxy',
+  'lights',
+  'ibl',
+  'sky',
+  'deferred',
+  'crowd',
+  'post',
+  'sprites',
+  'particles',
+] as const
+const demo = DEMOS.find((d) => location.hash === `#${d}`) ?? 'scene'
 document.body.dataset.demo = demo
 
+applyResolution(canvas)
 const app = new App().addPlugin(renderPlugin({ canvas, features: ['timestamp-query'] }))
 if (demo === 'galaxy') {
   app.addPlugin(galaxyPlugin({ stars: 100_000, seed: 7 }))
@@ -20,6 +43,22 @@ if (demo === 'galaxy') {
       population.target = Math.max(0, population.target + Number(button.dataset.change))
     })
   }
+} else if (demo === 'lights') {
+  app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, lightsPlugin)
+} else if (demo === 'ibl') {
+  app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, iblPlugin)
+} else if (demo === 'deferred') {
+  app.addPlugin(TransformPlugin, forwardPlugin({ msaa: 1 }), hudPlugin, deferredPlugin)
+} else if (demo === 'crowd') {
+  app.addPlugin(TransformPlugin, forwardPlugin({ msaa: 1 }), hudPlugin, crowdPlugin)
+} else if (demo === 'post') {
+  app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, postPlugin)
+} else if (demo === 'sprites') {
+  app.addPlugin(TransformPlugin, forwardPlugin({ msaa: 1 }), spritePlugin, hudPlugin, spritesPlugin)
+} else if (demo === 'particles') {
+  app.addPlugin(TransformPlugin, forwardPlugin(), particlesPlugin, hudPlugin, particlesDemoPlugin)
+} else if (demo === 'sky') {
+  app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, skyPlugin)
 } else {
   app.addPlugin(TransformPlugin, forwardPlugin(), scenePlugin)
 }
@@ -27,7 +66,7 @@ app.setRunner(animationFrameRunner())
 window.addEventListener('hashchange', () => location.reload())
 
 // Exposed for poking at from the devtools console.
-Object.assign(globalThis, { app })
+Object.assign(globalThis, { app, describe: () => describeRender(app.world) })
 
 /**
  * With ?hub (or ?hub=ws://host:port), the page dials out to a protocol hub (`shard serve` or

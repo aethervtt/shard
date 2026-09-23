@@ -1,794 +1,1124 @@
-import { assetServer } from '@shard/assets'
-import {
-  aabb,
-  affine,
-  defineComponent,
-  defineResource,
-  defineSystem,
-  type Entity,
-  frustum,
-  Last,
-  mat4,
-  PostUpdate,
-  t,
-  vec3,
-} from '@shard/core'
+import { defineResource, defineSystem, First, Last, PostUpdate, type World } from '@shard/core'
 import { GpuBuffer, type GpuContext } from '@shard/gpu'
-import type { Mesh } from '@shard/mesh'
-import { definePlugin, type Plugin } from '@shard/runtime'
-import { FORMAT_INFO, setTextureCapabilities, type Texture, Textures } from '@shard/texture'
-import { GlobalTransform, Transform, TransformSystems } from '@shard/transform'
-import { MaterialAsset, Materials, Meshes, RenderTargets, TEXTURE_SLOTS } from './assets'
-import { applyPhysicalCameras, Camera3d, Exposure, exposureScale } from './camera'
-import { type RenderView, VIEW_TARGET } from './graph'
-import { AmbientLight, DirectionalLight } from './lights'
-import { Gpu, Graph, RenderSet, Shaders, Views, Window } from './plugin'
-import { materialLayout, viewLayout } from './shaders'
+import { definePlugin, LogResource, type Plugin, Time } from '@shard/runtime'
+import { setTextureCapabilities, Textures } from '@shard/texture'
+import { TransformSystems } from '@shard/transform'
+import { Materials, Meshes, RenderTargets } from './assets'
+import { applyPhysicalCameras } from './camera'
+import {
+  CLUSTER_COUNT,
+  CLUSTER_Z,
+  ClusterBuffers,
+  clusterRange,
+  MAX_LIGHTS_PER_CLUSTER,
+  ViewLightList,
+} from './clusters'
+import { Culler, cullTransparent, GpuCuller } from './culling'
+import { describeCulling, describeLighting } from './debug-views'
+import { addDeferredNodes } from './deferred'
+import {
+  DefaultEnvironment,
+  describeEnvironment,
+  Environments,
+  environmentParams,
+  prepareEnvironments,
+  runEnvironmentWork,
+  sunDiskLuminance,
+} from './environment'
+import { beginGizmos, Gizmos, gizmoNode, uploadGizmos } from './gizmos'
+import { GpuAssets, GpuAssetsResource } from './gpu-assets'
+import { type ColorAttachment, type NodeContext, RenderPhase, type RenderView } from './graph'
+import {
+  type CullParams,
+  type DrawList,
+  InstanceFlags,
+  InstanceStore,
+  Instances,
+  LOD_UNSET,
+  Mesh3d,
+  MeshMaterial,
+  observeInstanceRemovals,
+  prepareInstances,
+} from './instances'
+import {
+  AmbientLight,
+  extractLights,
+  LightingSettings,
+  LightStore,
+  Lights,
+  observeLightRemovals,
+} from './lights'
+import {
+  blendState,
+  MaterialPipelines,
+  materialVariant,
+  typeOrdinal,
+  variantBlend,
+  variantCull,
+} from './material-pipelines'
+import { isTransparent, type MaterialType } from './materials'
+import { DebugOverlays, drawOverlays } from './overlays'
+import { addPickNodes, Picking } from './picking'
+import { pixelUpscaleNode } from './pixel-perfect'
+import { Gpu, Graph, RenderDescribers, RenderSet, Shaders, Views } from './plugin'
+import { adaptExposure, addPostNodes, describePost } from './post-nodes'
+import { viewLayout } from './shaders'
+import {
+  assignLocalShadows,
+  Cascades,
+  drawShadowCasters,
+  fitCascades,
+  fitLocalShadows,
+  LocalShadows,
+  packShadowData,
+  SHADOW_DATA_FLOATS,
+  ShadowPassUniforms,
+  ShadowsResource,
+  shadowViewLayout,
+} from './shadows'
 import { GpuMemory, RenderStats } from './stats'
-import { ComputedVisibility, computeVisibility, Visibility } from './visibility'
+import { type CameraData, Cameras, cameraOf, extractCameras, ViewSettings } from './view'
+import { computeVisibility } from './visibility'
 
-export const Mesh3d = defineComponent(
-  'render/Mesh3d',
-  { mesh: t.handle('Mesh', { description: 'The mesh to draw.' }) },
-  { description: "Draws a mesh at this entity's transform.", requires: [Transform, Visibility] },
-)
+export { Mesh3d, MeshMaterial }
 
-export const MeshMaterial = defineComponent(
-  'render/MeshMaterial',
-  {
-    material: t.handle('Material', {
-      description: 'Standard material; a neutral gray when absent.',
-    }),
-  },
-  { description: 'The material a Mesh3d is drawn with.' },
-)
-
-/** Camera data a view carries for the forward pass. */
-interface CameraData {
-  entity: Entity
-  viewProj: Float32Array
-  position: Float32Array
-  frustum: Float32Array
-  exposure: number
-  clear: GPUColor
-}
-
-interface GpuMesh {
-  version: number
-  generation: number
-  positions: GPUBuffer
-  normals: GPUBuffer
-  uvs: GPUBuffer
-  uvs1: GPUBuffer
-  tangents: GPUBuffer
-  indices: GPUBuffer | undefined
-  indexFormat: GPUIndexFormat
-  count: number
-}
-
-interface GpuMaterial {
-  version: number
-  generation: number
-  buffer: GPUBuffer
-  textureBuffer: GPUBuffer
-  bindGroup: GPUBindGroup | undefined
-  /** What the bind group was built from, to rebuild when a texture changes. */
-  bound: (GpuTexture | undefined)[]
-}
-
-interface GpuTexture {
-  texture: GPUTexture
-  linear: GPUTextureView
-  srgb: GPUTextureView
-  version: number
-  generation: number
-  bytes: number
-}
-
-/** Color slots read through the sRGB view; data slots through the linear one. */
-const SRGB_SLOT = [true, false, false, false, true]
-
-interface DrawGroup {
-  mesh: Mesh
-  material: MaterialAsset
-  count: number
-  instances: Float32Array
-  firstInstance: number
-}
-
-interface PerView {
+/** Per camera view: uniforms, clusters, lights, and shadows, and the bind groups over them. */
+export interface ViewGpu {
   uniform: GpuBuffer
-  instances: GpuBuffer
+  /** This frame's SSAO texture, when the camera has Ssao. */
+  ao: GPUTexture | undefined
+  lightList: ViewLightList
+  clusters: ClusterBuffers
+  shadowData: GpuBuffer
+  cascades: Cascades
   bindGroup: GPUBindGroup | undefined
   bound: string
-  groups: DrawGroup[]
-  index: Map<Mesh, Map<MaterialAsset, DrawGroup>>
+  clusterBindGroup: GPUBindGroup | undefined
+  clusterBound: string
 }
 
-interface ForwardState {
-  msaa: number
-  meshes: Map<Mesh, GpuMesh>
-  materials: Map<MaterialAsset, GpuMaterial>
-  views: Map<string, PerView>
-  cameras: Map<Entity, CameraData>
-  defaultMaterial: MaterialAsset
-  light: { direction: Float32Array; color: Float32Array }
-  ambient: Float32Array
+interface Layouts {
+  view: GPUBindGroupLayout
+  pipeline: GPUPipelineLayout
+  cluster: GPUBindGroupLayout
+  clusterPipeline: GPUPipelineLayout
+  shadowView: GPUBindGroupLayout
+  shadowPipeline: GPUPipelineLayout
+}
+
+export interface ForwardState {
+  views: Map<string, ViewGpu>
   viewBytes: DataView
-  materialBytes: DataView
-  textureBytes: Float32Array
-  packed: Float32Array
-  layouts: { view: GPUBindGroupLayout; material: GPUBindGroupLayout; pipeline: GPUPipelineLayout }
+  shadowFloats: Float32Array
+  layouts: Layouts
   layoutGeneration: number
-  textures: Map<Texture, GpuTexture>
-  defaults: { white: GpuTexture; normal: GpuTexture } | undefined
-  samplers: Map<string, GPUSampler>
-  /** Textures scratch for the slot lookup (no per-frame allocation). */
-  slotTextures: (Texture | undefined)[]
-  /** Guids reloading after device loss, so each is requested once. */
-  reloading: Set<string>
-  /** Per frame: whether each material's textures are available. */
-  materialReady: Map<MaterialAsset, boolean>
-  memory: import('./stats').GpuMemoryData
+  /** A 1x1x1 depth array bound where no shadow map exists (and its generation). */
+  emptyShadow: { texture: GPUTexture; generation: number } | undefined
+  white: { texture: GPUTexture; generation: number } | undefined
+  shadowSampler: GPUSampler | undefined
+  /** Frame counter, so shared passes (local shadows) run once per frame. */
+  frame: number
+  /** Last warnings, so each is logged once per change. */
+  warned: { budget: string; overflow: string }
+  /** Time, delta time, and frame for shaders (`shard::globals`). */
+  globals: GpuBuffer
+  globalsData: Float32Array
+  pipelines: MaterialPipelines
+  /** G-buffer color targets (the emissive format depends on the device). */
+  gbufferTargets: GPUColorTargetState[]
+  /** Whether GPU culling ran this frame (the cull node reads it). */
+  cullerActive: boolean
 }
 
-const State = defineResource<ForwardState>('render/ForwardState')
+export const ForwardStateResource = defineResource<ForwardState>('render/ForwardState')
+const State = ForwardStateResource
 
-const scratchBox = aabb.create()
-const scratchMatrix = mat4.create()
-const scratchAffine = affine.create()
-const scratchProj = mat4.create()
+// --- prepare -------------------------------------------------------------------
 
-function srgbChannel(c: number): number {
-  return c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055
-}
-
-// --- extract -------------------------------------------------------------------
-
-const extractCameras = defineSystem({
-  name: 'render/extract-cameras',
-  description: 'Turns Camera3d entities into render views with matrices, frustums, and exposure.',
-  setup: (world) => ({ q: world.query({ with: [Camera3d, GlobalTransform, Exposure] }) }),
-  run: ({ q }, world) => {
+/** Ranks shadowed spot and point lights for the main camera and uploads changed lights. */
+const prepareLights = defineSystem({
+  name: 'render/prepare-lights',
+  description: 'Assigns shadow maps within the budgets and uploads changed lights.',
+  run: (_, world) => {
+    const lights = world.resource(Lights)
+    const shadows = world.resource(ShadowsResource)
+    const settings = world.resource(LightingSettings)
+    let main: CameraData | undefined
+    let order = Number.POSITIVE_INFINITY
+    for (const view of world.resource(Views).list) {
+      const cam = cameraOf(view)
+      if (cam && view.order < order) {
+        main = cam
+        order = view.order
+      }
+    }
+    assignLocalShadows(
+      shadows.local,
+      lights,
+      main,
+      settings.maxShadowedSpots,
+      settings.maxShadowedPoints,
+    )
+    lights.upload()
     const state = world.resource(State)
-    const views = world.resource(Views).list
-    const window = world.tryResource(Window)
-    const targets = world.resource(RenderTargets)
-    for (const table of q.tables) {
-      const projection = table.column(Camera3d, 'projection')
-      const fovY = table.column(Camera3d, 'fovY')
-      const near = table.column(Camera3d, 'near')
-      const far = table.column(Camera3d, 'far')
-      const orthoHeight = table.column(Camera3d, 'orthoHeight')
-      const order = table.column(Camera3d, 'order')
-      const clear = table.column(Camera3d, 'clearColor')
-      const target = table.column(Camera3d, 'target')
-      const g = table.column(GlobalTransform, 'matrix')
-      const ev = table.column(Exposure, 'ev100')
-      for (let i = 0; i < table.count; i++) {
-        const rt = target[i] ? targets.get(target[i]) : window
-        if (!rt) continue // e.g. headless with no target
-        const entity = table.entities[i]!
-        let cam = state.cameras.get(entity)
-        if (!cam) {
-          cam = {
-            entity,
-            viewProj: mat4.create(),
-            position: vec3.create(),
-            frustum: frustum.create(),
-            exposure: 1,
-            clear: { r: 0, g: 0, b: 0, a: 1 },
-          }
-          state.cameras.set(entity, cam)
-        }
-        const aspect = rt.width / Math.max(1, rt.height)
-        if (projection[i] === 0) {
-          mat4.perspectiveReversedZ(scratchProj, (fovY[i]! * Math.PI) / 180, aspect, near[i]!)
-        } else {
-          const h = orthoHeight[i]! / 2
-          mat4.orthographicReversedZ(scratchProj, -h * aspect, h * aspect, -h, h, near[i]!, far[i]!)
-        }
-        affine.invert(scratchAffine, g.subarray(i * 12, i * 12 + 12))
-        affine.toMat4(scratchMatrix, scratchAffine)
-        mat4.multiply(cam.viewProj, scratchProj, scratchMatrix)
-        frustum.fromViewProjection(cam.frustum, cam.viewProj)
-        affine.getTranslationAt(cam.position, g, i * 12)
-        cam.exposure = exposureScale(ev[i]!)
-        // Output is display-encoded, so the clear color is too (unless the target does it).
-        const srgbTarget = rt.format.endsWith('-srgb')
-        const c = i * 4
-        cam.clear = srgbTarget
-          ? { r: clear[c]!, g: clear[c + 1]!, b: clear[c + 2]!, a: clear[c + 3]! }
-          : {
-              r: srgbChannel(clear[c]!),
-              g: srgbChannel(clear[c + 1]!),
-              b: srgbChannel(clear[c + 2]!),
-              a: clear[c + 3]!,
-            }
-        views.push({
-          name: `camera:${entity}`,
-          target: rt,
-          order: order[i]!,
-          data: { camera: cam },
-        })
+    const over = shadows.local.overBudget.map((r) => r.entity).join(',')
+    if (over !== state.warned.budget) {
+      state.warned.budget = over
+      if (over) {
+        world
+          .tryResource(LogResource)
+          ?.log(
+            'warn',
+            `${shadows.local.overBudget.length} shadowed light(s) over the shadow budget render without shadows`,
+            {
+              code: 'render/shadow-budget',
+              hint: 'Raise LightingSettings.maxShadowedSpots/maxShadowedPoints, or turn off shadows on minor lights.',
+              data: { lights: shadows.local.overBudget.map((r) => r.entity) },
+            },
+          )
       }
     }
   },
 })
 
-const extractLights = defineSystem({
-  name: 'render/extract-lights',
-  description: 'Reads the directional light and ambient light for this frame.',
-  setup: (world) => ({ q: world.query({ with: [DirectionalLight, GlobalTransform] }) }),
-  run: ({ q }, world) => {
-    const state = world.resource(State)
-    const { direction, color } = state.light
-    color.fill(0)
-    direction[0] = 0
-    direction[1] = 1
-    direction[2] = 0
-    for (const table of q.tables) {
-      if (table.count === 0) continue
-      const g = table.column(GlobalTransform, 'matrix')
-      const c = table.column(DirectionalLight, 'color')
-      const lux = table.column(DirectionalLight, 'illuminance')[0]!
-      // The light shines along its -Z; lighting wants the direction toward the light (+Z column).
-      vec3.normalize(direction, [g[2]!, g[6]!, g[10]!])
-      color[0] = c[0]! * lux
-      color[1] = c[1]! * lux
-      color[2] = c[2]! * lux
-      break
-    }
-    const ambient = world.resource(AmbientLight)
-    state.ambient[0] = ambient.color[0] * ambient.brightness
-    state.ambient[1] = ambient.color[1] * ambient.brightness
-    state.ambient[2] = ambient.color[2] * ambient.brightness
-  },
-})
+// --- queue ---------------------------------------------------------------------
 
-// --- queue: cull, group, upload ------------------------------------------------
-
-function gpuMesh(gpu: GpuContext, state: ForwardState, mesh: Mesh): GpuMesh {
-  let gm = state.meshes.get(mesh)
-  if (gm && gm.version === mesh.version && gm.generation === gpu.generation) return gm
-  if (gm && gm.generation === gpu.generation) {
-    gm.positions.destroy()
-    gm.normals.destroy()
-    gm.uvs.destroy()
-    gm.uvs1.destroy()
-    gm.tangents.destroy()
-    gm.indices?.destroy()
-  }
-  const device = gpu.device
-  const n = mesh.vertexCount
-  const upload = (
-    data: ArrayBufferView & ArrayLike<number>,
-    usage: GPUBufferUsageFlags,
-    label: string,
-  ) => {
-    const buffer = device.createBuffer({
-      label,
-      size: Math.max(16, (data.byteLength + 3) & ~3),
-      usage: usage | GPUBufferUsage.COPY_DST,
-    })
-    device.queue.writeBuffer(buffer, 0, data, 0, data.length)
-    return buffer
-  }
-  // Missing attributes get neutral defaults so one pipeline fits every mesh.
-  const normals = mesh.normals ?? new Float32Array(n * 3).map((_, i) => (i % 3 === 1 ? 1 : 0))
-  const uvs = mesh.uvs ?? new Float32Array(n * 2)
-  const uvs1 = mesh.uvs1 ?? uvs
-  const tangents = mesh.tangents ?? new Float32Array(n * 4)
-  let indices = mesh.indices
-  if (indices instanceof Uint16Array && indices.length % 2 === 1) {
-    // writeBuffer needs 4-byte multiples; pad odd-length u16 index data.
-    const padded = new Uint16Array(indices.length + 1)
-    padded.set(indices)
-    indices = padded
-  }
-  gm = {
-    version: mesh.version,
-    generation: gpu.generation,
-    positions: upload(mesh.positions, GPUBufferUsage.VERTEX, 'mesh/positions'),
-    normals: upload(normals, GPUBufferUsage.VERTEX, 'mesh/normals'),
-    uvs: upload(uvs, GPUBufferUsage.VERTEX, 'mesh/uvs'),
-    uvs1: upload(uvs1, GPUBufferUsage.VERTEX, 'mesh/uvs1'),
-    tangents: upload(tangents, GPUBufferUsage.VERTEX, 'mesh/tangents'),
-    indices: indices ? upload(indices, GPUBufferUsage.INDEX, 'mesh/indices') : undefined,
-    indexFormat: mesh.indices instanceof Uint32Array ? 'uint32' : 'uint16',
-    count: mesh.drawCount,
-  }
-  state.meshes.set(mesh, gm)
-  return gm
+/** Reused cull parameters (no per-frame allocation). */
+const cameraCull: CullParams = {
+  planes: null,
+  require: 0,
+  eye: undefined,
+  lodScale: 1,
+  orthographic: false,
+  lodState: undefined,
+  updateLod: true,
+}
+const shadowCull: CullParams = {
+  planes: null,
+  require: InstanceFlags.Caster,
+  eye: undefined,
+  lodScale: 1,
+  orthographic: false,
+  lodState: undefined,
+  updateLod: false,
 }
 
-/** Uploads a texture (all levels) on first use and when its version changes. */
-function gpuTexture(
-  gpu: GpuContext,
-  state: ForwardState,
-  texture: Texture,
-): GpuTexture | undefined {
-  const existing = state.textures.get(texture)
-  if (existing && existing.version === texture.version && existing.generation === gpu.generation) {
-    return existing
-  }
-  if (!texture.levels) return undefined // released after upload and the device was lost: reloading
-  if (existing) {
-    state.memory.textures--
-    state.memory.textureBytes -= existing.bytes
-  }
-  existing?.texture.destroy()
-  const info = FORMAT_INFO[texture.format]
-  const handle = gpu.device.createTexture({
-    label: `texture/${texture.format}`,
-    size: { width: texture.width, height: texture.height },
-    format: texture.format as GPUTextureFormat,
-    mipLevelCount: texture.mipCount,
-    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-    viewFormats: info.srgbView ? [info.srgbView as GPUTextureFormat] : [],
-  })
-  for (let level = 0; level < texture.mipCount; level++) {
-    const w = Math.max(1, texture.width >> level)
-    const h = Math.max(1, texture.height >> level)
-    const blocksWide = Math.ceil(w / info.block)
-    const blocksHigh = Math.ceil(h / info.block)
-    gpu.device.queue.writeTexture(
-      { texture: handle, mipLevel: level },
-      texture.levels[level]! as Uint8Array<ArrayBuffer>,
-      { bytesPerRow: blocksWide * info.bytes, rowsPerImage: blocksHigh },
-      { width: blocksWide * info.block, height: blocksHigh * info.block },
-    )
-  }
-  const linear = handle.createView()
-  const out: GpuTexture = {
-    texture: handle,
-    linear,
-    srgb: info.srgbView ? handle.createView({ format: info.srgbView as GPUTextureFormat }) : linear,
-    version: texture.version,
-    generation: gpu.generation,
-    bytes: texture.byteSize,
-  }
-  state.textures.set(texture, out)
-  state.memory.textures++
-  state.memory.textureBytes += out.bytes
-  // Imported textures keep no CPU copy; after device loss they reload from their artifact.
-  if (!texture.keepCpu) texture.levels = undefined
+/** Culling parameters of a camera: its (possibly frozen) frustum, eye, and LOD scale. */
+function cameraParams(cam: CameraData, out: CullParams): CullParams {
+  out.planes = cam.frozenFrustum ?? cam.frustum
+  out.eye = cam.frozenPosition ?? cam.position
+  out.orthographic = cam.orthographic
+  // Screen size = diameter / viewport height: 2r / (2 d tan(fov/2)), or 2r / orthoHeight.
+  out.lodScale = cam.orthographic ? 2 / cam.orthoHeight : 1 / Math.tan(cam.fovY / 2)
+  if (cam.lodState.length < cam.lodCapacity)
+    cam.lodState = new Uint8Array(cam.lodCapacity).fill(LOD_UNSET)
+  out.lodState = cam.lodState
   return out
-}
-
-function defaultTextures(gpu: GpuContext, state: ForwardState) {
-  if (state.defaults && state.defaults.white.generation === gpu.generation) return state.defaults
-  const solid = (label: string, rgba: number[]): GpuTexture => {
-    const texture = gpu.device.createTexture({
-      label,
-      size: { width: 1, height: 1 },
-      format: 'rgba8unorm',
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-      viewFormats: ['rgba8unorm-srgb'],
-    })
-    gpu.device.queue.writeTexture(
-      { texture },
-      new Uint8Array(rgba),
-      { bytesPerRow: 4 },
-      { width: 1, height: 1 },
-    )
-    const linear = texture.createView()
-    return {
-      texture,
-      linear,
-      srgb: texture.createView({ format: 'rgba8unorm-srgb' }),
-      version: 0,
-      generation: gpu.generation,
-      bytes: 4,
-    }
-  }
-  state.defaults = {
-    white: solid('texture/white', [255, 255, 255, 255]),
-    normal: solid('texture/flat-normal', [128, 128, 255, 255]),
-  }
-  state.samplers.clear()
-  return state.defaults
-}
-
-function sampler(gpu: GpuContext, state: ForwardState, wrap: string, filter: string): GPUSampler {
-  const key = `${wrap}|${filter}`
-  let s = state.samplers.get(key)
-  if (!s) {
-    const address: GPUAddressMode =
-      wrap === 'clamp' ? 'clamp-to-edge' : wrap === 'mirror' ? 'mirror-repeat' : 'repeat'
-    const linear = filter === 'linear'
-    s = gpu.device.createSampler({
-      label: `sampler/${key}`,
-      addressModeU: address,
-      addressModeV: address,
-      magFilter: linear ? 'linear' : 'nearest',
-      minFilter: linear ? 'linear' : 'nearest',
-      mipmapFilter: linear ? 'linear' : 'nearest',
-      maxAnisotropy: linear ? 8 : 1,
-    })
-    state.samplers.set(key, s)
-  }
-  return s
-}
-
-interface SlotValue {
-  texture: { guid: string | undefined } | null
-  uv: number
-  offset: ArrayLike<number>
-  scale: ArrayLike<number>
-  rotation: number
-  wrap: string
-  filter: string
-}
-
-/**
- * Resolves a material's slot textures into `state.slotTextures`. Returns false when a referenced
- * texture isn't available yet (loading, or reloading after device loss): the draw waits.
- */
-function resolveSlots(
-  world: import('@shard/core').World,
-  state: ForwardState,
-  material: MaterialAsset,
-): boolean {
-  const store = world.tryResource(Textures)
-  const value = material.value as unknown as Record<string, SlotValue>
-  for (let i = 0; i < 5; i++) {
-    const ref = value[TEXTURE_SLOTS[i]!]!.texture
-    if (!ref) {
-      state.slotTextures[i] = undefined
-      continue
-    }
-    const texture = store?.get(ref)
-    if (!texture) return false
-    if (!texture.levels && !state.textures.has(texture)) {
-      // Released after upload and the device was lost (or never uploaded): reload the artifact.
-      if (ref.guid && !state.reloading.has(ref.guid)) {
-        state.reloading.add(ref.guid)
-        const guid = ref.guid
-        void assetServer(world)
-          .reload(guid)
-          .finally(() => state.reloading.delete(guid))
-      }
-      return false
-    }
-    state.slotTextures[i] = texture
-  }
-  return true
-}
-
-function gpuMaterial(
-  gpu: GpuContext,
-  state: ForwardState,
-  material: MaterialAsset,
-): GpuMaterial | undefined {
-  let gm = state.materials.get(material)
-  if (!gm || gm.generation !== gpu.generation) {
-    gm = {
-      version: -1,
-      generation: gpu.generation,
-      buffer: gpu.device.createBuffer({
-        label: 'material/standard',
-        size: materialLayout.size,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      }),
-      textureBuffer: gpu.device.createBuffer({
-        label: 'material/textures',
-        size: 160,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      }),
-      bindGroup: undefined,
-      bound: [undefined, undefined, undefined, undefined, undefined],
-    }
-    state.materials.set(material, gm)
-  }
-  const defaults = defaultTextures(gpu, state)
-  let rebuild = gm.bindGroup === undefined
-  for (let i = 0; i < 5; i++) {
-    const texture = state.slotTextures[i]
-    const g = texture ? gpuTexture(gpu, state, texture) : undefined
-    if (texture && !g) return undefined
-    if (gm.bound[i] !== g) {
-      gm.bound[i] = g
-      rebuild = true
-    }
-  }
-  if (gm.version !== material.version) {
-    materialLayout.write(state.materialBytes, 0, material.value)
-    gpu.device.queue.writeBuffer(gm.buffer, 0, state.materialBytes.buffer, 0, materialLayout.size)
-    const value = material.value as unknown as Record<string, SlotValue>
-    const t = state.textureBytes
-    for (let i = 0; i < 5; i++) {
-      const slot = value[TEXTURE_SLOTS[i]!]!
-      t[i * 8] = slot.offset[0]!
-      t[i * 8 + 1] = slot.offset[1]!
-      t[i * 8 + 2] = slot.scale[0]!
-      t[i * 8 + 3] = slot.scale[1]!
-      t[i * 8 + 4] = slot.rotation
-      t[i * 8 + 5] = slot.uv
-      t[i * 8 + 6] = slot.texture ? 1 : 0
-      t[i * 8 + 7] = 0
-    }
-    gpu.device.queue.writeBuffer(gm.textureBuffer, 0, t.buffer, 0, 160)
-    gm.version = material.version
-    rebuild = true
-  }
-  if (rebuild) {
-    const value = material.value as unknown as Record<string, SlotValue>
-    const entries: GPUBindGroupEntry[] = [
-      { binding: 0, resource: { buffer: gm.buffer } },
-      { binding: 1, resource: { buffer: gm.textureBuffer } },
-    ]
-    for (let i = 0; i < 5; i++) {
-      const g = gm.bound[i] ?? (i === 2 ? defaults.normal : defaults.white)
-      entries.push({ binding: 2 + i, resource: SRGB_SLOT[i] ? g.srgb : g.linear })
-      const slot = value[TEXTURE_SLOTS[i]!]!
-      entries.push({ binding: 7 + i, resource: sampler(gpu, state, slot.wrap, slot.filter) })
-    }
-    gm.bindGroup = gpu.device.createBindGroup({
-      label: 'material/standard',
-      layout: state.layouts.material,
-      entries,
-    })
-  }
-  return gm
 }
 
 const queue = defineSystem({
   name: 'render/forward-queue',
   description:
-    'Culls meshes per camera, groups them into instanced draws, and uploads instance data.',
-  setup: (world) => ({ q: world.query({ with: [Mesh3d, GlobalTransform, ComputedVisibility] }) }),
-  run: ({ q }, world) => {
+    'Culls instances per camera and shadow view (on the GPU when it can), clusters lights, and writes view uniforms.',
+  run: (_, world) => {
     const state = world.resource(State)
     const gpu = world.resource(Gpu)
-    const meshes = world.resource(Meshes)
-    const materials = world.resource(Materials)
+    const store = world.resource(Instances)
+    const culler = world.resource(Culler)
+    const lights = world.resource(Lights)
+    const shadows = world.resource(ShadowsResource)
+    const settings = world.resource(LightingSettings)
     const stats = world.resource(RenderStats)
     stats.clear()
-    state.materialReady.clear()
-    ensureLayouts(gpu, state)
+    state.frame++
+    ensureLayouts(gpu, state, world.resource(GpuAssetsResource), store)
+    state.pipelines.beginFrame(state.frame)
+    shadows.uniforms.reset()
+    culler.beginFrame()
+    const gpuCull = culler.active
+    state.cullerActive = gpuCull
+    const time = world.resource(Time)
+    const g = state.globalsData
+    g[0] = time.elapsed
+    g[1] = time.delta
+    new Uint32Array(g.buffer)[2] = time.frame
+    state.globals.write(g)
+
+    // Camera views first: they choose LOD levels, which their shadow views reuse.
+    let main: CameraData | undefined
+    let mainOrder = Number.POSITIVE_INFINITY
+    for (const view of world.resource(Views).list) {
+      const cam = cameraOf(view)
+      if (!cam) continue
+      cam.lodCapacity = store.capacity
+      const params = cameraParams(cam, cameraCull)
+      const forwardOnly = cam.deferred ? cam.forwardOnly : undefined
+      if (gpuCull) {
+        culler.add(store, cam.draws, params, culler.lodCamera(cam.entity), forwardOnly)
+        cullTransparent(store, cam.transparent, params, cam.forward)
+      } else {
+        store.cullCpu(cam.draws, params, undefined, cam.transparent, cam.forward, forwardOnly)
+      }
+      if (view.order < mainOrder) {
+        main = cam
+        mainOrder = view.order
+      }
+    }
+
+    // Shadow views: culled with their own frustums, measured from (and at the LOD of) the camera.
+    const shadowParams = (cam: CameraData, planes: Float32Array) => {
+      cameraParams(cam, shadowCull)
+      shadowCull.planes = planes
+      shadowCull.updateLod = false
+      return shadowCull
+    }
+    const cullShadow = (
+      cam: CameraData,
+      draws: DrawList,
+      planes: Float32Array,
+      box?: Float32Array,
+    ) => {
+      const params = shadowParams(cam, planes)
+      if (gpuCull) {
+        culler.add(store, draws, params, culler.lodCamera(cam.entity))
+        // No CPU cull to take a union from: fit to every caster instead.
+        if (box) store.casterBounds(box)
+        return true
+      }
+      store.cullCpu(draws, params, box)
+      return draws.visible > 0
+    }
+    const local = shadows.local
+    fitLocalShadows(local, settings.shadowMapSize)
+    if (main) {
+      for (let i = 0; i < local.spots.length; i++) {
+        const view = local.spotViews[i]!
+        cullShadow(main, view.draws, view.frustum)
+        view.offset = shadows.uniforms.push(view.viewProj)
+      }
+      for (let i = 0; i < local.points.length * 6; i++) {
+        const view = local.pointViews[i]!
+        cullShadow(main, view.draws, view.frustum)
+        view.offset = shadows.uniforms.push(view.viewProj)
+      }
+    }
 
     for (const view of world.resource(Views).list) {
-      const cam = view.data.camera as CameraData | undefined
+      const cam = cameraOf(view)
       if (!cam) continue
-      let pv = state.views.get(view.name)
-      if (!pv) {
-        pv = {
-          uniform: new GpuBuffer(gpu, {
-            label: `${view.name}/view`,
-            usage: GPUBufferUsage.UNIFORM,
-            size: viewLayout.size,
-          }),
-          instances: new GpuBuffer(gpu, {
-            label: `${view.name}/instances`,
-            usage: GPUBufferUsage.VERTEX,
-            size: 48 * 256,
-          }),
-          bindGroup: undefined,
-          bound: '',
-          groups: [],
-          index: new Map(),
+      const pv = viewGpu(gpu, state, view.name)
+      pv.ao = undefined // the SSAO node sets it when it runs
+      pv.lightList.build(cam, lights.records, lights.high)
+      pv.clusters.upload(pv.lightList, cam, settings.clusterFar)
+      const sun = lights.shadowSun
+      if (sun) {
+        fitCascades(pv.cascades, cam, sun, settings.cascadeMapSize, (v, planes, box) =>
+          cullShadow(cam, v.draws, planes, box),
+        )
+        for (let i = 0; i < pv.cascades.count; i++) {
+          const v = pv.cascades.views[i]!
+          v.offset = shadows.uniforms.push(v.viewProj)
         }
-        state.views.set(view.name, pv)
+      } else {
+        pv.cascades.count = 0
       }
-      for (const group of pv.groups) group.count = 0
-
-      let visible = 0
-      let culled = 0
-      let hidden = 0
-      let pending = 0
-      for (const table of q.tables) {
-        const n = table.count
-        if (n === 0) continue
-        const meshRefs = table.column(Mesh3d, 'mesh')
-        const materialRefs = table.has(MeshMaterial)
-          ? table.column(MeshMaterial, 'material')
-          : undefined
-        const g = table.column(GlobalTransform, 'matrix')
-        const vis = table.column(ComputedVisibility, 'visible')
-        for (let i = 0; i < n; i++) {
-          if (vis[i] === 0) {
-            hidden++
-            continue
-          }
-          const mesh = meshes.get(meshRefs[i])
-          if (!mesh) {
-            if (meshRefs[i]) pending++
-            continue
-          }
-          aabb.transformAffineAt(scratchBox, mesh.bounds, g, i * 12)
-          if (!frustum.intersectsAabbAt(cam.frustum, scratchBox, 0)) {
-            culled++
-            continue
-          }
-          const materialRef = materialRefs ? materialRefs[i] : null
-          let material = state.defaultMaterial
-          if (materialRef) {
-            const loaded = materials.get(materialRef)
-            if (!loaded) {
-              // Referenced but not loaded yet (or failed): skip rather than draw it wrong.
-              pending++
-              continue
-            }
-            material = loaded
-          }
-          // Textures load separately; check once per material per frame, not per entity.
-          let ready = state.materialReady.get(material)
-          if (ready === undefined) {
-            ready = resolveSlots(world, state, material)
-            state.materialReady.set(material, ready)
-          }
-          if (!ready) {
-            pending++
-            continue
-          }
-          let byMaterial = pv.index.get(mesh)
-          if (!byMaterial) {
-            byMaterial = new Map()
-            pv.index.set(mesh, byMaterial)
-          }
-          let group = byMaterial.get(material)
-          if (!group) {
-            group = {
-              mesh,
-              material,
-              count: 0,
-              instances: new Float32Array(12 * 64),
-              firstInstance: 0,
-            }
-            byMaterial.set(material, group)
-            pv.groups.push(group)
-          }
-          if ((group.count + 1) * 12 > group.instances.length) {
-            const grown = new Float32Array(group.instances.length * 2)
-            grown.set(group.instances)
-            group.instances = grown
-          }
-          group.instances.set(g.subarray(i * 12, i * 12 + 12), group.count * 12)
-          group.count++
-          visible++
-        }
+      packShadowData(
+        state.shadowFloats,
+        sun ? pv.cascades : undefined,
+        sun,
+        local,
+        settings.cascadeMapSize,
+        settings.shadowMapSize,
+      )
+      pv.shadowData.write(state.shadowFloats)
+      writeViewUniform(world, state, pv, cam, world.resource(AmbientLight), settings.clusterFar)
+      const st = drawStats(cam.draws)
+      if (cam.draws.cullView >= 0) {
+        // GPU culled: counts come back a frame or two late; draws that had nothing don't count.
+        st.drawCalls = culler.drawCounts.get(cam.draws) ?? 0
+        st.hidden = store.hiddenCount
+        const others = cam.deferred ? (culler.counts.get(cam.forwardOnly) ?? 0) : 0
+        st.culled = Math.max(0, store.drawableCount - store.hiddenCount - st.visible - others)
       }
-
-      // Pack every group's instances into one buffer; each draw uses firstInstance as its offset.
-      let total = 0
-      let drawCalls = 0
-      for (const group of pv.groups) {
-        group.firstInstance = total
-        total += group.count
-        if (group.count > 0) drawCalls++
+      if (cam.deferred) {
+        st.visible += cam.forwardOnly.visible
+        st.drawCalls +=
+          cam.forwardOnly.cullView >= 0
+            ? (culler.drawCounts.get(cam.forwardOnly) ?? 0)
+            : cam.forwardOnly.length
       }
-      if (state.packed.length < total * 12)
-        state.packed = new Float32Array(Math.max(total * 12, state.packed.length * 2))
-      for (const group of pv.groups) {
-        if (group.count === 0) continue
-        state.packed.set(group.instances.subarray(0, group.count * 12), group.firstInstance * 12)
-        gpuMesh(gpu, state, group.mesh)
-        resolveSlots(world, state, group.material)
-        gpuMaterial(gpu, state, group.material)
-      }
-      if (total > 0) pv.instances.write(state.packed, 0, 0, total * 12)
-
-      viewLayout.write(state.viewBytes, 0, {
-        viewProj: cam.viewProj as never,
-        cameraPosition: cam.position as never,
-        exposure: cam.exposure,
-        lightDirection: state.light.direction as never,
-        lightColor: state.light.color as never,
-        ambient: state.ambient as never,
-      })
-      pv.uniform.write(new Float32Array(state.viewBytes.buffer, 0, viewLayout.size / 4))
-      stats.set(view.name, { visible, culled, hidden, pending, drawCalls })
+      st.visible += cam.transparent.visible
+      st.drawCalls += cam.transparent.length
+      stats.set(view.name, st)
     }
   },
 })
 
-// --- the graph node ------------------------------------------------------------
+function viewGpu(gpu: GpuContext, state: ForwardState, name: string): ViewGpu {
+  let pv = state.views.get(name)
+  if (!pv) {
+    pv = {
+      uniform: new GpuBuffer(gpu, {
+        label: `${name}/view`,
+        usage: GPUBufferUsage.UNIFORM,
+        size: viewLayout.size,
+      }),
+      lightList: new ViewLightList(),
+      clusters: new ClusterBuffers(gpu, name),
+      shadowData: new GpuBuffer(gpu, {
+        label: `${name}/shadows`,
+        usage: GPUBufferUsage.STORAGE,
+        size: SHADOW_DATA_FLOATS * 4,
+      }),
+      cascades: new Cascades(),
+      ao: undefined,
+      bindGroup: undefined,
+      bound: '',
+      clusterBindGroup: undefined,
+      clusterBound: '',
+    }
+    state.views.set(name, pv)
+  }
+  return pv
+}
 
-function pipelineDescriptor(
-  state: ForwardState,
-  module: GPUShaderModule,
-  format: GPUTextureFormat,
-  cullMode: GPUCullMode,
-): GPURenderPipelineDescriptor {
+function drawStats(list: DrawList) {
   return {
-    label: `forward/standard/${format}/x${state.msaa}/${cullMode}`,
-    layout: state.layouts.pipeline,
-    vertex: {
-      module,
-      entryPoint: 'vs',
-      buffers: [
-        { arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] },
-        { arrayStride: 12, attributes: [{ shaderLocation: 1, offset: 0, format: 'float32x3' }] },
-        { arrayStride: 8, attributes: [{ shaderLocation: 2, offset: 0, format: 'float32x2' }] },
-        {
-          arrayStride: 48,
-          stepMode: 'instance',
-          attributes: [
-            { shaderLocation: 3, offset: 0, format: 'float32x4' },
-            { shaderLocation: 4, offset: 16, format: 'float32x4' },
-            { shaderLocation: 5, offset: 32, format: 'float32x4' },
-          ],
-        },
-        { arrayStride: 8, attributes: [{ shaderLocation: 6, offset: 0, format: 'float32x2' }] },
-        { arrayStride: 16, attributes: [{ shaderLocation: 7, offset: 0, format: 'float32x4' }] },
-      ],
-    },
-    fragment: { module, entryPoint: 'fs', targets: [{ format }] },
-    primitive: { topology: 'triangle-list', cullMode, frontFace: 'ccw' },
-    depthStencil: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'greater' },
-    multisample: { count: state.msaa },
+    visible: list.visible,
+    culled: list.culled,
+    hidden: list.hidden,
+    pending: list.pending,
+    drawCalls: list.length,
+    pipelineSwitches: 0,
   }
 }
 
+const viewport = new Float32Array(4)
+const clusterParams = new Float32Array(4)
+const ambientScratch = new Float32Array(3)
+const envScratch = new Float32Array(4)
+
+const jitterScratch = new Float32Array(4)
+
+function writeViewUniform(
+  world: World,
+  state: ForwardState,
+  pv: ViewGpu,
+  cam: CameraData,
+  ambient: { color: [number, number, number]; brightness: number },
+  clusterFar: number,
+) {
+  environmentParams(world.resource(Environments), cam, envScratch)
+  const [near, far] = clusterRange(cam, clusterFar)
+  viewport[0] = cam.width
+  viewport[1] = cam.height
+  viewport[2] = 1 / cam.width
+  viewport[3] = 1 / cam.height
+  clusterParams[0] = near
+  clusterParams[1] = far
+  clusterParams[2] = CLUSTER_Z / Math.log(far / near)
+  clusterParams[3] = cam.debug
+  jitterScratch[0] = cam.post.jitter[0]!
+  jitterScratch[1] = cam.post.jitter[1]!
+  jitterScratch[2] = cam.frames
+  ambientScratch[0] = ambient.color[0] * ambient.brightness
+  ambientScratch[1] = ambient.color[1] * ambient.brightness
+  ambientScratch[2] = ambient.color[2] * ambient.brightness
+  viewLayout.write(state.viewBytes, 0, {
+    viewProj: cam.viewProj as never,
+    view: cam.view as never,
+    invViewProj: cam.invViewProj as never,
+    cameraPosition: cam.position as never,
+    exposure: cam.exposure,
+    viewport: viewport as never,
+    clusterParams: clusterParams as never,
+    ambient: ambientScratch as never,
+    envParams: envScratch as never,
+    viewProjNoJitter: cam.viewProjNoJitter as never,
+    prevViewProj: cam.prevViewProj as never,
+    jitter: jitterScratch as never,
+  })
+  pv.uniform.write(new Float32Array(state.viewBytes.buffer, 0, viewLayout.size / 4))
+}
+
+const upload = defineSystem({
+  name: 'render/upload-visible',
+  description: "Uploads every view's visible instance lists and shadow view matrices.",
+  run: (_, world) => {
+    const store = world.resource(Instances)
+    const culler = world.resource(Culler)
+    if (culler.active) {
+      culler.prepare(store)
+      store.gpuVisible = culler.visible
+    }
+    store.finishFrame()
+    const state = world.resource(State)
+    world.resource(ShadowsResource).uniforms.upload(state.layouts.shadowView, state.globals)
+  },
+})
+
+// --- graph nodes ---------------------------------------------------------------
+
+const VERTEX_BUFFERS: GPUVertexBufferLayout[] = [
+  { arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] },
+  { arrayStride: 12, attributes: [{ shaderLocation: 1, offset: 0, format: 'float32x3' }] },
+  { arrayStride: 8, attributes: [{ shaderLocation: 2, offset: 0, format: 'float32x2' }] },
+  { arrayStride: 8, attributes: [{ shaderLocation: 3, offset: 0, format: 'float32x2' }] },
+  { arrayStride: 16, attributes: [{ shaderLocation: 4, offset: 0, format: 'float32x4' }] },
+]
+
+const FORWARD_DEFINES = [
+  { PREMULTIPLY: false, MASK: false },
+  { PREMULTIPLY: true, MASK: false },
+  { PREMULTIPLY: false, MASK: true },
+  { PREMULTIPLY: true, MASK: true },
+] as const
+
+/** The pipeline layout of a pass drawing a material type: view, material, instances. */
+function materialLayout(
+  gpu: GpuContext,
+  state: ForwardState,
+  assets: GpuAssets,
+  type: MaterialType,
+  store: InstanceStore,
+) {
+  return gpu.layouts.pipelineLayout({
+    label: `forward/${type.name}`,
+    bindGroupLayouts: [state.layouts.view, assets.layoutOf(type), store.layout],
+  })
+}
+
+export const PASS_OPAQUE = 0
+export const PASS_TRANSPARENT = 1
+export const PASS_GBUFFER = 3
+/** Depth, normals, and velocity for post-processing (TAA, motion blur, forward SSAO). */
+export const PASS_PREPASS = 5
+/** Entity ids, normals, and depth for GPU picking (picking.ts). */
+export const PASS_PICK = 7
+
+/**
+ * The picking pass's color targets: entity id, and the world normal with the depth in w (0 where
+ * nothing drew). Depth rides in a color target because depth formats only copy out whole.
+ */
+export const PICK_TARGETS: GPUColorTargetState[] = [
+  { format: 'r32uint' },
+  { format: 'rgba32float' },
+]
+
+const PREPASS_TARGETS: GPUColorTargetState[] = [{ format: 'rgba16float' }, { format: 'rg16float' }]
+
+/**
+ * Draws a list of batches with their material types' pipelines. Returns the pipeline switches, so
+ * `render.describe` can show that sorting keeps them rare.
+ */
+export function drawMaterials(
+  ctx: NodeContext,
+  state: ForwardState,
+  pv: ViewGpu,
+  cam: CameraData,
+  draws: DrawList,
+  pass: number,
+): number {
+  const store = ctx.world.resource(Instances)
+  const assets = ctx.world.resource(GpuAssetsResource)
+  const gpu = ctx.gpu
+  const renderPass = ctx.renderPass!
+  const instances = draws.cullView >= 0 ? store.gpuBindGroup : store.bindGroup
+  if (!instances) return 0
+  const args = ctx.world.resource(Culler).args.buffer
+  renderPass.setBindGroup(0, viewBindGroup(gpu, ctx.world, pv, cam))
+  renderPass.setBindGroup(2, instances)
+  let current: GPURenderPipeline | undefined
+  let switches = 0
+  for (let d = 0; d < draws.length; d++) {
+    const item = draws.items[d]!
+    const material = item.batch.material
+    const type = material.type
+    const variant = materialVariant(material)
+    const blend = variantBlend(variant)
+    const gbuffer = pass === PASS_GBUFFER
+    const prepass = pass === PASS_PREPASS
+    const pick = pass === PASS_PICK
+    // The G-buffer only takes standard lighting; anything else draws forward.
+    if (gbuffer && !type.standard) continue
+    // The G-buffer, the prepass, and picking are always single-sampled.
+    const msaa = gbuffer || prepass || pick ? 1 : cam.msaa
+    const key = ((pass * 1024 + typeOrdinal(type)) * 16 + variant) * 8 + msaa
+    let pipeline = state.pipelines.cached(key)
+    if (!pipeline) {
+      const premultiply = blend === 'premultiplied'
+      const mask = blend === 'mask'
+      const slot = pick
+        ? 40
+        : prepass
+          ? 32 + (type.standard ? 0 : 4) + (mask ? 2 : 0)
+          : (gbuffer ? 16 : type.standard ? 0 : 4) + (premultiply ? 1 : 0) + (mask ? 2 : 0)
+      const module = state.pipelines.module(
+        ctx.world,
+        gpu,
+        type,
+        slot,
+        pick
+          ? 'shard::pick'
+          : prepass
+            ? type.standard
+              ? 'shard::prepass'
+              : 'shard::prepass::plain'
+            : gbuffer
+              ? 'shard::pbr::gbuffer_pass'
+              : type.standard
+                ? 'shard::pbr::forward'
+                : 'shard::unlit::forward',
+        FORWARD_DEFINES[slot & 3],
+      )
+      if (!module) {
+        gpu.pipelines.skipped++ // a draw waiting on its shader is a skipped draw too
+        continue
+      }
+      const transparent = isTransparent(blend) && !pick
+      pipeline = state.pipelines.create(gpu, key, {
+        label: `${pick ? 'pick' : prepass ? 'prepass' : gbuffer ? 'gbuffer' : 'forward'}/${type.name}/${blend}/x${msaa}/${variantCull(variant)}`,
+        layout: materialLayout(gpu, state, assets, type, store),
+        vertex: { module, entryPoint: 'vs', buffers: VERTEX_BUFFERS },
+        fragment: {
+          module,
+          entryPoint: 'fs',
+          targets: pick
+            ? PICK_TARGETS
+            : prepass
+              ? PREPASS_TARGETS
+              : gbuffer
+                ? state.gbufferTargets
+                : [{ format: 'rgba16float', blend: blendState(blend) }],
+        },
+        primitive: { topology: 'triangle-list', cullMode: variantCull(variant), frontFace: 'ccw' },
+        depthStencil: {
+          format: 'depth32float',
+          depthWriteEnabled: !transparent,
+          depthCompare: transparent ? 'greater-equal' : 'greater',
+        },
+        multisample: { count: msaa },
+      })
+      if (!pipeline) continue
+    }
+    const mat = assets.material(ctx.world, material)
+    if (!mat?.bindGroup) continue
+    const gm = assets.mesh(item.batch.mesh)
+    if (pipeline !== current) {
+      renderPass.setPipeline(pipeline)
+      current = pipeline
+      switches++
+    }
+    renderPass.setBindGroup(1, mat.bindGroup)
+    renderPass.setVertexBuffer(0, gm.positions)
+    renderPass.setVertexBuffer(1, gm.normals)
+    renderPass.setVertexBuffer(2, gm.uvs)
+    renderPass.setVertexBuffer(3, gm.uvs1)
+    renderPass.setVertexBuffer(4, gm.tangents)
+    if (gm.indices) {
+      renderPass.setIndexBuffer(gm.indices, gm.indexFormat)
+      if (item.indirect >= 0) renderPass.drawIndexedIndirect(args, item.indirect)
+      else renderPass.drawIndexed(gm.count, item.count, 0, 0, item.first)
+    } else if (item.indirect >= 0) {
+      renderPass.drawIndirect(args, item.indirect)
+    } else {
+      renderPass.draw(gm.count, item.count, 0, item.first)
+    }
+  }
+  return switches
+}
+
+function recordSwitches(ctx: NodeContext, switches: number): void {
+  const stats = ctx.world.resource(RenderStats).get(ctx.view.name)
+  if (stats) stats.pipelineSwitches = Math.max(stats.pipelineSwitches ?? 0, switches)
+}
+
+const isCamera = (view: RenderView) => cameraOf(view) !== undefined
+const msaaOf = (view: RenderView) => cameraOf(view)?.msaa ?? 1
+
+/** A 1×1 white texture: "no occlusion" where a pass samples SSAO. */
+function whiteTexture(gpu: GpuContext, state: ForwardState): GPUTexture {
+  if (!state.white || state.white.generation !== gpu.generation) {
+    const texture = gpu.device.createTexture({
+      label: 'white',
+      size: [1, 1, 1],
+      format: 'rgba8unorm',
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    })
+    gpu.device.queue.writeTexture({ texture }, new Uint8Array([255, 255, 255, 255]), {}, [1, 1])
+    state.white = { texture, generation: gpu.generation }
+  }
+  return state.white.texture
+}
+
+function emptyShadow(gpu: GpuContext, state: ForwardState): GPUTexture {
+  if (!state.emptyShadow || state.emptyShadow.generation !== gpu.generation) {
+    state.emptyShadow = {
+      texture: gpu.device.createTexture({
+        label: 'shadows/empty',
+        size: [1, 1, 1],
+        format: 'depth32float',
+        usage: GPUTextureUsage.TEXTURE_BINDING,
+      }),
+      generation: gpu.generation,
+    }
+    state.shadowSampler = undefined
+  }
+  return state.emptyShadow.texture
+}
+
+const textureIds = new WeakMap<GPUTexture, number>()
+let nextTextureId = 1
+function idOf(t: GPUTexture): number {
+  let id = textureIds.get(t)
+  if (id === undefined) {
+    id = nextTextureId++
+    textureIds.set(t, id)
+  }
+  return id
+}
+
+/** The view bind group (group 0): uniforms, lights, clusters, shadows. Rebuilt when inputs change. */
+export function viewBindGroup(
+  gpu: GpuContext,
+  world: World,
+  pv: ViewGpu,
+  cam: CameraData,
+): GPUBindGroup {
+  const state = world.resource(State)
+  const lights = world.resource(Lights)
+  const local = world.resource(ShadowsResource).local
+  const settings = world.resource(LightingSettings)
+  const empty = emptyShadow(gpu, state)
+  state.shadowSampler ??= gpu.device.createSampler({
+    label: 'shadows/compare',
+    compare: 'greater-equal',
+    magFilter: 'linear',
+    minFilter: 'linear',
+    addressModeU: 'clamp-to-edge',
+    addressModeV: 'clamp-to-edge',
+  })
+  const cascades =
+    pv.cascades.count > 0
+      ? pv.cascades.ensureTexture(gpu, settings.cascadeMapSize, 'view')
+      : pv.cascades.texture && pv.cascades.generation === gpu.generation
+        ? pv.cascades.texture
+        : empty
+  if (local.spots.length > 0 || local.points.length > 0) {
+    local.ensureTextures(gpu, settings.shadowMapSize)
+  }
+  const live = (t: GPUTexture | undefined) => (t && local.generation === gpu.generation ? t : empty)
+  const spots = live(local.spotTexture)
+  const points = live(local.pointTexture)
+  const envs = world.resource(Environments)
+  envs.ensure(gpu)
+  const env = envs.cameras.get(cam.entity)?.environment
+  const baked = env && env.bakes > 0 ? env : undefined
+  const specular = baked?.specularView ?? envs.emptyView!
+  const source = baked?.sourceView ?? envs.emptyView!
+  const sh = baked?.sh ?? envs.emptySh!
+  const ao = pv.ao ?? whiteTexture(gpu, state)
+  const key = `${idOf(ao)}/${gpu.generation}/${pv.uniform.version}/${lights.buffer.version}/${pv.clusters.clusters.version}/${lights.directional.version}/${pv.shadowData.version}/${idOf(cascades)}/${idOf(spots)}/${idOf(points)}/${baked ? idOf(baked.source) : 0}/${sh.version}/${state.globals.version}`
+  if (!pv.bindGroup || pv.bound !== key) {
+    pv.bindGroup = gpu.device.createBindGroup({
+      label: 'forward/view',
+      layout: state.layouts.view,
+      entries: [
+        { binding: 0, resource: { buffer: pv.uniform.buffer } },
+        { binding: 1, resource: { buffer: lights.buffer.buffer } },
+        { binding: 2, resource: { buffer: pv.clusters.clusters.buffer } },
+        { binding: 3, resource: { buffer: lights.directional.buffer } },
+        { binding: 4, resource: { buffer: pv.shadowData.buffer } },
+        { binding: 5, resource: cascades.createView({ dimension: '2d-array' }) },
+        { binding: 6, resource: spots.createView({ dimension: '2d-array' }) },
+        { binding: 7, resource: points.createView({ dimension: '2d-array' }) },
+        { binding: 8, resource: state.shadowSampler },
+        { binding: 9, resource: specular },
+        { binding: 10, resource: envs.lut!.createView() },
+        { binding: 11, resource: envs.sampler! },
+        { binding: 12, resource: { buffer: sh.buffer } },
+        { binding: 13, resource: source },
+        { binding: 14, resource: { buffer: state.globals.buffer } },
+        { binding: 15, resource: ao.createView() },
+      ],
+    })
+    pv.bound = key
+  }
+  return pv.bindGroup
+}
+
 function forwardNode(state: ForwardState) {
-  const msaa = state.msaa > 1
-  const clear = (view: RenderView) =>
-    (view.data.camera as CameraData | undefined)?.clear ?? { r: 0, g: 0, b: 0, a: 1 }
   return {
     kind: 'render' as const,
-    writes: [
-      VIEW_TARGET,
-      { name: 'forward-depth', format: 'depth32float' as const, sampleCount: state.msaa },
-      ...(msaa ? [{ name: 'forward-msaa', format: 'view' as const, sampleCount: state.msaa }] : []),
-    ],
-    color: msaa
-      ? [{ resource: 'forward-msaa', resolve: VIEW_TARGET, clear }]
-      : [{ resource: VIEW_TARGET, clear }],
-    depth: { resource: 'forward-depth', clear: 0 },
-    run: (ctx: import('./graph').NodeContext) => {
+    phase: RenderPhase.Opaque,
+    enabled: (view: RenderView) => isCamera(view) && !cameraOf(view)!.deferred,
+    reads: ['clusters', 'shadow-cascades', 'shadow-local', 'environment', 'culled', 'ssao'],
+    writes: ['scene-color', 'scene-depth', 'hdr'],
+    color: (view: RenderView) => sceneColor(view, cameraOf(view)?.clear),
+    depth: { resource: 'scene-depth', clear: 0 },
+    run: (ctx: NodeContext) => {
+      const cam = cameraOf(ctx.view)!
       const pv = state.views.get(ctx.view.name)
-      if (!pv || !ctx.view.data.camera) return
-      const format = ctx.view.target.format
-      const module = ctx.world.resource(Shaders).module(ctx.gpu, {
-        root: 'shard::pbr::forward',
-        defines: { SRGB_TARGET: format.endsWith('-srgb') },
-      })
+      if (!pv) return
+      recordSwitches(ctx, drawMaterials(ctx, state, pv, cam, cam.draws, PASS_OPAQUE))
+    },
+  }
+}
+
+/** Blended materials, after opaque geometry and the sky: back to front, depth-tested, no writes. */
+function transparentNode(state: ForwardState) {
+  return {
+    kind: 'render' as const,
+    phase: RenderPhase.Transparent,
+    enabled: (view: RenderView) => (cameraOf(view)?.transparent.length ?? 0) > 0,
+    reads: ['clusters', 'shadow-cascades', 'shadow-local', 'environment', 'culled', 'ssao'],
+    writes: ['scene-color', 'hdr'],
+    color: (view: RenderView) => sceneColor(view),
+    depth: { resource: 'scene-depth', readOnly: true },
+    run: (ctx: NodeContext) => {
+      const cam = cameraOf(ctx.view)!
+      const pv = state.views.get(ctx.view.name)
+      if (!pv) return
+      drawMaterials(ctx, state, pv, cam, cam.transparent, PASS_TRANSPARENT)
+    },
+  }
+}
+
+/** Bins each view's visible lights into clusters on the GPU, and reads back overflow stats. */
+function clusterNode(state: ForwardState) {
+  return {
+    kind: 'raw' as const,
+    phase: RenderPhase.Setup,
+    enabled: isCamera,
+    writes: ['clusters'],
+    run: (ctx: NodeContext) => {
+      const pv = state.views.get(ctx.view.name)
+      if (!pv) return
+      const gpu = ctx.gpu
+      const module = ctx.world.resource(Shaders).module(gpu, { root: 'shard::lighting::cluster' })
       if (!module) {
-        ctx.gpu.pipelines.skipped++ // a draw waiting on its shader is a skipped draw too
+        gpu.pipelines.skipped++
         return
       }
-      const pipeline = ctx.gpu.pipelines.render(pipelineDescriptor(state, module, format, 'back'))
-      const twoSided = ctx.gpu.pipelines.render(pipelineDescriptor(state, module, format, 'none'))
-      if (!pipeline || !twoSided) return
-      const bound = `${pv.uniform.version}/${ctx.gpu.generation}`
-      if (!pv.bindGroup || pv.bound !== bound) {
-        pv.bindGroup = ctx.gpu.device.createBindGroup({
-          label: `${ctx.view.name}/view`,
-          layout: state.layouts.view,
-          entries: [{ binding: 0, resource: { buffer: pv.uniform.buffer } }],
+      const pipeline = gpu.pipelines.compute({
+        label: 'light-clusters',
+        layout: state.layouts.clusterPipeline,
+        compute: { module, entryPoint: 'main' },
+      })
+      if (!pipeline) return
+      const c = pv.clusters
+      const ao = pv.ao ?? whiteTexture(gpu, state)
+      const key = `${idOf(ao)}/${gpu.generation}/${pv.uniform.version}/${c.lightList.version}/${c.aabbs.version}/${c.clusters.version}/${c.stats.version}`
+      if (!pv.clusterBindGroup || pv.clusterBound !== key) {
+        pv.clusterBindGroup = gpu.device.createBindGroup({
+          label: 'light-clusters',
+          layout: state.layouts.cluster,
+          entries: [
+            { binding: 0, resource: { buffer: pv.uniform.buffer } },
+            { binding: 1, resource: { buffer: c.lightList.buffer } },
+            { binding: 2, resource: { buffer: c.aabbs.buffer } },
+            { binding: 3, resource: { buffer: c.clusters.buffer } },
+            { binding: 4, resource: { buffer: c.stats.buffer } },
+          ],
         })
-        pv.bound = bound
+        pv.clusterBound = key
+      }
+      const pass = ctx.encoder.beginComputePass({
+        label: `${ctx.view.name}/light-clusters`,
+        timestampWrites: ctx.timestamps('light-clusters'),
+      })
+      pass.setPipeline(pipeline)
+      pass.setBindGroup(0, pv.clusterBindGroup)
+      pass.dispatchWorkgroups(Math.ceil(CLUSTER_COUNT / 64))
+      pass.end()
+      const map = c.readback(ctx.encoder)
+      if (map) ctx.afterSubmit(map)
+      const overflows = c.latest.overflows
+      const warnKey = overflows > 0 ? `${ctx.view.name}:${overflows}` : ''
+      if (warnKey !== state.warned.overflow) {
+        state.warned.overflow = warnKey
+        if (overflows > 0) {
+          ctx.world
+            .tryResource(LogResource)
+            ?.log(
+              'warn',
+              `${overflows} light cluster(s) in ${ctx.view.name} hit ${MAX_LIGHTS_PER_CLUSTER} lights; extra lights are dropped`,
+              {
+                code: 'render/cluster-overflow',
+                hint: 'Give point and spot lights smaller ranges so fewer overlap.',
+              },
+            )
+        }
+      }
+    },
+  }
+}
+
+/** Renders the camera's cascades: one depth layer per cascade. */
+function cascadeNode(state: ForwardState) {
+  return {
+    kind: 'raw' as const,
+    phase: RenderPhase.Shadows,
+    enabled: (view: RenderView) =>
+      isCamera(view) && (state.views.get(view.name)?.cascades.count ?? 0) > 0,
+    reads: ['culled'],
+    writes: ['shadow-cascades'],
+    run: (ctx: NodeContext) => {
+      const pv = state.views.get(ctx.view.name)!
+      const shadows = ctx.world.resource(ShadowsResource)
+      const size = ctx.world.resource(LightingSettings).cascadeMapSize
+      const texture = pv.cascades.ensureTexture(ctx.gpu, size, ctx.view.name)
+      for (let i = 0; i < pv.cascades.count; i++) {
+        drawShadowCasters(
+          ctx,
+          texture.createView({ dimension: '2d', baseArrayLayer: i, arrayLayerCount: 1 }),
+          pv.cascades.views[i]!,
+          pv.cascades.views[i]!.offset,
+          shadows.uniforms,
+          state.pipelines,
+          state.layouts.shadowView,
+          `shadows/cascade${i}`,
+        )
+      }
+    },
+  }
+}
+
+/** Renders spot and point shadow maps, once per frame (the first camera view that runs it). */
+function localShadowNode(state: ForwardState) {
+  return {
+    kind: 'raw' as const,
+    phase: RenderPhase.Shadows,
+    enabled: isCamera,
+    reads: ['culled'],
+    writes: ['shadow-local'],
+    run: (ctx: NodeContext) => {
+      const shadows = ctx.world.resource(ShadowsResource)
+      const local = shadows.local
+      if (local.renderedFrame === state.frame) return
+      local.renderedFrame = state.frame
+      if (local.spots.length === 0 && local.points.length === 0) return
+      local.ensureTextures(ctx.gpu, ctx.world.resource(LightingSettings).shadowMapSize)
+      const layer = (texture: GPUTexture, i: number) =>
+        texture.createView({ dimension: '2d', baseArrayLayer: i, arrayLayerCount: 1 })
+      for (let i = 0; i < local.spots.length; i++) {
+        const view = local.spotViews[i]!
+        drawShadowCasters(
+          ctx,
+          layer(local.spotTexture!, i),
+          view,
+          view.offset,
+          shadows.uniforms,
+          state.pipelines,
+          state.layouts.shadowView,
+          `shadows/spot${i}`,
+        )
+      }
+      for (let i = 0; i < local.points.length * 6; i++) {
+        const view = local.pointViews[i]!
+        drawShadowCasters(
+          ctx,
+          layer(local.pointTexture!, i),
+          view,
+          view.offset,
+          shadows.uniforms,
+          state.pipelines,
+          state.layouts.shadowView,
+          `shadows/point${i}`,
+        )
+      }
+    },
+  }
+}
+
+/** GPU culling for every camera and shadow view, once per frame, before anything draws. */
+function cullNode(state: ForwardState) {
+  let frame = -1
+  return {
+    kind: 'raw' as const,
+    phase: RenderPhase.Setup,
+    enabled: (view: RenderView) => isCamera(view) && state.cullerActive,
+    writes: ['culled'],
+    run: (ctx: NodeContext) => {
+      if (frame === state.frame) return
+      frame = state.frame
+      ctx.world.resource(Culler).encode(ctx, ctx.world.resource(Instances))
+    },
+  }
+}
+
+/** Prefilters environments whose source changed (once per frame, before any view draws). */
+const environmentNode = {
+  kind: 'raw' as const,
+  phase: RenderPhase.Setup,
+  enabled: isCamera,
+  writes: ['environment'],
+  run: runEnvironmentWork,
+}
+
+/** Draws the environment (skybox or procedural sky) wherever no geometry was drawn. */
+function skyNode(state: ForwardState) {
+  const data = new Float32Array(20)
+  const buffers = new Map<
+    string,
+    { buffer: GpuBuffer; bindGroup: GPUBindGroup | undefined; bound: string }
+  >()
+  return {
+    kind: 'render' as const,
+    phase: RenderPhase.Sky,
+    enabled: (view: RenderView) => {
+      const cam = cameraOf(view)
+      if (!cam) return false
+      const entry = view.data.environment as { background: number } | undefined
+      return (entry?.background ?? -1) >= 0
+    },
+    reads: ['environment'],
+    writes: ['scene-color', 'hdr'],
+    color: (view: RenderView) => sceneColor(view),
+    depth: { resource: 'scene-depth', readOnly: true },
+    run: (ctx: NodeContext) => {
+      const cam = cameraOf(ctx.view)!
+      const pv = state.views.get(ctx.view.name)
+      const envs = ctx.world.resource(Environments)
+      const entry = envs.cameras.get(cam.entity)
+      const env = entry?.environment
+      if (!pv || !entry || !env || env.bakes === 0) return
+      const gpu = ctx.gpu
+      const module = ctx.world.resource(Shaders).module(gpu, { root: 'shard::sky::background' })
+      if (!module) {
+        gpu.pipelines.skipped++
+        return
+      }
+      const bgLayout = gpu.layouts.bindGroupLayout({
+        label: 'sky/background',
+        entries: [
+          {
+            binding: 0,
+            visibility: GPUShaderStage.FRAGMENT,
+            buffer: { type: 'uniform' },
+          },
+        ],
+      })
+      const pipeline = gpu.pipelines.render({
+        label: `sky/x${cam.msaa}`,
+        layout: gpu.layouts.pipelineLayout({
+          label: 'sky',
+          bindGroupLayouts: [state.layouts.view, bgLayout],
+        }),
+        vertex: { module, entryPoint: 'vs' },
+        fragment: { module, entryPoint: 'fs', targets: [{ format: 'rgba16float' }] },
+        depthStencil: { format: 'depth32float', depthWriteEnabled: false, depthCompare: 'equal' },
+        multisample: { count: cam.msaa },
+      })
+      if (!pipeline) return
+      let b = buffers.get(ctx.view.name)
+      if (!b) {
+        b = {
+          buffer: new GpuBuffer(gpu, {
+            label: `${ctx.view.name}/sky`,
+            usage: GPUBufferUsage.UNIFORM,
+            size: data.byteLength,
+          }),
+          bindGroup: undefined,
+          bound: '',
+        }
+        buffers.set(ctx.view.name, b)
+      }
+      const sky = env.kind === 'sky' ? env.sky : undefined
+      data[0] = entry.background
+      data[1] = sky && sky.sunDiskSize > 0 ? 1 : 0
+      data[2] = ((0.2667 * Math.PI) / 180) * (sky?.sunDiskSize ?? 1)
+      data[3] = sky ? sunDiskLuminance(env) : 0
+      data.set(env.sun, 4)
+      data[8] = sky?.turbidity ?? 2
+      data[9] = sky?.rayleigh ?? 1
+      data[10] = sky?.mie ?? 1
+      data[11] = sky?.sunDiskSize ?? 1
+      b.buffer.write(data)
+      const key = `${gpu.generation}/${b.buffer.version}`
+      if (!b.bindGroup || b.bound !== key) {
+        b.bindGroup = gpu.device.createBindGroup({
+          label: 'sky/background',
+          layout: bgLayout,
+          entries: [{ binding: 0, resource: { buffer: b.buffer.buffer } }],
+        })
+        b.bound = key
       }
       const pass = ctx.renderPass!
-      let current = pipeline
       pass.setPipeline(pipeline)
-      pass.setBindGroup(0, pv.bindGroup)
-      pass.setVertexBuffer(3, pv.instances.buffer)
-      for (const group of pv.groups) {
-        if (group.count === 0) continue
-        const gm = state.meshes.get(group.mesh)
-        const mat = state.materials.get(group.material)
-        if (!gm || !mat?.bindGroup) continue
-        const wanted = group.material.value.doubleSided ? twoSided : pipeline
-        if (wanted !== current) {
-          pass.setPipeline(wanted)
-          pass.setBindGroup(0, pv.bindGroup)
-          current = wanted
-        }
-        pass.setBindGroup(1, mat.bindGroup)
-        pass.setVertexBuffer(0, gm.positions)
-        pass.setVertexBuffer(1, gm.normals)
-        pass.setVertexBuffer(2, gm.uvs)
-        pass.setVertexBuffer(4, gm.uvs1)
-        pass.setVertexBuffer(5, gm.tangents)
-        if (gm.indices) {
-          pass.setIndexBuffer(gm.indices, gm.indexFormat)
-          pass.drawIndexed(gm.count, group.count, 0, 0, group.firstInstance)
-        } else {
-          pass.draw(gm.count, group.count, 0, group.firstInstance)
-        }
+      pass.setBindGroup(0, viewBindGroup(gpu, ctx.world, pv, cam))
+      pass.setBindGroup(1, b.bindGroup)
+      pass.draw(3)
+    },
+  }
+}
+
+const MSAA_LOAD = [{ resource: 'scene-color', resolve: 'hdr' }]
+const PLAIN_LOAD = [{ resource: 'scene-color' }]
+
+/**
+ * The scene color attachment for a pass that draws into the 3D scene. With MSAA it resolves into
+ * `hdr` at the end of every such pass; the graph stores the multisampled buffer only when a later
+ * pass loads it, so the last scene pass resolves for free.
+ */
+export function sceneColor(view: RenderView, clear?: GPUColor): readonly ColorAttachment[] {
+  const msaa = msaaOf(view) > 1
+  if (clear === undefined) return msaa ? MSAA_LOAD : PLAIN_LOAD
+  return [{ resource: 'scene-color', clear, resolve: msaa ? 'hdr' : undefined }]
+}
+
+/** Single-sample depth from MSAA depth (sample 0), for passes that read depth. */
+function depthResolveNode() {
+  let bindGroups = new WeakMap<GPUTexture, GPUBindGroup>()
+  let generation = -1
+  return {
+    kind: 'render' as const,
+    phase: RenderPhase.Resolve,
+    enabled: (view: RenderView) => msaaOf(view) > 1,
+    reads: ['scene-depth'],
+    writes: ['depth'],
+    depth: { resource: 'depth', clear: 0 },
+    run: (ctx: NodeContext) => {
+      const gpu = ctx.gpu
+      if (generation !== gpu.generation) {
+        bindGroups = new WeakMap()
+        generation = gpu.generation
       }
+      const module = ctx.world.resource(Shaders).module(gpu, { root: 'shard::post::depth_resolve' })
+      const vs = ctx.world.resource(Shaders).module(gpu, { root: 'shard::fullscreen' })
+      if (!module || !vs) return
+      const layout = gpu.layouts.bindGroupLayout({
+        label: 'depth-resolve',
+        entries: [
+          {
+            binding: 0,
+            visibility: GPUShaderStage.FRAGMENT,
+            texture: { sampleType: 'depth', multisampled: true },
+          },
+        ],
+      })
+      const pipeline = gpu.pipelines.render({
+        label: 'depth-resolve',
+        layout: gpu.layouts.pipelineLayout({ label: 'depth-resolve', bindGroupLayouts: [layout] }),
+        vertex: { module: vs, entryPoint: 'vs' },
+        fragment: { module, entryPoint: 'fs', targets: [] },
+        depthStencil: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'always' },
+      })
+      if (!pipeline) return
+      const source = ctx.texture('scene-depth')
+      let bg = bindGroups.get(source)
+      if (!bg) {
+        bg = gpu.device.createBindGroup({
+          label: 'depth-resolve',
+          layout,
+          entries: [{ binding: 0, resource: source.createView() }],
+        })
+        bindGroups.set(source, bg)
+      }
+      const pass = ctx.renderPass!
+      pass.setPipeline(pipeline)
+      pass.setBindGroup(0, bg)
+      pass.draw(3)
     },
   }
 }
@@ -798,58 +1128,91 @@ export interface ForwardPluginOptions {
   msaa?: 1 | 4
 }
 
-/**
- * Cameras, meshes, the standard material, a directional light, and ambient light, drawn with
- * instancing and frustum culling. Needs the render and transform plugins.
- */
 /** Bind group and pipeline layouts, created per device (after a device loss they're rebuilt). */
-function createLayouts(gpu: GpuContext): ForwardState['layouts'] {
+function createLayouts(gpu: GpuContext, assets: GpuAssets, store: InstanceStore): Layouts {
+  const F = GPUShaderStage.FRAGMENT
+  const storage = (binding: number) => ({
+    binding,
+    visibility: F,
+    buffer: { type: 'read-only-storage' as const },
+  })
+  const depthArray = (binding: number) => ({
+    binding,
+    visibility: F,
+    texture: { sampleType: 'depth' as const, viewDimension: '2d-array' as const },
+  })
   const view = gpu.layouts.bindGroupLayout({
     label: 'forward/view',
     entries: [
-      {
-        binding: 0,
-        visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-        buffer: { type: 'uniform' },
-      },
+      { binding: 0, visibility: GPUShaderStage.VERTEX | F, buffer: { type: 'uniform' } },
+      storage(1),
+      storage(2),
+      storage(3),
+      storage(4),
+      depthArray(5),
+      depthArray(6),
+      depthArray(7),
+      { binding: 8, visibility: F, sampler: { type: 'comparison' } },
+      { binding: 9, visibility: F, texture: { sampleType: 'float', viewDimension: 'cube' } },
+      { binding: 10, visibility: F, texture: { sampleType: 'float' } },
+      { binding: 11, visibility: F, sampler: { type: 'filtering' } },
+      storage(12),
+      { binding: 13, visibility: F, texture: { sampleType: 'float', viewDimension: 'cube' } },
+      { binding: 14, visibility: GPUShaderStage.VERTEX | F, buffer: { type: 'uniform' } },
+      { binding: 15, visibility: F, texture: { sampleType: 'float' } },
     ],
   })
-  const material = gpu.layouts.bindGroupLayout({
-    label: 'forward/material',
+  const C = GPUShaderStage.COMPUTE
+  const cluster = gpu.layouts.bindGroupLayout({
+    label: 'light-clusters',
     entries: [
-      { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
-      { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
-      ...[2, 3, 4, 5, 6].map((binding) => ({
-        binding,
-        visibility: GPUShaderStage.FRAGMENT,
-        texture: { sampleType: 'float' as const },
-      })),
-      ...[7, 8, 9, 10, 11].map((binding) => ({
-        binding,
-        visibility: GPUShaderStage.FRAGMENT,
-        sampler: { type: 'filtering' as const },
-      })),
+      { binding: 0, visibility: C, buffer: { type: 'uniform' } },
+      { binding: 1, visibility: C, buffer: { type: 'read-only-storage' } },
+      { binding: 2, visibility: C, buffer: { type: 'read-only-storage' } },
+      { binding: 3, visibility: C, buffer: { type: 'storage' } },
+      { binding: 4, visibility: C, buffer: { type: 'storage' } },
     ],
   })
+  const shadowView = shadowViewLayout(gpu)
   return {
     view,
-    material,
-    pipeline: gpu.layouts.pipelineLayout({ label: 'forward', bindGroupLayouts: [view, material] }),
+    pipeline: gpu.layouts.pipelineLayout({
+      label: 'forward',
+      bindGroupLayouts: [view, assets.materialLayout, store.layout],
+    }),
+    cluster,
+    clusterPipeline: gpu.layouts.pipelineLayout({
+      label: 'light-clusters',
+      bindGroupLayouts: [cluster],
+    }),
+    shadowView,
+    shadowPipeline: gpu.layouts.pipelineLayout({
+      label: 'shadows',
+      bindGroupLayouts: [shadowView, assets.materialLayout, store.layout],
+    }),
   }
 }
 
-function ensureLayouts(gpu: GpuContext, state: ForwardState): void {
+function ensureLayouts(
+  gpu: GpuContext,
+  state: ForwardState,
+  assets: GpuAssets,
+  store: InstanceStore,
+): void {
   if (state.layoutGeneration === gpu.generation) return
-  state.layouts = createLayouts(gpu)
   state.layoutGeneration = gpu.generation
-  state.textures.clear()
-  state.memory.textures = 0
-  state.memory.textureBytes = 0
-  state.defaults = undefined
-  state.samplers.clear()
-  for (const pv of state.views.values()) pv.bindGroup = undefined
+  state.layouts = createLayouts(gpu, assets, store)
+  for (const pv of state.views.values()) {
+    pv.bindGroup = undefined
+    pv.clusterBindGroup = undefined
+  }
 }
 
+/**
+ * Cameras, meshes, the standard material, lights, shadows, and ambient light, drawn into HDR with
+ * instancing, frustum culling, and clustered light culling, then tonemapped. Needs the render and
+ * transform plugins.
+ */
 export function forwardPlugin(options: ForwardPluginOptions = {}): Plugin {
   return definePlugin({
     name: 'render/forward',
@@ -862,49 +1225,112 @@ export function forwardPlugin(options: ForwardPluginOptions = {}): Plugin {
       w.initResource(RenderTargets)
       w.initResource(AmbientLight)
       w.initResource(RenderStats)
+      w.initResource(Cameras)
+      w.initResource(LightingSettings)
+      w.initResource(DefaultEnvironment)
+      w.initResource(Environments)
+      w.initResource(ViewSettings).msaa = options.msaa ?? 4
+      w.initResource(Gizmos)
+      w.initResource(DebugOverlays)
+      w.initResource(Picking)
+      observeInstanceRemovals(w)
+      observeLightRemovals(w)
       app
-        .addSystems(PostUpdate, computeVisibility.after(TransformSystems), applyPhysicalCameras)
+        .addSystems(
+          PostUpdate,
+          computeVisibility.after(TransformSystems),
+          applyPhysicalCameras,
+          adaptExposure.after(applyPhysicalCameras),
+        )
         .addSystems(
           Last,
           extractCameras.inSet(RenderSet.Extract),
           extractLights.inSet(RenderSet.Extract),
+          prepareInstances.inSet(RenderSet.Prepare),
+          prepareLights.inSet(RenderSet.Prepare),
+          prepareEnvironments.inSet(RenderSet.Prepare),
+          queue.inSet(RenderSet.Queue),
+          upload.inSet(RenderSet.Upload),
+          drawOverlays.inSet(RenderSet.Upload).after(upload),
+          uploadGizmos.inSet(RenderSet.Upload).after(drawOverlays),
         )
-        .addSystems(Last, queue.inSet(RenderSet.Queue))
+        .addSystems(First, beginGizmos)
     },
     ready(app) {
       const gpu = app.world.resource(Gpu)
-      const layouts = createLayouts(gpu)
       // Basis textures transcode to what this device can sample.
       setTextureCapabilities({
         bc: gpu.features.has('texture-compression-bc'),
         astc: gpu.features.has('texture-compression-astc'),
         etc2: gpu.features.has('texture-compression-etc2'),
       })
+      const assets = new GpuAssets(gpu, app.world.initResource(GpuMemory))
+      const store = new InstanceStore(gpu)
+      app.insertResource(GpuAssetsResource, assets)
+      app.insertResource(Instances, store)
+      app.insertResource(Culler, new GpuCuller(gpu))
+      app.insertResource(
+        Lights,
+        new LightStore(gpu, app.world.resource(LightingSettings).maxLights),
+      )
+      app.insertResource(ShadowsResource, {
+        local: new LocalShadows(),
+        uniforms: new ShadowPassUniforms(gpu),
+      })
       const state: ForwardState = {
-        msaa: options.msaa ?? 4,
-        meshes: new Map(),
-        materials: new Map(),
         views: new Map(),
-        cameras: new Map(),
-        defaultMaterial: new MaterialAsset(),
-        light: { direction: vec3.create(0, 1, 0), color: vec3.create() },
-        ambient: vec3.create(),
         viewBytes: new DataView(new ArrayBuffer(viewLayout.size)),
-        materialBytes: new DataView(new ArrayBuffer(materialLayout.size)),
-        textureBytes: new Float32Array(40),
-        packed: new Float32Array(12 * 1024),
-        textures: new Map(),
-        defaults: undefined,
-        samplers: new Map(),
-        slotTextures: [undefined, undefined, undefined, undefined, undefined],
-        reloading: new Set(),
-        materialReady: new Map(),
-        memory: app.world.initResource(GpuMemory),
-        layouts,
+        shadowFloats: new Float32Array(SHADOW_DATA_FLOATS),
+        layouts: createLayouts(gpu, assets, store),
         layoutGeneration: gpu.generation,
+        emptyShadow: undefined,
+        white: undefined,
+        shadowSampler: undefined,
+        frame: 0,
+        warned: { budget: '', overflow: '' },
+        globals: new GpuBuffer(gpu, { label: 'globals', usage: GPUBufferUsage.UNIFORM, size: 16 }),
+        globalsData: new Float32Array(4),
+        pipelines: new MaterialPipelines(),
+        cullerActive: false,
+        gbufferTargets: [
+          { format: 'rgba8unorm-srgb' },
+          { format: 'rgba16float' },
+          { format: gbufferEmissiveFormat(gpu) },
+        ],
       }
+      // Batches draw grouped by material type and variant, so pipeline switches stay rare.
+      store.batchKey = (b) => typeOrdinal(b.material.type) * 16 + materialVariant(b.material)
       app.insertResource(State, state)
-      app.world.resource(Graph).addNode('forward-opaque', forwardNode(state))
+      const graph = app.world.resource(Graph)
+      graph.declare({ name: 'scene-color', format: 'rgba16float', sampleCount: msaaOf })
+      graph.declare({ name: 'scene-depth', format: 'depth32float', sampleCount: msaaOf })
+      graph.declare({ name: 'hdr', format: 'rgba16float' })
+      graph.declare({ name: 'depth', format: 'depth32float' })
+      graph.declare({ name: 'ldr', format: 'view' })
+      const describers = app.world.initResource(RenderDescribers)
+      describers.set('lighting', (world) => describeLighting(world))
+      describers.set('environment', (world) => describeEnvironment(world))
+      describers.set('culling', (world) => describeCulling(world))
+      describers.set('post', (world) => describePost(world))
+      graph.addNode('environment', environmentNode)
+      graph.addNode('instance-cull', cullNode(state))
+      graph.addNode('light-clusters', clusterNode(state))
+      graph.addNode('shadows/cascades', cascadeNode(state))
+      graph.addNode('shadows/local', localShadowNode(state))
+      graph.addNode('forward-opaque', forwardNode(state))
+      graph.addNode('sky', skyNode(state))
+      graph.addNode('forward-transparent', transparentNode(state))
+      addDeferredNodes(app)
+      graph.addNode('depth-resolve', depthResolveNode())
+      addPostNodes(app.world)
+      graph.addNode('pixel-upscale', pixelUpscaleNode())
+      graph.addNode('gizmos', gizmoNode(app.world))
+      addPickNodes(app.world)
     },
   })
+}
+
+/** rg11b10ufloat when the device can render to it, else rgba16float. */
+export function gbufferEmissiveFormat(gpu: GpuContext): GPUTextureFormat {
+  return gpu.features.has('rg11b10ufloat-renderable') ? 'rg11b10ufloat' : 'rgba16float'
 }

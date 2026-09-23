@@ -1,6 +1,6 @@
 # 0020 — Extensible materials
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@shard/render`, `@shard/shader`, `@shard/project`
 - **Depends on:** 0002, 0006, 0007, 0014, 0016
 
@@ -56,8 +56,11 @@ export const Lava = project.material('Lava', {
 
 ```wesl
 // shaders/lava.wesl
-import shard::pbr::standard::{ standard_input };
-import material::Lava;                      // the generated uniform struct and texture bindings
+import shard::pbr::types::{ VertexOutput, PbrInput };
+import shard::pbr::standard::standard_input;
+import shard::globals::globals;
+// The generated uniform and texture bindings.
+import material::lava::{ Lava, Lava_cracks, Lava_cracks_sampler };
 
 override fn pbr_input(in: VertexOutput) -> PbrInput {
   var p = standard_input(in);               // everything StandardMaterial would do
@@ -71,9 +74,9 @@ override fn pbr_input(in: VertexOutput) -> PbrInput {
 - `project.material` / `defineMaterial` registers a `render/<name>`-style type (project types
   namespaced as usual). It's also a Material asset type, so `*.material.json` files and scene
   inline assets can use it.
-- The generated `material::<Name>` module declares the uniform struct (from `wgslLayout`), then the
-  texture and sampler bindings for every `t.handle('Texture')` field, then helpers for the
-  inherited standard fields.
+- The generated `material::<name>` module declares the uniform struct (from `wgslLayout`), then the
+  texture and sampler bindings for every `t.handle('Texture')` field. The inherited standard fields
+  come from `shard::pbr::standard` (`standard_input`).
 - Hooks are `vertex_position` (displacement in object space, applied in every pass), `pbr_input`,
   and `fragment_output`. With `extends: 'none'`, a `shade` hook replaces lighting entirely, and the
   material renders forward only (0021).
@@ -122,17 +125,71 @@ override fn pbr_input(in: VertexOutput) -> PbrInput {
 
 ## Acceptance criteria
 
-- [ ] A project material (fields, one texture, `pbr_input` override) renders as a golden image in
+- [x] A project material (fields, one texture, `pbr_input` override) renders as a golden image in
       forward and deferred.
-- [ ] A `vertex_position` displacement moves the mesh and its shadow identically (golden image).
-- [ ] An `extends: 'none'` material with a `shade` hook renders forward in a deferred view.
-- [ ] A `*.material.json` with `"type": "my-game/Lava"` validates against the Lava schema, with a
+- [x] A `vertex_position` displacement moves the mesh and its shadow identically (golden image).
+- [x] An `extends: 'none'` material with a `shade` hook renders forward in a deferred view.
+- [x] A `*.material.json` with `"type": "my-game/Lava"` validates against the Lava schema, with a
       bad field reported by pointer, and old files without `type` load as StandardMaterial.
-- [ ] Editing the WESL file changes the running game within a frame of compiling. A compile error
+- [x] Editing the WESL file changes the running game within a frame of compiling. A compile error
       keeps the previous shader and reports file:line:col.
-- [ ] Adding a field to a project material hot reloads, and existing assets of that type gain its
+- [x] Adding a field to a project material hot reloads, and existing assets of that type gain its
       default.
-- [ ] 10 material types × 1000 meshes cost at most 10 pipeline switches per pass (draw-order check).
+- [x] 10 material types × 1000 meshes cost at most 10 pipeline switches per pass (draw-order check).
+
+## Implementation notes
+
+- **Defining:** `defineMaterial(name, { extends, fields, blend, shader, description })` in
+  `@shard/render`, and `project.material(name, options)` in project code, which namespaces the
+  name. The type's schema is a normal component definition (standard fields plus the type's own
+  for `extends: 'standard'`), so `schema.get`, the component catalog, validation, and JSON Schema
+  all work on it. A type's own field can't reuse a standard field's name
+  (`render/material-field-clash`).
+- **The generated module** is `material::<snake_name>` (`my-game/Lava` → `material::lava`). WESL
+  imports need explicit names, so a shader imports what it uses:
+  `import material::lava::{ Lava, Lava_cracks, Lava_cracks_sampler };`. The uniform is the
+  PascalName, packed from the numeric fields with `wgslLayout`. Every `t.handle('Texture')` field
+  gets a texture and a sampler (linear, repeat). For standard extensions they follow the standard
+  material's 12 bindings in group 1; for `extends: 'none'` they start at 0.
+- **The standard surface** is `standard_input(in)` in `shard::pbr::standard`, where the standard
+  bindings now live. The `pbr_input` hook defaults to it.
+- **Hooks:**
+  - `vertex_position(position, normal, uv) -> vec3f` (in `shard::mesh`, so every pass runs it)
+  - `pbr_input(in) -> PbrInput`
+  - `fragment_output(color) -> vec4f` (pre-exposed HDR)
+  - `shade(in) -> vec4f` (in `shard::unlit::shading`, for `extends: 'none'`: radiance in cd/m²
+    and alpha; the engine applies exposure)
+
+  Overrides can name a hook without its module (`override fn pbr_input(...)`) when exactly one
+  module declares it; otherwise it's `shader/ambiguous-hook`. `shard::globals` (time, delta
+  time, frame) is available in every pass, including shadows.
+- **Blend modes:** `StandardMaterial.alphaMode` gained `alpha`, `additive`, and `premultiplied`.
+  A type's fixed `blend` overrides it. Blended materials draw in `forward-transparent` after the
+  sky: back to front by instance origin, consecutive instances of one batch merged into a draw,
+  depth-tested with no writes. They cast no shadows.
+- **Pipelines** are cached per pass, type, blend mode, culling, and MSAA under a numeric key, so a
+  draw looks one up without allocating. Batches sort by type and variant. 10 types × 1000 meshes
+  (spawned interleaved) draw in 10 calls with at most 10 pipeline switches. `render.describe`'s
+  stats now report `pipelineSwitches` per view.
+- **Assets:**
+  - `MaterialAsset` carries its `type`. A redefinition (project hot reload, inside the
+    redefinition scope) updates the type in place and bumps its version. Each asset `sync`s on
+    its next use: new fields get their defaults, and the GPU copy and pipelines rebuild.
+  - Material files and scene inline assets read `"type"` (default standard). Validation uses that
+    type's schema and errors point into the file. A type the importer can't see (project code
+    isn't loaded there) imports with a warning and is validated when the game loads it.
+  - glTF has a `materialTypes` import setting (`{ "Lava*": "my-game/Lava" }`, glob on the
+    material name) and honors `extras.shardMaterial`.
+- **Project shaders:** hosts load `shaders/**/*.wesl` as `project::…`. The headless host uses
+  `loadProjectShaders`, and watches with `watch`. `shard dev` serves `/@shard/shaders.json`,
+  pushes edits over its socket, and the page relinks them. A broken edit keeps the last good shader.
+  The error names the material type (`material my-game/Lava: …`) and points at
+  `shaders/lava.wesl:line:col`, including WESL parse errors, whose location only appears in the
+  message text.
+- **Previews:** `asset.preview` shares the game's shader library, so a material type previews
+  with its own shader.
+- **Generated skill:** `write-a-material.md` covers fields, the lava shader, the hooks, a material
+  file, and checking it.
 
 ## Open questions
 

@@ -10,6 +10,7 @@ import {
 import { allImporters, findImporter } from '@shard/assets'
 import { allComponents, findComponent, type JsonSchema, ShardError } from '@shard/core'
 import { listScenes } from '@shard/node'
+import { physicsMethods } from '@shard/physics'
 import { ProjectMethodParams } from '@shard/project'
 import { METHODS } from '@shard/protocol'
 import type { ProtocolTarget } from './hub'
@@ -43,10 +44,14 @@ const text = (value: unknown): ToolResult => ({
   ],
 })
 
+/** Methods engine plugins add to the app (served when the plugin is enabled). */
+const PLUGIN_METHODS = [...physicsMethods]
+
 /** The protocol method's parameter schema, as an MCP input schema. */
 function paramsSchema(method: string, overrides: Record<string, JsonSchema> = {}): JsonSchema {
   const params =
     METHODS.find((m) => m.name === method)?.params ??
+    PLUGIN_METHODS.find((m) => m.name === method)?.params ??
     ProjectMethodParams[method as keyof typeof ProjectMethodParams]
   const schema = params.jsonSchema()
   delete schema.$schema
@@ -172,7 +177,7 @@ export const TOOLS: Tool[] = [
   {
     name: 'screenshot',
     description:
-      'Renders the current state (without advancing time) and returns the image. Defaults to the first camera at 768×432. Pass "camera" (an entity path like "ship/camera") to pick a view.',
+      'Renders the current state (without advancing time) and returns the image. Defaults to the first camera at 768×432. Pass "camera" (an entity path like "ship/camera") to pick a view, and "overlays": ["bounds", "labels"] to draw outlines and scene paths onto this image, so you can tell which blob is which entity.',
     inputSchema: paramsSchema('render.capture', {
       width: { type: 'integer', minimum: 16, maximum: 2048, default: 768 },
       height: { type: 'integer', minimum: 16, maximum: 2048, default: 432 },
@@ -193,6 +198,26 @@ export const TOOLS: Tool[] = [
       }
     },
   },
+  forward(
+    'pick',
+    'render.pick',
+    'The entity under a pixel of the last screenshot (x, y from its top left): scene path, entity id, world position, normal, and distance. null if nothing is there. Example: { "x": 384, "y": 200 }.',
+  ),
+  forward(
+    'raycast',
+    'world.raycast',
+    'Casts a ray through the scene on the CPU and returns what it hits, nearest first (entity, path, position, normal, distance). Example: { "origin": [0, 10, 0], "direction": [0, -1, 0] } finds the ground under a point.',
+  ),
+  forward(
+    'debug_overlays',
+    'debug.overlays',
+    'Keeps debug overlays on in every frame: bounds, lights (ranges and cones), cameras (other cameras\' frustums), cascades (shadow cascades), normals, axes, labels (scene paths). Pass the full set; [] turns them off. "filter": "ship/" limits them to one subtree.',
+  ),
+  forward(
+    'list_gizmos',
+    'debug.gizmos',
+    'What gizmos and overlays drew last frame, as data: line segments and labels with positions and colors. Use it to check debug drawing from your own systems.',
+  ),
   {
     name: 'press',
     description: 'Presses an action or key for one frame (press, step 1 frame, release).',
@@ -274,6 +299,11 @@ export const TOOLS: Tool[] = [
     },
   },
   forward(
+    'measure_text',
+    'text.measure',
+    'Measures a string in a font without drawing it: width, height, and wrapped lines. Example: { "font": "assets/fonts/Inter.ttf", "value": "Scanner 7", "size": 0.5, "maxWidth": 3 }.',
+  ),
+  forward(
     'project_status',
     'project.status',
     'The project code as the running game sees it: reload count, the last reload report (migrated and orphaned components, systems added, removed, or changed), and the last build or reload error with its file:line:col. Check it after editing scripts.',
@@ -300,6 +330,21 @@ export const TOOLS: Tool[] = [
     'Recent errors (systems, GPU, shaders) with code, path, and hint. Check this when something looks wrong.',
   ),
   forward('logs', 'log.tail', 'Recent log entries.'),
+  forward(
+    'physics_raycast',
+    'physics.raycast',
+    'Casts a ray against physics colliders (physics3d or physics2d plugin): the nearest hit, or every hit with "all", each with collider path, body path, point, normal, and distance. Example: straight down to find the ground under "ship": { "origin": [0, 50, 0], "direction": [0, -1, 0] }.',
+  ),
+  forward(
+    'physics_overlap',
+    'physics.overlap',
+    'Colliders at a point, or overlapping a ball, cuboid, or capsule at a position. Use it to check what a trigger volume or a spawn point touches.',
+  ),
+  forward(
+    'physics_describe',
+    'physics.describe',
+    'Physics state: bodies by kind and how many sleep, colliders by shape, joints, contact pairs, colliders waiting for a mesh, and the last step time.',
+  ),
 ]
 
 /** An MCP server exposing Shard's tools and resources for one project. */

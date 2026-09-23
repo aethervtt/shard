@@ -5,6 +5,7 @@ import {
   type JsonValue,
   type ResourceDef,
   ShardError,
+  type World,
 } from '@shard/core'
 import type { AssetStore } from './store'
 
@@ -75,6 +76,11 @@ export interface ImportContext {
    * re-imports. Relative paths resolve against the source's directory.
    */
   read(path: string): Promise<Uint8Array>
+  /**
+   * Files directly inside a directory, as project paths, sorted. Recorded as a dependency: adding,
+   * removing, or renaming a file there re-imports this source (read the files to track contents).
+   */
+  list(dir: string): Promise<string[]>
   /** Resolves a path relative to the source's directory to a project path. */
   resolve(path: string): string
   /** Records a non-fatal problem; shown by `asset.get` and `shard import`. */
@@ -156,6 +162,7 @@ export function defineDataAsset(
   schema: ComponentDef,
   options: { extension: string },
 ): ImporterDef {
+  defineAssetSchema(`${options.extension}.schema.json`, () => schema.jsonSchema())
   return defineImporter({
     name: `data/${options.extension}`,
     version: 1,
@@ -209,4 +216,48 @@ export function defineDataAsset(
       }
     },
   })
+}
+
+// --- previews ------------------------------------------------------------------
+
+/** An RGBA8 image, row by row. */
+export interface PreviewImage {
+  width: number
+  height: number
+  data: Uint8Array
+}
+
+/** Makes a picture of an asset of one type (`asset.preview`), fitting width × height. */
+export type AssetPreview = (
+  world: World,
+  path: string,
+  width: number,
+  height: number,
+) => Promise<PreviewImage>
+
+const previews = new Map<string, AssetPreview>()
+
+/** Registers how `asset.preview` shows assets of a type, for packages that define asset types. */
+export function defineAssetPreview(type: string, preview: AssetPreview): void {
+  previews.set(type, preview)
+}
+
+export function findAssetPreview(type: string): AssetPreview | undefined {
+  return previews.get(type)
+}
+
+// --- published schemas ---------------------------------------------------------------------------
+
+const assetSchemas = new Map<string, () => unknown>()
+
+/**
+ * Publishes the JSON Schema of a data file format: `shard docs` writes it to
+ * `.shard/schemas/<file>` so editors and agents validate as they write. Data assets register theirs.
+ */
+export function defineAssetSchema(file: string, schema: () => unknown): void {
+  assetSchemas.set(file, schema)
+}
+
+export function allAssetSchemas(): [string, () => unknown][] {
+  return [...assetSchemas]
 }

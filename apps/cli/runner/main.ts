@@ -14,6 +14,7 @@ import {
   type SourceMap,
 } from '@shard/project'
 import { connectToHub, createProtocolServer } from '@shard/protocol'
+import { Shaders } from '@shard/render'
 import { animationFrameRunner, LogResource, type Plugin } from '@shard/runtime'
 import { loadScene, whenSceneReady } from '@shard/scene'
 
@@ -50,6 +51,27 @@ async function start() {
   const project = (await import(/* @vite-ignore */ info.bundle)).default as Plugin
   const app = buildApp({ manifest, project, canvas, inputSource: createDomInputSource(canvas) })
   await app.init()
+
+  // Project shaders: shaders/water/foam.wesl is project::water::foam.
+  const shaders = app.world.resource(Shaders)
+  const registerShader = ({ file, source }: { file: string; source: string }) => {
+    const module = `project::${file
+      .replace(/^shaders\//, '')
+      .replace(/\.(wesl|wgsl)$/, '')
+      .split('/')
+      .join('::')}`
+    try {
+      shaders.register(module, source, file)
+    } catch (err) {
+      app.world.resource(LogResource).error(err)
+    }
+  }
+  for (const shader of (await (await fetch('/@shard/shaders.json')).json()) as {
+    file: string
+    source: string
+  }[])
+    registerShader(shader)
+  import.meta.hot?.on('shard:shader', registerShader)
 
   const log = app.world.resource(LogResource)
   log.annotate = (err) => {

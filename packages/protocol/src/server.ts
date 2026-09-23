@@ -24,11 +24,24 @@ import {
 } from '@shard/input'
 import type { Platform } from '@shard/platform'
 import {
+  captureBuffer,
+  captureShadowMap,
   captureView,
+  DebugOverlays,
+  type DebugView,
   describeRender,
+  Gizmos,
   Gpu,
+  isOverlayOn,
   OffscreenTarget,
+  OVERLAYS,
+  overlayNames,
+  type PickHit,
+  pick,
+  raycast,
   Shaders,
+  setDebugView,
+  setOverlays,
   Views,
   Window,
 } from '@shard/render'
@@ -46,7 +59,11 @@ import {
   whenSceneReady,
   worldSchemaContext,
 } from '@shard/scene'
+import { Fonts, measureText } from '@shard/text'
 import { encodePng, toBase64 } from './png'
+
+const CAPTURE_DEBUG_VIEWS = ['clusters', 'cascades', 'lod', 'culling', 'none']
+
 import { previewAsset } from './preview'
 
 export interface JsonRpcRequest {
@@ -216,6 +233,45 @@ async function whenRenderReady(world: World, render: () => Promise<void> | void)
   }
 }
 
+/** Checks overlay names, so a typo is an error rather than nothing drawn. */
+function checkOverlays(list: unknown): string[] {
+  const names = (list as string[] | undefined) ?? []
+  const known = overlayNames()
+  for (const name of names) {
+    if (!known.includes(name)) {
+      throw new ShardError('protocol/unknown-overlay', `Unknown overlay "${name}"`, {
+        hint: `Overlays: ${known.join(', ')}.`,
+      })
+    }
+  }
+  return names
+}
+
+/** Exactly these overlays on (others off), with a filter; returns a function that restores. */
+function applyOverlays(world: World, names: string[], components: string[], path: string) {
+  const o = world.resource(DebugOverlays)
+  const all = overlayNames()
+  const before = {
+    on: Object.fromEntries(all.map((k) => [k, isOverlayOn(o, k)])),
+    filter: { ...o.filter },
+  }
+  setOverlays(world, Object.fromEntries(all.map((k) => [k, names.includes(k)])), {
+    components,
+    path,
+  })
+  return () => setOverlays(world, before.on, before.filter)
+}
+
+function hitJson(hit: PickHit) {
+  return {
+    entity: hit.entity,
+    path: hit.path ?? null,
+    position: hit.position,
+    normal: hit.normal,
+    distance: hit.distance,
+  }
+}
+
 /** Resolves after the loop's next frame. */
 function nextFrame(app: App): Promise<void> {
   return new Promise((resolve) => {
@@ -224,6 +280,28 @@ function nextFrame(app: App): Promise<void> {
       resolve()
     })
   })
+}
+
+/** A depth buffer as grayscale: nearest (reversed-Z: largest) white, background black. */
+function depthImage(map: { width: number; height: number; data: Float32Array }) {
+  let lo = Number.POSITIVE_INFINITY
+  let hi = 0
+  for (let i = 0; i < map.data.length; i += 4) {
+    const d = map.data[i]!
+    if (d > 0) {
+      if (d < lo) lo = d
+      if (d > hi) hi = d
+    }
+  }
+  const data = new Uint8Array(map.width * map.height * 4)
+  const span = hi > lo ? hi - lo : 1
+  for (let i = 0; i < map.data.length; i += 4) {
+    const d = map.data[i]!
+    const v = d > 0 ? Math.round(40 + ((d - lo) / span) * 215) : 0
+    data[i] = data[i + 1] = data[i + 2] = v
+    data[i + 3] = 255
+  }
+  return { width: map.width, height: map.height, data }
 }
 
 // --- methods -------------------------------------------------------------------
@@ -455,6 +533,23 @@ export const METHODS: MethodDef[] = [
         description: 'Resize the headless target first (0 = keep).',
       }),
       height: t.u32({ min: 0, max: 4096 }),
+      debug: t.string({
+        description:
+          "A debug view instead of the image: 'clusters' (lights per cluster heat map), 'cascades' (cascades tinted by index), 'lod' (meshes tinted by LOD level: green, yellow, orange, red), 'shadow-map:<light>[:<layer>]' (a light's raw shadow map), or 'culling' (freezes what the camera culls with, and keeps it frozen for later captures while the camera moves; 'none' unfreezes).",
+      }),
+      overlays: t.list(t.string, {
+        description: `Debug overlays drawn into this capture only: ${OVERLAYS.join(', ')}, plus any a plugin registers (e.g. colliders). 'labels' writes each entity's scene path next to it; 'bounds' outlines what the renderer thinks is there.`,
+      }),
+      filter: t.string({
+        description: 'Limit overlays to entities whose scene path starts with this, e.g. "ship/".',
+      }),
+      components: t.list(t.string, {
+        description: 'Limit overlays to entities with all these components.',
+      }),
+      buffer: t.string({
+        description:
+          "Raw floats of a render buffer instead of the display image: 'hdr' (luminance in cd/m², before post-processing and tonemapping), 'post-hdr' (after the HDR effects, pre-exposed), 'depth', 'velocity' (screen motion in uv units, TAA and motion blur), 'ssao' (ambient occlusion), 'bloom' (the glow's first level), 'dof-half' (color and signed CoC in pixels), or another graph texture. Returned as base64 little-endian rgba32float.",
+      }),
     }),
     handler: async ({ app, world, options }, p) => {
       const window = world.tryResource(Window)
@@ -479,17 +574,146 @@ export const METHODS: MethodDef[] = [
           'protocol/no-view',
           'Nothing to capture: no camera renders to a target',
         )
-      await whenRenderReady(world, () => (renderNow ? renderOnly(app) : nextFrame(app)))
-      const shot = captureView(world, name)
-      if (renderNow) renderOnly(app)
-      const image = await shot
-      return {
-        mimeType: 'image/png',
-        width: image.width,
-        height: image.height,
-        data: toBase64(await encodePng(image.data, image.width, image.height)),
+      const debug = (p.debug as string) || ''
+      const cameraEntity = Number(name.slice('camera:'.length))
+      if (debug.startsWith('shadow-map:')) {
+        await whenRenderReady(world, () => (renderNow ? renderOnly(app) : nextFrame(app)))
+        const [, lightRef, layer] = debug.split(':')
+        const light = resolveEntity(world, /^\d+$/.test(lightRef!) ? Number(lightRef) : lightRef)
+        const map = await captureShadowMap(world, light, Number(layer ?? 0), cameraEntity)
+        const image = depthImage(map)
+        return {
+          mimeType: 'image/png',
+          width: image.width,
+          height: image.height,
+          data: toBase64(await encodePng(image.data, image.width, image.height)),
+        }
+      }
+      if (debug && !CAPTURE_DEBUG_VIEWS.includes(debug)) {
+        throw new ShardError('protocol/unknown-debug-view', `Unknown debug view "${debug}"`, {
+          hint: "Use 'clusters', 'cascades', 'lod', 'culling', 'none', or 'shadow-map:<light>'.",
+        })
+      }
+      if (debug) setDebugView(world, cameraEntity, debug as DebugView)
+      // 'culling' stays frozen so later captures show what it culled; 'none' has nothing to undo.
+      const restore = debug !== '' && debug !== 'culling' && debug !== 'none'
+      const overlays = checkOverlays(p.overlays)
+      const restoreOverlays =
+        overlays.length > 0
+          ? applyOverlays(
+              world,
+              overlays,
+              (p.components as string[] | undefined) ?? [],
+              (p.filter as string) || '',
+            )
+          : undefined
+      try {
+        await whenRenderReady(world, () => (renderNow ? renderOnly(app) : nextFrame(app)))
+        if (p.buffer) {
+          const shot = captureBuffer(world, name, p.buffer as string)
+          if (renderNow) renderOnly(app)
+          else await nextFrame(app)
+          const b = await shot
+          return {
+            mimeType: 'application/octet-stream',
+            format: 'rgba32float',
+            source: b.format,
+            width: b.width,
+            height: b.height,
+            data: toBase64(new Uint8Array(b.data.buffer, b.data.byteOffset, b.data.byteLength)),
+          }
+        }
+        const shot = captureView(world, name)
+        if (renderNow) renderOnly(app)
+        const image = await shot
+        return {
+          mimeType: 'image/png',
+          width: image.width,
+          height: image.height,
+          data: toBase64(await encodePng(image.data, image.width, image.height)),
+        }
+      } finally {
+        if (restore) setDebugView(world, cameraEntity, 'none')
+        restoreOverlays?.()
       }
     },
+  },
+  {
+    name: 'render.pick',
+    description:
+      "What's under a pixel of a camera view (x, y from the top left, in the capture's pixels): the entity, its scene path, and the world position, normal, and distance of the surface. Meshes and world sprites are pickable. null when nothing is there.",
+    params: s('PickParams', {
+      camera: t.entity({ description: 'Camera entity or path (default: the first camera view).' }),
+      x: t.f32({ required: true }),
+      y: t.f32({ required: true }),
+    }),
+    handler: async ({ app, world, options }, p) => {
+      const manual =
+        (options.frames ?? 'manual') === 'manual' || world.resource(AppControlResource).paused
+      if (world.resource(Views).list.length === 0) renderOnly(app)
+      const camera =
+        p.camera !== null && p.camera !== undefined ? resolveEntity(world, p.camera) : undefined
+      let done = false
+      const result = pick(world, camera, p.x as number, p.y as number).finally(() => {
+        done = true
+      })
+      // The pick resolves after a frame renders it (a second one if its pipelines were compiling).
+      for (let i = 0; i < 30 && !done; i++) {
+        if (manual) renderOnly(app)
+        else await nextFrame(app)
+        await world.tryResource(Gpu)?.pipelines.whenIdle()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      }
+      const hit = await result
+      return hit ? hitJson(hit) : null
+    },
+  },
+  {
+    name: 'world.raycast',
+    description:
+      'Casts a ray against mesh entities on the CPU (bounds, then triangles): hits nearest first, each with entity, scene path, position, normal, and distance. Needs no GPU or frame.',
+    params: s('RaycastParams', {
+      origin: t.vec3({ required: true }),
+      direction: t.vec3({ required: true }),
+      maxDistance: t.f32({ min: 0, description: 'Ignore hits past this (0: no limit).' }),
+      all: t.bool({ description: 'Every entity along the ray, not just the nearest.' }),
+    }),
+    handler: ({ world }, p) => {
+      const hits = raycast(world, p.origin as number[], p.direction as number[], {
+        maxDistance: (p.maxDistance as number) || undefined,
+        all: p.all as boolean,
+      })
+      return { hits: hits.map(hitJson) }
+    },
+  },
+  {
+    name: 'debug.overlays',
+    description: `Shows debug overlays in every frame until changed (render.capture's "overlays" draws them into one capture instead). Pass the full set to show: ${OVERLAYS.join(', ')}, plus plugin overlays (colliders with physics); [] turns them off. Returns what's on.`,
+    params: s('OverlaysParams', {
+      overlays: t.list(t.string, { description: 'Overlays to show; the rest turn off.' }),
+      filter: t.string({ description: 'Only entities whose scene path starts with this.' }),
+      components: t.list(t.string, { description: 'Only entities with all these components.' }),
+    }),
+    handler: ({ world }, p) => {
+      const names = checkOverlays(p.overlays)
+      applyOverlays(
+        world,
+        names,
+        (p.components as string[] | undefined) ?? [],
+        (p.filter as string) || '',
+      )
+      const o = world.resource(DebugOverlays)
+      return { overlays: overlayNames().filter((k) => isOverlayOn(o, k)), filter: o.filter }
+    },
+  },
+  {
+    name: 'debug.gizmos',
+    description:
+      'What gizmos drew last frame, as data: line segments (from, to, color, depthTest, width) and labels (position, text). Overlays count too.',
+    params: s('GizmosParams', {
+      limit: t.u32({ default: 200, max: 100000, description: 'Most line segments to list.' }),
+    }),
+    handler: ({ world }, p) => toJson(world.resource(Gizmos).describe(p.limit as number)),
   },
   {
     name: 'render.describe',
@@ -684,6 +908,42 @@ export const METHODS: MethodDef[] = [
     },
   },
   {
+    name: 'text.measure',
+    description:
+      'Lays out a string without rendering it: width, height, and line breaks, in the units of size (world units for Text, pixels for ScreenText). Use it to size a label before placing it.',
+    params: s('TextMeasureParams', {
+      font: t.string({ required: true, description: 'Font asset path or guid.' }),
+      value: t.string({ required: true }),
+      size: t.f32({ default: 1, min: 0 }),
+      maxWidth: t.f32({ min: 0, description: 'Wrap width (0: none).' }),
+      lineHeight: t.f32({ default: 1.2 }),
+      align: t.enum(['left', 'center', 'right']),
+    }),
+    handler: async ({ world }, p) => {
+      const server = assetServer(world)
+      const ref = server.resolve(p.font as string)
+      if (ref) await server.load(ref.path ?? (p.font as string))
+      const font = world.resource(Fonts).get(ref as never)
+      if (!font) {
+        throw new ShardError('text/not-loaded', `No font "${p.font}"`, {
+          hint: 'asset.list shows fonts (type Font); pass a .ttf or .otf path.',
+        })
+      }
+      const m = measureText(font, p.value as string, {
+        size: p.size as number,
+        maxWidth: p.maxWidth as number,
+        lineHeight: p.lineHeight as number,
+        align: (['left', 'center', 'right'] as const)[p.align as number] ?? 'left',
+      })
+      const value = p.value as string
+      return {
+        width: m.width,
+        height: m.height,
+        lines: m.lines.map((l) => ({ text: value.slice(l.start, l.end), width: l.width })),
+      }
+    },
+  },
+  {
     name: 'log.tail',
     description: 'Recent log entries (errors from systems, the GPU, and shaders land here).',
     params: s('LogParams', {
@@ -749,9 +1009,15 @@ export function createProtocolServer(
     },
   }
   byName.set(subscribe.name, subscribe)
+  // Methods plugins contributed (physics, audio, ...). Looked up per request: plugins can add
+  // them after the server starts, and a project reload replaces the project's own.
+  const lookup = (name: string): MethodDef | undefined =>
+    byName.get(name) ?? app.methods.find((m) => m.name === name)
 
   return {
-    methods: [...byName.values()],
+    get methods() {
+      return [...byName.values(), ...app.methods.filter((m) => !byName.has(m.name))]
+    },
     async handle(request) {
       const id = request.id ?? null
       const isNotification = request.id === undefined
@@ -760,13 +1026,13 @@ export function createProtocolServer(
       if (request?.jsonrpc !== '2.0' || typeof request.method !== 'string') {
         return reply({ error: { code: ERROR.invalid, message: 'Invalid JSON-RPC request' } })
       }
-      const method = byName.get(request.method)
+      const method = lookup(request.method)
       if (!method) {
         return reply({
           error: {
             code: ERROR.notFound,
             message: `Unknown method "${request.method}"`,
-            data: { methods: [...byName.keys()] },
+            data: { methods: [...byName.keys(), ...app.methods.map((m) => m.name)] },
           },
         })
       }

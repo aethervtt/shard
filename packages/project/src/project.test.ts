@@ -101,6 +101,19 @@ describe('hosting', () => {
     app.update(1 / 60)
     gpu.destroy()
   })
+
+  it('enables physics by plugin name and serves its methods', async () => {
+    const manifest = Manifest.deserialize({ name: 'demo', plugins: ['physics3d'] })
+    expect(validateManifest({ name: 'demo', plugins: ['physics2d'] })).toEqual([])
+    const app = buildApp({ manifest })
+    await app.init()
+    expect(app.describe().plugins.map((p) => p.name)).toEqual(
+      expect.arrayContaining(['core/transform', 'physics3d']),
+    )
+    expect(app.methods.map((m) => m.name)).toEqual(
+      expect.arrayContaining(['physics.raycast', 'physics.overlap', 'physics.describe']),
+    )
+  })
 })
 
 describe('defineProject', () => {

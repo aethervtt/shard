@@ -17,6 +17,8 @@ import { createNodePlatform } from '@shard/platform-node'
 import {
   captureView,
   forwardPlugin,
+  Instances,
+  Lod,
   MaterialAsset,
   Materials,
   Meshes,
@@ -531,4 +533,52 @@ describe('textures at runtime', () => {
     handle.destroy()
     expect(ms).toBeLessThan(budget(30))
   }, 60_000)
+
+  it('an imported _LOD chain loads as a Lod entity and draws through a LOD set', async () => {
+    // A quad facing +Z, used for every level.
+    const quad = new Float32Array([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, -1, 0, 1, 1, 0, -1, 1, 0])
+    const uri = `data:application/octet-stream;base64,${Buffer.from(quad.buffer).toString('base64')}`
+    const prim = { attributes: { POSITION: 0 } }
+    const gltf = {
+      asset: { version: '2.0' },
+      buffers: [{ byteLength: quad.byteLength, uri }],
+      bufferViews: [{ buffer: 0, byteLength: quad.byteLength }],
+      accessors: [
+        {
+          bufferView: 0,
+          componentType: 5126,
+          count: 6,
+          type: 'VEC3',
+          min: [-1, -1, 0],
+          max: [1, 1, 0],
+        },
+      ],
+      meshes: [
+        { name: 'a', primitives: [prim] },
+        { name: 'b', primitives: [prim] },
+      ],
+      scenes: [{ nodes: [0, 1] }],
+      nodes: [
+        { name: 'Sign_LOD0', mesh: 0 },
+        { name: 'Sign_LOD1', mesh: 1 },
+      ],
+    }
+    const { app, image } = await render(
+      { 'assets/sign.gltf': new TextEncoder().encode(JSON.stringify(gltf)) },
+      modelScene('assets/sign.gltf#Scene', [0, 0, 4]),
+    )
+    const world = app.world
+    const lods = world.query({ with: [Lod] }).entities()
+    expect(lods.length).toBe(1)
+    const levels = world.get(lods[0]!, Lod)!.levels
+    const meshes = world.resource(Meshes)
+    expect(levels.map((l) => meshes.get(l.mesh) !== undefined)).toEqual([true, true])
+    expect(world.resource(Instances).lodSets.length).toBe(1)
+    // The quad covers the middle of the view.
+    const o = (48 * 96 + 48) * 4
+    expect(image[o]! + image[o + 1]! + image[o + 2]!).toBeGreaterThan(
+      image[0]! + image[1]! + image[2]! + 30,
+    )
+    expect(world.resource(LogResource).errors()).toEqual([])
+  })
 })

@@ -176,6 +176,64 @@ describe('methods', () => {
     expect(center[2]).toBeLessThan(60)
   })
 
+  it('captures debug views, shadow maps, and raw HDR buffers', async () => {
+    const decode = async (shot: { data: string }) =>
+      decodePng(Uint8Array.from(atob(shot.data), (c) => c.charCodeAt(0)))
+    const normal = await decode(await ok('render.capture', { camera: 'camera' }))
+    const clusters = await decode(
+      await ok('render.capture', { camera: 'camera', debug: 'clusters' }),
+    )
+    expect([...clusters.data]).not.toEqual([...normal.data])
+    // The debug view is only for that capture.
+    const again = await decode(await ok('render.capture', { camera: 'camera' }))
+    expect([...again.data]).toEqual([...normal.data])
+    const lod = await decode(await ok('render.capture', { camera: 'camera', debug: 'lod' }))
+    expect([...lod.data]).not.toEqual([...normal.data])
+    // 'culling' stays frozen across captures until 'none'.
+    const frozen = async () =>
+      Object.values(
+        (
+          (await ok('render.describe', {})) as {
+            culling: { views: Record<string, { frozen: boolean }> }
+          }
+        ).culling.views,
+      )[0]!.frozen
+    await ok('render.capture', { camera: 'camera', debug: 'culling' })
+    await ok('render.capture', { camera: 'camera' })
+    expect(await frozen()).toBe(true)
+    await ok('render.capture', { camera: 'camera', debug: 'none' })
+    expect(await frozen()).toBe(false)
+    const bad = await call('render.capture', { camera: 'camera', debug: 'nope' })
+    expect((bad.error!.data as { code: string }).code).toBe('protocol/unknown-debug-view')
+    // The sun has no shadows: a clear error, not an empty image.
+    const none = await call('render.capture', { camera: 'camera', debug: 'shadow-map:sun' })
+    expect((none.error!.data as { code: string }).code).toBe('render/no-shadow-map')
+    await ok('entity.patch', {
+      entity: 'sun',
+      components: { 'render/DirectionalLight': { shadows: true } },
+    })
+    const map = await decode(
+      await ok('render.capture', { camera: 'camera', debug: 'shadow-map:sun' }),
+    )
+    expect(map.width).toBe(2048)
+    expect(map.data.some((v, i) => i % 4 === 0 && v > 0)).toBe(true)
+    await ok('entity.patch', {
+      entity: 'sun',
+      components: { 'render/DirectionalLight': { shadows: false } },
+    })
+    const hdr: { format: string; width: number; data: string } = await ok('render.capture', {
+      camera: 'camera',
+      buffer: 'hdr',
+    })
+    expect(hdr.format).toBe('rgba32float')
+    const floats = new Float32Array(Uint8Array.from(atob(hdr.data), (c) => c.charCodeAt(0)).buffer)
+    expect(floats.length).toBe(hdr.width * hdr.width * 4)
+    // Daylight on a red box: hundreds of cd/m² in red, next to nothing in blue.
+    const center = ((hdr.width / 2) * hdr.width + hdr.width / 2) * 4
+    expect(floats[center]!).toBeGreaterThan(100)
+    expect(floats[center + 2]!).toBeLessThan(floats[center]! / 20)
+  })
+
   it('injects input, validates and saves scenes, reads resources and logs', async () => {
     expect(await ok('input.inject', { key: 'KeyW' })).toEqual({ queued: true })
     const v: { valid: boolean; errors: { code: string }[] } = await ok('scene.validate', {

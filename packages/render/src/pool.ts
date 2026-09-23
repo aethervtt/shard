@@ -46,7 +46,7 @@ export class TexturePool {
   }
 
   acquire(descriptor: GPUTextureDescriptor & { size: [number, number] }): GPUTexture {
-    const key = `${descriptor.format}|${descriptor.size[0]}x${descriptor.size[1]}|${descriptor.usage}|${descriptor.sampleCount ?? 1}`
+    const key = `${descriptor.format}|${descriptor.size[0]}x${descriptor.size[1]}|${descriptor.usage}|${descriptor.sampleCount ?? 1}|${descriptor.mipLevelCount ?? 1}`
     for (const entry of this.entries) {
       if (entry.key === key && entry.lastUsed !== this.frame) {
         entry.lastUsed = this.frame

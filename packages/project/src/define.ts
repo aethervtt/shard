@@ -11,6 +11,7 @@ import {
   ShardError,
   type TagDef,
 } from '@shard/core'
+import { defineMaterial, type MaterialType, type MaterialTypeOptions } from '@shard/render'
 import type { App, Plugin } from '@shard/runtime'
 
 export interface ProjectOptions {
@@ -34,6 +35,11 @@ export interface ProjectDef extends Plugin {
     options?: { description?: string; init?: () => T; reload?: 'keep' | 'replace' },
   ): ResourceDef<T>
   event<T = undefined>(name: string, options?: { description?: string }): EventDef<T>
+  /**
+   * Defines the material type `<project>/<name>`: fields (numbers, colors, texture handles) and a
+   * shader in `shaders/` (`project::<file>`) that overrides hooks. Assets name it in `"type"`.
+   */
+  material<const F extends Fields>(name: string, options: MaterialTypeOptions<F>): MaterialType
 }
 
 /**
@@ -67,5 +73,6 @@ export function defineProject(options: ProjectOptions): ProjectDef {
     tag: (name, tagOptions) => defineTag(qualify(name), tagOptions),
     resource: (name, resourceOptions) => defineResource(qualify(name), resourceOptions),
     event: (name, eventOptions) => defineEvent(qualify(name), eventOptions),
+    material: (name, materialOptions) => defineMaterial(qualify(name), materialOptions),
   }
 }

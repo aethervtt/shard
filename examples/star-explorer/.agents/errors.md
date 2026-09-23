@@ -4,6 +4,7 @@ Every engine error is a `ShardError` with one of these codes.
 
 | Code | Source | Hint |
 |---|---|---|
+| `app/duplicate-method` | @shard/runtime |  |
 | `app/duplicate-plugin` | @shard/runtime | Unload it first (unloadPlugin). |
 | `app/duplicate-system` | @shard/runtime | System names must be unique across all schedules. |
 | `app/invalid-state` | @shard/runtime |  |
@@ -17,6 +18,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `assets/invalid-meta` | @shard/assets | Delete the .meta to get a new guid (references by guid will break), or restore it. |
 | `assets/load-failed` | @shard/assets |  |
 | `assets/move-target-exists` | @shard/assets |  |
+| `assets/no-listing` | @shard/assets | Import on a host with file listing (the CLI, the dev server, Studio). |
 | `assets/not-found` | @shard/assets | Check the path, or run `shard import` to import new files. |
 | `assets/not-loaded` | @shard/assets |  |
 | `assets/outside-roots` | @shard/assets |  |
@@ -41,6 +43,11 @@ Every engine error is a `ShardError` with one of these codes.
 | `input/unknown-binding` | @shard/input | Use Gamepad:LeftStick, Gamepad:RightStick, { composite: "wasd" \| "arrows" }, or { up, down, left, right }. |
 | `mesh/invalid` | @shard/mesh | positions/normals: 3 per vertex, uvs/uvs1: 2, colors/tangents/joints/weights: 4; indices must be < vertex count. |
 | `mesh/invalid-artifact` | @shard/mesh | Re-import the source (`shard import --force`). |
+| `particles/invalid-effect` | @shard/particles |  |
+| `physics/both-dimensions` | @shard/physics | Enable one physics plugin per app: physics3d for 3D games, physics2d for 2D. |
+| `physics/invalid-shape` | @shard/physics | Check radius, halfExtents, halfHeight, points, or the mesh. |
+| `physics/not-ready` | @shard/physics | Add the physics3d or physics2d plugin and await app.init() before querying. |
+| `physics/unsupported-shape` | @shard/physics | 2D shapes: ball, cuboid, capsule, convex, trimesh, heightfield, segment, polyline. |
 | `platform/fs-not-found` | @shard/platform-node |  |
 | `platform/fs-read-only` | @shard/platform-web | Writes need a writable host such as Studio or the CLI. |
 | `project/bundle-failed` | @shard/node |  |
@@ -59,17 +66,27 @@ Every engine error is a `ShardError` with one of these codes.
 | `protocol/invalid-components` | @shard/protocol |  |
 | `protocol/invalid-params` | @shard/protocol |  |
 | `protocol/no-files` | @shard/protocol |  |
-| `protocol/no-preview` | @shard/protocol | Previews exist for textures, materials, meshes, and scenes. |
+| `protocol/no-preview` | @shard/protocol | Previews exist for textures, materials, meshes, scenes, and types that register one. |
 | `protocol/no-renderer` | @shard/protocol |  |
 | `protocol/no-view` | @shard/protocol |  |
 | `protocol/unknown-component` | @shard/protocol | schema.list returns every component name. |
+| `protocol/unknown-debug-view` | @shard/protocol | Use 'clusters', 'cascades', 'lod', 'culling', 'none', or 'shadow-map:<light>'. |
 | `protocol/unknown-entity` | @shard/protocol | Pass an entity id from world.query, or a scene path like "ship/camera". |
+| `protocol/unknown-overlay` | @shard/protocol |  |
 | `protocol/unknown-resource` | @shard/protocol |  |
 | `protocol/unsettable-resource` | @shard/protocol | Only resources that are plain JSON objects can be set. |
+| `render/capture-format` | @shard/render |  |
 | `render/duplicate-node` | @shard/render |  |
 | `render/graph-cycle` | @shard/render | Check reads/writes and `after` on these nodes. |
-| `render/missing-resource` | @shard/render | Declare it in a node's `writes` (as a transient texture) or import it. |
+| `render/material-field-clash` | @shard/render | Give the field another name, or use extends: "none". |
+| `render/material-standard-missing` | @shard/render |  |
+| `render/missing-resource` | @shard/render | Declare it in a node's `writes` (as a transient texture) or with graph.declare. |
+| `render/no-shadow-map` | @shard/render | Set shadows: true on the light, and check render.describe for the shadow budget. |
+| `render/no-view` | @shard/render | Spawn an entity with Camera3d, or pass the camera to pick from. |
 | `render/not-ready` | @shard/render | Await app.init() so the render plugin can create the GPU device. |
+| `render/unknown-buffer` | @shard/render |  |
+| `render/unknown-camera` | @shard/render | Pass a Camera3d entity that has rendered at least one frame. |
+| `render/unknown-material-type` | @shard/render |  |
 | `scene/already-loaded` | @shard/scene | Use reloadScene to replace it, or pass a different id. |
 | `scene/asset-unavailable` | @shard/scene |  |
 | `scene/conflicting-fields` | @shard/scene |  |
@@ -113,9 +130,23 @@ Every engine error is a `ShardError` with one of these codes.
 | `shader/unknown-hook` | @shard/shader | Only functions marked @hook can be overridden. |
 | `shader/unsupported-field` | @shard/shader | GPU structs take numbers, bools, enums, vectors, colors, and matrices. f64 fields are not allowed; object fields are skipped. |
 | `shader/watch-unsupported` | @shard/shader |  |
+| `sprite/atlas-too-large` | @shard/sprite | Raise maxSize, or split the images into several atlases. |
+| `sprite/duplicate-region` | @shard/sprite | Region names are unique within an atlas. |
+| `sprite/invalid-tilemap` | @shard/sprite |  |
+| `sprite/no-atlas` | @shard/sprite |  |
+| `sprite/no-layer` | @shard/sprite |  |
+| `sprite/no-texture` | @shard/sprite |  |
+| `sprite/not-a-tilemap` | @shard/sprite |  |
+| `sprite/tile-out-of-range` | @shard/sprite |  |
+| `sprite/tilemap-not-loaded` | @shard/sprite | Wait for its TilemapData asset, or create one with TilemapData.create. |
+| `sprite/unsupported-image` | @shard/sprite |  |
 | `testing/missing-component` | @shard/testing |  |
 | `testing/unknown-entity` | @shard/testing | Use a scene path like "ship/camera" or an entity id. |
+| `text/font-parse-failed` | @shard/text | Fonts import from .ttf and .otf files (TrueType or CFF outlines). |
+| `text/import-failed` | @shard/text |  |
+| `text/invalid-metrics` | @shard/text | Re-import the font (`shard import`). |
+| `text/not-loaded` | @shard/protocol | asset.list shows fonts (type Font); pass a .ttf or .otf path. |
 | `texture/decode-failed` | @shard/texture |  |
 | `texture/invalid` | @shard/texture |  |
 | `texture/transcoder-unavailable` | @shard/texture | Basis Universal ships in @shard/texture/vendor/basis; check the files are present. |
-| `texture/unsupported-format` | @shard/texture | Use a single 2D image for now. |
+| `texture/unsupported-format` | @shard/texture | Use a 2D image or a cube map (6 faces). |

@@ -50,13 +50,17 @@ export const computeVisibility = defineSystem({
       const modes = table.column(Visibility, 'mode')
       const out = table.column(ComputedVisibility, 'visible')
       const children = table.has(Children) ? table.column(Children, 'entities') : undefined
+      // Only rows whose visibility flips are marked, so consumers can skip unchanged tables.
       for (let i = 0; i < table.count; i++) {
         const visible = modes[i] !== MODE_HIDDEN
-        out[i] = visible ? 1 : 0
+        const value = visible ? 1 : 0
+        if (out[i] !== value) {
+          out[i] = value
+          table.markChanged(ComputedVisibility, i)
+        }
         const list = children?.[i]
         if (list) walk(world, list, visible)
       }
-      table.markChanged(ComputedVisibility)
     }
   },
 })
@@ -71,7 +75,11 @@ function walk(world: World, list: readonly (Entity | null)[], parentVisible: boo
     if (table.has(Visibility)) {
       const mode = table.column(Visibility, 'mode')[row]
       visible = mode === MODE_HIDDEN ? false : mode === MODE_VISIBLE ? true : parentVisible
-      table.column(ComputedVisibility, 'visible')[row] = visible ? 1 : 0
+      const out = table.column(ComputedVisibility, 'visible')
+      if (out[row] !== (visible ? 1 : 0)) {
+        out[row] = visible ? 1 : 0
+        table.markChanged(ComputedVisibility, row)
+      }
     }
     if (table.has(Children)) {
       const grandchildren = table.column(Children, 'entities')[row]

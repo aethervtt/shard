@@ -1,0 +1,32 @@
+{
+  "name": "@shard/physics",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@dimforge/rapier2d-compat": "0.20.0",
+    "@dimforge/rapier3d-compat": "0.20.0",
+    "@shard/assets": "workspace:*",
+    "@shard/core": "workspace:*",
+    "@shard/mesh": "workspace:*",
+    "@shard/render": "workspace:*",
+    "@shard/runtime": "workspace:*",
+    "@shard/transform": "workspace:*"
+  },
+  "devDependencies": {
+    "@shard/gpu": "workspace:*",
+    "@shard/platform-node": "workspace:*",
+    "@shard/protocol": "workspace:*",
+    "@shard/scene": "workspace:*",
+    "@types/node": "^26.6.2",
+    "@webgpu/types": "^0.1.74",
+    "webgpu": "0.6.1"
+  }
+}

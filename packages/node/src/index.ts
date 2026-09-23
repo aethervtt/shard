@@ -13,6 +13,7 @@ import {
   buildApp,
   type ErrorCode,
   loadProject,
+  loadProjectShaders,
   locateInBundle,
   type ManifestValue,
   ProjectSession,
@@ -127,6 +128,7 @@ export async function openProject(options: OpenProjectOptions): Promise<Headless
   })
   const app = buildApp({ manifest, project, gpu, target })
   await app.init()
+  const stopShaders = await loadProjectShaders(app, platform, { watch: options.watch })
   const assets = assetServer(app.world).configure({ platform, roots: manifest.assetRoots })
   const imports = await assets.scan()
   const stopWatching = options.watch ? await assets.watch() : () => {}
@@ -202,6 +204,7 @@ export async function openProject(options: OpenProjectOptions): Promise<Headless
     bundler,
     close() {
       stopWatching()
+      stopShaders()
       stopCode()
       void bundler?.dispose()
       server.close()

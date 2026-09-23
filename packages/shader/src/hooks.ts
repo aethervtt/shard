@@ -17,7 +17,7 @@ import { ShardError } from '@shard/core'
 
 const HOOK = /@hook\s+fn\s+([A-Za-z_]\w*)\s*\(([^)]*)\)\s*(?:->\s*([^{]+?))?\s*\{/g
 const OVERRIDE =
-  /override\s+fn\s+((?:[A-Za-z_]\w*::)+)([A-Za-z_]\w*)\s*\(([^)]*)\)\s*(?:->\s*([^{]+?))?\s*\{/g
+  /override\s+fn\s+((?:[A-Za-z_]\w*::)*)([A-Za-z_]\w*)\s*\(([^)]*)\)\s*(?:->\s*([^{]+?))?\s*\{/g
 
 export interface HookSignature {
   params: string
@@ -94,8 +94,28 @@ export function applyHooks(
     }
     let rewritten = source
     for (const m of source.matchAll(OVERRIDE)) {
-      const target = m[1]!.slice(0, -2)
       const name = m[2]!
+      let target = m[1]!.slice(0, -2)
+      if (!target) {
+        // Unqualified: the one module that declares a hook with this name.
+        const owners = [...hooksByModule].filter(([, hooks]) => hooks.has(name)).map(([p]) => p)
+        if (owners.length !== 1) {
+          throw new ShardError(
+            owners.length === 0 ? 'shader/unknown-hook' : 'shader/ambiguous-hook',
+            owners.length === 0
+              ? `"${name}" is not a hook`
+              : `"${name}" is a hook in ${owners.join(' and ')}`,
+            {
+              path: overrideModule,
+              hint:
+                owners.length === 0
+                  ? 'Only functions marked @hook can be overridden.'
+                  : `Qualify it: override fn ${owners[0]}::${name}(...).`,
+            },
+          )
+        }
+        target = owners[0]!
+      }
       const hook = hooksByModule.get(target)?.get(name)
       if (!hook) {
         throw new ShardError('shader/unknown-hook', `"${target}::${name}" is not a hook`, {

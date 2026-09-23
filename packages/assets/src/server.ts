@@ -75,6 +75,8 @@ interface DepRecord {
   hash: string
   size: number
   mtime: number
+  /** A directory listing (ImportContext.list): `hash` is of its file names. */
+  listing?: boolean
 }
 
 interface SourceRecord {
@@ -878,6 +880,18 @@ export class AssetServer {
         })
         return data
       },
+      list: async (p) => {
+        const dir = this.resolveFrom(path, p).replace(/\/$/, '')
+        const files = await this.listFiles(dir)
+        deps.push({
+          path: dir,
+          hash: await sha256Hex(encoder.encode(files.join('\n'))),
+          size: 0,
+          mtime: 0,
+          listing: true,
+        })
+        return files
+      },
       warn: (message, p) => warnings.push(p === undefined ? { message } : { message, path: p }),
     }
     let assets: ImportedAsset[]
@@ -991,6 +1005,11 @@ export class AssetServer {
   private async depsUnchanged(record: SourceRecord, byHash = false): Promise<boolean> {
     const fs = this.platform!.fs
     for (const dep of record.deps) {
+      if (dep.listing) {
+        const files = await this.listFiles(dep.path)
+        if ((await sha256Hex(encoder.encode(files.join('\n')))) !== dep.hash) return false
+        continue
+      }
       const s = await fs.stat!(dep.path)
       if (!s) return false
       if (s.size === dep.size && s.mtime === dep.mtime) continue
@@ -1000,6 +1019,21 @@ export class AssetServer {
       dep.mtime = s.mtime
     }
     return true
+  }
+
+  /** Files (not directories or .meta files) directly inside a project directory, sorted. */
+  private async listFiles(dir: string): Promise<string[]> {
+    const fs = this.platform!.fs
+    if (!fs.list) {
+      throw new ShardError('assets/no-listing', "This platform can't list directories", {
+        hint: 'Import on a host with file listing (the CLI, the dev server, Studio).',
+      })
+    }
+    const entries = await fs.list(dir)
+    return entries
+      .filter((e) => e.kind === 'file' && !e.name.endsWith('.meta'))
+      .map((e) => (dir ? `${dir}/${e.name}` : e.name))
+      .sort()
   }
 
   private parseMeta(text: string, metaPath: string): MetaFile {

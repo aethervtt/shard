@@ -58,6 +58,8 @@ export class ComponentStorage {
   readonly byName: Record<string, Column> = Object.create(null)
   added: Uint32Array
   changed: Uint32Array
+  /** The newest tick in `changed`, so a system can skip a table where nothing changed. */
+  lastChanged = 0
   def: ComponentDef
 
   constructor(def: ComponentDef, capacity: number) {
@@ -104,6 +106,11 @@ export class Table {
   private readonly idSet: ReadonlySet<number>
   private readonly byId = new Map<number, ComponentStorage>()
   readonly id: number
+  /**
+   * The tick a row last moved in or out. Rows that move in keep their change ticks, so "nothing
+   * changed" needs this too.
+   */
+  lastStructural = 0
   readonly components: readonly ComponentDef[]
   private readonly clock: TickSource
 
@@ -155,9 +162,24 @@ export class Table {
 
   /** Marks one row, or every row, as changed at the current tick. */
   markChanged(def: ComponentDef, row?: number): void {
-    const changed = this.byId.get(def.id)!.changed
-    if (row === undefined) changed.fill(this.clock.tick, 0, this.count)
-    else changed[row] = this.clock.tick
+    const storage = this.byId.get(def.id)!
+    const tick = this.clock.tick
+    if (row === undefined) storage.changed.fill(tick, 0, this.count)
+    else storage.changed[row] = tick
+    storage.lastChanged = tick
+  }
+
+  /**
+   * The newest change tick of any row of `def`: when it's not after `since`, no row changed. Code
+   * that writes `changedTicks()` directly must call `touch` too.
+   */
+  lastChanged(def: ComponentDef): number {
+    return this.byId.get(def.id)!.lastChanged
+  }
+
+  /** Records that rows of `def` changed this tick, after writing `changedTicks()` directly. */
+  touch(def: ComponentDef): void {
+    this.byId.get(def.id)!.lastChanged = this.clock.tick
   }
 
   isAdded(def: ComponentDef, row: number, since: number): boolean {
@@ -172,6 +194,7 @@ export class Table {
 
   pushRow(entity: Entity): number {
     if (this.count === this.capacity) this.grow(this.capacity * 2)
+    this.lastStructural = this.clock.tick
     const row = this.count++
     this.entities[row] = entity
     return row
@@ -179,6 +202,7 @@ export class Table {
 
   /** Swap-removes a row. Returns the entity moved into `row`, or -1 if it was the last row. */
   removeRow(row: number): Entity {
+    this.lastStructural = this.clock.tick
     const last = --this.count
     const storages = this.storages
     if (row === last) {
@@ -226,6 +250,7 @@ export class Table {
     const tick = this.clock.tick
     storage.added[row] = tick
     storage.changed[row] = tick
+    storage.lastChanged = tick
   }
 
   /** Writes only the fields present in `values`. */
@@ -238,6 +263,7 @@ export class Table {
       if (value !== undefined) field.write(storage.columns[c]!, row, value)
     }
     storage.changed[row] = this.clock.tick
+    storage.lastChanged = this.clock.tick
   }
 
   readComponent<F extends Fields>(def: ComponentDef<F>, row: number): InferFields<F> {
@@ -319,5 +345,7 @@ function copyRow(from: ComponentStorage, fromRow: number, to: ComponentStorage, 
     }
   }
   to.added[toRow] = from.added[fromRow]!
-  to.changed[toRow] = from.changed[fromRow]!
+  const changed = from.changed[fromRow]!
+  to.changed[toRow] = changed
+  if (changed > to.lastChanged) to.lastChanged = changed
 }

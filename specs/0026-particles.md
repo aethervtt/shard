@@ -1,6 +1,6 @@
 # 0026 — GPU particles
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@shard/particles` (new), `@shard/render`
 - **Depends on:** 0005, 0014, 0016, 0019, 0020
 
@@ -18,8 +18,8 @@ and draws are indirect.
 
 - `ParticleEffect`: a data asset of one or more emitters, each with spawn rules, initial values,
   update modules, and render settings. It's validated by schema and hot reloadable.
-- A GPU simulation in compute: per-emitter structure-of-arrays storage buffers, a dead list with
-  atomic counters, and indirect draws. No CPU readback in the frame.
+- A GPU simulation in compute: a fixed-capacity particle buffer per emitter, ring allocation, and
+  instanced draws over the capacity. No CPU readback in the frame.
 - Update modules: gravity, drag, velocity over life, curl noise, attractors and repulsors, color
   and size over life (gradients and curves), rotation, and depth-buffer collision (bounce or die).
 - Rendering as billboards (camera-facing, velocity-stretched, or axis-aligned) or mesh particles.
@@ -69,26 +69,30 @@ and draws are indirect.
 ### Components
 
 ```ts
-ParticleSystem { effect: handle('ParticleEffect'), playing: bool, seed: u32, timeScale: f32, space: 'world' | 'local' }
-ParticleEmitterOverrides { spawnRate: f32, ... }   // optional, for gameplay (thrust → exhaust rate)
+ParticleSystem { effect: handle('ParticleEffect'), playing: bool, seed: u32, timeScale: f32, space: 'world' | 'local', backend: 'gpu' | 'cpu' }
+ParticleEmitterOverrides { emitter: string, spawnRate: f32, spawnScale: f32 }   // optional, for gameplay (thrust → exhaust rate)
 ```
 
 - Systems inherit the entity's transform. `space: 'world'` leaves emitted particles behind a moving
   ship, and `'local'` keeps them attached (engine glow).
-- Gameplay drives effects through `ParticleEmitterOverrides` (for example, thrust input scales
-  `spawnRate`), which the compute pass reads each frame.
+- Gameplay drives effects through `ParticleEmitterOverrides`, read each frame. `spawnRate`
+  replaces the effect's rate (negative keeps it), `spawnScale` multiplies it (thrust → exhaust),
+  and `emitter` names the emitter to change (empty: all of them).
 
 ### Simulation (GPU)
 
 ```
-spawn  (compute): pop indices from the dead list (atomic), initialize from shape and init values
-update (compute): integrate, run modules, age; on death push the index to the dead list
-compact(compute): write alive indices and indirect draw arguments
-draw   (render) : instanced billboards or meshes from the alive list (indirect)
+spawn  (compute): the k-th spawned particle takes slot k % capacity, seeded pcg(seed ^ pcg(k))
+update (compute): integrate, run modules, age; count the living per workgroup (one atomic each)
+sort   (compute): alpha emitters only, bitonic by view depth
+draw   (render) : capacity instances; dead slots collapse to nothing in the vertex shader
 ```
 
-- Buffers: positions and ages (vec4), velocities and seeds (vec4), plus module state as needed
-  (color, size, rotation, all SoA). The capacity per emitter is fixed at load.
+- Buffers: 16 floats per particle (position and age, velocity and lifetime, color, size, rotation,
+  and seed), with the capacity per emitter fixed at load. The alive count is read back
+  asynchronously for `render.describe`.
+- Simulation and drawing run after the opaque resolve, into the HDR target with the depth buffer
+  read-only (collision and soft particles read it), for the primary camera.
 - Culling: the emitter bounds (from capacity, speed, and lifetime, or authored) are tested against
   view frustums, and off-screen emitters can simulate at a reduced rate (`offscreen: 'simulate' |
   'pause' | 'reduced'`).
@@ -108,8 +112,10 @@ draw   (render) : instanced billboards or meshes from the alive list (indirect)
 
 - **Modules compile into one shader per emitter.** There's no branching over module lists in the
   hot loop, and effects stay data.
-- **SoA storage buffers with a dead list.** Spawning and death are O(1) atomics, and no CPU
-  readback is needed.
+- **Ring allocation instead of a dead list.** Spawn order decides the slot, so a particle's slot
+  and seed depend only on its spawn index, which makes replay exact. An emitter spawning faster
+  than capacity over lifetime recycles its oldest particles, which is the visible behavior a dead
+  list gives when it runs dry. No atomics are needed on spawn, and no readback in the frame.
 - **Seeded randomness from particle index, emitter seed, and frame.** Reproducible captures and
   tests, which matter for an agent loop that verifies effects by screenshot.
 - **The same format drives the CPU backend.** Small gameplay effects don't need a second authoring
@@ -117,17 +123,40 @@ draw   (render) : instanced billboards or meshes from the alive list (indirect)
 
 ## Acceptance criteria
 
-- [ ] 1M particles (4 emitters × 250k, billboards, additive) simulate and render at 60 fps at 1080p
+- [x] 1M particles (4 emitters × 250k, billboards, additive) simulate and render at 60 fps at 1080p
       on the dev machine, with simulation under 2 ms of GPU time.
-- [ ] Same seed, same frame, same device: the particle buffers match exactly (headless, stepped).
-- [ ] An effect file with a bad module parameter fails validation with a pointer. Editing a valid
+- [x] Same seed, same frame, same device: the particle buffers match exactly (headless, stepped).
+- [x] An effect file with a bad module parameter fails validation with a pointer. Editing a valid
       file hot reloads the running effect without restarting it.
-- [ ] Depth collision makes particles bounce off a floor (golden sequence). Soft particles fade
+- [x] Depth collision makes particles bounce off a floor (golden sequence). Soft particles fade
       at intersections (golden image).
-- [ ] `ParticleEmitterOverrides.spawnRate` changes the emission rate on the next frame
+- [x] `ParticleEmitterOverrides.spawnRate` changes the emission rate on the next frame
       (alive-count test).
-- [ ] The CPU backend produces the same alive count and bounds as the GPU backend for a simple
+- [x] The CPU backend produces the same alive count and bounds as the GPU backend for a simple
       effect over 120 frames, within tolerance.
+
+## Implementation notes
+
+- `packages/particles`: `values.ts` (value forms, PCG random that matches in TS and WGSL),
+  `modules.ts` (the module registry: parameter schema, WGSL, and a CPU version each), `effect.ts`
+  (parse, validate, asset type, `*.particles.json` importer, generated schema), `shaders.ts`,
+  `sim.ts` (store, CPU backend, graph nodes, sort, describe), `preview.ts`, `plugin.ts`. The
+  manifest plugin is `particles` (it pulls in `render/forward`); the docs skill is
+  `make-particles.md`.
+- The dead list became ring allocation (see Decisions). The draw is instanced over the capacity
+  rather than indirect over an alive list. At 250k per emitter the dead slots cost a vertex
+  shader invocation each, which the 1M demo absorbs.
+- The spawn count for a frame is a backlog: it only advances on a frame that dispatched. A frame
+  where the pipelines are still compiling spawns nothing and simulates nothing, and the next
+  dispatched frame catches up the spawns. The determinism test compiles with `playing: false`
+  before stepping.
+- Sorting and simulation run for the primary camera only. Other views draw the same particles
+  unsorted.
+- The CPU backend runs every module except collision (it has no depth buffer), and it draws
+  through the same render path by uploading its particles.
+- Offscreen `reduced` simulates every 4th frame with 4× the step.
+- Measured on the dev machine (`#particles` in the playground, 1920×1080, 4 × 250k additive
+  billboards): 60 fps, 999,948 alive, simulation 1.39 ms of GPU time.
 
 ## Open questions
 

@@ -12,12 +12,15 @@
   "dependencies": {
     "@shard/core": "workspace:*",
     "@shard/gpu": "workspace:*",
-    "@shard/platform-web": "workspace:*",
-    "@shard/runtime": "workspace:*",
-    "@shard/render": "workspace:*",
     "@shard/mesh": "workspace:*",
-    "@shard/transform": "workspace:*",
-    "@shard/protocol": "workspace:*"
+    "@shard/particles": "workspace:*",
+    "@shard/platform-web": "workspace:*",
+    "@shard/protocol": "workspace:*",
+    "@shard/render": "workspace:*",
+    "@shard/runtime": "workspace:*",
+    "@shard/sprite": "workspace:*",
+    "@shard/texture": "workspace:*",
+    "@shard/transform": "workspace:*"
   },
   "devDependencies": {
     "@webgpu/types": "^0.1.74",

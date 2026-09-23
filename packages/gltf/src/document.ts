@@ -41,6 +41,7 @@ export interface GltfNode {
   rotation?: number[]
   scale?: number[]
   extensions?: Record<string, unknown>
+  extras?: unknown
 }
 
 export interface GltfPrimitive {

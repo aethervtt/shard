@@ -16,12 +16,17 @@ export {
 export { AssetStore } from './store'
 export {
   type Artifact,
+  type AssetPreview,
   type AssetTypeDef,
+  allAssetSchemas,
   allAssetTypes,
   allImporters,
+  defineAssetPreview,
+  defineAssetSchema,
   defineAssetType,
   defineDataAsset,
   defineImporter,
+  findAssetPreview,
   findAssetType,
   findImporter,
   type ImportContext,
@@ -31,4 +36,5 @@ export {
   type ImportSource,
   importerFor,
   type LoadContext,
+  type PreviewImage,
 } from './types'

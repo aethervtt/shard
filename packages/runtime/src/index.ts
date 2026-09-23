@@ -1,4 +1,4 @@
-export { App, type AppDescription, type AppOptions } from './app'
+export { App, type AppDescription, type AppMethod, type AppOptions } from './app'
 export { AppControl, AppControlResource } from './control'
 export { Log, type LogEntry, type LogLevel, LogResource } from './log'
 export { definePlugin, type Plugin } from './plugin'
