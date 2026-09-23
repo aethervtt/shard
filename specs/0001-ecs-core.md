@@ -1,6 +1,6 @@
 # 0001 — ECS core
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@shard/core`
 - **Depends on:** 0002 (component definitions)
 
@@ -160,6 +160,8 @@ world.despawn(e)
 world.isAlive(e) // false
 
 const q = world.query({ with: [Position], without: [Frozen], changed: [Position] })
+q.each((entity, row, table) => {}, ctx.lastRunTick) // `since` drives added/changed filters
+world.tryGet(e, Health) // undefined instead of throwing
 ```
 
 ### Agent surface
@@ -177,26 +179,31 @@ const q = world.query({ with: [Position], without: [Frozen], changed: [Position]
 - **Explicit change marking.** Proxies or setters on the hot path would cost more than the
   feature is worth.
 - **Entity is a number, not an object.** No allocation, trivially serializable, safe as a map key.
+- **22-bit index.** 4M live entities is 40× the target; the rest goes to the generation.
+- **Vector fields are always strided.** One TypedArray per field, uploadable as-is. No per-component
+  layout switch.
+- **Queries are cached by descriptor.** `world.query` with the same filters returns the same object.
+- **Forgiving reads, strict writes.** `has` on a dead entity returns false and `remove` of a missing
+  component returns false; `get`/`set`/`add`/`despawn` on a dead entity throw `ecs/dead-entity`.
+  Commands skip despawns of entities that are already dead.
+- **`Children` disappears when empty.** Keeps archetypes of leaf entities small.
 
 ## Acceptance criteria
 
-- [ ] Spawn 100k entities with `Position` + `Velocity` in under 50 ms (Node benchmark, M-series
+- [x] Spawn 100k entities with `Position` + `Velocity` in under 50 ms (Node benchmark, M-series
       or equivalent desktop CPU).
-- [ ] Integrate 100k `Position += Velocity * dt` in under 1 ms per frame.
-- [ ] Stretch: spawn 1M entities in under 500 ms and integrate them in under 10 ms per frame.
-- [ ] Steady-state iteration over a query allocates nothing (verified with a heap snapshot test or
+- [x] Integrate 100k `Position += Velocity * dt` in under 1 ms per frame.
+- [x] Stretch: spawn 1M entities in under 500 ms and integrate them in under 10 ms per frame.
+- [x] Steady-state iteration over a query allocates nothing (verified with a heap snapshot test or
       `--trace-gc` benchmark run showing no scavenges over 1,000 frames).
-- [ ] Using a despawned entity throws `ecs/dead-entity`; its index is reused with a new generation.
-- [ ] Commands issued during iteration apply at the next sync point, in issue order.
-- [ ] `added` / `changed` filters return exactly the rows touched since the system's last run.
-- [ ] Observers fire for add/remove/set and custom triggers, after the command buffer applies.
-- [ ] Despawning a parent despawns all descendants.
-- [ ] Events are readable for exactly two frames and by multiple independent readers.
-- [ ] `@shard/core` builds with `lib: ["ES2023"]` only.
+- [x] Using a despawned entity throws `ecs/dead-entity`; its index is reused with a new generation.
+- [x] Commands issued during iteration apply at the next sync point, in issue order.
+- [x] `added` / `changed` filters return exactly the rows touched since the system's last run.
+- [x] Observers fire for add/remove/set and custom triggers, after the command buffer applies.
+- [x] Despawning a parent despawns all descendants.
+- [x] Events are readable for exactly two frames and by multiple independent readers.
+- [x] `@shard/core` builds with `lib: ["ES2023"]` only.
 
 ## Open questions
 
-- Is 4M live entities the right ceiling, or should the split be 24/29 bits?
-- Should strided vector columns expose `pos.x[i]` style split arrays instead? Split arrays read
-  nicer; strided arrays upload to the GPU without repacking. Current lean: strided, with the
-  schema deciding per component (`layout: 'aos' | 'soa'`).
+None.

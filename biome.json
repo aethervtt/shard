@@ -1,6 +1,10 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.14/schema.json",
-  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
   "files": {
     "includes": ["**", "!**/dist", "!**/target", "!**/gen", "!**/.turbo"]
   },
@@ -11,11 +15,25 @@
     "lineWidth": 100
   },
   "javascript": {
-    "formatter": { "quoteStyle": "single", "semicolons": "asNeeded" }
+    "formatter": {
+      "quoteStyle": "single",
+      "semicolons": "asNeeded"
+    }
   },
   "linter": {
     "enabled": true,
-    "rules": { "preset": "recommended" }
+    "rules": {
+      "preset": "recommended",
+      "style": {
+        "noNonNullAssertion": "off"
+      }
+    }
   },
-  "assist": { "actions": { "source": { "organizeImports": "on" } } }
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  }
 }

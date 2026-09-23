@@ -185,7 +185,8 @@ packages/
   platform-web    browser implementation
   platform-tauri  Tauri implementation (the only package that imports @tauri-apps/*)
   gpu             thin layer over WebGPU
-  ...             runtime, shader, render, assets, scene, protocol, mcp, gltf, procgen,
+  runtime         App, plugins, time, states, runners
+  ...             shader, render, assets, scene, protocol, mcp, gltf, procgen,
                   physics, audio, ui, input, animation, particles, nav — added as their specs land
 crates/           (later) WASM kernels, native import/bake pipeline
 apps/

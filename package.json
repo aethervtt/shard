@@ -14,7 +14,8 @@
     "lint": "biome check .",
     "format": "biome check --write .",
     "playground": "pnpm --filter @shard/playground dev",
-    "studio": "pnpm --filter @shard/studio tauri dev"
+    "studio": "pnpm --filter @shard/studio tauri dev",
+    "bench": "pnpm --filter @shard/core bench"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",

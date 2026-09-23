@@ -12,7 +12,8 @@
   "dependencies": {
     "@shard/core": "workspace:*",
     "@shard/gpu": "workspace:*",
-    "@shard/platform-web": "workspace:*"
+    "@shard/platform-web": "workspace:*",
+    "@shard/runtime": "workspace:*"
   },
   "devDependencies": {
     "@webgpu/types": "^0.1.74",

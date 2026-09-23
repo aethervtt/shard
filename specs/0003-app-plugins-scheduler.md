@@ -1,6 +1,6 @@
 # 0003 — App, plugins, and scheduler
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@shard/core` (scheduler), `@shard/runtime` (App, runners)
 - **Depends on:** 0001, 0002
 
@@ -59,7 +59,7 @@ export const movement = defineSystem({
   },
 })
 
-app.addSystems(Update, movement.after(physicsStep).runIf(inState(GameState.Playing)))
+app.addSystems(Update, movement.after(physicsStep).runIf(inState(GameState, 'playing')))
 ```
 
 - `setup` runs once and returns the system's local state (queries, scratch buffers). `run`
@@ -90,25 +90,33 @@ Missing dependencies throw `app/missing-plugin`; adding a plugin twice throws
 
 ### Runners
 
-- **`rafRunner`** — `requestAnimationFrame`, pauses when hidden. Used by playground and Studio.
-- **`headlessRunner({ frames, fixedDelta })`** — runs N frames as fast as possible with a fixed
+- **`animationFrameRunner({ maxDelta, signal })`** — `requestAnimationFrame`; the gap while the
+  page is hidden doesn't count as one huge frame. Used by playground and Studio.
+- **`headlessRunner({ frames, delta })`** — runs N frames as fast as possible with a fixed
   delta, so results are reproducible. Used by the CLI and tests.
 - **manual** — `app.update(delta)` for tests and embedding.
 
-The runner comes from the host; the app doesn't know which one it has.
+The runner comes from the host; the app doesn't know which one it has. `await app.init()` (or
+`app.run()`, which calls it) builds plugins and awaits `ready()`; `update` before that throws
+`app/not-initialized`. The `core/time` plugin (`Time`, `FixedTime`) is always present.
 
 ### States
 
-`defineState('game/State', ['loading', 'menu', 'playing'])` creates a resource plus `OnEnter(s)` /
-`OnExit(s)` schedules and `inState(s)` run conditions. Transitions requested during a frame apply
-at the start of the next frame.
+`defineState('game/State', ['loading', 'menu', 'playing'])` creates a resource plus
+`OnEnter(state, value)` / `OnExit(state, value)` schedules and `inState(state, value)` run
+conditions. `app.initState(state, initial?)` registers it; `OnEnter(initial)` runs at the start of
+the first frame. `setState(world, state, value)` requests a transition, applied at the start of the
+next frame. Unknown values are a type error and throw `app/invalid-state`.
 
 ### Agent surface
 
 - `app.describe()` returns plugins (with dependencies), schedules, and each schedule's ordered
   system list with run conditions.
 - The profiler records per-system CPU time (ring buffer, last N frames) exposed as a resource.
-- All errors above are `ShardError` with codes `app/*`.
+- All errors above are `ShardError` with codes `app/*`. A system that throws is wrapped in
+  `app/system-failed` naming the system, with the original error as `cause`. Duplicate system
+  names anywhere in the app are `app/duplicate-system`; plugin dependency cycles are
+  `app/plugin-cycle`.
 
 ## Decisions
 
@@ -118,22 +126,26 @@ at the start of the next frame.
   runs and tests reproduce exactly.
 - **Command buffers flush after each system.** Simpler mental model than Bevy's explicit
   `apply_deferred`; revisit if flush cost shows up in profiles.
-- **`FixedUpdate` defaults to 60 Hz.** Matches most displays; configurable per app.
+- **`FixedUpdate` defaults to 60 Hz.** Matches most displays; configurable per app. When the step
+  cap is hit, the excess whole steps are dropped.
+- **Commands get their own tick.** The world tick advances before a system's commands apply, so the
+  system sees its own spawns as `added` on its next run.
+- **Plugins may add plugins in `build`.** They join the same dependency-ordered build pass.
 - **Single world.** The renderer reads the main world during extraction; no separate render world.
   Revisit if pipelined rendering becomes necessary.
 
 ## Acceptance criteria
 
-- [ ] Systems run in the declared order; a cycle throws `app/system-cycle` naming every system in
+- [x] Systems run in the declared order; a cycle throws `app/system-cycle` naming every system in
       it.
-- [ ] `FixedUpdate` runs `floor(accumulated / step)` times, at most 5, and `alpha` is correct.
-- [ ] A headless run of N frames with a fixed delta produces identical world state on every run
+- [x] `FixedUpdate` runs `floor(accumulated / step)` times, at most 5, and `alpha` is correct.
+- [x] A headless run of N frames with a fixed delta produces identical world state on every run
       (hash compared in a test).
-- [ ] Plugins build in dependency order; missing dependencies and duplicates throw the right codes.
-- [ ] `ready()` hooks are awaited before `Startup` runs.
-- [ ] State transitions fire `OnExit` then `OnEnter` at the start of the next frame.
-- [ ] `app.describe()` output matches a snapshot for a sample app.
-- [ ] Per-system timings are recorded and exposed.
+- [x] Plugins build in dependency order; missing dependencies and duplicates throw the right codes.
+- [x] `ready()` hooks are awaited before `Startup` runs.
+- [x] State transitions fire `OnExit` then `OnEnter` at the start of the next frame.
+- [x] `app.describe()` output matches a snapshot for a sample app.
+- [x] Per-system timings are recorded and exposed.
 
 ## Open questions
 

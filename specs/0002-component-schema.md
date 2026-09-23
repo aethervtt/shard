@@ -1,6 +1,6 @@
 # 0002 — Component schema and reflection
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@shard/core`
 - **Depends on:** none
 
@@ -42,8 +42,8 @@ ranges, units, and defaults are written for that reader.
 | `t.bool` | Uint8Array | boolean |
 | `t.vec2` `t.vec3` `t.vec4` `t.quat` | Float32Array, stride 2/3/4/4 | `[x, y, …]` |
 | `t.color` | Float32Array, stride 4 (linear RGBA) | `"#rrggbb[aa]"` or `[r, g, b, a]` |
-| `t.enum('idle', 'walk', 'run')` | Uint8Array (index) | string |
-| `t.entity` | Float64Array | entity path or id (resolved by the scene loader) |
+| `t.enum(['idle', 'walk', 'run'])` | Uint8Array (index) | string |
+| `t.entity` | Float64Array (-1 = null) | entity id, entity path (resolved by the scene loader), or null |
 | `t.string` | object column | string |
 | `t.handle('Mesh')` | object column | `{ guid, path }` (see Asset handles) |
 | `t.list(inner)` | object column | array |
@@ -65,6 +65,10 @@ ranges, units, and defaults are written for that reader.
 ### Field options
 
 Every type accepts options: `t.f32({ default: 100, min: 0, max: 100, unit: 'hp', description: '…' })`.
+Parameterized types take options as their last argument: `t.enum(['a', 'b'], { default: 'b' })`.
+
+Missing fields take their default. A field with `required: true` has no fallback, and leaving it out
+is `schema/missing-field`.
 
 ### Definitions
 
@@ -83,8 +87,14 @@ export const Player = defineTag('game/Player', { description: 'The controlled av
 type HealthData = Infer<typeof Health> // { current: number; max: number }
 ```
 
-The registry rejects duplicate names (`schema/duplicate-name`). Components get a numeric id at
-registration, used internally by the ECS; names are what gets serialized.
+Names must be `namespace/PascalName` (`schema/invalid-name`). Each definition gets a dense,
+process-wide numeric id when it's defined, used internally by the ECS; names are what gets
+serialized. Each world has a `Registry` that rejects a second definition under a taken name
+(`schema/duplicate-name`).
+
+Resources and events (`defineResource<T>`, `defineEvent<T>`) are typed with TS generics and appear
+in the registry by name and description. Describing them with field schemas, and data assets,
+come with the scene and asset specs.
 
 ### Derived capabilities
 
@@ -93,15 +103,18 @@ From one definition:
 - `layout` — column descriptors consumed by ECS tables.
 - `defaults()` — a fresh default value object.
 - `serialize(value)` / `deserialize(json)` — to and from plain JSON.
-- `validate(json)` — returns a list of `ShardError` with JSON pointer paths
-  (`schema/type-mismatch` at `/current`, `schema/out-of-range`, `schema/unknown-field`,
-  `schema/missing-field` if no default).
+- `validate(json, ctx?)` — returns a list of `ShardError` with JSON pointer paths
+  (`schema/type-mismatch` at `/current`, `schema/out-of-range`, `schema/unknown-field` with a
+  "did you mean" hint, `schema/missing-field` for required fields).
+- `ctx` (`SchemaContext`) optionally resolves entity paths and assets.
 - `jsonSchema()` — JSON Schema 2020-12, with descriptions, used by editors, agents, and the MCP
   server to validate scene files before running anything.
 
 ### Versioning
 
-`version` defaults to 1. Bumping it requires a `migrate(from, json) => json` function. Scene files
+`version` defaults to 1. Bumping it requires a `migrate(from, json) => json` function that upgrades
+one step, from `from` to `from + 1`; `def.upgrade(json, fromVersion)` runs the chain. Data newer
+than the build is `schema/future-version`. Scene files
 record the component version they were written with; the loader migrates on read and writes the
 current version back.
 
@@ -119,22 +132,24 @@ current version back.
 - **Names are namespaced strings.** `core/`, `render/`, etc. for engine, `game/` or a project
   prefix for users. Avoids collisions between plugins.
 - **Colors stored linear.** Authoring is sRGB hex; conversion happens on deserialize so the
-  renderer never guesses.
+  renderer never guesses. Arrays are linear (and may exceed 1 for HDR). Serialization writes hex
+  when it round-trips exactly, and a linear array otherwise.
+- **Handles are plain `AssetRef { type, guid, path }` values for now.** Reference counting and
+  loading belong to the assets spec, which will replace the storage without changing the JSON.
 
 ## Acceptance criteria
 
-- [ ] `Infer<typeof C>` produces the exact TS type for every field type in the table.
-- [ ] `validate` catches wrong types, out-of-range values, unknown and missing fields, each with
+- [x] `Infer<typeof C>` produces the exact TS type for every field type in the table.
+- [x] `validate` catches wrong types, out-of-range values, unknown and missing fields, each with
       the correct JSON pointer.
-- [ ] `jsonSchema()` output validates the same inputs `validate` accepts (tested with a JSON Schema
+- [x] `jsonSchema()` output validates the same inputs `validate` accepts (tested with a JSON Schema
       validator against a fixture set).
-- [ ] Round trip: `deserialize(serialize(v))` equals `v` for every field type.
-- [ ] A component at version 2 with a migration loads version-1 JSON correctly.
-- [ ] Registering a duplicate name throws `schema/duplicate-name`.
-- [ ] ECS tables (0001) build their columns from `layout` alone.
+- [x] Round trip: `deserialize(serialize(v))` equals `v` for every field type.
+- [x] A component at version 2 with a migration loads version-1 JSON correctly.
+- [x] Registering a duplicate name throws `schema/duplicate-name`.
+- [x] ECS tables (0001) build their columns from `layout` alone.
 
 ## Open questions
 
-- Should `t.struct` with only numeric fields be flattened into TypedArray columns? Useful for
-  performance, more complex layout code. Lean: yes, later.
-- Per-component `layout: 'aos' | 'soa'` for vector fields (see 0001).
+- Flattening numeric `t.struct` fields into TypedArray columns. Deferred until a profile asks
+  for it.

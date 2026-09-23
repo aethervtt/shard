@@ -9,9 +9,9 @@ The engine skeleton, fully headless and tested.
 
 | Spec | Title | Status |
 |---|---|---|
-| [0001](0001-ecs-core.md) | ECS core | accepted |
-| [0002](0002-component-schema.md) | Component schema and reflection | accepted |
-| [0003](0003-app-plugins-scheduler.md) | App, plugins, and scheduler | accepted |
+| [0001](0001-ecs-core.md) | ECS core | implemented |
+| [0002](0002-component-schema.md) | Component schema and reflection | implemented |
+| [0003](0003-app-plugins-scheduler.md) | App, plugins, and scheduler | implemented |
 | — | Math, transforms, hierarchy | planned |
 
 ## M2 — First pixels, the engine's way

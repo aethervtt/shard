@@ -17,11 +17,13 @@ pnpm install
 pnpm typecheck     # tsc (TypeScript 7) in every package
 pnpm test          # vitest
 pnpm lint          # biome; `pnpm format` to auto-fix
+pnpm bench         # ECS performance acceptance checks (spec 0001)
 pnpm playground    # browser sandbox
 pnpm studio        # desktop app
 ```
 
-Run `pnpm typecheck && pnpm test && pnpm lint` before calling work done.
+Run `pnpm typecheck && pnpm test && pnpm lint` before calling work done. Run `pnpm bench` too
+when touching ECS storage, queries, or anything else on a per-frame path.
 
 ## Rules
 
