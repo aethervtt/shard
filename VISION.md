@@ -107,10 +107,10 @@ for, not built yet.
 - Compute passes as a first-class feature
 - Post-processing: bloom, SSAO, FXAA/TAA, fog, color grading, auto exposure
 - Skybox, procedural sky
-- 2D: sprites, atlases, batching, sprite animation, tilemaps, 2D camera
+- 2D: sprites, atlases, batching, sprite animation, tilemaps, 2D camera, 2D lighting and shadows
 - Debug drawing (lines, shapes, gizmos), picking
 - Text rendering (MSDF fonts), in world and on screen
-- Later: GPU-driven culling, decals, 2D lighting, water, atmosphere, volumetrics
+- Later: GPU-driven culling, decals, water, atmosphere, volumetrics
 
 **Particles**
 - v1: GPU particles (compute simulate + instanced draw), emitters as data assets

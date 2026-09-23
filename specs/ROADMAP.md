@@ -49,17 +49,23 @@ headless, and checks screenshots.
 
 ## M5 — Renderer v1
 
+A frame that looks finished: lights by the hundred with shadows, HDR with image-based lighting and a
+sky, custom materials, a deferred path, post-processing, 2D, text, particles, and the debug tools an
+agent needs to see what's on screen.
+
 | Spec | Title | Status |
 |---|---|---|
-| — | PBR, lights, shadows, IBL, HDR, tonemapping | planned |
-| — | Deferred rendering path (G-buffer, per-camera forward/deferred) | planned |
-| — | Extensible materials | planned |
-| — | Instancing, culling, LOD | planned |
-| — | Post-processing stack (incl. auto exposure, depth of field, motion blur) | planned |
-| — | 2D pipeline (sprites, atlases, tilemaps) | planned |
-| — | Text rendering (MSDF) | planned |
-| — | GPU particles | planned |
-| — | Debug drawing and picking | planned |
+| [0018](0018-lights-shadows.md) | Lights and shadows (point, spot, clustered Forward+, cascaded shadows) | accepted |
+| [0019](0019-hdr-ibl-sky.md) | HDR, tonemapping, image-based lighting, and sky | accepted |
+| [0020](0020-extensible-materials.md) | Extensible materials | accepted |
+| [0021](0021-deferred.md) | Deferred rendering path (G-buffer, per-camera forward/deferred) | accepted |
+| [0022](0022-instancing-culling-lod.md) | Instancing, GPU culling, and LOD | accepted |
+| [0023](0023-post-processing.md) | Post-processing (bloom, auto exposure, DoF, motion blur, TAA, SSAO, fog, grading) | accepted |
+| [0024](0024-2d.md) | 2D: sprites, atlases, tilemaps | accepted |
+| [0025](0025-text.md) | Text rendering (MSDF) | accepted |
+| [0026](0026-particles.md) | GPU particles | accepted |
+| [0027](0027-debug-draw-picking.md) | Debug drawing and picking | accepted |
+| — | 2D lighting and shadows (builds on 0024) | planned |
 
 ## M6 — Gameplay systems
 
