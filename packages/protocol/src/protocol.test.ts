@@ -243,3 +243,72 @@ describe('hub transport', () => {
     hub.close()
   })
 })
+
+describe('assets', () => {
+  it('lists, describes, re-imports, and moves assets', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const { createNodePlatform } = await import('@shard/platform-node')
+    const { assetServer } = await import('@shard/assets')
+    const root = mkdtempSync(join(tmpdir(), 'shard-protocol-assets-'))
+    try {
+      mkdirSync(join(root, 'materials'), { recursive: true })
+      mkdirSync(join(root, 'scenes'), { recursive: true })
+      writeFileSync(join(root, 'materials/paint.material.json'), '{ "baseColor": "#00ff00" }')
+      writeFileSync(join(root, 'materials/bad.material.json'), '{ "roughness": 7 }')
+      writeFileSync(
+        join(root, 'scenes/s.scene.json'),
+        JSON.stringify({
+          version: 1,
+          entities: [
+            {
+              name: 'm',
+              components: {
+                'render/Mesh3d': { mesh: { path: 'procedural:cube' } },
+                'render/MeshMaterial': { material: { path: 'materials/paint.material.json' } },
+              },
+            },
+          ],
+        }),
+      )
+      assetServer(app.world).configure({ platform: createNodePlatform({ root, logTo: () => {} }) })
+
+      const scan = await ok('asset.import', {})
+      expect((scan as { failed: { path: string }[] }).failed.map((f) => f.path)).toEqual([
+        'materials/bad.material.json',
+      ])
+      const listed = (await ok('asset.list', { type: 'Material' })) as {
+        assets: { path: string; state: string }[]
+      }
+      expect(listed.assets.map((a) => a.path)).toEqual(['materials/paint.material.json'])
+
+      const bad = (await ok('asset.get', { asset: 'materials/bad.material.json' })) as {
+        error: { code: string; path: string }
+      }
+      expect(bad.error).toMatchObject({ code: 'assets/import-failed', path: '/roughness' })
+
+      const sceneJson = JSON.parse(readFileSync(join(root, 'scenes/s.scene.json'), 'utf8'))
+      await ok('scene.load', { json: sceneJson, id: 'assets-scene' })
+      const info = (await ok('asset.get', { asset: 'materials/paint.material.json' })) as {
+        state: string
+        importer: string
+      }
+      expect(info).toMatchObject({ state: 'loaded', importer: 'data/material' })
+
+      const moved = (await ok('asset.move', {
+        from: 'materials/paint.material.json',
+        to: 'materials/green.material.json',
+      })) as { rewritten: string[] }
+      expect(moved.rewritten).toEqual(['scenes/s.scene.json'])
+      expect(readFileSync(join(root, 'scenes/s.scene.json'), 'utf8')).toContain(
+        'materials/green.material.json',
+      )
+      const unknown = await call('asset.get', { asset: 'materials/paint.material.json' })
+      expect((unknown.error!.data as { code: string }).code).toBe('assets/not-found')
+      await ok('scene.load', { json: { version: 1, entities: [] }, id: 'assets-scene' })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})

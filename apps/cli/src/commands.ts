@@ -1,10 +1,12 @@
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { basename, dirname, join, relative, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
+import { assetServer } from '@shard/assets'
 import { ShardError, World } from '@shard/core'
 import {
   collectErrorCodes,
@@ -127,15 +129,29 @@ export async function validate({ out, project }: CommandContext): Promise<number
     })
   }
   const manifestErrors = validateManifest(manifestJson)
-  const report: { valid: boolean; manifest: unknown[]; scenes: Record<string, unknown[]> } = {
+  const report: {
+    valid: boolean
+    manifest: unknown[]
+    assets: unknown[]
+    scenes: Record<string, unknown[]>
+    warnings: string[]
+  } = {
     valid: true,
     manifest: manifestErrors.map((e) => e.toJSON()),
+    assets: [],
     scenes: {},
+    warnings: [],
   }
   if (manifestErrors.length === 0) {
     const { manifest } = await loadProject(platform)
     await importProjectPlugin(resolve(project), manifest) // defines the project's components
     const world = new World()
+    // Scenes reference assets by path, so the catalog has to be current first.
+    const scan = await assetServer(world).configure({ platform, roots: manifest.assetRoots }).scan()
+    report.assets = scan.failed.map((f) => ({ ...f.error, source: f.path }))
+    for (const meta of scan.orphanedMetas) report.warnings.push(`${meta} has no source file`)
+    for (const m of scan.moved)
+      report.warnings.push(`${m.from} moved to ${m.to} without its .meta; references may be stale`)
     for (const scene of await listScenes(project)) {
       let json: unknown
       try {
@@ -150,11 +166,24 @@ export async function validate({ out, project }: CommandContext): Promise<number
     }
   }
   const problems =
-    report.manifest.length + Object.values(report.scenes).reduce((n, e) => n + e.length, 0)
+    report.manifest.length +
+    report.assets.length +
+    Object.values(report.scenes).reduce((n, e) => n + e.length, 0)
   report.valid = problems === 0
   const lines = [report.valid ? 'Valid.' : `${problems} problem(s):`]
   for (const e of report.manifest as { code: string; path?: string; message: string }[])
     lines.push(`  shard.json${e.path ?? ''}: [${e.code}] ${e.message}`)
+  for (const e of report.assets as {
+    code: string
+    source: string
+    path?: string
+    message: string
+    hint?: string
+  }[])
+    lines.push(
+      `  ${e.source}${e.path && e.path !== e.source ? ` ${e.path}` : ''}: [${e.code}] ${e.message}${e.hint ? `\n      hint: ${e.hint}` : ''}`,
+    )
+  for (const w of report.warnings) lines.push(`  warning: ${w}`)
   for (const [scene, errors] of Object.entries(report.scenes)) {
     for (const e of errors as { code: string; path?: string; message: string; hint?: string }[]) {
       lines.push(
@@ -164,6 +193,131 @@ export async function validate({ out, project }: CommandContext): Promise<number
   }
   out.result(report, lines.join('\n'))
   return report.valid ? EXIT.ok : EXIT.failed
+}
+
+// --- check ------------------------------------------------------------------------
+
+export interface Diagnostic {
+  file: string
+  line: number
+  column: number
+  code: string
+  message: string
+}
+
+/** Finds a TypeScript compiler: the project's own, else the one the CLI ships with. */
+function findTsc(project: string): string {
+  const local = join(project, 'node_modules', '.bin', 'tsc')
+  if (existsSync(local)) return local
+  const require = createRequire(import.meta.url)
+  const pkg = require.resolve('typescript/package.json')
+  return join(dirname(pkg), 'bin', 'tsc')
+}
+
+/** Runs the type checker on the project; resolves with its diagnostics (project files first). */
+export function typecheckProject(
+  project: string,
+): Promise<{ diagnostics: Diagnostic[]; engine: number; ms: number }> {
+  const start = performance.now()
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(
+      findTsc(project),
+      ['--noEmit', '-p', 'tsconfig.json', '--pretty', 'false'],
+      {
+        cwd: project,
+      },
+    )
+    let output = ''
+    child.stdout.on('data', (d) => {
+      output += d
+    })
+    child.stderr.on('data', (d) => {
+      output += d
+    })
+    child.on('error', reject)
+    child.on('close', () => {
+      const all: Diagnostic[] = []
+      const re = /^(.+?)\((\d+),(\d+)\): error (TS\d+): (.*)$/gm
+      for (let m = re.exec(output); m; m = re.exec(output)) {
+        all.push({
+          file: m[1]!.split('\\').join('/'),
+          line: Number(m[2]),
+          column: Number(m[3]),
+          code: m[4]!,
+          message: m[5]!,
+        })
+      }
+      const inProject = all.filter(
+        (d) => !d.file.startsWith('..') && !d.file.includes('node_modules/'),
+      )
+      resolvePromise({
+        diagnostics: inProject,
+        engine: all.length - inProject.length,
+        ms: performance.now() - start,
+      })
+    })
+  })
+}
+
+export async function check({ out, project }: CommandContext): Promise<number> {
+  if (!existsSync(join(project, 'tsconfig.json'))) {
+    throw new ShardError('project/not-found', 'No tsconfig.json here', {
+      hint: 'Run from a project folder, or pass --project <dir>.',
+    })
+  }
+  const result = await typecheckProject(project)
+  const lines = [
+    result.diagnostics.length === 0
+      ? `No type errors (${Math.round(result.ms)} ms).`
+      : `${result.diagnostics.length} type error(s):`,
+  ]
+  for (const d of result.diagnostics)
+    lines.push(`  ${d.file}:${d.line}:${d.column} ${d.code}: ${d.message}`)
+  if (result.engine > 0) lines.push(`  (${result.engine} more in engine packages; not your code)`)
+  out.result(result, lines.join('\n'))
+  return result.diagnostics.length > 0 ? EXIT.failed : EXIT.ok
+}
+
+// --- import / mv ------------------------------------------------------------------
+
+async function projectAssets(project: string) {
+  const platform = createNodePlatform({ root: project })
+  const { manifest } = await loadProject(platform)
+  await importProjectPlugin(resolve(project), manifest)
+  const world = new World()
+  return assetServer(world).configure({ platform, roots: manifest.assetRoots })
+}
+
+export async function importCommand({ out, project, flags }: CommandContext): Promise<number> {
+  const assets = await projectAssets(project)
+  const report = await assets.scan({ force: flags.force === true })
+  const lines = [
+    `Imported ${report.imported.length}, unchanged ${report.unchanged}, failed ${report.failed.length} (${Math.round(report.ms)} ms).`,
+  ]
+  for (const p of report.imported) lines.push(`  imported ${p}`)
+  for (const f of report.failed) {
+    lines.push(
+      `  FAILED ${f.path}${f.error.path && f.error.path !== f.path ? ` ${f.error.path}` : ''}: [${f.error.code}] ${f.error.message}${f.error.hint ? `\n      hint: ${f.error.hint}` : ''}`,
+    )
+  }
+  for (const m of report.moved) lines.push(`  moved ${m.from} -> ${m.to} (without its .meta)`)
+  for (const r of report.removed) lines.push(`  removed ${r}`)
+  for (const o of report.orphanedMetas) lines.push(`  warning: ${o} has no source file`)
+  out.result(report, lines.join('\n'))
+  return report.failed.length > 0 ? EXIT.failed : EXIT.ok
+}
+
+export async function mv({ out, project, args }: CommandContext): Promise<number> {
+  const [from, to] = args
+  if (!from || !to) throw new ShardError('cli/usage', 'Usage: shard mv <from> <to>')
+  const assets = await projectAssets(project)
+  await assets.scan()
+  const result = await assets.move(from, to)
+  out.result(
+    result,
+    `Moved ${result.from} -> ${result.to}.${result.rewritten.length > 0 ? `\nRewrote references in:\n${result.rewritten.map((f) => `  ${f}`).join('\n')}` : ''}`,
+  )
+  return EXIT.ok
 }
 
 // --- run / screenshot / describe --------------------------------------------------
@@ -348,7 +502,7 @@ export async function serve(ctx: CommandContext): Promise<number> {
     flagNumber(ctx.flags.port ?? process.env.SHARD_HUB_PORT, DEFAULT_HUB_PORT),
   )
   const headless = existsSync(join(ctx.project, 'shard.json'))
-    ? await openProject({ root: ctx.project })
+    ? await openProject({ root: ctx.project, watch: true })
     : undefined
   const target = (): ProtocolTarget | undefined =>
     hub.current() ?? (headless ? localTarget('headless', headless.server) : undefined)
@@ -389,7 +543,7 @@ export async function serve(ctx: CommandContext): Promise<number> {
 }
 
 export async function mcp(ctx: CommandContext): Promise<number> {
-  const headless = await openProject({ root: ctx.project })
+  const headless = await openProject({ root: ctx.project, watch: true })
   let hub: Hub | undefined
   if (ctx.flags.attach) {
     hub = new Hub()
@@ -400,6 +554,7 @@ export async function mcp(ctx: CommandContext): Promise<number> {
     root: headless.root,
     target: () => hub?.current() ?? local,
     runTests: runTestsChild(headless.root),
+    typecheck: () => typecheckProject(headless.root),
   })
   const transport = new StdioServerTransport()
   await server.connect(transport)

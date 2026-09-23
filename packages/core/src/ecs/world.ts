@@ -485,7 +485,7 @@ export class World implements TickSource {
     const stack = [def]
     while (stack.length > 0) {
       const c = stack.pop()!
-      if (components.includes(c)) continue
+      if (components.some((x) => x.id === c.id)) continue
       this.ensureRegistered(c)
       components.push(c)
       stack.push(...c.requires)
@@ -506,6 +506,28 @@ export class World implements TickSource {
       : table
     table.removeEdges.set(def.id, next)
     return next
+  }
+
+  /**
+   * Hot reload: replaces a definition with one that reuses its id. Components keep their storage
+   * when `migrate` is omitted (same layout); otherwise every row is rebuilt through `migrate`.
+   * Resources and events keep their values and queues.
+   */
+  redefine(
+    def: ComponentDef | ResourceDef<unknown> | EventDef<unknown>,
+    migrate?: (value: Record<string, unknown>, entity: Entity) => Record<string, unknown>,
+  ): void {
+    if (this.registry.get(def.name) || this.registered[def.id]) this.registry.replace(def)
+    if (def.kind !== 'component') return
+    for (const table of this.tables) {
+      // Requirements may have changed, so cached archetype transitions can't be trusted.
+      table.addEdges.clear()
+      if (!table.hasId(def.id)) continue
+      table.redefine(
+        def,
+        migrate && ((value, row) => migrate(value, table.entities[row]! as Entity)),
+      )
+    }
   }
 
   private getOrCreateTable(components: readonly ComponentDef[]): Table {

@@ -156,6 +156,8 @@ export function test(
       sharedGpu ??= await createNodeGpuContext()
       const project = await openProject({
         root: projectRoot(),
+        // Test files import project modules directly; the game must use the same instances.
+        code: 'source',
         gpu: sharedGpu,
         width: 320,
         height: 180,

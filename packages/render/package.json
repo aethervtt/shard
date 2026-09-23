@@ -11,11 +11,13 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@shard/assets": "workspace:*",
     "@shard/core": "workspace:*",
     "@shard/gpu": "workspace:*",
-    "@shard/runtime": "workspace:*",
     "@shard/mesh": "workspace:*",
+    "@shard/runtime": "workspace:*",
     "@shard/shader": "workspace:*",
+    "@shard/texture": "workspace:*",
     "@shard/transform": "workspace:*"
   },
   "devDependencies": {

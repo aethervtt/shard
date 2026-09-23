@@ -1,6 +1,6 @@
 # 0015 — glTF/GLB loader
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@shard/gltf` (new), `@shard/mesh`, `@shard/render`, `@shard/scene`
 - **Depends on:** 0004, 0007, 0010, 0014
 
@@ -180,26 +180,50 @@ between models imported with different settings.
 
 ## Acceptance criteria
 
-- [ ] Khronos sample models checked in as fixtures import without errors: `Box`, `BoxInterleaved`,
+- [x] Khronos sample models checked in as fixtures import without errors: `Box`, `BoxInterleaved`,
       `TriangleWithoutIndices`, `SimpleSparseAccessor`, `SimpleMeshes`, `CesiumMan`, and
       `LightsPunctualLamp`, in both `.gltf` and `.glb` form where the sample has both.
-- [ ] Positions, normals, UVs, and indices from each fixture match values decoded independently in
+- [x] Positions, normals, UVs, and indices from each fixture match values decoded independently in
       the test (a reference decode of the accessors).
-- [ ] A scene with `scene/SceneInstance` pointing at a multi-node fixture renders as authored
+- [x] A scene with `scene/SceneInstance` pointing at a multi-node fixture renders as authored
       (golden image), and its children are addressable by path through `entity.get`.
-- [ ] Saving that scene writes the instance entity only, not its children.
-- [ ] Editing an external `.bin` or the `.gltf` while the app runs re-imports and respawns the
+- [x] Saving that scene writes the instance entity only, not its children.
+- [x] Editing an external `.bin` or the `.gltf` while the app runs re-imports and respawns the
       instance.
-- [ ] Changing `scale` or `forward` re-imports only the scene artifact. Mesh artifact keys stay the
+- [x] Changing `scale` or `forward` re-imports only the scene artifact. Mesh artifact keys stay the
       same.
-- [ ] A file requiring `KHR_draco_mesh_compression` fails with `gltf/unsupported-extension`. A
+- [x] A file requiring `KHR_draco_mesh_compression` fails with `gltf/unsupported-extension`. A
       corrupt accessor fails with a pointer to it. Neither stops other imports.
-- [ ] `doubleSided` and `MASK` materials render correctly in the golden scene.
-- [ ] `CesiumMan`'s skin and animation import as `Skin` and `AnimationClip` sub-assets, with joint
+- [x] `doubleSided` and `MASK` materials render correctly in the golden scene.
+- [x] `CesiumMan`'s skin and animation import as `Skin` and `AnimationClip` sub-assets, with joint
       and channel counts that match the file, and a rest pose for every joint.
-- [ ] An entity parented to a `CesiumMan` joint by path sits at that joint's world transform.
-- [ ] Importing a 1M-triangle `.glb` takes under 2 s in Node, and loading its mesh artifact takes
+- [x] An entity parented to a `CesiumMan` joint by path sits at that joint's world transform.
+- [x] Importing a 1M-triangle `.glb` takes under 2 s in Node, and loading its mesh artifact takes
       under 20 ms.
+
+## Implementation notes
+
+- **Scene artifacts keep sibling references as `#Mesh/Hull`**, and the Scene asset type resolves
+  them against the source's current path at load. Moving a `.glb` needs no re-import, and runtime
+  dependencies that point at a moved source are rewritten with it.
+- **`scale` and `forward` are baked into the top-level nodes' transforms** rather than a wrapper
+  entity, so instance paths stay `ship/Hull`. As built, `forward: "+z"` keeps the file as authored
+  and `"-z"` turns the model 180° to face Shard's forward.
+- **SceneInstance** lives in `@shard/scene`, with a `ScenePlugin` that `buildApp` adds. Children
+  spawn in `whenSceneReady` (headless) and through a PreUpdate system that only does work when an
+  instance was added or changed (a dirty flag set by an observer) or its asset reloaded.
+- **Names:** unnamed nodes become `Node<index>` (Box.glb's mesh is at `box/Node0/Node1`).
+- **Emission:** the emissive color is `emissiveFactor` divided by its largest component; luminance
+  is that component × strength × the `emissiveLuminance` setting.
+- **Materials:** `StandardMaterial` gained `doubleSided`, `alphaMode` (opaque or mask), and
+  `alphaCutoff`. The forward renderer builds a cull-none pipeline variant and discards masked
+  fragments. Texture slots are wired by 0016, which bumped the importer to version 2.
+- **`asset.get` on a `.glb`** returns a `Source` entry listing its sub-assets, plus `artifact` paths.
+- **Fixtures:** the Khronos samples are vendored under `packages/gltf/fixtures/khronos` (7.9 MB,
+  with their license files).
+- An external `.bin` edit reloads the changed mesh in place (same object, version bumped). A node
+  rename in the `.gltf` respawns the instance with the new paths.
+- Measured: a 1M-triangle `.glb` imports in about 80 ms and its mesh loads in about 5 ms.
 
 ## Open questions
 

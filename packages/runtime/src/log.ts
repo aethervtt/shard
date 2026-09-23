@@ -12,6 +12,8 @@ export interface LogEntry {
   code?: string
   path?: string
   hint?: string
+  /** Where in project source an error was thrown: `scripts/main.ts:42:7`. */
+  source?: string
   data?: unknown
 }
 
@@ -28,6 +30,11 @@ export class Log {
   private seq = 0
   /** App time source; set by the app. */
   now: () => number = () => 0
+  /**
+   * Adds fields to logged errors. Hosts that bundle project code set this to map stack frames back
+   * to project source (`source`).
+   */
+  annotate: ((error: unknown) => Partial<LogEntry> | undefined) | undefined = undefined
 
   constructor(capacity = 500) {
     this.capacity = capacity
@@ -57,14 +64,18 @@ export class Log {
 
   /** Logs any thrown value; ShardErrors keep their code, path, and hint. */
   error(error: unknown): LogEntry {
+    const extra = this.annotate?.(error) ?? {}
+    const own = (error as { source?: unknown })?.source
+    if (typeof own === 'string' && !extra.source) extra.source = own
     if (error instanceof ShardError) {
       return this.log('error', error.message, {
         code: error.code,
         path: error.path,
         hint: error.hint,
+        ...extra,
       })
     }
-    return this.log('error', error instanceof Error ? error.message : String(error))
+    return this.log('error', error instanceof Error ? error.message : String(error), extra)
   }
 
   /** The last `count` entries at or above `level`, oldest first. */

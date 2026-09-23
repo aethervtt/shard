@@ -132,6 +132,16 @@ The standard PBR material (GGX). A material asset, not an entity component.
 | `roughness` | number | `0.5` | ≥ 0, ≤ 1 | Microsurface roughness. |
 | `emissive` | string or number[4] | `"#ffffff"` |  | Emitted color (linear), scaled by emissiveLuminance. |
 | `emissiveLuminance` | number | `0` | ≥ 0, cd/m² | Emitted luminance. 0 = not emissive. |
+| `doubleSided` | boolean | `false` |  | Draw back faces too (no culling). |
+| `alphaMode` | `"opaque"` \| `"mask"` | `"opaque"` |  | opaque ignores alpha; mask discards pixels with alpha below alphaCutoff. |
+| `alphaCutoff` | number | `0.5` | ≥ 0, ≤ 1 | Alpha threshold for alphaMode "mask". |
+| `normalScale` | number | `1` |  | Strength of the normal map. |
+| `occlusionStrength` | number | `1` | ≥ 0, ≤ 1 | Strength of the occlusion map. |
+| `baseColorTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Albedo (sRGB), multiplied with baseColor. |
+| `metallicRoughnessTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | G = roughness, B = metallic (linear), multiplied with the factors. |
+| `normalTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Tangent-space normal map. |
+| `occlusionTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Ambient occlusion in R (linear). |
+| `emissiveTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Emission color (sRGB), multiplied with emissive. |
 
 ## `render/ViewUniform`
 
@@ -153,6 +163,14 @@ Brings along: `render/ComputedVisibility`.
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `mode` | `"inherit"` \| `"visible"` \| `"hidden"` | `"inherit"` |  | 'inherit' follows the parent; 'visible' shows even under a hidden parent; 'hidden' hides this and inheriting children. |
+
+## `scene/SceneInstance`
+
+Spawns a scene asset (a model's node tree) as children, addressable by path (ship/Hull). The children are generated: saving writes only this entity, and they respawn when the asset changes.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `scene` | null or asset ref | `null` |  | The scene to place, e.g. { "path": "assets/ship.glb#Scene" }. |
 
 ## `scene/SceneMember`
 

@@ -5,6 +5,7 @@ export {
   GENERATED_START,
   generateDocs,
   mergeAgentsMd,
+  renderAssetCatalog,
   renderComponentCatalog,
   renderErrorCatalog,
 } from './docs'
@@ -18,4 +19,12 @@ export {
   type ProjectInfo,
   validateManifest,
 } from './manifest'
+export {
+  createProjectReloader,
+  ProjectReloaded,
+  type ProjectReloader,
+  type ReloadReport,
+} from './reload'
+export { ProjectMethodParams, ProjectSession, type ProjectStatus } from './session'
+export { inlineSourceMap, locateInBundle, SourceMap, type SourcePosition } from './sourcemap'
 export { projectTemplate, type TemplateName, type TemplateOptions } from './templates'

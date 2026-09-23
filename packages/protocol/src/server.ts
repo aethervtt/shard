@@ -1,3 +1,4 @@
+import { assetServer } from '@shard/assets'
 import {
   allComponents,
   ChildOf,
@@ -42,9 +43,11 @@ import {
   saveScene,
   stringifyScene,
   validateScene,
+  whenSceneReady,
   worldSchemaContext,
 } from '@shard/scene'
 import { encodePng, toBase64 } from './png'
+import { previewAsset } from './preview'
 
 export interface JsonRpcRequest {
   jsonrpc: '2.0'
@@ -73,7 +76,7 @@ export interface MethodDef {
   handler(ctx: HandlerContext, params: Record<string, unknown>): unknown
 }
 
-interface HandlerContext {
+export interface HandlerContext {
   app: App
   world: World
   options: ProtocolServerOptions
@@ -87,6 +90,8 @@ export interface ProtocolServerOptions {
   frames?: 'manual' | 'loop'
   /** For scene files by path. */
   platform?: Platform
+  /** Extra methods from the host (e.g. `project.reload`), added to the built-in ones. */
+  methods?: readonly MethodDef[]
 }
 
 const ERROR = { parse: -32700, invalid: -32600, notFound: -32601, params: -32602, shard: -32000 }
@@ -417,7 +422,9 @@ export const METHODS: MethodDef[] = [
     description: 'Resumes a paused game.',
     params: none,
     handler: ({ world }) => {
-      world.resource(AppControlResource).paused = false
+      const control = world.resource(AppControlResource)
+      control.paused = false
+      control.pausedByError = false
       return { paused: false, frame: world.resource(Time).frame }
     },
   },
@@ -430,6 +437,7 @@ export const METHODS: MethodDef[] = [
     handler: async ({ app, world, options }, p) => {
       const control = world.resource(AppControlResource)
       const done = control.step(p.frames as number)
+      done.catch(() => {}) // the error surfaces through pump (manual) or the await below (loop)
       if ((options.frames ?? 'manual') === 'manual') app.pump()
       await done
       return { frame: world.resource(Time).frame, elapsed: world.resource(Time).elapsed }
@@ -556,6 +564,10 @@ export const METHODS: MethodDef[] = [
       file: t.string(),
       json: t.json(),
       id: t.string({ description: 'Defaults to the file path.' }),
+      wait: t.bool({
+        default: true,
+        description: 'Wait until every referenced asset has loaded or failed (default true).',
+      }),
     }),
     handler: async (ctx, p) => {
       const json = p.file ? await readJson(ctx, p.file as string) : p.json
@@ -563,7 +575,15 @@ export const METHODS: MethodDef[] = [
       const loaded = ctx.world.initResource(SceneIndex).has(id)
         ? reloadScene(ctx.world, id, json)
         : loadScene(ctx.world, json, { id })
-      return { id, entities: Object.fromEntries(loaded.entities) }
+      if (p.wait !== false) await whenSceneReady(ctx.world, id)
+      const failed = assetServer(ctx.world)
+        .list({ state: 'failed' })
+        .map((e) => ({ path: e.path, error: e.error?.message }))
+      return {
+        id,
+        entities: Object.fromEntries(loaded.entities),
+        ...(failed.length > 0 ? { failedAssets: failed } : {}),
+      }
     },
   },
   {
@@ -579,6 +599,88 @@ export const METHODS: MethodDef[] = [
         await ctx.options.platform.fs.writeText(p.id as string, stringifyScene(file))
       }
       return file
+    },
+  },
+  {
+    name: 'asset.list',
+    description:
+      'Assets in the catalog: path, type, and state (unloaded, loading, loaded, failed). Filter by type, path prefix, or state.',
+    params: s('AssetListParams', {
+      type: t.string({ description: 'e.g. "Mesh", "Material", "Texture".' }),
+      prefix: t.string({ description: 'Path prefix, e.g. "assets/ships/".' }),
+      state: t.string({ description: 'unloaded, loading, loaded, or failed.' }),
+      limit: t.u32({ default: 200 }),
+    }),
+    handler: ({ world }, p) => {
+      const all = assetServer(world).list({
+        type: (p.type as string) || undefined,
+        prefix: (p.prefix as string) || undefined,
+        state: (p.state as never) || undefined,
+      })
+      return {
+        total: all.length,
+        assets: all.slice(0, p.limit as number).map((e) => ({
+          path: e.path,
+          type: e.type,
+          state: e.state,
+          ...(e.error ? { error: e.error.message } : {}),
+        })),
+      }
+    },
+  },
+  {
+    name: 'asset.get',
+    description:
+      'Everything about one asset: guid, type, state, importer and settings, dependencies and dependents, sub-assets, facts (counts, bounds), warnings, and the last error.',
+    params: s('AssetGetParams', {
+      asset: t.string({ required: true, description: 'Asset path or guid.' }),
+    }),
+    handler: ({ world }, p) => toJson(assetServer(world).info(p.asset as string)),
+  },
+  {
+    name: 'asset.import',
+    description:
+      'Re-imports one source (optionally with new import settings, merged into its .meta), or scans every asset root when "asset" is omitted.',
+    params: s('AssetImportParams', {
+      asset: t.string({ description: 'Source path or sub-asset path. Omit to scan everything.' }),
+      settings: t.json({ description: 'Import settings to change, e.g. { "scale": 0.01 }.' }),
+      force: t.bool({ description: 'Re-import even if nothing changed.' }),
+    }),
+    handler: async ({ world }, p) => {
+      const assets = assetServer(world)
+      if (!p.asset) return toJson(await assets.scan({ force: p.force === true }))
+      const settings = p.settings as Record<string, never> | null
+      return toJson(await assets.reimport(p.asset as string, settings ? { settings } : {}))
+    },
+  },
+  {
+    name: 'asset.move',
+    description:
+      'Moves an asset source and its .meta, then rewrites references to it in scenes and data assets. Returns the files it rewrote.',
+    params: s('AssetMoveParams', {
+      from: t.string({ required: true }),
+      to: t.string({ required: true }),
+    }),
+    handler: ({ world }, p) => assetServer(world).move(p.from as string, p.to as string),
+  },
+  {
+    name: 'asset.preview',
+    description:
+      'A PNG of an asset: a texture (top mip), a material on a sphere, or a mesh or scene framed from its bounds. Renders in a private world; the game is untouched.',
+    params: s('AssetPreviewParams', {
+      asset: t.string({ required: true, description: 'Asset path or guid.' }),
+      width: t.u32({ default: 256, min: 16, max: 2048 }),
+      height: t.u32({ default: 256, min: 16, max: 2048 }),
+    }),
+    handler: async ({ world }, p) => {
+      const image = await previewAsset(
+        world,
+        p.asset as string,
+        p.width as number,
+        p.height as number,
+      )
+      const png = await encodePng(image.data, image.width, image.height)
+      return { width: image.width, height: image.height, data: toBase64(png) }
     },
   },
   {
@@ -599,13 +701,15 @@ export const METHODS: MethodDef[] = [
   },
 ]
 
-export type Topic = 'log' | 'error' | 'frame'
+export type Topic = 'log' | 'error' | 'frame' | 'project'
 
 export interface ProtocolServer {
   readonly methods: readonly MethodDef[]
   handle(request: JsonRpcRequest): Promise<JsonRpcResponse | undefined>
   /** Receives notifications for subscribed topics. Returns an unsubscribe function. */
   onNotification(listener: (notification: JsonRpcNotification) => void): () => void
+  /** Sends a notification on `topic` to subscribers (hosts use it for e.g. project reloads). */
+  publish(topic: Topic, params: unknown): void
   close(): void
 }
 
@@ -615,7 +719,7 @@ export function createProtocolServer(
   options: ProtocolServerOptions = {},
 ): ProtocolServer {
   const ctx: HandlerContext = { app, world: app.world, options }
-  const byName = new Map(METHODS.map((m) => [m.name, m]))
+  const byName = new Map([...METHODS, ...(options.methods ?? [])].map((m) => [m.name, m]))
   const listeners = new Set<(n: JsonRpcNotification) => void>()
   const topics = new Set<Topic>()
   const notify = (method: string, params: unknown) => {
@@ -631,9 +735,9 @@ export function createProtocolServer(
 
   const subscribe: MethodDef = {
     name: 'subscribe',
-    description: 'Subscribes to notifications: "log", "error", "frame".',
+    description: 'Subscribes to notifications: "log", "error", "frame", "project" (reloads).',
     params: s('SubscribeParams', {
-      topics: t.list(t.enum(['log', 'error', 'frame'])),
+      topics: t.list(t.enum(['log', 'error', 'frame', 'project'])),
       unsubscribe: t.bool(),
     }),
     handler: (_, p) => {
@@ -699,6 +803,9 @@ export function createProtocolServer(
     onNotification(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)
+    },
+    publish(topic, params) {
+      if (topics.has(topic)) notify(topic, params)
     },
     close() {
       offLog()

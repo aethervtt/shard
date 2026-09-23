@@ -20,7 +20,7 @@ pnpm install
 pnpm typecheck     # tsc (TypeScript 7) in every package
 pnpm test          # vitest
 pnpm lint          # biome; `pnpm format` to auto-fix
-pnpm bench         # ECS performance acceptance checks (spec 0001)
+pnpm bench         # ECS benchmarks, then every test serially at exact spec time budgets
 pnpm playground    # browser sandbox
 pnpm studio        # desktop app
 ```
@@ -29,7 +29,10 @@ Inside a project (e.g. `examples/star-explorer`), `pnpm exec shard <command>`; e
 takes `--json`:
 
 ```sh
-shard validate                        # manifest and scenes; lists every error
+shard validate                        # manifest, assets, and scenes; lists every error
+shard import / shard mv <from> <to>   # import changed asset files / move one, fixing references
+shard check                           # type-check the project's scripts
+shard dev                             # play it in a browser; saves hot reload in place
 shard run --frames 600                # headless run, prints a deterministic world hash
 shard screenshot scenes/main.scene.json --out shot.png
 shard test                            # gameplay tests in tests/*.test.ts
@@ -38,7 +41,9 @@ shard serve / shard mcp [--attach]    # protocol hub / MCP server
 ```
 
 Run `pnpm typecheck && pnpm test && pnpm lint` before calling work done. Run `pnpm bench` too
-when touching ECS storage, queries, or anything else on a per-frame path.
+when touching ECS storage, queries, anything on a per-frame path, or code a timing test covers:
+`pnpm test` runs in parallel and gives time budgets 3x slack; `pnpm bench` holds the real ones.
+Vendored third-party code (`**/vendor`) and test fixtures (`**/fixtures`) aren't linted or edited.
 
 ## Rules
 

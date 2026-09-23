@@ -12,7 +12,7 @@ import { definePlugin, LogResource, type Plugin } from '@shard/runtime'
 import { ShaderLibrary } from '@shard/shader'
 import { type CapturedImage, RenderGraph, type RenderView } from './graph'
 import { registerEngineShaders } from './shaders'
-import { RenderStats } from './stats'
+import { GpuMemory, RenderStats } from './stats'
 import { type RenderTarget, WindowTarget } from './target'
 
 export const Gpu = defineResource<GpuContext>('render/Gpu', {
@@ -168,6 +168,7 @@ export function describeRender(world: World) {
     drawsSkipped: gpu.pipelines.skipped,
     gpuTimings: gpu.features.has('timestamp-query'),
     stats: Object.fromEntries(world.tryResource(RenderStats) ?? []),
+    memory: world.tryResource(GpuMemory) ?? { textures: 0, textureBytes: 0 },
     recentErrors: gpu.errors.slice(-5).map((e) => e.toJSON()),
   }
 }

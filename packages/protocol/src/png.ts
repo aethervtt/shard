@@ -1,3 +1,5 @@
+import { decodePngImage } from '@shard/texture'
+
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256)
   for (let n = 0; n < 256; n++) {
@@ -64,36 +66,12 @@ export async function encodePng(
   return out
 }
 
-/** Decodes the PNGs `encodePng` writes (8-bit RGBA, filter 0). For tests and tools. */
+/** Decodes a PNG (any color type or bit depth) to RGBA8. For tests and tools. */
 export async function decodePng(
   png: Uint8Array,
 ): Promise<{ width: number; height: number; data: Uint8Array }> {
-  const view = new DataView(png.buffer, png.byteOffset, png.byteLength)
-  let offset = 8
-  let width = 0
-  let height = 0
-  const idat: Uint8Array[] = []
-  while (offset < png.length) {
-    const length = view.getUint32(offset)
-    const type = String.fromCharCode(...png.subarray(offset + 4, offset + 8))
-    const data = png.subarray(offset + 8, offset + 8 + length)
-    if (type === 'IHDR') {
-      width = new DataView(data.buffer, data.byteOffset).getUint32(0)
-      height = new DataView(data.buffer, data.byteOffset).getUint32(4)
-    } else if (type === 'IDAT') idat.push(data)
-    offset += 12 + length
-  }
-  const joined = new Uint8Array(idat.reduce((n, p) => n + p.length, 0))
-  let o = 0
-  for (const p of idat) {
-    joined.set(p, o)
-    o += p.length
-  }
-  const raw = await streamBytes(joined, new DecompressionStream('deflate'))
-  const out = new Uint8Array(width * height * 4)
-  for (let y = 0; y < height; y++)
-    out.set(raw.subarray(y * (width * 4 + 1) + 1, (y + 1) * (width * 4 + 1)), y * width * 4)
-  return { width, height, data: out }
+  const image = await decodePngImage(png)
+  return { width: image.width, height: image.height, data: image.data as Uint8Array }
 }
 
 export function toBase64(bytes: Uint8Array): string {

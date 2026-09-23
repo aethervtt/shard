@@ -6,7 +6,15 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/dist", "!**/target", "!**/gen", "!**/.turbo"]
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/target",
+      "!**/gen",
+      "!**/.turbo",
+      "!**/vendor",
+      "!**/fixtures"
+    ]
   },
   "formatter": {
     "enabled": true,

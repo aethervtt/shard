@@ -1,6 +1,6 @@
 # 0016 — Textures
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@shard/texture` (new), `@shard/render`, `@shard/gltf`, `@shard/protocol`
 - **Depends on:** 0005, 0007, 0014, 0015
 
@@ -193,23 +193,62 @@ time, and frame count are untouched. Scene previews reuse `SceneInstance`.
 
 ## Acceptance criteria
 
-- [ ] PNG (8/16-bit, palette, gray), JPEG, WebP, KTX2 (raw and zstd), and `.hdr` fixtures decode
+- [x] PNG (8/16-bit, palette, gray), JPEG, WebP, KTX2 (raw and zstd), and `.hdr` fixtures decode
       to the same pixels in Node and in the browser (hash-compared).
-- [ ] Mips of a `color` checkerboard average in linear light, and each mip of a `normal` map has
+- [x] Mips of a `color` checkerboard average in linear light, and each mip of a `normal` map has
       unit-length normals (within 1%).
-- [ ] With `uastc`, a fixture transcodes to BC7 under Dawn on desktop and to RGBA8 when compression
+- [x] With `uastc`, a fixture transcodes to BC7 under Dawn on desktop and to RGBA8 when compression
       features are disabled. Both render within tolerance of the uncompressed golden image.
-- [ ] The Khronos `BoxTextured`, `NormalTangentTest`, `NormalTangentMirrorTest`, and
+- [x] The Khronos `BoxTextured`, `NormalTangentTest`, `NormalTangentMirrorTest`, and
       `TextureTransformTest` models render as golden images, with generated tangents matching
       the file's own tangents on `NormalTangentTest` (within 1°).
-- [ ] Changing a PNG while the app runs updates the rendered texture within two frames, keeping
+- [x] Changing a PNG while the app runs updates the rendered texture within two frames, keeping
       its GUID.
-- [ ] A texture created in code with `Texture.create` renders, and `update` re-uploads it.
-- [ ] After a simulated device loss, textured draws recover without errors once reloads finish.
-- [ ] `asset.preview` returns a PNG for a texture, a material, a mesh, and a scene. The scene
+- [x] A texture created in code with `Texture.create` renders, and `update` re-uploads it.
+- [x] After a simulated device loss, textured draws recover without errors once reloads finish.
+- [x] `asset.preview` returns a PNG for a texture, a material, a mesh, and a scene. The scene
       preview frames the model's bounds. The game world's frame count is unchanged afterwards.
-- [ ] Loading a 2048² `rgba8` artifact with mips and uploading it takes under 30 ms in Node
+- [x] Loading a 2048² `rgba8` artifact with mips and uploading it takes under 30 ms in Node
       (Dawn), and importing a 2048² PNG takes under 1.5 s.
+
+## Implementation notes
+
+- **Decoders:**
+  - PNG in TypeScript: all color types, 1–16 bits, Adam7, and fast paths for 8-bit RGB and RGBA.
+  - JPEG through `jpeg-js`, which is pure JS and deterministic like a WASM decoder, with no loader.
+  - WebP through `@jsquash/webp` (WASM).
+  - Radiance `.hdr` in TypeScript.
+  - KTX2 through `ktx-parse`, with `fzstd` for Zstandard.
+
+  Ten fixtures hash identically in Node (a test) and in Chromium (checked through Vite).
+- **Basis Universal:** the official v2 WASM builds are vendored in `packages/texture/vendor/basis`
+  (Apache-2.0) and evaluated with a small CommonJS shim on both hosts. The encoder writes the KTX2,
+  mips included. Artifacts carry a `shard.usage` key. Uncompressed color is tagged
+  R8G8B8A8_SRGB, data and normal maps UNORM, and hdr R16G16B16A16_SFLOAT.
+- **Performance:** mip filtering uses a 16k-entry linear→sRGB table. A 2048² PNG imports in about
+  570 ms.
+- **Normal maps:** the shader always rebuilds z from xy, so BC5 and EAC RG11 transcodes work.
+- **`KHR_texture_transform` rotation** was checked against Khronos' TextureTransformTest (the
+  arrows land on "Correct"). The shader computes `(c·u + s·v, −s·u + c·v)`.
+- **Tangents:** MikkTSpace comes from the `mikktspace` WASM package, which loads through Node's
+  `require`. So tangent generation needs a Node host (the CLI or `shard dev`), unlike the rest of
+  the importer. The generated-vs-authored check uses NormalTangentMirrorTest, because
+  NormalTangentTest ships no tangents: the worst angle is under 1° and every sign matches.
+- **Material layout:** `wgslLayout` skips object fields (asset handles, structs), so the slots live
+  on `StandardMaterial` without touching its uniform. Slot transforms and UV sets go in a second
+  160-byte uniform. `MaterialAsset` fills in slot defaults, so code can pass `{ texture }` alone.
+- **Device features:** GPU contexts request BC, ASTC, and ETC2 when the adapter has them
+  (`compressedTextures: false` opts out), and the renderer tells the transcoder
+  (`setTextureCapabilities`). On this machine Dawn exposes all three, so the UASTC test really
+  renders through BC7.
+- **Device loss:** the new test found two M2 bugs, both now fixed. The forward bind-group layouts
+  and the shader modules were never rebuilt on the new device.
+- **Memory:** `render/GpuMemory` (textures, textureBytes) is reported by `render.describe`.
+- **Previews:** textures are drawn on the CPU from the artifact. Materials, meshes, and scenes
+  render in a private App that shares the main world's GpuContext, AssetServer, and stores, and
+  that keeps rendering until no draws are pending. `releaseSceneHooks` cleans up afterwards. A bare
+  mesh previews in its own local space.
+- Draws whose texture isn't loaded yet are skipped and counted as pending, like meshes.
 
 ## Open questions
 

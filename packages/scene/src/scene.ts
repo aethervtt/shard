@@ -1,14 +1,20 @@
+import { AssetStore, assetServer, defineAssetType } from '@shard/assets'
 import {
   type AssetRef,
   ChildOf,
   type ComponentDef,
   defineComponent,
   defineResource,
+  defineSystem,
   type Entity,
   findComponent,
   findResource,
   isPlainObject,
   type JsonValue,
+  onAdd,
+  onRemove,
+  onSet,
+  PreUpdate,
   pointer,
   quat,
   type ResolvedAsset,
@@ -18,6 +24,7 @@ import {
   type World,
 } from '@shard/core'
 import { MaterialAsset, Materials, Meshes, StandardMaterial } from '@shard/render'
+import type { Plugin } from '@shard/runtime'
 import { SCENE_VERSION, type SceneEntity, type SceneFile } from './format'
 import { PROCEDURAL_MESHES, parseProcedural } from './procedural'
 
@@ -41,6 +48,8 @@ interface LoadedScene {
   /** Serialized component values right after load, to tell which fields changed since. */
   loaded: Map<Entity, Map<string, Record<string, JsonValue>>>
   loadedResources: Map<string, JsonValue>
+  /** Guids of every asset the scene referenced, requested at load. */
+  assets: Set<string>
 }
 
 export const SceneIndex = defineResource<Map<string, LoadedScene>>('scene/Index', {
@@ -48,15 +57,219 @@ export const SceneIndex = defineResource<Map<string, LoadedScene>>('scene/Index'
   init: () => new Map(),
 })
 
-/** Procedural meshes shared across scenes, by canonical key, so equal refs instance together. */
-const ProceduralCache = defineResource<Map<string, ResolvedAsset>>('scene/ProceduralCache', {
-  init: () => new Map(),
-})
-
 export interface LoadedSceneHandle {
   id: string
   /** Scene path → entity. */
   entities: ReadonlyMap<string, Entity>
+}
+
+// --- scene assets and instances --------------------------------------------------
+
+/** Scene files loaded as assets (a glTF's node tree, later prefabs), by guid. */
+export const SceneAssets = defineResource<AssetStore<SceneFile, 'Scene'>>('scene/SceneAssets', {
+  description: 'Scene assets (node trees) by guid.',
+  init: () => new AssetStore('Scene'),
+})
+
+/**
+ * Scene assets. References inside them written as `#Label` point at sibling sub-assets of the same
+ * source; they're resolved against the source's current path at load, so moving the file is safe.
+ */
+export const SceneAssetType = defineAssetType<SceneFile>('Scene', {
+  store: SceneAssets,
+  load: (artifact, ctx) => {
+    const base = ctx.path.split('#')[0]!
+    const resolve = (value: unknown): unknown => {
+      if (Array.isArray(value)) return value.map(resolve)
+      if (!value || typeof value !== 'object') return value
+      const out: Record<string, unknown> = {}
+      for (const [k, v] of Object.entries(value)) {
+        out[k] =
+          k === 'path' && typeof v === 'string' && v.startsWith('#') ? `${base}${v}` : resolve(v)
+      }
+      return out
+    }
+    return resolve(artifact.json) as SceneFile
+  },
+})
+
+/** Places a scene asset (e.g. `assets/ship.glb#Scene`) as generated children of this entity. */
+export const SceneInstance = defineComponent(
+  'scene/SceneInstance',
+  {
+    scene: t.handle('Scene', {
+      description: 'The scene to place, e.g. { "path": "assets/ship.glb#Scene" }.',
+    }),
+  },
+  {
+    description:
+      "Spawns a scene asset (a model's node tree) as children, addressable by path (ship/Hull). The children are generated: saving writes only this entity, and they respawn when the asset changes.",
+  },
+)
+
+interface InstanceState {
+  guid: string
+  version: number
+  roots: Entity[]
+  paths: string[]
+  sceneId: string | undefined
+}
+
+const Instances = defineResource<Map<Entity, InstanceState>>('scene/Instances', {
+  description: 'Spawned SceneInstance children, to respawn on asset changes.',
+  init: () => new Map(),
+})
+
+/** Per world: undoes the asset-server listener (so short-lived worlds, like previews, don't leak). */
+const hooked = new WeakMap<World, () => void>()
+/** Worlds with instances added or changed since the last update (the per-frame system skips the rest). */
+const dirty = new WeakSet<World>()
+
+/** Respawns instances when their scene asset reloads, even between frames. Installed once per world. */
+function hookInstances(world: World): void {
+  if (hooked.has(world)) return
+  const off = assetServer(world).onEvent((e) => {
+    if (e.kind !== 'loaded' && e.kind !== 'modified') return
+    if (assetServer(world).entry(e.guid)?.type === 'Scene') updateSceneInstances(world)
+  })
+  hooked.set(world, off)
+  world.observe(onAdd(SceneInstance), () => void dirty.add(world))
+  world.observe(onSet(SceneInstance), () => void dirty.add(world))
+  world.observe(onRemove(SceneInstance), () => void dirty.add(world))
+}
+
+/** Detaches a world's scene hooks from its asset server (for worlds that share another's server). */
+export function releaseSceneHooks(world: World): void {
+  hooked.get(world)?.()
+  hooked.delete(world)
+}
+
+/** Spawns instances added at runtime (e.g. by `entity.spawn`). Does nothing on frames without changes. */
+export const sceneInstancesSystem = defineSystem({
+  name: 'scene/instances',
+  description: 'Spawns and respawns SceneInstance children.',
+  run: (_, world) => {
+    if (!dirty.has(world)) return
+    dirty.delete(world)
+    updateSceneInstances(world)
+  },
+})
+
+/** Scene support for apps: spawns SceneInstance children added while the app runs. */
+export const ScenePlugin: Plugin = {
+  name: 'scene',
+  build(app) {
+    hookInstances(app.world)
+    app.addSystems(PreUpdate, sceneInstancesSystem)
+  },
+}
+
+/**
+ * Spawns the children of every SceneInstance whose scene asset is loaded (requesting it otherwise),
+ * respawns those whose asset changed, and cleans up after removed instances.
+ */
+export function updateSceneInstances(world: World): void {
+  hookInstances(world)
+  dirty.delete(world)
+  const server = assetServer(world)
+  const states = world.initResource(Instances)
+  for (const [entity, state] of [...states]) {
+    if (world.isAlive(entity) && world.has(entity, SceneInstance)) continue
+    despawnInstance(world, state)
+    states.delete(entity)
+  }
+  const todo: [Entity, SceneFile, { guid: string; version: number }][] = []
+  const q = world.query({ with: [SceneInstance] })
+  for (const table of q.tables) {
+    const refs = table.column(SceneInstance, 'scene')
+    for (let i = 0; i < table.count; i++) {
+      const ref = refs[i]
+      const entity = table.entities[i]! as Entity
+      const entry = ref ? server.entry(ref) : undefined
+      if (!entry) continue
+      if (entry.state === 'unloaded') {
+        server.request(entry.guid)
+        continue
+      }
+      if (entry.state !== 'loaded') continue
+      const state = states.get(entity)
+      if (state && state.guid === entry.guid && state.version === entry.version) continue
+      const file = world.resource(SceneAssets).byGuid(entry.guid)
+      if (file) todo.push([entity, file, entry])
+    }
+  }
+  for (const [entity, file, entry] of todo) {
+    const old = states.get(entity)
+    if (old) despawnInstance(world, old)
+    states.set(entity, instantiate(world, file, entity, entry))
+  }
+}
+
+/** Waits for instance scene assets to load and spawns them (repeatedly, for nested instances). */
+async function settleInstances(world: World): Promise<void> {
+  const server = assetServer(world)
+  for (let round = 0; round < 8; round++) {
+    updateSceneInstances(world)
+    const pending: string[] = []
+    const q = world.query({ with: [SceneInstance] })
+    for (const table of q.tables) {
+      const refs = table.column(SceneInstance, 'scene')
+      for (let i = 0; i < table.count; i++) {
+        const entry = refs[i] ? server.entry(refs[i]!) : undefined
+        if (entry && (entry.state === 'loading' || entry.state === 'unloaded'))
+          pending.push(entry.guid)
+      }
+    }
+    if (pending.length === 0) return
+    await server.whenSettled(pending)
+  }
+}
+
+function despawnInstance(world: World, state: InstanceState): void {
+  for (const root of state.roots) if (world.isAlive(root)) world.despawn(root)
+  const scene =
+    state.sceneId === undefined ? undefined : world.tryResource(SceneIndex)?.get(state.sceneId)
+  if (scene) for (const path of state.paths) scene.entities.delete(path)
+}
+
+function instantiate(
+  world: World,
+  file: SceneFile,
+  parent: Entity,
+  entry: { guid: string; version: number },
+): InstanceState {
+  const member = world.tryGet(parent, SceneMember)
+  const scene = member ? world.tryResource(SceneIndex)?.get(member.scene) : undefined
+  const flat: FlatEntity[] = []
+  flatten(file.entities, '/entities', undefined, flat)
+  const local = new Map<string, Entity>()
+  for (const f of flat) local.set(f.path, world.reserveEntity())
+  const ctx: SchemaContext = {
+    resolveAsset: resolveAssets(world, file, member?.scene ?? 'instance', 'create', scene?.assets),
+    resolveEntity: (path) => local.get(path),
+  }
+  const roots: Entity[] = []
+  const paths: string[] = []
+  for (const f of flat) {
+    const entity = local.get(f.path)!
+    const inits: [ComponentDef, Record<string, unknown>][] = []
+    for (const [name, raw] of Object.entries(f.entity.components ?? {})) {
+      const def = findComponent(name)
+      if (!def) continue
+      inits.push([def, def.deserialize(expandAliases(name, raw, '', undefined), ctx)])
+    }
+    const parentEntity = f.parent === undefined ? parent : local.get(f.parent)!
+    inits.push([ChildOf as ComponentDef, { parent: parentEntity }])
+    if (member) {
+      const path = `${member.path}/${f.path}`
+      inits.push([SceneMember as ComponentDef, { scene: member.scene, path }])
+      scene?.entities.set(path, entity)
+      paths.push(path)
+    }
+    world.spawnReserved(entity, inits)
+    if (f.parent === undefined) roots.push(entity)
+  }
+  return { guid: entry.guid, version: entry.version, roots, paths, sceneId: member?.scene }
 }
 
 // --- aliases -------------------------------------------------------------------
@@ -127,13 +340,26 @@ function resolveAssets(
   file: SceneFile,
   sceneId: string,
   mode: 'check' | 'create',
+  requested?: Set<string>,
 ): (ref: { guid?: string; path?: string }) => ResolvedAsset | undefined {
   const local = new Map<string, ResolvedAsset>()
+  const server = assetServer(world)
+  const fromCatalog = (ref: { guid?: string; path?: string }): ResolvedAsset | undefined => {
+    const entry = server.entry(ref)
+    if (!entry) return undefined
+    if (mode === 'create') {
+      server.request(entry.guid)
+      requested?.add(entry.guid)
+    }
+    return { guid: entry.guid, path: ref.path ?? entry.path, type: entry.type }
+  }
   return (ref) => {
     const path = ref.path
     if (path === undefined) {
-      // A runtime guid (e.g. from the protocol): trust the stores.
+      // A guid: the catalog first, then runtime stores (e.g. ids handed out by the protocol).
       const guid = ref.guid!
+      const known = fromCatalog(ref)
+      if (known) return known
       const type = guid.startsWith('mem:mesh')
         ? 'Mesh'
         : guid.startsWith('mem:material')
@@ -163,6 +389,9 @@ function resolveAssets(
       return resolved
     }
     if (path.startsWith('procedural:')) {
+      // Scenes repeat the same procedural ref across many entities: resolve each string once.
+      const cached = local.get(path)
+      if (cached) return cached
       let proc: ReturnType<typeof parseProcedural>
       try {
         proc = parseProcedural(path.slice('procedural:'.length))
@@ -170,40 +399,42 @@ function resolveAssets(
         if (mode === 'check') return undefined // reported with a better message by validateScene
         throw err
       }
-      if (mode === 'check') return { guid: `pending:${proc.key}`, path, type: 'Mesh' }
-      return { ...procedural(world, proc.key, proc.source, proc.params), path }
+      const resolved =
+        mode === 'check'
+          ? { guid: `pending:${proc.key}`, path, type: 'Mesh' }
+          : { ...procedural(world, proc.key, proc.source, proc.params), path }
+      local.set(path, resolved)
+      return resolved
     }
-    return undefined // file-backed assets arrive with the asset database (M4)
+    return fromCatalog(ref)
   }
 }
 
+/** Procedural meshes are virtual assets (`proc:<key>`), shared by every ref with the same key. */
 function procedural(
   world: World,
   key: string,
   source: string,
   params: Record<string, number>,
 ): ResolvedAsset {
-  const cache = world.initResource(ProceduralCache)
-  const hit = cache.get(key)
-  if (hit) return hit
-  const store = world.tryResource(Meshes)
-  if (!store) {
+  if (!world.tryResource(Meshes)) {
     throw new ShardError(
       'scene/asset-unavailable',
       'Procedural meshes need the render/forward plugin',
     )
   }
-  const ref = store.add(PROCEDURAL_MESHES[source]!.create(params), key)
-  const resolved = { guid: ref.guid!, path: key, type: 'Mesh' }
-  cache.set(key, resolved)
-  return resolved
+  const entry = assetServer(world).virtual(`proc:${key}`, key, 'Mesh', () =>
+    PROCEDURAL_MESHES[source]!.create(params),
+  )
+  return { guid: entry.guid, path: key, type: 'Mesh' }
 }
 
 /**
  * Schema context for component JSON outside a scene file (protocol, tools): entity fields accept
- * scene paths, handles accept procedural refs (`procedural:sphere?radius=1`) and runtime guids.
+ * scene paths, handles accept asset paths, procedural refs (`procedural:sphere?radius=1`), and guids.
  */
 export function worldSchemaContext(world: World): SchemaContext {
+  hookInstances(world)
   const empty: SceneFile = { version: SCENE_VERSION, entities: [] }
   return {
     resolveEntity: (path) => findEntityByPath(world, path),
@@ -273,6 +504,7 @@ export function validateScene(
   options: { id?: string } = {},
 ): ShardError[] {
   const errors: ShardError[] = []
+  const checkedProcedural = new Set<string>()
   if (!isPlainObject(json)) {
     return [new ShardError('scene/invalid', 'A scene file must be a JSON object', { path: '' })]
   }
@@ -450,20 +682,10 @@ export function validateScene(
         }
         if (type.kind === 'handle' && isPlainObject(value) && typeof value.path === 'string') {
           const p = value.path
-          if (!p.startsWith('#') && !p.startsWith('procedural:')) {
-            errors.push(
-              new ShardError(
-                'scene/asset-unavailable',
-                `File assets like "${p}" need the asset database (M4)`,
-                {
-                  path: pointer(base, field),
-                  hint: 'Use a scene asset ("#name") or a procedural mesh ("procedural:sphere?radius=1").',
-                },
-              ),
-            )
-          } else if (p.startsWith('procedural:')) {
+          if (p.startsWith('procedural:') && !checkedProcedural.has(p)) {
             try {
               parseProcedural(p.slice('procedural:'.length), {}, pointer(base, field))
+              checkedProcedural.add(p) // valid: later uses of the same string need no re-check
             } catch (e) {
               if (e instanceof ShardError) errors.push(e)
             }
@@ -517,8 +739,9 @@ export function loadScene(
 
   const entities = new Map<string, Entity>()
   for (const f of flat) entities.set(f.path, world.reserveEntity())
+  const requested = new Set<string>()
   const ctx: SchemaContext = {
-    resolveAsset: resolveAssets(world, file, id, 'create'),
+    resolveAsset: resolveAssets(world, file, id, 'create', requested),
     resolveEntity: (path) => entities.get(path),
   }
 
@@ -530,6 +753,7 @@ export function loadScene(
     authored: new Map(),
     loaded: new Map(),
     loadedResources: new Map(),
+    assets: requested,
   }
 
   for (const f of flat) {
@@ -562,13 +786,41 @@ export function loadScene(
   return { id, entities }
 }
 
-/** Despawns a loaded scene's entities and loads the new file under the same id. */
-export function reloadScene(world: World, id: string, json: unknown): LoadedSceneHandle {
-  unloadScene(world, id)
-  return loadScene(world, json, { id })
+/**
+ * Resolves once every asset the scene referenced has loaded or failed (following their
+ * dependencies). Tools wait for this before capturing, so screenshots never show half a scene.
+ */
+export async function whenSceneReady(world: World, id: string): Promise<void> {
+  const scene = world.tryResource(SceneIndex)?.get(id)
+  if (!scene) throw new ShardError('scene/not-loaded', `No scene with id "${id}" is loaded`)
+  const server = assetServer(world)
+  let size = -1
+  // Loading can reveal more (e.g. a model's node tree); wait until the set stops growing.
+  while (scene.assets.size !== size) {
+    size = scene.assets.size
+    await server.whenSettled(scene.assets)
+    await settleInstances(world)
+    for (const wait of sceneWaiters) await wait(world, scene.id)
+  }
 }
 
-export function unloadScene(world: World, id: string): void {
+/** Extra readiness checks (e.g. SceneInstance children); each resolves when its part is ready. */
+const sceneWaiters: ((world: World, sceneId: string) => Promise<void>)[] = []
+
+export function addSceneReadyCheck(check: (world: World, sceneId: string) => Promise<void>): void {
+  sceneWaiters.push(check)
+}
+
+/** Despawns a loaded scene's entities and loads the new file under the same id. */
+export function reloadScene(world: World, id: string, json: unknown): LoadedSceneHandle {
+  unloadScene(world, id, { collect: false })
+  const handle = loadScene(world, json, { id })
+  assetServer(world).collect()
+  return handle
+}
+
+/** Despawns a scene's entities, then unloads assets nothing references any more. */
+export function unloadScene(world: World, id: string, options: { collect?: boolean } = {}): void {
   const index = world.initResource(SceneIndex)
   const scene = index.get(id)
   if (!scene) return
@@ -577,6 +829,7 @@ export function unloadScene(world: World, id: string): void {
     if (world.isAlive(entity)) world.despawn(entity)
   }
   index.delete(id)
+  if (options.collect ?? true) assetServer(world).collect()
 }
 
 /** Finds a scene entity by path (`ship/camera`), or `sceneId:path` when several scenes are loaded. */

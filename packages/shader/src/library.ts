@@ -29,6 +29,9 @@ export interface LinkedShader {
 interface ModuleVariant {
   code: string
   module: GPUShaderModule
+  linked: LinkedShader
+  /** The GPU device generation the module was created on. */
+  generation: number
 }
 
 interface VariantState {
@@ -157,7 +160,13 @@ export class ShaderLibrary {
             s.pending = linked.code
             const error = await compile(gpu, linked)
             if (error) gpu.reportError(error)
-            else s.good = { code: linked.code, module: moduleFor(gpu, linked) }
+            else
+              s.good = {
+                code: linked.code,
+                module: moduleFor(gpu, linked),
+                linked,
+                generation: gpu.generation,
+              }
           }
           s.pending = undefined
         },
@@ -168,6 +177,10 @@ export class ShaderLibrary {
           s.pending = undefined
         },
       )
+    }
+    // After device loss the old module belongs to a dead device; rebuild it from the linked code.
+    if (s.good && s.good.generation !== gpu.generation) {
+      s.good = { ...s.good, module: moduleFor(gpu, s.good.linked), generation: gpu.generation }
     }
     return s.good?.module
   }

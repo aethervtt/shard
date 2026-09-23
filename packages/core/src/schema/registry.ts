@@ -38,6 +38,14 @@ export class Registry {
     this.byId[def.id] = def
   }
 
+  /** Swaps in a definition that reuses an existing one's id (hot reload). */
+  replace(def: Def): void {
+    const old = this.byId[def.id]
+    if (old && this.byName.get(old.name) === old) this.byName.delete(old.name)
+    this.byName.set(def.name, def)
+    this.byId[def.id] = def
+  }
+
   isRegistered(def: Def): boolean {
     return this.byId[def.id] === def
   }

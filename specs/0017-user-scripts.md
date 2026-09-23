@@ -1,6 +1,6 @@
 # 0017 — User scripts: bundling and hot reload
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@shard/project`, `@shard/core`, `@shard/runtime`, `apps/cli`
 - **Depends on:** 0002, 0003, 0009, 0011, 0012, 0014
 
@@ -174,22 +174,66 @@ const bundler = await createBundler({ root, entry, onBuild })   // esbuild conte
 
 ## Acceptance criteria
 
-- [ ] Editing a system's body in a running headless app changes behavior from the next frame. Every
+- [x] Editing a system's body in a running headless app changes behavior from the next frame. Every
       entity and resource the change doesn't touch hashes the same before and after.
-- [ ] Adding a field with a default to a project component, on 100k entities, migrates them all, and
+- [x] Adding a field with a default to a project component, on 100k entities, migrates them all, and
       the values in other fields are unchanged. The migration takes under 300 ms.
-- [ ] A syntax error, a throwing `build`, and a migration that can't validate (a string field
+- [x] A syntax error, a throwing `build`, and a migration that can't validate (a string field
       becoming `f32`) each leave the old code running and report an error with a source location
       or a JSON pointer. Fixing the file reloads normally.
-- [ ] A system that throws logs `source: "scripts/<file>.ts:<line>:<col>"` pointing at the throwing
+- [x] A system that throws logs `source: "scripts/<file>.ts:<line>:<col>"` pointing at the throwing
       line, in Node and in the browser.
-- [ ] `import 'node:fs'` in a script fails the bundle with `project/node-builtin`.
-- [ ] `star-explorer` runs in a browser through `shard dev`. Saving a script reloads the project
+- [x] `import 'node:fs'` in a script fails the bundle with `project/node-builtin`.
+- [x] `star-explorer` runs in a browser through `shard dev`. Saving a script reloads the project
       within 500 ms without reloading the page, and `shard mcp --attach` drives that page.
-- [ ] The engine and the project share one module instance per `@shard/*` package in both Node and
+- [x] The engine and the project share one module instance per `@shard/*` package in both Node and
       the browser (asserted by identity of a registered component).
-- [ ] Rebuilding and swapping `star-explorer` takes under 100 ms, not counting the debounce.
-- [ ] `shard check --json` reports a deliberate type error with file, line, and column, and exits 1.
+- [x] Rebuilding and swapping `star-explorer` takes under 100 ms, not counting the debounce.
+- [x] `shard check --json` reports a deliberate type error with file, line, and column, and exits 1.
+
+## Implementation notes
+
+- **Redefinition keeps the id.** Core has `beginRedefinition(ns)` / `endRedefinition()`, not a
+  synchronous `withRedefinition` callback, because bundles import asynchronously. Every
+  redefinition can `undo()` itself. `World.redefine(def, migrate?)` swaps definitions, and
+  `Table.redefine` rebuilds storage only when the layout changed.
+- **The build isn't staged on a copy.** The reloader migrates data, unloads the old plugin, and
+  builds the new one. On any throw it reverses all of that: it redefines back with the saved
+  values, undoes the catalog changes, and rebuilds the old plugin. The atomicity is the same.
+- **App:** `unloadPlugin`, `loadPlugin`, `systemsOf`, and `systemRun` exist, and the app records
+  which plugin registered each system and set. Observers registered during a project build are
+  captured by wrapping `world.observe`.
+- **Resources** gained `reload: 'keep' | 'replace'` (default keep). Action maps use `replace`, so
+  edited bindings apply, and `addActions` replaces a map with the same name. The spec's "schema'd
+  resources migrate" doesn't apply yet, because resources have no schemas.
+- **`systems.changed`** compares the source text of run functions, so it reports real edits (a
+  change only to a closure variable doesn't count).
+- **Fresh URLs:** each reload imports the bundle under a new URL (`?r=N`). Identical code rebuilds
+  to the same content-hashed file, so reverting to an earlier version would otherwise import a
+  stale cached module. This was found in the browser, and a Node regression test covers it.
+- **Pausing:** a frame that throws pauses the app with `AppControl.pausedByError` and rejects
+  pending `time.step` waiters (`AppControl.abort`), headless or in the browser. The next successful
+  reload, the fix, resumes the app. `time.resume` clears the flag too.
+- **`shard dev` pushes reloads over Vite's HMR socket** (`shard:project`, `shard:assets`), not a
+  protocol hub. It doesn't host a hub, so it never competes with `shard mcp --attach` or
+  `shard serve` for port 7811. The page dials the tool hub and retries with backoff. It was checked
+  against `shard serve`'s hub, which is the same Hub class as `mcp --attach`.
+- **`ProjectSession`** in `@shard/project` holds the reloader and the status and serves
+  `project.status` and `project.reload`. `project.reload` takes `url`, or `error` for a dev server
+  reporting a failed build. Hosts add methods through the new `methods` option on
+  `createProtocolServer`, and publish events with `server.publish(topic, …)` on a `project` topic.
+- **Source locations:** a small TypeScript source-map decoder (`SourceMap`, `inlineSourceMap`,
+  `locateInBundle`) runs in browsers. In Node, `locateInProject` reads project frames once Node has
+  already mapped the stack. The `Log.annotate` hook adds `source`, and wrapped errors
+  (`app/system-failed`) are searched through `cause`. The browser page reported
+  `scripts/main.ts:50:23` for a throwing system.
+- **`openProject({ code: 'bundle' | 'source', watch })`.** `@shard/testing` uses `source`, so test
+  files and the game share modules.
+- **Template fix:** the template and example `tsconfig` needed `types: ['node', '@webgpu/types']`
+  and matching devDependencies, because the engine ships as TypeScript source. The old template
+  failed `tsc`.
+- Measured: rebuilding and swapping star-explorer takes under 100 ms (in the test), a save shows up
+  in the browser in 139 ms, and migrating a field on 100k entities takes under 300 ms (in the test).
 
 ## Open questions
 

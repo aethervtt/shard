@@ -1,7 +1,10 @@
 export {
   AssetStore,
   MaterialAsset,
+  MaterialAssetType,
+  MaterialImporter,
   Materials,
+  MeshAsset,
   Meshes,
   RenderTargets,
   StandardMaterial,
@@ -61,7 +64,7 @@ export {
   ViewUniform,
   viewLayout,
 } from './shaders'
-export { RenderStats, type ViewStats } from './stats'
+export { GpuMemory, type GpuMemoryData, RenderStats, type ViewStats } from './stats'
 export {
   OffscreenTarget,
   type OffscreenTargetOptions,

@@ -1,0 +1,12 @@
+{
+  "rgba8.png": "1d81420fefac38f9bd66e9c60f9b057341bdadeea049bbea576ea8d6bbc464ee",
+  "rgba16.png": "1d81420fefac38f9bd66e9c60f9b057341bdadeea049bbea576ea8d6bbc464ee",
+  "palette4.png": "2ade7f84a39a156cef49378b244a2ac88ba1990efd950858702d0b018f71b088",
+  "interlaced.png": "1d81420fefac38f9bd66e9c60f9b057341bdadeea049bbea576ea8d6bbc464ee",
+  "gray2.png": "f30ed07ccdf4ff134b6ee41419ac03d03cd127b40af29be23242411230143bcc",
+  "pattern.jpg": "60b526eba0022d29e1978741c0e3c443d44bdb24a15ff490b5f6e2d35684d976",
+  "pattern.webp": "9778557ef93bf647a8c551c6e455ce0f84fb8898ae5fc2759689aa929cd89818",
+  "pattern.hdr": "e95db8d67f6044031c479f8743f7ccd272115013ced24ed72808e6d226bb8678",
+  "pattern-zstd.ktx2": "9778557ef93bf647a8c551c6e455ce0f84fb8898ae5fc2759689aa929cd89818",
+  "pattern-uastc.ktx2": "a148eb4d678e2965f513d7c06a32e3c747ab9fccd6ca90b0e46875918386c2a8"
+}

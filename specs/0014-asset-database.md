@@ -1,6 +1,6 @@
 # 0014 — Asset database
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@shard/assets` (new), `@shard/platform`, `@shard/render`, `@shard/scene`,
   `@shard/protocol`, `apps/cli`
 - **Depends on:** 0002, 0009, 0010, 0011, 0012
@@ -199,28 +199,59 @@ world.resource(MeshAssets).get(ref)                   // Mesh | undefined, hot-p
 
 ## Acceptance criteria
 
-- [ ] A new source gets a `.meta` with a GUID on first scan. Moving source and `.meta` together
+- [x] A new source gets a `.meta` with a GUID on first scan. Moving source and `.meta` together
       keeps the GUID. Moving only the source keeps it too, and reports `assets/moved-without-meta`.
-- [ ] Scanning 1,000 unchanged sources in Node stats them without hashing or importing and takes
+- [x] Scanning 1,000 unchanged sources in Node stats them without hashing or importing and takes
       under 200 ms.
-- [ ] Changing a source, its settings, its importer's version, or an import dependency re-imports
+- [x] Changing a source, its settings, its importer's version, or an import dependency re-imports
       exactly the affected sources. Nothing else re-imports.
-- [ ] A `.material.json` data asset with an invalid field fails with a pointer into the file and
+- [x] A `.material.json` data asset with an invalid field fails with a pointer into the file and
       doesn't stop other imports.
-- [ ] A scene that references a material file by path loads, renders as authored (golden image), and
+- [x] A scene that references a material file by path loads, renders as authored (golden image), and
       saves the path back unchanged.
-- [ ] Changing that material file while the app runs updates the rendered color within two frames
+- [x] Changing that material file while the app runs updates the rendered color within two frames
       and keeps the GUID. A broken edit keeps the last good material and logs the error.
-- [ ] `whenSceneReady` resolves only after every referenced asset is loaded or failed, and
+- [x] `whenSceneReady` resolves only after every referenced asset is loaded or failed, and
       `render.capture` after `scene.load` never shows missing meshes.
-- [ ] After `unloadScene`, `collect()` unloads the scene's assets but keeps any asset another
+- [x] After `unloadScene`, `collect()` unloads the scene's assets but keeps any asset another
       scene or a pin still references.
-- [ ] `shard mv` moves an asset and rewrites references in scenes, and `shard validate` passes
+- [x] `shard mv` moves an asset and rewrites references in scenes, and `shard validate` passes
       afterwards.
-- [ ] `asset.list`, `asset.get`, `asset.import`, and `asset.move` work through the protocol and as
+- [x] `asset.list`, `asset.get`, `asset.import`, and `asset.move` work through the protocol and as
       MCP tools. `asset.get` shows dependents and the last import error.
-- [ ] A host without `list` and `stat` loads assets from `.shard/catalog.json` and the cached
+- [x] A host without `list` and `stat` loads assets from `.shard/catalog.json` and the cached
       artifacts.
+
+## Implementation notes
+
+- **Artifacts are named by their own content hash** (`.shard/cache/artifacts/<h[0:2]>/<h>.bin|.json`),
+  not by the import key. When an import changes one sub-asset, the others keep their artifacts, and
+  loaded objects reload only if their artifact or dependencies changed. That's why changing a
+  glTF's `scale` leaves its mesh artifacts alone (0015). The index is `.shard/cache/index.json`, and
+  `.shard/catalog.json` (the index without import-dependency stats) is written after any scan that
+  changes something.
+- **Finished loads apply when the load settles, not in a queued `First` system.** Frames are
+  synchronous (`app.update` never awaits), so a completion can't land in the middle of one. The
+  guarantee is the same without the queue.
+- **The server:** `assetServer(world)` creates one on first use, memory only; hosts call
+  `.configure({ platform, roots })`. The resource is `AssetServerResource`. Added along the way:
+  `reload(ref)` (device loss), `artifact(ref)` (previews), and `resolve` on the load context, so
+  a sub-asset can refer to a sibling as `#Label`. JSON data assets list the paths they mention as
+  load dependencies.
+- **`AssetStore` moved to `@shard/assets`** and `get` accepts anything with a `guid`. Render
+  re-exports it.
+- **Scenes:** a missing file path reports `schema/asset-not-found` from the handle field.
+  `whenSceneReady(world, id)` waits for every referenced asset (and SceneInstance children).
+  `reloadScene` collects after loading the new file, so assets shared by both versions aren't
+  unloaded and reloaded. `render/Stats` counts `pending` draws (mesh, material, or texture not
+  loaded). A null material still draws with the default; a set but unloaded one waits.
+- **Events:** `AssetEvent` kinds are loaded, modified, failed, removed, and unloaded. Orphaned
+  `.meta` files are warnings in `validate` and `import`, not failures.
+- The mesh codec (`encodeMesh` / `decodeMesh`) and the extra `Mesh` attributes (tangents, uvs1,
+  joints, weights) landed here, because the Mesh asset type needed them. Decoding trusts artifacts,
+  so it skips the per-index range check (a 1M-triangle mesh loads in about 5 ms). The Node
+  platform's `readBytes` returns a view, not a copy.
+- `shard docs` writes `.agents/assets.md` (importers and their settings) and a `use-assets` skill.
 
 ## Open questions
 

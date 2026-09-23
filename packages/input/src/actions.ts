@@ -431,7 +431,11 @@ export function defineActions<const A extends Record<string, ActionDef>>(
   const compiled = new Map<K, Compiled>()
   for (const [action, def] of Object.entries(definition))
     compiled.set(action as K, compile(action, def))
-  const resource = defineResource<ActionState<K>>(name, { description: `Action map ${name}` })
+  // Bindings are configuration: when the code that defines them reloads, the new ones apply.
+  const resource = defineResource<ActionState<K>>(name, {
+    description: `Action map ${name}`,
+    reload: 'replace',
+  })
   return {
     kind: 'actions',
     name,

@@ -403,8 +403,10 @@ override fn shard::pbr::material::pbr_input(uv: vec2f) -> PbrInput { var p = bas
     expect(got).toEqual(expected)
   })
 
-  it('rejects fields that cannot live in a GPU struct', () => {
-    const Bad = defineComponent('test/BadGpu', { name: t.string })
+  it('skips object fields (bound, not packed) and rejects f64', () => {
+    const Mixed = defineComponent('test/MixedGpu', { name: t.string, value: t.f32 })
+    expect(wgslLayout(Mixed).fields.map((f) => f.name)).toEqual(['value'])
+    const Bad = defineComponent('test/BadGpu', { big: t.f64 })
     expect(() => wgslLayout(Bad)).toThrow(
       expect.objectContaining({ code: 'shader/unsupported-field' }),
     )

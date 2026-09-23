@@ -65,7 +65,15 @@ export class Hub {
   /** The most recently attached app, if any. */
   current(): ProtocolTarget | undefined {
     const app = this.apps.at(-1)
-    if (!app) return undefined
+    return app ? this.targetFor(app) : undefined
+  }
+
+  /** Every attached app. */
+  all(): ProtocolTarget[] {
+    return this.apps.map((a) => this.targetFor(a))
+  }
+
+  private targetFor(app: Attached): ProtocolTarget {
     return {
       name: app.name,
       request: <T>(method: string, params?: unknown) =>

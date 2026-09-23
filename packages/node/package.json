@@ -11,6 +11,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@shard/assets": "workspace:*",
     "@shard/core": "workspace:*",
     "@shard/gpu": "workspace:*",
     "@shard/platform": "workspace:*",
@@ -20,6 +21,7 @@
     "@shard/render": "workspace:*",
     "@shard/runtime": "workspace:*",
     "@shard/scene": "workspace:*",
+    "esbuild": "^0.28.2",
     "webgpu": "0.6.1"
   },
   "devDependencies": {

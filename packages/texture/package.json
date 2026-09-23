@@ -1,0 +1,25 @@
+{
+  "name": "@shard/texture",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@jsquash/webp": "^1.5.0",
+    "@shard/assets": "workspace:*",
+    "@shard/core": "workspace:*",
+    "fzstd": "^0.1.1",
+    "jpeg-js": "^0.4.4",
+    "ktx-parse": "^2.0.0"
+  },
+  "devDependencies": {
+    "@shard/platform-node": "workspace:*",
+    "@types/node": "^26.6.2"
+  }
+}

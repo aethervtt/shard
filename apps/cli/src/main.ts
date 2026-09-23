@@ -3,16 +3,20 @@ import { parseArgs } from 'node:util'
 import { ShardError } from '@shard/core'
 import {
   type CommandContext,
+  check,
   describe,
   docs,
+  importCommand,
   init,
   mcp,
+  mv,
   run,
   screenshot,
   serve,
   testCommand,
   validate,
 } from './commands'
+import { dev } from './dev'
 import { createOutput, EXIT, errorJson, formatError } from './output'
 
 const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; help: string }> = {
@@ -23,6 +27,19 @@ const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; 
   validate: {
     run: validate,
     help: 'validate                        manifest and every scene; all errors',
+  },
+  import: {
+    run: importCommand,
+    help: 'import [--force]                import new and changed assets; list failures',
+  },
+  mv: { run: mv, help: 'mv <from> <to>                  move an asset and rewrite references' },
+  check: {
+    run: check,
+    help: 'check                           type-check the project; file:line:col',
+  },
+  dev: {
+    run: dev,
+    help: 'dev [--port 5190]               run the project in a browser, hot reloading',
   },
   run: { run, help: 'run [--frames 600] [--scene p]   headless run; prints a world hash' },
   screenshot: {
@@ -70,6 +87,7 @@ export async function main(argv: string[]): Promise<number> {
         size: { type: 'string' },
         camera: { type: 'string' },
         port: { type: 'string' },
+        hub: { type: 'string' },
         attach: { type: 'boolean' },
         help: { type: 'boolean', short: 'h' },
       },

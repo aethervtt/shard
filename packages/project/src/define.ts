@@ -29,7 +29,10 @@ export interface ProjectDef extends Plugin {
     options?: ComponentOptions,
   ): ComponentDef<F>
   tag(name: string, options?: { description?: string }): TagDef
-  resource<T>(name: string, options?: { description?: string; init?: () => T }): ResourceDef<T>
+  resource<T>(
+    name: string,
+    options?: { description?: string; init?: () => T; reload?: 'keep' | 'replace' },
+  ): ResourceDef<T>
   event<T = undefined>(name: string, options?: { description?: string }): EventDef<T>
 }
 

@@ -12,7 +12,18 @@ export interface CreateGpuContextOptions {
   /** Fails with `gpu/missing-feature` if the adapter lacks any. */
   requiredFeatures?: GPUFeatureName[]
   powerPreference?: GPUPowerPreference
+  /**
+   * Request block-compressed texture formats (BC, ASTC, ETC2) when the adapter has them. Default
+   * true; Basis textures transcode to whichever the device ends up with.
+   */
+  compressedTextures?: boolean
 }
+
+const COMPRESSED_TEXTURE_FEATURES: GPUFeatureName[] = [
+  'texture-compression-bc',
+  'texture-compression-astc',
+  'texture-compression-etc2',
+]
 
 export interface DeviceLostInfo {
   reason: string
@@ -175,7 +186,10 @@ async function requestDevice(options: CreateGpuContextOptions) {
   }
   const requiredFeatures = [
     ...(options.requiredFeatures ?? []),
-    ...(options.features ?? []).filter((f) => adapter.features.has(f)),
+    ...[
+      ...(options.features ?? []),
+      ...(options.compressedTextures === false ? [] : COMPRESSED_TEXTURE_FEATURES),
+    ].filter((f, i, all) => all.indexOf(f) === i && adapter.features.has(f)),
   ]
   const device = await adapter.requestDevice({ label: 'shard', requiredFeatures })
   return { adapter, device }

@@ -35,6 +35,9 @@ import {
 } from './scene'
 import { sceneJsonSchema } from './schema'
 
+/** Spec budgets hold under `pnpm bench` (serial); parallel `pnpm test` runs get 3x slack. */
+const budget = (ms: number) => ms * (process.env.SHARD_BENCH ? 1 : 3)
+
 /** A component with an entity reference, to test path resolution. */
 const Follow = defineComponent('test/Follow', { target: t.entity, distance: t.f32({ default: 5 }) })
 
@@ -167,7 +170,7 @@ describe('validation', () => {
         ['scene/unknown-entity-path', '/entities/0/components/test~1Follow/target'],
         ['schema/asset-not-found', '/entities/0/components/render~1MeshMaterial/material'],
         ['scene/duplicate-name', '/entities/1/name'],
-        ['scene/asset-unavailable', '/entities/1/components/render~1Mesh3d/mesh'],
+        ['schema/asset-not-found', '/entities/1/components/render~1Mesh3d/mesh'],
         ['scene/unknown-procedural', '/entities/2/components/render~1Mesh3d/mesh'],
         ['scene/unknown-field', '/entities/3/color'],
       ]),
@@ -325,7 +328,7 @@ describe('performance', () => {
       ms = Math.min(ms, performance.now() - start)
       expect(w.entityCount).toBe(10_000)
     }
-    expect(ms).toBeLessThan(100)
+    expect(ms).toBeLessThan(budget(100))
   })
 })
 

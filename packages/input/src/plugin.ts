@@ -193,7 +193,11 @@ export function inputPlugin(options: InputPluginOptions = {}): Plugin {
 export function addActions<K extends string>(world: World, map: ActionMapDef<K>): ActionState<K> {
   const state = map.create()
   world.insertResource(map.resource, state)
-  world.resource(InputQueue).maps.push(state as unknown as ActionState<string>)
+  const maps = world.resource(InputQueue).maps
+  // Re-adding a map by name (e.g. after hot reload) replaces it rather than doubling it.
+  const i = maps.findIndex((m) => m.name === map.name)
+  if (i === -1) maps.push(state as unknown as ActionState<string>)
+  else maps[i] = state as unknown as ActionState<string>
   return state
 }
 

@@ -38,11 +38,18 @@ export type {
   Vec4,
 } from './field'
 export { t } from './field'
+export {
+  beginRedefinition,
+  endRedefinition,
+  isRedefinable,
+  type Redefinition,
+} from './names'
 export { Registry, type RegistryDescription } from './registry'
 export {
   defineEvent,
   defineResource,
   type EventDef,
+  findEvent,
   findResource,
   type ResourceDef,
 } from './resource'

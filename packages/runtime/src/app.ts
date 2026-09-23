@@ -83,6 +83,15 @@ export class App {
   private startupDone = false
   private accumulator = 0
   private readonly frameListeners = new Set<(frame: number) => void>()
+  /** The plugin whose `build` is running, so registrations can be attributed to it. */
+  private building: string | undefined
+  private readonly owned = new Map<
+    string,
+    {
+      systems: { schedule: ScheduleLabel; name: string }[]
+      sets: { schedule: ScheduleLabel; config: SystemSetConfig }[]
+    }
+  >()
 
   constructor(options: AppOptions = {}) {
     this.fixedHz = options.fixedHz ?? 60
@@ -122,14 +131,91 @@ export class App {
       }
       this.systemNames.add(name)
       target.add(system)
+      this.ownedBy()?.systems.push({ schedule, name })
     }
     return this
   }
 
   configureSets(schedule: ScheduleLabel, ...sets: SystemSetConfig[]): this {
     const target = this.schedule(schedule)
-    for (const set of sets) target.configureSet(set)
+    for (const set of sets) {
+      target.configureSet(set)
+      this.ownedBy()?.sets.push({ schedule, config: set })
+    }
     return this
+  }
+
+  private ownedBy() {
+    if (this.building === undefined) return undefined
+    let owned = this.owned.get(this.building)
+    if (!owned) {
+      owned = { systems: [], sets: [] }
+      this.owned.set(this.building, owned)
+    }
+    return owned
+  }
+
+  /** A registered system's run function, by name (hot reload compares them). */
+  systemRun(name: string): ((...args: never[]) => unknown) | undefined {
+    for (const schedule of this.schedules.values()) {
+      for (const config of schedule.ordered()) {
+        if (config.system.name === name) return config.system.run as (...args: never[]) => unknown
+      }
+    }
+    return undefined
+  }
+
+  /** Names of the systems a plugin registered. */
+  systemsOf(plugin: string): string[] {
+    return this.owned.get(plugin)?.systems.map((s) => s.name) ?? []
+  }
+
+  /**
+   * Removes a plugin from a running app: every system and set config it registered, and the plugin
+   * itself. Resources and entities stay. For hot reload; returns the removed system names.
+   */
+  unloadPlugin(name: string): string[] {
+    const owned = this.owned.get(name)
+    this.plugins.delete(name)
+    this.owned.delete(name)
+    if (!owned) return []
+    const bySchedule = new Map<
+      ScheduleLabel,
+      { systems: Set<string>; sets: Set<SystemSetConfig> }
+    >()
+    const entry = (label: ScheduleLabel) => {
+      let e = bySchedule.get(label)
+      if (!e) {
+        e = { systems: new Set(), sets: new Set() }
+        bySchedule.set(label, e)
+      }
+      return e
+    }
+    for (const s of owned.systems) entry(s.schedule).systems.add(s.name)
+    for (const s of owned.sets) entry(s.schedule).sets.add(s.config)
+    for (const [label, e] of bySchedule) this.schedules.get(label)?.remove(e.systems, e.sets)
+    for (const s of owned.systems) this.systemNames.delete(s.name)
+    return owned.systems.map((s) => s.name)
+  }
+
+  /**
+   * Builds a plugin into an app that's already running (hot reload). Its systems set up on their
+   * first run. Startup systems it adds don't run: startup already happened.
+   */
+  async loadPlugin(plugin: Plugin): Promise<void> {
+    if (this.plugins.has(plugin.name)) {
+      throw new ShardError('app/duplicate-plugin', `Plugin "${plugin.name}" is already loaded`, {
+        hint: 'Unload it first (unloadPlugin).',
+      })
+    }
+    this.plugins.set(plugin.name, plugin)
+    this.building = plugin.name
+    try {
+      plugin.build(this)
+    } finally {
+      this.building = undefined
+    }
+    await plugin.ready?.(this)
   }
 
   insertResource<T>(def: ResourceDef<T>, value: T): this {
@@ -160,7 +246,12 @@ export class App {
       )
       if (index === -1) throw this.dependencyError(builtNames)
       const [plugin] = this.pending.splice(index, 1)
-      plugin!.build(this) // may add more plugins
+      this.building = plugin!.name
+      try {
+        plugin!.build(this) // may add more plugins
+      } finally {
+        this.building = undefined
+      }
       built.push(plugin!)
       builtNames.add(plugin!.name)
     }
@@ -232,7 +323,16 @@ export class App {
   pump(): void {
     const control = this.world.resource(AppControlResource)
     while (control.pendingSteps > 0) {
-      this.update(1 / this.fixedHz)
+      try {
+        this.update(1 / this.fixedHz)
+      } catch (err) {
+        // Log it where tools look, stop stepping, and let the caller see the failure.
+        this.world.resource(LogResource).error(err)
+        control.paused = true
+        control.pausedByError = true
+        control.abort(err)
+        throw err
+      }
       control.stepped()
     }
   }

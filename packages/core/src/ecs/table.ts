@@ -58,7 +58,7 @@ export class ComponentStorage {
   readonly byName: Record<string, Column> = Object.create(null)
   added: Uint32Array
   changed: Uint32Array
-  readonly def: ComponentDef
+  def: ComponentDef
 
   constructor(def: ComponentDef, capacity: number) {
     this.def = def
@@ -249,6 +249,38 @@ export class Table {
       out[name] = field.read(storage.columns[c]!, row)
     }
     return out as InferFields<F>
+  }
+
+  /**
+   * Replaces a component's definition with one sharing its id (hot reload). Without `migrate`
+   * the layout must be the same and only the definition changes; with it, every row's value is
+   * rebuilt into new columns. Added ticks carry over; changed ticks become the current tick.
+   */
+  redefine(
+    def: ComponentDef,
+    migrate?: (value: Record<string, unknown>, row: number) => Record<string, unknown>,
+  ): void {
+    const i = this.ids.indexOf(def.id)
+    if (i === -1) return
+    const old = this.storages[i]!
+    ;(this.components as ComponentDef[])[i] = def
+    if (!migrate) {
+      old.def = def
+      return
+    }
+    const values: Record<string, unknown>[] = []
+    for (let row = 0; row < this.count; row++) {
+      values.push(migrate(this.readComponent(old.def, row) as Record<string, unknown>, row))
+    }
+    const next = new ComponentStorage(def, this.capacity)
+    next.added.set(old.added)
+    ;(this.storages as ComponentStorage[])[i] = next
+    this.byId.set(def.id, next)
+    const tick = this.clock.tick
+    for (let row = 0; row < this.count; row++) {
+      this.writeComponent(def, row, values[row]!)
+      next.changed[row] = tick
+    }
   }
 
   /** Approximate bytes used by TypedArray columns (object columns count as 8 bytes a slot). */

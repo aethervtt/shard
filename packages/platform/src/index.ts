@@ -51,6 +51,26 @@ export interface PlatformFileSystem {
   exists(path: string): Promise<boolean>
   /** Present only on hosts that can watch files. Returns an unsubscribe function. */
   watch?(path: string, onChange: (event: FileChangeEvent) => void): Promise<() => void>
+  /** Entries directly inside a directory; empty if it doesn't exist. Absent on hosts that can't list. */
+  list?(dir: string): Promise<DirEntry[]>
+  /** Size and modification time, or undefined if the file doesn't exist. */
+  stat?(path: string): Promise<FileStat | undefined>
+  /** Moves a file, creating the target's directory. Writable hosts only. */
+  move?(from: string, to: string): Promise<void>
+  /** Deletes a file if it exists. Writable hosts only. */
+  remove?(path: string): Promise<void>
+}
+
+export interface DirEntry {
+  /** Name within the directory (not a path). */
+  readonly name: string
+  readonly kind: 'file' | 'dir'
+}
+
+export interface FileStat {
+  readonly size: number
+  /** Modification time in milliseconds. */
+  readonly mtime: number
 }
 
 export interface KeyValueStorage {

@@ -32,6 +32,9 @@ struct VertexOutput {
   @location(0) world_position: vec3f,
   @location(1) world_normal: vec3f,
   @location(2) uv: vec2f,
+  @location(3) uv1: vec2f,
+  /** xyz: world tangent (zero when the mesh has none), w: bitangent sign. */
+  @location(4) world_tangent: vec4f,
 }
 
 /** What a material produces; all lighting works from this. */
@@ -51,16 +54,57 @@ import shard::pbr::standard_material::StandardMaterial;
 
 @group(1) @binding(0) var<uniform> material: StandardMaterial;
 
+/** Per slot: a = (offset.xy, scale.xy); b = (rotation, uv set, has texture, 0). */
+struct TextureSlot { a: vec4f, b: vec4f }
+struct MaterialTextures { slots: array<TextureSlot, 5> }
+@group(1) @binding(1) var<uniform> material_textures: MaterialTextures;
+@group(1) @binding(2) var base_color_texture: texture_2d<f32>;
+@group(1) @binding(3) var metallic_roughness_texture: texture_2d<f32>;
+@group(1) @binding(4) var normal_texture: texture_2d<f32>;
+@group(1) @binding(5) var occlusion_texture: texture_2d<f32>;
+@group(1) @binding(6) var emissive_texture: texture_2d<f32>;
+@group(1) @binding(7) var base_color_sampler: sampler;
+@group(1) @binding(8) var metallic_roughness_sampler: sampler;
+@group(1) @binding(9) var normal_sampler: sampler;
+@group(1) @binding(10) var occlusion_sampler: sampler;
+@group(1) @binding(11) var emissive_sampler: sampler;
+
+/** A slot's UVs: its UV set, then KHR_texture_transform (translation * rotation * scale). */
+fn slot_uv(index: u32, in: VertexOutput) -> vec2f {
+  let slot = material_textures.slots[index];
+  let uv = select(in.uv, in.uv1, slot.b.y > 0.5) * slot.a.zw;
+  let c = cos(slot.b.x);
+  let s = sin(slot.b.x);
+  // Rotation direction verified against Khronos' TextureTransformTest (arrows hit "Correct").
+  return vec2f(c * uv.x + s * uv.y, -s * uv.x + c * uv.y) + slot.a.xy;
+}
+
 /** Surface stage. Override this hook to change what a surface looks like, not how it's lit. */
 @hook fn pbr_input(in: VertexOutput) -> PbrInput {
+  // Empty slots bind 1x1 defaults (white, flat normal), so sampling is always valid.
+  let base = textureSample(base_color_texture, base_color_sampler, slot_uv(0u, in));
+  let mr = textureSample(metallic_roughness_texture, metallic_roughness_sampler, slot_uv(1u, in));
+  let occ = textureSample(occlusion_texture, occlusion_sampler, slot_uv(3u, in));
+  let emit = textureSample(emissive_texture, emissive_sampler, slot_uv(4u, in));
+  let nm = textureSample(normal_texture, normal_sampler, slot_uv(2u, in));
   var p: PbrInput;
-  p.base_color = material.baseColor.rgb;
-  p.alpha = material.baseColor.a;
-  p.normal = normalize(in.world_normal);
-  p.metallic = material.metallic;
-  p.roughness = clamp(material.roughness, 0.045, 1.0);
-  p.emissive = material.emissive.rgb * material.emissiveLuminance;
-  p.occlusion = 1.0;
+  p.base_color = material.baseColor.rgb * base.rgb;
+  p.alpha = material.baseColor.a * base.a;
+  var n = normalize(in.world_normal);
+  let t = in.world_tangent.xyz;
+  if (material_textures.slots[2].b.z > 0.5 && dot(t, t) > 1e-8) {
+    // Tangent-space normal: z rebuilt from xy, so two-channel formats (BC5, EAC RG11) work too.
+    let xy = (nm.xy * 2.0 - 1.0) * material.normalScale;
+    let z = sqrt(max(0.0, 1.0 - dot(xy, xy)));
+    let tangent = normalize(t - n * dot(n, t));
+    let bitangent = cross(n, tangent) * in.world_tangent.w;
+    n = normalize(tangent * xy.x + bitangent * xy.y + n * z);
+  }
+  p.normal = n;
+  p.metallic = material.metallic * mr.b;
+  p.roughness = clamp(material.roughness * mr.g, 0.045, 1.0);
+  p.emissive = material.emissive.rgb * material.emissiveLuminance * emit.rgb;
+  p.occlusion = mix(1.0, occ.r, material.occlusionStrength);
   return p;
 }
 
@@ -131,7 +175,7 @@ fn linear_to_srgb(c: vec3f) -> vec3f {
   'shard::pbr::forward': `
 import shard::view::view;
 import shard::pbr::types::VertexOutput;
-import shard::pbr::material::{ pbr_input, fragment_output };
+import shard::pbr::material::{ pbr_input, fragment_output, material };
 import shard::pbr::lighting::apply_lighting;
 import shard::pbr::tonemap::{ aces, linear_to_srgb };
 
@@ -142,6 +186,8 @@ import shard::pbr::tonemap::{ aces, linear_to_srgb };
   @location(3) row0: vec4f,
   @location(4) row1: vec4f,
   @location(5) row2: vec4f,
+  @location(6) uv1: vec2f,
+  @location(7) tangent: vec4f,
 ) -> VertexOutput {
   let p = vec4f(position, 1.0);
   let world = vec3f(dot(row0, p), dot(row1, p), dot(row2, p));
@@ -155,11 +201,15 @@ import shard::pbr::tonemap::{ aces, linear_to_srgb };
   out.world_position = world;
   out.world_normal = normalize(n);
   out.uv = uv;
+  out.uv1 = uv1;
+  let wt = c0 * tangent.x + c1 * tangent.y + c2 * tangent.z;
+  out.world_tangent = vec4f(select(vec3f(0.0), normalize(wt), dot(wt, wt) > 1e-12), tangent.w);
   return out;
 }
 
 @fragment fn fs(in: VertexOutput) -> @location(0) vec4f {
   let p = pbr_input(in);
+  if (material.alphaMode == 1u && p.alpha < material.alphaCutoff) { discard; }
   var color = apply_lighting(p, in.world_position) + p.emissive;
   color = aces(color * view.exposure);
   @if(!SRGB_TARGET) color = linear_to_srgb(color);

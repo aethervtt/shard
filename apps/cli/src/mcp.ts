@@ -7,8 +7,10 @@ import {
   ListToolsRequestSchema,
   ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
+import { allImporters, findImporter } from '@shard/assets'
 import { allComponents, findComponent, type JsonSchema, ShardError } from '@shard/core'
 import { listScenes } from '@shard/node'
+import { ProjectMethodParams } from '@shard/project'
 import { METHODS } from '@shard/protocol'
 import type { ProtocolTarget } from './hub'
 
@@ -19,6 +21,8 @@ export interface McpContext {
   root: string
   /** Runs `shard test --json`; returns its parsed output. */
   runTests(pattern?: string): Promise<unknown>
+  /** Runs `shard check`; returns diagnostics. */
+  typecheck?(): Promise<unknown>
 }
 
 type ToolResult = {
@@ -41,8 +45,10 @@ const text = (value: unknown): ToolResult => ({
 
 /** The protocol method's parameter schema, as an MCP input schema. */
 function paramsSchema(method: string, overrides: Record<string, JsonSchema> = {}): JsonSchema {
-  const def = METHODS.find((m) => m.name === method)!
-  const schema = def.params.jsonSchema()
+  const params =
+    METHODS.find((m) => m.name === method)?.params ??
+    ProjectMethodParams[method as keyof typeof ProjectMethodParams]
+  const schema = params.jsonSchema()
   delete schema.$schema
   delete schema.title
   delete schema['x-version']
@@ -79,6 +85,9 @@ function inject(ctx: McpContext, name: string, pressed: boolean) {
       name.includes('.') ? { action: name, pressed } : { key: name, pressed },
     )
 }
+
+/** Reload count last seen by `step`, per target, to tell the agent when its edit took effect. */
+const seenReloads = new Map<string, number>()
 
 export const TOOLS: Tool[] = [
   {
@@ -134,11 +143,30 @@ export const TOOLS: Tool[] = [
     'Changes component fields on an entity; unspecified fields keep their values, null removes a component. All values are validated first; nothing changes if any is invalid. Example: { "entity": "ship", "components": { "core/Transform": { "translation": [0, 5, 0] } } }.',
   ),
   forward('despawn_entity', 'entity.despawn', 'Despawns an entity and (by default) its children.'),
-  forward(
-    'step',
-    'time.step',
-    'Pauses and runs exactly N frames at the fixed timestep (60 per second). Use it to let physics, input, and animation play out before looking again.',
-  ),
+  {
+    name: 'step',
+    description:
+      'Pauses and runs exactly N frames at the fixed timestep (60 per second). Use it to let physics, input, and animation play out before looking again. The result says if your code changes were reloaded since the last step.',
+    inputSchema: paramsSchema('time.step'),
+    run: async (ctx, args) => {
+      const target = ctx.target()
+      const result = (await target.request('time.step', args)) as Record<string, unknown>
+      const status = (await target.request('project.status').catch(() => undefined)) as
+        | { reloads: number; error?: { message: string; source?: string } }
+        | undefined
+      if (status) {
+        const seen = seenReloads.get(target.name)
+        if (seen !== undefined && status.reloads > seen) {
+          result.note = `Project code reloaded since the last step (${status.reloads - seen} reload(s)); these frames ran the new code.`
+        }
+        if (status.error) {
+          result.codeError = `Your last code change didn't load, so the previous code is still running: ${status.error.message}${status.error.source ? ` (${status.error.source})` : ''}`
+        }
+        seenReloads.set(target.name, status.reloads)
+      }
+      return text(result)
+    },
+  },
   forward('pause', 'time.pause', 'Pauses the game.'),
   forward('resume', 'time.resume', 'Resumes a paused game.'),
   {
@@ -209,6 +237,64 @@ export const TOOLS: Tool[] = [
     run: async (ctx, args) => text(await ctx.runTests(args.pattern as string | undefined)),
   },
   forward(
+    'list_assets',
+    'asset.list',
+    'Lists assets in the project: path, type (Mesh, Material, Texture, Scene…), and state. Filter with "type", "prefix" (e.g. "assets/ships/"), or "state" ("failed" finds broken imports).',
+  ),
+  forward(
+    'get_asset',
+    'asset.get',
+    'Everything about one asset: type, state, importer settings, sub-assets (a .glb lists its meshes, materials, scenes), facts such as vertex counts and bounds, dependencies, dependents, warnings, and the last error. Example: { "asset": "assets/ship.glb" }.',
+  ),
+  forward(
+    'reimport_asset',
+    'asset.import',
+    'Re-imports an asset, optionally changing its import settings (saved to its .meta). Example: fix a centimeter-scale model with { "asset": "assets/ship.glb", "settings": { "scale": 0.01 } }. Omit "asset" to import every new or changed file. Settings schemas: shard://schemas/importers/<importer>.',
+  ),
+  forward(
+    'move_asset',
+    'asset.move',
+    'Moves or renames an asset file and its .meta, and rewrites references to it in scenes. Use this instead of moving files by hand, which breaks references. Example: { "from": "assets/ship.glb", "to": "assets/ships/scout.glb" }.',
+  ),
+  {
+    name: 'preview_asset',
+    description:
+      'Shows an asset as an image: a texture, a material on a sphere, or a mesh or model framed from its bounds. Use it to look at a model before placing it, or at a material after changing it. Example: { "asset": "assets/ship.glb#Scene" }.',
+    inputSchema: paramsSchema('asset.preview'),
+    run: async (ctx, args) => {
+      const shot = await ctx
+        .target()
+        .request<{ data: string; width: number; height: number }>('asset.preview', args)
+      return {
+        content: [
+          { type: 'image', data: shot.data, mimeType: 'image/png' },
+          { type: 'text', text: `${args.asset} (${shot.width}×${shot.height})` },
+        ],
+      }
+    },
+  },
+  forward(
+    'project_status',
+    'project.status',
+    'The project code as the running game sees it: reload count, the last reload report (migrated and orphaned components, systems added, removed, or changed), and the last build or reload error with its file:line:col. Check it after editing scripts.',
+  ),
+  forward(
+    'reload_project',
+    'project.reload',
+    'Rebuilds the project scripts and hot reloads them now, keeping the world. Saving a file does this automatically; call it to force a reload or to see the report.',
+  ),
+  {
+    name: 'typecheck',
+    description:
+      'Type-checks the project scripts (shard check) and returns every error as { file, line, column, code, message }. Reloads never wait for type checks, so run this after editing code.',
+    inputSchema: { type: 'object', properties: {} },
+    run: async (ctx) => {
+      if (!ctx.typecheck)
+        throw new ShardError('cli/unavailable', 'Type checking is not available here')
+      return text(await ctx.typecheck())
+    },
+  },
+  forward(
     'recent_errors',
     'errors.recent',
     'Recent errors (systems, GPU, shaders) with code, path, and hint. Check this when something looks wrong.',
@@ -266,6 +352,11 @@ export function createMcpServer(ctx: McpContext): Server {
         name: path,
         mimeType: 'application/json',
       })),
+      ...allImporters().map((i) => ({
+        uri: `shard://schemas/importers/${i.name}`,
+        name: `${i.name} import settings (${i.extensions.join(', ')})`,
+        mimeType: 'application/schema+json',
+      })),
       ...allComponents()
         .filter((d) => d.serializable && !d.name.startsWith('test/'))
         .map((d) => ({
@@ -286,6 +377,10 @@ export function createMcpServer(ctx: McpContext): Server {
       mimeType = 'text/markdown'
     } else if (uri.startsWith('shard://scenes/')) {
       body = await read(uri.slice('shard://scenes/'.length))
+    } else if (uri.startsWith('shard://schemas/importers/')) {
+      const importer = findImporter(uri.slice('shard://schemas/importers/'.length))
+      if (!importer) throw new ShardError('cli/unknown-resource', `No resource ${uri}`)
+      body = JSON.stringify(importer.settings.jsonSchema(), null, 2)
     } else if (uri.startsWith('shard://schemas/')) {
       const def = findComponent(uri.slice('shard://schemas/'.length))
       if (!def) throw new ShardError('cli/unknown-resource', `No resource ${uri}`)

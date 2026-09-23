@@ -1,9 +1,11 @@
 import type { GpuContext } from '@shard/gpu'
+// Registers the .gltf/.glb importer and the Skin/AnimationClip asset types for every project host.
+import '@shard/gltf'
 import { inputPlugin } from '@shard/input'
 import type { InputSource, Platform } from '@shard/platform'
 import { forwardPlugin, type RenderTarget, renderPlugin } from '@shard/render'
 import { App, type Plugin } from '@shard/runtime'
-import { type LoadedSceneHandle, loadScene } from '@shard/scene'
+import { type LoadedSceneHandle, loadScene, ScenePlugin } from '@shard/scene'
 import { TransformPlugin } from '@shard/transform'
 import type { ManifestValue } from './manifest'
 
@@ -36,6 +38,7 @@ export function buildApp(options: BuildAppOptions): App {
   if (names.has('render/forward'))
     app.addPlugin(forwardPlugin({ msaa: manifest.window.msaa === 1 ? 1 : 4 }))
   if (names.has('input')) app.addPlugin(inputPlugin({ source: options.inputSource }))
+  app.addPlugin(ScenePlugin)
   if (options.project) app.addPlugin(options.project)
   return app
 }

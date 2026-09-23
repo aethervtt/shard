@@ -10,17 +10,23 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p .",
+    "typecheck": "tsc -p . && tsc -p runner",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",
+    "@shard/assets": "workspace:*",
     "@shard/core": "workspace:*",
     "@shard/node": "workspace:*",
+    "@shard/platform-node": "workspace:*",
+    "@shard/platform-web": "workspace:*",
     "@shard/project": "workspace:*",
     "@shard/protocol": "workspace:*",
+    "@shard/runtime": "workspace:*",
     "@shard/scene": "workspace:*",
     "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0",
     "vitest": "^5.0.1",
     "ws": "^8.21.3",
     "zod": "^3.25.0"

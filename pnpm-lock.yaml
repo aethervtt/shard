@@ -26,24 +26,42 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: 1.30.0
         version: 1.30.0(zod@3.25.76)
+      '@shard/assets':
+        specifier: workspace:*
+        version: link:../../packages/assets
       '@shard/core':
         specifier: workspace:*
         version: link:../../packages/core
       '@shard/node':
         specifier: workspace:*
         version: link:../../packages/node
+      '@shard/platform-node':
+        specifier: workspace:*
+        version: link:../../packages/platform-node
+      '@shard/platform-web':
+        specifier: workspace:*
+        version: link:../../packages/platform-web
       '@shard/project':
         specifier: workspace:*
         version: link:../../packages/project
       '@shard/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@shard/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
       '@shard/scene':
         specifier: workspace:*
         version: link:../../packages/scene
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vite:
+        specifier: ^8.3.0
+        version: 8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15)
       vitest:
         specifier: ^5.0.1
         version: 5.0.1(@types/node@26.6.2)(vite@8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15))
@@ -164,6 +182,35 @@ importers:
       '@shard/transform':
         specifier: workspace:*
         version: link:../../packages/transform
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+      '@webgpu/types':
+        specifier: ^0.1.74
+        version: 0.1.74
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+
+  packages/assets:
+    dependencies:
+      '@shard/core':
+        specifier: workspace:*
+        version: link:../core
+      '@shard/platform':
+        specifier: workspace:*
+        version: link:../platform
+      '@shard/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+    devDependencies:
+      '@shard/platform-node':
+        specifier: workspace:*
+        version: link:../platform-node
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
 
   packages/core:
     devDependencies:
@@ -173,6 +220,52 @@ importers:
       gl-matrix:
         specifier: ^3.4.4
         version: 3.4.4
+
+  packages/gltf:
+    dependencies:
+      '@shard/assets':
+        specifier: workspace:*
+        version: link:../assets
+      '@shard/core':
+        specifier: workspace:*
+        version: link:../core
+      '@shard/mesh':
+        specifier: workspace:*
+        version: link:../mesh
+      '@shard/render':
+        specifier: workspace:*
+        version: link:../render
+      '@shard/scene':
+        specifier: workspace:*
+        version: link:../scene
+      '@shard/texture':
+        specifier: workspace:*
+        version: link:../texture
+      mikktspace:
+        specifier: ^1.1.1
+        version: 1.1.1
+    devDependencies:
+      '@shard/gpu':
+        specifier: workspace:*
+        version: link:../gpu
+      '@shard/platform-node':
+        specifier: workspace:*
+        version: link:../platform-node
+      '@shard/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@shard/transform':
+        specifier: workspace:*
+        version: link:../transform
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+      '@webgpu/types':
+        specifier: ^0.1.74
+        version: 0.1.74
+      webgpu:
+        specifier: 0.6.1
+        version: 0.6.1
 
   packages/gpu:
     dependencies:
@@ -210,6 +303,9 @@ importers:
 
   packages/node:
     dependencies:
+      '@shard/assets':
+        specifier: workspace:*
+        version: link:../assets
       '@shard/core':
         specifier: workspace:*
         version: link:../core
@@ -237,6 +333,9 @@ importers:
       '@shard/scene':
         specifier: workspace:*
         version: link:../scene
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
       webgpu:
         specifier: 0.6.1
         version: 0.6.1
@@ -293,9 +392,15 @@ importers:
 
   packages/project:
     dependencies:
+      '@shard/assets':
+        specifier: workspace:*
+        version: link:../assets
       '@shard/core':
         specifier: workspace:*
         version: link:../core
+      '@shard/gltf':
+        specifier: workspace:*
+        version: link:../gltf
       '@shard/gpu':
         specifier: workspace:*
         version: link:../gpu
@@ -305,6 +410,9 @@ importers:
       '@shard/platform':
         specifier: workspace:*
         version: link:../platform
+      '@shard/protocol':
+        specifier: workspace:*
+        version: link:../protocol
       '@shard/render':
         specifier: workspace:*
         version: link:../render
@@ -330,6 +438,9 @@ importers:
 
   packages/protocol:
     dependencies:
+      '@shard/assets':
+        specifier: workspace:*
+        version: link:../assets
       '@shard/core':
         specifier: workspace:*
         version: link:../core
@@ -348,16 +459,25 @@ importers:
       '@shard/scene':
         specifier: workspace:*
         version: link:../scene
+      '@shard/texture':
+        specifier: workspace:*
+        version: link:../texture
+      '@shard/transform':
+        specifier: workspace:*
+        version: link:../transform
     devDependencies:
+      '@shard/gltf':
+        specifier: workspace:*
+        version: link:../gltf
       '@shard/gpu':
         specifier: workspace:*
         version: link:../gpu
       '@shard/mesh':
         specifier: workspace:*
         version: link:../mesh
-      '@shard/transform':
+      '@shard/platform-node':
         specifier: workspace:*
-        version: link:../transform
+        version: link:../platform-node
       '@types/node':
         specifier: ^26.6.2
         version: 26.6.2
@@ -376,6 +496,9 @@ importers:
 
   packages/render:
     dependencies:
+      '@shard/assets':
+        specifier: workspace:*
+        version: link:../assets
       '@shard/core':
         specifier: workspace:*
         version: link:../core
@@ -391,6 +514,9 @@ importers:
       '@shard/shader':
         specifier: workspace:*
         version: link:../shader
+      '@shard/texture':
+        specifier: workspace:*
+        version: link:../texture
       '@shard/transform':
         specifier: workspace:*
         version: link:../transform
@@ -413,6 +539,9 @@ importers:
 
   packages/scene:
     dependencies:
+      '@shard/assets':
+        specifier: workspace:*
+        version: link:../assets
       '@shard/core':
         specifier: workspace:*
         version: link:../core
@@ -432,6 +561,9 @@ importers:
       '@shard/gpu':
         specifier: workspace:*
         version: link:../gpu
+      '@shard/platform-node':
+        specifier: workspace:*
+        version: link:../platform-node
       '@types/node':
         specifier: ^26.6.2
         version: 26.6.2
@@ -500,6 +632,34 @@ importers:
       '@webgpu/types':
         specifier: ^0.1.74
         version: 0.1.74
+
+  packages/texture:
+    dependencies:
+      '@jsquash/webp':
+        specifier: ^1.5.0
+        version: 1.5.0
+      '@shard/assets':
+        specifier: workspace:*
+        version: link:../assets
+      '@shard/core':
+        specifier: workspace:*
+        version: link:../core
+      fzstd:
+        specifier: ^0.1.1
+        version: 0.1.1
+      jpeg-js:
+        specifier: ^0.4.4
+        version: 0.4.4
+      ktx-parse:
+        specifier: ^2.0.0
+        version: 2.0.0
+    devDependencies:
+      '@shard/platform-node':
+        specifier: workspace:*
+        version: link:../platform-node
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
 
   packages/transform:
     dependencies:
@@ -736,6 +896,9 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
+
+  '@jsquash/webp@1.5.0':
+    resolution: {integrity: sha512-KggLoj2MnRSfIqTeKe1EmbljTX2vuV7mh79k89PCL1pyqiDULcPM1L47twxXt0hkb68F70bXiL31MxsuoZtKFw==}
 
   '@modelcontextprotocol/sdk@1.30.0':
     resolution: {integrity: sha512-xKd8OIzlqNzcqcNumGAa6g+PW2kjD5vrpcKOnfldAUPP3j7lnqMPwlTXQm8gF+UwH72z0lqaRbjr9hqGz0eITA==}
@@ -1284,6 +1447,9 @@ packages:
   function-bind@1.1.2:
     resolution: {integrity: sha512-7XHNxH7qX9xG5mIwxkhumTox/MIRNcOgDrxWsMt2pAr23WHp6MrRlN7FBSFpCpr+oVO0F744iUgR82nJMfG2SA==}
 
+  fzstd@0.1.1:
+    resolution: {integrity: sha512-dkuVSOKKwh3eas5VkJy1AW1vFpet8TA/fGmVA5krThl8YcOVE/8ZIoEA1+U1vEn5ckxxhLirSdY837azmbaNHA==}
+
   get-intrinsic@1.3.0:
     resolution: {integrity: sha512-9fSjSaos/fRIVIp+xSJlE6lfwhES7LNtKaCBIamHsjr2na1BiABJPo0mOjjz8GJDURarmCPGqaiVg5mfjb98CQ==}
     engines: {node: '>= 0.4'}
@@ -1339,11 +1505,17 @@ packages:
   jose@6.2.12:
     resolution: {integrity: sha512-9NiFmJEex0sy2Dk58j2UGBSHgUs2ypF9eZSu4L6vjOX3Dp96Sw1F3uL+H+D1sx02jZZdzUT0HgvCy59CuvXcWw==}
 
+  jpeg-js@0.4.4:
+    resolution: {integrity: sha512-WZzeDOEtTOBK4Mdsar0IqEU5sMr3vSV2RqkAIzUEV2BHnUfKGyswWFPFwK5EeDo93K3FohSHbLAjj0s1Wzd+dg==}
+
   json-schema-traverse@1.0.0:
     resolution: {integrity: sha512-NM8/P9n3XjXhIZn1lLhkFaACTOURQXjWhV4BA/RnOv8xvgqtqpAX9IO4mRQxSx1Rlo4tqzeqb0sOlruaOy3dug==}
 
   json-schema-typed@8.0.2:
     resolution: {integrity: sha512-fQhoXdcvc3V28x7C7BMs4P5+kNlgUURe2jmUT1T//oBRMDrqy1QPelJimwZGo7Hg9VPV3EQV5Bnq4hbFy2vetA==}
+
+  ktx-parse@2.0.0:
+    resolution: {integrity: sha512-PW38i6SBZagE7c4yCYru636ICCkhJ8FNjOzAdjGkC65BZ0gElQJvFenSGc62SHFj5Fg0ft+U38PPhMZsWYQLCg==}
 
   lightningcss-android-arm64@1.33.0:
     resolution: {integrity: sha512-gEpRTalKdosp4Bb8qWtc2iOgE5SeIHlpS1up9bFq2wAyYhl1UdTObYiHe98zEM9SQvSoqQZ1IQD0JNpg3Ml5pg==}
@@ -1429,6 +1601,9 @@ packages:
   merge-descriptors@2.0.0:
     resolution: {integrity: sha512-Snk314V5ayFLhp3fkUREub6WtjBfPdCPY1Ln8/8munuLuiYhsABgBVWsozAG+MWMbVEvcdcpbi9R7ww22l9Q3g==}
     engines: {node: '>=18'}
+
+  mikktspace@1.1.1:
+    resolution: {integrity: sha512-w+n5O2YLFsv/aRi3QUF0jxR+mEsl2J08ZkRItJHE08MWqiDIy8amyZN9vetBfbLhlWGMb8G3mzSPwtKHvBF7hQ==}
 
   mime-db@1.54.0:
     resolution: {integrity: sha512-aU5EJuIN2WDemCcAp2vFBfp/m4EAhWJnUNSSw0ixs7/kXbd6Pg64EmwJkNdFhB8aWt1sH2CTXrLxo/iAGV3oPQ==}
@@ -1708,6 +1883,9 @@ packages:
       jsdom:
         optional: true
 
+  wasm-feature-detect@1.9.0:
+    resolution: {integrity: sha512-zonE+xlIIYtxPy++L24ow0hAD8CICb4+FgPyROd3buyXIqsJvUEDkBgfCCoXOd1Hu3DUr0GOfnPIdcGV+YpNaA==}
+
   webgpu@0.6.1:
     resolution: {integrity: sha512-T+B65/j2jhyFjbWHsVZ4TJw0nk0RVT27lG+nL3V5IIYMsvuVYKYOUli/yJhMpwvXAwqVPZehakWvTjxk+mK8LQ==}
 
@@ -1874,6 +2052,10 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
+
+  '@jsquash/webp@1.5.0':
+    dependencies:
+      wasm-feature-detect: 1.9.0
 
   '@modelcontextprotocol/sdk@1.30.0(zod@3.25.76)':
     dependencies:
@@ -2316,6 +2498,8 @@ snapshots:
 
   function-bind@1.1.2: {}
 
+  fzstd@0.1.1: {}
+
   get-intrinsic@1.3.0:
     dependencies:
       call-bind-apply-helpers: 1.0.2
@@ -2370,9 +2554,13 @@ snapshots:
 
   jose@6.2.12: {}
 
+  jpeg-js@0.4.4: {}
+
   json-schema-traverse@1.0.0: {}
 
   json-schema-typed@8.0.2: {}
+
+  ktx-parse@2.0.0: {}
 
   lightningcss-android-arm64@1.33.0:
     optional: true
@@ -2432,6 +2620,8 @@ snapshots:
   media-typer@1.1.1: {}
 
   merge-descriptors@2.0.0: {}
+
+  mikktspace@1.1.1: {}
 
   mime-db@1.54.0: {}
 
@@ -2698,6 +2888,8 @@ snapshots:
       '@types/node': 26.6.2
     transitivePeerDependencies:
       - msw
+
+  wasm-feature-detect@1.9.0: {}
 
   webgpu@0.6.1:
     dependencies:

@@ -1,5 +1,5 @@
 import { watch as fsWatch } from 'node:fs'
-import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { access, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
 import { ShardError } from '@shard/core'
 import type { FileChangeEvent, Platform } from '@shard/platform'
@@ -30,7 +30,11 @@ export function createNodePlatform(options: NodePlatformOptions): Platform {
           throw new ShardError('platform/fs-not-found', `Can't read "${path}"`, { path, cause })
         }
       },
-      readBytes: async (path) => new Uint8Array(await readFile(abs(path))),
+      readBytes: async (path) => {
+        // A view, not a copy: big artifacts (meshes, textures) are tens of megabytes.
+        const data = await readFile(abs(path))
+        return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+      },
       writeText: async (path, data) => {
         await mkdir(dirname(abs(path)), { recursive: true })
         await writeFile(abs(path), data, 'utf8')
@@ -44,6 +48,32 @@ export function createNodePlatform(options: NodePlatformOptions): Platform {
           () => true,
           () => false,
         ),
+      list: async (dir) => {
+        try {
+          const entries = await readdir(abs(dir), { withFileTypes: true })
+          return entries
+            .filter((e) => e.isFile() || e.isDirectory())
+            .map((e) => ({
+              name: e.name,
+              kind: e.isDirectory() ? ('dir' as const) : ('file' as const),
+            }))
+        } catch {
+          return []
+        }
+      },
+      stat: async (path) => {
+        try {
+          const s = await stat(abs(path))
+          return s.isFile() ? { size: s.size, mtime: s.mtimeMs } : undefined
+        } catch {
+          return undefined
+        }
+      },
+      move: async (from, to) => {
+        await mkdir(dirname(abs(to)), { recursive: true })
+        await rename(abs(from), abs(to))
+      },
+      remove: async (path) => rm(abs(path), { force: true }),
       watch: async (path, onChange) => {
         const dir = abs(path)
         const watcher = fsWatch(dir, { recursive: true }, (type, file) => {

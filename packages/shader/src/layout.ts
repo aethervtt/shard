@@ -59,14 +59,16 @@ export function wgslLayout<F extends Fields>(def: ComponentDef<F>): WgslLayout<F
   const fields: FieldLayout[] = []
   let offset = 0
   let structAlign = 4
-  for (const { name, field } of def.layout) {
+  for (const { name, field, storage } of def.layout) {
+    // Object fields (asset handles, structs, strings) aren't GPU data: they're bound, not packed.
+    if (storage === 'object') continue
     const t = TYPES[field.kind]
     if (!t) {
       throw new ShardError(
         'shader/unsupported-field',
         `Field "${name}" of ${def.name} (${field.kind}) can't be a GPU struct member`,
         {
-          hint: 'GPU structs take numbers, bools, enums, vectors, colors, and matrices. f64 and object fields are not allowed.',
+          hint: 'GPU structs take numbers, bools, enums, vectors, colors, and matrices. f64 fields are not allowed; object fields are skipped.',
         },
       )
     }

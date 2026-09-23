@@ -3,16 +3,25 @@ import { readdir, readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { dirname, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { type AssetServer, assetServer, type ScanReport } from '@shard/assets'
 import { ChildOf, ShardError, type World } from '@shard/core'
 import type { GpuContext } from '@shard/gpu'
 import { createNodeGpuContext } from '@shard/gpu/node'
 import type { Platform } from '@shard/platform'
 import { createNodePlatform } from '@shard/platform-node'
-import { buildApp, type ErrorCode, loadProject, type ManifestValue } from '@shard/project'
+import {
+  buildApp,
+  type ErrorCode,
+  loadProject,
+  locateInBundle,
+  type ManifestValue,
+  ProjectSession,
+} from '@shard/project'
 import { createProtocolServer, type ProtocolServer } from '@shard/protocol'
 import { OffscreenTarget } from '@shard/render'
-import type { App, Plugin } from '@shard/runtime'
-import { type LoadedSceneHandle, loadScene } from '@shard/scene'
+import { type App, LogResource, type Plugin } from '@shard/runtime'
+import { type LoadedSceneHandle, loadScene, whenSceneReady } from '@shard/scene'
+import { type BuiltBundle, type Bundler, createBundler } from './bundle'
 
 export { createNodePlatform } from '@shard/platform-node'
 
@@ -28,6 +37,13 @@ export interface OpenProjectOptions {
   gpu?: GpuContext
   /** Overrides the manifest's `seed`. */
   seed?: number
+  /** Hot reload assets and project code when files change (default false). */
+  watch?: boolean
+  /**
+   * 'bundle' (default): esbuild bundles `entry` and hot reload works. 'source': imports `entry`
+   * directly (gameplay tests, where test files import the same modules).
+   */
+  code?: 'bundle' | 'source'
 }
 
 export interface HeadlessProject {
@@ -39,6 +55,13 @@ export interface HeadlessProject {
   gpu: GpuContext
   target: OffscreenTarget
   scene: LoadedSceneHandle | undefined
+  assets: AssetServer
+  /** What the startup scan imported, skipped, and failed. */
+  imports: ScanReport
+  /** The project's code: reloads, status, errors. */
+  session: ProjectSession
+  /** The bundler, in 'bundle' mode. */
+  bundler: Bundler | undefined
   close(): void
 }
 
@@ -79,7 +102,22 @@ export async function openProject(options: OpenProjectOptions): Promise<Headless
   const platform = createNodePlatform({ root })
   const loaded = (await loadProject(platform)).manifest
   const manifest = options.seed === undefined ? loaded : { ...loaded, seed: options.seed }
-  const project = await importProjectPlugin(root, manifest)
+  const code = options.code ?? 'bundle'
+  let bundler: Bundler | undefined
+  let project: Plugin
+  if (code === 'bundle') {
+    bundler = await createBundler({ root, entry: manifest.entry })
+    let built: BuiltBundle
+    try {
+      built = await bundler.build()
+    } catch (err) {
+      await bundler.dispose()
+      throw err
+    }
+    project = await importBundle(built, manifest)
+  } else {
+    project = await importProjectPlugin(root, manifest)
+  }
   const ownGpu = !options.gpu
   const gpu = options.gpu ?? (await createNodeGpuContext({ features: ['timestamp-query'] }))
   const target = new OffscreenTarget(gpu, {
@@ -89,12 +127,66 @@ export async function openProject(options: OpenProjectOptions): Promise<Headless
   })
   const app = buildApp({ manifest, project, gpu, target })
   await app.init()
+  const assets = assetServer(app.world).configure({ platform, roots: manifest.assetRoots })
+  const imports = await assets.scan()
+  const stopWatching = options.watch ? await assets.watch() : () => {}
   let scene: LoadedSceneHandle | undefined
   if (options.loadStartScene ?? true) {
     const json = JSON.parse(await platform.fs.readText(manifest.startScene))
     scene = loadScene(app.world, json, { id: manifest.startScene })
+    await whenSceneReady(app.world, manifest.startScene)
   }
-  const server = createProtocolServer(app, { frames: 'manual', platform })
+  const log = app.world.resource(LogResource)
+  log.annotate = (err) => {
+    const last = bundler?.last
+    // Wrapped errors (e.g. app/system-failed) carry the thrown one as `cause`: look through it.
+    for (
+      let e: unknown = err, depth = 0;
+      e && depth < 5;
+      e = (e as { cause?: unknown }).cause, depth++
+    ) {
+      const mapped =
+        last?.map &&
+        locateInBundle(e, last.url, last.map, (s) =>
+          relative(root, resolve(dirname(last.file), s))
+            .split('\\')
+            .join('/'),
+        )
+      const source = mapped || locateInProject(e, root)
+      if (source) return { source }
+    }
+    return undefined
+  }
+  const session = new ProjectSession(app, {
+    namespace: manifest.name,
+    current: project,
+    ...(bundler?.last ? { bundle: { hash: bundler.last.hash, ms: bundler.last.ms } } : {}),
+  })
+  if (bundler) {
+    const b = bundler
+    session.rebuild = async () => {
+      const built = await b.build()
+      return { load: () => import(b.importUrl(built)), hash: built.hash, ms: built.ms }
+    }
+  }
+  const server = createProtocolServer(app, {
+    frames: 'manual',
+    platform,
+    methods: session.methods(),
+  })
+  session.onChange((status) => server.publish('project', status))
+  let stopCode = () => {}
+  if (options.watch && bundler) {
+    session.watching = true
+    stopCode = bundler.watch((result) => {
+      if (result instanceof Error) session.buildFailed(result)
+      else
+        void session.reload(() => import(bundler!.importUrl(result)), {
+          hash: result.hash,
+          ms: result.ms,
+        })
+    })
+  }
   return {
     root,
     manifest,
@@ -104,12 +196,69 @@ export async function openProject(options: OpenProjectOptions): Promise<Headless
     gpu,
     target,
     scene,
+    assets,
+    imports,
+    session,
+    bundler,
     close() {
+      stopWatching()
+      stopCode()
+      void bundler?.dispose()
       server.close()
       target.destroy()
       if (ownGpu) gpu.destroy()
     },
   }
+}
+
+async function importBundle(built: BuiltBundle, manifest: ManifestValue): Promise<Plugin> {
+  let mod: { default?: Plugin }
+  try {
+    mod = await import(built.url)
+  } catch (cause) {
+    const source = built.map ? locateInBundle(cause, built.url, built.map) : undefined
+    throw Object.assign(
+      new ShardError(
+        'project/entry-failed',
+        `Couldn't start ${manifest.entry}: ${(cause as Error).message}`,
+        {
+          path: manifest.entry,
+          hint: 'The error is in the project code; see "source" for where.',
+          cause,
+        },
+      ),
+      { source },
+    )
+  }
+  const plugin = mod.default
+  if (!plugin || typeof plugin.build !== 'function' || typeof plugin.name !== 'string') {
+    throw new ShardError(
+      'project/entry-invalid',
+      `${manifest.entry} has no project plugin as its default export`,
+      {
+        path: manifest.entry,
+        hint: 'End the file with `export default project`, where project = defineProject({...}).',
+      },
+    )
+  }
+  return plugin
+}
+
+/** The first stack frame in project source (not node_modules or .shard), as `path:line:col`. */
+export function locateInProject(error: unknown, root: string): string | undefined {
+  const stack = (error as { stack?: unknown })?.stack
+  if (typeof stack !== 'string') return undefined
+  const prefix = resolve(root)
+  for (const line of stack.split('\n')) {
+    const m = /(?:file:\/\/)?(\/[^\s():]+):(\d+):(\d+)/.exec(line)
+    if (!m) continue
+    const file = decodeURIComponent(m[1]!)
+    if (!file.startsWith(`${prefix}/`)) continue
+    const rel = relative(prefix, file).split('\\').join('/')
+    if (rel.startsWith('.shard/') || rel.includes('node_modules/')) continue
+    return `${rel}:${m[2]}:${m[3]}`
+  }
+  return undefined
 }
 
 /** Scene files under `scenes/`, as project-relative paths. */
@@ -176,3 +325,5 @@ export async function collectErrorCodes(): Promise<ErrorCode[]> {
   }
   return [...found.values()]
 }
+
+export { type BuiltBundle, type Bundler, createBundler } from './bundle'

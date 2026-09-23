@@ -42,10 +42,10 @@ headless, and checks screenshots.
 
 | Spec | Title | Status |
 |---|---|---|
-| [0014](0014-asset-database.md) | Asset database (GUIDs, `.meta`, cache, invalidation, hot reload) | accepted |
-| [0015](0015-gltf-loader.md) | glTF/GLB loader | accepted |
-| [0016](0016-textures.md) | Textures (KTX2 pipeline, fallback, material slots, previews) | accepted |
-| [0017](0017-user-scripts.md) | User scripts: bundling and hot reload | accepted |
+| [0014](0014-asset-database.md) | Asset database (GUIDs, `.meta`, cache, invalidation, hot reload) | implemented |
+| [0015](0015-gltf-loader.md) | glTF/GLB loader | implemented |
+| [0016](0016-textures.md) | Textures (KTX2 pipeline, fallback, material slots, previews) | implemented |
+| [0017](0017-user-scripts.md) | User scripts: bundling and hot reload | implemented |
 
 ## M5 — Renderer v1
 

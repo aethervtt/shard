@@ -51,6 +51,8 @@ export function animationFrameRunner(options: AnimationFrameOptions = {}): Runne
           // Keep the page alive and inspectable: log the error and pause instead of dying.
           app.world.resource(LogResource).error(err)
           control.paused = true
+          control.pausedByError = true
+          control.abort(err)
           console.error(err)
         }
         handle = requestAnimationFrame(frame)

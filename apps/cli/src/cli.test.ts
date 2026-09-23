@@ -1,5 +1,13 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -167,6 +175,124 @@ describe('commands', () => {
     )
   })
 
+  it('import lists failures, mv moves an asset and rewrites references', () => {
+    const files = [
+      'materials/zz-test.material.json',
+      'materials/zz-test.material.json.meta',
+      'materials/zz-moved.material.json',
+      'materials/zz-moved.material.json.meta',
+      'materials/zz-bad.material.json',
+      'materials/zz-bad.material.json.meta',
+      'scenes/zz-assets.scene.json',
+    ]
+    const cleanup = () => {
+      for (const f of files) rmSync(join(example, f), { force: true })
+    }
+    try {
+      mkdirSync(join(example, 'materials'), { recursive: true })
+      writeFileSync(join(example, 'materials/zz-test.material.json'), '{ "baseColor": "#8e44ad" }')
+      writeFileSync(join(example, 'materials/zz-bad.material.json'), '{ "metallic": 3 }')
+      writeFileSync(
+        join(example, 'scenes/zz-assets.scene.json'),
+        JSON.stringify({
+          version: 1,
+          entities: [
+            {
+              name: 'thing',
+              components: {
+                'render/Mesh3d': { mesh: { path: 'procedural:cube' } },
+                'render/MeshMaterial': { material: { path: 'materials/zz-test.material.json' } },
+              },
+            },
+          ],
+        }),
+      )
+      const imported = shard(['import', '--json'])
+      expect(imported.code).toBe(1)
+      const report = imported.json()
+      expect(report.imported).toContain('materials/zz-test.material.json')
+      expect(report.failed).toEqual([
+        expect.objectContaining({
+          path: 'materials/zz-bad.material.json',
+          error: expect.objectContaining({ path: '/metallic' }),
+        }),
+      ])
+      rmSync(join(example, 'materials/zz-bad.material.json'))
+      rmSync(join(example, 'materials/zz-bad.material.json.meta'))
+
+      const moved = shard([
+        'mv',
+        'materials/zz-test.material.json',
+        'materials/zz-moved.material.json',
+        '--json',
+      ])
+      expect(moved.code).toBe(0)
+      expect(moved.json().rewritten).toEqual(['scenes/zz-assets.scene.json'])
+      expect(readFileSync(join(example, 'scenes/zz-assets.scene.json'), 'utf8')).toContain(
+        'materials/zz-moved.material.json',
+      )
+      expect(shard(['validate', '--json']).json()).toMatchObject({ valid: true })
+    } finally {
+      cleanup()
+      shard(['import', '--json']) // drop the removed test files from the cache index
+      try {
+        rmdirSync(join(example, 'materials')) // only if empty
+      } catch {}
+    }
+  })
+
+  it('check reports type errors with file, line, and column', () => {
+    expect(shard(['check', '--json']).json()).toMatchObject({ diagnostics: [] })
+    const cleanup = temp('scripts/zz-bad-types.ts', 'export const n: number = "not a number"\n')
+    try {
+      const r = shard(['check', '--json'])
+      expect(r.code).toBe(1)
+      expect(r.json().diagnostics).toEqual([
+        expect.objectContaining({
+          file: 'scripts/zz-bad-types.ts',
+          line: 1,
+          column: 14,
+          code: 'TS2322',
+        }),
+      ])
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('dev serves the runner with an engine import map, the bundle, and project files', async () => {
+    const { spawn } = await import('node:child_process')
+    const child = spawn(process.execPath, [bin, 'dev', '--port', '5199', '--json'], {
+      cwd: example,
+    })
+    try {
+      const info = await new Promise<{ url: string }>((resolveInfo, reject) => {
+        let out = ''
+        child.stdout.on('data', (d) => {
+          out += d
+          try {
+            resolveInfo(JSON.parse(out))
+          } catch {}
+        })
+        child.on('exit', (code) => reject(new Error(`dev exited ${code}`)))
+      })
+      const html = await (await fetch(info.url)).text()
+      const map = JSON.parse(/<script type="importmap">(.*?)<\/script>/s.exec(html)![1]!)
+      expect(map.imports['@shard/core']).toMatch(/^\/@fs\/.*\/packages\/core\/src\/index\.ts$/)
+      const project = await (await fetch(new URL('/@shard/project.json', info.url))).json()
+      expect(project.manifest.name).toBe('star-explorer')
+      const bundle = await (await fetch(new URL(project.bundle, info.url))).text()
+      expect(bundle).toContain('from "@shard/core"')
+      const scene = await fetch(new URL('/@shard/files/scenes/main.scene.json', info.url))
+      expect(scene.status).toBe(200)
+      // Encoded so it isn't normalized away: the files route must not serve outside the project.
+      const outside = await fetch(new URL('/@shard/files/%2e%2e%2f%2e%2e%2fpackage.json', info.url))
+      expect(outside.status).toBe(404)
+    } finally {
+      child.kill('SIGINT')
+    }
+  })
+
   it('uses the documented exit codes and --json errors', () => {
     expect(shard(['nonsense']).code).toBe(3)
     expect(shard(['screenshot']).code).toBe(3)
@@ -210,9 +336,16 @@ describe('MCP server', () => {
         'validate_scene',
         'screenshot',
         'patch_entity',
+        'list_assets',
+        'get_asset',
+        'reimport_asset',
+        'move_asset',
         'hold',
         'step',
         'run_tests',
+        'project_status',
+        'reload_project',
+        'typecheck',
       ]),
     )
     expect(tools.find((t) => t.name === 'patch_entity')!.inputSchema).toMatchObject({

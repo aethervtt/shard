@@ -5,7 +5,9 @@
   "scripts": {
     "validate": "shard validate",
     "test": "shard test",
-    "docs": "shard docs"
+    "docs": "shard docs",
+    "check": "shard check",
+    "dev": "shard dev"
   },
   "dependencies": {
     "@shard/cli": "workspace:*",
@@ -15,5 +17,10 @@
     "@shard/runtime": "workspace:*",
     "@shard/testing": "workspace:*",
     "@shard/transform": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "@webgpu/types": "^0.1.74",
+    "typescript": "^7.0.2"
   }
 }

@@ -103,6 +103,19 @@ export class Schedule {
     this.order = undefined
   }
 
+  /** Removes systems by name and set configs by identity (hot reload). Returns how many systems went. */
+  remove(systems: ReadonlySet<string>, sets: ReadonlySet<SystemSetConfig> = new Set()): number {
+    const before = this.entries.length
+    const kept = this.entries.filter((e) => !systems.has(e.config.system.name))
+    this.entries.length = 0
+    for (let index = 0; index < kept.length; index++) this.entries.push({ ...kept[index]!, index })
+    const keptSets = this.setConfigs.filter((c) => !sets.has(c))
+    this.setConfigs.length = 0
+    this.setConfigs.push(...keptSets)
+    this.order = undefined
+    return before - this.entries.length
+  }
+
   configureSet(config: SystemSetConfig): void {
     this.setConfigs.push(config)
     this.order = undefined

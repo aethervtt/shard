@@ -1,6 +1,7 @@
 export { decodePng, encodePng, toBase64 } from './png'
 export {
   createProtocolServer,
+  type HandlerContext,
   type JsonRpcNotification,
   type JsonRpcRequest,
   type JsonRpcResponse,

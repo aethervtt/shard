@@ -12,7 +12,7 @@ import {
   type Storage,
   validateObject,
 } from './field'
-import { allocateId, assertName } from './names'
+import { allocateId, assertName, isRedefinable, recordRedefinition } from './names'
 
 export interface ColumnLayout {
   readonly name: string
@@ -92,9 +92,19 @@ export function defineComponent<const F extends Fields>(
   fields: F,
   options: ComponentOptions = {},
 ): ComponentDef<F> {
-  const def = buildSchema(name, fields, options)
   const existing = definitions.get(name)
-  if (existing) existing.push(def as ComponentDef)
+  const previous = existing && isRedefinable(name) ? existing.at(-1) : undefined
+  const def = buildSchema(name, fields, options, previous?.id)
+  if (previous) {
+    definitions.set(name, [def as ComponentDef])
+    recordRedefinition({
+      kind: 'component',
+      name,
+      previous,
+      next: def,
+      undo: () => definitions.set(name, [previous]),
+    })
+  } else if (existing) existing.push(def as ComponentDef)
   else definitions.set(name, [def as ComponentDef])
   return def
 }
@@ -115,6 +125,7 @@ function buildSchema<const F extends Fields>(
   name: string,
   fields: F,
   options: ComponentOptions,
+  reuseId?: number,
 ): ComponentDef<F> {
   assertName('component', name)
   const version = options.version ?? 1
@@ -145,7 +156,7 @@ function buildSchema<const F extends Fields>(
 
   const def: ComponentDef<F> = {
     kind: 'component',
-    id: allocateId(),
+    id: reuseId ?? allocateId(),
     name,
     fields,
     isTag: layout.length === 0,
