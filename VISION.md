@@ -91,12 +91,16 @@ for, not built yet.
 
 **Rendering (v1)**
 - WebGPU layer, render graph, pipeline cache
-- Forward+ PBR, directional/point/spot lights, shadow maps, IBL, HDR, tonemapping
+- Forward+ and deferred rendering paths, chosen per camera. Materials and their extensions work
+  unchanged in both; transparent objects always go through forward.
+- PBR in physical units (lux, lumens, cd/m²) with camera exposure, directional/point/spot lights,
+  shadow maps, IBL, HDR, tonemapping
+- Physical camera (aperture, shutter, ISO) driving exposure, depth of field, and motion blur
 - Extensible materials (PBR base + user shader hooks, Bevy `ExtendedMaterial` pattern)
 - WGSL module system (imports, defines, hooks)
 - Instancing, frustum culling, LOD
 - Compute passes as a first-class feature
-- Post-processing: bloom, SSAO, FXAA/TAA, fog, color grading
+- Post-processing: bloom, SSAO, FXAA/TAA, fog, color grading, auto exposure
 - Skybox, procedural sky
 - 2D: sprites, atlases, batching, sprite animation, tilemaps, 2D camera
 - Debug drawing (lines, shapes, gizmos), picking
@@ -220,6 +224,8 @@ my-game/
 | Lint/format | Biome |
 | Tests | Vitest |
 | GPU API | WebGPU only. No WebGL2 fallback. |
+| Rendering paths | Forward+ and deferred, per camera, sharing one material system |
+| Light units | Physical (lux, lumens, cd/m²) with camera exposure |
 | Shaders | WGSL + our module system (imports, defines, material hooks) |
 | Desktop | Tauri 2, behind the `Platform` interface |
 | ECS | Archetype storage with TypedArray columns (GPU-uploadable) |

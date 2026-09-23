@@ -12,7 +12,7 @@ The engine skeleton, fully headless and tested.
 | [0001](0001-ecs-core.md) | ECS core | implemented |
 | [0002](0002-component-schema.md) | Component schema and reflection | implemented |
 | [0003](0003-app-plugins-scheduler.md) | App, plugins, and scheduler | implemented |
-| — | Math, transforms, hierarchy | planned |
+| [0004](0004-math-transforms.md) | Math, transforms, hierarchy propagation | accepted |
 
 ## M2 — First pixels, the engine's way
 
@@ -20,10 +20,10 @@ A spinning PBR-lit cube driven by ECS, in the playground and in Studio.
 
 | Spec | Title | Status |
 |---|---|---|
-| — | GPU layer and render graph | planned |
-| — | WGSL module system (imports, defines, hooks) | planned |
-| — | Cameras, meshes, basic forward renderer | planned |
-| — | Input and action maps | planned |
+| [0005](0005-gpu-render-graph.md) | GPU layer and render graph | accepted |
+| [0006](0006-wgsl-modules.md) | WGSL module system (imports, defines, hooks) | accepted |
+| [0007](0007-forward-renderer.md) | Cameras, meshes, basic forward renderer | accepted |
+| [0008](0008-input.md) | Input and action maps | accepted |
 
 ## M3 — The agent loop
 
@@ -52,9 +52,10 @@ headless, and checks screenshots.
 | Spec | Title | Status |
 |---|---|---|
 | — | PBR, lights, shadows, IBL, HDR, tonemapping | planned |
+| — | Deferred rendering path (G-buffer, per-camera forward/deferred) | planned |
 | — | Extensible materials | planned |
 | — | Instancing, culling, LOD | planned |
-| — | Post-processing stack | planned |
+| — | Post-processing stack (incl. auto exposure, depth of field, motion blur) | planned |
 | — | 2D pipeline (sprites, atlases, tilemaps) | planned |
 | — | Text rendering (MSDF) | planned |
 | — | GPU particles | planned |
