@@ -1,0 +1,24 @@
+{
+  "name": "@shard/studio",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc -p .",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@shard/core": "workspace:*",
+    "@shard/gpu": "workspace:*",
+    "@shard/platform-tauri": "workspace:*",
+    "@tauri-apps/api": "^2.11.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.5",
+    "@types/node": "^26.6.2",
+    "@webgpu/types": "^0.1.74",
+    "vite": "^8.3.0"
+  }
+}

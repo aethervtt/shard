@@ -1,0 +1,19 @@
+[package]
+name = "shard-studio"
+version = "0.0.0"
+description = "Shard Studio: play, inspect and debug Shard projects"
+edition = "2024"
+
+[lib]
+# Unique lib name avoids a bin/lib name clash on Windows (cargo#8519).
+name = "shard_studio_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-fs = { version = "2", features = ["watch"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

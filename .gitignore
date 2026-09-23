@@ -1,0 +1,8 @@
+node_modules/
+dist/
+target/
+.turbo/
+.shard/
+*.log
+.DS_Store
+apps/studio/src-tauri/gen/

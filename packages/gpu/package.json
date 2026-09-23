@@ -1,0 +1,19 @@
+{
+  "name": "@shard/gpu",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@shard/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@webgpu/types": "^0.1.74"
+  }
+}

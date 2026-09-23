@@ -1,0 +1,1 @@
+export { ShardError } from './error'

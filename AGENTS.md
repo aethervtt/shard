@@ -1,0 +1,43 @@
+# Shard — agent guide
+
+Shard is a WebGPU-first 2D/3D game engine in TypeScript, built for AI-driven authoring.
+Read `VISION.md` before any architectural change. Features are built from specs in `specs/`.
+
+## Layout
+
+- `packages/*` — engine packages (`@shard/*`). Each exports `./src/index.ts` directly; no build step.
+- `apps/playground` — Vite browser sandbox (`pnpm playground`, port 5180).
+- `apps/studio` — Tauri 2 app (`pnpm studio`). Rust lives in `apps/studio/src-tauri`.
+- `specs/` — one spec per feature, plus `ROADMAP.md`.
+
+## Commands
+
+```sh
+pnpm install
+pnpm typecheck     # tsc (TypeScript 7) in every package
+pnpm test          # vitest
+pnpm lint          # biome; `pnpm format` to auto-fix
+pnpm playground    # browser sandbox
+pnpm studio        # desktop app
+```
+
+Run `pnpm typecheck && pnpm test && pnpm lint` before calling work done.
+
+## Rules
+
+- **Work from a spec.** Non-trivial features start as `specs/NNNN-slug.md` (see `specs/README.md`).
+  If implementation forces a design change, update the spec in the same change.
+- **Dependency direction.** `core` imports nothing from the engine and has no DOM or GPU types
+  (its tsconfig has `lib: ["ES2023"]` only). Only `platform-*` packages may import a host API
+  such as `@tauri-apps/*`. Engine packages get host services through `@shard/platform`.
+- **Erasable TypeScript only.** No `enum`, `namespace`, or parameter properties
+  (`erasableSyntaxOnly`). Use `as const` objects and union types.
+- **Errors are `ShardError`** with a namespaced `code` (`package/what-happened`), plus `hint` and
+  `path` when useful. Never throw bare strings.
+- **Hot paths don't allocate.** In per-frame code (systems, render, ECS iteration): no closures,
+  no array/object literals, no `for…of` over iterators that allocate. Use TypedArrays and reuse
+  scratch objects. Add a benchmark when you touch a hot path.
+- **One schema drives everything.** Don't hand-write serializers, validators, or inspector code
+  for components; derive them from the component schema.
+- **Tests sit next to code** as `*.test.ts`. Engine logic must be testable headless (no GPU, no DOM).
+- Match surrounding code: 2 spaces, single quotes, no semicolons (Biome enforces it).

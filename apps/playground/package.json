@@ -1,0 +1,21 @@
+{
+  "name": "@shard/playground",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@shard/core": "workspace:*",
+    "@shard/gpu": "workspace:*",
+    "@shard/platform-web": "workspace:*"
+  },
+  "devDependencies": {
+    "@webgpu/types": "^0.1.74",
+    "vite": "^8.3.0"
+  }
+}
