@@ -1,4 +1,5 @@
 import { ShardError } from '@shard/core'
+import { connectToHub, createProtocolServer, DEFAULT_HUB_PORT } from '@shard/protocol'
 import { forwardPlugin, renderPlugin } from '@shard/render'
 import { App, animationFrameRunner } from '@shard/runtime'
 import { TransformPlugin } from '@shard/transform'
@@ -28,7 +29,25 @@ window.addEventListener('hashchange', () => location.reload())
 // Exposed for poking at from the devtools console.
 Object.assign(globalThis, { app })
 
-app.run().catch((err: unknown) => {
+/**
+ * With ?hub (or ?hub=ws://host:port), the page dials out to a protocol hub (`shard serve` or
+ * `shard mcp --attach`) so an agent can inspect and drive it. Off by default: no hub, no noise.
+ */
+async function start() {
+  await app.init()
+  const hubParam = new URLSearchParams(location.search).get('hub')
+  if (hubParam !== null) {
+    const url = hubParam || `ws://127.0.0.1:${DEFAULT_HUB_PORT}`
+    const server = createProtocolServer(app, { frames: 'loop' })
+    connectToHub(url, server, {
+      name: `playground:${demo}`,
+      onStatus: (on) => console.info(`[shard] hub ${on ? 'connected' : 'disconnected'}: ${url}`),
+    })
+  }
+  await app.run()
+}
+
+start().catch((err: unknown) => {
   hud.textContent =
     err instanceof ShardError ? `${err.code}: ${err.message}` : `error: ${String(err)}`
   console.error(err)

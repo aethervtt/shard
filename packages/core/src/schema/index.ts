@@ -1,9 +1,12 @@
 export {
+  allComponents,
   type ColumnLayout,
   type ComponentDef,
   type ComponentOptions,
   defineComponent,
+  defineSchema,
   defineTag,
+  findComponent,
   type Infer,
   type TagDef,
 } from './component'
@@ -36,4 +39,10 @@ export type {
 } from './field'
 export { t } from './field'
 export { Registry, type RegistryDescription } from './registry'
-export { defineEvent, defineResource, type EventDef, type ResourceDef } from './resource'
+export {
+  defineEvent,
+  defineResource,
+  type EventDef,
+  findResource,
+  type ResourceDef,
+} from './resource'

@@ -1,6 +1,6 @@
 # 0013 — MCP server
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `apps/cli` (`shard mcp`)
 - **Depends on:** 0011, 0012
 
@@ -76,12 +76,24 @@ opened in the project folder.
 
 ## Acceptance criteria
 
-- [ ] An MCP client lists the tools and resources; each tool works against a headless project.
-- [ ] `screenshot` returns image content of the rendered scene.
-- [ ] A scripted session: validate a scene, fix the reported error, load it, step 60 frames,
+- [x] An MCP client lists the tools and resources; each tool works against a headless project.
+- [x] `screenshot` returns image content of the rendered scene.
+- [x] A scripted session: validate a scene, fix the reported error, load it, step 60 frames,
       screenshot, press an action, step, and read back a changed component. All through MCP tools.
-- [ ] With `--attach`, a connected playground tab serves the same tools.
-- [ ] `shard init` produces a `.mcp.json` that Claude Code loads.
+- [x] With `--attach`, a connected playground tab serves the same tools.
+- [x] `shard init` produces a `.mcp.json` that Claude Code loads.
+
+## Implementation notes
+
+- **Built on the SDK's low-level `Server`**, so tool input schemas come straight from each protocol
+  method's schema (`paramsSchema`) instead of being restated in Zod.
+- **22 tools:** the table above, where `press` is press, step 1, release. Tool errors return the
+  `ShardError` JSON as `isError` content.
+- **`--attach`** starts the hub on 7811 (or `--port` / `SHARD_HUB_PORT`); tools go to the most
+  recently attached app and fall back to headless when none is attached.
+- **`.mcp.json`** from `shard init` runs `pnpm exec shard mcp`.
+- Verified over stdio (initialize, list, `get_entity`) and in `cli.test.ts` with the in-memory
+  transport, including the scripted agent loop and an attached app.
 
 ## Open questions
 

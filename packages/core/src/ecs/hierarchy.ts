@@ -15,5 +15,8 @@ export const Children = defineComponent(
       description: 'Maintained automatically from ChildOf. Do not write.',
     }),
   },
-  { description: 'The direct children of this entity, in insertion order. Derived from ChildOf.' },
+  {
+    description: 'The direct children of this entity, in insertion order. Derived from ChildOf.',
+    serialize: false,
+  },
 )

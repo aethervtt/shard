@@ -1,6 +1,6 @@
 # 0010 — Scene files
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@shard/scene`
 - **Depends on:** 0002, 0004, 0007, 0009
 
@@ -135,14 +135,34 @@ first). `scene/…` codes with pointers like `/entities/1/children/0/components/
 
 ## Acceptance criteria
 
-- [ ] A scene with hierarchy, inline materials, procedural meshes, presets, and `rotationEuler`
+- [x] A scene with hierarchy, inline materials, procedural meshes, presets, and `rotationEuler`
       loads and renders as authored (golden image).
-- [ ] Save after load reproduces the file (same JSON, same key order), including `rotationEuler`.
-- [ ] Validation reports every error in a broken scene with exact pointers, and the composed JSON
+- [x] Save after load reproduces the file (same JSON, same key order), including `rotationEuler`.
+- [x] Validation reports every error in a broken scene with exact pointers, and the composed JSON
       Schema accepts/rejects the same fixtures.
-- [ ] `t.entity` fields accept paths and resolve on load; unknown paths fail validation.
-- [ ] Reload replaces the scene's entities and leaves others alone.
-- [ ] Loading 10k entities from a scene file takes under 100 ms.
+- [x] `t.entity` fields accept paths and resolve on load; unknown paths fail validation.
+- [x] Reload replaces the scene's entities and leaves others alone.
+- [x] Loading 10k entities from a scene file takes under 100 ms.
+
+## Implementation notes
+
+- **Authored form is preserved per field, not only for `rotationEuler`.** Load keeps a snapshot of
+  each component's serialized value; save writes the authored JSON for any field that still
+  serializes the same (presets, `#asset` and `procedural:` references, Euler rotations), and the
+  new value otherwise. Unchanged files round-trip byte for byte.
+- **f32 fields serialize in their shortest round-trip form** (`0.4`, not `0.4000000059604645`),
+  through a new core `f32ToJson` used by numbers, vectors, and colors. Without it every save would
+  rewrite hand-authored decimals.
+- **Aliases:** `rotationEuler` is handled by a small alias table (`expandComponentAliases`), so
+  other components can add authoring forms later. Setting both `rotation` and `rotationEuler` fails
+  with `scene/conflicting-fields`.
+- **Validation** collects every error and drops a generic asset error when a scene-specific error
+  exists at the same pointer. File-path assets fail with `scene/asset-unavailable` until M4.
+- **`SceneIndex`** (a resource) maps scene ids and paths to entities; `findEntityByPath` and
+  `pathOfEntity` read it. `unloadScene` was added alongside `reloadScene`.
+- **Loading** spawns directly rather than through a command batch: it runs between frames (CLI,
+  protocol, tests), where direct spawns are safe and let load return the path map immediately.
+  The 10k-entity check is best of three runs; it measures about 65 ms.
 
 ## Open questions
 

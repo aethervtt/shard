@@ -1,4 +1,6 @@
 import type { App } from './app'
+import { AppControlResource } from './control'
+import { LogResource } from './log'
 
 /** Drives an initialized app. The app doesn't know which runner it has. */
 export type Runner = (app: App) => void | Promise<void>
@@ -38,7 +40,19 @@ export function animationFrameRunner(options: AnimationFrameOptions = {}): Runne
       const frame = (timestamp: number) => {
         const delta = last === undefined ? 0 : Math.min((timestamp - last) / 1000, maxDelta)
         last = timestamp
-        app.update(delta)
+        const control = app.world.resource(AppControlResource)
+        try {
+          if (!control.paused) app.update(delta)
+          else if (control.pendingSteps > 0) {
+            app.update(1 / app.fixedHz)
+            control.stepped()
+          }
+        } catch (err) {
+          // Keep the page alive and inspectable: log the error and pause instead of dying.
+          app.world.resource(LogResource).error(err)
+          control.paused = true
+          console.error(err)
+        }
         handle = requestAnimationFrame(frame)
       }
       document.addEventListener('visibilitychange', onVisibility)

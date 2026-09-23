@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "shard": {
+      "command": "pnpm",
+      "args": ["exec", "shard", "mcp"]
+    }
+  }
+}

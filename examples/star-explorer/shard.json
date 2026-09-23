@@ -1,0 +1,15 @@
+{
+  "$schema": "./.shard/schemas/shard.schema.json",
+  "name": "star-explorer",
+  "version": "0.1.0",
+  "engine": "0.x",
+  "entry": "scripts/main.ts",
+  "startScene": "scenes/main.scene.json",
+  "seed": 1,
+  "window": {
+    "width": 1280,
+    "height": 720,
+    "msaa": 4
+  },
+  "plugins": ["render/forward", "input"]
+}

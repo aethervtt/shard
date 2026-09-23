@@ -1,0 +1,31 @@
+{
+  "name": "@shard/protocol",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@shard/core": "workspace:*",
+    "@shard/input": "workspace:*",
+    "@shard/platform": "workspace:*",
+    "@shard/render": "workspace:*",
+    "@shard/runtime": "workspace:*",
+    "@shard/scene": "workspace:*"
+  },
+  "devDependencies": {
+    "@shard/gpu": "workspace:*",
+    "@shard/mesh": "workspace:*",
+    "@shard/transform": "workspace:*",
+    "@types/node": "^26.6.2",
+    "@webgpu/types": "^0.1.74",
+    "webgpu": "0.6.1",
+    "ws": "^8.21.3",
+    "@types/ws": "^8"
+  }
+}

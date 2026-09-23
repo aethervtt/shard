@@ -51,6 +51,7 @@ export const Exposure = defineComponent(
   {
     ev100: t.f32({
       default: ExposurePresets.daylight,
+      presets: ExposurePresets,
       description: 'How bright the scene may be. Match it to the light: EV100 = log2(lux / 2.5).',
     }),
   },

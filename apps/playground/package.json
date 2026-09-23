@@ -16,7 +16,8 @@
     "@shard/runtime": "workspace:*",
     "@shard/render": "workspace:*",
     "@shard/mesh": "workspace:*",
-    "@shard/transform": "workspace:*"
+    "@shard/transform": "workspace:*",
+    "@shard/protocol": "workspace:*"
   },
   "devDependencies": {
     "@webgpu/types": "^0.1.74",

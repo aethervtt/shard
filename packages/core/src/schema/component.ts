@@ -32,6 +32,8 @@ export interface ComponentOptions {
    * Spawning `Mesh3d` brings `Transform`, which brings `GlobalTransform`.
    */
   requires?: readonly ComponentDef[]
+  /** False for derived components (computed each frame), which scene files never contain. */
+  serialize?: boolean
 }
 
 export interface ComponentDef<F extends Fields = Fields> {
@@ -47,6 +49,8 @@ export interface ComponentDef<F extends Fields = Fields> {
   readonly layout: readonly ColumnLayout[]
   /** Components added along with this one. */
   readonly requires: readonly ComponentDef[]
+  /** Whether scene files and the protocol write this component. */
+  readonly serializable: boolean
   defaults(): InferFields<F>
   serialize(value: InferFields<F>): JsonObject
   /** Validates, then converts. Throws the first validation error. */
@@ -58,12 +62,59 @@ export interface ComponentDef<F extends Fields = Fields> {
 }
 
 export type TagDef = ComponentDef<Record<never, never>>
+
+/** Every component defined in this process, by name, so files can refer to types by name. */
+const definitions = new Map<string, ComponentDef[]>()
+
+/**
+ * The component defined under `name`, or undefined. Throws `schema/ambiguous-name` if two different
+ * definitions share the name (a world's registry would reject that too).
+ */
+export function findComponent(name: string): ComponentDef | undefined {
+  const defs = definitions.get(name)
+  if (!defs || defs.length === 0) return undefined
+  if (defs.length > 1) {
+    throw new ShardError('schema/ambiguous-name', `Several components are defined as "${name}"`, {
+      hint: 'Two modules define the same name. Rename one, or import the shared definition.',
+    })
+  }
+  return defs[0]
+}
+
+/** All component definitions, sorted by name. */
+export function allComponents(): ComponentDef[] {
+  return [...definitions.values()].flat().sort((a, b) => a.name.localeCompare(b.name))
+}
 export type Infer<C> = C extends ComponentDef<infer F> ? InferFields<F> : never
 
 export function defineComponent<const F extends Fields>(
   name: string,
   fields: F,
   options: ComponentOptions = {},
+): ComponentDef<F> {
+  const def = buildSchema(name, fields, options)
+  const existing = definitions.get(name)
+  if (existing) existing.push(def as ComponentDef)
+  else definitions.set(name, [def as ComponentDef])
+  return def
+}
+
+/**
+ * A schema for data that isn't an entity component (file formats, protocol parameters, settings):
+ * validation, defaults, (de)serialization, and JSON Schema, without joining the component catalog.
+ */
+export function defineSchema<const F extends Fields>(
+  name: string,
+  fields: F,
+  options: Pick<ComponentOptions, 'description' | 'version' | 'migrate'> = {},
+): ComponentDef<F> {
+  return buildSchema(name, fields, { ...options, serialize: false })
+}
+
+function buildSchema<const F extends Fields>(
+  name: string,
+  fields: F,
+  options: ComponentOptions,
 ): ComponentDef<F> {
   assertName('component', name)
   const version = options.version ?? 1
@@ -92,7 +143,7 @@ export function defineComponent<const F extends Fields>(
     return errors
   }
 
-  return {
+  const def: ComponentDef<F> = {
     kind: 'component',
     id: allocateId(),
     name,
@@ -102,6 +153,7 @@ export function defineComponent<const F extends Fields>(
     version,
     layout,
     requires: options.requires ?? [],
+    serializable: options.serialize ?? true,
     defaults: () => defaultsOf(fields),
     serialize: (value) => objectToJson(fields, value as Record<string, unknown>),
     deserialize(json, ctx) {
@@ -130,6 +182,7 @@ export function defineComponent<const F extends Fields>(
       return current
     },
   }
+  return def
 }
 
 /** A component with no fields. Takes part in queries; stores nothing. */

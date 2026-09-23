@@ -1,6 +1,6 @@
 # 0011 — Inspection and control protocol
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@shard/protocol`
 - **Depends on:** 0003, 0005, 0008, 0010
 
@@ -87,13 +87,30 @@ Node), so captures work on every host.
 
 ## Acceptance criteria
 
-- [ ] Every method in the table works in-process against a headless app, with schema-validated
+- [x] Every method in the table works in-process against a headless app, with schema-validated
       params and `ShardError` data on failure.
-- [ ] `time.step(n)` advances exactly n frames; a paused app doesn't advance.
-- [ ] `entity.patch` with an out-of-range value fails with the field's pointer and changes nothing.
-- [ ] `render.capture` returns a valid PNG that decodes to the rendered pixels.
-- [ ] A browser tab (playground) connects to a WebSocket hub and answers `app.describe`.
-- [ ] Log and error subscriptions deliver events as they happen.
+- [x] `time.step(n)` advances exactly n frames; a paused app doesn't advance.
+- [x] `entity.patch` with an out-of-range value fails with the field's pointer and changes nothing.
+- [x] `render.capture` returns a valid PNG that decodes to the rendered pixels.
+- [x] A browser tab (playground) connects to a WebSocket hub and answers `app.describe`.
+- [x] Log and error subscriptions deliver events as they happen.
+
+## Implementation notes
+
+- **Mutations apply directly between frames, not through commands.** The server handles requests
+  on the event loop, never during `app.update`, so direct writes can't break a system mid-iteration
+  and responses can report the result right away. `entity.patch` validates every component before
+  writing any, as specified.
+- **`subscribe`** (`{ topic: 'log' | 'errors', unsubscribe? }`) is an extra method; notifications go
+  over the same transport.
+- **Frame modes:** `createProtocolServer(app, { frames: 'manual' | 'loop' })`. Manual (headless)
+  servers run `time.step` frames themselves; loop servers (a browser tab or Studio) ask the runner
+  through `AppControl.step(n)` and resolve when `app.onFrame` reports the frames done.
+- **`render.capture`** renders the current state without advancing time. `width`/`height` resize
+  only offscreen targets; a live window is captured at its own size.
+- **PNG** uses `CompressionStream` on every host, since Node 22 has it too.
+- **Transports:** in-process `handle`, stdio (`shard serve`), and `connectToHub(url, server)` for
+  apps dialing out. The playground connects with `?hub`, Studio with `VITE_SHARD_HUB`.
 
 ## Open questions
 

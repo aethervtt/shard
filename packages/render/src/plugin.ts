@@ -8,12 +8,12 @@ import {
   type World,
 } from '@shard/core'
 import { createGpuContext, type GpuContext } from '@shard/gpu'
-import { definePlugin, type Plugin } from '@shard/runtime'
+import { definePlugin, LogResource, type Plugin } from '@shard/runtime'
 import { ShaderLibrary } from '@shard/shader'
 import { type CapturedImage, RenderGraph, type RenderView } from './graph'
 import { registerEngineShaders } from './shaders'
 import { RenderStats } from './stats'
-import { WindowTarget } from './target'
+import { type RenderTarget, WindowTarget } from './target'
 
 export const Gpu = defineResource<GpuContext>('render/Gpu', {
   description: 'The GPU device, caches, and canvas.',
@@ -31,8 +31,9 @@ export const Views = defineResource<{ list: RenderView[] }>('render/Views', {
   description: 'Views to render this frame. Rebuilt every frame by extract systems.',
 })
 
-export const Window = defineResource<WindowTarget>('render/Window', {
-  description: 'The canvas swapchain target, when rendering to a canvas.',
+export const Window = defineResource<RenderTarget>('render/Window', {
+  description:
+    'Where cameras without a target render: the canvas swapchain, or an offscreen target when headless.',
 })
 
 export const GpuDeviceLost = defineEvent<{ reason: string; message: string }>(
@@ -60,6 +61,11 @@ export interface RenderPluginOptions {
   canvas?: HTMLCanvasElement | OffscreenCanvas
   /** An existing GPU context (e.g. Dawn in Node). Otherwise one is created in `ready`. */
   gpu?: GpuContext
+  /**
+   * Headless stand-in for the window: cameras without a target render here. Used by the CLI for
+   * screenshots. Ignored when there's a canvas.
+   */
+  target?: RenderTarget
   features?: GPUFeatureName[]
   /**
    * Adds a 'window' view each frame when there's a canvas and no extract system added a view.
@@ -125,6 +131,9 @@ export function renderPlugin(options: RenderPluginOptions = {}): Plugin {
       registerEngineShaders(shaders)
       app.insertResource(Shaders, shaders)
       if (gpu.context) app.insertResource(Window, new WindowTarget(gpu))
+      else if (options.target) app.insertResource(Window, options.target)
+      const log = app.world.tryResource(LogResource)
+      if (log) gpu.onError((error) => log.error(error))
       gpu.onDeviceLost((info) => {
         app.world.send(GpuDeviceLost, info)
         void gpu.recreate()

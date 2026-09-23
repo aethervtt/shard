@@ -8,6 +8,9 @@ Read `VISION.md` before any architectural change. Features are built from specs 
 - `packages/*` — engine packages (`@shard/*`). Each exports `./src/index.ts` directly; no build step.
 - `apps/playground` — Vite browser sandbox (`pnpm playground`, port 5180).
 - `apps/studio` — Tauri 2 app (`pnpm studio`). Rust lives in `apps/studio/src-tauri`.
+- `apps/cli` — the `shard` binary: headless runs, screenshots, gameplay tests, the protocol hub,
+  and the MCP server.
+- `examples/*` — sample projects made with `shard init`; their tests run in `pnpm test`.
 - `specs/` — one spec per feature, plus `ROADMAP.md`.
 
 ## Commands
@@ -20,6 +23,18 @@ pnpm lint          # biome; `pnpm format` to auto-fix
 pnpm bench         # ECS performance acceptance checks (spec 0001)
 pnpm playground    # browser sandbox
 pnpm studio        # desktop app
+```
+
+Inside a project (e.g. `examples/star-explorer`), `pnpm exec shard <command>`; every command
+takes `--json`:
+
+```sh
+shard validate                        # manifest and scenes; lists every error
+shard run --frames 600                # headless run, prints a deterministic world hash
+shard screenshot scenes/main.scene.json --out shot.png
+shard test                            # gameplay tests in tests/*.test.ts
+shard docs                            # regenerate AGENTS.md block, .agents/, .shard/schemas
+shard serve / shard mcp [--attach]    # protocol hub / MCP server
 ```
 
 Run `pnpm typecheck && pnpm test && pnpm lint` before calling work done. Run `pnpm bench` too

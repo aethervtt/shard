@@ -1,0 +1,709 @@
+import {
+  allComponents,
+  ChildOf,
+  type ComponentDef,
+  defineSchema,
+  type Entity,
+  findComponent,
+  findResource,
+  isPlainObject,
+  type JsonValue,
+  Last,
+  PostUpdate,
+  ShardError,
+  t,
+  type World,
+} from '@shard/core'
+import {
+  describeInput,
+  injectInput,
+  startRecording,
+  startReplay,
+  stopRecording,
+} from '@shard/input'
+import type { Platform } from '@shard/platform'
+import {
+  captureView,
+  describeRender,
+  Gpu,
+  OffscreenTarget,
+  Shaders,
+  Views,
+  Window,
+} from '@shard/render'
+import { type App, AppControlResource, type LogEntry, LogResource, Time } from '@shard/runtime'
+import {
+  expandComponentAliases,
+  findEntityByPath,
+  loadScene,
+  pathOfEntity,
+  reloadScene,
+  SceneIndex,
+  saveScene,
+  stringifyScene,
+  validateScene,
+  worldSchemaContext,
+} from '@shard/scene'
+import { encodePng, toBase64 } from './png'
+
+export interface JsonRpcRequest {
+  jsonrpc: '2.0'
+  id?: number | string | null
+  method: string
+  params?: unknown
+}
+
+export interface JsonRpcResponse {
+  jsonrpc: '2.0'
+  id: number | string | null
+  result?: unknown
+  error?: { code: number; message: string; data?: unknown }
+}
+
+export interface JsonRpcNotification {
+  jsonrpc: '2.0'
+  method: string
+  params: unknown
+}
+
+export interface MethodDef {
+  name: string
+  description: string
+  params: ComponentDef
+  handler(ctx: HandlerContext, params: Record<string, unknown>): unknown
+}
+
+interface HandlerContext {
+  app: App
+  world: World
+  options: ProtocolServerOptions
+}
+
+export interface ProtocolServerOptions {
+  /**
+   * 'manual': the host has no frame loop (headless servers, tests); `time.step` runs frames itself.
+   * 'loop': a runner drives frames; `time.step` waits for it. Default 'manual'.
+   */
+  frames?: 'manual' | 'loop'
+  /** For scene files by path. */
+  platform?: Platform
+}
+
+const ERROR = { parse: -32700, invalid: -32600, notFound: -32601, params: -32602, shard: -32000 }
+
+// --- helpers -------------------------------------------------------------------
+
+function resolveEntity(world: World, ref: unknown): Entity {
+  if (typeof ref === 'number' && world.isAlive(ref)) return ref
+  if (typeof ref === 'string') {
+    const e = findEntityByPath(world, ref)
+    if (e !== undefined) return e
+  }
+  throw new ShardError('protocol/unknown-entity', `No live entity ${JSON.stringify(ref)}`, {
+    hint: 'Pass an entity id from world.query, or a scene path like "ship/camera".',
+  })
+}
+
+function requireComponent(name: string): ComponentDef {
+  const def = findComponent(name)
+  if (!def) {
+    throw new ShardError('protocol/unknown-component', `Unknown component "${name}"`, {
+      hint: 'schema.list returns every component name.',
+    })
+  }
+  return def
+}
+
+function toJson(value: unknown): JsonValue {
+  const seen = new WeakSet()
+  return JSON.parse(
+    JSON.stringify(value, (_, v) => {
+      if (ArrayBuffer.isView(v)) return Array.from(v as unknown as ArrayLike<number>)
+      if (typeof v === 'function') return undefined
+      if (v instanceof Map) return Object.fromEntries(v)
+      if (v instanceof Set) return [...v]
+      if (v && typeof v === 'object') {
+        if (seen.has(v)) return '[circular]'
+        seen.add(v)
+      }
+      return v
+    }) ?? 'null',
+  )
+}
+
+function entityJson(world: World, entity: Entity, only?: readonly string[]) {
+  const components: Record<string, JsonValue> = {}
+  for (const def of world.componentsOf(entity)) {
+    if (!def.serializable && def !== ChildOf) continue
+    if (only && !only.includes(def.name)) continue
+    components[def.name] = def.serialize(world.get(entity, def))
+  }
+  const path = pathOfEntity(world, entity)
+  return path === undefined ? { id: entity, components } : { id: entity, path, components }
+}
+
+/** Validates and converts component JSON; throws with every error (pointer-prefixed) in `details`. */
+function prepareComponents(world: World, input: Record<string, unknown>, base: string) {
+  const ctx = worldSchemaContext(world)
+  const out: [ComponentDef, Record<string, unknown>][] = []
+  const errors: ShardError[] = []
+  for (const [name, raw] of Object.entries(input)) {
+    const def = requireComponent(name)
+    if (!isPlainObject(raw)) {
+      errors.push(
+        new ShardError('schema/type-mismatch', `"${name}" must be an object`, {
+          path: `${base}/${name}`,
+        }),
+      )
+      continue
+    }
+    const json = expandComponentAliases(name, raw as Record<string, JsonValue>)
+    const problems = def.validate(json, ctx)
+    for (const p of problems) {
+      errors.push(
+        new ShardError(p.code, p.message, {
+          path: `${base}/${name.replace('/', '~1')}${p.path ?? ''}`,
+          hint: p.hint,
+        }),
+      )
+    }
+    if (problems.length === 0) out.push([def, def.deserialize(json, ctx)])
+  }
+  if (errors.length > 0) {
+    throw new ShardError(
+      'protocol/invalid-components',
+      `${errors.length} invalid value(s); first: ${errors[0]!.message}`,
+      {
+        path: errors[0]!.path,
+        hint: errors[0]!.hint,
+        details: errors,
+      },
+    )
+  }
+  return out
+}
+
+async function readJson(ctx: HandlerContext, file: string): Promise<unknown> {
+  if (!ctx.options.platform)
+    throw new ShardError('protocol/no-files', "This host can't read files; pass JSON instead")
+  return JSON.parse(await ctx.options.platform.fs.readText(file))
+}
+
+/** Renders the current state without advancing simulation (propagation + render only). */
+function renderOnly(app: App): void {
+  app.runSchedule(PostUpdate)
+  app.runSchedule(Last)
+}
+
+/**
+ * Waits until shaders and pipelines have compiled, so a capture shows everything instead of a frame
+ * where draws were skipped. `render` produces a frame (render-only, or waiting for the loop).
+ */
+async function whenRenderReady(world: World, render: () => Promise<void> | void): Promise<void> {
+  const gpu = world.tryResource(Gpu)
+  const shaders = world.tryResource(Shaders)
+  if (!gpu) return
+  for (let i = 0; i < 20; i++) {
+    await render()
+    await shaders?.whenIdle()
+    await gpu.pipelines.whenIdle()
+    if (gpu.pipelines.skipped === 0 && gpu.pipelines.pending === 0) return
+  }
+}
+
+/** Resolves after the loop's next frame. */
+function nextFrame(app: App): Promise<void> {
+  return new Promise((resolve) => {
+    const off = app.onFrame(() => {
+      off()
+      resolve()
+    })
+  })
+}
+
+// --- methods -------------------------------------------------------------------
+
+const s = <F extends Parameters<typeof defineSchema>[1]>(name: string, fields: F) =>
+  defineSchema(`protocol/${name}`, fields)
+const entityRef = () =>
+  t.entity({ required: true, description: 'Entity id, or scene path like "ship/camera".' })
+const none = s('None', {})
+
+export const METHODS: MethodDef[] = [
+  {
+    name: 'app.describe',
+    description:
+      'Plugins, schedules, and systems in run order; renderer and input state when present.',
+    params: none,
+    handler: ({ app, world }) => {
+      const out: Record<string, unknown> = { ...app.describe(), entities: world.entityCount }
+      if (world.tryResource(Views)) out.render = describeRender(world)
+      try {
+        out.input = describeInput(world)
+      } catch {}
+      out.scenes = [...(world.tryResource(SceneIndex)?.keys() ?? [])]
+      return toJson(out)
+    },
+  },
+  {
+    name: 'schema.list',
+    description: 'Every defined component with its description and JSON Schema.',
+    params: none,
+    handler: () =>
+      allComponents()
+        .filter((d) => !d.name.startsWith('protocol/'))
+        .map((d) => ({
+          name: d.name,
+          description: d.description,
+          serializable: d.serializable,
+          requires: d.requires.map((r) => r.name),
+        })),
+  },
+  {
+    name: 'schema.get',
+    description: "One component's JSON Schema (fields, types, ranges, presets, descriptions).",
+    params: s('SchemaGetParams', {
+      name: t.string({ required: true, description: 'Component name, e.g. "render/Camera3d".' }),
+    }),
+    handler: (_, p) => requireComponent(p.name as string).jsonSchema(),
+  },
+  {
+    name: 'world.stats',
+    description: 'Entity and archetype counts, and table memory.',
+    params: none,
+    handler: ({ world }) => world.stats(),
+  },
+  {
+    name: 'world.query',
+    description:
+      'Entities that have every component in `with` and none in `without`, with their component values.',
+    params: s('QueryParams', {
+      with: t.list(t.string, { description: 'Component names the entity must have.' }),
+      without: t.list(t.string, { description: 'Component names the entity must not have.' }),
+      fields: t.list(t.string, { description: 'Only include these components (default: all).' }),
+      limit: t.u32({ default: 50, min: 1, description: 'Maximum entities returned.' }),
+    }),
+    handler: ({ world }, p) => {
+      const q = world.query({
+        with: (p.with as string[]).map(requireComponent),
+        without: (p.without as string[]).map(requireComponent),
+      })
+      const fields = (p.fields as string[]).length > 0 ? (p.fields as string[]) : undefined
+      const ids = q.entities().slice(0, p.limit as number)
+      return { total: q.count(), entities: ids.map((e) => entityJson(world, e, fields)) }
+    },
+  },
+  {
+    name: 'entity.get',
+    description: 'All components of one entity as JSON.',
+    params: s('EntityGetParams', { entity: entityRef() }),
+    handler: ({ world }, p) => entityJson(world, resolveEntity(world, p.entity)),
+  },
+  {
+    name: 'entity.spawn',
+    description: 'Spawns an entity from component JSON (validated; required components are added).',
+    params: s('SpawnParams', {
+      components: t.json({ description: 'Component values by name, as in scene files.' }),
+      parent: t.entity({ description: 'Optional parent entity or path.' }),
+    }),
+    handler: ({ world }, p) => {
+      const inits = prepareComponents(
+        world,
+        (p.components ?? {}) as Record<string, unknown>,
+        '/components',
+      )
+      if (p.parent !== null && p.parent !== undefined)
+        inits.push([ChildOf as ComponentDef, { parent: resolveEntity(world, p.parent) }])
+      const entity = world.spawn(...inits)
+      return entityJson(world, entity)
+    },
+  },
+  {
+    name: 'entity.patch',
+    description:
+      'Merges fields into components (adding missing ones). All values are validated before anything changes; null removes a component.',
+    params: s('PatchParams', {
+      entity: entityRef(),
+      components: t.json({ description: 'Partial values by component name.' }),
+    }),
+    handler: ({ world }, p) => {
+      const entity = resolveEntity(world, p.entity)
+      const patch = (p.components ?? {}) as Record<string, unknown>
+      const merged: Record<string, unknown> = {}
+      const removals: ComponentDef[] = []
+      for (const [name, value] of Object.entries(patch)) {
+        const def = requireComponent(name)
+        if (value === null) {
+          removals.push(def)
+          continue
+        }
+        const current = world.has(entity, def) ? def.serialize(world.get(entity, def)) : {}
+        const partial = value as Record<string, JsonValue>
+        // An authoring alias replaces the field it stands for.
+        const base = { ...current } as Record<string, JsonValue>
+        if (name === 'core/Transform' && 'rotationEuler' in partial) delete base.rotation
+        merged[name] = { ...base, ...partial }
+      }
+      const prepared = prepareComponents(world, merged, '/components') // throws before any change
+      for (const [def, value] of prepared) {
+        if (world.has(entity, def)) world.set(entity, def, value)
+        else world.add(entity, def, value)
+      }
+      for (const def of removals) world.remove(entity, def)
+      return entityJson(world, entity)
+    },
+  },
+  {
+    name: 'entity.despawn',
+    description: 'Despawns an entity (and its children unless recursive is false).',
+    params: s('DespawnParams', { entity: entityRef(), recursive: t.bool({ default: true }) }),
+    handler: ({ world }, p) => {
+      const entity = resolveEntity(world, p.entity)
+      if (p.recursive) world.despawn(entity)
+      else world.despawnSingle(entity)
+      return { despawned: entity }
+    },
+  },
+  {
+    name: 'resource.get',
+    description: "A resource's current value as JSON.",
+    params: s('ResourceGetParams', { name: t.string({ required: true }) }),
+    handler: ({ world }, p) => {
+      const def = findResource(p.name as string)
+      if (!def || !world.hasResource(def)) {
+        throw new ShardError(
+          'protocol/unknown-resource',
+          `Resource "${p.name}" is not in the world`,
+        )
+      }
+      return toJson(world.resource(def))
+    },
+  },
+  {
+    name: 'resource.set',
+    description: 'Merges fields into a plain-object resource (e.g. render/AmbientLight).',
+    params: s('ResourceSetParams', { name: t.string({ required: true }), value: t.json() }),
+    handler: ({ world }, p) => {
+      const def = findResource(p.name as string)
+      const current = def && world.tryResource(def)
+      if (!def || !isPlainObject(current)) {
+        throw new ShardError(
+          'protocol/unsettable-resource',
+          `Resource "${p.name}" can't be set from JSON`,
+          {
+            hint: 'Only resources that are plain JSON objects can be set.',
+          },
+        )
+      }
+      if (!isPlainObject(p.value))
+        throw new ShardError('schema/type-mismatch', '"value" must be an object', {
+          path: '/value',
+        })
+      Object.assign(current, p.value)
+      return toJson(current)
+    },
+  },
+  {
+    name: 'time.pause',
+    description: 'Pauses the game (rendering continues showing the last frame).',
+    params: none,
+    handler: ({ world }) => {
+      world.resource(AppControlResource).paused = true
+      return { paused: true, frame: world.resource(Time).frame }
+    },
+  },
+  {
+    name: 'time.resume',
+    description: 'Resumes a paused game.',
+    params: none,
+    handler: ({ world }) => {
+      world.resource(AppControlResource).paused = false
+      return { paused: false, frame: world.resource(Time).frame }
+    },
+  },
+  {
+    name: 'time.step',
+    description: 'Pauses and runs exactly `frames` frames at the fixed timestep, then returns.',
+    params: s('StepParams', {
+      frames: t.u32({ default: 1, min: 1, max: 100000, description: 'Frames to run.' }),
+    }),
+    handler: async ({ app, world, options }, p) => {
+      const control = world.resource(AppControlResource)
+      const done = control.step(p.frames as number)
+      if ((options.frames ?? 'manual') === 'manual') app.pump()
+      await done
+      return { frame: world.resource(Time).frame, elapsed: world.resource(Time).elapsed }
+    },
+  },
+  {
+    name: 'render.capture',
+    description:
+      'A PNG of a camera view (default: the first camera). Renders the current state without advancing time.',
+    params: s('CaptureParams', {
+      camera: t.entity({ description: 'Camera entity or path (default: first camera view).' }),
+      width: t.u32({
+        min: 0,
+        max: 4096,
+        description: 'Resize the headless target first (0 = keep).',
+      }),
+      height: t.u32({ min: 0, max: 4096 }),
+    }),
+    handler: async ({ app, world, options }, p) => {
+      const window = world.tryResource(Window)
+      if (
+        window instanceof OffscreenTarget &&
+        (p.width as number) > 0 &&
+        (p.height as number) > 0
+      ) {
+        window.resize(p.width as number, p.height as number)
+      }
+      const view =
+        p.camera !== null && p.camera !== undefined
+          ? `camera:${resolveEntity(world, p.camera)}`
+          : undefined
+      // A paused or loop-less app renders no frames on its own; render one without advancing time.
+      const renderNow =
+        (options.frames ?? 'manual') === 'manual' || world.resource(AppControlResource).paused
+      if (world.resource(Views).list.length === 0) renderOnly(app) // views are rebuilt each frame
+      const name = view ?? world.resource(Views).list[0]?.name
+      if (!name)
+        throw new ShardError(
+          'protocol/no-view',
+          'Nothing to capture: no camera renders to a target',
+        )
+      await whenRenderReady(world, () => (renderNow ? renderOnly(app) : nextFrame(app)))
+      const shot = captureView(world, name)
+      if (renderNow) renderOnly(app)
+      const image = await shot
+      return {
+        mimeType: 'image/png',
+        width: image.width,
+        height: image.height,
+        data: toBase64(await encodePng(image.data, image.width, image.height)),
+      }
+    },
+  },
+  {
+    name: 'render.describe',
+    description:
+      'Render graph order, views, pipelines compiling, per-view stats, recent GPU errors.',
+    params: none,
+    handler: ({ world }) => toJson(describeRender(world)),
+  },
+  {
+    name: 'input.inject',
+    description:
+      'Queues input for the next frame: a key, a mouse button, or an action ("<map>.<action>").',
+    params: s('InjectParams', {
+      key: t.string({ description: 'KeyboardEvent.code, e.g. "KeyW".' }),
+      mouse: t.enum(['', 'left', 'middle', 'right']),
+      action: t.string({
+        description: 'Action as "<map>.<action>", e.g. "star-explorer/Controls.thrust".',
+      }),
+      pressed: t.bool({ default: true }),
+      value: t.f32({ description: 'Analog value for actions (default 1 when pressed).' }),
+    }),
+    handler: ({ world }, p) => {
+      if (p.action)
+        injectInput(world, {
+          action: p.action as string,
+          pressed: p.pressed as boolean,
+          value: (p.value as number) || undefined,
+        })
+      else if (p.key) injectInput(world, { key: p.key as string, pressed: p.pressed as boolean })
+      else if (p.mouse)
+        injectInput(world, { mouse: p.mouse as 'left', pressed: p.pressed as boolean })
+      else
+        throw new ShardError('protocol/invalid-params', 'Give one of key, mouse, or action', {
+          path: '',
+        })
+      return { queued: true }
+    },
+  },
+  {
+    name: 'input.record',
+    description: 'Starts recording input, or stops and returns the recording.',
+    params: s('RecordParams', { action: t.enum(['start', 'stop']) }),
+    handler: ({ world }, p) =>
+      p.action === 'stop'
+        ? { recording: stopRecording(world) }
+        : (startRecording(world), { recording: true }),
+  },
+  {
+    name: 'input.replay',
+    description: 'Replays a recording from the next frame, ignoring live input until it ends.',
+    params: s('ReplayParams', { recording: t.string({ required: true }) }),
+    handler: ({ world }, p) => {
+      startReplay(world, p.recording as string)
+      return { replaying: true }
+    },
+  },
+  {
+    name: 'scene.validate',
+    description: 'Every error in a scene (by file path or inline JSON), each with a JSON pointer.',
+    params: s('SceneValidateParams', { file: t.string(), json: t.json() }),
+    handler: async (ctx, p) => {
+      const json = p.file ? await readJson(ctx, p.file as string) : p.json
+      const errors = validateScene(ctx.world, json)
+      return { valid: errors.length === 0, errors: errors.map((e) => e.toJSON()) }
+    },
+  },
+  {
+    name: 'scene.load',
+    description:
+      'Loads a scene (replacing a loaded scene with the same id). Returns entity paths and ids.',
+    params: s('SceneLoadParams', {
+      file: t.string(),
+      json: t.json(),
+      id: t.string({ description: 'Defaults to the file path.' }),
+    }),
+    handler: async (ctx, p) => {
+      const json = p.file ? await readJson(ctx, p.file as string) : p.json
+      const id = (p.id as string) || (p.file as string) || 'main'
+      const loaded = ctx.world.initResource(SceneIndex).has(id)
+        ? reloadScene(ctx.world, id, json)
+        : loadScene(ctx.world, json, { id })
+      return { id, entities: Object.fromEntries(loaded.entities) }
+    },
+  },
+  {
+    name: 'scene.save',
+    description:
+      'Serializes a loaded scene; unchanged fields keep their authored form. Optionally writes the file.',
+    params: s('SceneSaveParams', { id: t.string({ required: true }), write: t.bool() }),
+    handler: async (ctx, p) => {
+      const file = saveScene(ctx.world, p.id as string)
+      if (p.write) {
+        if (!ctx.options.platform?.fs.writable)
+          throw new ShardError('protocol/no-files', "This host can't write files")
+        await ctx.options.platform.fs.writeText(p.id as string, stringifyScene(file))
+      }
+      return file
+    },
+  },
+  {
+    name: 'log.tail',
+    description: 'Recent log entries (errors from systems, the GPU, and shaders land here).',
+    params: s('LogParams', {
+      count: t.u32({ default: 50, min: 1 }),
+      level: t.enum(['debug', 'info', 'warn', 'error']),
+    }),
+    handler: ({ world }, p) =>
+      world.resource(LogResource).tail(p.count as number, p.level as 'debug'),
+  },
+  {
+    name: 'errors.recent',
+    description: 'Recent errors with code, path, and hint.',
+    params: s('ErrorsParams', { count: t.u32({ default: 20, min: 1 }) }),
+    handler: ({ world }, p) => world.resource(LogResource).errors(p.count as number),
+  },
+]
+
+export type Topic = 'log' | 'error' | 'frame'
+
+export interface ProtocolServer {
+  readonly methods: readonly MethodDef[]
+  handle(request: JsonRpcRequest): Promise<JsonRpcResponse | undefined>
+  /** Receives notifications for subscribed topics. Returns an unsubscribe function. */
+  onNotification(listener: (notification: JsonRpcNotification) => void): () => void
+  close(): void
+}
+
+/** Serves the protocol for one app. Transports feed requests into `handle`. */
+export function createProtocolServer(
+  app: App,
+  options: ProtocolServerOptions = {},
+): ProtocolServer {
+  const ctx: HandlerContext = { app, world: app.world, options }
+  const byName = new Map(METHODS.map((m) => [m.name, m]))
+  const listeners = new Set<(n: JsonRpcNotification) => void>()
+  const topics = new Set<Topic>()
+  const notify = (method: string, params: unknown) => {
+    for (const l of listeners) l({ jsonrpc: '2.0', method, params })
+  }
+  const offLog = app.world.resource(LogResource).subscribe((entry: LogEntry) => {
+    if (topics.has('log')) notify('log', entry)
+    if (topics.has('error') && entry.level === 'error') notify('error', entry)
+  })
+  const offFrame = app.onFrame((frame) => {
+    if (topics.has('frame')) notify('frame', { frame })
+  })
+
+  const subscribe: MethodDef = {
+    name: 'subscribe',
+    description: 'Subscribes to notifications: "log", "error", "frame".',
+    params: s('SubscribeParams', {
+      topics: t.list(t.enum(['log', 'error', 'frame'])),
+      unsubscribe: t.bool(),
+    }),
+    handler: (_, p) => {
+      for (const topic of p.topics as Topic[]) {
+        if (p.unsubscribe) topics.delete(topic)
+        else topics.add(topic)
+      }
+      return { topics: [...topics] }
+    },
+  }
+  byName.set(subscribe.name, subscribe)
+
+  return {
+    methods: [...byName.values()],
+    async handle(request) {
+      const id = request.id ?? null
+      const isNotification = request.id === undefined
+      const reply = (body: Omit<JsonRpcResponse, 'jsonrpc' | 'id'>): JsonRpcResponse | undefined =>
+        isNotification ? undefined : { jsonrpc: '2.0', id, ...body }
+      if (request?.jsonrpc !== '2.0' || typeof request.method !== 'string') {
+        return reply({ error: { code: ERROR.invalid, message: 'Invalid JSON-RPC request' } })
+      }
+      const method = byName.get(request.method)
+      if (!method) {
+        return reply({
+          error: {
+            code: ERROR.notFound,
+            message: `Unknown method "${request.method}"`,
+            data: { methods: [...byName.keys()] },
+          },
+        })
+      }
+      const raw = request.params ?? {}
+      const problems = method.params.validate(raw)
+      if (problems.length > 0) {
+        const err = new ShardError(
+          'protocol/invalid-params',
+          `${problems.length} invalid parameter(s): ${problems[0]!.message}`,
+          {
+            path: problems[0]!.path,
+            hint: problems[0]!.hint,
+            details: problems,
+          },
+        )
+        return reply({ error: { code: ERROR.params, message: err.message, data: err.toJSON() } })
+      }
+      try {
+        // Entity params accept scene paths; resolve them like scene files do.
+        const params = method.params.deserialize(raw, worldSchemaContext(app.world)) as Record<
+          string,
+          unknown
+        >
+        const result = await method.handler(ctx, params)
+        return reply({ result: result ?? null })
+      } catch (err) {
+        const shard =
+          err instanceof ShardError
+            ? err
+            : new ShardError('protocol/internal', err instanceof Error ? err.message : String(err))
+        return reply({ error: { code: ERROR.shard, message: shard.message, data: shard.toJSON() } })
+      }
+    },
+    onNotification(listener) {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+    close() {
+      offLog()
+      offFrame()
+      listeners.clear()
+    },
+  }
+}

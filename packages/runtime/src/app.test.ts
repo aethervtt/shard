@@ -448,3 +448,37 @@ describe('introspection', () => {
     expect(timing).toEqual({ last: 2, avg: 2, max: 2, samples: 3 })
   })
 })
+
+describe('frame control and log', () => {
+  it('steps exactly n frames through pump and resolves waiters in order', async () => {
+    let frames = 0
+    const app = await ready(
+      new App().addSystems(Update, defineSystem({ name: 'test/count', run: () => void frames++ })),
+    )
+    const { AppControlResource } = await import('./control')
+    const control = app.world.resource(AppControlResource)
+    const order: string[] = []
+    const a = control.step(3).then(() => order.push('a'))
+    const b = control.step(2).then(() => order.push('b'))
+    expect(control.paused).toBe(true)
+    expect(control.pendingSteps).toBe(5)
+    app.pump()
+    await Promise.all([a, b])
+    expect(frames).toBe(5)
+    expect(order).toEqual(['a', 'b'])
+    expect(app.world.resource(Time).delta).toBeCloseTo(1 / 60)
+  })
+
+  it('logs ShardErrors with their code, path, and hint', async () => {
+    const app = await ready(new App())
+    const { LogResource } = await import('./log')
+    const { ShardError } = await import('@shard/core')
+    const log = app.world.resource(LogResource)
+    log.info('hello')
+    log.error(new ShardError('test/bad', 'Broken', { path: 'a/b', hint: 'Fix it' }))
+    expect(log.errors()).toEqual([
+      expect.objectContaining({ level: 'error', code: 'test/bad', path: 'a/b', hint: 'Fix it' }),
+    ])
+    expect(log.tail(10).map((e) => e.message)).toEqual(['hello', 'Broken'])
+  })
+})

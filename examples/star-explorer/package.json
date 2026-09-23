@@ -1,0 +1,19 @@
+{
+  "name": "star-explorer",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "validate": "shard validate",
+    "test": "shard test",
+    "docs": "shard docs"
+  },
+  "dependencies": {
+    "@shard/cli": "workspace:*",
+    "@shard/core": "workspace:*",
+    "@shard/input": "workspace:*",
+    "@shard/project": "workspace:*",
+    "@shard/runtime": "workspace:*",
+    "@shard/testing": "workspace:*",
+    "@shard/transform": "workspace:*"
+  }
+}

@@ -329,3 +329,49 @@ describe('names and registry', () => {
     ])
   })
 })
+
+describe('presets', () => {
+  const Light = defineComponent('test/PresetLight', {
+    lux: t.f32({ default: 1000, min: 0, presets: { daylight: 10_000, twilight: 10 } }),
+  })
+
+  it('accepts preset names in JSON and resolves them to numbers', () => {
+    expect(Light.validate({ lux: 'daylight' })).toEqual([])
+    expect(Light.deserialize({ lux: 'twilight' })).toEqual({ lux: 10 })
+    expect(Light.deserialize({ lux: 42 })).toEqual({ lux: 42 })
+  })
+
+  it('rejects unknown names with the list of presets', () => {
+    const [err] = Light.validate({ lux: 'noon' })
+    expect(err).toMatchObject({ code: 'schema/unknown-preset', path: '/lux' })
+    expect(err?.hint).toContain('daylight, twilight')
+  })
+
+  it('shows presets as alternatives in the JSON Schema', () => {
+    expect(Light.jsonSchema()).toMatchObject({
+      properties: {
+        lux: { anyOf: [{ type: 'number' }, { type: 'string', enum: ['daylight', 'twilight'] }] },
+      },
+    })
+  })
+
+  it('marks derived components as not serializable', () => {
+    const Derived = defineComponent('test/Derived', { v: t.f32 }, { serialize: false })
+    expect(Derived.serializable).toBe(false)
+    expect(Light.serializable).toBe(true)
+  })
+})
+
+describe('f32 serialization', () => {
+  it('writes the shortest decimal that reads back as the same float', async () => {
+    const { f32ToJson } = await import('./field')
+    expect(f32ToJson(Math.fround(0.4))).toBe(0.4)
+    expect(f32ToJson(Math.fround(1.2))).toBe(1.2)
+    expect(f32ToJson(Math.fround(Math.PI))).toBe(3.1415927)
+    expect(f32ToJson(3)).toBe(3)
+    for (let i = 0; i < 1000; i++) {
+      const v = Math.fround((Math.random() - 0.5) * 10 ** Math.floor(Math.random() * 8))
+      expect(Math.fround(f32ToJson(v))).toBe(v)
+    }
+  })
+})

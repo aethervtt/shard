@@ -17,7 +17,10 @@ export const ComputedVisibility = defineComponent(
       description: 'Final visibility after inheritance.',
     }),
   },
-  { description: 'Computed from Visibility and the parent chain each frame. Do not write.' },
+  {
+    description: 'Computed from Visibility and the parent chain each frame. Do not write.',
+    serialize: false,
+  },
 )
 
 export const Visibility = defineComponent(

@@ -19,6 +19,8 @@ import {
   Update,
   World,
 } from '@shard/core'
+import { AppControl, AppControlResource } from './control'
+import { Log, LogResource } from './log'
 import type { Plugin } from './plugin'
 import type { Runner } from './runners'
 import { OnEnter, OnExit, type StateDef } from './state'
@@ -80,6 +82,7 @@ export class App {
   private initialized = false
   private startupDone = false
   private accumulator = 0
+  private readonly frameListeners = new Set<(frame: number) => void>()
 
   constructor(options: AppOptions = {}) {
     this.fixedHz = options.fixedHz ?? 60
@@ -87,6 +90,10 @@ export class App {
     this.now = options.now ?? (() => performance.now())
     this.world.insertResource(ProfilerResource, this.profiler)
     this.world.insertResource(GlobalRng, new Rng(options.seed ?? 0))
+    const log = new Log()
+    log.now = () => this.world.tryResource(Time)?.elapsed ?? 0
+    this.world.insertResource(LogResource, log)
+    this.world.insertResource(AppControlResource, new AppControl())
     this.addPlugin(TimePlugin)
   }
 
@@ -209,6 +216,25 @@ export class App {
     this.runSchedule(PostUpdate)
     this.runSchedule(Last)
     time.frame++
+    for (const listener of this.frameListeners) listener(time.frame)
+  }
+
+  /** Called after every frame with the number of frames completed. Returns an unsubscribe function. */
+  onFrame(listener: (frame: number) => void): () => void {
+    this.frameListeners.add(listener)
+    return () => this.frameListeners.delete(listener)
+  }
+
+  /**
+   * Runs any stepped frames requested through `AppControl` right now, at the fixed delta. For hosts
+   * without a frame loop (headless servers); loop-driven runners step one frame per tick instead.
+   */
+  pump(): void {
+    const control = this.world.resource(AppControlResource)
+    while (control.pendingSteps > 0) {
+      this.update(1 / this.fixedHz)
+      control.stepped()
+    }
   }
 
   runSchedule(label: ScheduleLabel): void {

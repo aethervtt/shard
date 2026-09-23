@@ -17,7 +17,8 @@
     "@shard/mesh": "workspace:*",
     "@shard/render": "workspace:*",
     "@shard/runtime": "workspace:*",
-    "@shard/transform": "workspace:*"
+    "@shard/transform": "workspace:*",
+    "@shard/protocol": "workspace:*"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.5",

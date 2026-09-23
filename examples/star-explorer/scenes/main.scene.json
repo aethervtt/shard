@@ -1,0 +1,142 @@
+{
+  "$schema": "../.shard/schemas/scene.schema.json",
+  "version": 1,
+  "assets": {
+    "rock": {
+      "type": "Material",
+      "value": {
+        "baseColor": "#7a5c48",
+        "roughness": 0.95
+      }
+    },
+    "ice": {
+      "type": "Material",
+      "value": {
+        "baseColor": "#c9d6df",
+        "roughness": 0.6
+      }
+    },
+    "hull": {
+      "type": "Material",
+      "value": {
+        "baseColor": "#d35400",
+        "roughness": 0.35
+      }
+    },
+    "glass": {
+      "type": "Material",
+      "value": {
+        "baseColor": "#1b2631",
+        "roughness": 0.1,
+        "emissive": "#5dade2",
+        "emissiveLuminance": 400
+      }
+    }
+  },
+  "resources": {
+    "render/AmbientLight": {
+      "color": [0.6, 0.7, 1],
+      "brightness": 300
+    }
+  },
+  "entities": [
+    {
+      "name": "sun",
+      "components": {
+        "render/DirectionalLight": {
+          "illuminance": "daylight"
+        },
+        "core/Transform": {
+          "rotationEuler": [-25, 50, 0]
+        }
+      }
+    },
+    {
+      "name": "planet",
+      "components": {
+        "render/Mesh3d": {
+          "mesh": {
+            "path": "procedural:sphere?radius=40&segments=64"
+          }
+        },
+        "render/MeshMaterial": {
+          "material": {
+            "path": "#rock"
+          }
+        },
+        "core/Transform": {
+          "translation": [0, -20, -140]
+        }
+      },
+      "children": [
+        {
+          "name": "moon",
+          "components": {
+            "render/Mesh3d": {
+              "mesh": {
+                "path": "procedural:sphere?radius=6&segments=32"
+              }
+            },
+            "render/MeshMaterial": {
+              "material": {
+                "path": "#ice"
+              }
+            },
+            "core/Transform": {
+              "translation": [70, 35, 20]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ship",
+      "components": {
+        "star-explorer/Ship": {},
+        "render/Mesh3d": {
+          "mesh": {
+            "path": "procedural:box?x=1.6&y=0.5&z=3.2"
+          }
+        },
+        "render/MeshMaterial": {
+          "material": {
+            "path": "#hull"
+          }
+        },
+        "core/Transform": {}
+      },
+      "children": [
+        {
+          "name": "cockpit",
+          "components": {
+            "render/Mesh3d": {
+              "mesh": {
+                "path": "procedural:sphere?radius=0.45"
+              }
+            },
+            "render/MeshMaterial": {
+              "material": {
+                "path": "#glass"
+              }
+            },
+            "core/Transform": {
+              "translation": [0, 0.3, -0.6]
+            }
+          }
+        },
+        {
+          "name": "camera",
+          "components": {
+            "render/Camera3d": {
+              "fovY": 65
+            },
+            "core/Transform": {
+              "translation": [0, 2.2, 8],
+              "rotationEuler": [-10, 0, 0]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

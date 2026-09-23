@@ -1,0 +1,33 @@
+{
+  "name": "@shard/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "shard": "./bin/shard.mjs"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@shard/core": "workspace:*",
+    "@shard/node": "workspace:*",
+    "@shard/project": "workspace:*",
+    "@shard/protocol": "workspace:*",
+    "@shard/scene": "workspace:*",
+    "tsx": "^4.23.15",
+    "vitest": "^5.0.1",
+    "ws": "^8.21.3",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "@types/ws": "^8",
+    "@webgpu/types": "^0.1.74"
+  }
+}

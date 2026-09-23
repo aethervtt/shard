@@ -1,0 +1,29 @@
+{
+  "name": "@shard/node",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@shard/core": "workspace:*",
+    "@shard/gpu": "workspace:*",
+    "@shard/platform": "workspace:*",
+    "@shard/platform-node": "workspace:*",
+    "@shard/project": "workspace:*",
+    "@shard/protocol": "workspace:*",
+    "@shard/render": "workspace:*",
+    "@shard/runtime": "workspace:*",
+    "@shard/scene": "workspace:*",
+    "webgpu": "0.6.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "@webgpu/types": "^0.1.74"
+  }
+}

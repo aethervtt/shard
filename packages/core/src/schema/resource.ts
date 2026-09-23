@@ -10,18 +10,27 @@ export interface ResourceDef<T> {
   readonly __type?: T
 }
 
+const resources = new Map<string, ResourceDef<unknown>>()
+
 export function defineResource<T>(
   name: string,
   options: { description?: string; init?: () => T } = {},
 ): ResourceDef<T> {
   assertName('resource', name)
-  return {
+  const def: ResourceDef<T> = {
     kind: 'resource',
     id: allocateId(),
     name,
     description: options.description,
     init: options.init,
   }
+  resources.set(name, def as ResourceDef<unknown>)
+  return def
+}
+
+/** The resource defined under `name` (the latest definition), or undefined. */
+export function findResource(name: string): ResourceDef<unknown> | undefined {
+  return resources.get(name)
 }
 
 export interface EventDef<T> {

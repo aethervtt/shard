@@ -27,7 +27,10 @@ export const GlobalTransform = defineComponent(
       description: 'World matrix (top three rows, row by row). Computed from Transform each frame.',
     }),
   },
-  { description: 'World-space transform. Computed by core/transform-propagate; do not write.' },
+  {
+    description: 'World-space transform. Computed by core/transform-propagate; do not write.',
+    serialize: false,
+  },
 )
 
 export const Transform = defineComponent(

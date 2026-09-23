@@ -473,7 +473,10 @@ function forwardNode(state: ForwardState) {
         root: 'shard::pbr::forward',
         defines: { SRGB_TARGET: format.endsWith('-srgb') },
       })
-      if (!module) return
+      if (!module) {
+        ctx.gpu.pipelines.skipped++ // a draw waiting on its shader is a skipped draw too
+        return
+      }
       const pipeline = ctx.gpu.pipelines.render(pipelineDescriptor(state, module, format))
       if (!pipeline) return
       const bound = `${pv.uniform.version}/${ctx.gpu.generation}`

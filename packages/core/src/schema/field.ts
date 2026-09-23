@@ -58,6 +58,11 @@ export interface FieldOptions<V> {
   readonly?: boolean
   /** Missing values are an error instead of taking the default. */
   required?: boolean
+  /**
+   * Named values for number fields. Files may write the name (`"illuminance": "daylight"`); it
+   * resolves to the number on load. The JSON Schema lists the names as alternatives.
+   */
+  presets?: Readonly<Record<string, number>>
 }
 
 /** A reference to an asset. `guid` is the identity; `path` is for readers. */
@@ -201,6 +206,30 @@ function callable<V, S extends Storage>(
 // ---------------------------------------------------------------------------
 // Numbers and booleans
 
+/**
+ * The shortest decimal that reads back as the same 32-bit float, so f32 values serialize as `0.4`
+ * rather than `0.4000000059604645` (what a Float32Array hands back).
+ */
+export function f32ToJson(v: number): number {
+  if (!Number.isFinite(v) || Number.isInteger(v)) return v
+  const target = Math.fround(v)
+  // 7 significant digits round-trips most f32 values; only then search down for a shorter form.
+  let best = Number(v.toPrecision(7))
+  if (Math.fround(best) !== target) {
+    for (let p = 8; p <= 9; p++) {
+      const candidate = Number(v.toPrecision(p))
+      if (Math.fround(candidate) === target) return candidate
+    }
+    return v
+  }
+  for (let p = 6; p >= 1; p--) {
+    const candidate = Number(v.toPrecision(p))
+    if (Math.fround(candidate) !== target) break
+    best = candidate
+  }
+  return best
+}
+
 const INT_RANGE: Record<string, [number, number]> = {
   i8: [-128, 127],
   i16: [-32768, 32767],
@@ -227,7 +256,20 @@ function numberField<S extends NumericStorage>(storage: S) {
         ;(c as TypedArray)[r] = v
       },
       validate(json, path, errors) {
-        if (typeof json !== 'number' || !Number.isFinite(json)) {
+        if (typeof json === 'string' && options.presets) {
+          if (!Object.hasOwn(options.presets, json)) {
+            errors.push(
+              new ShardError(
+                'schema/unknown-preset',
+                `Unknown preset "${json}" at ${path || '/'}`,
+                {
+                  path,
+                  hint: `Use a number or one of: ${Object.keys(options.presets).join(', ')}.`,
+                },
+              ),
+            )
+          }
+        } else if (typeof json !== 'number' || !Number.isFinite(json)) {
           errors.push(mismatch(path, isInt ? 'an integer' : 'a number', json))
         } else if (isInt && !Number.isInteger(json)) {
           errors.push(mismatch(path, 'an integer', json))
@@ -235,13 +277,17 @@ function numberField<S extends NumericStorage>(storage: S) {
           errors.push(outOfRange(path, json, min, max))
         }
       },
-      toJson: (v) => v,
-      fromJson: (json) => json as number,
+      toJson: storage === 'f32' ? f32ToJson : (v) => v,
+      fromJson: (json) => (typeof json === 'string' ? options.presets![json]! : (json as number)),
       schema: () => {
         const s: JsonSchema = { type: isInt ? 'integer' : 'number' }
         if (Number.isFinite(min)) s.minimum = min
         if (Number.isFinite(max)) s.maximum = max
-        return s
+        if (!options.presets) return s
+        return {
+          anyOf: [s, { type: 'string', enum: Object.keys(options.presets) }],
+          'x-presets': options.presets,
+        }
       },
     })
   })
@@ -344,7 +390,7 @@ function vectorField<V extends number[]>(
       write: (c, r, v) => writeStrided(c, r, n, v),
       validate: (json, path, errors) =>
         validateNumberArray(json, n, path, errors, options.min, options.max),
-      toJson: (v) => [...v],
+      toJson: (v) => v.map(f32ToJson),
       fromJson: (json) => [...(json as V)] as V,
       schema: () => numberArraySchema(n, options as FieldOptions<unknown>),
     }),
@@ -374,7 +420,7 @@ const color = callable<Color, 'f32'>((options) =>
       }
       validateNumberArray(json, 4, path, errors, 0)
     },
-    toJson: (v) => linearToHex(v) ?? [...v],
+    toJson: (v) => linearToHex(v) ?? v.map(f32ToJson),
     fromJson: (json) =>
       typeof json === 'string' ? hexToLinear(json) : ([...(json as Color)] as Color),
     schema: () => ({

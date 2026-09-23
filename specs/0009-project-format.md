@@ -1,6 +1,6 @@
 # 0009 — Project format
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@shard/project`
 - **Depends on:** 0002, 0003
 
@@ -107,13 +107,31 @@ host (CLI, Studio) builds the `App`: engine plugins from `plugins`, the project 
 
 ## Acceptance criteria
 
-- [ ] `shard.json` has a JSON Schema; invalid manifests fail with paths and hints.
-- [ ] `loadProject` + a host builds an app from a sample project and loads its start scene.
-- [ ] A project component outside the project namespace throws `project/namespace`.
-- [ ] Regenerating docs preserves text outside the markers and updates the catalog when a component
+- [x] `shard.json` has a JSON Schema; invalid manifests fail with paths and hints.
+- [x] `loadProject` + a host builds an app from a sample project and loads its start scene.
+- [x] A project component outside the project namespace throws `project/namespace`.
+- [x] Regenerating docs preserves text outside the markers and updates the catalog when a component
       is added.
-- [ ] The generated component catalog lists every registered component with its fields and
+- [x] The generated component catalog lists every registered component with its fields and
       descriptions.
+
+## Implementation notes
+
+- **Manifest** is a `defineSchema` schema: a new core helper that builds a schema without
+  registering a component, so the manifest gets validation, defaults, and a JSON Schema from the
+  same definition as everything else. `BUILTIN_PLUGINS` resolves `plugins` names; `render/forward`
+  pulls in `render` and `core/transform`.
+- **Hosts:** `buildApp(options)` plus `startProject(app, platform, manifest)` in `@shard/project`.
+  The headless host is `openProject({ root })` in the new `@shard/node` package, which also holds
+  `importProjectPlugin`, `listScenes`, `worldHash`, and `collectErrorCodes`. `@shard/platform-node`
+  provides `createNodePlatform({ root })`.
+- **`defineProject`** returns the plugin plus `component`/`tag`/`resource`/`event` helpers that
+  prefix the project name, and `build` throws `project/namespace` on any registration outside it.
+- **Docs:** `generateDocs` writes `AGENTS.md` (merged via `mergeAgentsMd`), `.agents/components.md`,
+  `.agents/errors.md`, `.agents/skills/*.md`, and `.shard/schemas/{shard,scene,<component>}.json`.
+  Test components (`test/…`) and `serialize: false` components are left out of the catalog.
+- **Templates:** `empty` and `explorer`. `examples/star-explorer` is the explorer template as
+  generated, and it runs in the repo's `pnpm test`.
 
 ## Open questions
 

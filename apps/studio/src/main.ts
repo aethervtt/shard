@@ -1,6 +1,7 @@
 import { defineSystem, defineTag, quat, ShardError, Update } from '@shard/core'
 import { cube, plane } from '@shard/mesh'
 import { createTauriPlatform } from '@shard/platform-tauri'
+import { connectToHub, createProtocolServer } from '@shard/protocol'
 import {
   AmbientLight,
   Camera3d,
@@ -105,6 +106,10 @@ async function main() {
   const info = app.world.resource(Gpu).adapter.info
   status.textContent = `Shard Studio · WebGPU · ${info.vendor || 'unknown vendor'} · ${platform.name}`
   if (import.meta.env.VITE_SHARD_CAPTURE === '1') void selfCapture(app, platform)
+  // VITE_SHARD_HUB=ws://127.0.0.1:7811 lets `shard serve` / `shard mcp --attach` drive Studio.
+  const hub = import.meta.env.VITE_SHARD_HUB as string | undefined
+  if (hub)
+    connectToHub(hub, createProtocolServer(app, { frames: 'loop', platform }), { name: 'studio' })
   await app.run()
 }
 
