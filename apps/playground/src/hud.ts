@@ -1,6 +1,9 @@
-import { defineSystem, ProfilerResource, Update } from '@shard/core'
+import { defineSystem, ProfilerResource, Update, type World } from '@shard/core'
 import { RenderStats } from '@shard/render'
 import { definePlugin, Time } from '@shard/runtime'
+
+/** Extra HUD lines a demo adds (e.g. physics body counts), read each refresh. */
+export const hudExtras: ((world: World) => string[])[] = []
 
 /** FPS, draw stats, and the slowest systems and GPU passes, four times a second. */
 const hud = defineSystem({
@@ -29,6 +32,7 @@ const hud = defineSystem({
       stats
         ? `${view}: ${stats.visible} visible, ${stats.culled} culled, ${stats.drawCalls} draws`
         : 'no camera view',
+      ...hudExtras.flatMap((extra) => extra(world)),
       '',
       ...rows,
     ].join('\n')

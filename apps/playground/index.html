@@ -6,7 +6,8 @@
     <title>Shard Playground</title>
     <style>
       html, body { margin: 0; height: 100%; background: #030306; color: #cfd6e4; font: 12px ui-monospace, monospace; }
-      canvas { display: block; width: 100%; height: 100%; }
+      #viewport { display: block; width: 100%; height: 100%; }
+      #fps-graph { display: block; margin: 0 0 8px; border-radius: 3px; }
       #panel { position: fixed; top: 10px; left: 12px; background: rgba(8, 10, 16, 0.7); padding: 10px 12px; border-radius: 6px; }
       #hud { margin: 0 0 8px; white-space: pre; }
       button { font: inherit; color: inherit; background: #1a1f2b; border: 1px solid #2c3445; border-radius: 4px; padding: 3px 8px; cursor: pointer; }
@@ -20,11 +21,12 @@
     <canvas id="viewport"></canvas>
     <div id="panel">
       <pre id="hud">starting…</pre>
+      <canvas id="fps-graph"></canvas>
       <button type="button" data-change="-50000">−50k</button>
       <button type="button" data-change="-10000">−10k</button>
       <button type="button" data-change="10000">+10k</button>
       <button type="button" data-change="50000">+50k</button>
-      <nav><a href="#scene">scene</a><a href="#galaxy">galaxy</a><a href="#lights">lights</a><a href="#ibl">ibl</a><a href="#sky">sky</a><a href="#deferred">deferred</a><a href="#crowd">crowd</a><a href="#post">post</a><a href="#sprites">sprites</a><a href="#particles">particles</a></nav>
+      <nav><a href="#scene">scene</a><a href="#galaxy">galaxy</a><a href="#lights">lights</a><a href="#ibl">ibl</a><a href="#sky">sky</a><a href="#deferred">deferred</a><a href="#crowd">crowd</a><a href="#post">post</a><a href="#sprites">sprites</a><a href="#particles">particles</a><a href="#physics">physics</a><a href="#planet">planet</a></nav>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

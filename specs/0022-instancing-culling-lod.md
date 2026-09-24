@@ -191,6 +191,10 @@ applied in the cull pass.
   - `setRange` ran for every ranged row each frame and allocated in `toHalf`. It runs on change
     now.
   - The asset preview's render loop didn't wait for skipped draws, the way `settle` does.
+  - Found by the physics demo (0028): a grown `GpuBuffer` starts empty, but the store only
+    uploaded dirty slots, so everything uploaded before the 257th instance vanished. Growing the
+    instance or previous-transform buffer now marks every live slot dirty. Tested in
+    `instances.test.ts`.
 
 ## Open questions
 

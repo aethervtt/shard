@@ -1,5 +1,6 @@
 import { ShardError } from '@shard/core'
 import { particlesPlugin } from '@shard/particles'
+import { physics3dPlugin } from '@shard/physics'
 import { connectToHub, createProtocolServer, DEFAULT_HUB_PORT } from '@shard/protocol'
 import { describeRender, forwardPlugin, renderPlugin } from '@shard/render'
 import { App, animationFrameRunner } from '@shard/runtime'
@@ -8,10 +9,12 @@ import { TransformPlugin } from '@shard/transform'
 import { crowdPlugin } from './crowd'
 import { deferredPlugin } from './deferred'
 import { iblPlugin, skyPlugin } from './environment'
+import { fpsGraphPlugin } from './fps-graph'
 import { galaxyPlugin, Population } from './galaxy'
 import { applyResolution, hudPlugin } from './hud'
 import { lightsPlugin } from './lights'
 import { particlesDemoPlugin } from './particles'
+import { physicsDemoPlugin, planetDemoPlugin } from './physics'
 import { postPlugin } from './post'
 import { scenePlugin } from './scene'
 import { spritesPlugin } from './sprites'
@@ -29,6 +32,8 @@ const DEMOS = [
   'post',
   'sprites',
   'particles',
+  'physics',
+  'planet',
 ] as const
 const demo = DEMOS.find((d) => location.hash === `#${d}`) ?? 'scene'
 document.body.dataset.demo = demo
@@ -57,11 +62,20 @@ if (demo === 'galaxy') {
   app.addPlugin(TransformPlugin, forwardPlugin({ msaa: 1 }), spritePlugin, hudPlugin, spritesPlugin)
 } else if (demo === 'particles') {
   app.addPlugin(TransformPlugin, forwardPlugin(), particlesPlugin, hudPlugin, particlesDemoPlugin)
+} else if (demo === 'physics' || demo === 'planet') {
+  app.addPlugin(
+    TransformPlugin,
+    forwardPlugin(),
+    physics3dPlugin,
+    hudPlugin,
+    demo === 'physics' ? physicsDemoPlugin : planetDemoPlugin,
+  )
 } else if (demo === 'sky') {
   app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, skyPlugin)
 } else {
   app.addPlugin(TransformPlugin, forwardPlugin(), scenePlugin)
 }
+app.addPlugin(fpsGraphPlugin)
 app.setRunner(animationFrameRunner())
 window.addEventListener('hashchange', () => location.reload())
 

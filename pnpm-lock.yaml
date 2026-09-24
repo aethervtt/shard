@@ -102,6 +102,9 @@ importers:
       '@shard/particles':
         specifier: workspace:*
         version: link:../../packages/particles
+      '@shard/physics':
+        specifier: workspace:*
+        version: link:../../packages/physics
       '@shard/platform-web':
         specifier: workspace:*
         version: link:../../packages/platform-web

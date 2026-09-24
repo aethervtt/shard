@@ -219,11 +219,17 @@ The same API serves 2D with `vec2` arguments. Queries see the state after the la
   `physics_describe`. The CLI takes their schemas from `physicsMethods`. Manifest plugins are
   `physics3d` and `physics2d`, and the `add-physics.md` skill is generated. The overlay draws
   shapes from Rapier's own dimensions (after scale), and trimesh, hull, and polyline edges from
-  its vertices. Heightfields aren't drawn yet.
+  its vertices. Heightfields aren't drawn yet. Contact normals are drawn only around awake bodies,
+  at most 1,000 pairs a frame: each pair costs several calls into Rapier, and the whole pile of the
+  playground demo (7,600 pairs) took the overlay from 3 ms to 13 ms of CPU.
 - **Tests:** the mesh collider tests use `plane` and `sphere` meshes and a scene's
   `procedural:plane` ref. glTF meshes are the same `Mesh` asset, loaded the same way. Free fall is
   checked against the continuous-time landing (`sqrt(2h/g)`, 85.7 steps). Rapier resolves the
   contact one step after the ball first reaches the ground.
+- **Playground:** `#physics` drops 1,500 boxes, balls, and capsules (`?count=`) onto the ground
+  next to a chain of spherical joints: Space explodes the pile, R keeps it raining, C shows the
+  colliders overlay. `#planet` drops them onto a planet with a `GravitySource` and no global
+  gravity. Both run at 60 fps in Chrome (about 5 ms per step with 7,000–10,000 contact pairs).
 - **Measured** on the dev machine (Apple M4, Node): 5,000 awake balls in resting contact cost
   4.0 ms of Rapier step, 1.5 ms of sync-out, and 0.1 ms of sync-in per 60 Hz step. 1,000 tumbling
   boxes dropped from up to 25 m all sleep within 3 simulated seconds.

@@ -740,8 +740,17 @@ export class InstanceStore {
       this.prevHi = this.high - 1
       this.prevDirty.fill(1, 0, this.high)
     }
-    this.instanceBuffer.ensureCapacity(this.capacity * INSTANCE_BYTES)
-    this.prevBuffer.ensureCapacity(this.capacity * PREV_BYTES)
+    // A grown GPU buffer starts empty: every live slot has to go up again, not just dirty ones.
+    if (this.instanceBuffer.ensureCapacity(this.capacity * INSTANCE_BYTES) && this.high > 0) {
+      this.dirtyLo = 0
+      this.dirtyHi = this.high - 1
+      this.dirty.fill(1, 0, this.high)
+    }
+    if (this.prevBuffer.ensureCapacity(this.capacity * PREV_BYTES) && this.high > 0) {
+      this.prevLo = 0
+      this.prevHi = this.high - 1
+      this.prevDirty.fill(1, 0, this.high)
+    }
     let start = -1
     for (let s = this.prevLo; s <= this.prevHi + 1; s++) {
       if (s <= this.prevHi && this.prevDirty[s] === 1) {

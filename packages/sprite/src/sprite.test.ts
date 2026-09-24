@@ -123,6 +123,30 @@ describe('sprites', () => {
     expect(world.resource(LogResource).errors()).toEqual([])
   })
 
+  it('keeps drawing earlier sprites after the record buffer grows', async () => {
+    const { app, world, camera } = await scene(32, 32)
+    const red = solid(world, [255, 40, 40, 255])
+    world.spawn([Sprite, { texture: red, size: [4, 4] }], [Transform, {}])
+    const cam = camera(10)
+    const center = async () => {
+      await settle(app)
+      const shot = captureView(world, `camera:${cam}`)
+      app.update(1 / 60)
+      const image = await shot
+      return [...image.data.slice((16 * 32 + 16) * 4, (16 * 32 + 16) * 4 + 3)]
+    }
+    const before = await center()
+    expect(before[0]).toBeGreaterThan(200)
+    // Offscreen sprites past the first 256 records: the GPU buffer is replaced.
+    for (let i = 0; i < 600; i++) {
+      world.spawn(
+        [Sprite, { texture: red, size: [0.1, 0.1] }],
+        [Transform, { translation: [100 + i, 0, 0] }],
+      )
+    }
+    expect(await center()).toEqual(before)
+  })
+
   it('draws 100k sprites from 4 atlases in at most 8 draw calls; a static set uploads nothing', async () => {
     const { app, world, camera } = await scene(64, 64)
     const atlases = world.resource(TextureAtlases)

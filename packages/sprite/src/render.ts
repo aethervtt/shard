@@ -277,7 +277,12 @@ export class SpriteStore {
       this.dirty.fill(1, 0, this.high)
       this.orderUploaded = false
     }
-    this.records.ensureCapacity(this.capacity * SPRITE_BYTES)
+    // A grown GPU buffer starts empty: every live record has to go up again, not just dirty ones.
+    if (this.records.ensureCapacity(this.capacity * SPRITE_BYTES) && this.high > 0) {
+      this.dirtyLo = 0
+      this.dirtyHi = this.high - 1
+      this.dirty.fill(1, 0, this.high)
+    }
     let bytes = 0
     let start = -1
     for (let s = this.dirtyLo; s <= this.dirtyHi + 1; s++) {

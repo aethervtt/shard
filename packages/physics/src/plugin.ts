@@ -676,12 +676,12 @@ defineOverlay({
         : record?.body.isSleeping()
           ? SLEEPING
           : COLORS[record?.kind ?? KIND_FIXED]!
-      const t = collider.translation()
+      const t = collider.translation(p.v3 as never)
       center[0] = t.x
       center[1] = t.y
       center[2] = p.dim === 3 ? (t as { z: number }).z : 0
       if (p.dim === 3) {
-        const r = collider.rotation() as { x: number; y: number; z: number; w: number }
+        const r = collider.rotation(p.q4 as never) as { x: number; y: number; z: number; w: number }
         q[0] = r.x
         q[1] = r.y
         q[2] = r.z
@@ -695,30 +695,54 @@ defineOverlay({
       }
       drawCollider(p, g, collider, p.colliderShape.get(entity)!, color)
     }
-    // Contact points and normals, for touching pairs.
-    for (const [, collider] of p.colliders) {
-      p.raw.contactPairsWith(collider, (otherCollider) => {
-        if (otherCollider.handle < collider.handle) return
-        p.raw.contactPair(collider, otherCollider, (manifold) => {
-          const n = manifold.normal()
-          for (let i = 0; i < manifold.numSolverContacts(); i++) {
-            const point = manifold.solverContactPoint(i)
-            if (!point) continue
-            pa[0] = point.x
-            pa[1] = point.y
-            pa[2] = p.dim === 3 ? (point as { z: number }).z : 0
-            pb[0] = pa[0] + n.x * 0.25
-            pb[1] = pa[1] + n.y * 0.25
-            pb[2] = pa[2] + (p.dim === 3 ? (n as { z: number }).z : 0) * 0.25
-            g.line(pa, pb, CONTACT)
-          }
-        })
-      })
+    // Contact normals around awake bodies, up to a budget: past a thousand pairs they're an
+    // unreadable carpet, and each pair costs several calls into Rapier.
+    contactBudget = MAX_CONTACT_PAIRS
+    for (let i = 0; i < p.list.length && contactBudget > 0; i++) {
+      const record = p.list[i]!
+      if (record.kind !== KIND_DYNAMIC || record.body.isSleeping()) continue
+      const n = record.body.numColliders()
+      for (let c = 0; c < n; c++) drawContacts(p, g, record.body.collider(c))
     }
   },
 })
 
 type Gz = import('@shard/render').GizmoStore
+type RCollider = InstanceType<PhysicsWorld['R']['Collider']>
+
+const MAX_CONTACT_PAIRS = 1000
+let contactBudget = 0
+
+/** An awake dynamic body's collider, whose pairs the loop visits from its own side too. */
+function visitedFromOtherSide(other: RCollider): boolean {
+  const body = other.parent()
+  return body?.isDynamic() === true && !body.isSleeping()
+}
+
+function drawContacts(p: PhysicsWorld, g: Gz, collider: RCollider): void {
+  p.raw.contactPairsWith(collider, (other) => {
+    if (contactBudget <= 0) return
+    // Each pair once: when both sides are visited, only from the lower handle.
+    if (other.handle < collider.handle && visitedFromOtherSide(other)) return
+    contactBudget--
+    p.raw.contactPair(collider, other, (manifold) => {
+      const count = manifold.numSolverContacts()
+      if (count === 0) return
+      const n = manifold.normal()
+      for (let i = 0; i < count; i++) {
+        const point = manifold.solverContactPoint(i)
+        if (!point) continue
+        pa[0] = point.x
+        pa[1] = point.y
+        pa[2] = p.dim === 3 ? (point as { z: number }).z : 0
+        pb[0] = pa[0] + n.x * 0.25
+        pb[1] = pa[1] + n.y * 0.25
+        pb[2] = pa[2] + (p.dim === 3 ? (n as { z: number }).z : 0) * 0.25
+        g.line(pa, pb, CONTACT)
+      }
+    })
+  })
+}
 
 /** A point in the collider's local frame (centered at `center`, rotated by `q`) into out. */
 function local(out: Float64Array, x: number, y: number, z: number): Float64Array {
@@ -730,28 +754,30 @@ function local(out: Float64Array, x: number, y: number, z: number): Float64Array
 }
 
 /** A circle of radius r in a local plane (axis 0: YZ, 1: XZ, 2: XY), offset along y by dy. */
+const SEGMENTS = 24
+/** The unit circle's points, once (cos, sin per segment boundary). */
+const UNIT = (() => {
+  const out = new Float64Array((SEGMENTS + 1) * 2)
+  for (let i = 0; i <= SEGMENTS; i++) {
+    const t = (i / SEGMENTS) * Math.PI * 2
+    out[i * 2] = Math.cos(t)
+    out[i * 2 + 1] = Math.sin(t)
+  }
+  return out
+})()
+
+/** A circle of radius r in a local plane (axis 0: YZ, 1: XZ, 2: XY), offset along y by dy. */
 function localCircle(g: Gz, axis: number, r: number, dy: number, color: ArrayLike<number>): void {
-  const SEG = 24
-  for (let i = 0; i < SEG; i++) {
-    const t0 = (i / SEG) * Math.PI * 2
-    const t1 = ((i + 1) / SEG) * Math.PI * 2
-    const [u0, v0, u1, v1] = [
-      Math.cos(t0) * r,
-      Math.sin(t0) * r,
-      Math.cos(t1) * r,
-      Math.sin(t1) * r,
-    ]
-    if (axis === 0) {
-      local(pa, 0, u0 + dy, v0)
-      local(pb, 0, u1 + dy, v1)
-    } else if (axis === 1) {
-      local(pa, u0, dy, v0)
-      local(pb, u1, dy, v1)
-    } else {
-      local(pa, u0, v0 + dy, 0)
-      local(pb, u1, v1 + dy, 0)
-    }
-    g.line(pa, pb, color)
+  for (let i = 0; i <= SEGMENTS; i++) {
+    const u = UNIT[i * 2]! * r
+    const v = UNIT[i * 2 + 1]! * r
+    if (axis === 0) local(pb, 0, u + dy, v)
+    else if (axis === 1) local(pb, u, dy, v)
+    else local(pb, u, v + dy, 0)
+    if (i > 0) g.line(pa, pb, color)
+    pa[0] = pb[0]!
+    pa[1] = pb[1]!
+    pa[2] = pb[2]!
   }
 }
 
