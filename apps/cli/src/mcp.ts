@@ -9,6 +9,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js'
 import { animationMethods } from '@shard/animation'
 import { allImporters, findImporter } from '@shard/assets'
+import { audioMethods } from '@shard/audio'
 import { allComponents, findComponent, type JsonSchema, ShardError } from '@shard/core'
 import { listScenes } from '@shard/node'
 import { physicsMethods } from '@shard/physics'
@@ -46,7 +47,7 @@ const text = (value: unknown): ToolResult => ({
 })
 
 /** Methods engine plugins add to the app (served when the plugin is enabled). */
-const PLUGIN_METHODS = [...physicsMethods, ...animationMethods]
+const PLUGIN_METHODS = [...physicsMethods, ...animationMethods, ...audioMethods]
 
 /** The protocol method's parameter schema, as an MCP input schema. */
 function paramsSchema(method: string, overrides: Record<string, JsonSchema> = {}): JsonSchema {
@@ -360,6 +361,16 @@ export const TOOLS: Tool[] = [
     'animation_describe',
     'animation.describe',
     "What an AnimationPlayer is doing (animation plugin): each layer's clip, time, duration, weight, loop, blend, mask, and fade, how many targets bound, channels whose target is missing (a wrong path), and this frame's root motion. With an Animator (animation graph): each graph layer's current state, transition in progress and its progress, time in state, blend-space weights, and the parameter values. Without an entity: every player.",
+  ),
+  forward(
+    'audio_describe',
+    'audio.describe',
+    "What's playing (audio plugin): the backend and whether its context is suspended, the listener, buses (volume, mute, final gain, ducking), and every voice: clip, source entity, bus, state (active, virtual, pending), gain after bus and distance, pan (-1 left, +1 right), distance, clip time, pitch, priority. An agent can't hear: this is how to check a sound plays, where, and how loud.",
+  ),
+  forward(
+    'audio_log',
+    'audio.log',
+    'Voices started, stopped (ended, stopped, stolen, removed), and dropped over the voice limit, by frame, with clip, entity, bus, position, gain, and pan. Pass since (a frame) for recent ones.',
   ),
 ]
 

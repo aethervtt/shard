@@ -125,6 +125,39 @@ Two-bone IK (legs, arms): puts tip on target by rotating root and mid, bending t
 | `weight` | number | `1` | ≥ 0, ≤ 1 | How much the solution counts: slerps each joint from its animated rotation. |
 | `tipRotation` | number | `0` | ≥ 0, ≤ 1 | How much the tip takes the target's world rotation (1 for feet FootPlacement aligns to the ground). 0: the tip keeps its animated local rotation. |
 
+## `audio/AudioListener`
+
+Where the player hears from: put it on the camera. The first one found is used; without one, the world origin looking down -Z.
+
+Brings along: `core/Transform`.
+
+Tag (no fields).
+
+## `audio/AudioSource`
+
+Plays a clip from this entity: follows its GlobalTransform when spatial. Set playing to start or stop it.
+
+Brings along: `core/Transform`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `clip` | null or AudioClip ref | `null` |  | The sound: a WAV, Ogg, MP3, or FLAC file. |
+| `bus` | string | `"sfx"` |  | The bus it mixes into (audio/Buses): master, music, sfx, ui, voice, or one the game adds. |
+| `volume` | number | `1` | ≥ 0 | Linear gain (1 = as recorded, 0.5 ≈ -6 dB). |
+| `pitch` | number | `1` | ≥ 0.01, ≤ 16 | Playback rate: 2 plays an octave up in half the time. |
+| `loop` | boolean | `false` |  | Loop (between the clip's loopStart and loopEnd) until stopped. |
+| `autoplay` | boolean | `true` |  | Start playing when the source is added. |
+| `playing` | boolean | `false` |  | Whether it plays. Set it to start (from startTime) or stop; cleared when a clip that doesn't loop ends (audio/AudioFinished). |
+| `spatial` | boolean | `true` |  | Pan and fade by position relative to the AudioListener. Off: plays flat (music, UI). |
+| `minDistance` | number | `1` | ≥ 0, m | Full volume up to here; the distance model fades from here on. |
+| `maxDistance` | number | `100` | ≥ 0, m | linear: silent (and virtual) from here on. inverse and exponential don't use it. |
+| `rolloff` | `"inverse"` \| `"linear"` \| `"exponential"` | `"inverse"` |  | inverse: min / (min + factor × (d - min)), like real sound. linear: fades to 0 at maxDistance. exponential: (d / min)^-factor. |
+| `rolloffFactor` | number | `1` | ≥ 0 | How fast it fades with distance. |
+| `panning` | `"hrtf"` \| `"equal-power"` | `"equal-power"` |  | hrtf: 3D over headphones (costlier). equal-power: left-right stereo pan. |
+| `doppler` | number | `0` | ≥ 0 | Pitch shift from relative motion: 0 off, 1 physical (343 m/s). Off by default. |
+| `priority` | integer | `128` | ≥ 0, ≤ 255 | Over the voice limit, lower priorities lose their voice first (0-255). |
+| `startTime` | number | `0` | ≥ 0, s | Where in the clip playback starts. |
+
 ## `core/ChildOf`
 
 Makes this entity a child of another. Despawning the parent despawns it.
@@ -857,6 +890,7 @@ A ship the player flies: steer with arrows or the left stick, thrust with W.
 | `drag` | number | `0.4` | ≥ 0 | Fraction of speed lost per second without thrust. |
 | `turnRate` | number | `1.2` | ≥ 0, rad/s | Steering speed. |
 | `weapon` | null or star-explorer/Weapon ref | `null` |  | The mounted weapon. |
+| `cooldown` | number | `0` | ≥ 0, s | Seconds until the weapon fires again. |
 
 ## `text/ScreenText`
 

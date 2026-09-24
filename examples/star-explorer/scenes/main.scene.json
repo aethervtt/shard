@@ -134,6 +134,7 @@
             "render/Camera3d": {
               "fovY": 65
             },
+            "audio/AudioListener": {},
             "core/Transform": {
               "translation": [0, 2.2, 8],
               "rotationEuler": [-10, 0, 0]

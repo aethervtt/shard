@@ -54,6 +54,17 @@ Files: `*.jointmap.json`
 
 No import settings.
 
+## `audio`
+
+Files: `*.wav`, `*.ogg`, `*.oga`, `*.opus`, `*.mp3`, `*.flac`
+
+| Setting | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `mode` | `"decoded"` \| `"stream"` | `"decoded"` |  | decoded: decoded into memory on first play; sample-accurate, for effects. stream: played through a media element as it loads; for music and long ambience. |
+| `normalize` | boolean | `false` |  | Scale the clip so its loudest sample is at full level. |
+| `loopStart` | number | `0` | ≥ 0, s | Where a looping source jumps back to. |
+| `loopEnd` | number | `0` | ≥ 0, s | Where a looping source jumps back from. 0: the end of the clip. |
+
 ## `gltf`
 
 Files: `*.gltf`, `*.glb`
@@ -133,4 +144,5 @@ Files: `*.weapon.json` (e.g. `data/weapons/<name>.weapon.json`). Schema: `.shard
 | `energyCost` | number | `1` | ≥ 0 | Energy spent per shot. |
 | `color` | string or number[4] | `[1,0.3,0.2,1]` |  | Bolt color. |
 | `upgradesTo` | null or star-explorer/Weapon ref | `null` |  | The next weapon up, if any. |
+| `sound` | null or AudioClip ref | `null` |  | Played at the ship on every shot. |
 

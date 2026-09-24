@@ -1,0 +1,10 @@
+{
+  "guid": "de0430fd44559d2bde3d0b3119453da6",
+  "importer": "audio",
+  "settings": {
+    "mode": "decoded",
+    "normalize": false,
+    "loopStart": 0,
+    "loopEnd": 0
+  }
+}

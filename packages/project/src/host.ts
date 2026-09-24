@@ -1,11 +1,13 @@
 import { animationPlugin } from '@shard/animation'
+// Also registers the audio importer and the AudioClip asset type for every project host.
+import { audioPlugin } from '@shard/audio'
 import type { GpuContext } from '@shard/gpu'
 // Registers the .gltf/.glb importer and the Skin/AnimationClip asset types for every project host.
 import '@shard/gltf'
 import { inputPlugin } from '@shard/input'
 import { particlesPlugin } from '@shard/particles'
 import { physics2dPlugin, physics3dPlugin } from '@shard/physics'
-import type { InputSource, Platform } from '@shard/platform'
+import type { AudioBackend, InputSource, Platform } from '@shard/platform'
 import { forwardPlugin, type RenderTarget, renderPlugin, Shaders } from '@shard/render'
 import { App, LogResource, type Plugin } from '@shard/runtime'
 import { type LoadedSceneHandle, loadScene, ScenePlugin } from '@shard/scene'
@@ -23,6 +25,8 @@ export interface BuildAppOptions {
   /** Headless stand-in for the window (CLI screenshots). */
   target?: RenderTarget
   inputSource?: InputSource
+  /** Where sound goes (`platform.audio`). Without one, audio records voices (headless). */
+  audio?: AudioBackend
 }
 
 /** An app with the manifest's engine plugins and the project plugin, not yet initialized. */
@@ -35,7 +39,8 @@ export function buildApp(options: BuildAppOptions): App {
     names.add('render')
     names.add('core/transform')
   }
-  if (names.has('physics3d') || names.has('physics2d')) names.add('core/transform')
+  if (names.has('physics3d') || names.has('physics2d') || names.has('audio'))
+    names.add('core/transform')
   const app = new App({ seed: manifest.seed })
   if (names.has('core/transform')) app.addPlugin(TransformPlugin)
   if (names.has('render')) {
@@ -52,6 +57,7 @@ export function buildApp(options: BuildAppOptions): App {
   if (names.has('physics3d')) app.addPlugin(physics3dPlugin)
   if (names.has('physics2d')) app.addPlugin(physics2dPlugin)
   if (names.has('input')) app.addPlugin(inputPlugin({ source: options.inputSource }))
+  if (names.has('audio')) app.addPlugin(audioPlugin({ backend: options.audio }))
   app.addPlugin(ScenePlugin)
   if (options.project) app.addPlugin(options.project)
   return app

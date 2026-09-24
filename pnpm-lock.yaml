@@ -32,6 +32,9 @@ importers:
       '@shard/assets':
         specifier: workspace:*
         version: link:../../packages/assets
+      '@shard/audio':
+        specifier: workspace:*
+        version: link:../../packages/audio
       '@shard/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -99,6 +102,9 @@ importers:
       '@shard/assets':
         specifier: workspace:*
         version: link:../../packages/assets
+      '@shard/audio':
+        specifier: workspace:*
+        version: link:../../packages/audio
       '@shard/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -203,6 +209,9 @@ importers:
       '@shard/assets':
         specifier: workspace:*
         version: link:../../packages/assets
+      '@shard/audio':
+        specifier: workspace:*
+        version: link:../../packages/audio
       '@shard/cli':
         specifier: workspace:*
         version: link:../../apps/cli
@@ -296,6 +305,37 @@ importers:
       '@types/node':
         specifier: ^26.6.2
         version: 26.6.2
+
+  packages/audio:
+    dependencies:
+      '@shard/assets':
+        specifier: workspace:*
+        version: link:../assets
+      '@shard/core':
+        specifier: workspace:*
+        version: link:../core
+      '@shard/platform':
+        specifier: workspace:*
+        version: link:../platform
+      '@shard/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@shard/transform':
+        specifier: workspace:*
+        version: link:../transform
+    devDependencies:
+      '@shard/platform-node':
+        specifier: workspace:*
+        version: link:../platform-node
+      '@shard/scene':
+        specifier: workspace:*
+        version: link:../scene
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+      '@webgpu/types':
+        specifier: ^0.1.74
+        version: 0.1.74
 
   packages/core:
     devDependencies:
@@ -554,6 +594,9 @@ importers:
       '@shard/platform':
         specifier: workspace:*
         version: link:../platform
+      '@shard/platform-web':
+        specifier: workspace:*
+        version: link:../platform-web
       '@tauri-apps/api':
         specifier: ^2.11.1
         version: 2.11.1
@@ -578,6 +621,9 @@ importers:
       '@shard/assets':
         specifier: workspace:*
         version: link:../assets
+      '@shard/audio':
+        specifier: workspace:*
+        version: link:../audio
       '@shard/core':
         specifier: workspace:*
         version: link:../core

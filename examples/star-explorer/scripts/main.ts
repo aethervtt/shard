@@ -1,3 +1,4 @@
+import { playSound } from '@shard/audio'
 import { defineSystem, FixedUpdate, quat, t, vec3 } from '@shard/core'
 import { addActions, defineActions } from '@shard/input'
 import { defineProject } from '@shard/project'
@@ -12,13 +13,14 @@ export const Controls = defineActions('star-explorer/Controls', {
     bindings: [{ composite: 'arrows' }, 'Gamepad:LeftStick'],
     deadZone: 0.15,
   },
+  fire: { kind: 'button', bindings: ['Key:KeyF', 'Mouse:Left', 'Gamepad:South'] },
 })
 
 const project = defineProject({
   name: 'star-explorer',
   build(app) {
     addActions(app.world, Controls)
-    app.addSystems(FixedUpdate, fly)
+    app.addSystems(FixedUpdate, fly, fire.after(fly))
   },
 })
 
@@ -31,6 +33,7 @@ export const Weapon = project.dataAsset(
     energyCost: t.f32({ default: 1, min: 0, description: 'Energy spent per shot.' }),
     color: t.color({ default: [1, 0.3, 0.2, 1], description: 'Bolt color.' }),
     upgradesTo: t.handle('star-explorer/Weapon', { description: 'The next weapon up, if any.' }),
+    sound: t.handle('AudioClip', { description: 'Played at the ship on every shot.' }),
   },
   { extension: 'weapon', description: 'A ship weapon.' },
 )
@@ -48,6 +51,7 @@ export const Ship = project.component(
     }),
     turnRate: t.f32({ default: 1.2, min: 0, unit: 'rad/s', description: 'Steering speed.' }),
     weapon: t.handle('star-explorer/Weapon', { description: 'The mounted weapon.' }),
+    cooldown: t.f32({ min: 0, unit: 's', description: 'Seconds until the weapon fires again.' }),
   },
   { description: 'A ship the player flies: steer with arrows or the left stick, thrust with W.' },
 )
@@ -92,3 +96,34 @@ const fly = defineSystem({
 })
 
 export default project
+
+/** Fires the mounted weapon while fire is held, at its fire rate, with its sound at the ship. */
+const fire = defineSystem({
+  name: 'star-explorer/fire',
+  setup: (world) => ({ ships: world.query({ with: [Ship, Transform] }) }),
+  run: ({ ships }, world) => {
+    const dt = world.resource(FixedTime).step
+    const firing = world.resource(Controls.resource).pressed('fire')
+    // Absent until a weapon file loads (screenshots of scenes without ships skip it).
+    const weapons = world.tryResource(Weapon.store)
+    if (!weapons) return
+    for (const table of ships.tables) {
+      const cooldown = table.column(Ship, 'cooldown')
+      const weapon = table.column(Ship, 'weapon')
+      const translation = table.column(Transform, 'translation')
+      for (let i = 0; i < table.count; i++) {
+        cooldown[i] = Math.max(0, cooldown[i]! - dt)
+        const stats = weapons.get(weapon[i])
+        if (!firing || cooldown[i]! > 0 || !stats) continue
+        cooldown[i] = 1 / Math.max(stats.fireRate, 0.01)
+        if (stats.sound) {
+          playSound(world, stats.sound, {
+            position: translation.subarray(i * 3, i * 3 + 3),
+            bus: 'sfx',
+          })
+        }
+      }
+      table.markChanged(Ship)
+    }
+  },
+})

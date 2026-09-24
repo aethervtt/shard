@@ -36,7 +36,7 @@ export const Manifest = defineSchema(
     plugins: t.list(t.string, {
       default: ['render/forward', 'input'],
       description:
-        'Engine plugins to enable, by name: render, render/forward, sprite, text, particles, animation, physics3d, physics2d, input, core/transform.',
+        'Engine plugins to enable, by name: render, render/forward, sprite, text, particles, animation, physics3d, physics2d, input, audio, core/transform.',
     }),
   },
   { description: 'shard.json: the project manifest.' },
@@ -92,6 +92,8 @@ export const BUILTIN_PLUGINS = {
   physics3d: 'Rapier 3D rigid bodies, colliders, joints, raycasts (includes core/transform)',
   physics2d: 'Rapier 2D physics in the XY plane (includes core/transform)',
   input: 'keyboard, mouse, gamepad, touch, action maps',
+  audio:
+    'AudioSource, AudioListener, playSound, buses and ducking, spatial audio, voice limits (includes core/transform)',
   'core/transform': 'Transform and hierarchy propagation',
 } as const
 

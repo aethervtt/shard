@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@shard/assets": "workspace:*",
+    "@shard/audio": "workspace:*",
     "@shard/cli": "workspace:*",
     "@shard/core": "workspace:*",
     "@shard/input": "workspace:*",

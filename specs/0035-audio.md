@@ -1,6 +1,6 @@
 # 0035 — Audio
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@shard/audio` (new), `@shard/platform`, `@shard/platform-web`, `@shard/project`
 - **Depends on:** 0003, 0004, 0014
 
@@ -42,10 +42,15 @@ so "did the laser play, where, and how loud" has to be something it can query.
 - The `audio` importer keeps compressed sources as-is (browsers decode them), and records
   duration, channels, and sample rate by parsing headers. It warns on formats a target can't
   decode (Opus on older Safari).
-- Settings: `mode: 'decoded' | 'stream'` (streamed clips play through a media element; for music),
-  `normalize: bool`, `loopStart` and `loopEnd` in seconds.
+- Settings: `mode: 'decoded' | 'stream'` (streamed clips play through a media element; for music,
+  and the default for new files under a `music/` or `ambience/` folder), `normalize: bool`,
+  `loopStart` and `loopEnd` in seconds. Streamed clips loop the whole file.
+- Durations: WAV from the data chunk, Ogg from the last page's granule position (Opus minus
+  pre-skip, at 48 kHz), FLAC from STREAMINFO, MP3 from a Xing/Info or VBRI frame count (minus LAME's
+  encoder delay and padding) or, without one, by counting frames.
 - The `AudioClip` asset holds the bytes. The Web Audio backend decodes on first use and caches the
-  `AudioBuffer`.
+  `AudioBuffer`. `normalize` scales by the decoded peak there; the importer records the peak of PCM
+  WAVs (`asset.get`).
 
 ### Components
 
@@ -55,45 +60,69 @@ AudioSource {
   volume: f32 = 1 (linear), pitch: f32 = 1, loop: bool, autoplay: bool = true, playing: bool
   spatial: bool = true, minDistance: f32 = 1, maxDistance: f32 = 100,
   rolloff: 'inverse' | 'linear' | 'exponential', rolloffFactor: f32 = 1
-  panning: 'hrtf' | 'equal-power', priority: u8 = 128, startTime: f32
+  panning: 'hrtf' | 'equal-power', doppler: f32 = 0, priority: u8 = 128, startTime: f32
 }
 AudioListener {}                                  // one active; the first found wins
-AudioBuses (resource): { [name]: { volume, muted, parent = 'master' } }
+AudioBuses (resource): { [name]: { volume, muted, parent = 'master', duck? } }
+AudioConfig (resource): { maxVoices = 64, maxVoicesPerClip = 8, speedOfSound = 343, occlusion }
 ```
 
 - `playing` is the source's state: set it to start or stop, and the system clears it when a
   non-looping clip ends (`AudioFinished { entity }`).
-- Spatial sources follow their `GlobalTransform` each frame. The listener follows its own.
-- `duck(world, 'music', { by: 0.3, attack: 0.1, release: 0.5 })` lowers a bus while a voice on
-  another bus plays, for dialogue over music.
+- Spatial sources follow their `GlobalTransform` each frame. The listener follows its own; without
+  an `AudioListener` it sits at the origin facing -Z.
+- `playSound(world, clip, options)` returns a voice id (`stopSound`, `isSoundPlaying`); `clip` is a
+  ref, a path, or an `AudioClip` made in code. A clip still loading starts when it arrives.
+- `duck(world, 'music', { by: 0.7, attack: 0.1, release: 0.5, when: 'voice' })` lowers a bus while
+  any voice plays on the `when` buses (default `voice`), for dialogue over music. `by` is the share
+  of gain taken away (0.7 plays music at 30%). The rule is stored on the bus in `AudioBuses`, so
+  scene files can set it too. `setBus(world, name, { volume, muted })` throws on unknown buses.
+- `doppler` shifts pitch from last frame's relative motion (OpenAL's formula; Web Audio dropped its
+  own). 0, the default, is off.
+- `AudioConfig.occlusion` is the hook for physics raycasts: a gain multiplier per spatial voice per
+  frame. Nothing sets it yet.
 
 ### Backends
 
 ```ts
-interface AudioBackend {
-  play(voice: VoiceDesc): VoiceId
-  update(voice: VoiceId, params): void            // position, gain, pitch
-  stop(voice: VoiceId, fade?: number): void
-  setListener(matrix): void
-  setBus(name, gain): void
+interface AudioBackend {                          // in @shard/platform
+  readonly kind: string
+  readonly state: 'running' | 'suspended' | 'closed' | 'headless'
+  play(voice: AudioVoiceDesc): number             // clip, bus, loop, offset, spatial (PannerNode params)
+  update(voice: number, params: AudioVoiceParams): void   // gain, pitch, x, y, z
+  stop(voice: number, fade?: number): void
+  setListener(matrix: ArrayLike<number>): void    // affine 3x4, as GlobalTransform
+  setBus(name: string, gain: number): void        // final gain: volume, mute, duck, parents
+  onError?: (error: ShardError) => void
 }
 ```
 
-- **Web Audio** (`platform-web`, and Tauri through it): one `AudioContext`, a gain node per bus,
-  a `PannerNode` per spatial voice. The context resumes on the first user gesture; until then
-  voices are queued and `audio.describe` says the context is suspended.
-- **Headless** (Node, tests, and CLI): voices are records with start frame, end frame (from clip
-  duration and pitch), and the gain and pan the Web Audio graph would compute for them, so
-  attenuation and panning are testable without a sound card.
+- The plugin owns timing, voice limits, and virtual voices; a backend only makes the sound. It
+  passes a voice's gain before distance (volume × occlusion) and the PannerNode parameters, so the
+  panner attenuates and pans; the plugin computes the same values with Web Audio's formulas for
+  `audio.describe`, virtualization, and stealing.
+
+- **Web Audio** (`platform-web`, and Tauri through it): one `AudioContext` (made on first use of
+  `platform.audio`), a gain node per bus, a `PannerNode` per spatial voice. The context resumes on
+  the first user gesture; until then voices are queued and start in step (by wall clock) when it
+  runs, and `audio.describe` says the context is suspended.
+- **Headless** (Node, tests, and CLI; the plugin's default): voices are records, and
+  `measure(voice)` gives the gain and pan the Web Audio graph would compute for them, so attenuation
+  and panning are testable without a sound card. Start and end frames (clip duration over pitch,
+  advanced by the plugin each frame) are in `audio.log`.
+- Pan is Web Audio's equal-power azimuth: the source's angle in the listener's horizontal plane,
+  folded front to back, ±90° → ±1.
 - The platform provides the backend (`platform.audio`), and the engine never touches
   `AudioContext` directly.
 
 ### Voice management
 
 - A global limit (default 64) and per-clip limit (default 8). Over the limit, the lowest priority
-  and then the quietest voice is stolen.
-- Sources past `maxDistance` with a `rolloff` that reaches zero are virtualized: they keep time but
-  don't hold a voice, and resume in step when they come back in range.
+  (higher numbers win), then the quietest, then the oldest voice loses. A one-shot that loses is
+  stopped (`stolen`), or `dropped` if it was starting that frame; an `AudioSource` goes virtual
+  instead and gets a voice back when one frees up.
+- Sources whose distance gain is zero (past `maxDistance` with `linear` rolloff) are virtualized:
+  they keep time but don't hold a voice, and resume in step when they come back in range.
 
 ### Agent surface
 
@@ -102,7 +131,12 @@ interface AudioBackend {
 - `audio.log { since }`: voices started and stopped, by frame, which gameplay tests use
   (`expect(audioLog).toContainEqual({ clip: 'assets/sfx/laser.ogg', ... })`).
 - `asset.get` on a clip shows duration, channels, sample rate, and codec.
-- **Errors:** `audio/decode-failed`, `audio/unsupported-format`, `audio/unknown-bus`.
+- `audio.log` entries: `{ frame, event: start | stop | dropped, voice, clip, entity, path, bus,
+  position, gain, pan, reason: ended | stopped | stolen | removed | voice-limit }`. Gameplay tests
+  read it with `game.audioLog()`. MCP: `audio_describe`, `audio_log`.
+- **Errors:** `audio/decode-failed`, `audio/unsupported-format`, `audio/unknown-bus` (a source on
+  an unknown bus is logged once and mixed on master; `playSound` throws), `audio/invalid-duck`,
+  `audio/no-plugin`.
 
 ## Decisions
 
@@ -115,19 +149,23 @@ interface AudioBackend {
   decide when it can start (user gesture policies).
 - **Buses are strings in data.** Games add buses in a resource without code, and settings
   (0038) persist their volumes by name.
+- **The plugin computes gain and pan, the panner applies them.** Voice limits and virtualization
+  need the numbers every frame on every backend, and the PannerNode still does HRTF.
+- **Virtual sources, stolen one-shots.** A looping source that loses its voice should come back in
+  step; a bullet that loses its voice is gone.
 
 ## Acceptance criteria
 
-- [ ] WAV, Ogg, and MP3 fixtures import with correct duration, channels, and sample rate.
-- [ ] An autoplaying spatial source 10 m to the listener's right records a gain matching the
+- [x] WAV, Ogg, and MP3 fixtures import with correct duration, channels, and sample rate.
+- [x] An autoplaying spatial source 10 m to the listener's right records a gain matching the
       inverse distance model and a pan of +1 (equal-power), within 1%.
-- [ ] A non-looping clip ends at its duration divided by pitch and sends `AudioFinished`.
-- [ ] Muting the `sfx` bus zeroes the gain of every sfx voice and leaves music alone. Ducking
+- [x] A non-looping clip ends at its duration divided by pitch and sends `AudioFinished`.
+- [x] Muting the `sfx` bus zeroes the gain of every sfx voice and leaves music alone. Ducking
       lowers music while a voice plays and restores it after `release`.
-- [ ] Starting 100 one-shots of one clip holds at most 8 voices, stealing by priority.
-- [ ] In a browser (`#audio` playground demo), a source orbiting the camera pans audibly, and
+- [x] Starting 100 one-shots of one clip holds at most 8 voices, stealing by priority.
+- [x] In a browser (`#audio` playground demo), a source orbiting the camera pans audibly, and
       `audio.describe` matches the headless values for the same scene.
-- [ ] A gameplay test asserts that firing plays `laser.ogg` at the ship's position.
+- [x] A gameplay test asserts that firing plays `laser.ogg` at the ship's position.
 
 ## Open questions
 

@@ -1,0 +1,26 @@
+{
+  "name": "@shard/audio",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@shard/assets": "workspace:*",
+    "@shard/core": "workspace:*",
+    "@shard/platform": "workspace:*",
+    "@shard/runtime": "workspace:*",
+    "@shard/transform": "workspace:*"
+  },
+  "devDependencies": {
+    "@shard/platform-node": "workspace:*",
+    "@shard/scene": "workspace:*",
+    "@types/node": "^26.6.2",
+    "@webgpu/types": "^0.1.74"
+  }
+}

@@ -249,7 +249,7 @@ describe('commands', () => {
   it('test passes on the example, and a failing test exits 1 with the failure', () => {
     const ok = shard(['test', '--json'])
     expect(ok.code).toBe(0)
-    expect(ok.json()).toMatchObject({ passed: 3, failed: 0 })
+    expect(ok.json()).toMatchObject({ passed: 4, failed: 0 })
     const cleanup = temp(
       'tests/zz-fail.test.ts',
       `import { expect, test } from '@shard/testing'\ntest('ships can teleport', async ({ game }) => {\n  await game.step(1)\n  expect(game.get('ship', 'core/Transform').translation[1]).toBe(999)\n})\n`,

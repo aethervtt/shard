@@ -1,5 +1,6 @@
 import { ShardError } from '@shard/core'
-import type { Platform, PlatformFileSystem } from '@shard/platform'
+import type { AudioBackend, Platform, PlatformFileSystem } from '@shard/platform'
+import { createWebAudioBackend } from './audio'
 
 export interface WebPlatformOptions {
   /** Base URL that project paths resolve against. Defaults to the document base. */
@@ -35,8 +36,14 @@ export function createWebPlatform(options: WebPlatformOptions = {}): Platform {
     exists: async (path) => (await fetch(new URL(path, baseUrl), { method: 'HEAD' })).ok,
   }
 
+  let audio: AudioBackend | undefined
   return {
     name: 'web',
+    // Made on first use, so pages that never play sound don't open an AudioContext.
+    get audio() {
+      audio ??= createWebAudioBackend()
+      return audio
+    },
     fs,
     storage: {
       get: async (key) => localStorage.getItem(key) ?? undefined,
@@ -50,4 +57,5 @@ export function createWebPlatform(options: WebPlatformOptions = {}): Platform {
   }
 }
 
+export { createWebAudioBackend, type WebAudioBackend } from './audio'
 export { createDomInputSource } from './input'

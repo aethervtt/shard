@@ -1,4 +1,5 @@
-import type { FileChangeEvent, Platform, PlatformFileSystem } from '@shard/platform'
+import type { AudioBackend, FileChangeEvent, Platform, PlatformFileSystem } from '@shard/platform'
+import { createWebAudioBackend } from '@shard/platform-web'
 import {
   exists,
   readFile,
@@ -45,8 +46,14 @@ export function createTauriPlatform(options: TauriPlatformOptions): Platform {
       }),
   }
 
+  let audio: AudioBackend | undefined
   return {
     name: 'tauri',
+    // The webview has Web Audio; made on first use.
+    get audio() {
+      audio ??= createWebAudioBackend()
+      return audio
+    },
     fs,
     storage: {
       get: async (key) => localStorage.getItem(key) ?? undefined,

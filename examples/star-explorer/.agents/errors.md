@@ -47,6 +47,11 @@ Every engine error is a `ShardError` with one of these codes.
 | `assets/read-only` | @shard/assets | Use the CLI or Studio, which can write to the project folder. |
 | `assets/unknown-importer` | @shard/assets | Remove "importer" from the .meta to pick one by file extension. |
 | `assets/unknown-type` | @shard/assets | Define it (project.dataAsset) before loading its files. |
+| `audio/decode-failed` | @shard/audio | Re-import the file (shard import --json). |
+| `audio/invalid-duck` | @shard/audio | by is the share of gain taken away: 0.3 plays the bus at 70%. |
+| `audio/no-plugin` | @shard/audio | Add "audio" to plugins in shard.json (or app.addPlugin(audioPlugin())). |
+| `audio/unknown-bus` | @shard/audio |  |
+| `audio/unsupported-format` | @shard/audio | Audio clips are WAV (PCM or float), Ogg Vorbis, Ogg Opus, MP3, or FLAC. |
 | `data/extends-cycle` | @shard/assets | Point "$extends" at a file that does not extend this one. |
 | `data/extends-type-mismatch` | @shard/assets |  |
 | `ecs/dead-entity` | @shard/core | It was despawned, or the id is stale. Check world.isAlive(entity) first. |

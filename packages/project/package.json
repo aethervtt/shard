@@ -13,6 +13,7 @@
   "dependencies": {
     "@shard/animation": "workspace:*",
     "@shard/assets": "workspace:*",
+    "@shard/audio": "workspace:*",
     "@shard/core": "workspace:*",
     "@shard/gltf": "workspace:*",
     "@shard/gpu": "workspace:*",

@@ -49,7 +49,13 @@ async function start() {
 
   await mapFor(info.bundle)
   const project = (await import(/* @vite-ignore */ info.bundle)).default as Plugin
-  const app = buildApp({ manifest, project, canvas, inputSource: createDomInputSource(canvas) })
+  const app = buildApp({
+    manifest,
+    project,
+    canvas,
+    inputSource: createDomInputSource(canvas),
+    audio: manifest.plugins.includes('audio') ? platform.audio : undefined,
+  })
   await app.init()
 
   // Project shaders: shaders/water/foam.wesl is project::water::foam.

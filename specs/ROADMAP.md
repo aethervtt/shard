@@ -82,7 +82,7 @@ UI, navigation, and saves. Each one exposes its state to agents as data.
 | [0032](0032-skeletal-animation.md) | Skeletal animation (skinning, clips, blending, masks, morph targets, root motion) | implemented |
 | [0033](0033-animation-graphs.md) | Animation state machines and blend spaces | implemented |
 | [0034](0034-ik-retargeting.md) | IK, bone attachments, and retargeting | implemented |
-| [0035](0035-audio.md) | Audio (Web Audio, spatial, buses, headless voices) | accepted |
+| [0035](0035-audio.md) | Audio (Web Audio, spatial, buses, headless voices) | implemented |
 | [0036](0036-ui.md) | UI and HUD (flexbox, themes, world-anchored) | accepted |
 | [0037](0037-navigation.md) | Navigation (grid A*, navmesh, agents) | accepted |
 | [0038](0038-save-settings-localization.md) | Save/load, settings, and localization | accepted |

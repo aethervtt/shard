@@ -29,3 +29,22 @@ test('the ship carries a laser; the heavy laser is a variant of it', async ({ ga
   expect(heavy).toMatchObject({ damage: 30, fireRate: 5, energyCost: 3, upgradesTo: null })
   expect((await loadAll(world, Weapon)).length).toBe(2)
 })
+
+test('firing plays the laser sound at the ship', async ({ game }) => {
+  await game.load('scenes/main.scene.json')
+  await game.patch('ship', { 'core/Transform': { translation: [3, -2, 7] } })
+  game.input.hold('star-explorer/Controls.fire')
+  // Half a second at 5 shots a second: shots at 0, 0.2, and 0.4 s.
+  await game.step(30)
+  game.input.release('star-explorer/Controls.fire')
+  const shots = (await game.audioLog()).filter((e) => e.event === 'start')
+  expect(shots).toHaveLength(3)
+  for (const shot of shots) {
+    expect(shot).toMatchObject({ clip: 'assets/sfx/laser.ogg', bus: 'sfx', position: [3, -2, 7] })
+  }
+  // The listener rides behind the ship, so the shot is centered and close.
+  expect(shots[0]!.pan).toBeCloseTo(0, 3)
+  expect(shots[0]!.gain).toBeGreaterThan(0.1)
+  const describe = await game.call('audio.describe')
+  expect(describe.listener.path).toBe('ship/camera')
+})

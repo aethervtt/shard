@@ -93,6 +93,14 @@ export class Game {
     },
   }
 
+  /**
+   * Sounds started, stopped, and dropped (audio plugin) from frame `since`, as `audio.log` returns
+   * them: `{ frame, event, clip, entity, path, bus, position, gain, pan, reason }`.
+   */
+  async audioLog(since = 0): Promise<Json[]> {
+    return (await this.call<{ entries: Json[] }>('audio.log', { since })).entries
+  }
+
   /** Saves a PNG of a camera (default: the first) to `.shard/test-results/<name>`. Returns the path. */
   async screenshot(
     name: string,

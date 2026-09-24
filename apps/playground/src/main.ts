@@ -1,4 +1,5 @@
 import { animationPlugin } from '@shard/animation'
+import { audioPlugin } from '@shard/audio'
 import { ShardError } from '@shard/core'
 import { particlesPlugin } from '@shard/particles'
 import { physics2dPlugin, physics3dPlugin } from '@shard/physics'
@@ -10,6 +11,7 @@ import { spritePlugin } from '@shard/sprite'
 import { TransformPlugin } from '@shard/transform'
 import { animationDemoPlugin } from './animation'
 import { animgraphDemoPlugin } from './animgraph'
+import { audioDemoPlugin, webAudio } from './audio'
 import { characterDemoPlugin, characterPlanetDemoPlugin } from './character'
 import { character2dDemoPlugin } from './character2d'
 import { crowdPlugin } from './crowd'
@@ -52,6 +54,7 @@ const DEMOS = [
   'animation',
   'animgraph',
   'ik',
+  'audio',
 ] as const
 const demo = DEMOS.find((d) => location.hash === `#${d}`) ?? 'scene'
 document.body.dataset.demo = demo
@@ -131,6 +134,15 @@ if (demo === 'galaxy') {
     animationPlugin,
     hudPlugin,
     ikDemoPlugin,
+  )
+} else if (demo === 'audio') {
+  app.addPlugin(
+    TransformPlugin,
+    forwardPlugin(),
+    ScenePlugin,
+    audioPlugin({ backend: webAudio() }),
+    hudPlugin,
+    audioDemoPlugin,
   )
 } else if (demo === 'sky') {
   app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, skyPlugin)

@@ -2,5 +2,6 @@
   "$schema": "../../.shard/schemas/weapon.schema.json",
   "damage": 12,
   "fireRate": 5,
+  "sound": { "path": "assets/sfx/laser.ogg" },
   "upgradesTo": { "path": "data/weapons/heavy-laser.weapon.json" }
 }
