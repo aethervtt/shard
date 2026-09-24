@@ -154,6 +154,12 @@ export async function validate({ out, project }: CommandContext): Promise<number
     for (const meta of scan.orphanedMetas) report.warnings.push(`${meta} has no source file`)
     for (const m of scan.moved)
       report.warnings.push(`${m.from} moved to ${m.to} without its .meta; references may be stale`)
+    // Non-fatal import problems (an animation graph's unreachable state).
+    for (const entry of assetServer(world).list()) {
+      if (entry.label !== '' || !entry.source || entry.error) continue
+      for (const w of assetServer(world).info(entry.guid).warnings)
+        report.warnings.push(`${entry.source}${w.path ? ` ${w.path}` : ''}: ${w.message}`)
+    }
     const failed = new Set(scan.failed.map((f) => f.path))
     // Handles inside data files need the whole catalog, so they're checked after the scan.
     for (const { source, errors } of await validateDataAssets(world)) {

@@ -80,7 +80,7 @@ UI, navigation, and saves. Each one exposes its state to agents as data.
 | [0030](0030-prefabs.md) | Prefabs, overrides, and variants | implemented |
 | [0031](0031-data-assets.md) | Data assets (project-defined types, variants) | implemented |
 | [0032](0032-skeletal-animation.md) | Skeletal animation (skinning, clips, blending, masks, morph targets, root motion) | implemented |
-| [0033](0033-animation-graphs.md) | Animation state machines and blend spaces | accepted |
+| [0033](0033-animation-graphs.md) | Animation state machines and blend spaces | implemented |
 | [0034](0034-ik-retargeting.md) | IK, bone attachments, and retargeting | accepted |
 | [0035](0035-audio.md) | Audio (Web Audio, spatial, buses, headless voices) | accepted |
 | [0036](0036-ui.md) | UI and HUD (flexbox, themes, world-anchored) | accepted |

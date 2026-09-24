@@ -427,7 +427,7 @@ export async function loadAll(
 }
 
 /**
- * Checks the handles in every imported data asset against the catalog: each must name an asset
+ * Checks the handles in every imported data asset (and whatever an importer's `check` covers) against the catalog: each must name an asset
  * that exists and has the field's type (`schema/asset-type-mismatch`). Importing can't check this,
  * since the catalog is still being built; `shard validate` runs it after a scan.
  */
@@ -438,15 +438,17 @@ export async function validateDataAssets(
   const out: { source: string; errors: ShardError[] }[] = []
   for (const entry of server.list()) {
     if (entry.label !== '' || entry.source === undefined || entry.error) continue
-    const schema = server.importerOf(entry.source)?.schema
-    if (!schema) continue
+    const importer = server.importerOf(entry.source)
+    if (!importer?.schema && !importer?.check) continue
     const { json } = await server.artifact(entry.guid)
-    const errors = schema.validate(json, {
-      resolveAsset: (ref) => {
-        const e = server.entry(ref)
-        return e ? { guid: e.guid, path: e.path, type: e.type } : undefined
-      },
-    })
+    const resolveAsset = (ref: { guid: string | undefined; path: string | undefined }) => {
+      const e = server.entry(ref)
+      return e ? { guid: e.guid, path: e.path, type: e.type } : undefined
+    }
+    const errors = [
+      ...(importer.schema?.validate(json, { resolveAsset }) ?? []),
+      ...(importer.check?.(json, resolveAsset) ?? []),
+    ]
     if (errors.length > 0) out.push({ source: entry.source, errors })
   }
   return out

@@ -24,6 +24,8 @@ channels and duration). Skinned meshes and morph targets import tagged (`render/
   `*.mask.json`: a path covers its subtree, the longest match wins, uncovered joints get 0.
 - In code: `crossfade(world, entity, clipRef, 0.3, { loop: 'once' })` fades in a layer and fades
   the others out; `animationLayer(clipRef, { weight: 0.5 })` builds a full layer.
+- To pick clips from state (idle, walk, run, jump, land), use a graph: see
+  `animate-a-character.md`.
 - Root motion: `"rootMotion": "character"` on an entity with `physics/CharacterController` turns
   the clip's root travel into `CharacterIntent.move` (walking collides); `"transform"` moves the
   entity directly. The root joint stays in place; `animation/RootMotion` has this frame's delta.

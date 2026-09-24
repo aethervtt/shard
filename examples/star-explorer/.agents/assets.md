@@ -42,6 +42,12 @@ Files: `*.anim.json`
 
 No import settings.
 
+## `animation-graph`
+
+Files: `*.animgraph.json`
+
+No import settings.
+
 ## `gltf`
 
 Files: `*.gltf`, `*.glb`

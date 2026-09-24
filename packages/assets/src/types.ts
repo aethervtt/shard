@@ -115,6 +115,17 @@ export interface ImporterDef {
   /** Data assets (`defineDataAsset`): the asset type they import as, and its schema. */
   readonly dataType?: string
   readonly schema?: ComponentDef
+  /**
+   * Checks an artifact against the whole catalog (run by `shard validate` after a scan, when every
+   * path can be resolved): referenced assets exist and have the right type.
+   */
+  check?(
+    json: JsonValue | undefined,
+    resolveAsset: (ref: {
+      guid: string | undefined
+      path: string | undefined
+    }) => { guid: string; path: string; type: string } | undefined,
+  ): ShardError[]
 }
 
 const importers = new Map<string, ImporterDef>()

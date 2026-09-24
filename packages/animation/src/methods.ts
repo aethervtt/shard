@@ -1,5 +1,6 @@
 import { defineSchema, type Entity, findComponent, ShardError, t, type World } from '@shard/core'
 import type { AppMethod } from '@shard/runtime'
+import { describeAnimator } from './animator'
 import { AnimationClips } from './clip'
 import { AnimationPlayer, RootMotion } from './components'
 import { describeBinding } from './player'
@@ -50,6 +51,7 @@ export function describePlayer(world: World, entity: Entity) {
       translation: motion?.translation ?? [0, 0, 0],
       rotation: motion?.rotation ?? [0, 0, 0, 1],
     },
+    animator: describeAnimator(world, entity),
   }
 }
 
@@ -57,7 +59,7 @@ export const animationMethods: AppMethod[] = [
   {
     name: 'animation.describe',
     description:
-      "An entity's AnimationPlayer: its layers (clip, time, duration, weight, loop, blend, mask, fade), how many targets bound, channels whose target is missing, and this frame's root motion. Without an entity: every player.",
+      "An entity's AnimationPlayer: its layers (clip, time, duration, weight, loop, blend, mask, fade), how many targets bound, channels whose target is missing, and this frame's root motion. With an Animator, its graph per layer: current state, the transition in progress and its progress, time in state, blend-space weights, and parameter values (and what each bound one reads). Without an entity: every player.",
     params: defineSchema('animation/DescribeParams', {
       entity: t.entity({ description: 'The player entity (or its scene path).' }),
     }),

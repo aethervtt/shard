@@ -47,14 +47,14 @@ const still = new URLSearchParams(location.search).has('still')
 
 // --- clips made from the creature's rest pose --------------------------------------------------
 
-const axisAngle = (axis: number[], angle: number) => {
+export const axisAngle = (axis: number[], angle: number) => {
   const s = Math.sin(angle / 2)
   return [axis[0]! * s, axis[1]! * s, axis[2]! * s, Math.cos(angle / 2)]
 }
-const mul = (a: number[], b: number[]) => [...quat.multiply([0, 0, 0, 1], a, b)]
+export const mul = (a: number[], b: number[]) => [...quat.multiply([0, 0, 0, 1], a, b)]
 
 /** A rotation channel per joint, `rotation(joint, arm, segment, u)` at 31 keys over `duration`. */
-function jointClip(
+export function jointClip(
   c: Creature,
   name: string,
   duration: number,
@@ -84,7 +84,7 @@ function jointClip(
 }
 
 /** Arms curled up over the body, breathing slowly. */
-function curl(c: Creature): AnimationClipAsset {
+export function curl(c: Creature): AnimationClipAsset {
   return jointClip(
     c,
     'curl',
@@ -98,7 +98,7 @@ function curl(c: Creature): AnimationClipAsset {
 }
 
 /** One arm waving (its first frame is the rest pose, so it plays additive). */
-function wave(c: Creature): AnimationClipAsset {
+export function wave(c: Creature): AnimationClipAsset {
   return jointClip(
     c,
     'wave',

@@ -359,7 +359,7 @@ export const TOOLS: Tool[] = [
   forward(
     'animation_describe',
     'animation.describe',
-    "What an AnimationPlayer is doing (animation plugin): each layer's clip, time, duration, weight, loop, blend, mask, and fade, how many targets bound, channels whose target is missing (a wrong path), and this frame's root motion. Without an entity: every player.",
+    "What an AnimationPlayer is doing (animation plugin): each layer's clip, time, duration, weight, loop, blend, mask, and fade, how many targets bound, channels whose target is missing (a wrong path), and this frame's root motion. With an Animator (animation graph): each graph layer's current state, transition in progress and its progress, time in state, blend-space weights, and the parameter values. Without an entity: every player.",
   ),
 ]
 

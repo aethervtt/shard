@@ -88,7 +88,7 @@ export const BUILTIN_PLUGINS = {
   text: 'Text and ScreenText with imported fonts (includes render/forward)',
   particles: 'GPU particle effects from *.particles.json (includes render/forward)',
   animation:
-    'AnimationPlayer: glTF and .anim.json clips on joints and fields, blending, root motion (includes render/forward)',
+    'AnimationPlayer: glTF and .anim.json clips on joints and fields, blending, root motion; Animator graphs from .animgraph.json (includes render/forward)',
   physics3d: 'Rapier 3D rigid bodies, colliders, joints, raycasts (includes core/transform)',
   physics2d: 'Rapier 2D physics in the XY plane (includes core/transform)',
   input: 'keyboard, mouse, gamepad, touch, action maps',

@@ -14,6 +14,24 @@ Brings along: `core/Transform`, `animation/RootMotion`.
 | `rootMotion` | `"none"` \| `"transform"` \| `"character"` | `"none"` |  | none: the root joint moves as authored. transform: its ground-plane travel and yaw move this entity instead. character: they feed physics/CharacterIntent.move, so walking collides. |
 | `rootJoint` | string | `""` |  | Path of the joint root motion comes from. Empty: the highest joint a translation channel animates. |
 
+## `animation/Animator`
+
+Plays an animation graph: each frame it reads parameters (bound ones from components), takes transitions, and writes the AnimationPlayer's layers. animation.describe shows the states.
+
+Brings along: `animation/AnimationPlayer`, `animation/AnimatorParams`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `graph` | null or AnimationGraph ref | `null` |  | The state machine (*.animgraph.json) that drives this AnimationPlayer. |
+
+## `animation/AnimatorParams`
+
+An Animator's parameters. setAnimParam(world, entity, name, value) sets one.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `values` | any | `{}` |  | Parameter values by name (numbers; bools and triggers as true/false). Patch it to set them; a trigger turns false when a transition takes it. Bound parameters are read from their component instead (animation.describe shows them). |
+
 ## `animation/RootMotion`
 
 Root motion taken out of the pose this frame (AnimationPlayer.rootMotion). Written by animation; read it to move things yourself.

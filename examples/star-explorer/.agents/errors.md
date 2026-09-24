@@ -8,6 +8,21 @@ Every engine error is a `ShardError` with one of these codes.
 | `animation/invalid-mask` | @shard/animation |  |
 | `animation/no-model` | @shard/animation | Clips from .anim.json animate whatever plays them: preview the scene that uses it with a screenshot. |
 | `animation/no-player` | @shard/animation | Add animation/AnimationPlayer to the model root first. |
+| `animgraph/bad-blend` | @shard/animation | Give each clip its own threshold. |
+| `animgraph/bad-condition` | @shard/animation | Conditions use parameter names, numbers, !, &&, \|\|, and comparisons: "grounded && speed > 0.1". |
+| `animgraph/bad-parameter` | @shard/animation | Use letters, digits, _ and ., starting with a letter. |
+| `animgraph/bad-state` | @shard/animation |  |
+| `animgraph/bad-transition` | @shard/animation | Without either it would fire every frame. |
+| `animgraph/duplicate-layer` | @shard/animation |  |
+| `animgraph/invalid-json` | @shard/animation |  |
+| `animgraph/no-animator` | @shard/animation | Add animation/Animator (with a graph) to the entity first. |
+| `animgraph/unknown-clip` | @shard/animation | glTF clips are "assets/model.glb#Animation/Name"; get_asset on the model lists them. |
+| `animgraph/unknown-component` | @shard/animation |  |
+| `animgraph/unknown-field` | @shard/animation |  |
+| `animgraph/unknown-mask` | @shard/animation | Masks are *.mask.json files; check the path. |
+| `animgraph/unknown-parameter` | @shard/animation |  |
+| `animgraph/unknown-state` | @shard/animation |  |
+| `animgraph/unreachable-state` | @shard/animation | Add a transition into it, or remove it. |
 | `app/duplicate-method` | @shard/runtime |  |
 | `app/duplicate-plugin` | @shard/runtime | Unload it first (unloadPlugin). |
 | `app/duplicate-system` | @shard/runtime | System names must be unique across all schedules. |

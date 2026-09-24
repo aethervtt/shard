@@ -9,6 +9,7 @@ import { ScenePlugin } from '@shard/scene'
 import { spritePlugin } from '@shard/sprite'
 import { TransformPlugin } from '@shard/transform'
 import { animationDemoPlugin } from './animation'
+import { animgraphDemoPlugin } from './animgraph'
 import { characterDemoPlugin, characterPlanetDemoPlugin } from './character'
 import { character2dDemoPlugin } from './character2d'
 import { crowdPlugin } from './crowd'
@@ -48,6 +49,7 @@ const DEMOS = [
   'prefabs',
   'data',
   'animation',
+  'animgraph',
 ] as const
 const demo = DEMOS.find((d) => location.hash === `#${d}`) ?? 'scene'
 document.body.dataset.demo = demo
@@ -108,6 +110,15 @@ if (demo === 'galaxy') {
     animationPlugin,
     hudPlugin,
     animationDemoPlugin,
+  )
+} else if (demo === 'animgraph') {
+  app.addPlugin(
+    TransformPlugin,
+    forwardPlugin(),
+    ScenePlugin,
+    animationPlugin,
+    hudPlugin,
+    animgraphDemoPlugin,
   )
 } else if (demo === 'sky') {
   app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, skyPlugin)

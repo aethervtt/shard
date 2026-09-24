@@ -163,6 +163,53 @@ describe('commands', () => {
     }
   })
 
+  it('validate checks animation graphs: conditions with the column, states, clips, reachability', () => {
+    const file = 'data/zz-hero.animgraph.json'
+    writeFileSync(
+      join(example, file),
+      JSON.stringify({
+        parameters: { grounded: { type: 'bool' } },
+        layers: [
+          {
+            states: { idle: {}, fall: {}, lost: {} },
+            transitions: [{ from: 'idle', to: 'fall', when: 'grounded &&& true' }],
+          },
+        ],
+      }),
+    )
+    try {
+      let r = shard(['validate', '--json'])
+      expect(r.code).toBe(1)
+      const graphErrors = (report: {
+        assets: { source: string; code: string; path: string; message: string }[]
+      }) => report.assets.filter((e) => e.source === file)
+      const [bad] = graphErrors(r.json())
+      expect(bad).toMatchObject({
+        code: 'animgraph/bad-condition',
+        path: '/layers/0/transitions/0/when',
+      })
+      expect(bad!.message).toContain('column 12')
+      writeFileSync(
+        join(example, file),
+        JSON.stringify({
+          layers: [
+            { states: { idle: { clip: { path: 'assets/nope.glb#Animation/Idle' } }, lost: {} } },
+          ],
+        }),
+      )
+      r = shard(['validate', '--json'])
+      expect(graphErrors(r.json()).map((e) => [e.code, e.path])).toEqual([
+        ['animgraph/unknown-clip', '/layers/0/states/idle'],
+      ])
+      expect(r.json().warnings).toContain(
+        `${file} /layers/0/states/lost: [animgraph/unreachable-state] State "lost" in layer "layer0" can't be reached from "idle"`,
+      )
+    } finally {
+      rmSync(join(example, file), { force: true })
+      rmSync(join(example, `${file}.meta`), { force: true })
+    }
+  })
+
   it('run is deterministic', () => {
     const a = shard(['run', '--frames', '300', '--seed', '7', '--json']).json()
     const b = shard(['run', '--frames', '300', '--seed', '7', '--json']).json()
