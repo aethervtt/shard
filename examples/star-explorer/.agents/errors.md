@@ -45,6 +45,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `mesh/invalid-artifact` | @shard/mesh | Re-import the source (`shard import --force`). |
 | `particles/invalid-effect` | @shard/particles |  |
 | `physics/both-dimensions` | @shard/physics | Enable one physics plugin per app: physics3d for 3D games, physics2d for 2D. |
+| `physics/character-has-body` | @shard/physics | The controller makes its own kinematic body and capsule. Remove RigidBody and Collider, or put extra colliders on a child. |
 | `physics/invalid-shape` | @shard/physics | Check radius, halfExtents, halfHeight, points, or the mesh. |
 | `physics/not-ready` | @shard/physics | Add the physics3d or physics2d plugin and await app.init() before querying. |
 | `physics/unsupported-shape` | @shard/physics | 2D shapes: ball, cuboid, capsule, convex, trimesh, heightfield, segment, polyline. |

@@ -335,6 +335,37 @@ test('the crate lands', async ({ game }) => {
   expect(game.get('crate', 'core/Transform').translation[1]).toBeCloseTo(0.5, 1)
 })
 \`\`\`
+
+## Characters
+
+A walking player or NPC is \`physics/CharacterController\` with no RigidBody or Collider: it makes
+its own kinematic capsule (centered on the entity), climbs steps and slopes, snaps to the ground,
+pushes dynamic bodies, and rides kinematic platforms.
+
+\`\`\`json
+{ "name": "player", "components": {
+  "core/Transform": { "translation": [0, 1, 0] },
+  "physics/CharacterController": { "height": 1.8, "radius": 0.35, "up": "gravity" } } }
+\`\`\`
+
+- Write \`physics/CharacterIntent\`: \`move\` in m/s in the character's frame (x right, -z forward;
+  2D: x), and \`jump: true\` to jump once at the next grounded step.
+- Read \`physics/CharacterState\` (\`grounded\`, \`groundEntity\`, \`velocity\`, \`up\`, \`airTime\`) and
+  \`physics/CharacterGroundEvent\` (landed or left the ground). \`physics_describe\` lists characters.
+- \`up: "gravity"\` follows the strongest \`physics/GravitySource\` (walk around planets) and turns the
+  entity to match; \`"fixed"\` uses \`fixedUp\` and \`gravity\`. Turn it by writing its rotation;
+  writing its translation teleports it.
+
+\`\`\`ts
+test('the player walks and lands', async ({ game }) => {
+  await game.load('scenes/main.scene.json')
+  await game.step(30)
+  await game.patch('player', { 'physics/CharacterIntent': { move: [0, 0, -3] } })
+  await game.step(60)
+  expect(game.get('player', 'physics/CharacterState').grounded).toBe(true)
+  expect(game.get('player', 'core/Transform').translation[2]).toBeLessThan(-2.5)
+})
+\`\`\`
 `,
   'make-particles.md': `# Make a particle effect
 

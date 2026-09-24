@@ -6,6 +6,8 @@ import { describeRender, forwardPlugin, renderPlugin } from '@shard/render'
 import { App, animationFrameRunner } from '@shard/runtime'
 import { spritePlugin } from '@shard/sprite'
 import { TransformPlugin } from '@shard/transform'
+import { characterDemoPlugin, characterPlanetDemoPlugin } from './character'
+import { character2dDemoPlugin } from './character2d'
 import { crowdPlugin } from './crowd'
 import { deferredPlugin } from './deferred'
 import { iblPlugin, skyPlugin } from './environment'
@@ -35,6 +37,9 @@ const DEMOS = [
   'physics',
   'planet',
   'physics2d',
+  'character',
+  'character-planet',
+  'character2d',
 ] as const
 const demo = DEMOS.find((d) => location.hash === `#${d}`) ?? 'scene'
 document.body.dataset.demo = demo
@@ -73,6 +78,16 @@ if (demo === 'galaxy') {
   )
 } else if (demo === 'physics2d') {
   app.addPlugin(TransformPlugin, forwardPlugin(), physics2dPlugin, hudPlugin, physics2dDemoPlugin)
+} else if (demo === 'character' || demo === 'character-planet') {
+  app.addPlugin(
+    TransformPlugin,
+    forwardPlugin(),
+    physics3dPlugin,
+    hudPlugin,
+    demo === 'character' ? characterDemoPlugin : characterPlanetDemoPlugin,
+  )
+} else if (demo === 'character2d') {
+  app.addPlugin(TransformPlugin, forwardPlugin(), physics2dPlugin, hudPlugin, character2dDemoPlugin)
 } else if (demo === 'sky') {
   app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, skyPlugin)
 } else {

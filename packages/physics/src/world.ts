@@ -13,6 +13,7 @@ import { Meshes } from '@shard/render'
 import { LogResource } from '@shard/runtime'
 import {
   BODY_KINDS,
+  CharacterController,
   Collider,
   type CollisionEventData,
   Joint,
@@ -66,6 +67,24 @@ export interface BodyRecord {
   index: number
 }
 
+/** A character's Rapier controller and the body and capsule it moves. */
+export interface CharacterRecord {
+  entity: Entity
+  body: BodyRecord
+  collider: RCollider
+  kcc: InstanceType<Rapier['KinematicCharacterController']>
+  /** Whether snap-to-ground is on right now (off while moving up, so jumps leave the ground). */
+  snapping: boolean
+  snapDistance: number
+  /** Cosine of maxSlope: ground normals at least this aligned with up are walkable. */
+  cosMaxSlope: number
+  /** From the capsule's center to its bottom, m. */
+  bottom: number
+}
+
+/** The gap Rapier keeps between a character and what it touches, m. */
+export const CHARACTER_OFFSET = 0.01
+
 export interface RayHit {
   /** The collider's entity. */
   entity: Entity
@@ -111,6 +130,8 @@ export interface PhysicsStats {
   sleeping: number
   colliders: Record<string, number>
   joints: number
+  /** Character controllers (not counted in bodies or colliders). */
+  characters: number
   contacts: number
   stepMs: number
   steps: number
@@ -141,6 +162,8 @@ export class PhysicsWorld {
   /** Shape kind per collider entity, for describe and the overlay. */
   readonly colliderShape = new Map<Entity, Shape>()
   readonly joints = new Map<Entity, { joint: RJoint; a: Entity; b: Entity }>()
+  /** Character controllers by entity; each also has a body record and a capsule collider. */
+  readonly characters = new Map<Entity, CharacterRecord>()
   /** Colliders to (re)build at the next sync, e.g. after their body changed. */
   readonly dirtyColliders = new Set<Entity>()
   readonly dirtyJoints = new Set<Entity>()
@@ -194,7 +217,8 @@ export class PhysicsWorld {
     return this.v3
   }
 
-  private rot(q: ArrayLike<number>, o = 0): RAPIER.Rotation {
+  /** A rotation for Rapier from a quaternion at offset o (in 2D, its angle around Z). */
+  rotation(q: ArrayLike<number>, o = 0): RAPIER.Rotation {
     if (this.dim === 2) return quatToAngle(q, o) as unknown as RAPIER.Rotation
     this.q4.x = q[o]!
     this.q4.y = q[o + 1]!
@@ -247,7 +271,7 @@ export class PhysicsWorld {
             : R.RigidBodyDesc.kinematicVelocityBased()
     const pose = poseOf(world, entity, this.scratchPose)
     desc.setTranslation(pose[0]!, pose[1]!, pose[2]!)
-    desc.setRotation(this.rot(pose, 3))
+    desc.setRotation(this.rotation(pose, 3))
     desc.setGravityScale(rb.gravityScale)
     desc.setLinearDamping(rb.linearDamping)
     desc.setAngularDamping(rb.angularDamping)
@@ -275,20 +299,7 @@ export class PhysicsWorld {
       if (this.dim === 3) desc.setAngvel({ x: ax, y: ay, z: az })
       else (desc as unknown as { setAngvel(a: number): void }).setAngvel(az)
     }
-    const body = this.raw.createRigidBody(desc)
-    const record: BodyRecord = {
-      entity,
-      handle: body.handle,
-      body,
-      kind,
-      slot: this.allocSlot(),
-      index: this.list.length,
-    }
-    this.list.push(record)
-    this.bodies.set(entity, record)
-    this.bodyByHandle.set(body.handle, record)
-    this.storePose(record)
-    this.prev.set(this.curr.subarray(record.slot * 7, record.slot * 7 + 7), record.slot * 7)
+    this.addBody(entity, this.raw.createRigidBody(desc), kind)
     // Colliders on this entity and on descendants attach to the new body.
     this.markSubtreeColliders(world, entity)
     for (const [jointEntity, j] of this.joints) {
@@ -303,9 +314,31 @@ export class PhysicsWorld {
     }
   }
 
+  private addBody(entity: Entity, body: RBody, kind: number): BodyRecord {
+    const record: BodyRecord = {
+      entity,
+      handle: body.handle,
+      body,
+      kind,
+      slot: this.allocSlot(),
+      index: this.list.length,
+    }
+    this.list.push(record)
+    this.bodies.set(entity, record)
+    this.bodyByHandle.set(body.handle, record)
+    this.storePose(record)
+    this.prev.set(this.curr.subarray(record.slot * 7, record.slot * 7 + 7), record.slot * 7)
+    return record
+  }
+
   removeBody(world: World, entity: Entity): void {
     const record = this.bodies.get(entity)
     if (!record) return
+    const character = this.characters.get(entity)
+    if (character) {
+      this.raw.removeCharacterController(character.kcc)
+      this.characters.delete(entity)
+    }
     // Rapier removes the body's colliders and joints with it.
     for (const [collider, owner] of this.colliderOwner) {
       if (owner !== entity) continue
@@ -363,10 +396,10 @@ export class PhysicsWorld {
     const t = this.vec(pose[0]!, pose[1]!, pose[2]!)
     if (record.kind === KIND_KINEMATIC_POSITION) {
       body.setNextKinematicTranslation(t)
-      body.setNextKinematicRotation(this.rot(pose, 3))
+      body.setNextKinematicRotation(this.rotation(pose, 3))
     } else {
       body.setTranslation(t, true)
-      body.setRotation(this.rot(pose, 3), true)
+      body.setRotation(this.rotation(pose, 3), true)
     }
     // A teleport shouldn't be interpolated from the old place.
     this.storePose(record)
@@ -386,6 +419,69 @@ export class PhysicsWorld {
         ang[o + 2]!,
         true,
       )
+  }
+
+  // --- characters ------------------------------------------------------------
+
+  /**
+   * (Re)builds a character's kinematic body, capsule collider, and Rapier controller from its
+   * CharacterController. The capsule is centered on the entity, its axis along the entity's +Y.
+   */
+  createCharacter(world: World, entity: Entity): void {
+    if (world.has(entity, RigidBody) || world.has(entity, Collider)) {
+      this.report(
+        world,
+        entity,
+        new ShardError(
+          'physics/character-has-body',
+          'A CharacterController entity also has a RigidBody or Collider',
+          {
+            hint: 'The controller makes its own kinematic body and capsule. Remove RigidBody and Collider, or put extra colliders on a child.',
+          },
+        ),
+      )
+      return
+    }
+    this.removeBody(world, entity)
+    const c = world.get(entity, CharacterController)
+    const R = this.R
+    const pose = poseOf(world, entity, this.scratchPose)
+    const desc = R.RigidBodyDesc.kinematicPositionBased()
+    desc.setTranslation(pose[0]!, pose[1]!, pose[2]!)
+    desc.setRotation(this.rotation(pose, 3))
+    const record = this.addBody(entity, this.raw.createRigidBody(desc), KIND_KINEMATIC_POSITION)
+    const radius = Math.max(c.radius, 1e-3)
+    const halfHeight = Math.max(0, c.height / 2 - radius)
+    const shape = halfHeight > 0 ? 'capsule' : 'ball'
+    const cdesc =
+      halfHeight > 0 ? R.ColliderDesc.capsule(halfHeight, radius) : R.ColliderDesc.ball(radius)
+    cdesc.setFriction(0)
+    cdesc.setCollisionGroups(((c.layers & 0xffff) << 16) | (c.mask & 0xffff))
+    const collider = this.raw.createCollider(cdesc, record.body)
+    this.colliders.set(entity, collider)
+    this.colliderEntity.set(collider.handle, entity)
+    this.colliderShape.set(entity, shape)
+    this.colliderOwner.set(entity, entity)
+
+    const kcc = this.raw.createCharacterController(CHARACTER_OFFSET)
+    const slope = (Math.min(Math.max(c.maxSlope, 0), 90) * Math.PI) / 180
+    kcc.setMaxSlopeClimbAngle(slope)
+    kcc.setMinSlopeSlideAngle(slope)
+    kcc.setSlideEnabled(true)
+    if (c.stepHeight > 0) kcc.enableAutostep(c.stepHeight, radius * 0.5, false)
+    if (c.snapDistance > 0) kcc.enableSnapToGround(c.snapDistance)
+    this.characters.set(entity, {
+      entity,
+      body: record,
+      collider,
+      kcc,
+      snapping: c.snapDistance > 0,
+      snapDistance: c.snapDistance,
+      cosMaxSlope: Math.cos(slope),
+      bottom: radius + halfHeight,
+    })
+    // Colliders on children (a sword, a trigger) ride on the character's body.
+    this.markSubtreeColliders(world, entity)
   }
 
   // --- colliders -------------------------------------------------------------
@@ -494,7 +590,7 @@ export class PhysicsWorld {
       mulQuat(colPose, 3, bodyPose, 3, colPose, 3)
     }
     desc.setTranslation(colPose[0]!, colPose[1]!, colPose[2]!)
-    desc.setRotation(this.rot(colPose, 3))
+    desc.setRotation(this.rotation(colPose, 3))
     desc.setFriction(c.friction)
     desc.setRestitution(c.restitution)
     desc.setDensity(c.density)
@@ -954,7 +1050,7 @@ export class PhysicsWorld {
     const max = options?.maxDistance && options.maxDistance > 0 ? options.maxDistance : 1e9
     const hit = this.raw.castShape(
       { x: position[0]!, y: position[1]!, z: position[2] ?? 0 },
-      this.rot(rotation),
+      this.rotation(rotation),
       vel,
       this.queryShape(shape),
       0,
@@ -1013,7 +1109,7 @@ export class PhysicsWorld {
     const f = this.filter(options)
     this.raw.intersectionsWithShape(
       { x: position[0]!, y: position[1]!, z: position[2] ?? 0 },
-      this.rot(rotation),
+      this.rotation(rotation),
       this.queryShape(shape),
       (collider) => {
         const e = this.colliderEntity.get(collider.handle)
@@ -1030,12 +1126,15 @@ export class PhysicsWorld {
     const bodies: Record<string, number> = {}
     let sleeping = 0
     for (const r of this.bodies.values()) {
+      if (this.characters.has(r.entity)) continue
       const kind = BODY_KINDS[r.kind]!
       bodies[kind] = (bodies[kind] ?? 0) + 1
       if (r.body.isSleeping()) sleeping++
     }
     const colliders: Record<string, number> = {}
-    for (const shape of this.colliderShape.values()) colliders[shape] = (colliders[shape] ?? 0) + 1
+    for (const [entity, shape] of this.colliderShape) {
+      if (!this.characters.has(entity)) colliders[shape] = (colliders[shape] ?? 0) + 1
+    }
     let contacts = 0
     for (const c of this.colliders.values()) {
       this.raw.contactPairsWith(c, () => {
@@ -1047,6 +1146,7 @@ export class PhysicsWorld {
       sleeping,
       colliders,
       joints: this.joints.size,
+      characters: this.characters.size,
       contacts: contacts / 2,
       stepMs: this.stepMs,
       steps: this.steps,

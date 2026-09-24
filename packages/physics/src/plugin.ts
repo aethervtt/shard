@@ -15,7 +15,10 @@ import {
 import { defineOverlay } from '@shard/render'
 import { type App, FixedTime, type Plugin } from '@shard/runtime'
 import { GlobalTransform, Transform, TransformSystems } from '@shard/transform'
+import { characterSystem } from './character'
 import {
+  CharacterController,
+  CharacterState,
   Collider,
   CollisionEvent,
   ContactForceEvent,
@@ -27,6 +30,7 @@ import {
   RigidBody,
   Velocity,
 } from './components'
+import { createGravitySources, gatherGravitySources, sampleGravity } from './gravity'
 import { physicsMethods } from './methods'
 import { parentOf, rotate, worldToLocal } from './pose'
 import { type BodyRecord, loadRapier, Physics, PhysicsWorld } from './world'
@@ -72,9 +76,9 @@ const syncIn = defineSystem({
     forcedNow: [] as BodyRecord[],
     stamp: 0,
     stamps: new Uint32Array(64),
-    sourceData: new Float64Array(6 * 8),
+    gravity: createGravitySources(),
+    pull: new Float64Array(4),
     gravityVisit: undefined as ((handle: number) => void) | undefined,
-    sourceCount: 0,
   }),
   run: (s, world, ctx) => {
     const p = world.tryResource(Physics)
@@ -310,68 +314,23 @@ function applyForces(s: SyncState, p: PhysicsWorld, since: number): void {
   }
 
   // Gravity sources: gather positions, then pull every awake dynamic body.
-  let n = 0
-  for (let t = 0; t < s.sources.tables.length; t++) {
-    const table = s.sources.tables[t]!
-    const m = table.column(GlobalTransform, 'matrix')
-    const strength = table.column(GravitySource, 'strength')
-    const radius = table.column(GravitySource, 'radius')
-    const range = table.column(GravitySource, 'range')
-    const falloff = table.column(GravitySource, 'falloff')
-    for (let row = 0; row < table.count; row++) {
-      if ((n + 1) * 6 > s.sourceData.length) {
-        const grown = new Float64Array(s.sourceData.length * 2)
-        grown.set(s.sourceData)
-        s.sourceData = grown
-      }
-      const d = s.sourceData
-      d[n * 6] = m[row * 12 + 3]!
-      d[n * 6 + 1] = m[row * 12 + 7]!
-      d[n * 6 + 2] = m[row * 12 + 11]!
-      d[n * 6 + 3] = strength[row]!
-      d[n * 6 + 4] = radius[row]!
-      d[n * 6 + 5] = falloff[row] === 1 ? -range[row]! - 1 : range[row]!
-      n++
-    }
-  }
-  if (n === 0) return
-  s.sourceCount = n
+  gatherGravitySources(s.sources, s.gravity)
+  if (s.gravity.count === 0) return
   s.gravityVisit ??= (handle: number) => {
     const record = p.bodyByHandle.get(handle)
     if (!record || record.kind !== KIND_DYNAMIC) return
     const c = p.curr
     const o = record.slot * 7
-    const px = c[o]!
-    const py = c[o + 1]!
-    const pz = c[o + 2]!
-    let fx = 0
-    let fy = 0
-    let fz = 0
-    const d = s.sourceData
-    for (let i = 0; i < s.sourceCount; i++) {
-      const dx = d[i * 6]! - px
-      const dy = d[i * 6 + 1]! - py
-      const dz = p.dim === 3 ? d[i * 6 + 2]! - pz : 0
-      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
-      if (dist < 1e-6) continue
-      const packed = d[i * 6 + 5]!
-      const constant = packed < 0
-      const range = constant ? -packed - 1 : packed
-      if (range > 0 && dist > range) continue
-      const r = d[i * 6 + 4]!
-      const accel = constant ? d[i * 6 + 3]! : d[i * 6 + 3]! * ((r * r) / (dist * dist))
-      fx += (dx / dist) * accel
-      fy += (dy / dist) * accel
-      fz += (dz / dist) * accel
-    }
+    const g = s.pull
+    sampleGravity(s.gravity, p.dim, c[o]!, c[o + 1]!, c[o + 2]!, false, g)
     const k = record.body.mass() * record.body.gravityScale()
     if (s.stamps[record.slot] !== s.stamp) {
       s.stamps[record.slot] = s.stamp
       s.forcedLast.push(record)
     }
-    rv.x = fx * k
-    rv.y = fy * k
-    if (p.dim === 3) rv.z = fz * k
+    rv.x = g[0]! * k
+    rv.y = g[1]! * k
+    if (p.dim === 3) rv.z = g[2]! * k
     raw.rbAddForce(handle, rv, false)
   }
   p.raw.islands.forEachActiveRigidBodyHandle(s.gravityVisit)
@@ -581,6 +540,10 @@ const dimensionOf = new WeakMap<World, 2 | 3>()
 function observe(world: World): void {
   const get = () => world.tryResource(Physics)
   world.observe(onRemove(RigidBody), (e) => get()?.removeBody(world, e.entity))
+  world.observe(onRemove(CharacterController), (e) => {
+    const p = get()
+    if (p?.characters.has(e.entity)) p.removeBody(world, e.entity)
+  })
   world.observe(onRemove(Collider), (e) => {
     const p = get()
     p?.removeCollider(e.entity)
@@ -626,7 +589,8 @@ function physicsPlugin(dim: 2 | 3): Plugin {
       app.addSystems(
         FixedUpdate,
         syncIn.inSet(PhysicsSystems),
-        step.after(syncIn).inSet(PhysicsSystems),
+        characterSystem.after(syncIn).inSet(PhysicsSystems),
+        step.after(characterSystem).inSet(PhysicsSystems),
         syncOut.after(step).inSet(PhysicsSystems),
       )
       app.addSystems(PostUpdate, interpolate.before(TransformSystems))
@@ -655,6 +619,7 @@ const COLORS = [
 const SLEEPING = [0.5, 0.35, 0.2, 1]
 const SENSOR = [0.3, 1, 0.4, 1]
 const CONTACT = [1, 0.2, 0.3, 1]
+const UP = [1, 0.9, 0.2, 1]
 const pa = new Float64Array(3)
 const pb = new Float64Array(3)
 const q = new Float64Array(4)
@@ -663,7 +628,7 @@ const center = new Float64Array(3)
 defineOverlay({
   name: 'colliders',
   description:
-    'Physics collider outlines, colored by body kind (sleeping dimmed, sensors green), and contact normals.',
+    'Physics collider outlines, colored by body kind (sleeping dimmed, sensors green, characters cyan with their up in yellow), and contact normals.',
   draw(world, g, passes) {
     const p = world.tryResource(Physics)
     if (!p) return
@@ -694,6 +659,21 @@ defineOverlay({
         q[3] = Math.cos(angle / 2)
       }
       drawCollider(p, g, collider, p.colliderShape.get(entity)!, color)
+    }
+    // Characters: their up, from the capsule's center to a little past its top.
+    for (const [entity, c] of p.characters) {
+      if (!passes(entity) || !world.has(entity, CharacterState)) continue
+      const up = world.get(entity, CharacterState).up
+      const t = c.collider.translation(p.v3 as never) as { x: number; y: number; z?: number }
+      const tall = p.colliderShape.get(entity) === 'capsule' ? c.collider.halfHeight() : 0
+      const reach = c.collider.radius() + tall + 0.5
+      pa[0] = t.x
+      pa[1] = t.y
+      pa[2] = p.dim === 3 ? t.z! : 0
+      pb[0] = pa[0] + up[0] * reach
+      pb[1] = pa[1] + up[1] * reach
+      pb[2] = pa[2] + up[2] * reach
+      g.line(pa, pb, UP)
     }
     // Contact normals around awake bodies, up to a budget: past a thousand pairs they're an
     // unreadable carpet, and each pair costs several calls into Rapier.

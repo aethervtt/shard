@@ -1,5 +1,6 @@
 import { defineSchema, type Entity, findComponent, t, type World } from '@shard/core'
 import type { AppMethod } from '@shard/runtime'
+import { CharacterState } from './components'
 import { createRayHit, Physics, type PhysicsWorld, type QueryOptions, type RayHit } from './world'
 
 function scenePath(world: World, entity: Entity): string | null {
@@ -108,7 +109,7 @@ export const physicsMethods: AppMethod[] = [
   {
     name: 'physics.describe',
     description:
-      'Physics state: dimension, gravity, bodies by kind and how many sleep, colliders by shape, joints, contact pairs, colliders waiting for a mesh, and the last step time.',
+      'Physics state: dimension, gravity, bodies by kind and how many sleep, colliders by shape, joints, contact pairs, colliders waiting for a mesh, the last step time, and every character controller with its state (grounded, ground, velocity, up).',
     params: defineSchema('physics/DescribeParams', {}),
     handler: ({ world }) => {
       const physics = ready(world)
@@ -118,6 +119,19 @@ export const physicsMethods: AppMethod[] = [
         interpolate: physics.config.interpolate,
         paused: physics.config.paused,
         ...physics.describe(),
+        characters: [...physics.characters.keys()].map((entity) => {
+          const s = world.get(entity, CharacterState)
+          return {
+            entity,
+            path: scenePath(world, entity),
+            grounded: s.grounded,
+            groundEntity: s.groundEntity,
+            groundPath: s.groundEntity === null ? null : scenePath(world, s.groundEntity),
+            velocity: s.velocity,
+            up: s.up,
+            airTime: s.airTime,
+          }
+        }),
       }
     },
   },

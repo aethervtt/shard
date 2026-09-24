@@ -1,6 +1,12 @@
+export { characterSystem } from './character'
 export {
   BODY_KINDS,
   type BodyKind,
+  CharacterController,
+  CharacterGroundEvent,
+  type CharacterGroundEventData,
+  CharacterIntent,
+  CharacterState,
   Collider,
   CollisionEvent,
   type CollisionEventData,
@@ -23,6 +29,8 @@ export { physicsMethods } from './methods'
 export { Physics, PhysicsSystems, physics, physics2dPlugin, physics3dPlugin } from './plugin'
 export {
   type BodyRecord,
+  CHARACTER_OFFSET,
+  type CharacterRecord,
   createRayHit,
   loadRapier,
   type PhysicsStats,

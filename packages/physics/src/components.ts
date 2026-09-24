@@ -182,7 +182,7 @@ export const GravitySource = defineComponent(
   },
   {
     description:
-      'Point gravity toward the entity (a planet). Pulls dynamic bodies and sets character up.',
+      'Point gravity toward the entity (a planet). Pulls dynamic bodies and sets character up (CharacterController up: gravity).',
     requires: [Transform],
   },
 )
@@ -208,6 +208,121 @@ export const Joint = defineComponent(
     motorFactor: t.f32({ default: 1, min: 0, description: 'How hard the motor drives.' }),
   },
   { description: 'Connects this entity’s body to another body.' },
+)
+
+export const CharacterIntent = defineComponent(
+  'physics/CharacterIntent',
+  {
+    move: t.vec3({
+      unit: 'm/s',
+      description:
+        'Desired walking velocity in the character’s frame: x right, -z forward (y is ignored; jump instead).',
+    }),
+    jump: t.bool({
+      description:
+        'Jump at the next step on the ground. The controller clears it when the jump happens.',
+    }),
+  },
+  { description: 'What a character wants to do, written by games, input, or AI each frame.' },
+)
+
+export const CharacterState = defineComponent(
+  'physics/CharacterState',
+  {
+    grounded: t.bool({ readonly: true, description: 'Standing on walkable ground.' }),
+    groundNormal: t.vec3({
+      default: [0, 1, 0],
+      readonly: true,
+      description: 'Normal of the ground under the character (up while airborne).',
+    }),
+    groundEntity: t.entity({
+      readonly: true,
+      description: 'The body (or fixed collider) the character stands on.',
+    }),
+    velocity: t.vec3({ unit: 'm/s', readonly: true, description: 'World-space velocity.' }),
+    up: t.vec3({ default: [0, 1, 0], readonly: true, description: 'The character’s up.' }),
+    airTime: t.f32({ unit: 's', readonly: true, description: 'Seconds since last grounded.' }),
+  },
+  { description: 'What the character controller did at the last step. Read-only.' },
+)
+
+export const CharacterController = defineComponent(
+  'physics/CharacterController',
+  {
+    radius: t.f32({ default: 0.35, min: 0, unit: 'm', description: 'Capsule radius.' }),
+    height: t.f32({
+      default: 1.8,
+      min: 0,
+      unit: 'm',
+      description: 'Total capsule height, centered on the entity.',
+    }),
+    stepHeight: t.f32({
+      default: 0.3,
+      min: 0,
+      unit: 'm',
+      description: 'Tallest step it walks up (0: none).',
+    }),
+    maxSlope: t.f32({
+      default: 45,
+      min: 0,
+      max: 90,
+      unit: 'deg',
+      description: 'Steepest slope it walks up and stands on; steeper ones it slides down.',
+    }),
+    snapDistance: t.f32({
+      default: 0.2,
+      min: 0,
+      unit: 'm',
+      description: 'Stays on the ground over drops this small, e.g. walking down steps (0: off).',
+    }),
+    up: t.enum(['fixed', 'gravity'], {
+      description:
+        'fixed: up is fixedUp and gravity pulls along -fixedUp. gravity: up points away from the strongest GravitySource (or against physics/Config gravity when none reaches).',
+    }),
+    fixedUp: t.vec3({ default: [0, 1, 0], description: 'Up when up is fixed.' }),
+    gravity: t.f32({
+      default: 9.81,
+      min: 0,
+      unit: 'm/s²',
+      description: 'Fall acceleration when up is fixed.',
+    }),
+    jumpSpeed: t.f32({ default: 5, min: 0, unit: 'm/s', description: 'Upward speed of a jump.' }),
+    airControl: t.f32({
+      default: 0.3,
+      min: 0,
+      max: 1,
+      description:
+        'Steering in the air: the share of the way to the intended velocity per 1/60 s (0: none, 1: as on ground).',
+    }),
+    pushForce: t.f32({
+      default: 200,
+      min: 0,
+      unit: 'N',
+      description: 'Push on dynamic bodies it walks into, never faster than it walks.',
+    }),
+    layers: t.u16({ default: 1, description: 'Bitmask: the collision layers the capsule is in.' }),
+    mask: t.u16({ default: 0xffff, description: 'Bitmask: the layers it collides with.' }),
+    alignRotation: t.bool({
+      default: true,
+      description: 'Turn the entity so its +Y matches up, keeping its heading.',
+    }),
+  },
+  {
+    description:
+      'A kinematic capsule that walks by CharacterIntent: slides along walls, climbs steps and slopes, snaps to the ground, jumps, pushes bodies, rides platforms. No RigidBody or Collider on the same entity.',
+    requires: [Transform, CharacterIntent, CharacterState],
+  },
+)
+
+export interface CharacterGroundEventData {
+  entity: Entity
+  /** true: landed. false: left the ground (jumped or walked off). */
+  grounded: boolean
+}
+
+export const CharacterGroundEvent = defineEvent<CharacterGroundEventData>(
+  'physics/CharacterGroundEvent',
+  { description: 'A character landed or left the ground.' },
 )
 
 /** App-wide physics settings. */

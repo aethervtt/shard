@@ -143,6 +143,74 @@ describe('physics through scenes and the protocol', () => {
     expect(app.world.resource(Physics).describe().colliders.ball).toBe(1)
   })
 
+  it('builds a character from a scene and reports its state through entity.get and physics.describe', async () => {
+    const { app, server } = await start()
+    const { findEntityByPath } = await import('@shard/scene')
+    // A second scene file with just the character; required components come with it.
+    loadScene(
+      app.world,
+      {
+        version: 1,
+        entities: [
+          {
+            name: 'hero',
+            components: {
+              'core/Transform': { translation: [-4, 2, 3] },
+              'physics/CharacterController': { height: 1.6, radius: 0.3 },
+              'physics/CharacterIntent': { move: [0, 0, -1] },
+            },
+          },
+        ],
+      },
+      { id: 'player' },
+    )
+    for (let i = 0; i < 60; i++) app.update(1 / 60)
+    const hero = findEntityByPath(app.world, 'hero')!
+    const got = (await call(server, 'entity.get', { entity: hero })) as {
+      components: Record<string, Record<string, unknown>>
+    }
+    const s = got.components['physics/CharacterState']!
+    expect(s.grounded).toBe(true)
+    expect(s.up).toEqual([0, 1, 0])
+    expect((s.velocity as number[])[2]).toBeCloseTo(-1, 3)
+    const described = (await call(server, 'physics.describe')) as {
+      bodies: Record<string, number>
+      characters: { path: string; grounded: boolean; groundPath: string | null }[]
+    }
+    // The character's own body and capsule aren't counted with the scene's bodies.
+    expect(described.bodies).toEqual({ dynamic: 1, fixed: 1 })
+    expect(described.characters).toMatchObject([
+      { path: 'hero', grounded: true, groundPath: 'floor' },
+    ])
+    // Rays see its capsule.
+    const [x, , z] = app.world.get(hero, Transform).translation
+    const down = (await call(server, 'physics.raycast', {
+      origin: [x, 10, z],
+      direction: [0, -1, 0],
+    })) as { hits: { path: string; bodyPath: string }[] }
+    expect(down.hits[0]).toMatchObject({ path: 'hero', bodyPath: 'hero' })
+
+    // The colliders overlay draws its capsule (cyan) and its up vector (yellow).
+    const target = new OffscreenTarget(gpu, { label: 'character', width: 160, height: 160 })
+    const ref = app.world.resource(RenderTargets).add(target, 'character')
+    const eye: [number, number, number] = [x + 4, 1.5, z + 4]
+    const cam = app.world.spawn(
+      [Camera3d, { target: ref as never, clearColor: [0.05, 0.05, 0.07, 1] }],
+      [Transform, { translation: eye, rotation: lookAt(eye, [x, 1, z]) }],
+    )
+    setOverlays(app.world, { colliders: true })
+    const image = await renderView(app, `camera:${cam}`)
+    let cyan = 0
+    let yellow = 0
+    for (let i = 0; i < image.data.length; i += 4) {
+      const [r, g, b] = [image.data[i]!, image.data[i + 1]!, image.data[i + 2]!]
+      if (b > 150 && g > 150 && r < b - 30) cyan++
+      if (r > 150 && g > 140 && b < r - 50) yellow++
+    }
+    expect(cyan).toBeGreaterThan(30)
+    expect(yellow).toBeGreaterThan(5)
+  })
+
   it('draws the colliders overlay (golden)', async () => {
     const { app } = await start()
     for (let i = 0; i < 90; i++) app.update(1 / 60)

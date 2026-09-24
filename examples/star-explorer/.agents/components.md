@@ -70,6 +70,51 @@ Brings along: `core/Transform`, `render/Visibility`.
 | `space` | `"world"` \| `"local"` | `"world"` |  | world: particles stay where they were emitted (a moving ship leaves its exhaust behind). local: they move with the entity (an engine's glow). |
 | `backend` | `"gpu"` \| `"cpu"` | `"gpu"` |  | gpu: compute shaders, for any count. cpu: the same effect simulated in TypeScript, for small counts that gameplay reads. |
 
+## `physics/CharacterController`
+
+A kinematic capsule that walks by CharacterIntent: slides along walls, climbs steps and slopes, snaps to the ground, jumps, pushes bodies, rides platforms. No RigidBody or Collider on the same entity.
+
+Brings along: `core/Transform`, `physics/CharacterIntent`, `physics/CharacterState`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `radius` | number | `0.35` | ≥ 0, m | Capsule radius. |
+| `height` | number | `1.8` | ≥ 0, m | Total capsule height, centered on the entity. |
+| `stepHeight` | number | `0.3` | ≥ 0, m | Tallest step it walks up (0: none). |
+| `maxSlope` | number | `45` | ≥ 0, ≤ 90, deg | Steepest slope it walks up and stands on; steeper ones it slides down. |
+| `snapDistance` | number | `0.2` | ≥ 0, m | Stays on the ground over drops this small, e.g. walking down steps (0: off). |
+| `up` | `"fixed"` \| `"gravity"` | `"fixed"` |  | fixed: up is fixedUp and gravity pulls along -fixedUp. gravity: up points away from the strongest GravitySource (or against physics/Config gravity when none reaches). |
+| `fixedUp` | number[3] | `[0,1,0]` |  | Up when up is fixed. |
+| `gravity` | number | `9.81` | ≥ 0, m/s² | Fall acceleration when up is fixed. |
+| `jumpSpeed` | number | `5` | ≥ 0, m/s | Upward speed of a jump. |
+| `airControl` | number | `0.3` | ≥ 0, ≤ 1 | Steering in the air: the share of the way to the intended velocity per 1/60 s (0: none, 1: as on ground). |
+| `pushForce` | number | `200` | ≥ 0, N | Push on dynamic bodies it walks into, never faster than it walks. |
+| `layers` | integer | `1` | ≥ 0, ≤ 65535 | Bitmask: the collision layers the capsule is in. |
+| `mask` | integer | `65535` | ≥ 0, ≤ 65535 | Bitmask: the layers it collides with. |
+| `alignRotation` | boolean | `true` |  | Turn the entity so its +Y matches up, keeping its heading. |
+
+## `physics/CharacterIntent`
+
+What a character wants to do, written by games, input, or AI each frame.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `move` | number[3] | `[0,0,0]` | m/s | Desired walking velocity in the character’s frame: x right, -z forward (y is ignored; jump instead). |
+| `jump` | boolean | `false` |  | Jump at the next step on the ground. The controller clears it when the jump happens. |
+
+## `physics/CharacterState`
+
+What the character controller did at the last step. Read-only.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `grounded` | boolean | `false` |  | Standing on walkable ground. |
+| `groundNormal` | number[3] | `[0,1,0]` |  | Normal of the ground under the character (up while airborne). |
+| `groundEntity` | null or integer or string | `null` |  | The body (or fixed collider) the character stands on. |
+| `velocity` | number[3] | `[0,0,0]` | m/s | World-space velocity. |
+| `up` | number[3] | `[0,1,0]` |  | The character’s up. |
+| `airTime` | number | `0` | s | Seconds since last grounded. |
+
 ## `physics/Collider`
 
 A collision shape. Uses the entity’s world transform (scale included). Without a RigidBody on it or an ancestor, it is fixed.
@@ -114,7 +159,7 @@ A one-off push: a jump, an explosion, a hit.
 
 ## `physics/GravitySource`
 
-Point gravity toward the entity (a planet). Pulls dynamic bodies and sets character up.
+Point gravity toward the entity (a planet). Pulls dynamic bodies and sets character up (CharacterController up: gravity).
 
 Brings along: `core/Transform`.
 
