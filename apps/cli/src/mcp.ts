@@ -148,6 +148,16 @@ export const TOOLS: Tool[] = [
     'Changes component fields on an entity; unspecified fields keep their values, null removes a component. All values are validated first; nothing changes if any is invalid. Example: { "entity": "ship", "components": { "core/Transform": { "translation": [0, 5, 0] } } }.',
   ),
   forward('despawn_entity', 'entity.despawn', 'Despawns an entity and (by default) its children.'),
+  forward(
+    'spawn_prefab',
+    'prefab.spawn',
+    'Spawns a prefab instance into the running game. Returns the root id and its generated entities by path. Example: { "prefab": "prefabs/ship.prefab.json", "transform": { "translation": [0, 5, 0] }, "overrides": { "Exhaust": { "particles/ParticleSystem": { "timeScale": 2 } } } }.',
+  ),
+  forward(
+    'prefab_overrides',
+    'prefab.overrides',
+    'What an instance changed from its prefab (or model), as the overrides a scene save would write. Patch generated entities (e.g. "player-ship/Exhaust") with patch_entity, then check here before save_scene.',
+  ),
   {
     name: 'step',
     description:

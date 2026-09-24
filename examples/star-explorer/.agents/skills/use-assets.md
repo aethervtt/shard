@@ -11,7 +11,8 @@
 6. Look before you place: MCP `preview_asset` renders a texture, a material, or a model.
 
 Models: place a .glb/.gltf with `"scene/SceneInstance": { "scene": { "path": "assets/ship.glb#Scene" } }`;
-its nodes become children you can address by path (`ship/Hull`).
+its nodes become children you can address by path (`ship/Hull`), changed per placement with
+`overrides` (see make-a-prefab.md). Reusable entity trees are prefabs (`prefabs/*.prefab.json`).
 
 Textures: a texture's `usage` setting says what it holds: `color` (albedo, emissive; sRGB),
 `data` (roughness, metallic, occlusion; linear), `normal` (tangent-space normal map), `hdr`.

@@ -142,7 +142,7 @@ export interface AssetInfo {
 
 export interface AssetServerOptions {
   platform: Platform
-  /** Project folders to import from. Default `["assets", "materials", "data"]`. */
+  /** Project folders to import from. Default `["assets", "materials", "data", "prefabs"]`. */
   roots?: readonly string[]
   /** Default `.shard/cache`. */
   cacheDir?: string
@@ -200,7 +200,7 @@ function subPath(path: string, label: string): string {
 export class AssetServer {
   readonly world: World
   private platform: Platform | undefined
-  private roots: readonly string[] = ['assets', 'materials', 'data']
+  private roots: readonly string[] = ['assets', 'materials', 'data', 'prefabs']
   private cacheDir = '.shard/cache'
   private catalogPath = '.shard/catalog.json'
   private readonly sources = new Map<string, SourceRecord>()
@@ -291,6 +291,18 @@ export class AssetServer {
     return entry
   }
 
+  /**
+   * Replaces a virtual asset's contents (registering it if new) and reloads it in place, like a hot
+   * reload of a file: listeners get a 'modified' event.
+   */
+  updateVirtual(guid: string, path: string, type: string, create: () => unknown): AssetEntry {
+    const entry = this.entries.get(guid)
+    if (!entry) return this.virtual(guid, path, type, create)
+    this.virtuals.set(guid, create)
+    this.loadVirtual(entry, entry.state === 'loaded')
+    return entry
+  }
+
   // --- loading ---------------------------------------------------------------
 
   /** Loads an asset (and its dependencies). Resolves once it's in its store; rejects if it failed. */
@@ -343,7 +355,7 @@ export class AssetServer {
     await Promise.allSettled([...refs].map((r) => this.load(r)))
   }
 
-  private loadVirtual(entry: AssetEntry): void {
+  private loadVirtual(entry: AssetEntry, reload = false): void {
     const type = findAssetType(entry.type)
     const create = this.virtuals.get(entry.guid)!
     try {
@@ -352,7 +364,7 @@ export class AssetServer {
       entry.state = 'loaded'
       entry.error = undefined
       entry.version++
-      this.emit(entry, 'loaded')
+      this.emit(entry, reload ? 'modified' : 'loaded')
     } catch (err) {
       entry.state = 'failed'
       entry.error = err instanceof ShardError ? err : toShardError(errorJson(err, entry.path))

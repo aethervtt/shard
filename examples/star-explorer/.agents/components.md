@@ -604,13 +604,34 @@ Brings along: `render/Mesh3d`.
 | `start` | number | `0` | ≥ 0, m | Hidden when the camera is closer than this. |
 | `end` | number | `100` | ≥ 0, m | Hidden at this distance from the camera and beyond (shadows too). |
 
+## `scene/InstancePart`
+
+Set on entities a SceneInstance or PrefabInstance spawned.
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `instance` | null or integer or string | `null` |  | The instance entity that generated this one. |
+| `path` | string | `""` |  | Path relative to the instance, e.g. "Hull/Cockpit". |
+
+## `scene/PrefabInstance`
+
+Makes this entity an instance of a prefab. The prefab root's components merge into it (fields the entity sets win) and the root's children spawn under it, addressable by path (player-ship/Exhaust). Changes to the children are saved as overrides.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `prefab` | null or asset ref | `null` |  | The prefab to place, e.g. { "path": "prefabs/ship.prefab.json" }. |
+| `overrides` | any | `{}` |  | Changes to generated entities by path relative to this entity: { "Exhaust": { "particles/ParticleSystem": { "timeScale": 2 } } } sets fields, { "Hull/Antenna": null } removes an entity, { "Exhaust/particles/ParticleEmitterOverrides": null } removes a component. Paths reach into nested instances. |
+
 ## `scene/SceneInstance`
 
-Spawns a scene asset (a model's node tree) as children, addressable by path (ship/Hull). The children are generated: saving writes only this entity, and they respawn when the asset changes.
+Spawns a scene asset (a model's node tree) as children, addressable by path (ship/Hull). The children are generated: saving writes only this entity and its overrides, and they respawn when the asset changes.
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `scene` | null or asset ref | `null` |  | The scene to place, e.g. { "path": "assets/ship.glb#Scene" }. |
+| `overrides` | any | `{}` |  | Changes to generated entities by path relative to this entity: { "Exhaust": { "particles/ParticleSystem": { "timeScale": 2 } } } sets fields, { "Hull/Antenna": null } removes an entity, { "Exhaust/particles/ParticleEmitterOverrides": null } removes a component. Paths reach into nested instances. |
 
 ## `scene/SceneMember`
 

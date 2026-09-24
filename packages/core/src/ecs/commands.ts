@@ -23,7 +23,8 @@ export class Commands {
   private readonly targets: Entity[] = []
   private readonly defs: (ComponentDef | undefined)[] = []
   private readonly payloads: unknown[] = []
-  private readonly world: World
+  /** The world the commands apply to. */
+  readonly world: World
 
   constructor(world: World) {
     this.world = world

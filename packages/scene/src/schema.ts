@@ -1,6 +1,6 @@
 import { allComponents, ChildOf, type JsonSchema } from '@shard/core'
 import { StandardMaterial } from '@shard/render'
-import { SCENE_VERSION } from './format'
+import { PREFAB_VERSION, SCENE_VERSION } from './format'
 import { PROCEDURAL_MESHES } from './procedural'
 
 /**
@@ -75,5 +75,55 @@ export function sceneJsonSchema(): JsonSchema {
         },
       },
     },
+  }
+}
+
+/**
+ * JSON Schema for prefab files: a root entity (the scene schema's entity), or a variant with
+ * "extends", "rootComponents", "overrides", and "children". Written to `.shard/schemas/`.
+ */
+export function prefabJsonSchema(): JsonSchema {
+  const scene = sceneJsonSchema()
+  const props = scene.properties as Record<string, JsonSchema>
+  const components = { $ref: '#/$defs/entity/properties/components' }
+  const patch = { anyOf: [{ type: 'null' }, { type: 'object' }] }
+  return {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    title: 'Shard prefab',
+    type: 'object',
+    required: ['version'],
+    additionalProperties: false,
+    properties: {
+      $schema: { type: 'string' },
+      version: { const: PREFAB_VERSION },
+      assets: props.assets!,
+      root: { $ref: '#/$defs/entity' },
+      extends: {
+        type: 'object',
+        description: 'Variants: the base prefab, e.g. { "path": "prefabs/ship.prefab.json" }.',
+        properties: { guid: { type: 'string' }, path: { type: 'string' } },
+        additionalProperties: false,
+        minProperties: 1,
+      },
+      rootComponents: {
+        ...components,
+        description: "Variants: fields set on the base's root components (added if missing).",
+      },
+      overrides: {
+        type: 'object',
+        description:
+          'Variants: changes to the base\'s entities by path from the root. { "Hull": { "<component>": { fields } } } sets fields, { "Hull/Antenna": null } removes an entity, { "Hull/<component>": null } removes a component.',
+        additionalProperties: {
+          anyOf: [{ type: 'null' }, { type: 'object', additionalProperties: patch }],
+        },
+      },
+      children: {
+        type: 'array',
+        description: 'Variants: extra children under the root.',
+        items: { $ref: '#/$defs/entity' },
+      },
+    },
+    oneOf: [{ required: ['root'] }, { required: ['extends'] }],
+    $defs: scene.$defs,
   }
 }

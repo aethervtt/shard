@@ -1,4 +1,47 @@
-export { SCENE_VERSION, type SceneAsset, type SceneEntity, type SceneFile } from './format'
+export {
+  InstancePart,
+  PrefabAssets,
+  PrefabAssetType,
+  PrefabInstance,
+  SceneAssets,
+  SceneAssetType,
+  SceneIndex,
+  SceneInstance,
+  SceneMember,
+} from './components'
+export {
+  type Overrides,
+  PREFAB_VERSION,
+  type PrefabFile,
+  SCENE_VERSION,
+  type SceneAsset,
+  type SceneEntity,
+  type SceneFile,
+} from './format'
+export {
+  currentOverrides,
+  instanceEntities,
+  instanceOf,
+  loadInstanceAssets,
+  loadPrefab,
+  mergeOverridesIntoPrefab,
+  prefabOfInstance,
+  releaseSceneHooks,
+  ScenePlugin,
+  type SpawnPrefabOptions,
+  sceneInstancesSystem,
+  spawnPrefab,
+  updateInstances,
+} from './instances'
+export {
+  applyToPrefab,
+  applyVariant,
+  type PrefabFiles,
+  PrefabImporter,
+  registeredPrefab,
+  registerPrefab,
+  validatePrefab,
+} from './prefab-file'
 export { PROCEDURAL_MESHES, type ProceduralRef, parseProcedural } from './procedural'
 export {
   addSceneReadyCheck,
@@ -7,21 +50,12 @@ export {
   type LoadedSceneHandle,
   loadScene,
   pathOfEntity,
-  releaseSceneHooks,
   reloadScene,
-  SceneAssets,
-  SceneAssetType,
-  SceneIndex,
-  SceneInstance,
-  SceneMember,
-  ScenePlugin,
   saveScene,
-  sceneInstancesSystem,
   stringifyScene,
   unloadScene,
-  updateSceneInstances,
   validateScene,
   whenSceneReady,
   worldSchemaContext,
 } from './scene'
-export { sceneJsonSchema } from './schema'
+export { prefabJsonSchema, sceneJsonSchema } from './schema'

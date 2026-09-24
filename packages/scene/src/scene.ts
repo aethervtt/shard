@@ -1,61 +1,32 @@
-import { AssetStore, assetServer, defineAssetType } from '@shard/assets'
+import { assetServer } from '@shard/assets'
 import {
   type AssetRef,
   ChildOf,
   type ComponentDef,
-  defineComponent,
-  defineResource,
-  defineSystem,
   type Entity,
   findComponent,
   findResource,
   isPlainObject,
   type JsonValue,
-  onAdd,
-  onRemove,
-  onSet,
-  PreUpdate,
   pointer,
   quat,
   type ResolvedAsset,
   type SchemaContext,
   ShardError,
-  t,
   type World,
 } from '@shard/core'
 import { Materials, Meshes, materialFromJson, validateMaterial } from '@shard/render'
-import type { Plugin } from '@shard/runtime'
-import { SCENE_VERSION, type SceneEntity, type SceneFile } from './format'
+import {
+  InstancePart,
+  type LoadedScene,
+  PrefabInstance,
+  SceneIndex,
+  SceneInstance,
+  SceneMember,
+} from './components'
+import { SCENE_VERSION, type SceneAsset, type SceneEntity, type SceneFile } from './format'
+import { currentOverrides, hookInstances, settleInstances, validateInstance } from './instances'
 import { PROCEDURAL_MESHES, parseProcedural } from './procedural'
-
-/** Marks entities that came from a scene file. */
-export const SceneMember = defineComponent(
-  'scene/SceneMember',
-  {
-    scene: t.string({ description: 'Id of the scene this entity was loaded from.' }),
-    path: t.string({ description: 'Path within the scene, e.g. "ship/camera".' }),
-  },
-  { description: 'Set by the scene loader.', serialize: false },
-)
-
-interface LoadedScene {
-  id: string
-  file: SceneFile
-  /** Paths in file order (depth-first), and their entities. */
-  order: string[]
-  entities: Map<string, Entity>
-  authored: Map<Entity, SceneEntity>
-  /** Serialized component values right after load, to tell which fields changed since. */
-  loaded: Map<Entity, Map<string, Record<string, JsonValue>>>
-  loadedResources: Map<string, JsonValue>
-  /** Guids of every asset the scene referenced, requested at load. */
-  assets: Set<string>
-}
-
-export const SceneIndex = defineResource<Map<string, LoadedScene>>('scene/Index', {
-  description: 'Loaded scenes: paths, entities, and what was authored.',
-  init: () => new Map(),
-})
 
 export interface LoadedSceneHandle {
   id: string
@@ -63,219 +34,10 @@ export interface LoadedSceneHandle {
   entities: ReadonlyMap<string, Entity>
 }
 
-// --- scene assets and instances --------------------------------------------------
-
-/** Scene files loaded as assets (a glTF's node tree, later prefabs), by guid. */
-export const SceneAssets = defineResource<AssetStore<SceneFile, 'Scene'>>('scene/SceneAssets', {
-  description: 'Scene assets (node trees) by guid.',
-  init: () => new AssetStore('Scene'),
-})
-
-/**
- * Scene assets. References inside them written as `#Label` point at sibling sub-assets of the same
- * source; they're resolved against the source's current path at load, so moving the file is safe.
- */
-export const SceneAssetType = defineAssetType<SceneFile>('Scene', {
-  store: SceneAssets,
-  load: (artifact, ctx) => {
-    const base = ctx.path.split('#')[0]!
-    const resolve = (value: unknown): unknown => {
-      if (Array.isArray(value)) return value.map(resolve)
-      if (!value || typeof value !== 'object') return value
-      const out: Record<string, unknown> = {}
-      for (const [k, v] of Object.entries(value)) {
-        out[k] =
-          k === 'path' && typeof v === 'string' && v.startsWith('#') ? `${base}${v}` : resolve(v)
-      }
-      return out
-    }
-    return resolve(artifact.json) as SceneFile
-  },
-})
-
-/** Places a scene asset (e.g. `assets/ship.glb#Scene`) as generated children of this entity. */
-export const SceneInstance = defineComponent(
-  'scene/SceneInstance',
-  {
-    scene: t.handle('Scene', {
-      description: 'The scene to place, e.g. { "path": "assets/ship.glb#Scene" }.',
-    }),
-  },
-  {
-    description:
-      "Spawns a scene asset (a model's node tree) as children, addressable by path (ship/Hull). The children are generated: saving writes only this entity, and they respawn when the asset changes.",
-  },
-)
-
-interface InstanceState {
-  guid: string
-  version: number
-  roots: Entity[]
-  paths: string[]
-  sceneId: string | undefined
-}
-
-const Instances = defineResource<Map<Entity, InstanceState>>('scene/Instances', {
-  description: 'Spawned SceneInstance children, to respawn on asset changes.',
-  init: () => new Map(),
-})
-
-/** Per world: undoes the asset-server listener (so short-lived worlds, like previews, don't leak). */
-const hooked = new WeakMap<World, () => void>()
-/** Worlds with instances added or changed since the last update (the per-frame system skips the rest). */
-const dirty = new WeakSet<World>()
-
-/** Respawns instances when their scene asset reloads, even between frames. Installed once per world. */
-function hookInstances(world: World): void {
-  if (hooked.has(world)) return
-  const off = assetServer(world).onEvent((e) => {
-    if (e.kind !== 'loaded' && e.kind !== 'modified') return
-    if (assetServer(world).entry(e.guid)?.type === 'Scene') updateSceneInstances(world)
-  })
-  hooked.set(world, off)
-  world.observe(onAdd(SceneInstance), () => void dirty.add(world))
-  world.observe(onSet(SceneInstance), () => void dirty.add(world))
-  world.observe(onRemove(SceneInstance), () => void dirty.add(world))
-}
-
-/** Detaches a world's scene hooks from its asset server (for worlds that share another's server). */
-export function releaseSceneHooks(world: World): void {
-  hooked.get(world)?.()
-  hooked.delete(world)
-}
-
-/** Spawns instances added at runtime (e.g. by `entity.spawn`). Does nothing on frames without changes. */
-export const sceneInstancesSystem = defineSystem({
-  name: 'scene/instances',
-  description: 'Spawns and respawns SceneInstance children.',
-  run: (_, world) => {
-    if (!dirty.has(world)) return
-    dirty.delete(world)
-    updateSceneInstances(world)
-  },
-})
-
-/** Scene support for apps: spawns SceneInstance children added while the app runs. */
-export const ScenePlugin: Plugin = {
-  name: 'scene',
-  build(app) {
-    hookInstances(app.world)
-    app.addSystems(PreUpdate, sceneInstancesSystem)
-  },
-}
-
-/**
- * Spawns the children of every SceneInstance whose scene asset is loaded (requesting it otherwise),
- * respawns those whose asset changed, and cleans up after removed instances.
- */
-export function updateSceneInstances(world: World): void {
-  hookInstances(world)
-  dirty.delete(world)
-  const server = assetServer(world)
-  const states = world.initResource(Instances)
-  for (const [entity, state] of [...states]) {
-    if (world.isAlive(entity) && world.has(entity, SceneInstance)) continue
-    despawnInstance(world, state)
-    states.delete(entity)
-  }
-  const todo: [Entity, SceneFile, { guid: string; version: number }][] = []
-  const q = world.query({ with: [SceneInstance] })
-  for (const table of q.tables) {
-    const refs = table.column(SceneInstance, 'scene')
-    for (let i = 0; i < table.count; i++) {
-      const ref = refs[i]
-      const entity = table.entities[i]! as Entity
-      const entry = ref ? server.entry(ref) : undefined
-      if (!entry) continue
-      if (entry.state === 'unloaded') {
-        server.request(entry.guid)
-        continue
-      }
-      if (entry.state !== 'loaded') continue
-      const state = states.get(entity)
-      if (state && state.guid === entry.guid && state.version === entry.version) continue
-      const file = world.resource(SceneAssets).byGuid(entry.guid)
-      if (file) todo.push([entity, file, entry])
-    }
-  }
-  for (const [entity, file, entry] of todo) {
-    const old = states.get(entity)
-    if (old) despawnInstance(world, old)
-    states.set(entity, instantiate(world, file, entity, entry))
-  }
-}
-
-/** Waits for instance scene assets to load and spawns them (repeatedly, for nested instances). */
-async function settleInstances(world: World): Promise<void> {
-  const server = assetServer(world)
-  for (let round = 0; round < 8; round++) {
-    updateSceneInstances(world)
-    const pending: string[] = []
-    const q = world.query({ with: [SceneInstance] })
-    for (const table of q.tables) {
-      const refs = table.column(SceneInstance, 'scene')
-      for (let i = 0; i < table.count; i++) {
-        const entry = refs[i] ? server.entry(refs[i]!) : undefined
-        if (entry && (entry.state === 'loading' || entry.state === 'unloaded'))
-          pending.push(entry.guid)
-      }
-    }
-    if (pending.length === 0) return
-    await server.whenSettled(pending)
-  }
-}
-
-function despawnInstance(world: World, state: InstanceState): void {
-  for (const root of state.roots) if (world.isAlive(root)) world.despawn(root)
-  const scene =
-    state.sceneId === undefined ? undefined : world.tryResource(SceneIndex)?.get(state.sceneId)
-  if (scene) for (const path of state.paths) scene.entities.delete(path)
-}
-
-function instantiate(
-  world: World,
-  file: SceneFile,
-  parent: Entity,
-  entry: { guid: string; version: number },
-): InstanceState {
-  const member = world.tryGet(parent, SceneMember)
-  const scene = member ? world.tryResource(SceneIndex)?.get(member.scene) : undefined
-  const flat: FlatEntity[] = []
-  flatten(file.entities, '/entities', undefined, flat)
-  const local = new Map<string, Entity>()
-  for (const f of flat) local.set(f.path, world.reserveEntity())
-  const ctx: SchemaContext = {
-    resolveAsset: resolveAssets(world, file, member?.scene ?? 'instance', 'create', scene?.assets),
-    resolveEntity: (path) => local.get(path),
-  }
-  const roots: Entity[] = []
-  const paths: string[] = []
-  for (const f of flat) {
-    const entity = local.get(f.path)!
-    const inits: [ComponentDef, Record<string, unknown>][] = []
-    for (const [name, raw] of Object.entries(f.entity.components ?? {})) {
-      const def = findComponent(name)
-      if (!def) continue
-      inits.push([def, def.deserialize(expandAliases(name, raw, '', undefined), ctx)])
-    }
-    const parentEntity = f.parent === undefined ? parent : local.get(f.parent)!
-    inits.push([ChildOf as ComponentDef, { parent: parentEntity }])
-    if (member) {
-      const path = `${member.path}/${f.path}`
-      inits.push([SceneMember as ComponentDef, { scene: member.scene, path }])
-      scene?.entities.set(path, entity)
-      paths.push(path)
-    }
-    world.spawnReserved(entity, inits)
-    if (f.parent === undefined) roots.push(entity)
-  }
-  return { guid: entry.guid, version: entry.version, roots, paths, sceneId: member?.scene }
-}
-
 // --- aliases -------------------------------------------------------------------
 
 /** Authoring-only fields: written in files, converted on load, written back when unchanged. */
-const ALIASES: Record<
+export const ALIASES: Record<
   string,
   Record<string, { field: string; decode(json: unknown): JsonValue }>
 > = {
@@ -291,7 +53,7 @@ const ALIASES: Record<
   },
 }
 
-function expandAliases(
+export function expandAliases(
   name: string,
   json: Record<string, JsonValue>,
   base: string,
@@ -335,9 +97,9 @@ function expandAliases(
 
 // --- asset resolution ----------------------------------------------------------
 
-function resolveAssets(
+export function resolveAssets(
   world: World,
-  file: SceneFile,
+  file: { assets?: Record<string, SceneAsset> },
   sceneId: string,
   mode: 'check' | 'create',
   requested?: Set<string>,
@@ -454,14 +216,14 @@ export function expandComponentAliases(
 
 // --- walking the file ----------------------------------------------------------
 
-interface FlatEntity {
+export interface FlatEntity {
   path: string
   parent: string | undefined
   entity: SceneEntity
   pointer: string
 }
 
-function flatten(
+export function flatten(
   entities: readonly SceneEntity[],
   base: string,
   parent: string | undefined,
@@ -475,7 +237,7 @@ function flatten(
   })
 }
 
-function rebase(err: ShardError, base: string): ShardError {
+export function rebase(err: ShardError, base: string): ShardError {
   return new ShardError(
     err.code,
     err.message.replace(/ at \/\S*/, ` at ${base}${err.path ?? ''}`),
@@ -486,7 +248,7 @@ function rebase(err: ShardError, base: string): ShardError {
   )
 }
 
-function componentDef(name: string): ComponentDef | undefined {
+export function componentDef(name: string): ComponentDef | undefined {
   try {
     return findComponent(name)
   } catch {
@@ -503,7 +265,6 @@ export function validateScene(
   options: { id?: string } = {},
 ): ShardError[] {
   const errors: ShardError[] = []
-  const checkedProcedural = new Set<string>()
   if (!isPlainObject(json)) {
     return [new ShardError('scene/invalid', 'A scene file must be a JSON object', { path: '' })]
   }
@@ -527,39 +288,7 @@ export function validateScene(
       )
     }
   }
-
-  if (file.assets !== undefined) {
-    if (!isPlainObject(file.assets))
-      errors.push(
-        new ShardError('schema/type-mismatch', '"assets" must be an object', { path: '/assets' }),
-      )
-    else {
-      for (const [name, entry] of Object.entries(file.assets)) {
-        const base = pointer('/assets', name)
-        if (entry?.type === 'Material') {
-          // The value may name a material type ("type": "my-game/Lava"); its schema validates it.
-          for (const e of validateMaterial(entry.value)) errors.push(rebase(e, `${base}/value`))
-        } else if (entry?.type === 'Mesh') {
-          try {
-            parseProcedural(entry.procedural, entry.params, base)
-          } catch (e) {
-            if (e instanceof ShardError) errors.push(e)
-          }
-        } else {
-          errors.push(
-            new ShardError(
-              'scene/invalid-asset',
-              `Asset "${name}" needs "type": "Material" or "Mesh"`,
-              {
-                path: base,
-                hint: 'Materials: { "type": "Material", "value": {...} }. Meshes: { "type": "Mesh", "procedural": "sphere", "params": {...} }.',
-              },
-            ),
-          )
-        }
-      }
-    }
-  }
+  validateAssetsBlock(file.assets, errors)
 
   if (file.resources !== undefined) {
     for (const [name, value] of Object.entries(file.resources ?? {})) {
@@ -588,7 +317,75 @@ export function validateScene(
 
   const flat: FlatEntity[] = []
   flatten(file.entities, '/entities', undefined, flat)
-  const paths = new Set<string>()
+  validateTree(world, file, flat, errors, { id: options.id ?? 'main' })
+  return dedupeErrors(errors)
+}
+
+/** Checks a file's `assets` block (scene-local materials and procedural meshes). */
+export function validateAssetsBlock(
+  assets: Record<string, SceneAsset> | undefined,
+  errors: ShardError[],
+): void {
+  if (assets === undefined) return
+  if (!isPlainObject(assets)) {
+    errors.push(
+      new ShardError('schema/type-mismatch', '"assets" must be an object', { path: '/assets' }),
+    )
+    return
+  }
+  for (const [name, entry] of Object.entries(assets)) {
+    const base = pointer('/assets', name)
+    if (entry?.type === 'Material') {
+      // The value may name a material type ("type": "my-game/Lava"); its schema validates it.
+      for (const e of validateMaterial(entry.value)) errors.push(rebase(e, `${base}/value`))
+    } else if (entry?.type === 'Mesh') {
+      try {
+        parseProcedural(entry.procedural, entry.params, base)
+      } catch (e) {
+        if (e instanceof ShardError) errors.push(e)
+      }
+    } else {
+      errors.push(
+        new ShardError(
+          'scene/invalid-asset',
+          `Asset "${name}" needs "type": "Material" or "Mesh"`,
+          {
+            path: base,
+            hint: 'Materials: { "type": "Material", "value": {...} }. Meshes: { "type": "Mesh", "procedural": "sphere", "params": {...} }.',
+          },
+        ),
+      )
+    }
+  }
+}
+
+export interface TreeOptions {
+  id: string
+  /**
+   * False when there's no catalog to check asset paths against (importing a prefab): only
+   * file-local `#name` refs are checked; the rest are checked when a scene using it validates.
+   */
+  catalog?: boolean
+  /** Entity paths that resolve besides the tree's own (a prefab's root is "."). */
+  extraPaths?: readonly string[]
+  /** A prefab tree: the first entity is the root, at path ".". */
+  root?: boolean
+  /** A variant: `#name` refs may name the base's assets, so missing ones aren't errors here. */
+  inheritsAssets?: boolean
+}
+
+/** Names, components, entity paths, and instance overrides of a flattened entity tree. */
+export function validateTree(
+  world: World,
+  file: { assets?: Record<string, SceneAsset> },
+  flat: readonly FlatEntity[],
+  errors: ShardError[],
+  options: TreeOptions,
+): void {
+  const checkedProcedural = new Set<string>()
+  const catalog = options.catalog ?? true
+  const paths = new Set<string>(options.extraPaths)
+  const prefab = options.root || options.extraPaths?.includes('.')
   for (const f of flat) {
     if (typeof f.entity?.name !== 'string' || f.entity.name === '' || f.entity.name.includes('/')) {
       errors.push(
@@ -614,7 +411,7 @@ export function validateScene(
   }
 
   const ctx: SchemaContext = {
-    resolveAsset: resolveAssets(world, file, options.id ?? 'main', 'check'),
+    resolveAsset: resolveAssets(world, file, options.id, 'check'),
     resolveEntity: (path) => (paths.has(path) ? 0 : undefined),
   }
   for (const f of flat) {
@@ -668,14 +465,19 @@ export function validateScene(
         continue
       }
       const expanded = expandAliases(name, raw as Record<string, JsonValue>, base, errors)
-      for (const e of def.validate(expanded, ctx)) errors.push(rebase(e, base))
+      const before = errors.length
+      for (const e of def.validate(expanded, ctx)) {
+        if (!catalog && isCatalogMiss(e, expanded)) continue
+        if (options.inheritsAssets && isLocalMiss(e, expanded)) continue
+        errors.push(rebase(e, base))
+      }
       for (const { name: field, field: type } of def.layout) {
         const value = expanded[field]
         if (type.kind === 'entity' && typeof value === 'string' && !paths.has(value)) {
           errors.push(
             new ShardError('scene/unknown-entity-path', `No entity at path "${value}"`, {
               path: pointer(base, field),
-              hint: `Paths join names with "/" from the top of the scene, e.g. "${[...paths][0] ?? 'ship/camera'}".`,
+              hint: `Paths join names with "/" from the top of the ${prefab ? 'prefab (its root is ".")' : 'scene'}, e.g. "${[...paths].find((p) => p !== '.') ?? 'ship/camera'}".`,
             }),
           )
         }
@@ -691,9 +493,32 @@ export function validateScene(
           }
         }
       }
+      if ((def === PrefabInstance || def === SceneInstance) && errors.length === before) {
+        validateInstance(world, def, expanded, base, f, errors, { catalog })
+      }
     }
   }
-  // A specific scene error beats the generic asset-not-found for the same field; drop duplicates.
+}
+
+/** An asset-not-found for a file-local `#name` ref. */
+function isLocalMiss(e: ShardError, json: Record<string, JsonValue>): boolean {
+  return e.code === 'schema/asset-not-found' && !isCatalogMiss(e, json)
+}
+
+/** An asset-not-found for a catalog path, which can't be checked without a catalog. */
+function isCatalogMiss(e: ShardError, json: Record<string, JsonValue>): boolean {
+  if (e.code !== 'schema/asset-not-found') return false
+  let value: unknown = json
+  for (const part of (e.path ?? '').split('/').slice(1)) {
+    const key = part.replaceAll('~1', '/').replaceAll('~0', '~')
+    value = isPlainObject(value) || Array.isArray(value) ? (value as never)[key] : undefined
+  }
+  const path = isPlainObject(value) ? value.path : undefined
+  return typeof path !== 'string' || !path.startsWith('#')
+}
+
+/** A specific scene error beats the generic asset-not-found for the same field; drop duplicates. */
+export function dedupeErrors(errors: ShardError[]): ShardError[] {
   const specific = new Set(
     errors
       .filter((e) => e.code.startsWith('scene/') && e.code !== 'scene/invalid')
@@ -851,7 +676,7 @@ export function pathOfEntity(world: World, entity: Entity): string | undefined {
 
 // --- save ----------------------------------------------------------------------
 
-function toJson(value: unknown): JsonValue {
+export function toJson(value: unknown): JsonValue {
   return JSON.parse(
     JSON.stringify(value, (_, v) =>
       ArrayBuffer.isView(v) ? Array.from(v as unknown as ArrayLike<number>) : v,
@@ -863,11 +688,14 @@ function structuredCloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value))
 }
 
-function equal(a: unknown, b: unknown): boolean {
+export function equal(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b)
 }
 
-function serializeComponents(world: World, entity: Entity): Map<string, Record<string, JsonValue>> {
+export function serializeComponents(
+  world: World,
+  entity: Entity,
+): Map<string, Record<string, JsonValue>> {
   const out = new Map<string, Record<string, JsonValue>>()
   for (const def of world.componentsOf(entity)) {
     if (!def.serializable || def === ChildOf) continue
@@ -891,6 +719,11 @@ export function saveScene(world: World, id: string): SceneFile {
     const authored = scene.authored.get(entity)!
     const loaded = scene.loaded.get(entity)!
     const current = serializeComponents(world, entity)
+    // An instance's generated children aren't written; what changed in them becomes its overrides.
+    for (const def of [PrefabInstance, SceneInstance]) {
+      const value = current.get(def.name)
+      if (value) value.overrides = currentOverrides(world, entity) ?? value.overrides!
+    }
     const out: Record<string, unknown> = {}
     for (const key of Object.keys(authored)) {
       if (key === 'name') out.name = authored.name
@@ -921,7 +754,7 @@ export function saveScene(world: World, id: string): SceneFile {
       out[name] = writeFields(name, authoredJson, loaded.get(name) ?? {}, now)
     }
     for (const [name, now] of current) {
-      if (name in authored || name === SceneMember.name) continue
+      if (name in authored || name === SceneMember.name || name === InstancePart.name) continue
       const before = loaded.get(name)
       if (before && equal(before, now)) continue // auto-added (required) and untouched
       out[name] = now

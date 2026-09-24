@@ -1,6 +1,6 @@
 # 0030 — Prefabs, overrides, and variants
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@shard/scene`, `@shard/assets`, `@shard/protocol`, `@shard/project`
 - **Depends on:** 0010, 0014, 0015
 
@@ -68,8 +68,17 @@ the same file spawns from code.
   every variant.
 - `prefabs` joins the default `assetRoots`. The importer is `prefab` (`.prefab.json`), producing a
   `Prefab` asset: the resolved, validated tree with its load dependencies.
+- A variant may also have `children` (added under the root) and its own `assets`; its entities may
+  use the base's `#name` assets.
 - Validation is the scene validator's (every error, with pointers into the file), plus
-  `prefab/cycle` for a prefab that contains or extends itself.
+  `prefab/cycle` for a prefab that contains or extends itself. Cycles fail at import (the importer
+  reads the prefabs a file places or extends), since a loading cycle would never settle.
+- Entity fields inside a prefab hold paths from the root (`"Hull/Cockpit"`); `"."` is the root.
+- A prefab root may itself be an instance (`scene/SceneInstance` of a model, plus gameplay
+  components): the model's tree becomes the prefab's children, and the instance component isn't
+  copied onto instances.
+- `registerPrefab(world, path, json)` registers a prefab without a file (tests, tools, the
+  playground). Registering the same path again is a hot reload.
 
 ### Instances and overrides
 
@@ -101,8 +110,13 @@ the same file spawns from code.
 - Authored `children` of the instance entity are ordinary scene entities next to the generated
   ones. A name clash is `prefab/duplicate-name`.
 - Paths go through nested instances: `Hull/Cockpit` reaches into the glTF scene inside the prefab.
+  Nested instances are inlined into the template when it compiles, so the whole tree is one
+  instance; its generated entities carry `scene/InstancePart { instance, path }`.
+- `#name` refs in overrides name the prefab's assets, so a prefab can carry a palette (`#gold`) that
+  overrides pick from.
 - Unknown paths and bad values are validation errors pointing into `overrides`, such as
-  `/entities/3/components/scene~1PrefabInstance/overrides/Hull~1Cockpit`.
+  `/entities/3/components/scene~1PrefabInstance/overrides/Hull~1Cockpit`. They need the prefab
+  loaded; `shard validate` loads them first (`loadInstanceAssets`).
 - `SceneInstance` gains the same `overrides` field for model instances.
 
 ### Spawning
@@ -117,13 +131,18 @@ const ship = spawnPrefab(world, 'prefabs/ship.prefab.json', {
   overrides: { Exhaust: { 'particles/ParticleSystem': { timeScale: 2 } } },
   parent,
 })
-cmd.spawnPrefab(ref, options)            // the same, deferred, for systems
+spawnPrefab(ctx.commands, ref, options)  // the same, deferred, for systems (root id returned now)
 await loadPrefab(world, ref)             // spawnPrefab needs the asset loaded
 ```
 
+`Commands` is core and can't know prefabs, so the deferred form takes the system's `Commands`
+instead of being a method on it (`Commands.world` is now public for this). Instances with overrides
+recompile only the entities their overrides touch.
+
 `spawnPrefab` on an unloaded prefab throws `prefab/not-loaded`, with a hint to preload it or use
 `PrefabInstance`, which waits. Runtime-spawned instances aren't scene members unless their parent
-is, and they're found by `PrefabInstance` queries like any other.
+is (then they get paths under it, not saved), and they're found by `PrefabInstance` queries like
+any other.
 
 ### Saving
 
@@ -136,7 +155,8 @@ so an untouched scene still saves byte for byte.
 
 When a prefab (or anything it depends on) reloads, each instance respawns its generated children
 from the new template and reapplies its overrides. Root components that came from the prefab are
-rewritten, and fields the instance overrides stay. An override whose path no longer exists is
+rewritten, and fields the instance overrides stay; so do root fields changed at runtime since the
+last write (a moving ship isn't teleported back when its prefab is saved). An override whose path no longer exists is
 kept in the file and reported as `prefab/stale-override` (a warning), so a rename in the prefab
 doesn't silently lose data.
 
@@ -153,7 +173,9 @@ doesn't silently lose data.
 - A generated skill, `make-a-prefab.md`: extract entities into a prefab, place it, override it,
   make a variant, spawn it from a system.
 - **Errors:** `prefab/not-loaded`, `prefab/cycle`, `prefab/unknown-path`, `prefab/duplicate-name`,
-  `prefab/stale-override`.
+  `prefab/stale-override`, plus `prefab/not-found`, `prefab/invalid`, `prefab/unknown-field`,
+  `prefab/unsupported-version`, `prefab/invalid-component`, `prefab/not-an-instance`, and
+  `prefab/read-only` (apply from a host that can't write files).
 
 ## Decisions
 
@@ -167,22 +189,27 @@ doesn't silently lose data.
 - **Templates, not JSON, at spawn time.** Deserialization and asset resolution happen once per
   prefab load, so spawning is a copy.
 - **Stale overrides are kept.** Losing authored data on a rename is worse than a warning.
+- **Nested instances are inlined.** One template per prefab, one instance per placement: paths,
+  saving, and hot reload don't have to follow instances inside instances.
+- **The save diff starts from the file's overrides.** Untouched overrides keep their order and
+  authored form, so an untouched scene saves byte for byte; a field set back to the prefab's value
+  drops out.
 
 ## Acceptance criteria
 
-- [ ] A scene with a prefab instance loads as authored: root components merged with the entity's
+- [x] A scene with a prefab instance loads as authored: root components merged with the entity's
       own, generated children addressable by path, authored children alongside (golden image).
-- [ ] Field overrides, added components, removed components, and removed entities all apply, at
+- [x] Field overrides, added components, removed components, and removed entities all apply, at
       any depth, including inside a nested glTF instance.
-- [ ] Patching `player-ship/Exhaust` through `entity.patch` and saving writes exactly that field
+- [x] Patching `player-ship/Exhaust` through `entity.patch` and saving writes exactly that field
       into `overrides`. Saving an untouched scene reproduces the file byte for byte.
-- [ ] A variant spawns as its base with its overrides. Editing the base file updates instances of
+- [x] A variant spawns as its base with its overrides. Editing the base file updates instances of
       the variant.
-- [ ] Editing a prefab file while running updates all instances within two frames, and each keeps
+- [x] Editing a prefab file while running updates all instances within two frames, and each keeps
       its overrides. A renamed child leaves a `prefab/stale-override` warning.
-- [ ] A prefab that extends or contains itself fails with `prefab/cycle`.
-- [ ] Spawning 1,000 instances of a 10-entity prefab takes under 20 ms (bench).
-- [ ] `prefab.apply` writes an instance's overrides into the prefab file, after which the
+- [x] A prefab that extends or contains itself fails with `prefab/cycle`.
+- [x] Spawning 1,000 instances of a 10-entity prefab takes under 20 ms (bench: 9.9 ms).
+- [x] `prefab.apply` writes an instance's overrides into the prefab file, after which the
       instance has no overrides and other instances pick up the change.
 
 ## Open questions

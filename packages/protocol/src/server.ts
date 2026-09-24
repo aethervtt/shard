@@ -47,13 +47,19 @@ import {
 } from '@shard/render'
 import { type App, AppControlResource, type LogEntry, LogResource, Time } from '@shard/runtime'
 import {
+  applyToPrefab,
+  currentOverrides,
   expandComponentAliases,
   findEntityByPath,
+  instanceEntities,
+  loadPrefab,
   loadScene,
+  type Overrides,
   pathOfEntity,
   reloadScene,
   SceneIndex,
   saveScene,
+  spawnPrefab,
   stringifyScene,
   validateScene,
   whenSceneReady,
@@ -824,6 +830,69 @@ export const METHODS: MethodDef[] = [
       }
       return file
     },
+  },
+  {
+    name: 'prefab.spawn',
+    description:
+      'Spawns a prefab instance (loading the prefab first). Returns the root entity and its generated entities by path relative to the root.',
+    params: s('PrefabSpawnParams', {
+      prefab: t.string({
+        required: true,
+        description: 'Prefab path or guid, e.g. "prefabs/ship.prefab.json".',
+      }),
+      transform: t.json({
+        description: 'Root Transform fields, e.g. { "translation": [0, 5, 0] }.',
+      }),
+      overrides: t.json({
+        description:
+          'Changes to generated entities: { "Exhaust": { "particles/ParticleSystem": { "timeScale": 2 } } }.',
+      }),
+      parent: t.entity({ description: 'Optional parent entity or path.' }),
+    }),
+    handler: async ({ world }, p) => {
+      await loadPrefab(world, p.prefab as string)
+      const transform = p.transform as Record<string, number[]> | null
+      const root = spawnPrefab(world, p.prefab as string, {
+        ...(transform ? { transform } : {}),
+        ...(p.overrides ? { overrides: p.overrides as Overrides } : {}),
+        ...(p.parent !== null && p.parent !== undefined
+          ? { parent: resolveEntity(world, p.parent) }
+          : {}),
+      })
+      return { root, paths: Object.fromEntries(instanceEntities(world, root)) }
+    },
+  },
+  {
+    name: 'prefab.overrides',
+    description:
+      "An instance's current differences from its prefab (or model), as the overrides a scene save would write.",
+    params: s('PrefabOverridesParams', { entity: entityRef() }),
+    handler: ({ world }, p) => {
+      const entity = resolveEntity(world, p.entity)
+      const overrides = currentOverrides(world, entity)
+      if (!overrides) {
+        throw new ShardError(
+          'prefab/not-an-instance',
+          `Entity ${JSON.stringify(p.entity)} isn't a spawned instance`,
+          {
+            hint: 'Pass the entity with scene/PrefabInstance or scene/SceneInstance, e.g. "player-ship".',
+          },
+        )
+      }
+      return { entity, overrides }
+    },
+  },
+  {
+    name: 'prefab.apply',
+    description:
+      "Apply to prefab: writes an instance's overrides into its prefab file and clears them. Every instance of the prefab picks up the change.",
+    params: s('PrefabApplyParams', { entity: entityRef() }),
+    handler: async ({ world, options }, p) =>
+      applyToPrefab(
+        world,
+        resolveEntity(world, p.entity),
+        options.platform?.fs.writable ? options.platform.fs : undefined,
+      ),
   },
   {
     name: 'asset.list',

@@ -370,3 +370,102 @@ describe('assets', () => {
     }
   })
 })
+
+describe('prefabs', () => {
+  it('spawns, reports overrides, saves a patched child as an override, and applies to the prefab', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const { createNodePlatform } = await import('@shard/platform-node')
+    const { assetServer } = await import('@shard/assets')
+    const { ScenePlugin } = await import('@shard/scene')
+    const root = mkdtempSync(join(tmpdir(), 'shard-protocol-prefabs-'))
+    const prefab = {
+      version: 1,
+      root: {
+        name: 'ship',
+        components: { 'core/Transform': {} },
+        children: [
+          { name: 'Hull', components: { 'core/Transform': { scale: [2, 1, 4] } } },
+          { name: 'Exhaust', components: { 'core/Transform': { translation: [0, 0, 2] } } },
+        ],
+      },
+    }
+    const sceneFile = {
+      version: 1,
+      entities: [
+        {
+          name: 'player-ship',
+          components: {
+            'core/Transform': { translation: [0, 5, 0] },
+            'scene/PrefabInstance': { prefab: { path: 'prefabs/ship.prefab.json' } },
+          },
+        },
+      ],
+    }
+    try {
+      mkdirSync(join(root, 'prefabs'), { recursive: true })
+      mkdirSync(join(root, 'scenes'), { recursive: true })
+      writeFileSync(join(root, 'prefabs/ship.prefab.json'), JSON.stringify(prefab))
+      writeFileSync(join(root, 'scenes/main.scene.json'), JSON.stringify(sceneFile))
+      const platform = createNodePlatform({ root, logTo: () => {} })
+      const own = new App().addPlugin(TransformPlugin, ScenePlugin)
+      await own.init()
+      await assetServer(own.world).configure({ platform }).scan()
+      const srv = createProtocolServer(own, { platform })
+      const req = async (method: string, params?: unknown) => {
+        const r = await srv.handle({ jsonrpc: '2.0', id: nextId++, method, params })
+        if (r!.error) throw new Error(`${method}: ${JSON.stringify(r!.error)}`)
+        return r!.result as never
+      }
+      await req('scene.load', { file: 'scenes/main.scene.json' })
+
+      await req('entity.patch', {
+        entity: 'player-ship/Exhaust',
+        components: { 'core/Transform': { translation: [0, 0, 3] } },
+      })
+      const saved = (await req('scene.save', { id: 'scenes/main.scene.json' })) as typeof sceneFile
+      expect(saved.entities[0]!.components['scene/PrefabInstance']).toEqual({
+        prefab: { path: 'prefabs/ship.prefab.json' },
+        overrides: { Exhaust: { 'core/Transform': { translation: [0, 0, 3] } } },
+      })
+      expect(await req('prefab.overrides', { entity: 'player-ship' })).toMatchObject({
+        overrides: { Exhaust: { 'core/Transform': { translation: [0, 0, 3] } } },
+      })
+
+      const spawned = (await req('prefab.spawn', {
+        prefab: 'prefabs/ship.prefab.json',
+        transform: { translation: [10, 0, 0] },
+        overrides: { Hull: { 'core/Transform': { scale: [1, 1, 1] } } },
+      })) as { root: number; paths: Record<string, number> }
+      expect(Object.keys(spawned.paths)).toEqual(['Hull', 'Exhaust'])
+      const hull = (await req('entity.get', { entity: spawned.paths.Hull })) as {
+        components: Record<string, { scale: number[] }>
+      }
+      expect(hull.components['core/Transform']!.scale).toEqual([1, 1, 1])
+
+      await req('prefab.apply', { entity: 'player-ship' })
+      const written = JSON.parse(readFileSync(join(root, 'prefabs/ship.prefab.json'), 'utf8'))
+      expect(written.root.children[1].components['core/Transform']).toEqual({
+        translation: [0, 0, 3],
+      })
+      expect(await req('prefab.overrides', { entity: 'player-ship' })).toMatchObject({
+        overrides: {},
+      })
+      // The runtime instance picked up the change too (its children respawned, with new ids).
+      const children = (await req('world.query', {
+        with: ['core/ChildOf', 'core/Transform'],
+        limit: 100,
+      })) as {
+        entities: { components: Record<string, { parent: number; translation: number[] }> }[]
+      }
+      const mine = children.entities.filter(
+        (e) => e.components['core/ChildOf']!.parent === spawned.root,
+      )
+      expect(mine.map((e) => e.components['core/Transform']!.translation)).toContainEqual([0, 0, 3])
+      srv.close()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})

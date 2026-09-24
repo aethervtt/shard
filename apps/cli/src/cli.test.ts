@@ -347,6 +347,8 @@ describe('MCP server', () => {
         'reload_project',
         'typecheck',
         'physics_raycast',
+        'spawn_prefab',
+        'prefab_overrides',
       ]),
     )
     expect(tools.find((t) => t.name === 'physics_raycast')!.inputSchema).toMatchObject({

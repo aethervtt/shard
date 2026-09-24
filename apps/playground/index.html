@@ -13,6 +13,7 @@
       button { font: inherit; color: inherit; background: #1a1f2b; border: 1px solid #2c3445; border-radius: 4px; padding: 3px 8px; cursor: pointer; }
       button:hover { background: #242b3a; }
       body:not([data-demo='galaxy']) [data-change] { display: none; }
+      body:not([data-demo='prefabs']) [data-prefab] { display: none; }
       nav { margin-top: 8px; opacity: 0.75; }
       nav a { color: inherit; margin-right: 10px; }
     </style>
@@ -26,7 +27,11 @@
       <button type="button" data-change="-10000">−10k</button>
       <button type="button" data-change="10000">+10k</button>
       <button type="button" data-change="50000">+50k</button>
-      <nav><a href="#scene">scene</a><a href="#galaxy">galaxy</a><a href="#lights">lights</a><a href="#ibl">ibl</a><a href="#sky">sky</a><a href="#deferred">deferred</a><a href="#crowd">crowd</a><a href="#post">post</a><a href="#sprites">sprites</a><a href="#particles">particles</a><a href="#physics">physics</a><a href="#planet">planet</a><a href="#physics2d">physics2d</a><a href="#character">character</a><a href="#character-planet">character-planet</a><a href="#character2d">character2d</a></nav>
+      <button type="button" data-prefab="spawn">1 spawn 500</button>
+      <button type="button" data-prefab="edit">2 edit prefab</button>
+      <button type="button" data-prefab="apply">3 apply drone-b</button>
+      <button type="button" data-prefab="reset">4 reset</button>
+      <nav><a href="#scene">scene</a><a href="#galaxy">galaxy</a><a href="#lights">lights</a><a href="#ibl">ibl</a><a href="#sky">sky</a><a href="#deferred">deferred</a><a href="#crowd">crowd</a><a href="#post">post</a><a href="#sprites">sprites</a><a href="#particles">particles</a><a href="#physics">physics</a><a href="#planet">planet</a><a href="#physics2d">physics2d</a><a href="#character">character</a><a href="#character-planet">character-planet</a><a href="#character2d">character2d</a><a href="#prefabs">prefabs</a></nav>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

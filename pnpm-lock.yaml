@@ -117,6 +117,9 @@ importers:
       '@shard/runtime':
         specifier: workspace:*
         version: link:../../packages/runtime
+      '@shard/scene':
+        specifier: workspace:*
+        version: link:../../packages/scene
       '@shard/sprite':
         specifier: workspace:*
         version: link:../../packages/sprite

@@ -51,6 +51,18 @@ Every engine error is a `ShardError` with one of these codes.
 | `physics/unsupported-shape` | @shard/physics | 2D shapes: ball, cuboid, capsule, convex, trimesh, heightfield, segment, polyline. |
 | `platform/fs-not-found` | @shard/platform-node |  |
 | `platform/fs-read-only` | @shard/platform-web | Writes need a writable host such as Studio or the CLI. |
+| `prefab/cycle` | @shard/scene | A prefab can’t contain or extend itself, directly or through others. |
+| `prefab/duplicate-name` | @shard/scene | Rename the child, or change the generated one with "overrides" instead. |
+| `prefab/invalid` | @shard/scene | Write { "version": 1, "root": { "name": "...", "components": {...}, "children": [...] } }, or a variant with "extends". |
+| `prefab/invalid-component` | @shard/scene |  |
+| `prefab/not-an-instance` | @shard/protocol | Pass the entity with scene/PrefabInstance or scene/SceneInstance, e.g. "player-ship". |
+| `prefab/not-found` | @shard/scene | Pass a *.prefab.json path under an asset root (run `shard import` for new files), or register one with registerPrefab. |
+| `prefab/not-loaded` | @shard/scene | Preload it with `await loadPrefab(world, path)`, or place it with scene/PrefabInstance, which waits for it to load. |
+| `prefab/read-only` | @shard/scene | Apply from the CLI or Studio, which can write the project folder. |
+| `prefab/stale-override` | @shard/scene | The prefab changed (a renamed or removed entity?). The override is kept in the file; fix or delete it. |
+| `prefab/unknown-field` | @shard/scene | A prefab has "root" (an entity), or "extends" plus "rootComponents", "overrides", and "children" (a variant). |
+| `prefab/unknown-path` | @shard/scene | Override paths are relative to the root, e.g. "Hull" or "Hull/Cockpit". |
+| `prefab/unsupported-version` | @shard/scene |  |
 | `project/bundle-failed` | @shard/node |  |
 | `project/entry-failed` | @shard/node | The entry must be a module whose default export is defineProject({...}). |
 | `project/entry-invalid` | @shard/node | End the file with `export default project`, where project = defineProject({...}). |

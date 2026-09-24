@@ -27,7 +27,7 @@ import {
   validateManifest,
 } from '@shard/project'
 import { DEFAULT_HUB_PORT } from '@shard/protocol'
-import { loadScene, validateScene } from '@shard/scene'
+import { loadInstanceAssets, loadScene, validatePrefab, validateScene } from '@shard/scene'
 import { Hub, localTarget, type ProtocolTarget } from './hub'
 import { createMcpServer } from './mcp'
 import { EXIT, errorJson, formatError, type Output } from './output'
@@ -134,12 +134,14 @@ export async function validate({ out, project }: CommandContext): Promise<number
     manifest: unknown[]
     assets: unknown[]
     scenes: Record<string, unknown[]>
+    prefabs: Record<string, unknown[]>
     warnings: string[]
   } = {
     valid: true,
     manifest: manifestErrors.map((e) => e.toJSON()),
     assets: [],
     scenes: {},
+    prefabs: {},
     warnings: [],
   }
   if (manifestErrors.length === 0) {
@@ -152,6 +154,16 @@ export async function validate({ out, project }: CommandContext): Promise<number
     for (const meta of scan.orphanedMetas) report.warnings.push(`${meta} has no source file`)
     for (const m of scan.moved)
       report.warnings.push(`${m.from} moved to ${m.to} without its .meta; references may be stale`)
+    const failed = new Set(scan.failed.map((f) => f.path))
+    // Instance overrides are checked against their prefab or model, so those load first.
+    for (const entry of assetServer(world).list({ type: 'Prefab' })) {
+      if (!entry.source || failed.has(entry.source)) continue // reported with the imports
+      const json = JSON.parse(await platform.fs.readText(entry.source))
+      await loadInstanceAssets(world, json)
+      report.prefabs[entry.source] = validatePrefab(world, json, { id: entry.source }).map((e) =>
+        e.toJSON(),
+      )
+    }
     for (const scene of await listScenes(project)) {
       let json: unknown
       try {
@@ -162,13 +174,15 @@ export async function validate({ out, project }: CommandContext): Promise<number
         ]
         continue
       }
+      await loadInstanceAssets(world, json)
       report.scenes[scene] = validateScene(world, json, { id: scene }).map((e) => e.toJSON())
     }
   }
   const problems =
     report.manifest.length +
     report.assets.length +
-    Object.values(report.scenes).reduce((n, e) => n + e.length, 0)
+    Object.values(report.scenes).reduce((n, e) => n + e.length, 0) +
+    Object.values(report.prefabs).reduce((n, e) => n + e.length, 0)
   report.valid = problems === 0
   const lines = [report.valid ? 'Valid.' : `${problems} problem(s):`]
   for (const e of report.manifest as { code: string; path?: string; message: string }[])
@@ -184,7 +198,10 @@ export async function validate({ out, project }: CommandContext): Promise<number
       `  ${e.source}${e.path && e.path !== e.source ? ` ${e.path}` : ''}: [${e.code}] ${e.message}${e.hint ? `\n      hint: ${e.hint}` : ''}`,
     )
   for (const w of report.warnings) lines.push(`  warning: ${w}`)
-  for (const [scene, errors] of Object.entries(report.scenes)) {
+  for (const [scene, errors] of [
+    ...Object.entries(report.prefabs),
+    ...Object.entries(report.scenes),
+  ]) {
     for (const e of errors as { code: string; path?: string; message: string; hint?: string }[]) {
       lines.push(
         `  ${scene}${e.path ?? ''}: [${e.code}] ${e.message}${e.hint ? `\n      hint: ${e.hint}` : ''}`,

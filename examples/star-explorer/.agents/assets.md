@@ -24,6 +24,12 @@ Files: `*.png`, `*.jpg`, `*.jpeg`, `*.webp`, `*.hdr`, `*.ktx2`
 | `flipY` | boolean | `false` |  | Flip vertically on import. |
 | `premultiplyAlpha` | boolean | `false` |  | Multiply color by alpha on import. |
 
+## `prefab`
+
+Files: `*.prefab.json`
+
+No import settings.
+
 ## `gltf`
 
 Files: `*.gltf`, `*.glb`
