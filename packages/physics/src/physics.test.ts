@@ -1,5 +1,5 @@
 import { type Entity, ProfilerResource, Rng, type World } from '@shard/core'
-import { plane, sphere } from '@shard/mesh'
+import { Mesh, plane, sphere } from '@shard/mesh'
 import { Meshes } from '@shard/render'
 import { App, FixedTime } from '@shard/runtime'
 import { Transform, TransformPlugin, transform2d, worldPosition } from '@shard/transform'
@@ -39,12 +39,11 @@ function pos(world: World, e: Entity): number[] {
   return [...world.get(e, Transform).translation]
 }
 
-function ground(world: World, dim: 2 | 3 = 3): Entity {
+function ground(world: World): Entity {
   return world.spawn(
     [RigidBody, { kind: 'fixed' }],
     [Collider, { shape: 'cuboid', halfExtents: [50, 0.5, 50] }],
     [Transform, { translation: [0, -0.5, 0] }],
-    ...(dim === 2 ? [] : []),
   )
 }
 
@@ -422,7 +421,7 @@ describe('physics 2d', () => {
 
   it('rolls a box on its Z rotation and rejects 3D-only shapes', async () => {
     const a = await app(2)
-    ground(a.world, 2)
+    ground(a.world)
     const box = a.world.spawn(
       [RigidBody, { kind: 'dynamic' }],
       [Collider, { shape: 'cuboid', halfExtents: [0.5, 0.5, 0] }],
@@ -437,5 +436,236 @@ describe('physics 2d', () => {
     expect(Math.abs(r[2])).toBeGreaterThan(0.1)
     expect(a.world.resource(Physics).colliders.has(cyl)).toBe(false)
     expect(a.world.resource(FixedTime).elapsed).toBeGreaterThan(0)
+  })
+
+  it('reports a sensor pass-through once as started and once as stopped', async () => {
+    const a = await app(2)
+    a.world.spawn(
+      [Collider, { shape: 'cuboid', halfExtents: [2, 0.5, 0], sensor: true, events: true }],
+      [Transform, { translation: [0, 5, 0] }],
+    )
+    const b = ball(a.world, [0, 8, 0])
+    const reader = a.world.reader(CollisionEvent)
+    const seen: CollisionEventData[] = []
+    for (let i = 0; i < 90; i++) {
+      a.update(DT)
+      seen.push(...reader.read())
+    }
+    expect(seen.map((e) => e.kind)).toEqual(['started', 'stopped'])
+    expect(seen.every((e) => e.sensor)).toBe(true)
+    expect([seen[0]!.bodyA, seen[0]!.bodyB]).toContain(b)
+  })
+
+  it('builds convex, heightfield, segment, and trimesh colliders', async () => {
+    const a = await app(2)
+    // A flat heightfield of 5 samples at height 1, spanning x in [-5, 5].
+    a.world.spawn(
+      [
+        Collider,
+        {
+          shape: 'heightfield',
+          halfExtents: [5, 1, 0],
+          heightfield: { rows: 1, cols: 5, heights: [1, 1, 1, 1, 1] },
+        },
+      ],
+      [Transform, {}],
+    )
+    const onField = ball(a.world, [0, 4, 0])
+    a.world.spawn(
+      [
+        Collider,
+        {
+          shape: 'segment',
+          points: [
+            [15, 0, 0],
+            [25, 0, 0],
+          ],
+        },
+      ],
+      [Transform, {}],
+    )
+    // A convex hexagon dropped on the segment.
+    const hex = a.world.spawn(
+      [RigidBody, { kind: 'dynamic' }],
+      [
+        Collider,
+        {
+          shape: 'convex',
+          points: Array.from({ length: 6 }, (_, i): [number, number, number] => [
+            Math.cos((i / 6) * Math.PI * 2) * 0.5,
+            Math.sin((i / 6) * Math.PI * 2) * 0.5,
+            0,
+          ]),
+        },
+      ],
+      [Transform, { translation: [20, 3, 0] }],
+    )
+    // A trimesh floor from a mesh's positions (x and y).
+    const meshes = a.world.initResource(Meshes)
+    const floor = Mesh.create({
+      positions: new Float32Array([-45, 0, 0, -35, 0, 0, -40, -1, 0]),
+      indices: new Uint32Array([0, 2, 1]),
+    })
+    a.world.spawn([Collider, { shape: 'trimesh', mesh: meshes.add(floor) }], [Transform, {}])
+    const onMesh = ball(a.world, [-40, 3, 0])
+    frames(a, 180)
+    expect(pos(a.world, onField)[1]).toBeCloseTo(1.5, 1)
+    expect(pos(a.world, onMesh)[1]).toBeCloseTo(0.5, 1)
+    expect(pos(a.world, hex)[1]).toBeCloseTo(0.43, 1) // on a flat side: a radius-0.5 hexagon is 0.43 tall to its flat
+    expect(pos(a.world, hex)[0]).toBeGreaterThan(15)
+  })
+
+  it('raycasts and overlaps in the plane, respecting masks', async () => {
+    const a = await app(2)
+    ground(a.world)
+    const high = a.world.spawn(
+      [Collider, { shape: 'cuboid', halfExtents: [1, 0.1, 0], layers: 2 }],
+      [Transform, { translation: [0, 5, 0] }],
+    )
+    frames(a, 1)
+    const p = a.world.resource(Physics)
+    const hit = createRayHit()
+    expect(p.raycast([0, 10], [0, -2], undefined, hit)).toBe(true)
+    expect(hit.entity).toBe(high)
+    expect(hit.distance).toBeCloseTo(4.9, 4)
+    expect([...hit.normal]).toEqual([0, 1, 0])
+    expect(p.raycast([0, 10], [0, -1], { mask: 1 }, hit)).toBe(true)
+    expect(hit.point[1]).toBeCloseTo(0, 4)
+    expect(p.raycastAll([0, 10], [0, -1]).map((h) => h.entity)[0]).toBe(high)
+    const found: Entity[] = []
+    p.overlapPoint([0.5, 5], undefined, (e) => {
+      found.push(e)
+      return true
+    })
+    expect(found).toEqual([high])
+    found.length = 0
+    p.overlapShape({ shape: 'ball', radius: 0.3 }, [0, 5.3], [0, 0, 0, 1], undefined, (e) => {
+      found.push(e)
+      return true
+    })
+    expect(found).toEqual([high])
+    expect(
+      p.shapeCast({ shape: 'ball', radius: 0.5 }, [0, 10], [0, 0, 0, 1], [0, -1], undefined, hit),
+    ).toBe(true)
+    expect(hit.entity).toBe(high)
+    expect(hit.distance).toBeCloseTo(4.4, 2)
+  })
+
+  it('keeps a revolute pendulum at its length, and a rope within its length', async () => {
+    const a = await app(2)
+    const pivot = a.world.spawn(
+      [RigidBody, { kind: 'fixed' }],
+      [Transform, { translation: [0, 5, 0] }],
+    )
+    const bob = ball(a.world, [2, 5, 0], { radius: 0.2 })
+    a.world.add(bob, Joint, { kind: 'revolute', other: pivot, anchor: [-2, 0, 0] })
+    const anchor = a.world.spawn(
+      [RigidBody, { kind: 'fixed' }],
+      [Transform, { translation: [10, 5, 0] }],
+    )
+    const hanging = ball(a.world, [10, 4, 0], { radius: 0.2 })
+    a.world.add(hanging, Joint, { kind: 'rope', other: anchor, limits: [0, 3] })
+    let lowest = 5
+    for (let i = 0; i < 120; i++) {
+      a.update(DT)
+      const [x, y] = pos(a.world, bob)
+      expect(Math.hypot(x!, y! - 5)).toBeCloseTo(2, 1)
+      lowest = Math.min(lowest, y!)
+    }
+    expect(lowest).toBeLessThan(3.1)
+    const [hx, hy] = pos(a.world, hanging)
+    expect(Math.hypot(hx! - 10, hy! - 5)).toBeCloseTo(3, 1) // fell until the rope went taut
+  })
+
+  it('pulls bodies toward a GravitySource from every side', async () => {
+    const a = await app(2, (x) => {
+      x.world.resource(PhysicsConfig).gravity = [0, 0, 0]
+    })
+    a.world.spawn(
+      [Collider, { shape: 'ball', radius: 5 }],
+      [GravitySource, { strength: 9.81, radius: 5 }],
+      [Transform, {}],
+    )
+    const bodies = [
+      [0, 10, 0],
+      [10, 0, 0],
+      [-7, -7, 0],
+      [0, -9, 0],
+    ].map((s) => ball(a.world, s as [number, number, number]))
+    frames(a, 240)
+    for (const b of bodies) {
+      const [x, y] = pos(a.world, b)
+      expect(Math.hypot(x!, y!)).toBeCloseTo(5.5, 1)
+    }
+  })
+
+  it('attaches child colliders to the ancestor body', async () => {
+    const a = await app(2)
+    ground(a.world)
+    const body = a.world.spawn(
+      [RigidBody, { kind: 'dynamic' }],
+      [Transform, { translation: [0, 3, 0] }],
+    )
+    const { ChildOf } = await import('@shard/core')
+    for (const x of [-1, 1]) {
+      const child = a.world.spawn(
+        [Collider, { shape: 'cuboid', halfExtents: [0.5, 0.5, 0] }],
+        [Transform, { translation: [x, 0, 0] }],
+      )
+      a.world.add(child, ChildOf, { parent: body })
+    }
+    frames(a, 120)
+    const p = a.world.resource(Physics)
+    expect([...p.colliderOwner.values()].filter((o) => o === body)).toHaveLength(2)
+    expect(pos(a.world, body)[1]).toBeCloseTo(0.5, 1)
+  })
+
+  it('applies forces, impulses, velocities, mass, and teleports', async () => {
+    const a = await app(2, (x) => {
+      x.world.resource(PhysicsConfig).gravity = [0, 0, 0]
+    })
+    const pushed = ball(a.world, [0, 0, 0])
+    a.world.add(pushed, Mass, { mass: 2 })
+    a.world.add(pushed, ExternalForce, { force: [4, 0, 0] })
+    const kicked = ball(a.world, [10, 0, 0])
+    a.world.add(kicked, Mass, { mass: 1 })
+    a.world.add(kicked, ExternalImpulse, { impulse: [0, 3, 0], torque: [0, 0, 0.5] })
+    frames(a, 60)
+    expect(a.world.resource(Physics).bodies.get(pushed)!.body.mass()).toBeCloseTo(2, 4)
+    expect(a.world.get(pushed, Velocity).linear[0]).toBeCloseTo(2, 1)
+    expect(a.world.get(kicked, Velocity).linear[1]).toBeCloseTo(3, 3)
+    expect(a.world.get(kicked, Velocity).angular[2]).toBeGreaterThan(0)
+    a.world.set(kicked, Velocity, { linear: [-1, 0, 0], angular: [0, 0, 0] })
+    a.world.set(kicked, Transform, { translation: [100, 0, 2] })
+    frames(a, 60)
+    const [x, y, z] = pos(a.world, kicked)
+    expect(x).toBeCloseTo(99, 1)
+    expect(y).toBeCloseTo(0, 3)
+    expect(z).toBe(2) // layer depth stays as written
+  })
+
+  it('replays exactly and interpolates on fast displays', async () => {
+    const run = async () => {
+      const a = await app(2)
+      ground(a.world)
+      const rng = new Rng(5)
+      const list = Array.from({ length: 60 }, () =>
+        ball(a.world, [rng.range(-3, 3), rng.range(1, 10), 0], { radius: rng.range(0.2, 0.5) }),
+      )
+      frames(a, 300)
+      return list.flatMap((e) => [...pos(a.world, e), ...a.world.get(e, Transform).rotation])
+    }
+    expect(await run()).toEqual(await run())
+    const a = await app(2, (x) => {
+      x.world.resource(PhysicsConfig).interpolate = true
+    })
+    const b = ball(a.world, [0, 100, 0])
+    frames(a, 30, 1 / 144)
+    const ys: number[] = []
+    for (let i = 0; i < 30; i++) {
+      a.update(1 / 144)
+      ys.push(pos(a.world, b)[1]!)
+    }
+    for (let i = 1; i < ys.length; i++) expect(ys[i]!).toBeLessThan(ys[i - 1]!)
   })
 })

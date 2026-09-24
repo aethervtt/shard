@@ -1,6 +1,6 @@
 import { ShardError } from '@shard/core'
 import { particlesPlugin } from '@shard/particles'
-import { physics3dPlugin } from '@shard/physics'
+import { physics2dPlugin, physics3dPlugin } from '@shard/physics'
 import { connectToHub, createProtocolServer, DEFAULT_HUB_PORT } from '@shard/protocol'
 import { describeRender, forwardPlugin, renderPlugin } from '@shard/render'
 import { App, animationFrameRunner } from '@shard/runtime'
@@ -14,7 +14,7 @@ import { galaxyPlugin, Population } from './galaxy'
 import { applyResolution, hudPlugin } from './hud'
 import { lightsPlugin } from './lights'
 import { particlesDemoPlugin } from './particles'
-import { physicsDemoPlugin, planetDemoPlugin } from './physics'
+import { physics2dDemoPlugin, physicsDemoPlugin, planetDemoPlugin } from './physics'
 import { postPlugin } from './post'
 import { scenePlugin } from './scene'
 import { spritesPlugin } from './sprites'
@@ -34,6 +34,7 @@ const DEMOS = [
   'particles',
   'physics',
   'planet',
+  'physics2d',
 ] as const
 const demo = DEMOS.find((d) => location.hash === `#${d}`) ?? 'scene'
 document.body.dataset.demo = demo
@@ -70,6 +71,8 @@ if (demo === 'galaxy') {
     hudPlugin,
     demo === 'physics' ? physicsDemoPlugin : planetDemoPlugin,
   )
+} else if (demo === 'physics2d') {
+  app.addPlugin(TransformPlugin, forwardPlugin(), physics2dPlugin, hudPlugin, physics2dDemoPlugin)
 } else if (demo === 'sky') {
   app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, skyPlugin)
 } else {

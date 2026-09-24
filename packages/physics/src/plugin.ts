@@ -839,8 +839,11 @@ function drawCollider(
       }
       return
     }
+    case 'heightfield':
+      drawHeightfield(p, g, collider, color)
+      return
     default: {
-      // Meshes, hulls, heightfields, polylines: their edges from Rapier's own vertices.
+      // Meshes, hulls, polylines: their edges from Rapier's own vertices.
       const vertices = collider.vertices?.() as Float32Array | undefined
       const indices = collider.indices?.() as Uint32Array | undefined
       if (!vertices || vertices.length === 0) return
@@ -862,7 +865,64 @@ function drawCollider(
       } else {
         const n = vertices.length / d
         for (let i = 0; i + 1 < n; i++) edge(i, i + 1)
+        // A 2D convex polygon comes as its outline; close it.
+        if (shape === 'convex' && n > 2) edge(n - 1, 0)
       }
+    }
+  }
+}
+
+/** A heightfield from Rapier's heights: the profile in 2D, a grid of lines in 3D. */
+function drawHeightfield(
+  p: PhysicsWorld,
+  g: Gz,
+  collider: RCollider,
+  color: ArrayLike<number>,
+): void {
+  const hf = collider as unknown as {
+    heightfieldHeights(): Float32Array
+    heightfieldScale(): { x: number; y: number; z?: number }
+    heightfieldNRows(): number
+    heightfieldNCols(): number
+  }
+  const heights = hf.heightfieldHeights()
+  const scale = hf.heightfieldScale()
+  if (p.dim === 2) {
+    const n = heights.length
+    for (let i = 0; i < n; i++) {
+      local(pb, (i / (n - 1) - 0.5) * scale.x, heights[i]! * scale.y, 0)
+      if (i > 0) g.line(pa, pb, color)
+      pa[0] = pb[0]!
+      pa[1] = pb[1]!
+      pa[2] = pb[2]!
+    }
+    return
+  }
+  // Rows run along Z and columns along X; heights are column-major, (nrows + 1) × (ncols + 1).
+  const rows = hf.heightfieldNRows() + 1
+  const cols = hf.heightfieldNCols() + 1
+  const sz = scale.z ?? 1
+  const at = (out: Float64Array, r: number, c: number) =>
+    local(
+      out,
+      (c / (cols - 1) - 0.5) * scale.x,
+      heights[c * rows + r]! * scale.y,
+      (r / (rows - 1) - 0.5) * sz,
+    )
+  // Dense fields draw every n-th line so the overlay stays readable.
+  const step = Math.max(1, Math.ceil(Math.max(rows, cols) / 64))
+  for (let r = 0; r < rows; r += step) {
+    for (let c = 0; c + step < cols; c += step) {
+      at(pa, r, c)
+      at(pb, r, c + step)
+      g.line(pa, pb, color)
+    }
+  }
+  for (let c = 0; c < cols; c += step) {
+    for (let r = 0; r + step < rows; r += step) {
+      at(pa, r, c)
+      at(pb, r + step, c)
+      g.line(pa, pb, color)
     }
   }
 }

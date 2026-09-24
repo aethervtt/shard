@@ -28,7 +28,7 @@ import { definePlugin, Time } from '@shard/runtime'
 import { lookAt, Transform } from '@shard/transform'
 import { hudExtras } from './hud'
 
-type Mode = 'ground' | 'planet'
+type Mode = 'ground' | 'planet' | 'flat'
 
 interface Shapes {
   meshes: AssetRef<'Mesh'>[]
@@ -65,6 +65,9 @@ const PLANET_RADIUS = 6
 /** Where the next body starts: above the ground, or on a shell around the planet. */
 function spawnPoint(d: Demo): { at: [number, number, number]; velocity: [number, number, number] } {
   const r = d.rng
+  if (d.mode === 'flat') {
+    return { at: [r.range(-14, 14), r.range(18, 26), 0], velocity: [0, r.range(-2, 0), 0] }
+  }
   if (d.mode === 'ground') {
     return {
       at: [r.range(-10, 10), r.range(14, 22), r.range(-10, 10)],
@@ -92,7 +95,11 @@ function spawnPoint(d: Demo): { at: [number, number, number]; velocity: [number,
   }
 }
 
-function randomRotation(r: Rng): [number, number, number, number] {
+function randomRotation(r: Rng, flat: boolean): [number, number, number, number] {
+  if (flat) {
+    const a = r.range(0, 6.28)
+    return [0, 0, Math.sin(a / 2), Math.cos(a / 2)]
+  }
   return quat.fromEuler([0, 0, 0, 1], r.range(0, 6.28), r.range(0, 6.28), r.range(0, 6.28)) as [
     number,
     number,
@@ -121,7 +128,7 @@ const spawner = defineSystem({
           [ExternalImpulse, {}],
           [Mesh3d, { mesh: d.shapes.meshes[kind]! }],
           [MeshMaterial, { material: d.shapes.materials[d.bodies.length % PALETTE.length]! }],
-          [Transform, { translation: at, rotation: randomRotation(d.rng) }],
+          [Transform, { translation: at, rotation: randomRotation(d.rng, d.mode === 'flat') }],
         )
         d.bodies.push(e)
         continue
@@ -129,7 +136,10 @@ const spawner = defineSystem({
       if (!d.raining) break
       const e = d.bodies[d.next]!
       d.next = (d.next + 1) % d.bodies.length
-      world.set(e, Transform, { translation: at, rotation: randomRotation(d.rng) })
+      world.set(e, Transform, {
+        translation: at,
+        rotation: randomRotation(d.rng, d.mode === 'flat'),
+      })
       world.set(e, Velocity, { linear: velocity, angular: [0, 0, 0] })
     }
     if (d.explode) {
@@ -137,7 +147,7 @@ const spawner = defineSystem({
       // Every body within 15 m of the center gets pushed out (and up, on the ground).
       for (const e of d.bodies) {
         const [x, y, z] = world.get(e, Transform).translation
-        const dy = d.mode === 'ground' ? y + 4 : y
+        const dy = d.mode === 'planet' ? y : y + (d.mode === 'flat' ? 2 : 4)
         const dist = Math.sqrt(x * x + dy * dy + z * z) || 1
         if (dist > 15) continue
         const strength = 25 * (1 - dist / 15)
@@ -154,7 +164,7 @@ const orbitCamera = defineSystem({
   name: 'physics-demo/camera',
   run: (_, world) => {
     const d = demo
-    if (!d) return
+    if (!d || d.mode === 'flat') return
     const t = world.resource(Time).elapsed * 0.1
     const radius = d.mode === 'ground' ? 38 : 55
     const height = d.mode === 'ground' ? 18 : 12
@@ -167,7 +177,7 @@ const orbitCamera = defineSystem({
 function build(mode: Mode) {
   return definePlugin({
     name: `physics-demo/${mode}`,
-    dependencies: ['render/forward', 'physics3d'],
+    dependencies: ['render/forward', mode === 'flat' ? 'physics2d' : 'physics3d'],
     build(app) {
       app.addSystems(Update, spawner, orbitCamera)
       hudExtras.push((world) => {
@@ -194,10 +204,18 @@ function build(mode: Mode) {
         [DirectionalLight, { illuminance: 60_000, shadows: true }],
         [Transform, { rotation: quat.fromEuler([0, 0, 0, 1], -0.9, 0.6, 0) as never }],
       )
+      const flat = mode === 'flat'
       const camera = world.spawn(
-        [Camera3d, { fovY: 50, clearColor: [0.02, 0.025, 0.04, 1] }],
+        [
+          Camera3d,
+          flat
+            ? { projection: 'orthographic', orthoHeight: 30, clearColor: [0.02, 0.025, 0.04, 1] }
+            : { fovY: 50, clearColor: [0.02, 0.025, 0.04, 1] },
+        ],
         [Exposure, { ev100: 13 }],
-        [Transform, { translation: [0, 14, 30], rotation: lookAt([0, 14, 30], [0, 3, 0]) }],
+        flat
+          ? [Transform, { translation: [0, 10, 50] }]
+          : [Transform, { translation: [0, 14, 30], rotation: lookAt([0, 14, 30], [0, 3, 0]) }],
       )
 
       const shapes: Shapes = {
@@ -208,13 +226,15 @@ function build(mode: Mode) {
         ],
         materials: PALETTE.map((baseColor) => mat({ baseColor, roughness: 0.5 })),
         colliders: [
-          { shape: 'cuboid', halfExtents: [0.5, 0.5, 0.5], friction: 0.6 },
+          { shape: 'cuboid', halfExtents: [0.5, 0.5, flat ? 0 : 0.5], friction: 0.6 },
           { shape: 'ball', radius: 0.5, restitution: 0.3 },
           { shape: 'capsule', radius: 0.3, halfHeight: 0.4 },
         ],
       }
 
-      if (mode === 'ground') {
+      if (flat) {
+        spawnFlatLevel(world, meshes.add(cube({ size: 1 })), mat)
+      } else if (mode === 'ground') {
         world.spawn(
           [RigidBody, { kind: 'fixed' }],
           [Collider, { shape: 'cuboid', halfExtents: [40, 0.5, 40] }],
@@ -243,7 +263,7 @@ function build(mode: Mode) {
 
       demo = {
         mode,
-        cap: Number(params.get('count') ?? 1500),
+        cap: Number(params.get('count') ?? (flat ? 350 : 1500)),
         perFrame: 8,
         bodies: [],
         next: 0,
@@ -265,6 +285,76 @@ function build(mode: Mode) {
         }
       })
     },
+  })
+}
+
+type World = import('@shard/core').World
+type Mat = (value: ConstructorParameters<typeof MaterialAsset>[0]) => AssetRef<'Material'>
+
+/**
+ * The 2D level, built from unit cubes scaled into slabs (Transform scale scales the collider too):
+ * a valley, a bridge of planks joined by revolute joints, and a spinning kinematic paddle.
+ */
+function spawnFlatLevel(world: World, box: AssetRef<'Mesh'>, mat: Mat): void {
+  const rock = mat({ baseColor: [0.4, 0.42, 0.48, 1], roughness: 0.9 })
+  const wood = mat({ baseColor: [0.55, 0.38, 0.22, 1], roughness: 0.8 })
+  const slab = (
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    angle: number,
+    kind: 'fixed' | 'kinematic-velocity' = 'fixed',
+  ) =>
+    world.spawn(
+      [RigidBody, { kind }],
+      [Collider, { shape: 'cuboid', halfExtents: [0.5, 0.5, 0], friction: 0.7 }],
+      [Mesh3d, { mesh: box }],
+      [MeshMaterial, { material: kind === 'fixed' ? rock : wood }],
+      [
+        Transform,
+        {
+          translation: [x, y, 0],
+          rotation: [0, 0, Math.sin(angle / 2), Math.cos(angle / 2)],
+          scale: [w, h, 1],
+        },
+      ],
+    )
+  // Valley: a floor, two slopes, and walls.
+  slab(0, -0.5, 20, 1, 0)
+  const slope = Math.atan2(8, 10)
+  slab(-15, 3.5, Math.hypot(10, 8), 1, -slope)
+  slab(15, 3.5, Math.hypot(10, 8), 1, slope)
+  slab(-20.5, 14, 1, 12, 0)
+  slab(20.5, 14, 1, 12, 0)
+  // A paddle that spins on its own (kinematic by velocity) and flings what lands on it.
+  const paddle = slab(-13, 8, 5, 0.3, 0, 'kinematic-velocity')
+  world.add(paddle, Velocity, { angular: [0, 0, 1.5] })
+  // A bridge of 12 planks between two posts, joined at their ends.
+  const left = slab(-6.6, 12, 0.4, 0.4, 0)
+  const right = slab(6.6, 12, 0.4, 0.4, 0)
+  let previous = left
+  for (let i = 0; i < 12; i++) {
+    const plank = world.spawn(
+      [RigidBody, { kind: 'dynamic' }],
+      [Collider, { shape: 'cuboid', halfExtents: [0.5, 0.5, 0], density: 2 }],
+      [Mesh3d, { mesh: box }],
+      [MeshMaterial, { material: wood }],
+      [Transform, { translation: [-5.5 + i, 12, 0], scale: [0.95, 0.2, 1] }],
+    )
+    world.add(plank, Joint, {
+      kind: 'revolute',
+      other: previous,
+      anchor: [-0.5, 0, 0],
+      otherAnchor: [i === 0 ? 0.2 : 0.5, 0, 0],
+    })
+    previous = plank
+  }
+  world.add(right, Joint, {
+    kind: 'revolute',
+    other: previous,
+    anchor: [-0.2, 0, 0],
+    otherAnchor: [0.5, 0, 0],
   })
 }
 
@@ -304,3 +394,5 @@ function spawnChain(
 export const physicsDemoPlugin = build('ground')
 /** Rocks falling onto a small planet from every side (point gravity, no global gravity). */
 export const planetDemoPlugin = build('planet')
+/** The same rain in 2D (physics2d): a valley, a plank bridge on revolute joints, a spinning paddle. */
+export const physics2dDemoPlugin = build('flat')

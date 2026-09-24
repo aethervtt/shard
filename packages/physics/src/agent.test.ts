@@ -16,7 +16,7 @@ import { App } from '@shard/runtime'
 import { loadScene, ScenePlugin, whenSceneReady } from '@shard/scene'
 import { lookAt, Transform, TransformPlugin } from '@shard/transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { Physics, physics3dPlugin } from './plugin'
+import { Physics, physics2dPlugin, physics3dPlugin } from './plugin'
 
 const here = dirname(fileURLToPath(import.meta.url))
 
@@ -164,5 +164,100 @@ describe('physics through scenes and the protocol', () => {
       if (r > 150 && r > g + 15 && r > b + 50) orange++
     }
     expect(orange).toBeGreaterThan(20)
+  })
+
+  it('draws 2D colliders in the plane (golden)', async () => {
+    const app = new App().addPlugin(
+      TransformPlugin,
+      renderPlugin({ gpu, windowView: false }),
+      forwardPlugin({ msaa: 1 }),
+      physics2dPlugin,
+    )
+    await app.init()
+    const w = app.world
+    const { Collider, RigidBody } = await import('./components')
+    w.spawn(
+      [
+        Collider,
+        {
+          shape: 'polyline',
+          points: [
+            [-8, 1, 0],
+            [-4, -1, 0],
+            [4, -1, 0],
+            [8, 1, 0],
+          ],
+        },
+      ],
+      [Transform, {}],
+    )
+    const shapes: Record<string, unknown>[] = [
+      { shape: 'ball', radius: 0.6 },
+      { shape: 'cuboid', halfExtents: [0.6, 0.4, 0] },
+      { shape: 'capsule', radius: 0.3, halfHeight: 0.4 },
+      {
+        shape: 'convex',
+        points: [
+          [0, 0.7, 0],
+          [0.6, -0.4, 0],
+          [-0.6, -0.4, 0],
+        ],
+      },
+    ]
+    w.spawn(
+      [
+        Collider,
+        {
+          shape: 'heightfield',
+          halfExtents: [2, 1, 0],
+          heightfield: { rows: 1, cols: 5, heights: [0, 0.6, 0.2, 0.8, 0] },
+        },
+      ],
+      [Transform, { translation: [-6, 4, 0] }],
+    )
+    shapes.forEach((c, i) => {
+      w.spawn(
+        [RigidBody, { kind: 'dynamic' }],
+        [Collider, c],
+        [Transform, { translation: [-3 + i * 2, 2, 0] }],
+      )
+    })
+    w.spawn(
+      [Collider, { shape: 'cuboid', halfExtents: [1, 1, 0], sensor: true }],
+      [Transform, { translation: [5, 3, 0] }],
+    )
+    for (let i = 0; i < 120; i++) app.update(1 / 60)
+    const target = new OffscreenTarget(gpu, { label: 'physics-2d', width: 320, height: 160 })
+    const ref = w.resource(RenderTargets).add(target, 'physics-2d')
+    const cam = w.spawn(
+      [
+        Camera3d,
+        {
+          projection: 'orthographic',
+          orthoHeight: 8,
+          target: ref as never,
+          clearColor: [0.05, 0.05, 0.07, 1],
+        },
+      ],
+      [Transform, { translation: [0, 1, 50] }],
+    )
+    setOverlays(w, { colliders: true })
+    const image = await renderView(app, `camera:${cam}`)
+    const golden = compareGolden(here, 'colliders-overlay-2d', image)
+    if (!golden.written) expect(golden.mean).toBeLessThan(1)
+    // All four dynamic shapes came to rest in the valley and sleep, so they're drawn dimmed
+    // orange; the sensor is green.
+    const described = w.resource(Physics).describe()
+    expect(described.bodies.dynamic).toBe(4)
+    expect(described.sleeping).toBe(4)
+    let dimmed = 0
+    let green = 0
+    for (let i = 0; i < image.data.length; i += 4) {
+      const [r, g, b] = [image.data[i]!, image.data[i + 1]!, image.data[i + 2]!]
+      if (r > g + 10 && r > b + 25) dimmed++
+      if (g > r + 30 && g > b + 10) green++
+    }
+    expect(dimmed).toBeGreaterThan(40)
+    expect(green).toBeGreaterThan(40)
   })
 })
