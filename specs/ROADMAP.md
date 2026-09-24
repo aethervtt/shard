@@ -78,7 +78,7 @@ UI, navigation, and saves. Each one exposes its state to agents as data.
 | [0028](0028-physics.md) | Physics 3D and 2D (Rapier) | implemented |
 | [0029](0029-character-controller.md) | Character controller (slopes, steps, spherical gravity) | implemented |
 | [0030](0030-prefabs.md) | Prefabs, overrides, and variants | implemented |
-| [0031](0031-data-assets.md) | Data assets (project-defined types, variants) | accepted |
+| [0031](0031-data-assets.md) | Data assets (project-defined types, variants) | implemented |
 | [0032](0032-skeletal-animation.md) | Skeletal animation (skinning, clips, blending, masks, morph targets, root motion) | accepted |
 | [0033](0033-animation-graphs.md) | Animation state machines and blend spaces | accepted |
 | [0034](0034-ik-retargeting.md) | IK, bone attachments, and retargeting | accepted |

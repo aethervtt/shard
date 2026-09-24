@@ -6,7 +6,7 @@ import { basename, dirname, join, relative, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { assetServer } from '@shard/assets'
+import { assetServer, validateDataAssets } from '@shard/assets'
 import { ShardError, World } from '@shard/core'
 import {
   collectErrorCodes,
@@ -155,6 +155,10 @@ export async function validate({ out, project }: CommandContext): Promise<number
     for (const m of scan.moved)
       report.warnings.push(`${m.from} moved to ${m.to} without its .meta; references may be stale`)
     const failed = new Set(scan.failed.map((f) => f.path))
+    // Handles inside data files need the whole catalog, so they're checked after the scan.
+    for (const { source, errors } of await validateDataAssets(world)) {
+      for (const e of errors) report.assets.push({ ...e.toJSON(), source })
+    }
     // Instance overrides are checked against their prefab or model, so those load first.
     for (const entry of assetServer(world).list({ type: 'Prefab' })) {
       if (!entry.source || failed.has(entry.source)) continue // reported with the imports

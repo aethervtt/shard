@@ -13,18 +13,21 @@ Every engine error is a `ShardError` with one of these codes.
 | `app/plugin-cycle` | @shard/runtime |  |
 | `app/system-cycle` | @shard/core | Remove one of the after/before constraints in this cycle. |
 | `app/system-failed` | @shard/core |  |
+| `assets/duplicate-extension` | @shard/assets | Every data type needs its own extension. Pick another one. |
 | `assets/import-failed` | @shard/assets |  |
 | `assets/invalid-importer` | @shard/assets |  |
 | `assets/invalid-meta` | @shard/assets | Delete the .meta to get a new guid (references by guid will break), or restore it. |
 | `assets/load-failed` | @shard/assets |  |
 | `assets/move-target-exists` | @shard/assets |  |
 | `assets/no-listing` | @shard/assets | Import on a host with file listing (the CLI, the dev server, Studio). |
-| `assets/not-found` | @shard/assets | Check the path, or run `shard import` to import new files. |
+| `assets/not-found` | @shard/assets | Check the path; it starts at the project root, e.g. "data/weapons/laser.weapon.json". |
 | `assets/not-loaded` | @shard/assets |  |
 | `assets/outside-roots` | @shard/assets |  |
 | `assets/read-only` | @shard/assets | Use the CLI or Studio, which can write to the project folder. |
 | `assets/unknown-importer` | @shard/assets | Remove "importer" from the .meta to pick one by file extension. |
-| `assets/unknown-type` | @shard/assets | Add the plugin that defines it (e.g. render/forward for Mesh and Material). |
+| `assets/unknown-type` | @shard/assets | Define it (project.dataAsset) before loading its files. |
+| `data/extends-cycle` | @shard/assets | Point "$extends" at a file that does not extend this one. |
+| `data/extends-type-mismatch` | @shard/assets |  |
 | `ecs/dead-entity` | @shard/core | It was despawned, or the id is stale. Check world.isAlive(entity) first. |
 | `ecs/entity-limit` | @shard/core | High-count data (particles, foliage, tiles) belongs in buffers, not entities. |
 | `ecs/missing-component` | @shard/core | Check world.has(entity, component) first, or use tryGet. |
@@ -130,7 +133,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `schema/missing-migration` | @shard/core |  |
 | `schema/out-of-range` | @shard/core |  |
 | `schema/redefinition-active` | @shard/core |  |
-| `schema/type-mismatch` | @shard/core | Use "#rrggbb", "#rrggbbaa", or a linear [r, g, b, a] array. |
+| `schema/type-mismatch` | @shard/assets | Give the base file by path: { "path": "data/weapons/laser.weapon.json" }. |
 | `schema/unknown-field` | @shard/core |  |
 | `schema/unknown-preset` | @shard/core |  |
 | `schema/unresolved-entity` | @shard/core | Entity paths are resolved by the scene loader; check the path exists. |

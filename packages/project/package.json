@@ -28,9 +28,10 @@
     "@shard/transform": "workspace:*"
   },
   "devDependencies": {
+    "@shard/gpu": "workspace:*",
+    "@shard/platform-node": "workspace:*",
     "@types/node": "^26.6.2",
     "@webgpu/types": "^0.1.74",
-    "webgpu": "0.6.1",
-    "@shard/gpu": "workspace:*"
+    "webgpu": "0.6.1"
   }
 }

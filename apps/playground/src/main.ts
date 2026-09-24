@@ -10,6 +10,7 @@ import { TransformPlugin } from '@shard/transform'
 import { characterDemoPlugin, characterPlanetDemoPlugin } from './character'
 import { character2dDemoPlugin } from './character2d'
 import { crowdPlugin } from './crowd'
+import { dataDemoPlugin } from './data'
 import { deferredPlugin } from './deferred'
 import { iblPlugin, skyPlugin } from './environment'
 import { fpsGraphPlugin } from './fps-graph'
@@ -43,6 +44,7 @@ const DEMOS = [
   'character-planet',
   'character2d',
   'prefabs',
+  'data',
 ] as const
 const demo = DEMOS.find((d) => location.hash === `#${d}`) ?? 'scene'
 document.body.dataset.demo = demo
@@ -93,6 +95,8 @@ if (demo === 'galaxy') {
   app.addPlugin(TransformPlugin, forwardPlugin(), physics2dPlugin, hudPlugin, character2dDemoPlugin)
 } else if (demo === 'prefabs') {
   app.addPlugin(TransformPlugin, forwardPlugin(), ScenePlugin, hudPlugin, prefabsDemoPlugin)
+} else if (demo === 'data') {
+  app.addPlugin(TransformPlugin, forwardPlugin(), ScenePlugin, hudPlugin, dataDemoPlugin)
 } else if (demo === 'sky') {
   app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, skyPlugin)
 } else {

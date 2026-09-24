@@ -267,6 +267,11 @@ export class AssetServer {
     return out.sort((a, b) => a.path.localeCompare(b.path))
   }
 
+  /** The catalog entries of one asset type (`"star-explorer/Weapon"`), sorted by path. */
+  all(type: string | { readonly name: string }, options: { prefix?: string } = {}): AssetEntry[] {
+    return this.list({ type: typeof type === 'string' ? type : type.name, prefix: options.prefix })
+  }
+
   /**
    * Registers (once) and loads a virtual asset: made by code rather than imported, e.g. procedural
    * meshes (`proc:<key>`). Created synchronously, so it's usable immediately.
@@ -384,8 +389,15 @@ export class AssetServer {
           hint: 'Run `shard import`.',
         })
       }
-      // Dependencies settle first; a failed dependency doesn't fail this asset.
-      await Promise.allSettled(asset.dependencies.map((d) => this.load(d)))
+      // Dependencies settle first; a failed dependency doesn't fail this asset. One that depends
+      // back on this asset (data assets whose handles point at each other) loads alongside it.
+      await Promise.allSettled(
+        asset.dependencies.map((d) => {
+          const dep = this.entry(d)
+          if (dep && this.dependsOn(dep, entry.guid)) return void this.request(d)
+          return this.load(d)
+        }),
+      )
       const artifact = await this.readArtifact(asset.artifact)
       const base = entry.path.split('#')[0]!
       const item = await type.load(artifact, {
@@ -420,6 +432,23 @@ export class AssetServer {
       this.emit(entry, 'failed')
       throw error
     }
+  }
+
+  /** Whether `from` needs `guid` at runtime, directly or through its dependencies. */
+  private dependsOn(from: AssetEntry, guid: string): boolean {
+    const seen = new Set<string>()
+    const stack = [from]
+    while (stack.length > 0) {
+      const e = stack.pop()!
+      if (e.guid === guid) return true
+      if (seen.has(e.guid)) continue
+      seen.add(e.guid)
+      for (const d of this.assetRecord(e)?.dependencies ?? []) {
+        const next = this.entry(d)
+        if (next) stack.push(next)
+      }
+    }
+    return false
   }
 
   private unknownType(entry: AssetEntry): ShardError {
@@ -736,6 +765,7 @@ export class AssetServer {
       await this.saveIndex()
     else if (fs.writable && !(await fs.exists(this.catalogPath))) await this.saveIndex()
     report.imported.sort()
+    report.failed.sort((a, b) => a.path.localeCompare(b.path))
     report.ms = performance.now() - start
     return report
   }

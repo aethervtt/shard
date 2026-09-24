@@ -924,11 +924,18 @@ export const METHODS: MethodDef[] = [
   {
     name: 'asset.get',
     description:
-      'Everything about one asset: guid, type, state, importer and settings, dependencies and dependents, sub-assets, facts (counts, bounds), warnings, and the last error.',
+      'Everything about one asset: guid, type, state, importer and settings, dependencies and dependents, sub-assets, facts (counts, bounds), warnings, and the last error. Data assets include their value, and variants their $extends chain and which file set each field.',
     params: s('AssetGetParams', {
       asset: t.string({ required: true, description: 'Asset path or guid.' }),
     }),
-    handler: ({ world }, p) => toJson(assetServer(world).info(p.asset as string)),
+    handler: async ({ world }, p) => {
+      const assets = assetServer(world)
+      const info = toJson(assets.info(p.asset as string)) as Record<string, unknown>
+      // Data assets show their merged value (see info.extends and info.setBy for variants).
+      if (info.source && assets.importerOf(info.source as string)?.schema && info.artifact)
+        info.value = (await assets.artifact(p.asset as string)).json
+      return info
+    },
   },
   {
     name: 'asset.import',

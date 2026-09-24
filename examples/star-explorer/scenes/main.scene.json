@@ -92,7 +92,11 @@
     {
       "name": "ship",
       "components": {
-        "star-explorer/Ship": {},
+        "star-explorer/Ship": {
+          "weapon": {
+            "path": "data/weapons/laser.weapon.json"
+          }
+        },
         "render/Mesh3d": {
           "mesh": {
             "path": "procedural:box?x=1.6&y=0.5&z=3.2"

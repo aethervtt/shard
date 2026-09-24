@@ -1,3 +1,4 @@
+import { type DataType, type DataTypeOptions, defineDataType } from '@shard/assets'
 import {
   type ComponentDef,
   type ComponentOptions,
@@ -40,6 +41,16 @@ export interface ProjectDef extends Plugin {
    * shader in `shaders/` (`project::<file>`) that overrides hooks. Assets name it in `"type"`.
    */
   material<const F extends Fields>(name: string, options: MaterialTypeOptions<F>): MaterialType
+  /**
+   * Defines the data asset type `<project>/<name>`: `*.<extension>.json` files under the asset
+   * roots are validated by `fields`, can `$extends` each other, and load into `store`. Components
+   * reference them with `t.handle('<project>/<name>')`.
+   */
+  dataAsset<const F extends Fields, const N extends string>(
+    name: N,
+    fields: F,
+    options: DataTypeOptions,
+  ): DataType<F, N extends `${string}/${string}` ? N : `${string}/${N}`>
 }
 
 /**
@@ -74,5 +85,7 @@ export function defineProject(options: ProjectOptions): ProjectDef {
     resource: (name, resourceOptions) => defineResource(qualify(name), resourceOptions),
     event: (name, eventOptions) => defineEvent(qualify(name), eventOptions),
     material: (name, materialOptions) => defineMaterial(qualify(name), materialOptions),
+    dataAsset: (name, fields, dataOptions) =>
+      defineDataType(qualify(name) as never, fields, dataOptions) as never,
   }
 }

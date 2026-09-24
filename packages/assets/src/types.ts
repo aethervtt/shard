@@ -1,7 +1,6 @@
 import {
   type AssetRef,
   type ComponentDef,
-  defineSchema,
   type JsonValue,
   type ResourceDef,
   ShardError,
@@ -113,6 +112,9 @@ export interface ImporterDef {
   /** Picks default settings for a new `.meta` from the file name (optional). */
   defaults?(path: string): Record<string, JsonValue>
   import(source: ImportSource, ctx: ImportContext): Promise<ImportResult>
+  /** Data assets (`defineDataAsset`): the asset type they import as, and its schema. */
+  readonly dataType?: string
+  readonly schema?: ComponentDef
 }
 
 const importers = new Map<string, ImporterDef>()
@@ -121,6 +123,14 @@ export function defineImporter(spec: ImporterDef): ImporterDef {
   for (const ext of spec.extensions) {
     if (!ext.startsWith('.')) {
       throw new ShardError('assets/invalid-importer', `Extension "${ext}" must start with "."`)
+    }
+    for (const other of importers.values()) {
+      if (other.name === spec.name || !other.extensions.includes(ext)) continue
+      throw new ShardError(
+        'assets/duplicate-extension',
+        `"*${ext}" is already imported by ${other.name}`,
+        { hint: 'Every file extension belongs to one importer. Pick another extension.' },
+      )
     }
   }
   importers.set(spec.name, spec)
@@ -149,73 +159,6 @@ export function importerFor(path: string): ImporterDef | undefined {
     }
   }
   return best
-}
-
-const NoSettings = defineSchema('assets/NoSettings', {}, { description: 'No import settings.' })
-
-/**
- * A JSON data asset validated by a schema: `*.<extension>.json` files import as `type`. Errors
- * point into the file. The artifact is the normalized JSON, so defaults are filled in once.
- */
-export function defineDataAsset(
-  type: string,
-  schema: ComponentDef,
-  options: { extension: string },
-): ImporterDef {
-  defineAssetSchema(`${options.extension}.schema.json`, () => schema.jsonSchema())
-  return defineImporter({
-    name: `data/${options.extension}`,
-    version: 1,
-    extensions: [`.${options.extension}.json`],
-    settings: NoSettings,
-    async import(source) {
-      let json: unknown
-      try {
-        json = JSON.parse(source.text())
-      } catch (cause) {
-        throw new ShardError('assets/import-failed', `${source.path} isn't valid JSON`, {
-          path: source.path,
-          cause,
-        })
-      }
-      if (json && typeof json === 'object' && '$schema' in json) {
-        const { $schema: _, ...rest } = json as Record<string, unknown>
-        json = rest
-      }
-      const errors = schema.validate(json)
-      if (errors.length > 0) {
-        const first = errors[0]!
-        throw new ShardError(
-          'assets/import-failed',
-          `${source.path}: ${first.message}${errors.length > 1 ? ` (+${errors.length - 1} more)` : ''}`,
-          { path: first.path, hint: first.hint, details: errors },
-        )
-      }
-      // Any asset path the data mentions (e.g. a material's textures) must load first.
-      const dependencies = new Set<string>()
-      const collect = (value: unknown): void => {
-        if (Array.isArray(value)) value.forEach(collect)
-        else if (value && typeof value === 'object') {
-          for (const [k, v] of Object.entries(value)) {
-            if (k === 'path' && typeof v === 'string' && !v.startsWith('procedural:'))
-              dependencies.add(v)
-            else collect(v)
-          }
-        }
-      }
-      collect(json)
-      return {
-        assets: [
-          {
-            label: '',
-            type,
-            json: schema.serialize(schema.deserialize(json)),
-            ...(dependencies.size ? { dependencies: [...dependencies] } : {}),
-          },
-        ],
-      }
-    },
-  })
 }
 
 // --- previews ------------------------------------------------------------------

@@ -1,0 +1,6 @@
+{
+  "$schema": "../../.shard/schemas/weapon.schema.json",
+  "damage": 12,
+  "fireRate": 5,
+  "upgradesTo": { "path": "data/weapons/heavy-laser.weapon.json" }
+}

@@ -92,6 +92,12 @@ export interface FieldType<V = unknown, S extends Storage = Storage> {
   /** Values per row in the column (3 for vec3). */
   readonly stride: number
   readonly options: FieldOptions<V>
+  /** A struct's fields. */
+  readonly fields?: Fields
+  /** A list's item type. */
+  readonly item?: AnyField
+  /** The asset type a handle refers to. */
+  readonly assetType?: string
   /** Phantom, for type inference only. */
   readonly __value?: V
   defaultValue(): V
@@ -552,6 +558,7 @@ function handle<const T extends string>(
   return objectField<AssetRef<T> | null>({
     kind: 'handle',
     options,
+    assetType: type,
     defaultValue: () => cloneData(options.default ?? null),
     validate(json, path, errors, ctx) {
       if (json === null) return
@@ -636,6 +643,7 @@ function list<I extends AnyField>(
   return objectField<FieldValue<I>[]>({
     kind: 'list',
     options,
+    item: inner,
     defaultValue: () => cloneData(options.default ?? []),
     validate(json, path, errors, ctx) {
       if (!Array.isArray(json)) {
@@ -658,6 +666,7 @@ function struct<F extends Fields>(
   return objectField<InferFields<F>>({
     kind: 'struct',
     options,
+    fields,
     defaultValue: () => cloneData(options.default ?? defaultsOf(fields)),
     validate: (json, path, errors, ctx) => validateObject(fields, json, path, errors, ctx),
     toJson: (v) => objectToJson(fields, v),

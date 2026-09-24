@@ -1,0 +1,8 @@
+{
+  "$schema": "../../.shard/schemas/weapon.schema.json",
+  "$extends": { "path": "data/weapons/laser.weapon.json" },
+  "damage": 30,
+  "energyCost": 3,
+  "color": "#ffb030",
+  "upgradesTo": null
+}

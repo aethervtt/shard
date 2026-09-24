@@ -1,3 +1,13 @@
+export {
+  allDataTypes,
+  type DataType,
+  type DataTypeOptions,
+  defineDataAsset,
+  defineDataType,
+  findDataType,
+  loadAll,
+  validateDataAssets,
+} from './data'
 export { randomGuid, sha256Hex } from './hash'
 export {
   type AssetEntry,
@@ -24,7 +34,6 @@ export {
   defineAssetPreview,
   defineAssetSchema,
   defineAssetType,
-  defineDataAsset,
   defineImporter,
   findAssetPreview,
   findAssetType,

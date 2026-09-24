@@ -22,6 +22,19 @@ const project = defineProject({
   },
 })
 
+/** Weapon stats are data: `data/weapons/*.weapon.json`, tuned without touching code. */
+export const Weapon = project.dataAsset(
+  'Weapon',
+  {
+    damage: t.f32({ default: 10, min: 0, unit: 'hp', description: 'Damage per hit.' }),
+    fireRate: t.f32({ default: 4, min: 0, unit: 'shots/s', description: 'Shots per second.' }),
+    energyCost: t.f32({ default: 1, min: 0, description: 'Energy spent per shot.' }),
+    color: t.color({ default: [1, 0.3, 0.2, 1], description: 'Bolt color.' }),
+    upgradesTo: t.handle('star-explorer/Weapon', { description: 'The next weapon up, if any.' }),
+  },
+  { extension: 'weapon', description: 'A ship weapon.' },
+)
+
 export const Ship = project.component(
   'Ship',
   {
@@ -34,6 +47,7 @@ export const Ship = project.component(
       description: 'Fraction of speed lost per second without thrust.',
     }),
     turnRate: t.f32({ default: 1.2, min: 0, unit: 'rad/s', description: 'Steering speed.' }),
+    weapon: t.handle('star-explorer/Weapon', { description: 'The mounted weapon.' }),
   },
   { description: 'A ship the player flies: steer with arrows or the left stick, thrust with W.' },
 )

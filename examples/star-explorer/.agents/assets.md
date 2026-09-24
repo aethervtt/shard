@@ -89,3 +89,24 @@ Files: `*.ttf`, `*.otf`
 | `kerning` | boolean | `true` |  | Import kerning pairs. |
 | `outlines` | boolean | `true` |  | Keep the font file in the artifact, so characters outside the charset are generated at runtime. |
 
+# Project data types
+
+Defined in `scripts/` with `project.dataAsset`. Write one JSON file per value, anywhere under an
+asset root (by convention `data/<kind>/`). A file can start from another of the same type with
+`"$extends": { "path": "..." }` and override fields. Reference them from components and other
+data types with `t.handle('<type>')`; read them with `world.resource(Type.store).get(ref)`.
+
+## `star-explorer/Weapon`
+
+A ship weapon.
+
+Files: `*.weapon.json` (e.g. `data/weapons/<name>.weapon.json`). Schema: `.shard/schemas/weapon.schema.json`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `damage` | number | `10` | ≥ 0, hp | Damage per hit. |
+| `fireRate` | number | `4` | ≥ 0, shots/s | Shots per second. |
+| `energyCost` | number | `1` | ≥ 0 | Energy spent per shot. |
+| `color` | string or number[4] | `[1,0.3,0.2,1]` |  | Bolt color. |
+| `upgradesTo` | null or star-explorer/Weapon ref | `null` |  | The next weapon up, if any. |
+

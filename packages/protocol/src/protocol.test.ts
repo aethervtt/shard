@@ -369,6 +369,48 @@ describe('assets', () => {
       rmSync(root, { recursive: true, force: true })
     }
   })
+  it('asset.get on a data asset returns its value, its $extends chain, and who set each field', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const { createNodePlatform } = await import('@shard/platform-node')
+    const { assetServer, defineDataType } = await import('@shard/assets')
+    const { t } = await import('@shard/core')
+    defineDataType(
+      'test-protocol/Item',
+      { price: t.u32({ default: 5 }), weight: t.f32({ default: 1 }) },
+      { extension: 'item' },
+    )
+    const root = mkdtempSync(join(tmpdir(), 'shard-protocol-data-'))
+    try {
+      mkdirSync(join(root, 'data/items'), { recursive: true })
+      writeFileSync(join(root, 'data/items/rock.item.json'), '{ "weight": 3 }')
+      writeFileSync(
+        join(root, 'data/items/gold.item.json'),
+        '{ "$extends": { "path": "data/items/rock.item.json" }, "price": 900 }',
+      )
+      assetServer(app.world).configure({ platform: createNodePlatform({ root, logTo: () => {} }) })
+      await ok('asset.import', {})
+      const listed = (await ok('asset.list', { type: 'test-protocol/Item' })) as {
+        assets: { path: string }[]
+      }
+      expect(listed.assets.map((a) => a.path)).toEqual([
+        'data/items/gold.item.json',
+        'data/items/rock.item.json',
+      ])
+      const gold = await ok('asset.get', { asset: 'data/items/gold.item.json' })
+      expect(gold).toMatchObject({
+        type: 'test-protocol/Item',
+        value: { price: 900, weight: 3 },
+        info: {
+          extends: ['data/items/rock.item.json'],
+          setBy: { '/price': 'data/items/gold.item.json', '/weight': 'data/items/rock.item.json' },
+        },
+      })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('prefabs', () => {

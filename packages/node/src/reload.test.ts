@@ -1,7 +1,8 @@
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { findComponent } from '@shard/core'
+import type { AssetStore } from '@shard/assets'
+import { findComponent, findResource } from '@shard/core'
 import type { GpuContext } from '@shard/gpu'
 import { createNodeGpuContext } from '@shard/gpu/node'
 import { LogResource } from '@shard/runtime'
@@ -37,7 +38,7 @@ beforeAll(async () => {
   gpu = await createNodeGpuContext()
   // Inside the example, so `@shard/*` resolves through its node_modules.
   root = mkdtempSync(join(example, '.shard', 'reload-'))
-  for (const dir of ['scripts', 'scenes', 'shard.json', 'package.json', 'tsconfig.json']) {
+  for (const dir of ['scripts', 'scenes', 'data', 'shard.json', 'package.json', 'tsconfig.json']) {
     cpSync(join(example, dir), join(root, dir), { recursive: true })
   }
   project = await openProject({ root, gpu, width: 64, height: 36 })
@@ -83,6 +84,29 @@ describe('project code in bundle mode', () => {
     const s = (await ship()).components['star-explorer/Ship']!
     expect(s.boost).toBe(3)
     expect(s.maxSpeed).toBe(40)
+  })
+
+  it('adding a data type field re-imports its files; loaded values keep their identity', async () => {
+    const Weapons = findResource('star-explorer/WeaponAssets')!
+    const store = project.app.world.resource(Weapons) as AssetStore<Record<string, unknown>>
+    const laser = store.get(project.assets.resolve('data/weapons/laser.weapon.json'))!
+    expect(laser.damage).toBe(12)
+    edit(
+      "energyCost: t.f32({ default: 1, min: 0, description: 'Energy spent per shot.' }),",
+      "energyCost: t.f32({ default: 1, min: 0, description: 'Energy spent per shot.' }),\n    spread: t.f32({ default: 0.05, description: 'Test field.' }),",
+    )
+    const report = (await call('project.reload')) as {
+      ok: boolean
+      assets: { imported: string[] }
+    }
+    expect(report.ok).toBe(true)
+    expect(report.assets.imported).toEqual([
+      'data/weapons/heavy-laser.weapon.json',
+      'data/weapons/laser.weapon.json',
+    ])
+    expect(store.get(project.assets.resolve('data/weapons/laser.weapon.json'))).toBe(laser)
+    expect(laser.spread).toBe(0.05)
+    expect(laser.damage).toBe(12)
   })
 
   it('a syntax error keeps the old code and reports file, line, and column', async () => {

@@ -4,7 +4,7 @@ import { createRequire } from 'node:module'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { assetServer } from '@shard/assets'
-import { type ShardError, World } from '@shard/core'
+import { beginRedefinition, endRedefinition, type ShardError, World } from '@shard/core'
 import { type BuiltBundle, createBundler } from '@shard/node'
 import { createNodePlatform } from '@shard/platform-node'
 import { loadProject } from '@shard/project'
@@ -87,6 +87,18 @@ export async function dev(ctx: CommandContext): Promise<number> {
   let reloads = 0
 
   // The Node side owns the asset database: it imports and watches, and the page reads its catalog.
+  // It evaluates the project bundle too, so the project's data types have importers here.
+  const defineProjectTypes = async (bundle: BuiltBundle, reload: boolean) => {
+    if (reload) beginRedefinition(manifest.name)
+    try {
+      await import(bundler.importUrl(bundle))
+    } catch (err) {
+      ctx.out.say(`project types failed to load: ${(err as Error).message}`)
+    } finally {
+      if (reload) endRedefinition()
+    }
+  }
+  await defineProjectTypes(current, false)
   const assets = assetServer(new World()).configure({ platform, roots: manifest.assetRoots })
   const firstScan = await assets.scan()
   for (const f of firstScan.failed)
@@ -187,6 +199,15 @@ export async function dev(ctx: CommandContext): Promise<number> {
     ctx.out.say(`rebuilt in ${Math.round(result.ms)} ms`)
     // A fresh query per reload, so reverting to identical code still evaluates a new module.
     send('shard:project', { url: `${bundleUrl(result)}?r=${++reloads}`, ms: result.ms })
+    // A changed data type re-imports its files; the page picks them up from the catalog.
+    void defineProjectTypes(result, true)
+      .then(() => assets.scan())
+      .then((report) => {
+        for (const f of report.failed)
+          ctx.out.say(`asset import failed: ${f.path}: ${f.error.message}`)
+        if (report.imported.length + report.failed.length > 0)
+          send('shard:assets', { imported: report.imported, removed: report.removed })
+      })
   })
   const stopAssets = await assets.watch({
     onScan: (report) => {

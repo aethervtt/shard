@@ -63,7 +63,7 @@ Brings along: `core/Transform`, `render/Visibility`.
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `effect` | null or asset ref | `null` |  | The effect (*.particles.json) to run. |
+| `effect` | null or ParticleEffect ref | `null` |  | The effect (*.particles.json) to run. |
 | `playing` | boolean | `true` |  | Spawns and simulates. Off: frozen in place. |
 | `seed` | integer | `0` | ≥ 0, ≤ 4294967295 | Random seed: the same seed replays the same particles. |
 | `timeScale` | number | `1` | ≥ 0 | Simulation speed. |
@@ -127,7 +127,7 @@ Brings along: `core/Transform`.
 | `radius` | number | `0.5` | ≥ 0, m |  |
 | `halfExtents` | number[3] | `[0.5,0.5,0.5]` | m | cuboid: half size per axis. heightfield: half width (x), height scale (y), half depth (z). |
 | `halfHeight` | number | `0.5` | ≥ 0, m | Half the length of a capsule’s middle, or half a cylinder’s or cone’s height. |
-| `mesh` | null or asset ref | `null` |  | convex, trimesh, and polyline: the mesh whose vertices make the shape. |
+| `mesh` | null or Mesh ref | `null` |  | convex, trimesh, and polyline: the mesh whose vertices make the shape. |
 | `points` | number[3][] | `[]` |  | convex, polyline, and segment without a mesh: points in local space (2D reads x and y). |
 | `heightfield` | object | `{"rows":0,"cols":0,"heights":[]}` |  | heightfield: the height samples. |
 | `friction` | number | `0.5` | ≥ 0 |  |
@@ -273,7 +273,7 @@ Brings along: `core/Transform`, `render/Exposure`.
 | `far` | number | `1000` | ≥ 0.001, m | Far plane, orthographic only. |
 | `order` | integer | `0` | ≥ -2147483648, ≤ 2147483647 | Lower renders first. |
 | `clearColor` | string or number[4] | `[0.0056,0.0065,0.0091,1]` |  | Background (linear). |
-| `target` | null or asset ref | `null` |  | Offscreen target, or null for the window. |
+| `target` | null or RenderTarget ref | `null` |  | Offscreen target, or null for the window. |
 
 ## `render/ColorGrading`
 
@@ -290,7 +290,7 @@ Brings along: `render/Camera3d`.
 | `lift` | number[3] | `[0,0,0]` |  | Added to shadows (per channel). |
 | `gamma` | number[3] | `[1,1,1]` |  | Midtone power (per channel). |
 | `gain` | number[3] | `[1,1,1]` |  | Highlight multiplier (per channel). |
-| `lut` | null or asset ref | `null` |  | A 32³ look-up table as a 1024×32 PNG strip (32 slices of red × green, blue across slices), applied after tonemapping. |
+| `lut` | null or Texture ref | `null` |  | A 32³ look-up table as a 1024×32 PNG strip (32 slices of red × green, blue across slices), applied after tonemapping. |
 
 ## `render/ComputedVisibility`
 
@@ -336,7 +336,7 @@ Image-based lighting for a camera: ambient light and reflections from an HDR env
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `texture` | null or asset ref | `null` |  | An HDR texture: an equirectangular .hdr (usage "hdr") or a cube-map KTX2. |
+| `texture` | null or Texture ref | `null` |  | An HDR texture: an equirectangular .hdr (usage "hdr") or a cube-map KTX2. |
 | `intensity` | number or `"overcast-sky"` \| `"clear-sky"` | `5000` | cd/m² | Luminance a texel value of 1.0 represents. HDR files are relative; this ties them to physical units. Presets: overcast-sky 2000, clear-sky 8000. Presets: overcast-sky, clear-sky. |
 | `rotation` | number | `0` | deg | Rotation of the environment about +Y. |
 
@@ -392,7 +392,7 @@ Brings along: `core/Transform`, `render/Visibility`, `render/InstanceSlot`.
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `mesh` | null or asset ref | `null` |  | The mesh to draw. |
+| `mesh` | null or Mesh ref | `null` |  | The mesh to draw. |
 
 ## `render/MeshMaterial`
 
@@ -400,7 +400,7 @@ The material a Mesh3d is drawn with.
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `material` | null or asset ref | `null` |  | Standard material; a neutral gray when absent. |
+| `material` | null or Material ref | `null` |  | Standard material; a neutral gray when absent. |
 
 ## `render/MotionBlur`
 
@@ -621,7 +621,7 @@ Makes this entity an instance of a prefab. The prefab root's components merge in
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `prefab` | null or asset ref | `null` |  | The prefab to place, e.g. { "path": "prefabs/ship.prefab.json" }. |
+| `prefab` | null or Prefab ref | `null` |  | The prefab to place, e.g. { "path": "prefabs/ship.prefab.json" }. |
 | `overrides` | any | `{}` |  | Changes to generated entities by path relative to this entity: { "Exhaust": { "particles/ParticleSystem": { "timeScale": 2 } } } sets fields, { "Hull/Antenna": null } removes an entity, { "Exhaust/particles/ParticleEmitterOverrides": null } removes a component. Paths reach into nested instances. |
 
 ## `scene/SceneInstance`
@@ -630,7 +630,7 @@ Spawns a scene asset (a model's node tree) as children, addressable by path (shi
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `scene` | null or asset ref | `null` |  | The scene to place, e.g. { "path": "assets/ship.glb#Scene" }. |
+| `scene` | null or Scene ref | `null` |  | The scene to place, e.g. { "path": "assets/ship.glb#Scene" }. |
 | `overrides` | any | `{}` |  | Changes to generated entities by path relative to this entity: { "Exhaust": { "particles/ParticleSystem": { "timeScale": 2 } } } sets fields, { "Hull/Antenna": null } removes an entity, { "Exhaust/particles/ParticleEmitterOverrides": null } removes a component. Paths reach into nested instances. |
 
 ## `scene/SceneMember`
@@ -652,8 +652,8 @@ Brings along: `core/Transform`, `render/Visibility`, `sprite/SpriteSlot`.
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `texture` | null or asset ref | `null` |  | The image to draw (ignored when atlas and region are set). |
-| `atlas` | null or asset ref | `null` |  | An atlas to draw a region of. |
+| `texture` | null or Texture ref | `null` |  | The image to draw (ignored when atlas and region are set). |
+| `atlas` | null or TextureAtlas ref | `null` |  | An atlas to draw a region of. |
 | `region` | string | `""` |  | Atlas region name, e.g. "hero/idle_0". |
 | `color` | string or number[4] | `"#ffffff"` |  | Tint, multiplied in (linear). |
 | `flipX` | boolean | `false` |  | Mirror left to right. |
@@ -672,7 +672,7 @@ Brings along: `sprite/Sprite`.
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `clip` | null or asset ref | `null` |  | The frame animation to play. |
+| `clip` | null or SpriteClip ref | `null` |  | The frame animation to play. |
 | `playing` | boolean | `true` |  | Advances each frame. A once clip clears it at its end. |
 | `speed` | number | `1` |  | Playback rate: 2 is twice as fast, negative plays backward. |
 | `time` | number | `0` | s | Position in the clip. |
@@ -695,8 +695,8 @@ Brings along: `core/Transform`, `render/Visibility`.
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `atlas` | null or asset ref | `null` |  | Tile N draws region N − 1. |
-| `data` | null or asset ref | `null` |  | The tile layers. |
+| `atlas` | null or TextureAtlas ref | `null` |  | Tile N draws region N − 1. |
+| `data` | null or TilemapData ref | `null` |  | The tile layers. |
 | `tileSize` | number[2] | `[1,1]` | m | World size of one tile. |
 | `chunkSize` | integer | `32` | ≥ 4, ≤ 256 | Tiles per chunk side: chunks are the unit of culling and re-upload. |
 | `layer` | integer | `0` | ≥ -32768, ≤ 32767 | Draw-order band, like Sprite.layer (tilemaps draw first in a band). |
@@ -712,6 +712,7 @@ A ship the player flies: steer with arrows or the left stick, thrust with W.
 | `acceleration` | number | `15` | ≥ 0, m/s² | Thrust acceleration. |
 | `drag` | number | `0.4` | ≥ 0 | Fraction of speed lost per second without thrust. |
 | `turnRate` | number | `1.2` | ≥ 0, rad/s | Steering speed. |
+| `weapon` | null or star-explorer/Weapon ref | `null` |  | The mounted weapon. |
 
 ## `text/ScreenText`
 
@@ -722,7 +723,7 @@ Brings along: `render/Visibility`.
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `value` | string | `""` |  | The text. "\n" breaks a line. |
-| `font` | null or asset ref | `null` |  | An imported font (.ttf, .otf). |
+| `font` | null or Font ref | `null` |  | An imported font (.ttf, .otf). |
 | `color` | string or number[4] | `"#ffffff"` |  | Fill color (linear). |
 | `align` | `"left"` \| `"center"` \| `"right"` | `"left"` |  | Line alignment within the block. |
 | `anchor` | number[2] | `[0.5,0.5]` |  | Pivot of the text block, y up: [0, 0] bottom left, [1, 1] top right. |
@@ -744,7 +745,7 @@ Brings along: `core/Transform`, `render/Visibility`.
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `value` | string | `""` |  | The text. "\n" breaks a line. |
-| `font` | null or asset ref | `null` |  | An imported font (.ttf, .otf). |
+| `font` | null or Font ref | `null` |  | An imported font (.ttf, .otf). |
 | `color` | string or number[4] | `"#ffffff"` |  | Fill color (linear). |
 | `align` | `"left"` \| `"center"` \| `"right"` | `"left"` |  | Line alignment within the block. |
 | `anchor` | number[2] | `[0.5,0.5]` |  | Pivot of the text block, y up: [0, 0] bottom left, [1, 1] top right. |

@@ -1,3 +1,4 @@
+import { AssetServerResource } from '@shard/assets'
 import {
   allComponents,
   beginRedefinition,
@@ -23,6 +24,8 @@ export interface ReloadReport {
   /** Components the new code no longer defines; kept in the world with their old definition. */
   orphaned: string[]
   systems: { added: string[]; removed: string[]; changed: string[] }
+  /** Data files re-imported because their type changed (and those that no longer validate). */
+  assets: { imported: string[]; failed: string[] }
   error?: { code: string; message: string; path?: string; hint?: string; source?: string }
 }
 
@@ -207,6 +210,7 @@ export function createProjectReloader(app: App, options: { namespace: string; cu
         migrated: [],
         orphaned: [],
         systems: { added: [], removed: [], changed: [] },
+        assets: { imported: [], failed: [] },
       }
       const finish = (error?: unknown): ReloadReport => {
         report.ms = performance.now() - start
@@ -287,6 +291,14 @@ export function createProjectReloader(app: App, options: { namespace: string; cu
       }
       for (const name of oldSources.keys())
         if (!newSources.has(name)) report.systems.removed.push(name)
+      // A data type whose schema changed has a new importer version: its files re-import against
+      // it and reload in place. Files that no longer validate fail and keep their last good value.
+      const assets = world.tryResource(AssetServerResource)
+      if (assets) {
+        const scan = await assets.scan()
+        report.assets.imported = scan.imported
+        report.assets.failed = scan.failed.map((f) => f.path)
+      }
       return finish()
     },
   }

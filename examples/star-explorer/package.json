@@ -10,6 +10,7 @@
     "dev": "shard dev"
   },
   "dependencies": {
+    "@shard/assets": "workspace:*",
     "@shard/cli": "workspace:*",
     "@shard/core": "workspace:*",
     "@shard/input": "workspace:*",

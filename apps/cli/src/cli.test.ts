@@ -103,6 +103,66 @@ describe('commands', () => {
     }
   })
 
+  it('validate checks data files: fields, $extends, and handle types', () => {
+    const files = [
+      'data/weapons/zz-wrong-handle.weapon.json',
+      'data/weapons/zz-loop-a.weapon.json',
+      'data/weapons/zz-loop-b.weapon.json',
+    ]
+    writeFileSync(
+      join(example, files[0]!),
+      JSON.stringify({ damage: -1, upgradesTo: { path: 'scenes/main.scene.json' } }),
+    )
+    writeFileSync(
+      join(example, files[1]!),
+      JSON.stringify({ $extends: { path: 'data/weapons/zz-loop-b.weapon.json' } }),
+    )
+    writeFileSync(
+      join(example, files[2]!),
+      JSON.stringify({ $extends: { path: 'data/weapons/zz-loop-a.weapon.json' } }),
+    )
+    const heavy = join(example, 'data/weapons/heavy-laser.weapon.json')
+    const original = readFileSync(heavy, 'utf8')
+    try {
+      let r = shard(['validate', '--json'])
+      expect(r.code).toBe(1)
+      const byFile = (report: { assets: { source: string; code: string; path: string }[] }) =>
+        report.assets.map((e) => [e.source, e.code, e.path])
+      expect(byFile(r.json())).toEqual(
+        expect.arrayContaining([
+          [files[0], 'assets/import-failed', '/damage'],
+          [files[1], 'data/extends-cycle', '/$extends'],
+          [files[2], 'data/extends-cycle', '/$extends'],
+        ]),
+      )
+      // A handle to an asset of the wrong type (checked against the catalog after importing).
+      writeFileSync(
+        heavy,
+        JSON.stringify({
+          $extends: { path: 'data/weapons/laser.weapon.json' },
+          upgradesTo: { path: 'materials/zz-paint.material.json' },
+        }),
+      )
+      mkdirSync(join(example, 'materials'), { recursive: true })
+      writeFileSync(join(example, 'materials/zz-paint.material.json'), '{}')
+      writeFileSync(join(example, files[0]!), JSON.stringify({}))
+      writeFileSync(join(example, files[1]!), JSON.stringify({}))
+      writeFileSync(join(example, files[2]!), JSON.stringify({ upgradesTo: { path: 'x.png' } }))
+      r = shard(['validate', '--json'])
+      expect(byFile(r.json())).toEqual([
+        ['data/weapons/heavy-laser.weapon.json', 'schema/asset-type-mismatch', '/upgradesTo'],
+        [files[2], 'schema/asset-not-found', '/upgradesTo'],
+      ])
+    } finally {
+      writeFileSync(heavy, original)
+      rmSync(join(example, 'materials'), { recursive: true, force: true })
+      for (const f of files) {
+        rmSync(join(example, f), { force: true })
+        rmSync(join(example, `${f}.meta`), { force: true })
+      }
+    }
+  })
+
   it('run is deterministic', () => {
     const a = shard(['run', '--frames', '300', '--seed', '7', '--json']).json()
     const b = shard(['run', '--frames', '300', '--seed', '7', '--json']).json()
@@ -142,7 +202,7 @@ describe('commands', () => {
   it('test passes on the example, and a failing test exits 1 with the failure', () => {
     const ok = shard(['test', '--json'])
     expect(ok.code).toBe(0)
-    expect(ok.json()).toMatchObject({ passed: 2, failed: 0 })
+    expect(ok.json()).toMatchObject({ passed: 3, failed: 0 })
     const cleanup = temp(
       'tests/zz-fail.test.ts',
       `import { expect, test } from '@shard/testing'\ntest('ships can teleport', async ({ game }) => {\n  await game.step(1)\n  expect(game.get('ship', 'core/Transform').translation[1]).toBe(999)\n})\n`,

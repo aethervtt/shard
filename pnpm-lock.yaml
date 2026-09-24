@@ -90,6 +90,9 @@ importers:
 
   apps/playground:
     dependencies:
+      '@shard/assets':
+        specifier: workspace:*
+        version: link:../../packages/assets
       '@shard/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -105,9 +108,15 @@ importers:
       '@shard/physics':
         specifier: workspace:*
         version: link:../../packages/physics
+      '@shard/platform':
+        specifier: workspace:*
+        version: link:../../packages/platform
       '@shard/platform-web':
         specifier: workspace:*
         version: link:../../packages/platform-web
+      '@shard/project':
+        specifier: workspace:*
+        version: link:../../packages/project
       '@shard/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
@@ -182,6 +191,9 @@ importers:
 
   examples/star-explorer:
     dependencies:
+      '@shard/assets':
+        specifier: workspace:*
+        version: link:../../packages/assets
       '@shard/cli':
         specifier: workspace:*
         version: link:../../apps/cli
@@ -548,6 +560,9 @@ importers:
         specifier: workspace:*
         version: link:../transform
     devDependencies:
+      '@shard/platform-node':
+        specifier: workspace:*
+        version: link:../platform-node
       '@types/node':
         specifier: ^26.6.2
         version: 26.6.2

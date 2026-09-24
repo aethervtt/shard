@@ -1,4 +1,10 @@
-import { allAssetSchemas, allImporters, type ImporterDef } from '@shard/assets'
+import {
+  allAssetSchemas,
+  allDataTypes,
+  allImporters,
+  type DataType,
+  type ImporterDef,
+} from '@shard/assets'
 import { allComponents, type ComponentDef, type JsonSchema } from '@shard/core'
 import { prefabJsonSchema, sceneJsonSchema } from '@shard/scene'
 import { BUILTIN_PLUGINS, type ManifestValue, manifestJsonSchema } from './manifest'
@@ -44,7 +50,7 @@ function describeType(schema: JsonSchema): string {
     return `${describeType((schema.items as JsonSchema) ?? {})}[${n}]`
   }
   if (schema.type === 'object' && schema.properties && (schema.properties as JsonSchema).guid)
-    return 'asset ref'
+    return schema['x-asset-type'] ? `${schema['x-asset-type']} ref` : 'asset ref'
   return (schema.type as string | undefined) ?? 'any'
 }
 
@@ -94,9 +100,18 @@ export function renderErrorCatalog(codes: readonly ErrorCode[]): string {
   return `${lines.join('\n')}\n`
 }
 
-/** Importers: which files they handle, what they produce, and their `.meta` settings. */
-export function renderAssetCatalog(importers: readonly ImporterDef[] = allImporters()): string {
-  const visible = importers.filter((i) => !i.name.startsWith('test'))
+/**
+ * Importers: which files they handle, what they produce, and their `.meta` settings. Then the
+ * project's own data types: fields, file extension, and schema.
+ */
+export function renderAssetCatalog(
+  importers: readonly ImporterDef[] = allImporters(),
+  dataTypes: readonly DataType[] = [],
+): string {
+  const projectImporters = new Set(dataTypes.map((d) => d.importer.name))
+  const visible = importers.filter(
+    (i) => !i.name.startsWith('test') && !projectImporters.has(i.name),
+  )
   const lines = [
     '# Assets',
     '',
@@ -117,6 +132,34 @@ export function renderAssetCatalog(importers: readonly ImporterDef[] = allImport
     lines.push('| Setting | Type | Default | Range | Description |', '|---|---|---|---|---|')
     for (const [name, schema] of Object.entries(props)) lines.push(fieldRow(name, schema))
     lines.push('')
+  }
+  if (dataTypes.length > 0) {
+    lines.push(
+      '# Project data types',
+      '',
+      'Defined in `scripts/` with `project.dataAsset`. Write one JSON file per value, anywhere under an',
+      'asset root (by convention `data/<kind>/`). A file can start from another of the same type with',
+      '`"$extends": { "path": "..." }` and override fields. Reference them from components and other',
+      "data types with `t.handle('<type>')`; read them with `world.resource(Type.store).get(ref)`.",
+      '',
+    )
+    for (const type of dataTypes) {
+      lines.push(`## \`${type.name}\``, '')
+      if (type.description) lines.push(type.description, '')
+      lines.push(
+        `Files: \`*.${type.extension}.json\` (e.g. \`data/${type.extension}s/<name>.${type.extension}.json\`). ` +
+          `Schema: \`.shard/schemas/${type.extension}.schema.json\`.`,
+        '',
+      )
+      const props = (type.jsonSchema().properties ?? {}) as Record<string, JsonSchema>
+      if (Object.keys(props).length === 0) {
+        lines.push('No fields.', '')
+        continue
+      }
+      lines.push('| Field | Type | Default | Range | Description |', '|---|---|---|---|---|')
+      for (const [name, schema] of Object.entries(props)) lines.push(fieldRow(name, schema))
+      lines.push('')
+    }
   }
   return `${lines.join('\n')}\n`
 }
@@ -368,6 +411,49 @@ test('the player walks and lands', async ({ game }) => {
 })
 \`\`\`
 `,
+  'make-a-data-asset.md': `# Make a data asset
+
+Tuning data that isn't an entity (weapon stats, items, loot tables, wave schedules) is a project
+data type: fields in \`scripts/\`, one JSON file per value.
+
+1. **Define the type** with component-schema fields:
+
+   \`\`\`ts
+   export const Weapon = project.dataAsset('Weapon', {
+     damage: t.f32({ default: 10, min: 0, unit: 'hp', description: 'Damage per hit.' }),
+     fireRate: t.f32({ default: 4, unit: 'shots/s' }),
+     projectile: t.handle('Prefab', { description: 'Spawned per shot.' }),
+     upgradesTo: t.handle('<project>/Weapon'),
+   }, { extension: 'weapon', description: 'A ship weapon.' })
+   \`\`\`
+
+   Run \`shard docs\`: the type shows up in \`.agents/assets.md\` and its schema is written to
+   \`.shard/schemas/weapon.schema.json\`.
+2. **Write files**: \`data/weapons/laser.weapon.json\`. Missing fields take their defaults.
+
+   \`\`\`json
+   { "$schema": "../../.shard/schemas/weapon.schema.json", "damage": 12,
+     "projectile": { "path": "prefabs/bolt.prefab.json" } }
+   \`\`\`
+3. **Make a variant** that starts from another file and overrides fields (struct fields merge field
+   by field, lists and handles replace):
+
+   \`\`\`json
+   { "$extends": { "path": "data/weapons/laser.weapon.json" }, "damage": 18 }
+   \`\`\`
+
+   Editing the base re-imports its variants. MCP \`get_asset\` on a variant shows its value, its
+   \`extends\` chain, and which file set each field (\`info.setBy\`).
+4. **Reference it** from a component: \`project.component('Armed', { weapon: t.handle('<project>/Weapon') })\`,
+   and in a scene \`"<project>/Armed": { "weapon": { "path": "data/weapons/laser.weapon.json" } }\`.
+   The weapon loads with the scene.
+5. **Read it** in a system: \`world.resource(Weapon.store).get(armed.weapon)\` is one map lookup,
+   no allocation. Every weapon at once: \`await loadAll(world, Weapon)\` (from \`@shard/assets\`).
+6. **Check**: \`shard import --json\` then \`shard validate --json\`. Errors point into the file;
+   a handle to the wrong type is \`schema/asset-type-mismatch\`, a loop of variants \`data/extends-cycle\`.
+
+Saving a data file or changing the type's fields while the game runs reloads the values in place.
+`,
   'make-a-prefab.md': `# Make a prefab
 
 A prefab is a reusable entity tree: \`prefabs/<name>.prefab.json\`, validated against
@@ -518,7 +604,8 @@ shard mcp                 # MCP server for this project (see .mcp.json)
 - \`scripts/main.ts\`: the project plugin; project types are named \`${manifest.name}/<Name>\`
 - \`scenes/\`: scene files; \`tests/\`: gameplay tests; \`shaders/\`: \`project::\` shader modules
 - \`${manifest.assetRoots.join('/`, `')}/\`: asset files, each with a \`.meta\` (guid, import settings)
-- \`.agents/components.md\`: every component and field; \`.agents/assets.md\`: importers;
+- \`.agents/components.md\`: every component and field; \`.agents/assets.md\`: importers and
+  project data types;
   \`.agents/errors.md\`: error codes
 - \`.agents/skills/\`: recipes for common tasks
 
@@ -547,7 +634,10 @@ export function generateDocs(
   const files: Record<string, string> = {
     '.agents/components.md': renderComponentCatalog(),
     '.agents/errors.md': renderErrorCatalog(errors),
-    '.agents/assets.md': renderAssetCatalog(),
+    '.agents/assets.md': renderAssetCatalog(
+      allImporters(),
+      allDataTypes().filter((d) => d.name.startsWith(`${manifest.name}/`)),
+    ),
     '.shard/schemas/shard.schema.json': `${JSON.stringify(manifestJsonSchema(), null, 2)}\n`,
     '.shard/schemas/scene.schema.json': `${JSON.stringify(sceneJsonSchema(), null, 2)}\n`,
     '.shard/schemas/prefab.schema.json': `${JSON.stringify(prefabJsonSchema(), null, 2)}\n`,
