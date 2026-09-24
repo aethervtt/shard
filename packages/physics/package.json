@@ -21,6 +21,7 @@
     "@shard/transform": "workspace:*"
   },
   "devDependencies": {
+    "@shard/animation": "workspace:*",
     "@shard/gpu": "workspace:*",
     "@shard/platform-node": "workspace:*",
     "@shard/protocol": "workspace:*",

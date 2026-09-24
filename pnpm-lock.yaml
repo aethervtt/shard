@@ -26,6 +26,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: 1.30.0
         version: 1.30.0(zod@3.25.76)
+      '@shard/animation':
+        specifier: workspace:*
+        version: link:../../packages/animation
       '@shard/assets':
         specifier: workspace:*
         version: link:../../packages/assets
@@ -90,12 +93,18 @@ importers:
 
   apps/playground:
     dependencies:
+      '@shard/animation':
+        specifier: workspace:*
+        version: link:../../packages/animation
       '@shard/assets':
         specifier: workspace:*
         version: link:../../packages/assets
       '@shard/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@shard/gltf':
+        specifier: workspace:*
+        version: link:../../packages/gltf
       '@shard/gpu':
         specifier: workspace:*
         version: link:../../packages/gpu
@@ -226,6 +235,49 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
 
+  packages/animation:
+    dependencies:
+      '@shard/assets':
+        specifier: workspace:*
+        version: link:../assets
+      '@shard/core':
+        specifier: workspace:*
+        version: link:../core
+      '@shard/mesh':
+        specifier: workspace:*
+        version: link:../mesh
+      '@shard/render':
+        specifier: workspace:*
+        version: link:../render
+      '@shard/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@shard/scene':
+        specifier: workspace:*
+        version: link:../scene
+      '@shard/texture':
+        specifier: workspace:*
+        version: link:../texture
+      '@shard/transform':
+        specifier: workspace:*
+        version: link:../transform
+    devDependencies:
+      '@shard/gpu':
+        specifier: workspace:*
+        version: link:../gpu
+      '@shard/platform-node':
+        specifier: workspace:*
+        version: link:../platform-node
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+      '@webgpu/types':
+        specifier: ^0.1.74
+        version: 0.1.74
+      webgpu:
+        specifier: 0.6.1
+        version: 0.6.1
+
   packages/assets:
     dependencies:
       '@shard/core':
@@ -256,6 +308,9 @@ importers:
 
   packages/gltf:
     dependencies:
+      '@shard/animation':
+        specifier: workspace:*
+        version: link:../animation
       '@shard/assets':
         specifier: workspace:*
         version: link:../assets
@@ -447,6 +502,9 @@ importers:
         specifier: workspace:*
         version: link:../transform
     devDependencies:
+      '@shard/animation':
+        specifier: workspace:*
+        version: link:../animation
       '@shard/gpu':
         specifier: workspace:*
         version: link:../gpu
@@ -514,6 +572,9 @@ importers:
 
   packages/project:
     dependencies:
+      '@shard/animation':
+        specifier: workspace:*
+        version: link:../animation
       '@shard/assets':
         specifier: workspace:*
         version: link:../assets

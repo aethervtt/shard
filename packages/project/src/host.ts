@@ -1,3 +1,4 @@
+import { animationPlugin } from '@shard/animation'
 import type { GpuContext } from '@shard/gpu'
 // Registers the .gltf/.glb importer and the Skin/AnimationClip asset types for every project host.
 import '@shard/gltf'
@@ -28,7 +29,7 @@ export interface BuildAppOptions {
 export function buildApp(options: BuildAppOptions): App {
   const { manifest } = options
   const names = new Set(manifest.plugins)
-  if (names.has('sprite') || names.has('text') || names.has('particles'))
+  if (names.has('sprite') || names.has('text') || names.has('particles') || names.has('animation'))
     names.add('render/forward')
   if (names.has('render/forward')) {
     names.add('render')
@@ -47,6 +48,7 @@ export function buildApp(options: BuildAppOptions): App {
   if (names.has('sprite')) app.addPlugin(spritePlugin)
   if (names.has('text')) app.addPlugin(textPlugin)
   if (names.has('particles')) app.addPlugin(particlesPlugin)
+  if (names.has('animation')) app.addPlugin(animationPlugin)
   if (names.has('physics3d')) app.addPlugin(physics3dPlugin)
   if (names.has('physics2d')) app.addPlugin(physics2dPlugin)
   if (names.has('input')) app.addPlugin(inputPlugin({ source: options.inputSource }))

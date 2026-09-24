@@ -8,7 +8,7 @@ import { createNodePlatform } from '@shard/platform-node'
 import { Materials, Meshes } from '@shard/render'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parseGltf } from './document'
-import { AnimationClips, Skins } from './importer'
+import { AnimationClips, Skins } from './index'
 import './index'
 
 const here = dirname(fileURLToPath(import.meta.url))

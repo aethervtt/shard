@@ -60,12 +60,21 @@ struct Params {
 @group(0) @binding(6) var<storage, read_write> lod_state: array<u32>;
 @group(0) @binding(7) var<uniform> params: Params;
 
+/** Skinned slots' world spheres (the rest of the deform record is for the vertex stage). */
+struct Deform {
+  sphere: vec4f,
+  rest0: vec4u,
+  rest1: vec4u,
+}
+@group(0) @binding(8) var<storage, read> deforms: array<Deform>;
+
 const NO_BATCH: u32 = 0xffffffffu;
 const LOD_BIT: u32 = 0x80000000u;
 const LOD_UNSET: u32 = 0xffu;
 const FLAG_VISIBLE: u32 = 1u;
 const FLAG_CASTER: u32 = 2u;
 const FLAG_RANGE: u32 = 8u;
+const FLAG_SKINNED: u32 = 32u;
 const VIEW_CASTERS: u32 = 1u;
 const VIEW_UPDATE_LOD: u32 = 2u;
 const VIEW_ORTHO: u32 = 4u;
@@ -159,7 +168,9 @@ fn cull(@builtin(global_invocation_id) id: vec3u) {
   }
   var batch = batches[b];
   if ((batch.flags & (BATCH_TRANSPARENT | BATCH_NOT_READY)) != 0u) { return; }
-  let sphere = slot_sphere(inst, batch.sphere);
+  var sphere = slot_sphere(inst, batch.sphere);
+  // A skinned pose moves the mesh away from its bounds: the slot's own sphere follows the joints.
+  if ((inst.flags & FLAG_SKINNED) != 0u && deforms[s].sphere.w > 0.0) { sphere = deforms[s].sphere; }
   if ((view.flags & VIEW_NO_PLANES) == 0u && !in_frustum(view, sphere)) { return; }
   let has_eye = (view.flags & VIEW_NO_EYE) == 0u;
   let distance = select(0.0, length(sphere.xyz - view.eye.xyz), has_eye);

@@ -126,6 +126,89 @@ fn previous_world(instance_index: u32, position: vec3f) -> vec3f {
   return position;
 }
 
+/**
+ * Skinned and morphed slots (see deform.ts). Records per slot; poses hold this frame's joint
+ * matrices (three affine rows each) and morph (target, weight) pairs; deform_data holds each mesh's
+ * joints and weights (6 words per vertex) and morph deltas (9 floats per vertex per target).
+ */
+struct Deform {
+  sphere: vec4f,
+  joint_base: u32,
+  joint_count: u32,
+  skin_base: u32,
+  morph_base: u32,
+  vertex_count: u32,
+  morph_count: u32,
+  weights_base: u32,
+  _pad: u32,
+}
+
+const FLAG_SKINNED: u32 = 32u;
+const FLAG_MORPH: u32 = 64u;
+
+@group(2) @binding(3) var<storage, read> deforms: array<Deform>;
+@group(2) @binding(4) var<storage, read> poses: array<vec4f>;
+@group(2) @binding(5) var<storage, read> deform_data: array<u32>;
+
+struct Deformed {
+  position: vec3f,
+  normal: vec3f,
+  tangent: vec4f,
+}
+
+fn deform_f32(i: u32) -> f32 {
+  return bitcast<f32>(deform_data[i]);
+}
+
+fn deform_vec3(i: u32) -> vec3f {
+  return vec3f(deform_f32(i), deform_f32(i + 1u), deform_f32(i + 2u));
+}
+
+/** Morph targets, then skinning (linear blend, 4 influences), in the mesh's object space. */
+fn deform_vertex(instance_index: u32, vertex_index: u32, position: vec3f, normal: vec3f, tangent: vec4f) -> Deformed {
+  var out: Deformed;
+  out.position = position;
+  out.normal = normal;
+  out.tangent = tangent;
+  let slot = visible[instance_index] & SLOT_MASK;
+  let flags = instances[slot].flags;
+  if ((flags & (FLAG_SKINNED | FLAG_MORPH)) == 0u) { return out; }
+  let d = deforms[slot];
+  if (vertex_index >= d.vertex_count) { return out; }
+  for (var k = 0u; k < d.morph_count; k++) {
+    let pair = poses[d.weights_base + k / 2u];
+    let odd = (k & 1u) == 1u;
+    let target_index = u32(select(pair.x, pair.z, odd));
+    let w = select(pair.y, pair.w, odd);
+    let o = d.morph_base + (target_index * d.vertex_count + vertex_index) * 9u;
+    out.position += deform_vec3(o) * w;
+    out.normal += deform_vec3(o + 3u) * w;
+    out.tangent = vec4f(out.tangent.xyz + deform_vec3(o + 6u) * w, out.tangent.w);
+  }
+  if ((flags & FLAG_SKINNED) != 0u && d.joint_count > 0u) {
+    let s = d.skin_base + vertex_index * 6u;
+    let j01 = deform_data[s];
+    let j23 = deform_data[s + 1u];
+    let joints = vec4u(j01 & 0xffffu, j01 >> 16u, j23 & 0xffffu, j23 >> 16u);
+    let weights = vec4f(deform_f32(s + 2u), deform_f32(s + 3u), deform_f32(s + 4u), deform_f32(s + 5u));
+    var r0 = vec4f(0.0);
+    var r1 = vec4f(0.0);
+    var r2 = vec4f(0.0);
+    for (var i = 0u; i < 4u; i++) {
+      let m = d.joint_base + min(joints[i], d.joint_count - 1u) * 3u;
+      r0 += poses[m] * weights[i];
+      r1 += poses[m + 1u] * weights[i];
+      r2 += poses[m + 2u] * weights[i];
+    }
+    let p = vec4f(out.position, 1.0);
+    out.position = vec3f(dot(r0, p), dot(r1, p), dot(r2, p));
+    out.normal = vec3f(dot(r0.xyz, out.normal), dot(r1.xyz, out.normal), dot(r2.xyz, out.normal));
+    let t = out.tangent.xyz;
+    out.tangent = vec4f(dot(r0.xyz, t), dot(r1.xyz, t), dot(r2.xyz, t), out.tangent.w);
+  }
+  return out;
+}
+
 /** Object space to world space, with normals through the cofactor (correct under any scale). */
 fn mesh_vertex(inst: Instance, position: vec3f, normal: vec3f, uv: vec2f, uv1: vec2f, tangent: vec4f) -> VertexOutput {
   let world = instance_world(inst, vertex_position(position, normal, uv));
@@ -142,6 +225,12 @@ fn mesh_vertex(inst: Instance, position: vec3f, normal: vec3f, uv: vec2f, uv1: v
   out.world_tangent = vec4f(select(vec3f(0.0), normalize(wt), dot(wt, wt) > 1e-12), tangent.w);
   out.flags = inst.flags;
   return out;
+}
+
+/** mesh_vertex for a draw's vertex: deformed first when the slot is skinned or morphed. */
+fn mesh_vertex_at(instance_index: u32, vertex_index: u32, position: vec3f, normal: vec3f, uv: vec2f, uv1: vec2f, tangent: vec4f) -> VertexOutput {
+  let d = deform_vertex(instance_index, vertex_index, position, normal, tangent);
+  return mesh_vertex(instance_at(instance_index), d.position, d.normal, uv, uv1, d.tangent);
 }`,
 
   'shard::pbr::standard': `
@@ -245,18 +334,19 @@ import shard::pbr::types::VertexOutput;
   'shard::unlit::forward': `
 import shard::view::view;
 import shard::pbr::types::VertexOutput;
-import shard::mesh::{ instance_at, mesh_vertex };
+import shard::mesh::mesh_vertex_at;
 import shard::unlit::shading::shade;
 
 @vertex fn vs(
   @builtin(instance_index) instance_index: u32,
+  @builtin(vertex_index) vertex_index: u32,
   @location(0) position: vec3f,
   @location(1) normal: vec3f,
   @location(2) uv: vec2f,
   @location(3) uv1: vec2f,
   @location(4) tangent: vec4f,
 ) -> VertexOutput {
-  var out = mesh_vertex(instance_at(instance_index), position, normal, uv, uv1, tangent);
+  var out = mesh_vertex_at(instance_index, vertex_index, position, normal, uv, uv1, tangent);
   out.clip = view.viewProj * vec4f(out.world_position, 1.0);
   return out;
 }
@@ -666,7 +756,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 
   'shard::pbr::shadow': `
 import shard::pbr::types::VertexOutput;
-import shard::mesh::{ instance_at, mesh_vertex };
+import shard::mesh::mesh_vertex_at;
 import shard::pbr::material::pbr_input;
 import shard::pbr::standard::material;
 
@@ -675,13 +765,14 @@ struct ShadowView { view_proj: mat4x4f }
 
 @vertex fn vs(
   @builtin(instance_index) instance_index: u32,
+  @builtin(vertex_index) vertex_index: u32,
   @location(0) position: vec3f,
   @location(1) normal: vec3f,
   @location(2) uv: vec2f,
   @location(3) uv1: vec2f,
   @location(4) tangent: vec4f,
 ) -> VertexOutput {
-  var out = mesh_vertex(instance_at(instance_index), position, normal, uv, uv1, tangent);
+  var out = mesh_vertex_at(instance_index, vertex_index, position, normal, uv, uv1, tangent);
   out.clip = shadow_view.view_proj * vec4f(out.world_position, 1.0);
   return out;
 }
@@ -802,20 +893,21 @@ struct FullscreenOutput {
   'shard::pbr::forward': `
 import shard::view::view;
 import shard::pbr::types::VertexOutput;
-import shard::mesh::{ instance_at, mesh_vertex };
+import shard::mesh::mesh_vertex_at;
 import shard::pbr::material::{ pbr_input, fragment_output };
 import shard::pbr::standard::material;
 import shard::pbr::lighting::apply_lighting;
 
 @vertex fn vs(
   @builtin(instance_index) instance_index: u32,
+  @builtin(vertex_index) vertex_index: u32,
   @location(0) position: vec3f,
   @location(1) normal: vec3f,
   @location(2) uv: vec2f,
   @location(3) uv1: vec2f,
   @location(4) tangent: vec4f,
 ) -> VertexOutput {
-  var out = mesh_vertex(instance_at(instance_index), position, normal, uv, uv1, tangent);
+  var out = mesh_vertex_at(instance_index, vertex_index, position, normal, uv, uv1, tangent);
   out.clip = view.viewProj * vec4f(out.world_position, 1.0);
   return out;
 }

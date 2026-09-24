@@ -354,6 +354,7 @@ export class GpuCuller {
       this.args.version,
       this.visible.version,
       this.lodState.version,
+      store.deform.recordBuffer.version,
       ...this.paramBuffers.map((b) => b.version),
     ].join('/')
     if (!this.bindGroups || this.bindGroups.key !== key) {
@@ -372,6 +373,7 @@ export class GpuCuller {
               { binding: 5, resource: { buffer: this.visible.buffer } },
               { binding: 6, resource: { buffer: this.lodState.buffer } },
               { binding: 7, resource: { buffer: params.buffer } },
+              { binding: 8, resource: { buffer: store.deform.recordBuffer.buffer } },
             ],
           }),
         ),
@@ -514,6 +516,7 @@ function cullLayout(gpu: GpuContext): GPUBindGroupLayout {
       write(5),
       write(6),
       { binding: 7, visibility: C, buffer: { type: 'uniform' } },
+      read(8),
     ],
   })
 }

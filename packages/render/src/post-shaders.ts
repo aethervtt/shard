@@ -7,7 +7,7 @@ export const POST_SHADERS: Record<string, string> = {
   'shard::prepass::common': `
 import shard::view::view;
 import shard::pbr::types::VertexOutput;
-import shard::mesh::{ instance_at, mesh_vertex, previous_world, vertex_position };
+import shard::mesh::{ instance_at, mesh_vertex, deform_vertex, previous_world, vertex_position };
 import shard::pbr::gbuffer::oct_encode;
 
 struct PrepassVertex {
@@ -29,8 +29,10 @@ struct PrepassOutput {
   @location(1) velocity: vec2f,
 }
 
-fn prepass_vertex(instance_index: u32, position: vec3f, normal: vec3f, uv: vec2f, uv1: vec2f, tangent: vec4f) -> PrepassVertex {
-  let m = mesh_vertex(instance_at(instance_index), position, normal, uv, uv1, tangent);
+fn prepass_vertex(instance_index: u32, vertex_index: u32, position: vec3f, normal: vec3f, uv: vec2f, uv1: vec2f, tangent: vec4f) -> PrepassVertex {
+  // Motion vectors use this frame's pose with last frame's transform: deformation adds none.
+  let d = deform_vertex(instance_index, vertex_index, position, normal, tangent);
+  let m = mesh_vertex(instance_at(instance_index), d.position, d.normal, uv, uv1, d.tangent);
   var out: PrepassVertex;
   out.clip = view.viewProj * vec4f(m.world_position, 1.0);
   out.world_position = m.world_position;
@@ -40,7 +42,7 @@ fn prepass_vertex(instance_index: u32, position: vec3f, normal: vec3f, uv: vec2f
   out.world_tangent = m.world_tangent;
   out.flags = m.flags;
   out.current = view.viewProjNoJitter * vec4f(m.world_position, 1.0);
-  let before = previous_world(instance_index, vertex_position(position, normal, uv));
+  let before = previous_world(instance_index, vertex_position(d.position, d.normal, uv));
   out.previous = view.prevViewProj * vec4f(before, 1.0);
   return out;
 }
@@ -73,13 +75,14 @@ import shard::pbr::standard::material;
 
 @vertex fn vs(
   @builtin(instance_index) instance_index: u32,
+  @builtin(vertex_index) vertex_index: u32,
   @location(0) position: vec3f,
   @location(1) normal: vec3f,
   @location(2) uv: vec2f,
   @location(3) uv1: vec2f,
   @location(4) tangent: vec4f,
 ) -> PrepassVertex {
-  return prepass_vertex(instance_index, position, normal, uv, uv1, tangent);
+  return prepass_vertex(instance_index, vertex_index, position, normal, uv, uv1, tangent);
 }
 
 /** Depth, the shaded normal (normal maps included), and velocity. */
@@ -94,13 +97,14 @@ import shard::prepass::common::{ PrepassVertex, PrepassOutput, prepass_vertex, p
 
 @vertex fn vs(
   @builtin(instance_index) instance_index: u32,
+  @builtin(vertex_index) vertex_index: u32,
   @location(0) position: vec3f,
   @location(1) normal: vec3f,
   @location(2) uv: vec2f,
   @location(3) uv1: vec2f,
   @location(4) tangent: vec4f,
 ) -> PrepassVertex {
-  return prepass_vertex(instance_index, position, normal, uv, uv1, tangent);
+  return prepass_vertex(instance_index, vertex_index, position, normal, uv, uv1, tangent);
 }
 
 /** Materials with their own shading: the geometric normal. */

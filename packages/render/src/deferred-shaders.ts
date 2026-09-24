@@ -64,7 +64,7 @@ fn unpack_gbuffer(albedo: vec4f, normal: vec4f, emissive: vec4f) -> GBufferSampl
   'shard::pbr::gbuffer_pass': `
 import shard::view::view;
 import shard::pbr::types::VertexOutput;
-import shard::mesh::{ instance_at, mesh_vertex };
+import shard::mesh::mesh_vertex_at;
 import shard::pbr::material::pbr_input;
 import shard::pbr::standard::material;
 import shard::pbr::gbuffer::{ GBufferOutput, pack_gbuffer };
@@ -73,13 +73,14 @@ const FLAG_RECEIVER: u32 = 4u;
 
 @vertex fn vs(
   @builtin(instance_index) instance_index: u32,
+  @builtin(vertex_index) vertex_index: u32,
   @location(0) position: vec3f,
   @location(1) normal: vec3f,
   @location(2) uv: vec2f,
   @location(3) uv1: vec2f,
   @location(4) tangent: vec4f,
 ) -> VertexOutput {
-  var out = mesh_vertex(instance_at(instance_index), position, normal, uv, uv1, tangent);
+  var out = mesh_vertex_at(instance_index, vertex_index, position, normal, uv, uv1, tangent);
   out.clip = view.viewProj * vec4f(out.world_position, 1.0);
   return out;
 }

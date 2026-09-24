@@ -7,6 +7,7 @@ import {
   ListToolsRequestSchema,
   ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
+import { animationMethods } from '@shard/animation'
 import { allImporters, findImporter } from '@shard/assets'
 import { allComponents, findComponent, type JsonSchema, ShardError } from '@shard/core'
 import { listScenes } from '@shard/node'
@@ -45,7 +46,7 @@ const text = (value: unknown): ToolResult => ({
 })
 
 /** Methods engine plugins add to the app (served when the plugin is enabled). */
-const PLUGIN_METHODS = [...physicsMethods]
+const PLUGIN_METHODS = [...physicsMethods, ...animationMethods]
 
 /** The protocol method's parameter schema, as an MCP input schema. */
 function paramsSchema(method: string, overrides: Record<string, JsonSchema> = {}): JsonSchema {
@@ -354,6 +355,11 @@ export const TOOLS: Tool[] = [
     'physics_describe',
     'physics.describe',
     'Physics state: bodies by kind and how many sleep, colliders by shape, joints, contact pairs, colliders waiting for a mesh, and the last step time.',
+  ),
+  forward(
+    'animation_describe',
+    'animation.describe',
+    "What an AnimationPlayer is doing (animation plugin): each layer's clip, time, duration, weight, loop, blend, mask, and fade, how many targets bound, channels whose target is missing (a wrong path), and this frame's root motion. Without an entity: every player.",
   ),
 ]
 

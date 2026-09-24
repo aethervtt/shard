@@ -12,6 +12,7 @@ import type { Mesh } from '@shard/mesh'
 import { toHalf } from '@shard/texture'
 import { GlobalTransform, Transform } from '@shard/transform'
 import { MaterialAsset, Materials, Meshes } from './assets'
+import { DEFORM_WORDS, DeformStore } from './deform'
 import { GpuAssetsResource } from './gpu-assets'
 import { isTransparent } from './materials'
 import { ComputedVisibility, Visibility } from './visibility'
@@ -98,6 +99,38 @@ export const Lod = defineComponent(
   },
 )
 
+export const SkinnedMesh = defineComponent(
+  'render/SkinnedMesh',
+  {
+    skin: t.handle('Skin', {
+      description: 'The skin: joint paths and inverse bind matrices (imported from glTF).',
+    }),
+    joints: t.list(t.entity, {
+      description:
+        "The joint entities, in the skin's order. Resolved from the skin's joint paths when empty (the model's instance spawns them); set it to drive a mesh with other entities.",
+    }),
+  },
+  {
+    description:
+      "Deforms the mesh by its joints' transforms (linear blend skinning, 4 influences), in every pass that draws it. Culling bounds follow the pose.",
+    requires: [Mesh3d],
+  },
+)
+
+export const MorphWeights = defineComponent(
+  'render/MorphWeights',
+  {
+    weights: t.list(t.f32, {
+      description:
+        "One weight per morph target of the mesh (0 = none, 1 = the full target). The 8 heaviest are applied. Animation clips' weights channels write it.",
+    }),
+  },
+  {
+    description: "Blends the mesh's morph targets (blend shapes) by weight.",
+    requires: [Mesh3d],
+  },
+)
+
 export const VisibilityRange = defineComponent(
   'render/VisibilityRange',
   {
@@ -128,6 +161,10 @@ export const InstanceFlags = {
   Receiver: 4,
   Range: 8,
   Lod: 16,
+  /** Skinned: the vertex stage reads joint matrices; culling reads the slot's own sphere. */
+  Skinned: 32,
+  /** Morphed: the vertex stage adds morph target deltas. */
+  Morph: 64,
 } as const
 
 /** Record value for "no batch". LOD slots store `LOD_BIT | lodSet`. */
@@ -256,6 +293,31 @@ export function slotSphere(
   return out
 }
 
+/**
+ * A slot's world bounding sphere: its skinned pose's sphere when it has one (joints move the mesh
+ * away from its bounds), otherwise `slotSphere` from the mesh bounds.
+ */
+function sphereOfSlot(
+  out: Float32Array,
+  store: InstanceStore,
+  slot: number,
+  flags: number,
+  bounds: Float32Array,
+): Float32Array {
+  if (flags & InstanceFlags.Skinned) {
+    const r = store.deform.recordF32
+    const o = slot * DEFORM_WORDS
+    if (r[o + 3]! > 0) {
+      out[0] = r[o]!
+      out[1] = r[o + 1]!
+      out[2] = r[o + 2]!
+      out[3] = r[o + 3]!
+      return out
+    }
+  }
+  return slotSphere(out, store.f32, slot * INSTANCE_FLOATS, bounds)
+}
+
 /** Sphere against six planes (inside where n·p + d ≥ 0). */
 export function sphereInFrustum(planes: Float32Array, s: Float32Array): boolean {
   for (let p = 0; p < 24; p += 4) {
@@ -380,6 +442,8 @@ export class InstanceStore {
   /** Bind group over `gpuVisible`, for draws of GPU-culled views. */
   gpuBindGroup: GPUBindGroup | undefined
   private gpuBound = ''
+  /** Joint matrices, morph weights, and deform records of skinned and morphed slots. */
+  readonly deform: DeformStore
 
   constructor(gpu: GpuContext) {
     this.gpu = gpu
@@ -400,6 +464,7 @@ export class InstanceStore {
       size: 4 * 1024,
     })
     this.layout = createInstanceLayout(gpu)
+    this.deform = new DeformStore(gpu)
     this.grow(256)
   }
 
@@ -437,6 +502,7 @@ export class InstanceStore {
     movedFrame.set(this.movedFrame)
     this.movedFrame = movedFrame
     this.capacity = capacity
+    this.deform.ensureSlots(capacity)
   }
 
   alloc(entity: number): number {
@@ -465,6 +531,7 @@ export class InstanceStore {
     this.materialRefs[slot] = null
     this.lods[slot] = null
     this.pending.delete(slot)
+    this.deform.clear(slot)
     this.markDirty(slot)
     this.free.push(slot)
   }
@@ -489,7 +556,7 @@ export class InstanceStore {
         if (a === -1 || (this.u32[s * INSTANCE_FLOATS + 13]! & need) !== need) continue
         const batch = this.batches[a >= 0 ? a : this.lodSets[-2 - a]!.batches[0]!]!
         if (batch.transparent) continue
-        slotSphere(sphere, this.f32, s * INSTANCE_FLOATS, batch.mesh.bounds)
+        sphereOfSlot(sphere, this, s, this.u32[s * INSTANCE_FLOATS + 13]!, batch.mesh.bounds)
         for (let k = 0; k < 3; k++) {
           if (sphere[k]! - sphere[3]! < b[k]!) b[k] = sphere[k]! - sphere[3]!
           if (sphere[k]! + sphere[3]! > b[k + 3]!) b[k + 3] = sphere[k]! + sphere[3]!
@@ -861,7 +928,8 @@ export class InstanceStore {
       }
       // Transparent batches never cast shadows, and only camera views that ask draw them.
       if (batch.transparent && (params.require !== 0 || !transparent)) continue
-      slotSphere(sphere, f, s * INSTANCE_FLOATS, batch.mesh.bounds)
+      if (flags & InstanceFlags.Skinned) sphereOfSlot(sphere, this, s, flags, batch.mesh.bounds)
+      else slotSphere(sphere, f, s * INSTANCE_FLOATS, batch.mesh.bounds)
       if (params.planes && !sphereInFrustum(params.planes, sphere)) {
         list.culled++
         continue
@@ -952,7 +1020,6 @@ export class InstanceStore {
   /** Transparent-only CPU cull over blended batches' members (LOD slots aren't members). */
   cullTransparentMembers(list: DrawList, params: CullParams, forward: Float32Array): void {
     this.transparentCount = 0
-    const f = this.f32
     const u32 = this.u32
     const eye = params.eye
     const sphere = scratchSphere
@@ -962,7 +1029,7 @@ export class InstanceStore {
         const s = batch.members[m]!
         const flags = u32[s * INSTANCE_FLOATS + 13]!
         if ((flags & InstanceFlags.Visible) === 0) continue
-        slotSphere(sphere, f, s * INSTANCE_FLOATS, batch.mesh.bounds)
+        sphereOfSlot(sphere, this, s, flags, batch.mesh.bounds)
         if (params.planes && !sphereInFrustum(params.planes, sphere)) continue
         if (flags & InstanceFlags.Range && eye) {
           const dx = sphere[0]! - eye[0]!
@@ -1098,36 +1165,38 @@ export class InstanceStore {
     }
   }
 
+  private createBindGroup(label: string, visible: GPUBuffer): GPUBindGroup {
+    return this.gpu.device.createBindGroup({
+      label,
+      layout: this.layout,
+      entries: [
+        { binding: 0, resource: { buffer: this.instanceBuffer.buffer } },
+        { binding: 1, resource: { buffer: visible } },
+        { binding: 2, resource: { buffer: this.prevBuffer.buffer } },
+        { binding: 3, resource: { buffer: this.deform.recordBuffer.buffer } },
+        { binding: 4, resource: { buffer: this.deform.poseBuffer.buffer } },
+        { binding: 5, resource: { buffer: this.deform.vertexBuffer.buffer } },
+      ],
+    })
+  }
+
   /** Uploads this frame's CPU visible lists and (re)builds the bind groups the vertex stage reads. */
   finishFrame(): void {
     if (this.generation !== this.gpu.generation) this.upload()
     if (this.visibleCount > 0) this.visibleBuffer.write(this.visible, 0, 0, this.visibleCount)
-    const key = `${this.instanceBuffer.version}/${this.visibleBuffer.version}/${this.prevBuffer.version}/${this.gpu.generation}`
+    this.deform.upload()
+    const d = this.deform
+    const deformKey = `${d.recordBuffer.version}/${d.poseBuffer.version}/${d.vertexBuffer.version}`
+    const key = `${this.instanceBuffer.version}/${this.visibleBuffer.version}/${this.prevBuffer.version}/${deformKey}/${this.gpu.generation}`
     if (!this.bindGroup || this.bound !== key) {
-      this.bindGroup = this.gpu.device.createBindGroup({
-        label: 'instances',
-        layout: this.layout,
-        entries: [
-          { binding: 0, resource: { buffer: this.instanceBuffer.buffer } },
-          { binding: 1, resource: { buffer: this.visibleBuffer.buffer } },
-          { binding: 2, resource: { buffer: this.prevBuffer.buffer } },
-        ],
-      })
+      this.bindGroup = this.createBindGroup('instances', this.visibleBuffer.buffer)
       this.bound = key
     }
     const g = this.gpuVisible
     if (g) {
-      const gkey = `${this.instanceBuffer.version}/${g.version}/${this.prevBuffer.version}/${this.gpu.generation}`
+      const gkey = `${this.instanceBuffer.version}/${g.version}/${this.prevBuffer.version}/${deformKey}/${this.gpu.generation}`
       if (!this.gpuBindGroup || this.gpuBound !== gkey) {
-        this.gpuBindGroup = this.gpu.device.createBindGroup({
-          label: 'instances/gpu-culled',
-          layout: this.layout,
-          entries: [
-            { binding: 0, resource: { buffer: this.instanceBuffer.buffer } },
-            { binding: 1, resource: { buffer: g.buffer } },
-            { binding: 2, resource: { buffer: this.prevBuffer.buffer } },
-          ],
-        })
+        this.gpuBindGroup = this.createBindGroup('instances/gpu-culled', g.buffer)
         this.gpuBound = gkey
       }
     }
@@ -1176,6 +1245,10 @@ export function createInstanceLayout(gpu: GpuContext): GPUBindGroupLayout {
         buffer: { type: 'read-only-storage' },
       },
       { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
+      // Deform records, poses (joint matrices, morph weights), and per-vertex deform data.
+      { binding: 3, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
+      { binding: 4, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
+      { binding: 5, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
     ],
   })
 }
@@ -1251,6 +1324,8 @@ export const prepareInstances = defineSystem({
       const rangeChanged = hasRange ? table.changedTicks(VisibilityRange) : zeroTicks(n)
       const vis = table.column(ComputedVisibility, 'visible')
       const tableFlags =
+        (table.has(SkinnedMesh) ? InstanceFlags.Skinned : 0) |
+        (table.has(MorphWeights) ? InstanceFlags.Morph : 0) |
         (table.has(NotShadowCaster) ? 0 : InstanceFlags.Caster) |
         (table.has(NotShadowReceiver) ? 0 : InstanceFlags.Receiver) |
         (hasRange ? InstanceFlags.Range : 0) |

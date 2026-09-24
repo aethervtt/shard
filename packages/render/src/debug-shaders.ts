@@ -171,7 +171,7 @@ struct PickOutput {
 
   'shard::pick': `
 import shard::view::view;
-import shard::mesh::{ instance_at, mesh_vertex };
+import shard::mesh::{ instance_at, mesh_vertex_at };
 import shard::pick::types::PickOutput;
 
 struct PickVertex {
@@ -182,6 +182,7 @@ struct PickVertex {
 
 @vertex fn vs(
   @builtin(instance_index) instance_index: u32,
+  @builtin(vertex_index) vertex_index: u32,
   @location(0) position: vec3f,
   @location(1) normal: vec3f,
   @location(2) uv: vec2f,
@@ -189,7 +190,7 @@ struct PickVertex {
   @location(4) tangent: vec4f,
 ) -> PickVertex {
   let inst = instance_at(instance_index);
-  let m = mesh_vertex(inst, position, normal, uv, uv1, tangent);
+  let m = mesh_vertex_at(instance_index, vertex_index, position, normal, uv, uv1, tangent);
   var out: PickVertex;
   // Unjittered, so positions from depth match the camera exactly.
   out.clip = view.viewProjNoJitter * vec4f(m.world_position, 1.0);

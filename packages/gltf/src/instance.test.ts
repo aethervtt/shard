@@ -33,7 +33,7 @@ import {
 } from '@shard/scene'
 import { GlobalTransform, TransformPlugin } from '@shard/transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { Skins } from './importer'
+import { Skins } from './index'
 import './index'
 
 /** Spec budgets hold under `pnpm bench` (serial); parallel `pnpm test` runs get 3x slack. */

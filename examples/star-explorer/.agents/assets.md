@@ -30,6 +30,18 @@ Files: `*.prefab.json`
 
 No import settings.
 
+## `data/mask`
+
+Files: `*.mask.json`
+
+No import settings.
+
+## `animation-clip`
+
+Files: `*.anim.json`
+
+No import settings.
+
 ## `gltf`
 
 Files: `*.gltf`, `*.glb`

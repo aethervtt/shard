@@ -76,6 +76,7 @@ import {
   ShadowsResource,
   shadowViewLayout,
 } from './shadows'
+import { prepareDeforms, Skins } from './skinning'
 import { GpuMemory, RenderStats } from './stats'
 import { type CameraData, Cameras, cameraOf, extractCameras, ViewSettings } from './view'
 import { computeVisibility } from './visibility'
@@ -1220,6 +1221,7 @@ export function forwardPlugin(options: ForwardPluginOptions = {}): Plugin {
     build(app) {
       const w = app.world
       w.initResource(Meshes)
+      w.initResource(Skins)
       w.initResource(Materials)
       w.initResource(Textures)
       w.initResource(RenderTargets)
@@ -1247,6 +1249,7 @@ export function forwardPlugin(options: ForwardPluginOptions = {}): Plugin {
           extractCameras.inSet(RenderSet.Extract),
           extractLights.inSet(RenderSet.Extract),
           prepareInstances.inSet(RenderSet.Prepare),
+          prepareDeforms.inSet(RenderSet.Prepare).after(prepareInstances),
           prepareLights.inSet(RenderSet.Prepare),
           prepareEnvironments.inSet(RenderSet.Prepare),
           queue.inSet(RenderSet.Queue),

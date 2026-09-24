@@ -10,8 +10,10 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
+    "@shard/animation": "workspace:*",
     "@shard/assets": "workspace:*",
     "@shard/core": "workspace:*",
+    "@shard/gltf": "workspace:*",
     "@shard/gpu": "workspace:*",
     "@shard/mesh": "workspace:*",
     "@shard/particles": "workspace:*",

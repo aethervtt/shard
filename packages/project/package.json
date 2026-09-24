@@ -11,6 +11,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@shard/animation": "workspace:*",
     "@shard/assets": "workspace:*",
     "@shard/core": "workspace:*",
     "@shard/gltf": "workspace:*",

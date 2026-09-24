@@ -6,7 +6,7 @@ export interface GltfDocument {
   scene?: number
   scenes?: { name?: string; nodes?: number[] }[]
   nodes?: GltfNode[]
-  meshes?: { name?: string; primitives: GltfPrimitive[] }[]
+  meshes?: { name?: string; primitives: GltfPrimitive[]; weights?: number[] }[]
   materials?: GltfMaterial[]
   accessors?: GltfAccessor[]
   bufferViews?: { buffer: number; byteOffset?: number; byteLength: number; byteStride?: number }[]
@@ -40,6 +40,7 @@ export interface GltfNode {
   translation?: number[]
   rotation?: number[]
   scale?: number[]
+  weights?: number[]
   extensions?: Record<string, unknown>
   extras?: unknown
 }
@@ -49,7 +50,7 @@ export interface GltfPrimitive {
   indices?: number
   material?: number
   mode?: number
-  targets?: unknown[]
+  targets?: Record<string, number>[]
 }
 
 export interface TextureInfo {

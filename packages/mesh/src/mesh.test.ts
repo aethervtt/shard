@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { decodeMesh, encodeMesh } from './codec'
 import { Mesh } from './mesh'
 import { box, capsule, cone, cube, cylinder, plane, sphere, torus } from './primitives'
 
@@ -95,5 +96,37 @@ describe('Mesh', () => {
     expect(m.version).toBe(1)
     expect([...m.bounds]).toEqual([0, 0, 0, 5, 5, 0])
     expect(m.drawCount).toBe(3)
+  })
+})
+
+describe('morph targets', () => {
+  const positions = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0])
+  const target = { positions: new Float32Array([0, 0, 0, 0, 0, 2, 0, -1, 0]) }
+
+  it('bounds cover every blend of weights in [0, 1]', () => {
+    const m = Mesh.create({ positions, targets: [target] })
+    expect([...m.bounds]).toEqual([0, -1, 0, 1, 1, 2])
+  })
+
+  it('round-trips through the artifact; meshes without targets stay version 1', () => {
+    const m = Mesh.create({
+      positions,
+      targets: [target, { positions: target.positions, normals: new Float32Array(9).fill(1) }],
+    })
+    const bytes = encodeMesh(m)
+    expect(new DataView(bytes.buffer).getUint32(4, true)).toBe(2)
+    const back = decodeMesh(bytes)
+    expect(back.targets!.length).toBe(2)
+    expect([...back.targets![1]!.normals!]).toEqual(new Array(9).fill(1))
+    // A target without normals gets zeros, so both decode alike.
+    expect([...back.targets![0]!.normals!]).toEqual(new Array(9).fill(0))
+    expect([...back.targets![0]!.positions]).toEqual([...target.positions])
+    expect(new DataView(encodeMesh(cube()).buffer).getUint32(4, true)).toBe(1)
+  })
+
+  it('rejects targets of the wrong length', () => {
+    expect(() => Mesh.create({ positions, targets: [{ positions: new Float32Array(6) }] })).toThrow(
+      expect.objectContaining({ code: 'mesh/invalid' }),
+    )
   })
 })

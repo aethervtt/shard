@@ -18,7 +18,19 @@ export interface MeshData {
   /** Four joint weights per vertex, summing to 1 (skinning). */
   weights?: Float32Array
   indices?: Uint16Array | Uint32Array
+  /** Morph targets (blend shapes): per-vertex deltas added by `render/MorphWeights`. */
+  targets?: MorphTarget[]
 }
+
+/** One morph target: deltas from the base mesh, xyz per vertex. */
+export interface MorphTarget {
+  positions: Float32Array
+  normals?: Float32Array
+  tangents?: Float32Array
+}
+
+/** Morph targets a mesh can blend at once (the vertex stage adds the heaviest ones). */
+export const MAX_MORPH_TARGETS = 8
 
 export const MESH_ATTRIBUTES = [
   'normals',
@@ -54,7 +66,11 @@ export class Mesh {
   joints: Uint16Array | undefined
   weights: Float32Array | undefined
   indices: Uint16Array | Uint32Array | undefined
-  /** Local-space bounds: `[minX, minY, minZ, maxX, maxY, maxZ]`. */
+  targets: MorphTarget[] | undefined
+  /**
+   * Local-space bounds: `[minX, minY, minZ, maxX, maxY, maxZ]`. With morph targets, they cover
+   * every blend of weights in [0, 1].
+   */
   readonly bounds = aabb.create()
   /** Increments on `update`, so GPU copies know to re-upload. */
   version = 0
@@ -106,6 +122,7 @@ export class Mesh {
     this.joints = data.joints
     this.weights = data.weights
     this.indices = data.indices
+    this.targets = data.targets?.length ? data.targets : undefined
     this.validate()
   }
 
@@ -115,6 +132,7 @@ export class Mesh {
     for (const a of MESH_ATTRIBUTES)
       if (this[a]) (out as unknown as Record<string, unknown>)[a] = this[a]
     if (this.indices) out.indices = this.indices
+    if (this.targets) out.targets = this.targets
     return out
   }
 
@@ -139,6 +157,41 @@ export class Mesh {
           throw bad(`index ${this.indices[i]} is out of range (${n} vertices)`)
       }
     }
+    for (const [k, target] of (this.targets ?? []).entries()) {
+      for (const a of ['positions', 'normals', 'tangents'] as const) {
+        const arr = target[a]
+        if (arr && arr.length !== n * 3)
+          throw bad(`morph target ${k} has ${arr.length / 3} ${a} for ${n} vertices`)
+      }
+      if (!target.positions) throw bad(`morph target ${k} has no positions`)
+    }
     aabb.fromPoints(this.bounds, this.positions)
+    if (this.targets) {
+      // Any blend of weights in [0, 1]: each target can push a vertex by at most its own reach.
+      const b = this.bounds
+      for (const target of this.targets) {
+        const d = target.positions
+        let lx = 0
+        let ly = 0
+        let lz = 0
+        let hx = 0
+        let hy = 0
+        let hz = 0
+        for (let i = 0; i < d.length; i += 3) {
+          lx = Math.min(lx, d[i]!)
+          ly = Math.min(ly, d[i + 1]!)
+          lz = Math.min(lz, d[i + 2]!)
+          hx = Math.max(hx, d[i]!)
+          hy = Math.max(hy, d[i + 1]!)
+          hz = Math.max(hz, d[i + 2]!)
+        }
+        b[0] = b[0]! + lx
+        b[1] = b[1]! + ly
+        b[2] = b[2]! + lz
+        b[3] = b[3]! + hx
+        b[4] = b[4]! + hy
+        b[5] = b[5]! + hz
+      }
+    }
   }
 }

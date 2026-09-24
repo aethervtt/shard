@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",
+    "@shard/animation": "workspace:*",
     "@shard/assets": "workspace:*",
     "@shard/core": "workspace:*",
     "@shard/node": "workspace:*",

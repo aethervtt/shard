@@ -1,3 +1,4 @@
+import { animationPlugin } from '@shard/animation'
 import { ShardError } from '@shard/core'
 import { particlesPlugin } from '@shard/particles'
 import { physics2dPlugin, physics3dPlugin } from '@shard/physics'
@@ -7,6 +8,7 @@ import { App, animationFrameRunner } from '@shard/runtime'
 import { ScenePlugin } from '@shard/scene'
 import { spritePlugin } from '@shard/sprite'
 import { TransformPlugin } from '@shard/transform'
+import { animationDemoPlugin } from './animation'
 import { characterDemoPlugin, characterPlanetDemoPlugin } from './character'
 import { character2dDemoPlugin } from './character2d'
 import { crowdPlugin } from './crowd'
@@ -45,6 +47,7 @@ const DEMOS = [
   'character2d',
   'prefabs',
   'data',
+  'animation',
 ] as const
 const demo = DEMOS.find((d) => location.hash === `#${d}`) ?? 'scene'
 document.body.dataset.demo = demo
@@ -97,6 +100,15 @@ if (demo === 'galaxy') {
   app.addPlugin(TransformPlugin, forwardPlugin(), ScenePlugin, hudPlugin, prefabsDemoPlugin)
 } else if (demo === 'data') {
   app.addPlugin(TransformPlugin, forwardPlugin(), ScenePlugin, hudPlugin, dataDemoPlugin)
+} else if (demo === 'animation') {
+  app.addPlugin(
+    TransformPlugin,
+    forwardPlugin(),
+    ScenePlugin,
+    animationPlugin,
+    hudPlugin,
+    animationDemoPlugin,
+  )
 } else if (demo === 'sky') {
   app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, skyPlugin)
 } else {

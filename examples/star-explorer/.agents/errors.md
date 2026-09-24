@@ -4,6 +4,10 @@ Every engine error is a `ShardError` with one of these codes.
 
 | Code | Source | Hint |
 |---|---|---|
+| `animation/invalid-clip` | @shard/animation |  |
+| `animation/invalid-mask` | @shard/animation |  |
+| `animation/no-model` | @shard/animation | Clips from .anim.json animate whatever plays them: preview the scene that uses it with a screenshot. |
+| `animation/no-player` | @shard/animation | Add animation/AnimationPlayer to the model root first. |
 | `app/duplicate-method` | @shard/runtime |  |
 | `app/duplicate-plugin` | @shard/runtime | Unload it first (unloadPlugin). |
 | `app/duplicate-system` | @shard/runtime | System names must be unique across all schedules. |
@@ -100,6 +104,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `render/no-shadow-map` | @shard/render | Set shadows: true on the light, and check render.describe for the shadow budget. |
 | `render/no-view` | @shard/render | Spawn an entity with Camera3d, or pass the camera to pick from. |
 | `render/not-ready` | @shard/render | Await app.init() so the render plugin can create the GPU device. |
+| `render/too-many-joints` | @shard/gltf | Split the mesh, or remove helper bones before exporting. |
 | `render/unknown-buffer` | @shard/render |  |
 | `render/unknown-camera` | @shard/render | Pass a Camera3d entity that has rendered at least one frame. |
 | `render/unknown-material-type` | @shard/render |  |

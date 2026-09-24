@@ -1,13 +1,8 @@
-import {
-  AssetStore,
-  defineAssetType,
-  defineImporter,
-  type ImportContext,
-  type ImportedAsset,
-} from '@shard/assets'
-import { defineResource, defineSchema, type JsonValue, ShardError, t } from '@shard/core'
-import { encodeMesh, Mesh, type MeshData } from '@shard/mesh'
-import { StandardMaterial } from '@shard/render'
+import { type AnimationChannel, clipInfo, encodeClip, type Interpolation } from '@shard/animation'
+import { defineImporter, type ImportContext, type ImportedAsset } from '@shard/assets'
+import { defineSchema, type JsonValue, ShardError, t } from '@shard/core'
+import { encodeMesh, Mesh, type MeshData, type MorphTarget } from '@shard/mesh'
+import { MAX_JOINTS, StandardMaterial, skinArtifact } from '@shard/render'
 import type { SceneEntity, SceneFile } from '@shard/scene'
 import { importImageBytes, type TextureUsage } from '@shard/texture'
 import { Accessors } from './accessors'
@@ -73,86 +68,6 @@ function materialTypeFor(
   }
   return undefined
 }
-
-// --- skins and animations (played by M6) --------------------------------------------
-
-export interface SkinAsset {
-  name: string
-  /** Joint entity paths, relative to the model root (e.g. "Armature/Hips/Spine"). */
-  joints: string[]
-  skeleton?: string
-  /** Each joint's rest pose (local TRS), for retargeting. */
-  restPose: { translation: number[]; rotation: number[]; scale: number[] }[]
-  /** 16 floats per joint, column-major. */
-  inverseBindMatrices: Float32Array
-}
-
-export interface AnimationChannel {
-  target: string
-  property: 'translation' | 'rotation' | 'scale' | 'weights'
-  interpolation: 'LINEAR' | 'STEP' | 'CUBICSPLINE'
-  times: Float32Array
-  values: Float32Array
-  components: number
-}
-
-export interface AnimationClipAsset {
-  name: string
-  duration: number
-  channels: AnimationChannel[]
-}
-
-export const Skins = defineResource<AssetStore<SkinAsset, 'Skin'>>('gltf/Skins', {
-  description: 'Skins (joints, inverse bind matrices, rest pose) by guid.',
-  init: () => new AssetStore('Skin'),
-})
-
-export const AnimationClips = defineResource<AssetStore<AnimationClipAsset, 'AnimationClip'>>(
-  'gltf/AnimationClips',
-  { description: 'Animation clips by guid.', init: () => new AssetStore('AnimationClip') },
-)
-
-interface SkinHeader extends Omit<SkinAsset, 'inverseBindMatrices'> {
-  matrices: number
-}
-
-interface ClipHeader {
-  name: string
-  duration: number
-  channels: (Omit<AnimationChannel, 'times' | 'values'> & {
-    times: [number, number]
-    values: [number, number]
-  })[]
-}
-
-export const SkinAssetType = defineAssetType<SkinAsset>('Skin', {
-  store: Skins,
-  load: (artifact) => {
-    const header = artifact.json as unknown as SkinHeader
-    const bytes = artifact.bytes!.slice()
-    return {
-      ...header,
-      inverseBindMatrices: new Float32Array(bytes.buffer, 0, header.matrices * 16),
-    }
-  },
-})
-
-export const AnimationClipAssetType = defineAssetType<AnimationClipAsset>('AnimationClip', {
-  store: AnimationClips,
-  load: (artifact) => {
-    const header = artifact.json as unknown as ClipHeader
-    const data = new Float32Array(artifact.bytes!.slice().buffer)
-    return {
-      name: header.name,
-      duration: header.duration,
-      channels: header.channels.map((c) => ({
-        ...c,
-        times: data.subarray(c.times[0], c.times[0] + c.times[1]),
-        values: data.subarray(c.values[0], c.values[0] + c.values[1]),
-      })),
-    }
-  },
-})
 
 // --- helpers --------------------------------------------------------------------------
 
@@ -350,6 +265,17 @@ function flatShade(data: MeshData): MeshData {
   if (joints) out.joints = joints as Uint16Array
   const weights = expand(data.weights, 4)
   if (weights) out.weights = weights as Float32Array
+  if (data.targets) out.targets = data.targets.map((t) => expandTarget(t, expand))
+  return out
+}
+
+function expandTarget(
+  target: MorphTarget,
+  expand: (arr: Float32Array | undefined, width: number) => unknown,
+): MorphTarget {
+  const out: MorphTarget = { positions: expand(target.positions, 3) as Float32Array }
+  if (target.normals) out.normals = expand(target.normals, 3) as Float32Array
+  if (target.tangents) out.tangents = expand(target.tangents, 3) as Float32Array
   return out
 }
 
@@ -506,6 +432,7 @@ async function generateTangents(data: MeshData): Promise<MeshData> {
   if (data.colors) out.colors = expand(data.colors, 4)
   if (data.joints) out.joints = expand(data.joints, 4)
   if (data.weights) out.weights = expand(data.weights, 4)
+  if (data.targets) out.targets = data.targets.map((t) => expandTarget(t, (a, w) => expand(a, w)))
   const tangents = mikk.generateTangents(out.positions, out.normals!, out.uvs!)
   // MikkTSpace's bitangent sign is the opposite of glTF's UV convention.
   for (let i = 3; i < tangents.length; i += 4) tangents[i] = -tangents[i]!
@@ -530,8 +457,6 @@ function buildPrimitive(
       path: `${ptr}/attributes`,
     })
   }
-  if (prim.targets?.length)
-    warn('Morph targets arrive with animation (M6); ignored.', `${ptr}/targets`)
   const a = prim.attributes
   const data: MeshData = { positions: acc.floats(a.POSITION!) }
   if (a.NORMAL !== undefined) data.normals = acc.floats(a.NORMAL)
@@ -555,6 +480,24 @@ function buildPrimitive(
     }
   }
   const vertexCount = data.positions.length / 3
+  if (prim.targets?.length) {
+    data.targets = prim.targets.map((target, k) => {
+      if (target.POSITION === undefined) {
+        throw new ShardError('gltf/invalid', 'Morph target has no POSITION', {
+          path: `${ptr}/targets/${k}`,
+        })
+      }
+      const out: MorphTarget = { positions: acc.floats(target.POSITION) }
+      if (target.NORMAL !== undefined) out.normals = acc.floats(target.NORMAL)
+      if (target.TANGENT !== undefined) out.tangents = acc.floats(target.TANGENT)
+      return out
+    })
+    if (data.targets.length > 8)
+      warn(
+        `${data.targets.length} morph targets: the 8 heaviest at a time are applied.`,
+        `${ptr}/targets`,
+      )
+  }
   let indices: Uint32Array | undefined =
     prim.indices === undefined ? undefined : Uint32Array.from(acc.read(prim.indices).values)
   if (mode === 5 || mode === 6) {
@@ -578,7 +521,7 @@ function buildPrimitive(
 
 export const GltfImporter = defineImporter({
   name: 'gltf',
-  version: 2,
+  version: 3,
   extensions: ['.gltf', '.glb'],
   settings: GltfImportSettings,
   async import(source, ctx) {
@@ -776,6 +719,9 @@ export const GltfImporter = defineImporter({
 
     // Scenes: node trees. Paths are computed from the default scene (for skins and animations).
     const nodes = doc.nodes ?? []
+    const skinLabels = labels(doc.skins)
+    // Every entity a node's primitives become: the node itself, then children "1", "2"…
+    const primitivePaths = new Map<number, string[]>()
     const nodePaths = new Map<number, string>()
     const rootRotation: Quat = settings.forward === '-z' ? [0, 1, 0, 0] : [0, 0, 0, 1]
     const rootScale = settings.scale
@@ -902,6 +848,17 @@ export const GltfImporter = defineImporter({
               'render/Mesh3d': { mesh: { path: `#${label}` } },
             }
             deps.add(`#${label}`)
+            if (node.skin !== undefined && skinLabels[node.skin] !== undefined) {
+              comps['render/SkinnedMesh'] = { skin: { path: `#Skin/${skinLabels[node.skin]}` } }
+              deps.add(`#Skin/${skinLabels[node.skin]}`)
+            }
+            const targets = mesh?.primitives[pi]?.targets?.length ?? 0
+            if (targets > 0) {
+              const initial = node.weights ?? mesh?.weights ?? []
+              comps['render/MorphWeights'] = {
+                weights: Array.from({ length: targets }, (_, k) => initial[k] ?? 0),
+              }
+            }
             if (lod) {
               // Level k of this primitive is the same primitive of the k-th lower node's mesh.
               const levels = [label]
@@ -944,6 +901,11 @@ export const GltfImporter = defineImporter({
                 min[k] = Math.min(min[k]!, v)
                 max[k] = Math.max(max[k]!, v)
               }
+            }
+            if (record) {
+              const list = primitivePaths.get(ni) ?? []
+              list.push(first ? path : `${path}/${pi}`)
+              primitivePaths.set(ni, list)
             }
             if (first) {
               Object.assign(components, comps)
@@ -1068,13 +1030,22 @@ export const GltfImporter = defineImporter({
     const pathOf = (ni: number) => nodePaths.get(ni) ?? sanitize(nodes[ni]?.name ?? `Node${ni}`)
 
     // Skins.
-    const skinLabels = labels(doc.skins)
     for (const [i, skin] of (doc.skins ?? []).entries()) {
+      if (skin.joints.length > MAX_JOINTS) {
+        throw new ShardError(
+          'render/too-many-joints',
+          `Skin ${i} has ${skin.joints.length} joints; skinning supports ${MAX_JOINTS}`,
+          {
+            path: `/skins/${i}/joints`,
+            hint: 'Split the mesh, or remove helper bones before exporting.',
+          },
+        )
+      }
       const matrices =
         skin.inverseBindMatrices === undefined
           ? new Float32Array(skin.joints.length * 16).map((_, k) => (k % 17 === 0 ? 1 : 0))
           : acc.floats(skin.inverseBindMatrices)
-      const header: SkinHeader = {
+      const header = skinArtifact({
         name: skin.name ?? skinLabels[i]!,
         joints: skin.joints.map(pathOf),
         ...(skin.skeleton !== undefined ? { skeleton: pathOf(skin.skeleton) } : {}),
@@ -1082,8 +1053,7 @@ export const GltfImporter = defineImporter({
           const { t: tr, r, s } = trs(nodes[j] ?? {})
           return { translation: tr, rotation: r, scale: s }
         }),
-        matrices: skin.joints.length,
-      }
+      })
       assets.push({
         label: `Skin/${skinLabels[i]}`,
         type: 'Skin',
@@ -1093,56 +1063,70 @@ export const GltfImporter = defineImporter({
       })
     }
 
-    // Animations.
+    // Animations: node TRS channels animate core/Transform; weights animate render/MorphWeights
+    // on every entity the node's primitives became.
+    const INTERPOLATION: Record<string, Interpolation> = {
+      LINEAR: 'linear',
+      STEP: 'step',
+      CUBICSPLINE: 'cubic',
+    }
     const animationLabels = labels(doc.animations)
     for (const [i, anim] of (doc.animations ?? []).entries()) {
-      const chunks: Float32Array[] = []
-      let offset = 0
-      const push = (data: Float32Array): [number, number] => {
-        chunks.push(data)
-        const at: [number, number] = [offset, data.length]
-        offset += data.length
-        return at
-      }
       let duration = 0
-      const channels: ClipHeader['channels'] = []
+      const channels: AnimationChannel[] = []
       for (const [ci, ch] of anim.channels.entries()) {
+        const ptr = `/animations/${i}/channels/${ci}`
         const sampler = anim.samplers[ch.sampler]
         if (!sampler || ch.target.node === undefined) {
-          ctx.warn(
-            'Animation channel without a node or sampler; skipped.',
-            `/animations/${i}/channels/${ci}`,
-          )
+          ctx.warn('Animation channel without a node or sampler; skipped.', ptr)
+          continue
+        }
+        const interpolation = INTERPOLATION[sampler.interpolation ?? 'LINEAR']
+        if (!interpolation) {
+          ctx.warn(`Unknown interpolation "${sampler.interpolation}"; skipped.`, ptr)
           continue
         }
         const times = acc.floats(sampler.input)
         const out = acc.read(sampler.output)
+        const values = Float32Array.from(out.values)
         duration = Math.max(duration, times[times.length - 1] ?? 0)
-        channels.push({
-          target: pathOf(ch.target.node),
-          property: ch.target.path as AnimationChannel['property'],
-          interpolation: (sampler.interpolation ?? 'LINEAR') as AnimationChannel['interpolation'],
-          components: out.components,
-          times: push(times),
-          values: push(Float32Array.from(out.values)),
-        })
+        const keys = Math.max(1, times.length) * (interpolation === 'cubic' ? 3 : 1)
+        const path = ch.target.path
+        if (path === 'weights') {
+          const width = Math.round(values.length / keys)
+          const targets = primitivePaths.get(ch.target.node) ?? []
+          if (targets.length === 0) ctx.warn('Weights channel on a node without a mesh.', ptr)
+          for (const target of targets) {
+            channels.push({
+              target,
+              component: 'render/MorphWeights',
+              field: 'weights',
+              interpolation,
+              times,
+              values,
+              width,
+            })
+          }
+        } else if (path === 'translation' || path === 'rotation' || path === 'scale') {
+          channels.push({
+            target: pathOf(ch.target.node),
+            component: 'core/Transform',
+            field: path,
+            interpolation,
+            times,
+            values,
+            width: out.components,
+          })
+        } else {
+          ctx.warn(`Animation path "${path}" isn't supported; skipped.`, `${ptr}/target/path`)
+        }
       }
-      const data = new Float32Array(offset)
-      let at = 0
-      for (const c of chunks) {
-        data.set(c, at)
-        at += c.length
-      }
+      const clip = { name: anim.name ?? animationLabels[i]!, duration, channels, events: [] }
       assets.push({
         label: `Animation/${animationLabels[i]}`,
         type: 'AnimationClip',
-        json: {
-          name: anim.name ?? animationLabels[i]!,
-          duration,
-          channels,
-        } as unknown as JsonValue,
-        bytes: new Uint8Array(data.buffer),
-        info: { channels: channels.length, duration },
+        ...encodeClip(clip),
+        info: clipInfo(clip),
       })
     }
     return { assets }

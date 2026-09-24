@@ -64,6 +64,7 @@ export {
   GBUFFER_CHANNELS,
   type GBufferChannel,
 } from './deferred'
+export { DEFORM_WORDS, DeformStore, type MeshDeform } from './deform'
 export {
   type CameraEnvironment,
   DefaultEnvironment,
@@ -136,8 +137,10 @@ export {
   lodSize,
   Mesh3d,
   MeshMaterial,
+  MorphWeights,
   NotShadowCaster,
   NotShadowReceiver,
+  SkinnedMesh,
   selectLod,
   VisibilityRange,
 } from './instances'
@@ -183,6 +186,7 @@ export {
   overlayNames,
   setOverlays,
 } from './overlays'
+export { descendantPaths, entityName, findModelRoot } from './paths'
 export {
   type PickDrawer,
   type PickHit,
@@ -254,6 +258,14 @@ export {
   ShadowsResource,
   sliceSphere,
 } from './shadows'
+export {
+  MAX_JOINTS,
+  prepareDeforms,
+  type SkinAsset,
+  SkinAssetType,
+  Skins,
+  skinArtifact,
+} from './skinning'
 export { GpuMemory, type GpuMemoryData, RenderStats, type ViewStats } from './stats'
 export {
   OffscreenTarget,
