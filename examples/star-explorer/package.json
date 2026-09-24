@@ -17,8 +17,10 @@
     "@shard/input": "workspace:*",
     "@shard/project": "workspace:*",
     "@shard/runtime": "workspace:*",
+    "@shard/scene": "workspace:*",
     "@shard/testing": "workspace:*",
-    "@shard/transform": "workspace:*"
+    "@shard/transform": "workspace:*",
+    "@shard/ui": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^26.6.2",

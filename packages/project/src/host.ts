@@ -14,6 +14,8 @@ import { type LoadedSceneHandle, loadScene, ScenePlugin } from '@shard/scene'
 import { spritePlugin } from '@shard/sprite'
 import { textPlugin } from '@shard/text'
 import { TransformPlugin } from '@shard/transform'
+// Also registers the theme importer and the UiTheme asset type for every project host.
+import { uiPlugin } from '@shard/ui'
 import type { ManifestValue } from './manifest'
 
 export interface BuildAppOptions {
@@ -39,7 +41,7 @@ export function buildApp(options: BuildAppOptions): App {
     names.add('render')
     names.add('core/transform')
   }
-  if (names.has('physics3d') || names.has('physics2d') || names.has('audio'))
+  if (names.has('physics3d') || names.has('physics2d') || names.has('audio') || names.has('ui'))
     names.add('core/transform')
   const app = new App({ seed: manifest.seed })
   if (names.has('core/transform')) app.addPlugin(TransformPlugin)
@@ -58,6 +60,7 @@ export function buildApp(options: BuildAppOptions): App {
   if (names.has('physics2d')) app.addPlugin(physics2dPlugin)
   if (names.has('input')) app.addPlugin(inputPlugin({ source: options.inputSource }))
   if (names.has('audio')) app.addPlugin(audioPlugin({ backend: options.audio }))
+  if (names.has('ui')) app.addPlugin(uiPlugin)
   app.addPlugin(ScenePlugin)
   if (options.project) app.addPlugin(options.project)
   return app

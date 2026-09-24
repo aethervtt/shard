@@ -1,0 +1,33 @@
+{
+  "name": "@shard/ui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@shard/assets": "workspace:*",
+    "@shard/core": "workspace:*",
+    "@shard/gpu": "workspace:*",
+    "@shard/input": "workspace:*",
+    "@shard/render": "workspace:*",
+    "@shard/runtime": "workspace:*",
+    "@shard/sprite": "workspace:*",
+    "@shard/text": "workspace:*",
+    "@shard/texture": "workspace:*",
+    "@shard/transform": "workspace:*"
+  },
+  "devDependencies": {
+    "@shard/mesh": "workspace:*",
+    "@shard/platform-node": "workspace:*",
+    "@shard/scene": "workspace:*",
+    "@types/node": "^26.6.2",
+    "@webgpu/types": "^0.1.74",
+    "webgpu": "0.6.1"
+  }
+}

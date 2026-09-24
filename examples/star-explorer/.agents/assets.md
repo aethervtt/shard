@@ -124,6 +124,12 @@ Files: `*.ttf`, `*.otf`
 | `kerning` | boolean | `true` |  | Import kerning pairs. |
 | `outlines` | boolean | `true` |  | Keep the font file in the artifact, so characters outside the charset are generated at runtime. |
 
+## `data/theme`
+
+Files: `*.theme.json`
+
+No import settings.
+
 # Project data types
 
 Defined in `scripts/` with `project.dataAsset`. Write one JSON file per value, anywhere under an

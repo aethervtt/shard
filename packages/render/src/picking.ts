@@ -37,17 +37,29 @@ interface PickRequest {
  */
 export type PickDrawer = (ctx: NodeContext, cam: CameraData) => void
 
+/**
+ * Something drawn over the scene that takes pointer input at a pixel (UI): a pick there hits it,
+ * not the world, and resolves to undefined. Gets the view name and the pixel.
+ */
+export type PickBlocker = (world: World, view: string, x: number, y: number) => boolean
+
 export interface PickingState {
   /** Requests per view name, served by the next frame that renders the view. */
   pending: Map<string, PickRequest[]>
   drawers: Map<string, PickDrawer>
+  blockers: Map<string, PickBlocker>
   /** Views whose pick pass skipped a draw (a pipeline still compiling): their picks wait a frame. */
   incomplete: Set<string>
 }
 
 export const Picking = defineResource<PickingState>('render/Picking', {
   description: 'GPU picking: pending pick requests per view, and extra pick drawers (sprites).',
-  init: () => ({ pending: new Map(), drawers: new Map(), incomplete: new Set() }),
+  init: () => ({
+    pending: new Map(),
+    drawers: new Map(),
+    blockers: new Map(),
+    incomplete: new Set(),
+  }),
 })
 
 /** The camera view `pick` and `render.capture` use by default: the first to render. */
@@ -64,7 +76,8 @@ export function primaryView(world: World): RenderView | undefined {
  * What's under pixel (x, y) of a camera's view (pixels from the top left): the entity, its scene
  * path, and the world position and normal of the surface. Resolves after the next frame renders
  * the view; undefined when nothing's there. Meshes (instanced and LOD too) and world-space sprites
- * are pickable; gizmos and screen-space sprites and text aren't.
+ * are pickable; gizmos and screen-space sprites and text aren't. A pixel covered by UI that takes
+ * the pointer (a PickBlocker) resolves to undefined: clicks on a HUD don't reach the world.
  */
 export function pick(
   world: World,
@@ -81,6 +94,9 @@ export function pick(
     )
   }
   const picking = world.resource(Picking)
+  for (const blocked of picking.blockers.values()) {
+    if (blocked(world, name, x, y)) return Promise.resolve(undefined)
+  }
   return new Promise((resolve, reject) => {
     let list = picking.pending.get(name)
     if (!list) {

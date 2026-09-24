@@ -27,6 +27,8 @@ export {
   describeInput,
   Gamepads,
   type InjectedInput,
+  InputContext,
+  type InputContextValue,
   type InputPluginOptions,
   InputQueue,
   injectInput,
@@ -37,4 +39,6 @@ export {
   startReplay,
   stopRecording,
   Touches,
+  updateActions,
+  updateInput,
 } from './plugin'

@@ -934,3 +934,205 @@ Brings along: `core/Transform`, `render/Visibility`.
 | `shadow` | object | `{"offset":[0,0],"softness":0,"color":"#00000099"}` |  | A soft shadow or glow behind the glyphs. |
 | `size` | number | `1` | ≥ 0, m | Height of one em, in world units. |
 | `billboard` | boolean | `false` |  | Always face the camera (labels, markers). |
+
+## `ui/UiAnchor`
+
+Places a node over a world entity's screen position (planet markers): positioned absolute, clamped to the edges, hidden behind the camera, scaled by distance. A UiAnchorArrow child points at an off-screen target.
+
+Brings along: `ui/UiNode`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `target` | null or integer or string | `null` |  | The world entity to follow. |
+| `offset` | number[3] | `[0,0,0]` | m | World offset from the target's position. |
+| `screenOffset` | number[2] | `[0,0]` | px | Offset on screen after projecting, y down. |
+| `pivot` | number[2] | `[0.5,0.5]` |  | Point of the node on the target: [0, 0] top left, [0.5, 1] bottom center. |
+| `clamp` | boolean | `false` |  | Keep it on screen when the target is off it (or behind). |
+| `margin` | number | `16` | ≥ 0, px | Distance kept from the edge when clamped. |
+| `hideBehind` | boolean | `false` |  | Hide while the target is behind the camera. |
+| `scaleDistance` | number | `0` | ≥ 0, m | Scale by distance: 1 at this distance, larger nearer (0: never scale). |
+| `minScale` | number | `0.5` | ≥ 0 | Smallest distance scale. |
+| `maxScale` | number | `1.5` | ≥ 0 | Largest distance scale. |
+
+## `ui/UiAnchorArrow`
+
+A child of a UiAnchor node shown only while the anchor is clamped: placed just outside the node's edge toward the target and rotated to point at it (draw it pointing right).
+
+Tag (no fields).
+
+## `ui/UiButton`
+
+Clickable: sends ui/UiClick on a click, Enter, Space, or the gamepad south button.
+
+Brings along: `ui/UiNode`, `ui/UiInteraction`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `disabled` | boolean | `false` |  | Ignores the pointer and focus; state is disabled. |
+
+## `ui/UiImage`
+
+An image in a node: a texture or atlas region, nine-sliced or fitted. Its pixel size is the node's size unless width/height set it.
+
+Brings along: `ui/UiNode`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `texture` | null or Texture ref | `null` |  | The image (ignored when atlas and region are set). |
+| `atlas` | null or TextureAtlas ref | `null` |  | An atlas to draw a region of. |
+| `region` | string | `""` |  | Atlas region name. |
+| `slice` | number[4] | `[0,0,0,0]` | px | Nine-slice borders (top, right, bottom, left) in image pixels: corners keep their size, edges and middle stretch. Zero: no slicing. |
+| `tint` | string or number[4] | `"#ffffff"` |  | Multiplied in (linear). |
+| `fit` | `"fill"` \| `"contain"` \| `"cover"` | `"fill"` |  | fill: stretch to the box. contain: fit inside, keeping aspect. cover: fill, cropping. |
+
+## `ui/UiInteraction`
+
+Hover, press, and focus of an interactive node. Written by the UI plugin.
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `state` | `"none"` \| `"hovered"` \| `"pressed"` \| `"disabled"` | `"none"` |  | Pointer state. |
+| `focused` | boolean | `false` |  | Has keyboard and gamepad focus. |
+
+## `ui/UiLayout`
+
+A UI node's computed rect (in pixels of its root's reference size), clip, and anchor state. Written by layout; read it to check where things are.
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `x` | number | `0` |  | Left edge, in the root's pixels. |
+| `y` | number | `0` |  | Top edge, in the root's pixels. |
+| `width` | number | `0` |  | Border-box width. |
+| `height` | number | `0` |  | Border-box height. |
+| `clip` | number[4] | `[0,0,0,0]` |  | The visible region (x, y, width, height) after ancestors that clip or scroll; zero size when nothing shows. |
+| `content` | number[2] | `[0,0]` |  | Size of what the children cover: the scrollable extent of a scroll node. |
+| `scale` | number | `1` |  | Draw scale from a scaling anchor (1: none). |
+| `angle` | number | `0` | rad | UiAnchorArrow: rotation toward an off-screen target. |
+| `visible` | boolean | `false` |  | Drawn and hit: false for display none, hidden anchors, and nodes outside a root. |
+| `anchor` | `"none"` \| `"on-screen"` \| `"clamped"` \| `"hidden"` | `"none"` |  | UiAnchor nodes: on-screen, clamped to an edge, or hidden (behind the camera). |
+| `distance` | number | `0` | m | UiAnchor nodes: the target's distance from the camera. |
+
+## `ui/UiNode`
+
+A UI box laid out by flexbox under a UiRoot: sizes, flex, spacing, positioning, clipping. Children are ChildOf entities, in order.
+
+Brings along: `ui/UiLayout`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `display` | `"flex"` \| `"none"` | `"flex"` |  | none: not laid out, drawn, or hit. |
+| `position` | `"relative"` \| `"absolute"` | `"relative"` |  | relative: in the parent's flow (left/top/right/bottom nudge it). absolute: out of flow, placed by left/top/right/bottom in the parent's padding box. |
+| `direction` | `"row"` \| `"column"` \| `"row-reverse"` \| `"column-reverse"` | `"row"` |  | Main axis children flow along. |
+| `wrap` | boolean | `false` |  | Wrap children onto new lines when they don't fit. |
+| `justify` | `"start"` \| `"center"` \| `"end"` \| `"space-between"` \| `"space-around"` \| `"space-evenly"` | `"start"` |  | Distribution of children along the main axis. |
+| `alignItems` | `"stretch"` \| `"start"` \| `"center"` \| `"end"` | `"stretch"` |  | Placement of children on the cross axis. |
+| `alignSelf` | `"auto"` \| `"stretch"` \| `"start"` \| `"center"` \| `"end"` | `"auto"` |  | Overrides the parent's alignItems. |
+| `width` | number or string or any | `"auto"` | px or % | Border-box width: pixels, "50%" of the parent, or "auto". |
+| `height` | number or string or any | `"auto"` | px or % | Border-box height. |
+| `minWidth` | number or string or any | `"auto"` | px or % | Lower bound on width ("auto": none). |
+| `maxWidth` | number or string or any | `"auto"` | px or % | Upper bound on width ("auto": none). |
+| `minHeight` | number or string or any | `"auto"` | px or % | Lower bound on height. |
+| `maxHeight` | number or string or any | `"auto"` | px or % | Upper bound on height. |
+| `left` | number or string or any | `"auto"` | px or % | Offset from the left (absolute: of the parent). |
+| `top` | number or string or any | `"auto"` | px or % | Offset from the top. |
+| `right` | number or string or any | `"auto"` | px or % | Offset from the right. |
+| `bottom` | number or string or any | `"auto"` | px or % | Offset from the bottom. |
+| `padding` | number[4] | `[0,0,0,0]` | px | Inside space: top, right, bottom, left. |
+| `margin` | number[4] | `[0,0,0,0]` | px | Outside space: top, right, bottom, left. |
+| `gap` | number[2] | `[0,0]` | px | Space between children: horizontal, vertical. |
+| `grow` | number | `0` | ≥ 0 | Share of free main-axis space this node takes. |
+| `shrink` | number | `1` | ≥ 0 | Share of overflow this node gives back. |
+| `basis` | number or string or any | `"auto"` | px or % | Main size before growing and shrinking ("auto": its size). |
+| `order` | integer | `0` | ≥ -32768, ≤ 32767 | Sorts siblings (stable): lower first. |
+| `zIndex` | integer | `0` | ≥ -32768, ≤ 32767 | Draw and hit order among siblings: higher draws over, and gets clicks first. |
+| `overflow` | `"visible"` \| `"clip"` \| `"scroll"` | `"visible"` |  | visible: children may spill out. clip: they're cut at the padding box. scroll: cut, and the wheel scrolls it. |
+| `scroll` | number[2] | `[0,0]` | px | Scroll offset (overflow scroll). |
+| `style` | string | `""` |  | A style in the root's theme ("panel", "button"); fields set here win. |
+
+## `ui/UiRoot`
+
+The top of a UI tree: fills the screen and lays out its UiNode children.
+
+Brings along: `ui/UiNode`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `scale` | `"none"` \| `"fit-height"` \| `"fit-width"` | `"none"` |  | none: one UI pixel per screen pixel. fit-height / fit-width: scale so referenceSize fills the screen that way. |
+| `referenceSize` | number[2] | `[1920,1080]` | px | The size the UI is authored at (and its size headless). |
+| `camera` | null or integer or string | `null` |  | The camera whose view it draws over and anchors from (null: the first). |
+| `theme` | null or UiTheme ref | `null` |  | Styles its nodes name (*.theme.json). |
+| `order` | integer | `0` | ≥ -32768, ≤ 32767 | Draw order among roots: higher draws over. |
+
+## `ui/UiSlider`
+
+Dragging sets value from the pointer; left and right step it while focused. Sends ui/UiChanged.
+
+Brings along: `ui/UiNode`, `ui/UiInteraction`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `value` | number | `0` |  | Current value, min to max. |
+| `min` | number | `0` |  | Value at the left edge. |
+| `max` | number | `1` |  | Value at the right edge. |
+| `step` | number | `0` | ≥ 0 | Snap to multiples of this from min (0: continuous). |
+| `fill` | string or number[4] | `[0.25,0.55,1,1]` |  | Color of the filled part (min to value), drawn inside the node's padding. |
+| `disabled` | boolean | `false` |  | Ignores input. |
+
+## `ui/UiStyle`
+
+How a node looks: background, border, rounded corners, opacity. Fields at their default take the theme style.
+
+Brings along: `ui/UiNode`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `background` | string or number[4] | `"#00000000"` |  | Fill color (linear). |
+| `borderColor` | string or number[4] | `"#00000000"` |  | Border color (linear). |
+| `borderWidth` | number | `0` | ≥ 0, px | Border thickness, inside the box. |
+| `radius` | number[4] | `[0,0,0,0]` | px | Corner radii: top left, top right, bottom right, bottom left. |
+| `opacity` | number | `1` | ≥ 0, ≤ 1 | Multiplies the node and its children. |
+
+## `ui/UiText`
+
+A node's text (MSDF): its size sets the node's size unless width/height do.
+
+Brings along: `ui/UiNode`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `text` | string | `""` |  | The text. "\n" breaks a line. |
+| `key` | string | `""` |  | Localization key (0038); the text shows until it resolves. |
+| `size` | number | `16` | ≥ 0, px | Height of one em. |
+| `color` | string or number[4] | `"#ffffff"` |  | Text color (linear). |
+| `font` | null or Font ref | `null` |  | Font (null: the theme's, then UiDefaults.font). |
+| `align` | `"start"` \| `"center"` \| `"end"` | `"start"` |  | Line alignment in the node. |
+| `wrap` | boolean | `true` |  | Wrap at the node width. |
+| `lineHeight` | number | `1.2` | ≥ 0.1 | Distance between baselines, as a multiple of the size. |
+
+## `ui/UiTextInput`
+
+A text field: clicking focuses it, typing edits value (sends ui/UiChanged), Enter or Escape blurs. Shows through the node's UiText.
+
+Brings along: `ui/UiNode`, `ui/UiInteraction`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `value` | string | `""` |  | The text typed. |
+| `placeholder` | string | `""` |  | Shown dimmed while value is empty. |
+| `maxLength` | integer | `0` | ≥ 0, ≤ 65535 | Most characters (0: no limit). |
+| `disabled` | boolean | `false` |  | Ignores input. |
+
+## `ui/UiToggle`
+
+A checkbox or switch: a click flips on and sends ui/UiChanged (and ui/UiClick).
+
+Brings along: `ui/UiNode`, `ui/UiInteraction`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `on` | boolean | `false` |  | Checked. |
+| `disabled` | boolean | `false` |  | Ignores input. |

@@ -1,9 +1,20 @@
 import { playSound } from '@shard/audio'
-import { defineSystem, FixedUpdate, quat, t, vec3 } from '@shard/core'
+import {
+  defineSystem,
+  type Entity,
+  FixedUpdate,
+  quat,
+  t,
+  Update,
+  vec3,
+  type World,
+} from '@shard/core'
 import { addActions, defineActions } from '@shard/input'
 import { defineProject } from '@shard/project'
 import { FixedTime } from '@shard/runtime'
+import { findEntityByPath } from '@shard/scene'
 import { Transform } from '@shard/transform'
+import { UiChanged, UiLayout, UiText, UiToggle } from '@shard/ui'
 
 /** Flight controls. Bindings are data: an agent (or player) can remap them without code changes. */
 export const Controls = defineActions('star-explorer/Controls', {
@@ -20,7 +31,7 @@ const project = defineProject({
   name: 'star-explorer',
   build(app) {
     addActions(app.world, Controls)
-    app.addSystems(FixedUpdate, fly, fire.after(fly))
+    app.addSystems(FixedUpdate, fly, fire.after(fly)).addSystems(Update, hud)
   },
 })
 
@@ -124,6 +135,55 @@ const fire = defineSystem({
         }
       }
       table.markChanged(Ship)
+    }
+  },
+})
+
+/** A HUD entity by scene path, looked up again only when it's gone (a reload respawns it). */
+function hudEntity(world: World, cached: Entity | undefined, path: string): Entity | undefined {
+  return cached !== undefined && world.isAlive(cached) ? cached : findEntityByPath(world, path)
+}
+
+/**
+ * The HUD (prefabs/hud.prefab.json): the ship's speed, the distance to the planet marker's target,
+ * and the scanner toggle's label. Text is written only when the shown number changes.
+ */
+const hud = defineSystem({
+  name: 'star-explorer/hud',
+  setup: (world) => ({
+    ships: world.query({ with: [Ship] }),
+    speed: undefined as Entity | undefined,
+    distance: undefined as Entity | undefined,
+    marker: undefined as Entity | undefined,
+    scanLabel: undefined as Entity | undefined,
+    shownSpeed: -1,
+    shownDistance: -1,
+  }),
+  run: (s, world, ctx) => {
+    s.speed = hudEntity(world, s.speed, 'hud/speed/value')
+    s.marker = hudEntity(world, s.marker, 'hud/planet-marker')
+    s.distance = hudEntity(world, s.distance, 'hud/planet-marker/distance')
+    s.scanLabel = hudEntity(world, s.scanLabel, 'hud/scan/label')
+    let speed = 0
+    for (const table of s.ships.tables) {
+      if (table.count > 0) speed = table.column(Ship, 'speed')[0]!
+    }
+    const shown = Math.round(speed)
+    if (s.speed !== undefined && shown !== s.shownSpeed) {
+      s.shownSpeed = shown
+      world.set(s.speed, UiText, { text: `${shown} m/s` })
+    }
+    if (s.marker !== undefined && s.distance !== undefined) {
+      const d = Math.round(world.get(s.marker, UiLayout).distance)
+      if (d !== s.shownDistance) {
+        s.shownDistance = d
+        world.set(s.distance, UiText, { text: `${d} m` })
+      }
+    }
+    for (const e of ctx.reader(UiChanged).read()) {
+      if (s.scanLabel === undefined || !world.has(e.entity, UiToggle)) continue
+      const on = world.get(e.entity, UiToggle).on
+      world.set(s.scanLabel, UiText, { text: on ? 'Scanning' : 'Scan' })
     }
   },
 })

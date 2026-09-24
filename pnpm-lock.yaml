@@ -65,6 +65,9 @@ importers:
       '@shard/scene':
         specifier: workspace:*
         version: link:../../packages/scene
+      '@shard/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
@@ -114,6 +117,9 @@ importers:
       '@shard/gpu':
         specifier: workspace:*
         version: link:../../packages/gpu
+      '@shard/input':
+        specifier: workspace:*
+        version: link:../../packages/input
       '@shard/mesh':
         specifier: workspace:*
         version: link:../../packages/mesh
@@ -147,12 +153,18 @@ importers:
       '@shard/sprite':
         specifier: workspace:*
         version: link:../../packages/sprite
+      '@shard/text':
+        specifier: workspace:*
+        version: link:../../packages/text
       '@shard/texture':
         specifier: workspace:*
         version: link:../../packages/texture
       '@shard/transform':
         specifier: workspace:*
         version: link:../../packages/transform
+      '@shard/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
     devDependencies:
       '@webgpu/types':
         specifier: ^0.1.74
@@ -227,12 +239,18 @@ importers:
       '@shard/runtime':
         specifier: workspace:*
         version: link:../../packages/runtime
+      '@shard/scene':
+        specifier: workspace:*
+        version: link:../../packages/scene
       '@shard/testing':
         specifier: workspace:*
         version: link:../../packages/testing
       '@shard/transform':
         specifier: workspace:*
         version: link:../../packages/transform
+      '@shard/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
     devDependencies:
       '@types/node':
         specifier: ^26.6.2
@@ -666,6 +684,9 @@ importers:
       '@shard/transform':
         specifier: workspace:*
         version: link:../transform
+      '@shard/ui':
+        specifier: workspace:*
+        version: link:../ui
     devDependencies:
       '@shard/platform-node':
         specifier: workspace:*
@@ -999,6 +1020,58 @@ importers:
       '@shard/runtime':
         specifier: workspace:*
         version: link:../runtime
+
+  packages/ui:
+    dependencies:
+      '@shard/assets':
+        specifier: workspace:*
+        version: link:../assets
+      '@shard/core':
+        specifier: workspace:*
+        version: link:../core
+      '@shard/gpu':
+        specifier: workspace:*
+        version: link:../gpu
+      '@shard/input':
+        specifier: workspace:*
+        version: link:../input
+      '@shard/render':
+        specifier: workspace:*
+        version: link:../render
+      '@shard/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@shard/sprite':
+        specifier: workspace:*
+        version: link:../sprite
+      '@shard/text':
+        specifier: workspace:*
+        version: link:../text
+      '@shard/texture':
+        specifier: workspace:*
+        version: link:../texture
+      '@shard/transform':
+        specifier: workspace:*
+        version: link:../transform
+    devDependencies:
+      '@shard/mesh':
+        specifier: workspace:*
+        version: link:../mesh
+      '@shard/platform-node':
+        specifier: workspace:*
+        version: link:../platform-node
+      '@shard/scene':
+        specifier: workspace:*
+        version: link:../scene
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+      '@webgpu/types':
+        specifier: ^0.1.74
+        version: 0.1.74
+      webgpu:
+        specifier: 0.6.1
+        version: 0.6.1
 
 packages:
 

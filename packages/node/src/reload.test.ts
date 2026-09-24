@@ -38,7 +38,16 @@ beforeAll(async () => {
   gpu = await createNodeGpuContext()
   // Inside the example, so `@shard/*` resolves through its node_modules.
   root = mkdtempSync(join(example, '.shard', 'reload-'))
-  for (const dir of ['scripts', 'scenes', 'data', 'shard.json', 'package.json', 'tsconfig.json']) {
+  for (const dir of [
+    'scripts',
+    'scenes',
+    'data',
+    'prefabs',
+    'assets',
+    'shard.json',
+    'package.json',
+    'tsconfig.json',
+  ]) {
     cpSync(join(example, dir), join(root, dir), { recursive: true })
   }
   project = await openProject({ root, gpu, width: 64, height: 36 })

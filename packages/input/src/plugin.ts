@@ -86,10 +86,14 @@ function apply(world: World, d: Devices, e: RawInputEvent): void {
         }
       } else {
         d.touches.active.delete(e.id)
+        d.touches.captured.delete(e.id)
         d.touches.ended.push(e.id)
       }
       break
     }
+    case 'text':
+      d.keyboard.typed += e.text
+      break
     case 'gamepad': {
       const pad = d.gamepads.slot(e.index)
       pad.connected = e.connected
@@ -110,6 +114,7 @@ function apply(world: World, d: Devices, e: RawInputEvent): void {
         d.keyboard.releaseAll()
         d.mouse.releaseAll()
         d.touches.active.clear()
+        d.touches.captured.clear()
       }
       break
     case 'action': {
@@ -131,10 +136,21 @@ function apply(world: World, d: Devices, e: RawInputEvent): void {
   }
 }
 
+export interface InputContextValue {
+  /** Action maps listen only in their own context (`game` by default) or `any`. */
+  active: string
+}
+
+export const InputContext = defineResource<InputContextValue>('input/Context', {
+  description:
+    "The active input context: action maps of other contexts report nothing. UI sets 'ui' while a node has focus, so gameplay actions don't fire while typing.",
+  init: () => ({ active: 'game' }),
+})
+
 /** Drains input once, at the start of the frame, so every system sees the same state. */
-const updateInput = defineSystem({
+export const updateInput = defineSystem({
   name: 'input/update',
-  description: "Applies this frame's raw input to devices and action maps.",
+  description: "Applies this frame's raw input to devices.",
   run: (_, world) => {
     const q = world.resource(InputQueue)
     const d = devices(world)
@@ -158,9 +174,22 @@ const updateInput = defineSystem({
 
     for (const e of events) apply(world, d, e)
     if (q.recording) q.recording.push(events.map((e) => ({ ...e })))
+  },
+})
 
+/**
+ * Recomputes action maps from device state, after `input/update`. Systems that claim input first
+ * (UI capturing the pointer, setting the context) run between the two.
+ */
+export const updateActions = defineSystem({
+  name: 'input/actions',
+  description: 'Updates action maps from device state, in the active input context.',
+  run: (_, world) => {
+    const q = world.resource(InputQueue)
+    const d = devices(world)
+    const context = world.resource(InputContext).active
     const now = world.resource(Time).elapsed * 1000
-    for (const map of q.maps) map.update(d, now)
+    for (const map of q.maps) map.update(d, now, context)
   },
 })
 
@@ -183,8 +212,9 @@ export function inputPlugin(options: InputPluginOptions = {}): Plugin {
         .insertResource(Gamepads, new GamepadsState())
         .insertResource(Touches, new TouchesState())
         .insertResource(InputQueue, queue)
+      app.world.initResource(InputContext)
       for (const map of options.actions ?? []) addActions(app.world, map)
-      app.addSystems(First, updateInput)
+      app.addSystems(First, updateInput, updateActions.after(updateInput))
     },
   })
 }
@@ -264,6 +294,14 @@ export function describeInput(world: World) {
     keysHeld: world.resource(Keyboard).held(),
     gamepads: world.resource(Gamepads).connected().length,
     touches: world.resource(Touches).active.size,
-    actionMaps: q.maps.map((m) => ({ name: m.name, enabled: m.enabled, values: m.snapshot() })),
+    context: world.resource(InputContext).active,
+    pointerCaptured: world.resource(Mouse).captured,
+    actionMaps: q.maps.map((m) => ({
+      name: m.name,
+      enabled: m.enabled,
+      context: m.context,
+      live: m.live,
+      values: m.snapshot(),
+    })),
   }
 }

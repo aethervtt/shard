@@ -45,6 +45,8 @@ export type FieldKind =
   | 'list'
   | 'struct'
   | 'json'
+  /** A size with a unit: pixels, a percent, or auto (`@shard/ui`'s `uiLength`). */
+  | 'length'
 
 export interface FieldOptions<V> {
   /** Written for agents and tools: what the field means, not its type. */

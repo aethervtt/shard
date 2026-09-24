@@ -1,0 +1,79 @@
+<!doctype html>
+<!-- Lays out flex-cases.mjs with CSS in a browser and records each node's rect (relative to the
+     root, preorder). Serve this folder (python3 -m http.server) and open it in Chrome; the result
+     is window.result and the page text. Save it as flex.chrome.json. -->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body { margin: 0; }
+      .case { position: relative; margin: 20px; }
+      .n { display: flex; box-sizing: border-box; position: relative; min-width: auto; min-height: auto; }
+      #out { white-space: pre; font: 11px monospace; }
+    </style>
+  </head>
+  <body>
+    <div id="cases"></div>
+    <div id="out"></div>
+    <script type="module">
+      import { CASES } from './flex-cases.mjs'
+      const JUSTIFY = { start: 'flex-start', center: 'center', end: 'flex-end', 'space-between': 'space-between', 'space-around': 'space-around', 'space-evenly': 'space-evenly' }
+      const ALIGN = { stretch: 'stretch', start: 'flex-start', center: 'center', end: 'flex-end', auto: 'auto' }
+      const len = (v) => (v === undefined || v === 'auto' ? undefined : typeof v === 'number' ? `${v}px` : v)
+      const box4 = (v) => v.map((x) => `${x}px`).join(' ')
+      function element(node) {
+        const s = node.style ?? {}
+        const el = document.createElement('div')
+        el.className = 'n'
+        const st = el.style
+        if (s.display === 'none') st.display = 'none'
+        if (s.position === 'absolute') st.position = 'absolute'
+        st.flexDirection = s.direction ?? 'row'
+        st.flexWrap = s.wrap ? 'wrap' : 'nowrap'
+        st.justifyContent = JUSTIFY[s.justify ?? 'start']
+        st.alignItems = ALIGN[s.alignItems ?? 'stretch']
+        st.alignSelf = ALIGN[s.alignSelf ?? 'auto']
+        for (const [k, css] of [['width', 'width'], ['height', 'height'], ['minWidth', 'minWidth'], ['minHeight', 'minHeight'], ['left', 'left'], ['top', 'top'], ['right', 'right'], ['bottom', 'bottom'], ['basis', 'flexBasis']]) {
+          const v = len(s[k])
+          if (v !== undefined) st[css] = v
+        }
+        if (len(s.maxWidth)) st.maxWidth = len(s.maxWidth)
+        if (len(s.maxHeight)) st.maxHeight = len(s.maxHeight)
+        if (s.padding) st.padding = box4(s.padding)
+        if (s.margin) st.margin = box4(s.margin)
+        if (s.gap) { st.columnGap = `${s.gap[0]}px`; st.rowGap = `${s.gap[1]}px` }
+        st.flexGrow = String(s.grow ?? 0)
+        st.flexShrink = String(s.shrink ?? 1)
+        if (s.order) st.order = String(s.order)
+        el.style.background = 'rgba(80, 140, 255, 0.15)'
+        el.style.outline = '1px solid rgba(80, 140, 255, 0.5)'
+        for (const child of node.children ?? []) el.appendChild(element(child))
+        node.el = el
+        return el
+      }
+      const result = {}
+      const host = document.getElementById('cases')
+      for (const c of CASES) {
+        const wrap = document.createElement('div')
+        wrap.className = 'case'
+        const root = element(c.root)
+        wrap.appendChild(root)
+        host.appendChild(wrap)
+      }
+      for (const c of CASES) {
+        const origin = c.root.el.getBoundingClientRect()
+        const rects = []
+        const walk = (node) => {
+          const r = node.el.getBoundingClientRect()
+          const hidden = node.el.offsetParent === null && node !== c.root && getComputedStyle(node.el).display === 'none'
+          rects.push(hidden ? null : [r.left - origin.left, r.top - origin.top, r.width, r.height])
+          for (const child of node.children ?? []) walk(child)
+        }
+        walk(c.root)
+        result[c.name] = rects
+      }
+      window.result = result
+      document.getElementById('out').textContent = JSON.stringify(result)
+    </script>
+  </body>
+</html>

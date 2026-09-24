@@ -48,3 +48,28 @@ test('firing plays the laser sound at the ship', async ({ game }) => {
   const describe = await game.call('audio.describe')
   expect(describe.listener.path).toBe('ship/camera')
 })
+
+test('the HUD shows speed and the planet marker, and the scan toggle clicks by path', async ({
+  game,
+}) => {
+  await game.load('scenes/main.scene.json')
+  game.input.hold('star-explorer/Controls.thrust')
+  await game.step(60)
+  game.input.release('star-explorer/Controls.thrust')
+  await game.step(1)
+  const speed = Math.round(game.get('ship', 'star-explorer/Ship').speed as number)
+  expect(await game.ui.node('hud/speed/value')).toMatchObject({
+    text: `${speed} m/s`,
+    visible: true,
+  })
+  const marker = await game.ui.node('planet-marker')
+  expect(marker).toMatchObject({ anchor: 'on-screen', visible: true })
+  expect(marker!.distance).toBeGreaterThan(100)
+  expect(await game.ui.node('planet-marker/distance')).toMatchObject({
+    text: `${Math.round(marker!.distance as number)} m`,
+  })
+  await game.ui.click('scan')
+  await game.step(1)
+  expect(await game.ui.node('scan')).toMatchObject({ widget: 'toggle', on: true })
+  expect(await game.ui.node('scan/label')).toMatchObject({ text: 'Scanning' })
+})

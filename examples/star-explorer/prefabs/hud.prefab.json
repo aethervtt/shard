@@ -1,0 +1,60 @@
+{
+  "$schema": "../.shard/schemas/prefab.schema.json",
+  "version": 1,
+  "root": {
+    "name": "hud",
+    "components": {
+      "ui/UiRoot": {
+        "scale": "fit-height",
+        "referenceSize": [1280, 720],
+        "theme": { "path": "data/ui/hud.theme.json" }
+      },
+      "ui/UiNode": {
+        "padding": [20, 20, 20, 20],
+        "justify": "space-between",
+        "alignItems": "end"
+      }
+    },
+    "children": [
+      {
+        "name": "speed",
+        "components": {
+          "ui/UiNode": {
+            "style": "panel",
+            "direction": "column",
+            "padding": [10, 16, 10, 16],
+            "width": 180
+          },
+          "ui/UiStyle": {}
+        },
+        "children": [
+          {
+            "name": "caption",
+            "components": { "ui/UiNode": { "style": "caption" }, "ui/UiText": { "text": "SPEED" } }
+          },
+          {
+            "name": "value",
+            "components": { "ui/UiNode": { "style": "value" }, "ui/UiText": { "text": "0 m/s" } }
+          }
+        ]
+      },
+      {
+        "name": "scan",
+        "components": {
+          "ui/UiNode": { "style": "button", "padding": [10, 22, 10, 22] },
+          "ui/UiStyle": {},
+          "ui/UiToggle": {}
+        },
+        "children": [
+          {
+            "name": "label",
+            "components": {
+              "ui/UiNode": { "style": "button-label" },
+              "ui/UiText": { "text": "Scan" }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,14 +1,17 @@
 import { animationPlugin } from '@shard/animation'
 import { audioPlugin } from '@shard/audio'
 import { ShardError } from '@shard/core'
+import { inputPlugin } from '@shard/input'
 import { particlesPlugin } from '@shard/particles'
 import { physics2dPlugin, physics3dPlugin } from '@shard/physics'
+import { createDomInputSource } from '@shard/platform-web'
 import { connectToHub, createProtocolServer, DEFAULT_HUB_PORT } from '@shard/protocol'
 import { describeRender, forwardPlugin, renderPlugin } from '@shard/render'
 import { App, animationFrameRunner } from '@shard/runtime'
 import { ScenePlugin } from '@shard/scene'
 import { spritePlugin } from '@shard/sprite'
 import { TransformPlugin } from '@shard/transform'
+import { uiPlugin } from '@shard/ui'
 import { animationDemoPlugin } from './animation'
 import { animgraphDemoPlugin } from './animgraph'
 import { audioDemoPlugin, webAudio } from './audio'
@@ -29,6 +32,7 @@ import { postPlugin } from './post'
 import { prefabsDemoPlugin } from './prefabs'
 import { scenePlugin } from './scene'
 import { spritesPlugin } from './sprites'
+import { uiDemoPlugin } from './ui'
 
 const canvas = document.getElementById('viewport') as HTMLCanvasElement
 const hud = document.getElementById('hud') as HTMLElement
@@ -55,6 +59,7 @@ const DEMOS = [
   'animgraph',
   'ik',
   'audio',
+  'ui',
 ] as const
 const demo = DEMOS.find((d) => location.hash === `#${d}`) ?? 'scene'
 document.body.dataset.demo = demo
@@ -143,6 +148,16 @@ if (demo === 'galaxy') {
     audioPlugin({ backend: webAudio() }),
     hudPlugin,
     audioDemoPlugin,
+  )
+} else if (demo === 'ui') {
+  app.addPlugin(
+    TransformPlugin,
+    forwardPlugin(),
+    ScenePlugin,
+    inputPlugin({ source: createDomInputSource(canvas) }),
+    uiPlugin,
+    hudPlugin,
+    uiDemoPlugin,
   )
 } else if (demo === 'sky') {
   app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, skyPlugin)

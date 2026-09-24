@@ -105,49 +105,62 @@ export class ActionState<K extends string> {
   /** Disabled sets report nothing (use for contexts like gameplay vs menu). */
   enabled = true
   readonly name: string
+  /**
+   * The input context the map listens in: it reports nothing while another is active
+   * (`InputContext`; UI makes it `ui` while a node has focus). `any` always listens.
+   */
+  readonly context: string
+  /** Its context isn't the active one this frame. */
+  private suspended = false
   private readonly compiled: Map<K, Compiled>
   private readonly runtime = new Map<K, ButtonRuntime>()
   /** Pressed state injected by synthetic `action` events, by action name. */
   private readonly injected = new Map<string, { pressed: boolean; value: number }>()
 
-  constructor(name: string, compiled: Map<K, Compiled>) {
+  constructor(name: string, compiled: Map<K, Compiled>, context = 'game') {
     this.name = name
+    this.context = context
     this.compiled = compiled
     for (const key of compiled.keys()) this.runtime.set(key, newRuntime())
   }
 
   pressed(action: K): boolean {
-    return this.enabled && this.rt(action).pressed
+    return this.live && this.rt(action).pressed
   }
   justPressed(action: K): boolean {
-    return this.enabled && this.rt(action).justPressed
+    return this.live && this.rt(action).justPressed
   }
   justReleased(action: K): boolean {
-    return this.enabled && this.rt(action).justReleased
+    return this.live && this.rt(action).justReleased
   }
   /** The interaction began this frame (press for hold/tap). */
   started(action: K): boolean {
-    return this.enabled && this.rt(action).started
+    return this.live && this.rt(action).started
   }
   /** The action fired this frame: press, completed hold, tap, or multi-tap. */
   performed(action: K): boolean {
-    return this.enabled && this.rt(action).performed
+    return this.live && this.rt(action).performed
   }
   /** The interaction was abandoned this frame (hold released early, tap held too long). */
   canceled(action: K): boolean {
-    return this.enabled && this.rt(action).canceled
+    return this.live && this.rt(action).canceled
   }
   /** 0..1 progress of a hold interaction, for UI. */
   holdProgress(action: K): number {
-    return this.enabled ? this.rt(action).holdProgress : 0
+    return this.live ? this.rt(action).holdProgress : 0
   }
   /** Button strength (0..1) or axis1d value (-1..1, or raw wheel units). */
   value(action: K): number {
-    return this.enabled ? this.rt(action).value : 0
+    return this.live ? this.rt(action).value : 0
   }
   /** axis2d value, length ≤ 1. The array is reused; copy it to keep it. */
   axis2d(action: K): readonly [number, number] {
-    return this.enabled ? this.rt(action).axis : ZERO2
+    return this.live ? this.rt(action).axis : ZERO2
+  }
+
+  /** Enabled, and listening in the active context. */
+  get live(): boolean {
+    return this.enabled && !this.suspended
   }
 
   /** @internal */
@@ -161,7 +174,8 @@ export class ActionState<K extends string> {
   }
 
   /** @internal Recompute every action from device state. `now` is in ms. */
-  update(devices: Devices, now: number): void {
+  update(devices: Devices, now: number, context = 'game'): void {
+    this.suspended = this.context !== 'any' && this.context !== context
     for (const [name, def] of this.compiled) {
       const r = this.rt(name)
       const injected = this.injected.get(name)
@@ -304,14 +318,14 @@ function readButton(d: Devices, b: ParsedBinding): number {
     case 'key':
       return d.keyboard.pressed(b.code) ? 1 : 0
     case 'mouse-button':
-      return d.mouse.pressed(b.button) ? 1 : 0
+      return !d.mouse.captured && d.mouse.pressed(b.button) ? 1 : 0
     case 'gamepad-button': {
       let v = 0
       for (const pad of d.gamepads.connected()) v = Math.max(v, pad.button(b.button))
       return v
     }
     case 'touch':
-      return d.touches.active.size > 0 ? 1 : 0
+      return d.touches.active.size > d.touches.captured.size ? 1 : 0
     default:
       return Math.min(1, Math.abs(readAxis(d, b)))
   }
@@ -320,6 +334,7 @@ function readButton(d: Devices, b: ParsedBinding): number {
 function readAxis(d: Devices, b: ParsedBinding): number {
   switch (b.device) {
     case 'mouse-axis':
+      if (d.mouse.captured && (b.axis === 'WheelX' || b.axis === 'WheelY')) return 0
       return b.axis === 'WheelX'
         ? d.mouse.wheel[0]
         : b.axis === 'WheelY'
@@ -417,6 +432,8 @@ function compile(name: string, def: ActionDef): Compiled {
 export interface ActionMapDef<K extends string> {
   readonly kind: 'actions'
   readonly name: string
+  /** The input context it listens in (default `game`; `ui`, or `any` for always). */
+  readonly context: string
   readonly definition: Readonly<Record<K, ActionDef>>
   readonly resource: ResourceDef<ActionState<K>>
   create(): ActionState<K>
@@ -426,7 +443,9 @@ export interface ActionMapDef<K extends string> {
 export function defineActions<const A extends Record<string, ActionDef>>(
   name: string,
   definition: A,
+  options: { context?: string } = {},
 ): ActionMapDef<keyof A & string> {
+  const context = options.context ?? 'game'
   type K = keyof A & string
   const compiled = new Map<K, Compiled>()
   for (const [action, def] of Object.entries(definition))
@@ -439,9 +458,10 @@ export function defineActions<const A extends Record<string, ActionDef>>(
   return {
     kind: 'actions',
     name,
+    context,
     definition,
     resource,
-    create: () => new ActionState<K>(name, new Map(compiled)),
+    create: () => new ActionState<K>(name, new Map(compiled), context),
   }
 }
 

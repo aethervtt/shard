@@ -48,7 +48,16 @@ class ButtonSet<K extends string> {
 }
 
 /** Keys by `KeyboardEvent.code` (physical position: `KeyW`, `Space`, `ArrowUp`, `ShiftLeft`). */
-export class KeyboardState extends ButtonSet<string> {}
+export class KeyboardState extends ButtonSet<string> {
+  /** Characters typed this frame, key repeats included; "\b" is a backspace. For text fields. */
+  typed = ''
+
+  /** @internal */
+  override beginFrame(): void {
+    super.beginFrame()
+    this.typed = ''
+  }
+}
 
 export class MouseState extends ButtonSet<MouseButton> {
   /** Pointer position in canvas pixels. */
@@ -57,6 +66,11 @@ export class MouseState extends ButtonSet<MouseButton> {
   readonly delta: [number, number] = [0, 0]
   /** Wheel movement this frame, in pixels. */
   readonly wheel: [number, number] = [0, 0]
+  /**
+   * The pointer belongs to something drawn over the game (UI) this frame: action maps read mouse
+   * buttons and the wheel as released, so clicking a HUD button doesn't also fire.
+   */
+  captured = false
 
   /** @internal */
   override beginFrame(): void {
@@ -139,6 +153,8 @@ export class TouchesState {
   readonly active = new Map<number, Touch>()
   readonly started: number[] = []
   readonly ended: number[] = []
+  /** Touches that belong to UI: action maps don't see them. */
+  readonly captured = new Set<number>()
 
   /** @internal */
   beginFrame(): void {

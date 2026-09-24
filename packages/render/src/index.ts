@@ -188,6 +188,7 @@ export {
 } from './overlays'
 export { descendantPaths, entityName, findModelRoot } from './paths'
 export {
+  type PickBlocker,
   type PickDrawer,
   type PickHit,
   Picking,

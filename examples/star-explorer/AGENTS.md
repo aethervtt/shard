@@ -21,7 +21,7 @@ shard mcp                 # MCP server for this project (see .mcp.json)
 
 ## Where things are
 
-- `shard.json`: manifest (start scene: `scenes/main.scene.json`, seed 1, plugins: render/forward, input, audio)
+- `shard.json`: manifest (start scene: `scenes/main.scene.json`, seed 1, plugins: render/forward, input, audio, ui)
 - `scripts/main.ts`: the project plugin; project types are named `star-explorer/<Name>`
 - `scenes/`: scene files; `tests/`: gameplay tests; `shaders/`: `project::` shader modules
 - `assets/`, `materials/`, `data/`, `prefabs/`: asset files, each with a `.meta` (guid, import settings)
@@ -30,7 +30,7 @@ shard mcp                 # MCP server for this project (see .mcp.json)
   `.agents/errors.md`: error codes
 - `.agents/skills/`: recipes for common tasks
 
-Engine plugins available: `render` (GPU device, render graph, views, shaders); `render/forward` (cameras, meshes, standard material, lights (includes render and core/transform)); `sprite` (sprites, atlases, frame animation, tilemaps (includes render/forward)); `text` (Text and ScreenText with imported fonts (includes render/forward)); `particles` (GPU particle effects from *.particles.json (includes render/forward)); `animation` (AnimationPlayer: glTF and .anim.json clips on joints and fields, blending, root motion; Animator graphs from .animgraph.json (includes render/forward)); `physics3d` (Rapier 3D rigid bodies, colliders, joints, raycasts (includes core/transform)); `physics2d` (Rapier 2D physics in the XY plane (includes core/transform)); `input` (keyboard, mouse, gamepad, touch, action maps); `audio` (AudioSource, AudioListener, playSound, buses and ducking, spatial audio, voice limits (includes core/transform)); `core/transform` (Transform and hierarchy propagation).
+Engine plugins available: `render` (GPU device, render graph, views, shaders); `render/forward` (cameras, meshes, standard material, lights (includes render and core/transform)); `sprite` (sprites, atlases, frame animation, tilemaps (includes render/forward)); `text` (Text and ScreenText with imported fonts (includes render/forward)); `particles` (GPU particle effects from *.particles.json (includes render/forward)); `animation` (AnimationPlayer: glTF and .anim.json clips on joints and fields, blending, root motion; Animator graphs from .animgraph.json (includes render/forward)); `physics3d` (Rapier 3D rigid bodies, colliders, joints, raycasts (includes core/transform)); `physics2d` (Rapier 2D physics in the XY plane (includes core/transform)); `input` (keyboard, mouse, gamepad, touch, action maps); `audio` (AudioSource, AudioListener, playSound, buses and ducking, spatial audio, voice limits (includes core/transform)); `ui` (UiNode trees under a UiRoot: flexbox layout, text, images, buttons, sliders, text fields, world-anchored markers, themes (includes core/transform)); `core/transform` (Transform and hierarchy propagation).
 <!-- /shard:generated -->
 
 ## Notes

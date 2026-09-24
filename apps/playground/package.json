@@ -16,6 +16,7 @@
     "@shard/core": "workspace:*",
     "@shard/gltf": "workspace:*",
     "@shard/gpu": "workspace:*",
+    "@shard/input": "workspace:*",
     "@shard/mesh": "workspace:*",
     "@shard/particles": "workspace:*",
     "@shard/physics": "workspace:*",
@@ -27,8 +28,10 @@
     "@shard/runtime": "workspace:*",
     "@shard/scene": "workspace:*",
     "@shard/sprite": "workspace:*",
+    "@shard/text": "workspace:*",
     "@shard/texture": "workspace:*",
-    "@shard/transform": "workspace:*"
+    "@shard/transform": "workspace:*",
+    "@shard/ui": "workspace:*"
   },
   "devDependencies": {
     "@webgpu/types": "^0.1.74",

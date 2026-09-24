@@ -164,7 +164,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `schema/out-of-range` | @shard/core |  |
 | `schema/redefinition-active` | @shard/core |  |
 | `schema/type-mismatch` | @shard/assets | Give the base file by path: { "path": "data/weapons/laser.weapon.json" }. |
-| `schema/unknown-field` | @shard/core |  |
+| `schema/unknown-field` | @shard/ui |  |
 | `schema/unknown-preset` | @shard/core |  |
 | `schema/unresolved-entity` | @shard/core | Entity paths are resolved by the scene loader; check the path exists. |
 | `shader/compile` | @shard/shader |  |
@@ -196,3 +196,13 @@ Every engine error is a `ShardError` with one of these codes.
 | `texture/invalid` | @shard/texture |  |
 | `texture/transcoder-unavailable` | @shard/texture | Basis Universal ships in @shard/texture/vendor/basis; check the files are present. |
 | `texture/unsupported-format` | @shard/texture | Use a 2D image or a cube map (6 faces). |
+| `ui/ambiguous-path` | @shard/ui |  |
+| `ui/disabled` | @shard/ui | Set disabled to false on its UiButton or UiToggle first. |
+| `ui/hidden` | @shard/ui | A node with display none, under a hidden anchor, or outside a root can't be clicked. |
+| `ui/invalid-length` | @shard/ui | Use pixels (120 or "120"), a percent of the parent ("50%"), or "auto". |
+| `ui/no-root` | @shard/ui | Parent it (ChildOf) under an entity with ui/UiRoot, or add UiRoot to the top node. |
+| `ui/not-clickable` | @shard/ui | ui.click takes the path of a node with ui/UiButton or ui/UiToggle (see ui.describe). |
+| `ui/not-focusable` | @shard/ui | Focus takes a node with UiButton, UiToggle, UiSlider, or UiTextInput. |
+| `ui/unknown-node` | @shard/ui | Pass an entity id or a scene path of a node under a UiRoot (ui.describe lists them). |
+| `ui/unknown-state` | @shard/ui |  |
+| `ui/unknown-style` | @shard/ui | Add it to the root's *.theme.json styles, or fix UiNode.style (ui.describe shows each node's). |

@@ -17,12 +17,18 @@ export function createDomInputSource(element: HTMLElement): InputSource {
   }
   const knownPads = new Set<number>()
 
-  const onKey = (pressed: boolean) => (e: KeyboardEvent) => {
+  const onKeyDown = (e: KeyboardEvent) => {
+    // Characters (repeats too) feed text fields; key state ignores repeats.
+    if (!e.ctrlKey && !e.metaKey) {
+      if (e.key.length === 1) queue.push({ type: 'text', text: e.key })
+      else if (e.key === 'Backspace') queue.push({ type: 'text', text: '\b' })
+    }
     if (e.repeat) return
-    queue.push({ type: 'key', code: e.code, pressed })
+    queue.push({ type: 'key', code: e.code, pressed: true })
   }
-  const onKeyDown = onKey(true)
-  const onKeyUp = onKey(false)
+  const onKeyUp = (e: KeyboardEvent) => {
+    queue.push({ type: 'key', code: e.code, pressed: false })
+  }
   const onPointerDown = (e: PointerEvent) => {
     const { x, y } = toPixels(e)
     if (e.pointerType === 'touch')

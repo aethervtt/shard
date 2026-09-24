@@ -101,6 +101,37 @@ export class Game {
     return (await this.call<{ entries: Json[] }>('audio.log', { since })).entries
   }
 
+  /** UI (ui plugin): read the HUD as data and press buttons by path, without pixel coordinates. */
+  readonly ui = {
+    /** `ui.describe`: every tree with rects, text, widget state, focus, and anchors. */
+    describe: async (): Promise<Json> => this.call('ui.describe'),
+    /** One node from `ui.describe` by scene path (or a unique suffix, like "fuel/label"). */
+    node: async (path: string): Promise<Json | undefined> => {
+      const d = await this.call<{ roots: { tree: Json }[] }>('ui.describe')
+      const find = (n: Json): Json | undefined => {
+        const p = (n as { path?: string | null }).path
+        if (p === path || p?.endsWith(`/${path}`)) return n
+        for (const c of ((n as { children?: Json[] }).children ?? []) as Json[]) {
+          const hit = find(c)
+          if (hit) return hit
+        }
+        return undefined
+      }
+      for (const r of d.roots) {
+        const hit = find(r.tree)
+        if (hit) return hit
+      }
+      return undefined
+    },
+    /** Clicks a button or toggle (`ui.click`); step a frame for systems to see the UiClick. */
+    click: async (path: string): Promise<void> => {
+      await this.call('ui.click', { entity: path })
+    },
+    focus: async (path: string | null): Promise<void> => {
+      await this.call('ui.focus', { entity: path })
+    },
+  }
+
   /** Saves a PNG of a camera (default: the first) to `.shard/test-results/<name>`. Returns the path. */
   async screenshot(
     name: string,

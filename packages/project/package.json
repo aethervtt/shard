@@ -27,7 +27,8 @@
     "@shard/scene": "workspace:*",
     "@shard/sprite": "workspace:*",
     "@shard/text": "workspace:*",
-    "@shard/transform": "workspace:*"
+    "@shard/transform": "workspace:*",
+    "@shard/ui": "workspace:*"
   },
   "devDependencies": {
     "@shard/gpu": "workspace:*",

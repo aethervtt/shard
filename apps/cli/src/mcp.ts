@@ -15,6 +15,7 @@ import { listScenes } from '@shard/node'
 import { physicsMethods } from '@shard/physics'
 import { ProjectMethodParams } from '@shard/project'
 import { METHODS } from '@shard/protocol'
+import { uiMethods } from '@shard/ui'
 import type { ProtocolTarget } from './hub'
 
 export interface McpContext {
@@ -47,7 +48,7 @@ const text = (value: unknown): ToolResult => ({
 })
 
 /** Methods engine plugins add to the app (served when the plugin is enabled). */
-const PLUGIN_METHODS = [...physicsMethods, ...animationMethods, ...audioMethods]
+const PLUGIN_METHODS = [...physicsMethods, ...animationMethods, ...audioMethods, ...uiMethods]
 
 /** The protocol method's parameter schema, as an MCP input schema. */
 function paramsSchema(method: string, overrides: Record<string, JsonSchema> = {}): JsonSchema {
@@ -366,6 +367,21 @@ export const TOOLS: Tool[] = [
     'audio_describe',
     'audio.describe',
     "What's playing (audio plugin): the backend and whether its context is suspended, the listener, buses (volume, mute, final gain, ducking), and every voice: clip, source entity, bus, state (active, virtual, pending), gain after bus and distance, pan (-1 left, +1 right), distance, clip time, pitch, priority. An agent can't hear: this is how to check a sound plays, where, and how loud.",
+  ),
+  forward(
+    'ui_describe',
+    'ui.describe',
+    "The UI as data (ui plugin): every node's path, rect [x, y, width, height] in its root's pixels, visibility, text, style, widget state (hovered, pressed, focused, disabled, on, value), anchor state (on-screen, clamped, hidden), and scroll; the focused and hovered nodes; this frame's layout and upload counts. Read the HUD here; use screenshots only to check how it looks.",
+  ),
+  forward(
+    'ui_click',
+    'ui.click',
+    'Clicks a UiButton or UiToggle by path (e.g. "hud/menu/play", or a unique suffix like "play"): sends ui/UiClick and flips a toggle, exactly as a real click, with no pixel coordinates. Step a frame for systems to react.',
+  ),
+  forward(
+    'ui_focus',
+    'ui.focus',
+    'Gives keyboard/gamepad focus to a widget by path (null clears it). Gameplay action maps pause while a node has focus.',
   ),
   forward(
     'audio_log',

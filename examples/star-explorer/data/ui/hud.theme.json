@@ -1,0 +1,25 @@
+{
+  "$schema": "../../.shard/schemas/theme.schema.json",
+  "font": { "path": "assets/fonts/Inter-Regular.ttf" },
+  "styles": {
+    "panel": {
+      "background": [0.01, 0.02, 0.04, 0.8],
+      "borderColor": "#5dade2",
+      "borderWidth": 2,
+      "radius": [10, 10, 10, 10]
+    },
+    "caption": { "size": 14, "color": "#85929e" },
+    "value": { "size": 28, "color": "#f4f6f7" },
+    "button": {
+      "background": "#1b4f72",
+      "radius": [8, 8, 8, 8]
+    },
+    "button-label": { "size": 18, "color": "#ffffff" },
+    "button:hovered": { "background": "#2874a6" },
+    "button:pressed": { "background": "#154360" },
+    "button:focused": { "borderColor": "#f5cb5c", "borderWidth": 2 },
+    "button:on": { "background": "#b9770e" },
+    "marker": { "borderColor": "#f5cb5c", "borderWidth": 2, "radius": [12, 12, 12, 12] },
+    "marker-label": { "size": 14, "color": "#f5cb5c" }
+  }
+}

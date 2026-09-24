@@ -142,6 +142,76 @@
           }
         }
       ]
+    },
+    {
+      "name": "hud",
+      "components": {
+        "scene/PrefabInstance": {
+          "prefab": {
+            "path": "prefabs/hud.prefab.json"
+          }
+        }
+      },
+      "children": [
+        {
+          "name": "planet-marker",
+          "components": {
+            "ui/UiNode": {
+              "style": "marker",
+              "direction": "column",
+              "alignItems": "center",
+              "padding": [4, 10, 4, 10]
+            },
+            "ui/UiStyle": {},
+            "ui/UiAnchor": {
+              "target": "planet",
+              "offset": [0, 45, 0],
+              "pivot": [0.5, 1],
+              "clamp": true,
+              "margin": 24
+            }
+          },
+          "children": [
+            {
+              "name": "label",
+              "components": {
+                "ui/UiNode": {
+                  "style": "marker-label"
+                },
+                "ui/UiText": {
+                  "text": "Kepler b"
+                }
+              }
+            },
+            {
+              "name": "distance",
+              "components": {
+                "ui/UiNode": {
+                  "style": "marker-label"
+                },
+                "ui/UiText": {
+                  "text": ""
+                }
+              }
+            },
+            {
+              "name": "arrow",
+              "components": {
+                "ui/UiNode": {
+                  "position": "absolute",
+                  "width": 14,
+                  "height": 4
+                },
+                "ui/UiStyle": {
+                  "background": "#f5cb5c",
+                  "radius": [2, 2, 2, 2]
+                },
+                "ui/UiAnchorArrow": {}
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

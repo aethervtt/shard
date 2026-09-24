@@ -30,6 +30,8 @@ export type RawInputEvent =
   | { type: 'gamepad'; index: number; connected: boolean; buttons: number[]; axes: number[] }
   | { type: 'focus'; focused: boolean }
   | { type: 'action'; name: string; pressed: boolean; value?: number }
+  /** Typed characters, key repeats included; "\b" is a backspace. Text fields read these. */
+  | { type: 'text'; text: string }
 
 /** Where raw input comes from: DOM listeners in a browser or webview, nothing when headless. */
 export interface InputSource {
