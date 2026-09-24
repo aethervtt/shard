@@ -65,7 +65,7 @@ agent needs to see what's on screen.
 | [0025](0025-text.md) | Text rendering (MSDF) | implemented |
 | [0026](0026-particles.md) | GPU particles | implemented |
 | [0027](0027-debug-draw-picking.md) | Debug drawing and picking | implemented |
-| — | 2D lighting and shadows (builds on 0024) | planned |
+| [0039](0039-2d-lighting.md) | 2D lighting and shadows (normal maps, occluders, soft shadows) | accepted |
 
 ## M6 — Gameplay systems
 
