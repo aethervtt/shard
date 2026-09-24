@@ -19,6 +19,7 @@ import { iblPlugin, skyPlugin } from './environment'
 import { fpsGraphPlugin } from './fps-graph'
 import { galaxyPlugin, Population } from './galaxy'
 import { applyResolution, hudPlugin } from './hud'
+import { ikDemoPlugin } from './ik'
 import { lightsPlugin } from './lights'
 import { particlesDemoPlugin } from './particles'
 import { physics2dDemoPlugin, physicsDemoPlugin, planetDemoPlugin } from './physics'
@@ -50,6 +51,7 @@ const DEMOS = [
   'data',
   'animation',
   'animgraph',
+  'ik',
 ] as const
 const demo = DEMOS.find((d) => location.hash === `#${d}`) ?? 'scene'
 document.body.dataset.demo = demo
@@ -119,6 +121,16 @@ if (demo === 'galaxy') {
     animationPlugin,
     hudPlugin,
     animgraphDemoPlugin,
+  )
+} else if (demo === 'ik') {
+  app.addPlugin(
+    TransformPlugin,
+    forwardPlugin(),
+    ScenePlugin,
+    physics3dPlugin,
+    animationPlugin,
+    hudPlugin,
+    ikDemoPlugin,
   )
 } else if (demo === 'sky') {
   app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, skyPlugin)

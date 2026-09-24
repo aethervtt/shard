@@ -48,6 +48,12 @@ Files: `*.animgraph.json`
 
 No import settings.
 
+## `data/jointmap`
+
+Files: `*.jointmap.json`
+
+No import settings.
+
 ## `gltf`
 
 Files: `*.gltf`, `*.glb`

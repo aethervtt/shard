@@ -31,6 +31,8 @@ channels and duration). Skinned meshes and morph targets import tagged (`render/
   entity directly. The root joint stays in place; `animation/RootMotion` has this frame's delta.
 - See joints with `screenshot` `"overlays": ["skeleton"]`; `preview_asset` on a glTF clip shows
   its model at 5 times.
+- Feet on uneven ground, heads that look at things, weapons in hands, or clips from another rig:
+  see `rig-a-character.md`.
 
 Property clips animate any numeric field by path (`""` is the player's entity):
 

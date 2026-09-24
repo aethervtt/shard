@@ -69,6 +69,36 @@ export {
   parseAnimationGraph,
   triangulate,
 } from './graph'
+export {
+  ChainIk,
+  describeIk,
+  FootPlacement,
+  IkStateResource,
+  LookAtIk,
+  solveIk,
+  TwoBoneIk,
+} from './ik'
 export { animationMethods, describePlayer } from './methods'
 export { AnimationStateResource, sampleAnimations } from './player'
 export { animationPlugin } from './plugin'
+export {
+  type JointMapAsset,
+  JointMapAssetType,
+  JointMapImporter,
+  JointMapSchema,
+  JointMaps,
+  jointKey,
+  planRetarget,
+  RETARGET_MODES,
+  Retarget,
+  type RetargetPlan,
+} from './retarget'
+export {
+  Attach,
+  AttachStateResource,
+  attachToSocket,
+  attachToSockets,
+  BoneSocket,
+  findSocket,
+  listSockets,
+} from './socket'

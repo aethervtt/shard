@@ -5,9 +5,11 @@ Every engine error is a `ShardError` with one of these codes.
 | Code | Source | Hint |
 |---|---|---|
 | `animation/invalid-clip` | @shard/animation |  |
+| `animation/invalid-joint-map` | @shard/animation |  |
 | `animation/invalid-mask` | @shard/animation |  |
 | `animation/no-model` | @shard/animation | Clips from .anim.json animate whatever plays them: preview the scene that uses it with a screenshot. |
 | `animation/no-player` | @shard/animation | Add animation/AnimationPlayer to the model root first. |
+| `animation/unknown-socket` | @shard/animation | Put animation/BoneSocket { "name": ... } on the joint; on a model, add it with a SceneInstance override on the joint path. |
 | `animgraph/bad-blend` | @shard/animation | Give each clip its own threshold. |
 | `animgraph/bad-condition` | @shard/animation | Conditions use parameter names, numbers, !, &&, \|\|, and comparisons: "grounded && speed > 0.1". |
 | `animgraph/bad-parameter` | @shard/animation | Use letters, digits, _ and ., starting with a letter. |
@@ -61,6 +63,8 @@ Every engine error is a `ShardError` with one of these codes.
 | `gpu/no-adapter` | @shard/gpu |  |
 | `gpu/no-context` | @shard/gpu |  |
 | `gpu/unsupported` | @shard/gpu | Use a browser or webview with WebGPU, or pass `gpu` (e.g. from the `webgpu` package in Node). |
+| `ik/not-a-chain` | @shard/animation | Each joint must be an ancestor of the next (root → mid → tip; chain entries top first, above the joint). |
+| `ik/unknown-joint` | @shard/animation | Joint fields are paths under the IK entity or an ancestor (the model root): "Armature/Hips/UpLeg_L". animation_describe on the model lists what bound. |
 | `input/unknown-action` | @shard/input | Use "<map name>.<action>", e.g. "game/Controls.jump". |
 | `input/unknown-binding` | @shard/input | Use Gamepad:LeftStick, Gamepad:RightStick, { composite: "wasd" \| "arrows" }, or { up, down, left, right }. |
 | `mesh/invalid` | @shard/mesh | positions/normals: 3 per vertex, uvs/uvs1: 2, colors/tangents/joints/weights: 4; indices must be < vertex count. |
@@ -123,6 +127,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `render/unknown-buffer` | @shard/render |  |
 | `render/unknown-camera` | @shard/render | Pass a Camera3d entity that has rendered at least one frame. |
 | `render/unknown-material-type` | @shard/render |  |
+| `retarget/unmapped-root` | @shard/animation | Add it to the joint map (*.jointmap.json): { "joints": { "<source>": "<target>" } }. |
 | `scene/already-loaded` | @shard/scene | Use reloadScene to replace it, or pass a different id. |
 | `scene/asset-unavailable` | @shard/scene |  |
 | `scene/conflicting-fields` | @shard/scene |  |

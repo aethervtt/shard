@@ -32,6 +32,74 @@ An Animator's parameters. setAnimParam(world, entity, name, value) sets one.
 |---|---|---|---|---|
 | `values` | any | `{}` |  | Parameter values by name (numbers; bools and triggers as true/false). Patch it to set them; a trigger turns false when a transition takes it. Bound parameters are read from their component instead (animation.describe shows them). |
 
+## `animation/Attach`
+
+Parents this entity to a BoneSocket under owner, at the socket's offset, once the socket exists; attaches again when the owner's model respawns (reloads).
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `owner` | null or integer or string | `null` |  | The model (or character) whose socket this rides on. |
+| `socket` | string | `""` |  | The socket name, e.g. "hand_r". |
+
+## `animation/BoneSocket`
+
+A named attachment point on a joint. Prefabs attach by socket name ("hand_r"), so swapping the model keeps them working.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `name` | string | `""` |  | What attachments ask for, e.g. "hand_r". |
+| `joint` | null or integer or string | `null` |  | The joint it rides on. None: this entity (put the socket on the joint itself, e.g. with a SceneInstance override, so it survives the model respawning). |
+| `offset` | number[3] | `[0,0,0]` | m | Where attachments sit, in the joint's frame. |
+| `rotation` | number[4] | `[0,0,0,1]` |  | How attachments turn, in the joint's frame. |
+
+## `animation/ChainIk`
+
+FABRIK over every joint from root to tip (tails, tentacles, spines), with segment lengths from the current pose.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `root` | string | `""` |  | The first joint of the chain (it stays put). Resolved under this entity or its nearest ancestor that has the path (put IK on the model root, or on an entity under it), so it works on generated model joints and again after the model respawns: "Body/Tail0". |
+| `tip` | string | `""` |  | The last joint, under root: a tail or tentacle tip. A path. |
+| `target` | null or integer or string | `null` |  | Where the tip goes. |
+| `iterations` | integer | `10` | ≥ 1, ≤ 255 | FABRIK passes at most. |
+| `tolerance` | number | `0.001` | ≥ 0, m | Stops once the tip is this close to the target. |
+| `weight` | number | `1` | ≥ 0, ≤ 1 | How much the solution counts: slerps each joint from its animated rotation. |
+
+## `animation/FootPlacement`
+
+Plants feet on uneven ground: casts down from each animated foot along this entity's up (physics), lowers the hips for the lowest foot (never raises them), and puts each leg's IK target on the ground, turned to its normal. Put it on the model root, level with the soles.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `feet` | object[] | `[]` |  | One entry per leg. |
+| `hips` | string | `""` |  | The joint lowered so the lowest foot reaches the ground. Resolved under this entity or its nearest ancestor that has the path (put IK on the model root, or on an entity under it), so it works on generated model joints and again after the model respawns: "Armature/Hips". |
+| `maxStep` | number | `0.4` | ≥ 0, m | How far a foot moves up or down, and the hips down, at most. |
+| `mask` | integer | `4294967295` | ≥ 0, ≤ 4294967295 | Collision layers the foot rays hit. |
+| `weight` | number | `1` | ≥ 0, ≤ 1 | How much the solution counts: slerps each joint from its animated rotation. |
+
+## `animation/LookAtIk`
+
+Turns a joint (and a share of the joints above it) to face a target, clamped to maxAngle.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `joint` | string | `""` |  | The joint that aims: a head, an eye, a turret. Resolved under this entity or its nearest ancestor that has the path (put IK on the model root, or on an entity under it), so it works on generated model joints and again after the model respawns: "Armature/Hips/Spine/Neck/Head". |
+| `target` | null or integer or string | `null` |  | What it looks at (its world position). |
+| `axis` | number[3] | `[0,0,-1]` |  | The joint's forward in its own frame (-Z by default). |
+| `maxAngle` | number | `70` | ≥ 0, ≤ 180, deg | The most it turns away from the animated forward. |
+| `weight` | number | `1` | ≥ 0, ≤ 1 | How much the solution counts: slerps each joint from its animated rotation. |
+| `chain` | object[] | `[]` |  | Joints above that share the turn, top first: [{ "joint": "Spine", "share": 0.2 }, { "joint": "Neck", "share": 0.3 }]. The joint aims the rest of the way. |
+
+## `animation/Retarget`
+
+Plays clips authored for another skeleton on this player's model: channels bind by joint name, and each rotation is carried from the source's rest pose to this model's.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `source` | null or Skin ref | `null` |  | The skeleton the clips were authored for (its #Skin sub-asset): its rest pose and joint names. |
+| `map` | null or JointMap ref | `null` |  | Optional *.jointmap.json of source → target names. Without one, names match after normalizing case, prefixes (mixamorig:), and sides (_L, .L, Left). |
+| `mode` | `"rotation"` \| `"rotation-and-root"` | `"rotation"` |  | rotation: only joint rotations carry over (bone lengths stay the target's). rotation-and-root: the root joint's translation too, scaled by the ratio of hip heights (root motion scales with it). |
+
 ## `animation/RootMotion`
 
 Root motion taken out of the pose this frame (AnimationPlayer.rootMotion). Written by animation; read it to move things yourself.
@@ -42,6 +110,20 @@ _Computed by the engine; never written in scene files._
 |---|---|---|---|---|
 | `translation` | number[3] | `[0,0,0]` | m | This frame's root travel on the ground plane, in the entity's local frame. |
 | `rotation` | number[4] | `[0,0,0,1]` |  | This frame's root turn (yaw). |
+
+## `animation/TwoBoneIk`
+
+Two-bone IK (legs, arms): puts tip on target by rotating root and mid, bending toward pole. Solved after the animated pose, before rendering.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `root` | string | `""` |  | The upper joint (thigh, upper arm). Resolved under this entity or its nearest ancestor that has the path (put IK on the model root, or on an entity under it), so it works on generated model joints and again after the model respawns: "Armature/Hips/UpLeg_L". |
+| `mid` | string | `""` |  | The joint that bends (knee, elbow), under root. A path. |
+| `tip` | string | `""` |  | The end (ankle, wrist), under mid. A path. |
+| `target` | null or integer or string | `null` |  | Where the tip goes (its world position). |
+| `pole` | null or integer or string | `null` |  | The mid joint bends toward this. None: keeps the current bend plane. |
+| `weight` | number | `1` | ≥ 0, ≤ 1 | How much the solution counts: slerps each joint from its animated rotation. |
+| `tipRotation` | number | `0` | ≥ 0, ≤ 1 | How much the tip takes the target's world rotation (1 for feet FootPlacement aligns to the ground). 0: the tip keeps its animated local rotation. |
 
 ## `core/ChildOf`
 

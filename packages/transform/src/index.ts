@@ -1,6 +1,7 @@
 export {
   GlobalTransform,
   lookAt,
+  propagateSubtree,
   propagateTransforms,
   Transform,
   TransformPlugin,

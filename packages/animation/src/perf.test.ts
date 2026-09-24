@@ -1,4 +1,4 @@
-import { defineComponent, t } from '@shard/core'
+import { ChildOf, defineComponent, t } from '@shard/core'
 import type { GpuContext } from '@shard/gpu'
 import { createNodeGpuContext } from '@shard/gpu/node'
 import {
@@ -12,14 +12,24 @@ import {
 } from '@shard/render'
 import { App } from '@shard/runtime'
 import { ScenePlugin } from '@shard/scene'
-import { lookAt, Transform, TransformPlugin } from '@shard/transform'
+import { lookAt, Transform, TransformPlugin, worldPosition } from '@shard/transform'
 import { describe, expect, it } from 'vitest'
 import { Animator, AnimatorStateEntered, describeAnimator, evaluateGraphs } from './animator'
+import { animationLayer } from './api'
 import { AnimationClips } from './clip'
+import { AnimationPlayer } from './components'
 import { AnimationGraphs, createAnimationGraph } from './graph'
+import { describeIk, solveIk, TwoBoneIk } from './ik'
 import { sampleAnimations } from './player'
 import { animationPlugin } from './plugin'
-import { addCreatureAssets, creature, spawnCreatures } from './testing'
+import {
+  addBipedAssets,
+  addCreatureAssets,
+  biped,
+  creature,
+  spawnBiped,
+  spawnCreatures,
+} from './testing'
 
 /** Spec budgets hold under `pnpm bench` (serial); parallel `pnpm test` runs get 3x slack. */
 const budget = (ms: number) => ms * (process.env.SHARD_BENCH ? 1 : 3)
@@ -192,6 +202,90 @@ describe('performance', () => {
     )
     expect(collections).toBe(0)
     expect(median(list)).toBeLessThan(budget(0.5))
+  })
+
+  it('100 characters with two-bone foot IK solve in under 1 ms a frame, allocating nothing', async () => {
+    const app = new App().addPlugin(TransformPlugin, ScenePlugin, animationPlugin)
+    await app.init()
+    const w = app.world
+    const body = biped()
+    const assets = addBipedAssets(w, body)
+    const legs: { ik: number; foot: number; target: number }[] = []
+    for (let k = 0; k < 100; k++) {
+      const { root, joint } = spawnBiped(w, body, assets, [
+        (k % 10) * 1.2,
+        0,
+        -Math.floor(k / 10) * 1.2,
+      ])
+      w.add(root, AnimationPlayer, {
+        layers: [animationLayer(assets.idle, { time: (k * 0.13) % 2 })],
+      })
+      for (const side of ['L', 'R'] as const) {
+        const target = w.spawn([Transform, {}], [ChildOf, { parent: root }])
+        const pole = w.spawn(
+          [Transform, { translation: [0, 0.5, -1] }],
+          [ChildOf, { parent: root }],
+        )
+        const foot = joint(body.path('Foot', side))
+        const ik = w.spawn(
+          [
+            TwoBoneIk,
+            {
+              root: body.path('UpLeg', side),
+              mid: body.path('Leg', side),
+              tip: body.path('Foot', side),
+              target,
+              pole,
+            },
+          ],
+          [ChildOf, { parent: root }],
+        )
+        legs.push({ ik, foot, target })
+      }
+    }
+    // Targets a little above and ahead of each animated foot (knees bend), so every leg really solves.
+    app.update(1 / 60)
+    for (const leg of legs) {
+      const p = worldPosition(w, leg.foot)
+      const parent = worldPosition(w, w.get(leg.target, ChildOf).parent!)
+      w.set(leg.target, Transform, {
+        translation: [p[0] - parent[0] - 0.02, p[1] + 0.08, p[2] - parent[2] - 0.05] as never,
+      })
+    }
+    for (let i = 0; i < 60; i++) app.update(1 / 60)
+    const solved = describeIk(w).filter((s) => s.solved)
+    expect(solved).toHaveLength(200)
+    expect(Math.max(...solved.map((s) => s.targetError as number))).toBeLessThan(0.001)
+    // The solver alone. Each run first puts back the pose IK wrote (nothing re-samples here),
+    // so this is an upper bound on a real frame's cost.
+    const state = solveIk.setup!(w)
+    const run = () => solveIk.run(state, w, undefined as never)
+    for (let i = 0; i < 300; i++) {
+      w.incrementTick()
+      run()
+    }
+    ;(globalThis as { gc?: () => void }).gc?.()
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    const times = new Float64Array(2000)
+    let collections = 0
+    const observer = new PerformanceObserver((list) => {
+      collections += list.getEntries().length
+    })
+    observer.observe({ entryTypes: ['gc'] })
+    for (let f = 0; f < times.length; f++) {
+      w.incrementTick()
+      const t0 = performance.now()
+      run()
+      times[f] = performance.now() - t0
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    observer.disconnect()
+    const list = [...times]
+    console.log(
+      `two-bone IK, 100 characters × 2 legs: ${Math.min(...list).toFixed(3)} ms best, ${median(list).toFixed(3)} ms median; GC events: ${collections}`,
+    )
+    expect(collections).toBe(0)
+    expect(median(list)).toBeLessThan(budget(1))
   })
 
   it('200 skinned characters hold 60 fps at 1080p', async () => {

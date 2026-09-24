@@ -280,6 +280,105 @@ function propagateChildren(
   }
 }
 
+const subtreeScratch = affine.create()
+
+/**
+ * Recomputes `GlobalTransform` for `entity` and everything under it from its parent's current
+ * world matrix, for systems that change local transforms after propagation (IK). Marks the
+ * matrices changed this tick. Allocation-free.
+ */
+export function propagateSubtree(world: World, entity: Entity): void {
+  if (!world.isAlive(entity)) return
+  const table = world.entityTableUnchecked(entity)
+  if (!table.has(GlobalTransform)) return
+  const row = world.entityRowUnchecked(entity)
+  const g = table.column(GlobalTransform, 'matrix')
+  let parent: Entity = -1 as Entity
+  if (table.has(ChildOf)) parent = table.column(ChildOf, 'parent')[row]! as Entity
+  if (parent >= 0 && world.isAlive(parent)) {
+    const pt = world.entityTableUnchecked(parent)
+    if (pt.has(GlobalTransform)) {
+      subtreeNode(
+        world,
+        table,
+        row,
+        pt.column(GlobalTransform, 'matrix'),
+        world.entityRowUnchecked(parent) * 12,
+      )
+      return
+    }
+  }
+  // A root: its world matrix is its local one.
+  if (table.has(Transform)) {
+    affine.fromTRSAt(
+      g,
+      row * 12,
+      table.column(Transform, 'translation'),
+      row * 3,
+      table.column(Transform, 'rotation'),
+      row * 4,
+      table.column(Transform, 'scale'),
+      row * 3,
+    )
+  }
+  table.changedTicks(GlobalTransform)[row] = world.tick
+  table.touch(GlobalTransform)
+  subtreeChildren(world, table, row, g, row * 12)
+}
+
+function subtreeNode(
+  world: World,
+  table: Table,
+  row: number,
+  parent: Float32Array,
+  parentOffset: number,
+): void {
+  if (!table.has(GlobalTransform)) return
+  const g = table.column(GlobalTransform, 'matrix')
+  const o = row * 12
+  if (table.has(Transform)) {
+    affine.fromTRSAt(
+      subtreeScratch,
+      0,
+      table.column(Transform, 'translation'),
+      row * 3,
+      table.column(Transform, 'rotation'),
+      row * 4,
+      table.column(Transform, 'scale'),
+      row * 3,
+    )
+    affine.multiplyAt(g, o, parent, parentOffset, subtreeScratch, 0)
+  } else {
+    affine.copyAt(g, o, parent, parentOffset)
+  }
+  table.changedTicks(GlobalTransform)[row] = world.tick
+  table.touch(GlobalTransform)
+  subtreeChildren(world, table, row, g, o)
+}
+
+function subtreeChildren(
+  world: World,
+  table: Table,
+  row: number,
+  matrix: Float32Array,
+  offset: number,
+): void {
+  if (!table.has(Children)) return
+  const list = table.column(Children, 'entities')[row] as (Entity | null)[] | undefined
+  if (!list) return
+  for (let k = 0; k < list.length; k++) {
+    const child = list[k]
+    if (child === null || child === undefined) continue
+    subtreeNode(
+      world,
+      world.entityTableUnchecked(child),
+      world.entityRowUnchecked(child),
+      matrix,
+      offset,
+    )
+  }
+}
+
 /** Reparenting changes what a local transform means, so treat it as a transform change. */
 function markTransformChanged({ entity, world }: { entity: Entity; world: World }): void {
   if (!world.has(entity, Transform)) return

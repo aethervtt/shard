@@ -17,6 +17,7 @@
       body:not([data-demo='data']) [data-weapon] { display: none; }
       body:not([data-demo='animation']) [data-anim] { display: none; }
       body:not([data-demo='animgraph']) [data-graph] { display: none; }
+      body:not([data-demo='ik']) [data-ik] { display: none; }
       nav { margin-top: 8px; opacity: 0.75; }
       nav a { color: inherit; margin-right: 10px; }
     </style>
@@ -47,7 +48,11 @@
       <button type="button" data-graph="hop">2 everyone hop</button>
       <button type="button" data-graph="edit">3 edit run threshold</button>
       <button type="button" data-graph="break">4 typo in a condition</button>
-      <nav><a href="#scene">scene</a><a href="#galaxy">galaxy</a><a href="#lights">lights</a><a href="#ibl">ibl</a><a href="#sky">sky</a><a href="#deferred">deferred</a><a href="#crowd">crowd</a><a href="#post">post</a><a href="#sprites">sprites</a><a href="#particles">particles</a><a href="#physics">physics</a><a href="#planet">planet</a><a href="#physics2d">physics2d</a><a href="#character">character</a><a href="#character-planet">character-planet</a><a href="#character2d">character2d</a><a href="#prefabs">prefabs</a><a href="#data">data</a><a href="#animation">animation</a><a href="#animgraph">animgraph</a></nav>
+      <button type="button" data-ik="ik">1 IK on/off</button>
+      <button type="button" data-ik="retarget">2 retarget on/off</button>
+      <button type="button" data-ik="sword">3 swap sword hand</button>
+      <button type="button" data-ik="overlay">4 ik + skeleton overlay</button>
+      <nav><a href="#scene">scene</a><a href="#galaxy">galaxy</a><a href="#lights">lights</a><a href="#ibl">ibl</a><a href="#sky">sky</a><a href="#deferred">deferred</a><a href="#crowd">crowd</a><a href="#post">post</a><a href="#sprites">sprites</a><a href="#particles">particles</a><a href="#physics">physics</a><a href="#planet">planet</a><a href="#physics2d">physics2d</a><a href="#character">character</a><a href="#character-planet">character-planet</a><a href="#character2d">character2d</a><a href="#prefabs">prefabs</a><a href="#data">data</a><a href="#animation">animation</a><a href="#animgraph">animgraph</a><a href="#ik">ik</a></nav>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

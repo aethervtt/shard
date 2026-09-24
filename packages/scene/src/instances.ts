@@ -2,6 +2,7 @@ import { type AssetEntry, assetServer } from '@shard/assets'
 import {
   type AssetRef,
   ChildOf,
+  Children,
   Commands,
   type ComponentDef,
   defineSystem,
@@ -706,7 +707,26 @@ function spawnReserved(
   }
 }
 
-function despawnGenerated(world: World, state: InstanceState): void {
+/**
+ * Despawns what an instance generated. Entities the game parented under generated ones (a sword
+ * attached to a hand) move to `keepUnder` instead of going with them.
+ */
+function despawnGenerated(world: World, state: InstanceState, keepUnder?: Entity): void {
+  if (keepUnder !== undefined && world.isAlive(keepUnder)) {
+    const generated = new Set(state.ids)
+    const foreign: Entity[] = []
+    for (const id of state.ids) {
+      if (id < 0 || !world.isAlive(id)) continue
+      const children = world.tryGet(id, Children)?.entities
+      if (!children) continue
+      for (const child of children) {
+        if (child === null || generated.has(child) || !world.isAlive(child)) continue
+        if (world.has(child, InstancePart)) continue
+        foreign.push(child)
+      }
+    }
+    for (const child of foreign) world.add(child, ChildOf, { parent: keepUnder })
+  }
   for (let i = 0; i < state.ids.length; i++) {
     const t = state.plan.entities[i]
     const id = state.ids[i]!
@@ -871,7 +891,7 @@ export function updateInstances(world: World): void {
   const server = assetServer(world)
   for (const [entity, state] of [...s.states]) {
     if (world.isAlive(entity) && world.has(entity, state.def)) continue
-    despawnGenerated(world, state)
+    despawnGenerated(world, state, entity)
     s.states.delete(entity)
   }
   const todo: [Entity, InstanceDef, AssetEntry, Overrides][] = []
@@ -917,7 +937,7 @@ export function updateInstances(world: World): void {
     }
     if (template.flat.missing.size > 0) continue // nested assets still loading
     const old = s.states.get(entity)
-    if (old) despawnGenerated(world, old)
+    if (old) despawnGenerated(world, old, entity)
     s.states.set(entity, instantiate(world, entity, def, template, overrides, old))
   }
 }

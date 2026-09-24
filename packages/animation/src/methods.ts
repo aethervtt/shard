@@ -3,6 +3,7 @@ import type { AppMethod } from '@shard/runtime'
 import { describeAnimator } from './animator'
 import { AnimationClips } from './clip'
 import { AnimationPlayer, RootMotion } from './components'
+import { describeIk } from './ik'
 import { describeBinding } from './player'
 
 function scenePath(world: World, entity: Entity): string | null {
@@ -52,6 +53,8 @@ export function describePlayer(world: World, entity: Entity) {
       rotation: motion?.rotation ?? [0, 0, 0, 1],
     },
     animator: describeAnimator(world, entity),
+    retarget: binding.retarget,
+    ik: describeIk(world, entity),
   }
 }
 
@@ -59,7 +62,7 @@ export const animationMethods: AppMethod[] = [
   {
     name: 'animation.describe',
     description:
-      "An entity's AnimationPlayer: its layers (clip, time, duration, weight, loop, blend, mask, fade), how many targets bound, channels whose target is missing, and this frame's root motion. With an Animator, its graph per layer: current state, the transition in progress and its progress, time in state, blend-space weights, and parameter values (and what each bound one reads). Without an entity: every player.",
+      "An entity's AnimationPlayer: its layers (clip, time, duration, weight, loop, blend, mask, fade), how many targets bound, channels whose target is missing, and this frame's root motion. With an Animator, its graph per layer: current state, the transition in progress and its progress, time in state, blend-space weights, and parameter values (and what each bound one reads). With a Retarget: the source skeleton, the root and hip-height ratio, and source joints that matched nothing. IK solvers under the player: kind, weight, distance (or angle) left to the target, FABRIK iterations, foot hits and how far the hips dropped, and any problem (ik/not-a-chain, ik/unknown-joint). Without an entity: every player, and every IK solver.",
     params: defineSchema('animation/DescribeParams', {
       entity: t.entity({ description: 'The player entity (or its scene path).' }),
     }),
@@ -72,7 +75,7 @@ export const animationMethods: AppMethod[] = [
         for (let i = 0; i < table.count; i++)
           players.push(describePlayer(world, table.entities[i]!))
       }
-      return { players }
+      return { players, ik: describeIk(world) }
     },
   },
 ]

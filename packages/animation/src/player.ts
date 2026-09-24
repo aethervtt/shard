@@ -11,8 +11,8 @@ import {
   type TypedArray,
   type World,
 } from '@shard/core'
-import { descendantPaths } from '@shard/render'
-import { Time } from '@shard/runtime'
+import { descendantPaths, type SkinAsset, Skins } from '@shard/render'
+import { LogResource, Time } from '@shard/runtime'
 import { Transform } from '@shard/transform'
 import {
   type AnimationChannel,
@@ -32,6 +32,17 @@ import {
   ROOT_MOTION_MODES,
   RootMotion,
 } from './components'
+import {
+  CHANNEL_DROPPED,
+  CHANNEL_ROOT,
+  CHANNEL_ROTATION,
+  type JointMapAsset,
+  JointMaps,
+  planRetarget,
+  RETARGET_MODES,
+  Retarget,
+  type RetargetPlan,
+} from './retarget'
 
 // --- binding ---------------------------------------------------------------------------------
 
@@ -66,6 +77,9 @@ interface ClipBinding {
   unbound: string[]
   /** Frame to retry the unbound ones (instances spawn late). */
   retryAt: number
+  /** Retargeted: per channel, how its value is corrected (see RetargetPlan). */
+  rtKinds: Uint8Array | null
+  rtCorr: Float32Array | null
 }
 
 interface MaskBinding {
@@ -91,6 +105,16 @@ interface Binding {
   root_: RootState
   /** CharacterIntent.move added last frame, taken back before adding this frame's. */
   added: Float32Array
+  /** The Retarget clips were bound with (a change rebinds them). */
+  retarget: RetargetConfig | null
+  /** Per clip: what retargeting mapped, for describe. */
+  plans: Map<AnimationClipAsset, RetargetPlan>
+}
+
+interface RetargetConfig {
+  skin: SkinAsset
+  map: JointMapAsset | undefined
+  mode: (typeof RETARGET_MODES)[number]
 }
 
 /** Root motion: which slots are the root's translation and rotation, and this frame's motion. */
@@ -148,6 +172,8 @@ function createBinding(world: World, root: Entity): Binding {
     layerWeights: new Float32Array(8),
     root_: createRoot(),
     added: new Float32Array(3),
+    retarget: null,
+    plans: new Map(),
   }
 }
 
@@ -168,10 +194,15 @@ const animatableKinds = new Set([
 ])
 
 /** The slot for a channel's target, created (with its rest value) on first use. Cold path. */
-function slotFor(world: World, b: Binding, c: AnimationChannel): number | string {
-  const entity = b.paths.get(c.target)
+function slotFor(
+  world: World,
+  b: Binding,
+  c: AnimationChannel,
+  target: string = c.target,
+): number | string {
+  const entity = b.paths.get(target)
   if (entity === undefined || !world.isAlive(entity)) return 'no entity at this path'
-  const key = `${c.target}|${c.component}|${c.field}`
+  const key = `${target}|${c.component}|${c.field}`
   const existing = b.byKey.get(key)
   if (existing !== undefined) return existing
   const def = findComponent(c.component)
@@ -185,7 +216,7 @@ function slotFor(world: World, b: Binding, c: AnimationChannel): number | string
   const offset = b.slots.length === 0 ? 0 : slotEnd(b.slots[b.slots.length - 1]!)
   const slot: Slot = {
     entity,
-    path: c.target,
+    path: target,
     def,
     field: c.field,
     width,
@@ -285,17 +316,138 @@ function bindClip(world: World, b: Binding, clip: AnimationClipAsset, frame: num
     cursors: new Uint32Array(channels.length),
     unbound: [],
     retryAt: frame + 30,
+    rtKinds: null,
+    rtCorr: null,
+  }
+  const plan = b.retarget ? retargetPlan(world, b, clip) : undefined
+  if (plan) {
+    cb.rtKinds = plan.kinds
+    cb.rtCorr = plan.corrections
   }
   for (let i = 0; i < channels.length; i++) {
     const c = channels[i]!
-    const r = slotFor(world, b, c)
+    if (plan && plan.kinds[i] === CHANNEL_DROPPED) continue
+    const target = plan ? plan.targets[i]! : c.target
+    const r = slotFor(world, b, c, target)
     if (typeof r === 'number') cb.slotOf[i] = r
-    else cb.unbound.push(`${c.target || '(self)'} ${c.component}.${c.field} (${r})`)
+    else cb.unbound.push(`${target || '(self)'} ${c.component}.${c.field} (${r})`)
   }
   b.clips.set(clip, cb)
   b.root_.path = undefined // re-pick the root joint
   return cb
 }
+
+/** Plans how a clip lands on this model through its Retarget (cold: when the clip binds). */
+function retargetPlan(world: World, b: Binding, clip: AnimationClipAsset): RetargetPlan {
+  const cfg = b.retarget!
+  const restOf = (path: string) => {
+    const entity = b.paths.get(path)
+    if (entity === undefined || !world.isAlive(entity) || !world.has(entity, Transform))
+      return undefined
+    const t = world.get(entity, Transform)
+    // The pose when first bound is the rest pose: prefer it over a value already animated.
+    const rot = b.byKey.get(`${path}|${TRANSFORM}|rotation`)
+    const pos = b.byKey.get(`${path}|${TRANSFORM}|translation`)
+    const r =
+      rot === undefined
+        ? t.rotation
+        : [...b.rest.subarray(b.slots[rot]!.offset, b.slots[rot]!.offset + 4)]
+    const tr =
+      pos === undefined
+        ? t.translation
+        : [...b.rest.subarray(b.slots[pos]!.offset, b.slots[pos]!.offset + 3)]
+    return { t: [...tr], r: [...r], s: [...t.scale] }
+  }
+  const plan = planRetarget(clip.channels, cfg.skin, cfg.map, cfg.mode, b.paths, restOf)
+  if (plan.problem && !b.plans.get(clip)?.problem)
+    world.tryResource(LogResource)?.error(plan.problem)
+  b.plans.set(clip, plan)
+  return plan
+}
+
+/**
+ * Brings a binding's Retarget up to date with the player's (none, or before its skin loads, is
+ * none). A change rebinds every clip. Allocates only when it changes.
+ */
+function syncRetarget(
+  world: World,
+  b: Binding,
+  table: Table,
+  i: number,
+  skins: { get(ref: AssetRef | null): SkinAsset | undefined } | undefined,
+): void {
+  let skin: SkinAsset | undefined
+  let map: JointMapAsset | undefined
+  let mode = 0
+  if (skins && table.has(Retarget)) {
+    skin = skins.get((table.column(Retarget, 'source') as (AssetRef | null)[])[i]!)
+    const mapRef = (table.column(Retarget, 'map') as (AssetRef | null)[])[i]!
+    map = mapRef ? world.tryResource(JointMaps)?.get(mapRef) : undefined
+    mode = table.column(Retarget, 'mode')[i]!
+  }
+  const was = b.retarget
+  const same =
+    skin === undefined
+      ? was === null
+      : was !== null && was.skin === skin && was.map === map && was.mode === RETARGET_MODES[mode]
+  if (same) return
+  b.retarget = skin ? { skin, map, mode: RETARGET_MODES[mode]! } : null
+  b.clips.clear()
+  b.plans.clear()
+  b.root_.path = undefined
+}
+
+/** Corrects a sampled value for its retargeted channel: rotations pre · v · post, the root scaled. */
+function correct(kinds: Uint8Array, corr: Float32Array, c: number, value: Float32Array): void {
+  const kind = kinds[c]!
+  const o = c * 8
+  if (kind === CHANNEL_ROTATION) {
+    // pre · value
+    const ax = corr[o]!
+    const ay = corr[o + 1]!
+    const az = corr[o + 2]!
+    const aw = corr[o + 3]!
+    const bx = value[0]!
+    const by = value[1]!
+    const bz = value[2]!
+    const bw = value[3]!
+    const x = aw * bx + ax * bw + ay * bz - az * by
+    const y = aw * by - ax * bz + ay * bw + az * bx
+    const z = aw * bz + ax * by - ay * bx + az * bw
+    const w = aw * bw - ax * bx - ay * by - az * bz
+    // · post
+    const px = corr[o + 4]!
+    const py = corr[o + 5]!
+    const pz = corr[o + 6]!
+    const pw = corr[o + 7]!
+    value[0] = w * px + x * pw + y * pz - z * py
+    value[1] = w * py - x * pz + y * pw + z * px
+    value[2] = w * pz + x * py - y * px + z * pw
+    value[3] = w * pw - x * px - y * py - z * pz
+  } else if (kind === CHANNEL_ROOT) {
+    // pre · v · pre⁻¹, scaled.
+    const qx = corr[o]!
+    const qy = corr[o + 1]!
+    const qz = corr[o + 2]!
+    const qw = corr[o + 3]!
+    const ratio = corr[o + 4]!
+    const vx = value[0]!
+    const vy = value[1]!
+    const vz = value[2]!
+    const ix = qw * vx + qy * vz - qz * vy
+    const iy = qw * vy + qz * vx - qx * vz
+    const iz = qw * vz + qx * vy - qy * vx
+    const iw = -qx * vx - qy * vy - qz * vz
+    value[0] = (ix * qw - iw * qx - iy * qz + iz * qy) * ratio
+    value[1] = (iy * qw - iw * qy - iz * qx + ix * qz) * ratio
+    value[2] = (iz * qw - iw * qz - ix * qy + iy * qx) * ratio
+  }
+}
+
+/** The channel root motion is sampling, when retargeted (sampleAt corrects its values). */
+let rootKinds: Uint8Array | null = null
+let rootCorr: Float32Array | null = null
+let rootChannel = 0
 
 function maskFor(b: Binding, mask: AnimationMaskAsset): Float32Array {
   let m = b.masks.get(mask)
@@ -701,6 +853,7 @@ const yaws = new Float64Array(5)
 /** Samples a channel at sampleArg[0] into out, from its first key (cold: root motion only). */
 function sampleAt(c: AnimationChannel, quat: boolean, out: Float32Array): void {
   sampleChannelAt(c, sampleArg, 0, quat, out)
+  if (rootKinds !== null) correct(rootKinds, rootCorr!, rootChannel, out)
 }
 
 /**
@@ -924,6 +1077,7 @@ export const sampleAnimations = defineSystem({
     const clips = world.resource(AnimationClips)
     const masks = world.tryResource(AnimationMasks)
     const dt = world.resource(Time).delta
+    const skins = world.tryResource(Skins)
     dtArg[0] = dt
     const tick = world.tick
     const tables = q.tables
@@ -943,6 +1097,7 @@ export const sampleAnimations = defineSystem({
           b = createBinding(world, entity)
           state.bindings.set(entity, b)
         }
+        syncRetarget(world, b, table, i, skins)
         // Time, fades, events.
         removals.length = 0
         if (prevTimes.length < layers.length) prevTimes = new Float64Array(layers.length * 2)
@@ -1044,8 +1199,16 @@ export const sampleAnimations = defineSystem({
               }
               const value = b.scratch
               cb.cursors[c] = sampleChannelAt(channel, timeArg, cb.cursors[c]!, slot.quat, value)
-              if (isRootRot && !additive) rootRotation(b, channel, value, wrapped)
-              else if (isRootPos && !additive) rootTranslation(b, channel, value, wrapped)
+              if (cb.rtKinds !== null) correct(cb.rtKinds, cb.rtCorr!, c, value)
+              if ((isRootRot || isRootPos) && !additive) {
+                rootKinds = cb.rtKinds
+                rootCorr = cb.rtCorr
+                rootChannel = c
+                if (isRootRot) rootRotation(b, channel, value, wrapped)
+                else rootTranslation(b, channel, value, wrapped)
+                rootKinds = null
+                rootCorr = null
+              }
               if (additive) {
                 const scale = slot.field === 'scale' && slot.def.name === TRANSFORM
                 blendAdditive(pose, o, value, channel, slot.quat, scale)
@@ -1121,12 +1284,45 @@ export function forgetBinding(world: World, entity: Entity): void {
 /** A binding's summary for animation.describe. */
 export function describeBinding(world: World, entity: Entity) {
   const b = world.tryResource(AnimationStateResource)?.bindings.get(entity)
-  if (!b) return { bound: 0, unbound: [] as string[], rootJoint: null as string | null }
+  if (!b) {
+    return {
+      bound: 0,
+      unbound: [] as string[],
+      rootJoint: null as string | null,
+      retarget: null as ReturnType<typeof describeRetarget>,
+    }
+  }
   const unbound = new Set<string>()
   for (const cb of b.clips.values()) for (const u of cb.unbound) unbound.add(u)
   return {
     bound: b.slots.length,
     unbound: [...unbound],
     rootJoint: b.root_.path || null,
+    retarget: describeRetarget(b),
+  }
+}
+
+/** What retargeting mapped: the source skin, the root, the hip ratio, and joints left unmapped. */
+function describeRetarget(b: Binding) {
+  if (!b.retarget) return null
+  const unmapped = new Set<string>()
+  let problem: { code: string; message: string } | null = null
+  let ratio: number | null = null
+  let root: { source: string; target: string | null } | null = null
+  for (const plan of b.plans.values()) {
+    for (const u of plan.unmapped) unmapped.add(u)
+    if (plan.problem && !problem)
+      problem = { code: plan.problem.code, message: plan.problem.message }
+    ratio ??= plan.ratio
+    root ??= plan.root
+  }
+  return {
+    source: b.retarget.skin.name,
+    mode: b.retarget.mode,
+    map: b.retarget.map ? Object.keys(b.retarget.map.joints).length : null,
+    root,
+    hipRatio: ratio === null ? null : Number(ratio.toFixed(4)),
+    unmappedJoints: [...unmapped].sort(),
+    problem,
   }
 }
