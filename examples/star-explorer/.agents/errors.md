@@ -203,6 +203,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `shader/watch-unsupported` | @shard/shader |  |
 | `sprite/atlas-too-large` | @shard/sprite | Raise maxSize, or split the images into several atlases. |
 | `sprite/duplicate-region` | @shard/sprite | Region names are unique within an atlas. |
+| `sprite/invalid-occluder` | @shard/sprite | Give polygons 3+ points without crossing edges, boxes a nonzero size, and collider occluders a cuboid, ball, capsule, or convex Collider. |
 | `sprite/invalid-tilemap` | @shard/sprite |  |
 | `sprite/no-atlas` | @shard/sprite |  |
 | `sprite/no-layer` | @shard/sprite |  |
@@ -219,6 +220,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `text/not-loaded` | @shard/protocol | asset.list shows fonts (type Font); pass a .ttf or .otf path. |
 | `texture/decode-failed` | @shard/texture |  |
 | `texture/invalid` | @shard/texture |  |
+| `texture/normal-map-mismatch` | @shard/sprite | A normal-map companion must match its image pixel for pixel. |
 | `texture/transcoder-unavailable` | @shard/texture | Basis Universal ships in @shard/texture/vendor/basis; check the files are present. |
 | `texture/unsupported-format` | @shard/texture | Use a 2D image or a cube map (6 faces). |
 | `ui/ambiguous-path` | @shard/ui |  |

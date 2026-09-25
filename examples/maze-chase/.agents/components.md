@@ -934,6 +934,67 @@ _Computed by the engine; never written in scene files._
 | `scene` | string | `""` |  | Id of the scene this entity was loaded from. |
 | `path` | string | `""` |  | Path within the scene, e.g. "ship/camera". |
 
+## `sprite/Lighting2d`
+
+On a camera: lights the 2D world it sees with PointLight2d and SpotLight2d. Without it, sprites draw unlit.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `ambient` | string or number[4] | `[0.08,0.08,0.1,1]` |  | Light every lit sprite gets without any light (linear). |
+| `ambientIntensity` | number | `1` | ≥ 0 | Multiplies ambient. |
+| `maxLights` | integer | `256` | ≥ 1, ≤ 1024 | Visible lights per view. |
+| `maxShadowed` | integer | `64` | ≥ 0, ≤ 64 | Shadowed lights per view: the ones nearest the view center win. |
+
+## `sprite/LightOccluder2d`
+
+Blocks 2D light: shadowed lights (shadows: true) cast shadows from its shape.
+
+Brings along: `core/Transform`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `shape` | `"box"` \| `"circle"` \| `"polygon"` \| `"sprite"` \| `"collider"` | `"box"` |  | box: size. circle: size[0] is the radius. polygon: points. sprite: the sprite's alpha outline (atlas with outlines: true), else its rectangle. collider: the entity's physics/Collider (cuboid, ball, capsule, convex). |
+| `size` | number[2] | `[1,1]` | m | box: full size. circle: size[0] is the radius. |
+| `points` | number[2][] | `[]` |  | polygon: local-space points, closed (the last joins the first). |
+| `lightPenetration` | number | `0.05` | ≥ 0, m | How far light reaches into the occluder, so its own face toward the light stays lit. |
+| `layers` | integer | `4294967295` | ≥ 0, ≤ 4294967295 | Which lights it blocks, matching PointLight2d.layers. |
+
+## `sprite/PointLight2d`
+
+A 2D light at the entity: lights sprites and tiles under a Lighting2d camera, with optional shadows.
+
+Brings along: `core/Transform`, `render/Visibility`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `color` | string or number[4] | `"#ffffff"` |  | Light color (linear). |
+| `intensity` | number | `1` | ≥ 0 | Sprite units: 1 shows a sprite it fully lights at its texture color. Above 1 overbrightens (and blooms). |
+| `radius` | number | `5` | ≥ 0, m | World units: the light reaches zero here. |
+| `falloff` | number | `2` | ≥ 0 | Exponent of the smooth window (1 − (d/radius)²)^falloff: higher is tighter. |
+| `height` | number | `1` | ≥ 0, m | Height above the sprite plane, for normal maps: low grazes the surface, high lights it flat. |
+| `shadows` | boolean | `false` |  | Cast shadows from LightOccluder2d shapes and occluding tiles. |
+| `softness` | number | `0.1` | ≥ 0, m | Emitter size in world units: penumbras widen with distance from the occluder. 0: hard shadows. |
+| `layers` | integer | `4294967295` | ≥ 0, ≤ 4294967295 | Which sprite layers it lights: bit k covers layers k×64 − 1024 to k×64 − 961. All bits: every layer. |
+
+## `sprite/SpotLight2d`
+
+A 2D cone light pointing along the entity’s +X (rotate the entity to aim it), like a flashlight.
+
+Brings along: `core/Transform`, `render/Visibility`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `color` | string or number[4] | `"#ffffff"` |  | Light color (linear). |
+| `intensity` | number | `1` | ≥ 0 | Sprite units: 1 shows a sprite it fully lights at its texture color. Above 1 overbrightens (and blooms). |
+| `radius` | number | `5` | ≥ 0, m | World units: the light reaches zero here. |
+| `falloff` | number | `2` | ≥ 0 | Exponent of the smooth window (1 − (d/radius)²)^falloff: higher is tighter. |
+| `height` | number | `1` | ≥ 0, m | Height above the sprite plane, for normal maps: low grazes the surface, high lights it flat. |
+| `shadows` | boolean | `false` |  | Cast shadows from LightOccluder2d shapes and occluding tiles. |
+| `softness` | number | `0.1` | ≥ 0, m | Emitter size in world units: penumbras widen with distance from the occluder. 0: hard shadows. |
+| `layers` | integer | `4294967295` | ≥ 0, ≤ 4294967295 | Which sprite layers it lights: bit k covers layers k×64 − 1024 to k×64 − 961. All bits: every layer. |
+| `innerAngle` | number | `30` | ≥ 0, ≤ 180, deg | Half-angle of full brightness, from the entity’s +X. |
+| `outerAngle` | number | `45` | ≥ 0, ≤ 180, deg | Half-angle where the cone fades to zero. |
+
 ## `sprite/Sprite`
 
 A textured quad in the entity's XY plane: a texture or an atlas region, tinted, flipped, and anchored.
@@ -952,7 +1013,8 @@ Brings along: `core/Transform`, `render/Visibility`, `sprite/SpriteSlot`.
 | `size` | number[2] | `[0,0]` | m | World size. Zero: the image (or region) size in pixels ÷ Sprite2dSettings.pixelsPerUnit. Screen sprites: pixels. |
 | `layer` | integer | `0` | ≥ -32768, ≤ 32767 | Draw-order band: higher draws over lower. Within a band, sprites sort by Sprite2dSettings.sort. |
 | `blend` | `"alpha"` \| `"additive"` \| `"opaque"` | `"alpha"` |  | alpha: premultiplied blending, sorted. additive: glows. opaque: alpha-tested at 0.5, writes depth, no sorting needed. |
-| `space` | `"world"` \| `"screen"` | `"world"` |  | world: in the scene, lit by nothing, under post-processing. screen: an overlay after tonemapping, positioned in pixels from the view's top left. |
+| `space` | `"world"` \| `"screen"` | `"world"` |  | world: in the scene, under post-processing (lit by 2D lights under a Lighting2d camera). screen: an overlay after tonemapping, positioned in pixels from the view's top left. |
+| `lit` | boolean | `true` |  | Lit by 2D lights under a Lighting2d camera. Off: drawn at its own color (UI, glowing effects). |
 
 ## `sprite/SpriteAnimation`
 
@@ -966,6 +1028,16 @@ Brings along: `sprite/Sprite`.
 | `playing` | boolean | `true` |  | Advances each frame. A once clip clears it at its end. |
 | `speed` | number | `1` |  | Playback rate: 2 is twice as fast, negative plays backward. |
 | `time` | number | `0` | s | Position in the clip. |
+
+## `sprite/SpriteLighting`
+
+Per-sprite lighting options: a normal map, emissive glow, normal strength.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `normal` | null or Texture ref | `null` |  | Normal map for a plain texture sprite (atlas sprites use TextureAtlas.normals). Tangent space, +Y up. |
+| `emissive` | number | `0` | ≥ 0 | Glow: × the sprite color, added after lighting (eyes, screens, embers). |
+| `normalStrength` | number | `1` | ≥ 0 | Scales the normal map’s tilt: 0 lights it flat. |
 
 ## `sprite/SpriteSlot`
 
@@ -990,6 +1062,7 @@ Brings along: `core/Transform`, `render/Visibility`.
 | `tileSize` | number[2] | `[1,1]` | m | World size of one tile. |
 | `chunkSize` | integer | `32` | ≥ 4, ≤ 256 | Tiles per chunk side: chunks are the unit of culling and re-upload. |
 | `layer` | integer | `0` | ≥ -32768, ≤ 32767 | Draw-order band, like Sprite.layer (tilemaps draw first in a band). |
+| `lit` | boolean | `true` |  | Lit by 2D lights under a Lighting2d camera. |
 
 ## `text/Localized`
 

@@ -26,6 +26,14 @@ import { Time } from '@shard/runtime'
 import { type Texture, Textures } from '@shard/texture'
 import { GlobalTransform } from '@shard/transform'
 import { TextureAtlases } from './atlas'
+import { layerBit, SpriteLighting } from './lighting'
+import {
+  describeLights2d,
+  type LightView2d,
+  lights2dGroup,
+  lights2dLayout,
+  litView,
+} from './lights2d'
 import { Sprite, Sprite2dSettings, SpriteSlot } from './sprite'
 import { Tilemap, TilemapDatas } from './tilemap'
 
@@ -43,6 +51,8 @@ const SPACE_SCREEN = 1
 export interface SpriteBatch {
   index: number
   texture: Texture
+  /** The normal map lit views sample (2D lighting), or null. */
+  normal: Texture | null
   blend: number
   space: number
   count: number
@@ -171,15 +181,28 @@ export class SpriteStore {
     if (slot > this.dirtyHi) this.dirtyHi = slot
   }
 
-  /** The batch for a texture, blend, and space, made on first use. */
-  batchFor(texture: Texture, blend: number, space: number): SpriteBatch {
+  /** The batch for a texture, normal map, blend, and space, made on first use. */
+  batchFor(
+    texture: Texture,
+    blend: number,
+    space: number,
+    normal: Texture | null = null,
+  ): SpriteBatch {
     let list = this.byTexture.get(texture)
     if (!list) {
       list = []
       this.byTexture.set(texture, list)
     }
-    for (const b of list) if (b.blend === blend && b.space === space) return b
-    const batch: SpriteBatch = { index: this.batches.length, texture, blend, space, count: 0 }
+    for (const b of list)
+      if (b.blend === blend && b.space === space && b.normal === normal) return b
+    const batch: SpriteBatch = {
+      index: this.batches.length,
+      texture,
+      normal,
+      blend,
+      space,
+      count: 0,
+    }
     this.batches.push(batch)
     list.push(batch)
     return batch
@@ -316,6 +339,19 @@ export const Sprites = defineResource<SpriteStore>('sprite/Sprites', {
 
 const packScratch = new Uint8Array(4)
 const packView = new Uint32Array(packScratch.buffer)
+const halfScratch = new Float32Array(1)
+const halfBits = new Uint32Array(halfScratch.buffer)
+
+/** A float as IEEE half bits (round to nearest, clamped to the half range). */
+function half(v: number): number {
+  halfScratch[0] = v
+  const x = halfBits[0]!
+  const sign = (x >>> 16) & 0x8000
+  const e = ((x >>> 23) & 0xff) - 127 + 15
+  if (e <= 0) return sign
+  if (e >= 31) return sign | 0x7bff
+  return sign | (e << 10) | (((x >>> 13) & 0x3ff) + ((x >>> 12) & 1))
+}
 function packColor(c: ArrayLike<number>, o: number): number {
   for (let k = 0; k < 4; k++) packScratch[k] = Math.round(Math.min(1, Math.max(0, c[o + k]!)) * 255)
   return packView[0]!
@@ -333,8 +369,13 @@ interface Columns {
   layer: Int16Array
   blend: Uint8Array
   space: Uint8Array
+  lit: Uint8Array
   g: Float32Array
   visible: Uint8Array
+  /** SpriteLighting, when the table has it. */
+  normal: (AssetRef<'Texture'> | null)[] | undefined
+  emissive: Float32Array | undefined
+  normalStrength: Float32Array | undefined
 }
 
 function columns(table: Table): Columns {
@@ -350,9 +391,24 @@ function columns(table: Table): Columns {
     layer: table.column(Sprite, 'layer') as unknown as Int16Array,
     blend: table.column(Sprite, 'blend') as unknown as Uint8Array,
     space: table.column(Sprite, 'space') as unknown as Uint8Array,
+    lit: table.column(Sprite, 'lit') as unknown as Uint8Array,
     g: table.column(GlobalTransform, 'matrix') as unknown as Float32Array,
     visible: table.column(ComputedVisibility, 'visible') as unknown as Uint8Array,
+    normal: table.has(SpriteLighting)
+      ? (table.column(SpriteLighting, 'normal') as unknown as Columns['normal'])
+      : undefined,
+    emissive: table.has(SpriteLighting)
+      ? (table.column(SpriteLighting, 'emissive') as unknown as Float32Array)
+      : undefined,
+    normalStrength: table.has(SpriteLighting)
+      ? (table.column(SpriteLighting, 'normalStrength') as unknown as Float32Array)
+      : undefined,
   }
+}
+
+/** Light flags of a sprite record: 1 lit, 2 has a normal map, light-layer band << 8. */
+function lightFlags(lit: boolean, normal: boolean, layer: number): number {
+  return (lit ? 1 : 0) | (normal ? 2 : 0) | ((31 - Math.clz32(layerBit(layer))) << 8)
 }
 
 /** Writes one sprite's record, batch, and sort key. Returns false when an asset isn't loaded. */
@@ -375,6 +431,7 @@ function extractSprite(
   let rh = 0
   let ax = c.anchor[i * 2]!
   let ay = c.anchor[i * 2 + 1]!
+  let normal: Texture | null = null
   const atlasRef = c.atlas[i]
   if (atlasRef && (atlasRef.guid || atlasRef.path) && c.region[i]) {
     const atlas = atlases.get(atlasRef)
@@ -382,6 +439,10 @@ function extractSprite(
     const r = atlas.region(c.region[i]!)
     texture = textures.get(atlas.texture)
     if (!texture) return false
+    if (atlas.normals) {
+      normal = textures.get(atlas.normals) ?? null
+      if (!normal) return false
+    }
     if (r < 0) {
       store.assign(slot, -1)
       return true
@@ -406,6 +467,11 @@ function extractSprite(
     if (!texture) return false
     rw = texture.width
     rh = texture.height
+  }
+  const normalRef = c.normal?.[i]
+  if (normalRef && (normalRef.guid || normalRef.path)) {
+    normal = textures.get(normalRef) ?? null
+    if (!normal) return false
   }
   const tw = texture.width
   const th = texture.height
@@ -442,12 +508,17 @@ function extractSprite(
   f[o + 18] = ax
   f[o + 19] = ay
   store.u32[o + 20] = packColor(c.color, i * 4)
-  store.u32[o + 21] = 0
+  store.u32[o + 21] = lightFlags(c.lit[i] !== 0, normal !== null, c.layer[i]!)
   // The entity, for the picking pass.
   store.u32[o + 22] = store.entities[slot]! % 0x100000000
+  // Emissive and normal strength as two halves (2D lighting).
+  store.u32[o + 23] =
+    (half(c.emissive ? c.emissive[i]! : 0) |
+      (half(c.normalStrength ? c.normalStrength[i]! : 1) << 16)) >>>
+    0
   store.markDirty(slot)
   const blend = c.blend[i]!
-  const batch = c.visible[i] ? store.batchFor(texture, blend, space).index : -1
+  const batch = c.visible[i] ? store.batchFor(texture, blend, space, normal).index : -1
   store.assign(slot, batch)
   // Layer, then depth (z, or -y for top-down), then batch: sprites at one depth group by texture.
   const depth = settings.sort === 'y' ? -g[i * 12 + 7]! : g[i * 12 + 11]!
@@ -464,6 +535,7 @@ function tableChanged(table: Table, since: number): boolean {
   return (
     table.lastStructural > since ||
     table.lastChanged(Sprite) > since ||
+    (table.has(SpriteLighting) && table.lastChanged(SpriteLighting) > since) ||
     table.lastChanged(GlobalTransform) > since ||
     table.lastChanged(ComputedVisibility) > since ||
     table.lastChanged(SpriteSlot) > since
@@ -507,6 +579,7 @@ export const prepareSprites = defineSystem({
       const sChanged = table.changedTicks(Sprite)
       const gChanged = table.changedTicks(GlobalTransform)
       const vChanged = table.changedTicks(ComputedVisibility)
+      const lChanged = table.has(SpriteLighting) ? table.changedTicks(SpriteLighting) : undefined
       const c = columns(table)
       for (let i = 0; i < n; i++) {
         let slot = slots[i]! - 1
@@ -521,7 +594,8 @@ export const prepareSprites = defineSystem({
           !force &&
           sChanged[i]! <= since &&
           gChanged[i]! <= since &&
-          vChanged[i]! <= since
+          vChanged[i]! <= since &&
+          (lChanged === undefined || lChanged[i]! <= since)
         )
           continue
         if (extractSprite(world, store, slot, c, i)) store.pending.delete(slot)
@@ -590,6 +664,9 @@ interface TilemapGpu {
   bounds: Float32Array[]
   atlas: AssetRef<'TextureAtlas'> | null
   texture: Texture | undefined
+  /** The atlas's normal map (2D lighting), or null. */
+  normal: Texture | null
+  lit: boolean
 }
 
 /** Tilemaps on the GPU, and chunk uploads in the last frame (for describe and tests). */
@@ -647,6 +724,8 @@ function syncTilemaps(world: World): void {
     const atlas = atlases.get(value.atlas as AssetRef<'TextureAtlas'>)
     const texture = atlas ? textures.get(atlas.texture) : undefined
     if (!data || !atlas || !texture) continue
+    const normal = atlas.normals ? (textures.get(atlas.normals) ?? null) : null
+    if (atlas.normals && !normal) continue
     const cs = value.chunkSize
     let map = tilemaps.maps.get(entity)
     if (!map || map.data !== data || map.version !== data.version || map.chunkSize !== cs) {
@@ -697,6 +776,8 @@ function syncTilemaps(world: World): void {
         bounds: [],
         atlas: null,
         texture: undefined,
+        normal: null,
+        lit: true,
       }
       tilemaps.maps.set(entity, map)
     }
@@ -705,6 +786,8 @@ function syncTilemaps(world: World): void {
     map.affine.set(g)
     map.atlas = value.atlas as AssetRef<'TextureAtlas'>
     map.texture = texture
+    map.normal = normal
+    map.lit = value.lit
     if (chunkScratch.length < cs * cs) chunkScratch = new Uint32Array(cs * cs)
     // Tiles: whole layers when new (or the edit log overflowed), else the chunks edits touched.
     data.layers.forEach((l, li) => {
@@ -735,7 +818,7 @@ function syncTilemaps(world: World): void {
       paramScratch[15] = l.height
       paramU32[16] = cs
       paramU32[17] = layer.chunksX
-      paramU32[18] = 0
+      paramU32[18] = lightFlags(map!.lit, normal !== null, value.layer)
       paramU32[19] = 0
       layer.params.write(paramScratch)
       // World bounds of each chunk, for culling (the map is planar: four corners suffice).
@@ -829,12 +912,17 @@ function boxInFrustum(planes: Float32Array, b: Float32Array, o: number): boolean
   return true
 }
 
-function* queryTilemaps(
-  world: World,
-): Generator<
+function* queryTilemaps(world: World): Generator<
   [
     Entity,
-    { atlas: unknown; data: unknown; tileSize: number[]; chunkSize: number; layer: number },
+    {
+      atlas: unknown
+      data: unknown
+      tileSize: number[]
+      chunkSize: number
+      layer: number
+      lit: boolean
+    },
     Float32Array,
   ]
 > {
@@ -847,6 +935,7 @@ function* queryTilemaps(
     const tileSize = table.column(Tilemap, 'tileSize') as unknown as Float32Array
     const chunkSize = table.column(Tilemap, 'chunkSize')
     const layer = table.column(Tilemap, 'layer')
+    const lit = table.column(Tilemap, 'lit')
     for (let i = 0; i < table.count; i++) {
       if (!vis[i]) continue
       yield [
@@ -857,6 +946,7 @@ function* queryTilemaps(
           tileSize: [tileSize[i * 2]!, tileSize[i * 2 + 1]!],
           chunkSize: chunkSize[i]!,
           layer: layer[i]!,
+          lit: lit[i] !== 0,
         },
         g.subarray(i * 12, i * 12 + 12),
       ]
@@ -873,7 +963,11 @@ interface DrawCaches {
     sprites: GPUBindGroupLayout
     tilemap: GPUBindGroupLayout
     texture: GPUBindGroupLayout
+    /** Lit views: the texture group plus a normal map. */
+    litTexture: GPUBindGroupLayout
   }
+  /** A 1×1 flat normal for lit batches without a normal map. */
+  flatNormal?: GPUTextureView
   pipelines: Map<string, GPURenderPipeline>
   groups: Map<string, { key: string; group: GPUBindGroup }>
   views: Map<string, { uniform: GpuBuffer; chunks: GpuBuffer }>
@@ -915,6 +1009,7 @@ function check(ctx: NodeContext): DrawCaches {
     caches.views.clear()
     caches.batchParams.clear()
     caches.samplers = undefined
+    caches.flatNormal = undefined
   }
   if (!caches.layouts) {
     const V = GPUShaderStage.VERTEX
@@ -951,7 +1046,26 @@ function check(ctx: NodeContext): DrawCaches {
           { binding: 2, visibility: F, buffer: { type: 'uniform' } },
         ],
       }),
+      litTexture: gpu.layouts.bindGroupLayout({
+        label: 'sprites/texture-lit',
+        entries: [
+          { binding: 0, visibility: F, texture: { sampleType: 'float' } },
+          { binding: 1, visibility: F, sampler: { type: 'filtering' } },
+          { binding: 2, visibility: F, buffer: { type: 'uniform' } },
+          { binding: 3, visibility: F, texture: { sampleType: 'float' } },
+        ],
+      }),
     }
+  }
+  if (!caches.flatNormal) {
+    const t = gpu.device.createTexture({
+      label: 'sprites/flat-normal',
+      size: [1, 1],
+      format: 'rgba8unorm',
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    })
+    gpu.device.queue.writeTexture({ texture: t }, new Uint8Array([128, 128, 255, 255]), {}, [1, 1])
+    caches.flatNormal = t.createView()
   }
   caches.samplers ??= {
     linear: gpu.device.createSampler({
@@ -986,15 +1100,18 @@ function pipeline(
   format: GPUTextureFormat,
   msaa: number,
   pick = false,
+  lit = false,
 ): GPURenderPipeline | undefined {
   const gpu = ctx.gpu
   const c = check(ctx)
-  const key = `${kind}/${blend}/${screen ? 's' : 'w'}/${format}/${msaa}${pick ? '/pick' : ''}`
+  const key = `${kind}/${blend}/${screen ? 's' : 'w'}/${format}/${msaa}${pick ? '/pick' : ''}${lit ? '/lit' : ''}`
   const cached = c.pipelines.get(key)
   if (cached) return cached
   const module = ctx.world.resource(Shaders).module(gpu, {
     root: kind === 'sprite' ? 'shard::sprite' : 'shard::tilemap',
-    defines: { SCREEN: screen, SRGB_TARGET: format.endsWith('-srgb') },
+    defines: lit
+      ? { SCREEN: screen, SRGB_TARGET: format.endsWith('-srgb'), LIT: true }
+      : { SCREEN: screen, SRGB_TARGET: format.endsWith('-srgb') },
   })
   if (!module) {
     gpu.pipelines.skipped++
@@ -1004,8 +1121,10 @@ function pipeline(
   const p = gpu.pipelines.render({
     label: key,
     layout: gpu.layouts.pipelineLayout({
-      label: kind,
-      bindGroupLayouts: [l.view, kind === 'sprite' ? l.sprites : l.tilemap, l.texture],
+      label: lit ? `${kind}/lit` : kind,
+      bindGroupLayouts: lit
+        ? [l.view, kind === 'sprite' ? l.sprites : l.tilemap, l.litTexture, lights2dLayout(gpu)]
+        : [l.view, kind === 'sprite' ? l.sprites : l.tilemap, l.texture],
     }),
     vertex: { module, entryPoint: 'vs' },
     fragment: pick
@@ -1102,6 +1221,7 @@ function textureGroup(
   blend: number,
   nearest: boolean,
   owner: object,
+  normal?: Texture | null,
 ): GPUBindGroup | undefined {
   const gpu = ctx.gpu
   const c = check(ctx)
@@ -1118,6 +1238,24 @@ function textureGroup(
   const view = texture.usage === 'color' ? gt.srgb : gt.linear
   const sampler = nearest ? c.samplers!.nearest : c.samplers!.linear
   const buffer = params
+  if (normal !== undefined) {
+    // Lit: the texture group plus the normal map (flat when the batch has none).
+    const gn = normal ? ctx.world.resource(GpuAssetsResource).texture(normal) : undefined
+    if (normal && !gn) return undefined
+    const nview = gn ? gn.linear : c.flatNormal!
+    return group(
+      ctx,
+      `tex-lit/${idOf(owner)}/${nearest ? 'n' : 'l'}`,
+      `${idOf(gt.texture)}/${idOf(buffer.buffer)}/${idOf(nview)}`,
+      c.layouts!.litTexture,
+      () => [
+        { binding: 0, resource: view },
+        { binding: 1, resource: sampler },
+        { binding: 2, resource: { buffer: buffer.buffer } },
+        { binding: 3, resource: nview },
+      ],
+    )
+  }
   return group(
     ctx,
     `tex/${idOf(owner)}/${nearest ? 'n' : 'l'}`,
@@ -1142,7 +1280,12 @@ function drawSpace(ctx: NodeContext, space: number): void {
   const format = space === SPACE_SCREEN ? ctx.texture('view-target').format : 'rgba16float'
   const msaa = space === SPACE_SCREEN ? 1 : cam.msaa
   const nearest = cam.pixelPerfect !== undefined
+  // Views of a Lighting2d camera draw world sprites and tiles through the lit variants.
+  const lights: LightView2d | undefined =
+    space === SPACE_WORLD ? litView(ctx.world, ctx.view.name) : undefined
+  const lit = lights !== undefined
   pass.setBindGroup(0, viewGroup(ctx, cam))
+  if (lights) pass.setBindGroup(3, lights2dGroup(ctx.gpu, lights))
   // Tilemaps (world space only): visible chunks into this view's list.
   const drawn = { visible: 0, total: 0, draws: 0 }
   const maps: TilemapGpu[] = []
@@ -1183,10 +1326,17 @@ function drawSpace(ctx: NodeContext, space: number): void {
     const rl = r < runCount ? runs[r]!.layer : Number.POSITIVE_INFINITY
     if (tl <= rl) {
       const d = tileDraws[t++]!
-      const p = pipeline(ctx, 'tilemap', BLEND_ALPHA, false, format, msaa)
+      const p = pipeline(ctx, 'tilemap', BLEND_ALPHA, false, format, msaa, false, lit)
       const tex =
         d.map.texture &&
-        textureGroup(ctx, d.map.texture, BLEND_ALPHA, nearest, d.map.layers[d.layer]!)
+        textureGroup(
+          ctx,
+          d.map.texture,
+          BLEND_ALPHA,
+          nearest,
+          d.map.layers[d.layer]!,
+          lit ? d.map.normal : undefined,
+        )
       if (!p || !tex) continue
       const layer = d.map.layers[d.layer]!
       const cs = d.map.chunkSize
@@ -1213,8 +1363,41 @@ function drawSpace(ctx: NodeContext, space: number): void {
     } else {
       const run = runs[r++]!
       if (run.batch.space !== space) continue
-      const p = pipeline(ctx, 'sprite', run.batch.blend, space === SPACE_SCREEN, format, msaa)
-      const tex = textureGroup(ctx, run.batch.texture, run.batch.blend, nearest, run.batch)
+      // Unlit views ignore normal maps: runs that differ only by one draw as one.
+      let count = run.count
+      while (r < runCount) {
+        const next = runs[r]!
+        const b = next.batch
+        if (
+          next.layer !== run.layer ||
+          next.first !== run.first + count ||
+          b.texture !== run.batch.texture ||
+          b.blend !== run.batch.blend ||
+          b.space !== space ||
+          (lit && b.normal !== run.batch.normal)
+        )
+          break
+        count += next.count
+        r++
+      }
+      const p = pipeline(
+        ctx,
+        'sprite',
+        run.batch.blend,
+        space === SPACE_SCREEN,
+        format,
+        msaa,
+        false,
+        lit,
+      )
+      const tex = textureGroup(
+        ctx,
+        run.batch.texture,
+        run.batch.blend,
+        nearest,
+        run.batch,
+        lit ? run.batch.normal : undefined,
+      )
       if (!p || !tex || !store) continue
       pass.setPipeline(p)
       pass.setBindGroup(
@@ -1231,7 +1414,7 @@ function drawSpace(ctx: NodeContext, space: number): void {
         ),
       )
       pass.setBindGroup(2, tex)
-      pass.draw(6, run.count, 0, run.first)
+      pass.draw(6, count, 0, run.first)
       drawn.draws++
     }
   }
@@ -1289,7 +1472,7 @@ export function spriteNode(world: World): NodeDescriptor {
     kind: 'render',
     phase: RenderPhase.Sprites,
     enabled: (view: RenderView) => cameraOf(view) !== undefined && hasSpace(world, SPACE_WORLD),
-    reads: ['culled'],
+    reads: ['culled', 'lights2d'],
     writes: ['scene-color', 'scene-depth', 'hdr'],
     color: (view: RenderView) => sceneColor(view),
     depth: { resource: 'scene-depth' },
@@ -1323,6 +1506,7 @@ export function describeSprites(world: World) {
     perLayer: Object.fromEntries([...store.perLayer].sort((a, b) => a[0] - b[0])),
     uploadedBytes: store.uploadedBytes,
     sorts: store.sorts,
+    lighting: describeLights2d(world),
     tilemaps: tilemaps
       ? {
           maps: tilemaps.maps.size,

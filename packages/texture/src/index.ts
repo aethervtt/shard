@@ -10,6 +10,7 @@ export {
 } from './decode'
 export type { Image } from './image'
 export {
+  flipGreen,
   importImageBytes,
   TextureImporter,
   TextureImportSettings,

@@ -5,6 +5,7 @@ import {
   defineAssetType,
   defineDataAsset,
   defineImporter,
+  type ImportedAsset,
   type LoadContext,
 } from '@shard/assets'
 import {
@@ -15,13 +16,18 @@ import {
   ShardError,
   t,
 } from '@shard/core'
-import { buildMips, decodeImage, packRects, readKtx2, writeKtx2 } from '@shard/texture'
-import { drawLabel, fitImage, outline } from './preview'
+import { buildMips, decodeImage, flipGreen, packRects, readKtx2, writeKtx2 } from '@shard/texture'
+import { alphaOutline } from './outline'
+import { drawLabel, drawLine, fitImage, outline } from './preview'
 
 export const TextureAtlasSchema = defineSchema(
   'sprite/TextureAtlas',
   {
     texture: t.handle('Texture', { description: 'The image the regions cut from.' }),
+    normals: t.handle('Texture', {
+      description:
+        'A normal map with the same layout as texture (2D lighting): regions sample it at the same rect.',
+    }),
     grid: t.struct(
       {
         columns: t.u32({ description: 'Cells across (0: no grid).' }),
@@ -45,6 +51,10 @@ export const TextureAtlasSchema = defineSchema(
           default: [0.5, 0.5],
           description: 'Default anchor in normalized region space (0, 0 is the top left).',
         }),
+        outline: t.list(t.vec2, {
+          description:
+            "Alpha outline in normalized region space (0, 0 top left), for LightOccluder2d shape 'sprite'. Packed atlases with outlines: true fill it in.",
+        }),
       }),
       { description: 'Named rectangles of the texture.' },
     ),
@@ -61,21 +71,30 @@ export const TextureAtlasSchema = defineSchema(
  */
 export class TextureAtlas {
   texture: AssetRef<'Texture'> | null
+  /** A normal map with the same layout, or null. */
+  normals: AssetRef<'Texture'> | null = null
   names: string[]
   /** x, y, width, height per region, in pixels. */
   rects: Float32Array
   /** Default anchor per region (normalized, y down). */
   pivots: Float32Array
+  /** Alpha outline per region (normalized x, y pairs, y down), where the atlas has one. */
+  outlines: (Float32Array | undefined)[]
   private index: Map<string, number>
   /** Bumps when the regions change (hot reload), so sprites re-read their rects. */
   version = 0
 
   constructor(
     texture: AssetRef<'Texture'> | null,
-    regions: { name: string; rect: number[]; pivot?: number[] }[],
+    regions: { name: string; rect: number[]; pivot?: number[]; outline?: number[][] }[],
+    normals: AssetRef<'Texture'> | null = null,
   ) {
     this.texture = texture
+    this.normals = normals
     this.names = regions.map((r) => r.name)
+    this.outlines = regions.map((r) =>
+      r.outline && r.outline.length >= 3 ? new Float32Array(r.outline.flat()) : undefined,
+    )
     this.rects = new Float32Array(regions.length * 4)
     this.pivots = new Float32Array(regions.length * 2)
     this.index = new Map()
@@ -98,6 +117,8 @@ export class TextureAtlas {
 
   copyFrom(other: TextureAtlas): void {
     this.texture = other.texture
+    this.normals = other.normals
+    this.outlines = other.outlines
     this.names = other.names
     this.rects = other.rects
     this.pivots = other.pivots
@@ -108,7 +129,7 @@ export class TextureAtlas {
   /** Builds an atlas from its JSON form (`*.atlas.json`), expanding a grid into regions. */
   static fromJson(json: unknown, resolve?: (path: string) => AssetRef | undefined): TextureAtlas {
     const value = TextureAtlasSchema.deserialize(json) as unknown as AtlasValue
-    const regions: { name: string; rect: number[]; pivot?: number[] }[] = []
+    const regions: { name: string; rect: number[]; pivot?: number[]; outline?: number[][] }[] = []
     const g = value.grid
     if (g.columns > 0 && g.rows > 0) {
       for (let row = 0; row < g.rows; row++) {
@@ -125,7 +146,8 @@ export class TextureAtlas {
         }
       }
     }
-    for (const r of value.regions) regions.push({ name: r.name, rect: r.rect, pivot: r.pivot })
+    for (const r of value.regions)
+      regions.push({ name: r.name, rect: r.rect, pivot: r.pivot, outline: r.outline })
     const names = new Set<string>()
     for (const r of regions) {
       if (names.has(r.name)) {
@@ -138,12 +160,22 @@ export class TextureAtlas {
     const ref = value.texture?.path
       ? (resolve?.(value.texture.path) ?? value.texture)
       : value.texture
-    return new TextureAtlas((ref as AssetRef<'Texture'>) ?? null, regions)
+    const normals = value.normals?.path
+      ? (resolve?.(value.normals.path) ?? value.normals)
+      : value.normals?.guid
+        ? value.normals
+        : null
+    return new TextureAtlas(
+      (ref as AssetRef<'Texture'>) ?? null,
+      regions,
+      (normals as AssetRef<'Texture'>) ?? null,
+    )
   }
 }
 
 interface AtlasValue {
   texture: { guid?: string; path?: string } | null
+  normals: { guid?: string; path?: string } | null
   grid: {
     columns: number
     rows: number
@@ -153,7 +185,7 @@ interface AtlasValue {
     spacing: number
     prefix: string
   }
-  regions: { name: string; rect: number[]; pivot: number[] }[]
+  regions: { name: string; rect: number[]; pivot: number[]; outline: number[][] }[]
 }
 
 export class TextureAtlasStore extends AssetStore<TextureAtlas, 'TextureAtlas'> {
@@ -198,10 +230,18 @@ export const AtlasPackSchema = defineSchema(
     }),
     maxSize: t.u32({ default: 4096, min: 64, max: 16384, description: 'Largest texture side.' }),
     mipmaps: t.bool({ description: 'Generate mips (off: sprites are usually drawn near 1:1).' }),
+    outlines: t.bool({
+      description:
+        "Trace each region's alpha outline (at most 32 points) for LightOccluder2d shape 'sprite'.",
+    }),
+    normalMap: t.enum(['opengl', 'directx'], {
+      description:
+        'Convention of the name_n.png normal-map companions: opengl (+Y up) or directx (green flipped on import).',
+    }),
   },
   {
     description:
-      'Packs a folder of images into one power-of-two atlas texture (premultiplied alpha). Regions are named after the files.',
+      'Packs a folder of images into one power-of-two atlas texture (premultiplied alpha). Regions are named after the files. name_n.png companions pack into a matching normal-map page (2D lighting).',
   },
 )
 
@@ -264,7 +304,67 @@ export function packImages(
   return { width, height, data, rects }
 }
 
-/** `*.atlas-pack.json`: packs a folder of images into an atlas and its texture (`#Texture`). */
+/**
+ * A normal-map page with the same layout as a packed atlas: each companion at its image's rect,
+ * edges extruded, and a flat normal everywhere else (regions without a companion light flat).
+ */
+export function packNormals(
+  width: number,
+  height: number,
+  rects: number[][],
+  normals: ({ width: number; height: number; data: Uint8Array } | undefined)[],
+  extrude: number,
+): Uint8Array {
+  const data = new Uint8Array(width * height * 4)
+  for (let p = 0; p < width * height; p++) data.set(FLAT_NORMAL, p * 4)
+  normals.forEach((img, i) => {
+    if (!img) return
+    const [px, py] = rects[i]!
+    for (let y = -extrude; y < img.height + extrude; y++) {
+      const sy = Math.min(img.height - 1, Math.max(0, y))
+      for (let x = -extrude; x < img.width + extrude; x++) {
+        const sx = Math.min(img.width - 1, Math.max(0, x))
+        const s = (sy * img.width + sx) * 4
+        const d = ((py! + y) * width + px! + x) * 4
+        data[d] = img.data[s]!
+        data[d + 1] = img.data[s + 1]!
+        data[d + 2] = img.data[s + 2]!
+        data[d + 3] = 255
+      }
+    }
+  })
+  return data
+}
+
+const FLAT_NORMAL = [128, 128, 255, 255]
+
+/** A region's alpha outline, normalized to its size (x, y pairs, y down), as JSON points. */
+export function regionOutline(img: {
+  width: number
+  height: number
+  data: Uint8Array
+}): number[][] {
+  const flat = alphaOutline(
+    img.width,
+    img.height,
+    (x, y) => img.data[(y * img.width + x) * 4 + 3]! / 255,
+  )
+  const out: number[][] = []
+  for (let k = 0; k < flat.length; k += 2) {
+    out.push([
+      Math.round((flat[k]! / img.width) * 1e5) / 1e5,
+      Math.round((flat[k + 1]! / img.height) * 1e5) / 1e5,
+    ])
+  }
+  return out
+}
+
+const COMPANION = /_n$/
+
+/**
+ * `*.atlas-pack.json`: packs a folder of images into an atlas and its texture (`#Texture`), plus a
+ * normal-map page (`#Normals`) when images have `name_n.png` companions.
+ */
 export const AtlasPackImporter = defineImporter({
   name: 'atlas-pack',
   version: 1,
@@ -297,6 +397,8 @@ export const AtlasPackImporter = defineImporter({
       extrude: number
       maxSize: number
       mipmaps: boolean
+      outlines: boolean
+      normalMap: 'opengl' | 'directx'
     }
     const base = source.path
       .split('/')
@@ -308,6 +410,10 @@ export const AtlasPackImporter = defineImporter({
       ctx.warn(`No images in ${ctx.resolve(folder)}; the atlas is empty.`)
     }
     const images = []
+    const companions = new Map<
+      string,
+      { width: number; height: number; data: Uint8Array; file: string }
+    >()
     for (const file of files) {
       const image = await decodeImage(await ctx.read(file))
       if (image.kind !== 'u8') {
@@ -315,14 +421,40 @@ export const AtlasPackImporter = defineImporter({
           path: file,
         })
       }
-      images.push({
-        name: file.split('/').pop()!.replace(IMAGE, ''),
+      const name = file.split('/').pop()!.replace(IMAGE, '')
+      const entry = {
+        name,
         width: image.width,
         height: image.height,
         data: image.data as Uint8Array,
-      })
+      }
+      if (COMPANION.test(name)) {
+        const img = options.normalMap === 'directx' ? flipGreen(image) : image
+        companions.set(name.replace(COMPANION, ''), {
+          width: img.width,
+          height: img.height,
+          data: img.data as Uint8Array,
+          file,
+        })
+      } else images.push(entry)
     }
     images.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+    const normals = images.map((img) => {
+      const n = companions.get(img.name)
+      if (n && (n.width !== img.width || n.height !== img.height)) {
+        throw new ShardError(
+          'texture/normal-map-mismatch',
+          `${n.file} is ${n.width}×${n.height}, but ${img.name} is ${img.width}×${img.height}`,
+          { path: n.file, hint: 'A normal-map companion must match its image pixel for pixel.' },
+        )
+      }
+      return n
+    })
+    for (const name of companions.keys()) {
+      if (!images.some((img) => img.name === name)) {
+        ctx.warn(`${name}_n has no ${name} image to pair with; it isn't packed.`)
+      }
+    }
     const packed = packImages(images, options)
     const chain = buildMips(
       { width: packed.width, height: packed.height, kind: 'u8', data: packed.data },
@@ -338,18 +470,57 @@ export const AtlasPackImporter = defineImporter({
       name: img.name,
       rect: packed.rects[i]!,
       pivot: [0.5, 0.5],
+      ...(options.outlines ? { outline: regionOutline(img) } : {}),
     }))
+    const hasNormals = normals.some((n) => n !== undefined)
+    const extra: ImportedAsset[] = []
+    if (hasNormals) {
+      const page = packNormals(
+        packed.width,
+        packed.height,
+        packed.rects,
+        normals,
+        Math.min(options.extrude, options.padding),
+      )
+      const normalChain = buildMips(
+        { width: packed.width, height: packed.height, kind: 'u8', data: page },
+        {
+          usage: 'normal',
+          mipmaps: options.mipmaps,
+          maxSize: 16384,
+          flipY: false,
+          premultiplyAlpha: false,
+        },
+      )
+      extra.push({
+        label: 'Normals',
+        type: 'Texture',
+        bytes: writeKtx2(normalChain, 'normal', 1, false),
+        info: {
+          width: packed.width,
+          height: packed.height,
+          usage: 'normal',
+          companions: normals.filter(Boolean).length,
+        } as Record<string, JsonValue>,
+      })
+    }
     return {
       assets: [
         {
           label: '',
           type: 'TextureAtlas',
-          json: { texture: { path: '#Texture' }, regions } as JsonValue,
-          dependencies: ['#Texture'],
+          json: {
+            texture: { path: '#Texture' },
+            ...(hasNormals ? { normals: { path: '#Normals' } } : {}),
+            regions,
+          } as JsonValue,
+          dependencies: hasNormals ? ['#Texture', '#Normals'] : ['#Texture'],
           info: {
             regions: images.length,
             size: `${packed.width}x${packed.height}`,
             folder: ctx.resolve(folder),
+            normals: hasNormals,
+            outlines: options.outlines,
           } as Record<string, JsonValue>,
         },
         {
@@ -364,6 +535,7 @@ export const AtlasPackImporter = defineImporter({
             mips: chain.levels.length,
           } as Record<string, JsonValue>,
         },
+        ...extra,
       ],
     }
   },
@@ -371,24 +543,60 @@ export const AtlasPackImporter = defineImporter({
 
 // --- preview -----------------------------------------------------------------------------------
 
-/** The atlas texture with each region outlined and labeled with its index. */
+/**
+ * The atlas texture with each region outlined and labeled with its index, and its alpha outline
+ * (green) where it has one. An atlas with normals shows albedo and normals side by side.
+ */
 defineAssetPreview('TextureAtlas', async (world, path, width, height) => {
   const server = assetServer(world)
   const artifact = await server.artifact(path)
   const atlas = TextureAtlas.fromJson(artifact.json)
-  const texturePath = atlas.texture?.path?.startsWith('#')
-    ? `${path.split('#')[0]}${atlas.texture.path}`
-    : atlas.texture?.path
+  const pathOf = (ref: { path?: string } | null) =>
+    ref?.path?.startsWith('#') ? `${path.split('#')[0]}${ref.path}` : ref?.path
+  const texturePath = pathOf(atlas.texture)
   if (!texturePath) {
     throw new ShardError('sprite/no-texture', `${path} has no texture`, { path: '/texture' })
   }
   const ktx = readKtx2((await server.artifact(texturePath)).bytes!)
-  const image = fitImage(ktx.levels[0]!, ktx.width, ktx.height, width, height)
-  const scale = image.width / ktx.width
-  for (let i = 0; i < atlas.count; i++) {
-    const [x, y, w, h] = atlas.rects.subarray(i * 4, i * 4 + 4)
-    outline(image, x! * scale, y! * scale, w! * scale, h! * scale, [255, 0, 180, 255])
-    drawLabel(image, String(i), Math.round(x! * scale) + 2, Math.round(y! * scale) + 2)
+  const normalsPath = pathOf(atlas.normals)
+  const nktx = normalsPath ? readKtx2((await server.artifact(normalsPath)).bytes!) : undefined
+  // Side by side: albedo on the left, normals on the right, with a 4-pixel gap.
+  const sw = nktx ? ktx.width * 2 + 4 : ktx.width
+  const src = new Uint8Array(sw * ktx.height * 4)
+  for (let y = 0; y < ktx.height; y++) {
+    src.set(ktx.levels[0]!.subarray(y * ktx.width * 4, (y + 1) * ktx.width * 4), y * sw * 4)
+    if (nktx && nktx.width === ktx.width && nktx.height === ktx.height) {
+      src.set(
+        nktx.levels[0]!.subarray(y * ktx.width * 4, (y + 1) * ktx.width * 4),
+        (y * sw + ktx.width + 4) * 4,
+      )
+    }
+  }
+  const image = fitImage(src, sw, ktx.height, width, height)
+  const scale = image.width / sw
+  const panels = nktx ? [0, ktx.width + 4] : [0]
+  for (const ox of panels) {
+    for (let i = 0; i < atlas.count; i++) {
+      const [x, y, w, h] = atlas.rects.subarray(i * 4, i * 4 + 4)
+      outline(image, (x! + ox) * scale, y! * scale, w! * scale, h! * scale, [255, 0, 180, 255])
+      const o = atlas.outlines[i]
+      if (o) {
+        const n = o.length / 2
+        for (let k = 0; k < n; k++) {
+          const j = (k + 1) % n
+          drawLine(
+            image,
+            (x! + ox + o[k * 2]! * w!) * scale,
+            (y! + o[k * 2 + 1]! * h!) * scale,
+            (x! + ox + o[j * 2]! * w!) * scale,
+            (y! + o[j * 2 + 1]! * h!) * scale,
+            [40, 255, 90, 255],
+          )
+        }
+      }
+      if (ox === 0)
+        drawLabel(image, String(i), Math.round(x! * scale) + 2, Math.round(y! * scale) + 2)
+    }
   }
   return image
 })

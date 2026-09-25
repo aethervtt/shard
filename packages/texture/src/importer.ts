@@ -21,6 +21,10 @@ export const TextureImportSettings = defineSchema(
     maxSize: t.u32({ default: 4096, min: 1, max: 16384, description: 'Downscale larger images.' }),
     flipY: t.bool({ description: 'Flip vertically on import.' }),
     premultiplyAlpha: t.bool({ description: 'Multiply color by alpha on import.' }),
+    normalMap: t.enum(['opengl', 'directx'], {
+      description:
+        'Normal maps: opengl (+Y up, the engine convention) or directx (+Y down: green is flipped on import).',
+    }),
   },
   { description: 'Import settings for images (PNG, JPEG, WebP, .hdr, KTX2).' },
 )
@@ -32,6 +36,15 @@ export interface TextureSettings {
   maxSize: number
   flipY: boolean
   premultiplyAlpha: boolean
+  normalMap?: 'opengl' | 'directx'
+}
+
+/** Flips a normal map's green channel in place (DirectX → OpenGL, or back). */
+export function flipGreen(image: Image): Image {
+  const d = image.data
+  if (image.kind === 'u8') for (let i = 1; i < d.length; i += 4) d[i] = 255 - d[i]!
+  else for (let i = 1; i < d.length; i += 4) d[i] = 1 - d[i]!
+  return image
 }
 
 /** Usage from the file name, for a new `.meta`. */
@@ -98,6 +111,7 @@ export async function importImageBytes(
   }
   let image = await decodeImage(bytes)
   const usage = settings.usage
+  if (usage === 'normal' && settings.normalMap === 'directx') image = flipGreen(image)
   if (usage === 'hdr') image = toLinearFloat(image)
   else if (image.kind === 'f32') {
     warn(

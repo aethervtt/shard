@@ -21,3 +21,4 @@ Add `"sprite"` to `plugins` in `shard.json`. 2D uses the same renderer as 3D (HD
 5. Pixel art: `"render/PixelPerfect": { "pixelsPerUnit": 16 }` on an orthographic camera.
 6. Check: `shard validate`, MCP `preview_asset` on the atlas (regions outlined and numbered) or
    the clip, and `render.describe` → `sprites` (draw calls, sprites per layer, tilemap chunks).
+7. Lights and shadows: see `light-2d.md`.

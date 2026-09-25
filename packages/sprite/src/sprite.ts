@@ -49,7 +49,12 @@ export const Sprite = defineComponent(
     }),
     space: t.enum(SPRITE_SPACES, {
       description:
-        "world: in the scene, lit by nothing, under post-processing. screen: an overlay after tonemapping, positioned in pixels from the view's top left.",
+        "world: in the scene, under post-processing (lit by 2D lights under a Lighting2d camera). screen: an overlay after tonemapping, positioned in pixels from the view's top left.",
+    }),
+    lit: t.bool({
+      default: true,
+      description:
+        'Lit by 2D lights under a Lighting2d camera. Off: drawn at its own color (UI, glowing effects).',
     }),
   },
   {

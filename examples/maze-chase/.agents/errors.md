@@ -151,7 +151,10 @@ Every engine error is a `ShardError` with one of these codes.
 | `save/invalid-settings` | @shard/save |  |
 | `save/missing-scene` | @shard/save | The scene file was moved or deleted since the save was made. |
 | `save/not-found` | @shard/save | save.list shows the saved slots. |
-| `save/stale-field` | @shard/save |  |
+| `save/stale-entity` | @shard/save | The prefab was moved or deleted since the save was made. |
+| `save/stale-field` | @shard/save | Give the component a version and a migrate that renames or drops the field. |
+| `save/unknown-component` | @shard/save | The component was renamed or removed from the code; its saved data is skipped. |
+| `save/unknown-resource` | @shard/save | The resource was renamed, removed, or lost its persist option; its saved value is skipped. |
 | `save/unknown-settings` | @shard/save |  |
 | `save/version-mismatch` | @shard/save |  |
 | `scene/already-loaded` | @shard/scene | Use reloadScene to replace it, or pass a different id. |
@@ -200,6 +203,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `shader/watch-unsupported` | @shard/shader |  |
 | `sprite/atlas-too-large` | @shard/sprite | Raise maxSize, or split the images into several atlases. |
 | `sprite/duplicate-region` | @shard/sprite | Region names are unique within an atlas. |
+| `sprite/invalid-occluder` | @shard/sprite | Give polygons 3+ points without crossing edges, boxes a nonzero size, and collider occluders a cuboid, ball, capsule, or convex Collider. |
 | `sprite/invalid-tilemap` | @shard/sprite |  |
 | `sprite/no-atlas` | @shard/sprite |  |
 | `sprite/no-layer` | @shard/sprite |  |
@@ -216,6 +220,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `text/not-loaded` | @shard/protocol | asset.list shows fonts (type Font); pass a .ttf or .otf path. |
 | `texture/decode-failed` | @shard/texture |  |
 | `texture/invalid` | @shard/texture |  |
+| `texture/normal-map-mismatch` | @shard/sprite | A normal-map companion must match its image pixel for pixel. |
 | `texture/transcoder-unavailable` | @shard/texture | Basis Universal ships in @shard/texture/vendor/basis; check the files are present. |
 | `texture/unsupported-format` | @shard/texture | Use a 2D image or a cube map (6 faces). |
 | `ui/ambiguous-path` | @shard/ui |  |

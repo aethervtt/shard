@@ -28,6 +28,7 @@ import { galaxyPlugin, Population } from './galaxy'
 import { applyResolution, hudPlugin } from './hud'
 import { ikDemoPlugin } from './ik'
 import { lightsPlugin } from './lights'
+import { lights2dDemoPlugin } from './lights2d'
 import { nav2dDemoPlugin, navDemoPlugin } from './nav'
 import { particlesDemoPlugin } from './particles'
 import { physics2dDemoPlugin, physicsDemoPlugin, planetDemoPlugin } from './physics'
@@ -67,6 +68,7 @@ const DEMOS = [
   'nav',
   'nav2d',
   'save',
+  'lights2d',
 ] as const
 const demo = DEMOS.find((d) => location.hash === `#${d}`) ?? 'scene'
 document.body.dataset.demo = demo
@@ -191,6 +193,14 @@ if (demo === 'galaxy') {
   )
 } else if (demo === 'nav2d') {
   app.addPlugin(TransformPlugin, forwardPlugin(), navGridPlugin, hudPlugin, nav2dDemoPlugin)
+} else if (demo === 'lights2d') {
+  app.addPlugin(
+    TransformPlugin,
+    forwardPlugin({ msaa: 1 }),
+    spritePlugin,
+    hudPlugin,
+    lights2dDemoPlugin,
+  )
 } else if (demo === 'sky') {
   app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, skyPlugin)
 } else {

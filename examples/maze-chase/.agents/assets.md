@@ -23,6 +23,7 @@ Files: `*.png`, `*.jpg`, `*.jpeg`, `*.webp`, `*.hdr`, `*.ktx2`
 | `maxSize` | integer | `4096` | ≥ 1, ≤ 16384 | Downscale larger images. |
 | `flipY` | boolean | `false` |  | Flip vertically on import. |
 | `premultiplyAlpha` | boolean | `false` |  | Multiply color by alpha on import. |
+| `normalMap` | `"opengl"` \| `"directx"` | `"opengl"` |  | Normal maps: opengl (+Y up, the engine convention) or directx (+Y down: green is flipped on import). |
 
 ## `prefab`
 

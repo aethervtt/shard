@@ -31,6 +31,9 @@ export const TilemapDataSchema = defineSchema(
           description:
             'Base64 of width × height bytes: 1 flip x, 2 flip y, 4 rotate 90°. Empty: none.',
         }),
+        occludes: t.bool({
+          description: 'Filled cells block 2D light (shadowed PointLight2d and SpotLight2d).',
+        }),
       }),
       { description: 'Layers, drawn in order.' },
     ),
@@ -67,6 +70,8 @@ export class TileLayer {
   edits: number[] = []
   /** Bumps when the edit log overflows: renderers re-upload everything. */
   editBase = 0
+  /** Filled cells block 2D light. */
+  occludes = false
 
   constructor(
     name: string,
@@ -126,7 +131,14 @@ export class TilemapData {
 
   static fromJson(json: unknown): TilemapData {
     const v = TilemapDataSchema.deserialize(json) as unknown as {
-      layers: { name: string; width: number; height: number; tiles: string; flags: string }[]
+      layers: {
+        name: string
+        width: number
+        height: number
+        tiles: string
+        flags: string
+        occludes: boolean
+      }[]
       animations: TilemapData['animations']
     }
     const layers = v.layers.map((l, i) => {
@@ -153,7 +165,9 @@ export class TilemapData {
           )
         }
       }
-      return new TileLayer(l.name, l.width, l.height, tiles, flags)
+      const layer = new TileLayer(l.name, l.width, l.height, tiles, flags)
+      layer.occludes = l.occludes
+      return layer
     })
     return new TilemapData(layers, v.animations)
   }
@@ -170,6 +184,7 @@ export class TilemapData {
           height: l.height,
           tiles: toBase64(bytes),
           flags: l.flags.some((f) => f !== 0) ? toBase64(l.flags) : '',
+          ...(l.occludes ? { occludes: true } : {}),
         }
       }),
       animations: this.animations,
@@ -247,6 +262,10 @@ export const Tilemap = defineComponent(
     }),
     layer: t.i16({
       description: 'Draw-order band, like Sprite.layer (tilemaps draw first in a band).',
+    }),
+    lit: t.bool({
+      default: true,
+      description: 'Lit by 2D lights under a Lighting2d camera.',
     }),
   },
   {

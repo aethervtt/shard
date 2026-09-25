@@ -50,6 +50,22 @@ export function outline(
   }
 }
 
+/** A one-pixel line (DDA). */
+export function drawLine(
+  image: PreviewImage,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  color: readonly number[],
+): void {
+  const steps = Math.max(1, Math.ceil(Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0))))
+  for (let k = 0; k <= steps; k++) {
+    const t = k / steps
+    put(image, Math.floor(x0 + (x1 - x0) * t), Math.floor(y0 + (y1 - y0) * t), color)
+  }
+}
+
 /** 3×5 digits, one row of 3 bits per line, top to bottom. */
 const DIGITS = [
   [7, 5, 5, 5, 7],

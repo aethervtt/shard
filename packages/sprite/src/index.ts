@@ -2,6 +2,8 @@ export {
   AtlasPackImporter,
   AtlasPackSchema,
   packImages,
+  packNormals,
+  regionOutline,
   TextureAtlas,
   TextureAtlasAssetType,
   TextureAtlases,
@@ -22,6 +24,48 @@ export {
   SpriteClipStore,
   SpriteClips,
 } from './clip'
+export {
+  Lighting2d,
+  LightOccluder2d,
+  layerBit,
+  OCCLUDER_SHAPES,
+  type OccluderShape,
+  PointLight2d,
+  SpotLight2d,
+  SpriteLighting,
+} from './lighting'
+export {
+  binLightsCpu,
+  describeLights2d,
+  LIGHT2D_FLOATS,
+  Lights2d,
+  Lights2dStore,
+  LightView2d,
+  lightCircle,
+  MAX_SHADOWED,
+  OccluderStore,
+  prepareLights2d,
+  SEGMENT_FLOATS,
+  SHADOW_RES,
+  shadowFactorCpu,
+  shadowRowCpu,
+  TILE_MAX,
+  TILE_PIXELS,
+  TILE_STRIDE,
+} from './lights2d'
+export {
+  boxPolygon,
+  capsulePolygon,
+  circlePolygon,
+  convexHull,
+  occluderSegments,
+  polygonProblem,
+  polygonSegments,
+  spriteOutline,
+  tileChunkEdges,
+  transformSegments,
+} from './occluders'
+export { alphaOutline, distanceToLoop, loopArea, simplifyLoop, traceAlpha } from './outline'
 export { spritePlugin } from './plugin'
 export {
   describeSprites,
