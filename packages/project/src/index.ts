@@ -9,7 +9,13 @@ export {
   renderComponentCatalog,
   renderErrorCatalog,
 } from './docs'
-export { type BuildAppOptions, buildApp, loadProjectShaders, startProject } from './host'
+export {
+  type BuildAppOptions,
+  buildApp,
+  loadProjectNavCache,
+  loadProjectShaders,
+  startProject,
+} from './host'
 export {
   BUILTIN_PLUGINS,
   loadProject,

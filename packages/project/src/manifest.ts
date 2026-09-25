@@ -36,7 +36,7 @@ export const Manifest = defineSchema(
     plugins: t.list(t.string, {
       default: ['render/forward', 'input'],
       description:
-        'Engine plugins to enable, by name: render, render/forward, sprite, text, particles, animation, physics3d, physics2d, input, audio, ui, core/transform.',
+        'Engine plugins to enable, by name: render, render/forward, sprite, text, particles, animation, physics3d, physics2d, input, audio, ui, nav, nav/grid, core/transform.',
     }),
   },
   { description: 'shard.json: the project manifest.' },
@@ -95,6 +95,9 @@ export const BUILTIN_PLUGINS = {
   audio:
     'AudioSource, AudioListener, playSound, buses and ducking, spatial audio, voice limits (includes core/transform)',
   ui: 'UiNode trees under a UiRoot: flexbox layout, text, images, buttons, sliders, text fields, world-anchored markers, themes (includes core/transform)',
+  nav: 'navigation: NavGrid A* (2D), NavMesh baked by Recast from NavSource geometry, OffMeshLink, path queries, NavAgent steering (includes core/transform)',
+  'nav/grid':
+    'navigation on NavGrids only, without loading the Recast WASM (includes core/transform)',
   'core/transform': 'Transform and hierarchy propagation',
 } as const
 

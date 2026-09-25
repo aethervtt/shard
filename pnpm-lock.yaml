@@ -38,6 +38,9 @@ importers:
       '@shard/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@shard/nav':
+        specifier: workspace:*
+        version: link:../../packages/nav
       '@shard/node':
         specifier: workspace:*
         version: link:../../packages/node
@@ -123,6 +126,9 @@ importers:
       '@shard/mesh':
         specifier: workspace:*
         version: link:../../packages/mesh
+      '@shard/nav':
+        specifier: workspace:*
+        version: link:../../packages/nav
       '@shard/particles':
         specifier: workspace:*
         version: link:../../packages/particles
@@ -215,6 +221,49 @@ importers:
       vite:
         specifier: ^8.3.0
         version: 8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15)
+
+  examples/maze-chase:
+    dependencies:
+      '@shard/cli':
+        specifier: workspace:*
+        version: link:../../apps/cli
+      '@shard/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@shard/input':
+        specifier: workspace:*
+        version: link:../../packages/input
+      '@shard/nav':
+        specifier: workspace:*
+        version: link:../../packages/nav
+      '@shard/project':
+        specifier: workspace:*
+        version: link:../../packages/project
+      '@shard/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
+      '@shard/scene':
+        specifier: workspace:*
+        version: link:../../packages/scene
+      '@shard/sprite':
+        specifier: workspace:*
+        version: link:../../packages/sprite
+      '@shard/testing':
+        specifier: workspace:*
+        version: link:../../packages/testing
+      '@shard/transform':
+        specifier: workspace:*
+        version: link:../../packages/transform
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+      '@webgpu/types':
+        specifier: ^0.1.74
+        version: 0.1.74
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
 
   examples/star-explorer:
     dependencies:
@@ -447,6 +496,52 @@ importers:
         specifier: workspace:*
         version: link:../core
 
+  packages/nav:
+    dependencies:
+      '@shard/assets':
+        specifier: workspace:*
+        version: link:../assets
+      '@shard/core':
+        specifier: workspace:*
+        version: link:../core
+      '@shard/mesh':
+        specifier: workspace:*
+        version: link:../mesh
+      '@shard/physics':
+        specifier: workspace:*
+        version: link:../physics
+      '@shard/platform':
+        specifier: workspace:*
+        version: link:../platform
+      '@shard/render':
+        specifier: workspace:*
+        version: link:../render
+      '@shard/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@shard/sprite':
+        specifier: workspace:*
+        version: link:../sprite
+      '@shard/transform':
+        specifier: workspace:*
+        version: link:../transform
+      recast-navigation:
+        specifier: 0.43.1
+        version: 0.43.1
+    devDependencies:
+      '@shard/platform-node':
+        specifier: workspace:*
+        version: link:../platform-node
+      '@shard/scene':
+        specifier: workspace:*
+        version: link:../scene
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+      '@webgpu/types':
+        specifier: ^0.1.74
+        version: 0.1.74
+
   packages/node:
     dependencies:
       '@shard/assets':
@@ -654,6 +749,9 @@ importers:
       '@shard/input':
         specifier: workspace:*
         version: link:../input
+      '@shard/nav':
+        specifier: workspace:*
+        version: link:../nav
       '@shard/particles':
         specifier: workspace:*
         version: link:../particles
@@ -1321,6 +1419,15 @@ packages:
 
   '@oxc-project/types@0.150.0':
     resolution: {integrity: sha512-rDS5/31E9HfPl/CIzGrn0DOlvBbXFseQ5URJ9sYMfstbKLD/c6Gm9vmRzRGDdAXyOIL4zmO37lc9RIwYqVruZw==}
+
+  '@recast-navigation/core@0.43.1':
+    resolution: {integrity: sha512-4igfPgnoV90O92sDSIA0xHa6tanh3z/udlgGmD0SqGQ6PKV4JS2l9jWO8YnxfZuXP/NV52H4c5FU6pSdZc9WDA==}
+
+  '@recast-navigation/generators@0.43.1':
+    resolution: {integrity: sha512-w7r6k/A93wWxuSN+Lg+PmlsUVXq06r5bqXmBglolxqDt2O/Y776BIhYtb6P2P6pbYqDWORu9NCZZJzfY4FNpaA==}
+
+  '@recast-navigation/wasm@0.43.1':
+    resolution: {integrity: sha512-XFL6PhO8JodwXUHBSAkfaLUdUEweIkJsdP3HTmtJvMs5fkqEWxWJmBskZlACHJepv55NAriqWxOtuLlG3t7+Hg==}
 
   '@rolldown/binding-android-arm-eabi@1.2.9':
     resolution: {integrity: sha512-tNISae1QEf/vkb3xkRcjV5SEdzPE97We5IVaa2Z8jSszQPZ8U60B/YCYpw4QI7VidYsBtKavczXf+DyDs9WGxw==}
@@ -2099,6 +2206,9 @@ packages:
     resolution: {integrity: sha512-K5zQjDllxWkf7Z5xJdV0/B0WTNqx6vxG70zJE4N0kBs4LovmEYWJzQGxC9bS9RAKu3bgM40lrd5zoLJ12MQ5BA==}
     engines: {node: '>= 0.10'}
 
+  recast-navigation@0.43.1:
+    resolution: {integrity: sha512-BVBQEHE6uqD36opJomVkI5TxMVZ8bBLdDn90mYtBUYJnNlqEuNFOL8DH8lLOksfVVaC+kjykYuS57P6MrxVB7A==}
+
   require-from-string@2.0.2:
     resolution: {integrity: sha512-Xf0nWe6RseziFMu+Ap9biiUbmplq6S9/p+7w7YXP/JBHhrUDDUhwa+vANyubuqfZWTveU//DYVGsDG7RKL/vEw==}
     engines: {node: '>=0.10.0'}
@@ -2497,6 +2607,17 @@ snapshots:
       - supports-color
 
   '@oxc-project/types@0.150.0': {}
+
+  '@recast-navigation/core@0.43.1':
+    dependencies:
+      '@recast-navigation/wasm': 0.43.1
+
+  '@recast-navigation/generators@0.43.1':
+    dependencies:
+      '@recast-navigation/core': 0.43.1
+      '@recast-navigation/wasm': 0.43.1
+
+  '@recast-navigation/wasm@0.43.1': {}
 
   '@rolldown/binding-android-arm-eabi@1.2.9':
     optional: true
@@ -3106,6 +3227,11 @@ snapshots:
       http-errors: 2.0.1
       iconv-lite: 0.7.3
       unpipe: 1.0.0
+
+  recast-navigation@0.43.1:
+    dependencies:
+      '@recast-navigation/core': 0.43.1
+      '@recast-navigation/generators': 0.43.1
 
   require-from-string@2.0.2: {}
 

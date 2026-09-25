@@ -13,6 +13,7 @@ import {
   buildApp,
   type ErrorCode,
   loadProject,
+  loadProjectNavCache,
   loadProjectShaders,
   locateInBundle,
   type ManifestValue,
@@ -128,6 +129,7 @@ export async function openProject(options: OpenProjectOptions): Promise<Headless
   })
   const app = buildApp({ manifest, project, gpu, target })
   await app.init()
+  await loadProjectNavCache(app, platform)
   const stopShaders = await loadProjectShaders(app, platform, { watch: options.watch })
   const assets = assetServer(app.world).configure({ platform, roots: manifest.assetRoots })
   const imports = await assets.scan()

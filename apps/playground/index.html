@@ -20,6 +20,7 @@
       body:not([data-demo='ik']) [data-ik] { display: none; }
       body:not([data-demo='audio']) [data-audio] { display: none; }
       body:not([data-demo='ui']) [data-ui] { display: none; }
+      body:not([data-demo='nav']) [data-nav] { display: none; }
       nav { margin-top: 8px; opacity: 0.75; }
       nav a { color: inherit; margin-right: 10px; }
       /* The UI demo's HUD fills the left and right edges: the panel sits between them. */
@@ -66,7 +67,14 @@
       <button type="button" data-ui="theme">1 swap theme file</button>
       <button type="button" data-ui="overlay">2 ui-layout overlay</button>
       <button type="button" data-ui="focus">3 focus cargo</button>
-      <nav><a href="#scene">scene</a><a href="#galaxy">galaxy</a><a href="#lights">lights</a><a href="#ibl">ibl</a><a href="#sky">sky</a><a href="#deferred">deferred</a><a href="#crowd">crowd</a><a href="#post">post</a><a href="#sprites">sprites</a><a href="#particles">particles</a><a href="#physics">physics</a><a href="#planet">planet</a><a href="#physics2d">physics2d</a><a href="#character">character</a><a href="#character-planet">character-planet</a><a href="#character2d">character2d</a><a href="#prefabs">prefabs</a><a href="#data">data</a><a href="#animation">animation</a><a href="#animgraph">animgraph</a><a href="#ik">ik</a><a href="#audio">audio</a><a href="#ui">ui</a></nav>
+      <button type="button" data-nav="overlay">1 navmesh overlay</button>
+      <button type="button" data-nav="rock">2 move the crate</button>
+      <button type="button" data-nav="swamp">3 swamp cost</button>
+      <button type="button" data-nav="upper">4 beacon upstairs</button>
+      <button type="button" data-nav="ledge">5 beacon on the ledge (jump)</button>
+      <button type="button" data-nav="steep">6 beacon past the steep ramp</button>
+      <button type="button" data-nav="across">7 beacon across the swamp</button>
+      <nav><a href="#scene">scene</a><a href="#galaxy">galaxy</a><a href="#lights">lights</a><a href="#ibl">ibl</a><a href="#sky">sky</a><a href="#deferred">deferred</a><a href="#crowd">crowd</a><a href="#post">post</a><a href="#sprites">sprites</a><a href="#particles">particles</a><a href="#physics">physics</a><a href="#planet">planet</a><a href="#physics2d">physics2d</a><a href="#character">character</a><a href="#character-planet">character-planet</a><a href="#character2d">character2d</a><a href="#prefabs">prefabs</a><a href="#data">data</a><a href="#animation">animation</a><a href="#animgraph">animgraph</a><a href="#ik">ik</a><a href="#audio">audio</a><a href="#ui">ui</a><a href="#nav">nav</a><a href="#nav2d">nav2d</a></nav>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

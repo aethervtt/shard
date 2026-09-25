@@ -5,6 +5,8 @@ import type { GpuContext } from '@shard/gpu'
 // Registers the .gltf/.glb importer and the Skin/AnimationClip asset types for every project host.
 import '@shard/gltf'
 import { inputPlugin } from '@shard/input'
+// Also registers the navgrid importer and the NavGridData asset type for every project host.
+import { loadNavCache, Nav, navGridPlugin, navPlugin } from '@shard/nav'
 import { particlesPlugin } from '@shard/particles'
 import { physics2dPlugin, physics3dPlugin } from '@shard/physics'
 import type { AudioBackend, InputSource, Platform } from '@shard/platform'
@@ -41,7 +43,14 @@ export function buildApp(options: BuildAppOptions): App {
     names.add('render')
     names.add('core/transform')
   }
-  if (names.has('physics3d') || names.has('physics2d') || names.has('audio') || names.has('ui'))
+  if (
+    names.has('physics3d') ||
+    names.has('physics2d') ||
+    names.has('audio') ||
+    names.has('ui') ||
+    names.has('nav') ||
+    names.has('nav/grid')
+  )
     names.add('core/transform')
   const app = new App({ seed: manifest.seed })
   if (names.has('core/transform')) app.addPlugin(TransformPlugin)
@@ -61,6 +70,8 @@ export function buildApp(options: BuildAppOptions): App {
   if (names.has('input')) app.addPlugin(inputPlugin({ source: options.inputSource }))
   if (names.has('audio')) app.addPlugin(audioPlugin({ backend: options.audio }))
   if (names.has('ui')) app.addPlugin(uiPlugin)
+  if (names.has('nav')) app.addPlugin(navPlugin)
+  else if (names.has('nav/grid')) app.addPlugin(navGridPlugin)
   app.addPlugin(ScenePlugin)
   if (options.project) app.addPlugin(options.project)
   return app
@@ -73,6 +84,7 @@ export async function startProject(
   manifest: ManifestValue,
 ): Promise<LoadedSceneHandle> {
   await app.init()
+  await loadProjectNavCache(app, platform)
   const json = JSON.parse(await platform.fs.readText(manifest.startScene))
   return loadScene(app.world, json, { id: manifest.startScene })
 }
@@ -99,4 +111,18 @@ export async function loadProjectShaders(
     return shaders.watch(platform, dir, 'project')
   }
   return () => {}
+}
+
+/**
+ * Reads the project's baked navmesh tiles (`.shard/cache/nav`) so navmeshes whose geometry hasn't
+ * changed load without running Recast, and lets `nav.bake` save there. Call after `app.init()`,
+ * before loading scenes. Does nothing without a nav plugin.
+ */
+export async function loadProjectNavCache(app: App, platform: Platform): Promise<void> {
+  if (!app.world.hasResource(Nav)) return
+  try {
+    await loadNavCache(app.world, platform.fs)
+  } catch (err) {
+    app.world.tryResource(LogResource)?.error(err)
+  }
 }

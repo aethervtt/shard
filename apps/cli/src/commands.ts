@@ -27,7 +27,13 @@ import {
   validateManifest,
 } from '@shard/project'
 import { DEFAULT_HUB_PORT } from '@shard/protocol'
-import { loadInstanceAssets, loadScene, validatePrefab, validateScene } from '@shard/scene'
+import {
+  loadInstanceAssets,
+  loadScene,
+  validatePrefab,
+  validateScene,
+  whenSceneReady,
+} from '@shard/scene'
 import { Hub, localTarget, type ProtocolTarget } from './hub'
 import { createMcpServer } from './mcp'
 import { EXIT, errorJson, formatError, type Output } from './output'
@@ -387,6 +393,51 @@ export async function run(ctx: CommandContext): Promise<number> {
   })
 }
 
+export async function bake(ctx: CommandContext): Promise<number> {
+  if (ctx.args[0] !== 'nav') {
+    throw new ShardError(
+      'cli/usage',
+      'Usage: shard bake nav [--scene scenes/level.scene.json] [--force]',
+    )
+  }
+  const scene = ctx.flags.scene as string | undefined
+  return withProject(ctx, { loadStartScene: !scene }, async (p) => {
+    if (scene) {
+      loadScene(p.app.world, JSON.parse(await p.platform.fs.readText(scene)), { id: scene })
+      await whenSceneReady(p.app.world, scene)
+    }
+    // A frame so transforms propagate and sources are gathered before the bake.
+    p.app.update(1 / p.app.fixedHz)
+    const result = await localTarget('headless', p.server).request<{
+      meshes: {
+        path: string | null
+        tiles: number
+        polygons: number
+        built: number
+        fromCache: number
+        ms: number
+        problem: string | null
+      }[]
+      saved: { file: string; bytes: number } | null
+    }>('nav.bake', { force: ctx.flags.force === true })
+    const failed = result.meshes.some((m) => m.problem)
+    ctx.out.result(
+      result,
+      result.meshes.length === 0
+        ? 'No NavMesh in the scene: nothing to bake.'
+        : `${result.meshes
+            .map(
+              (m) =>
+                `${m.path ?? 'navmesh'}: ${m.tiles} tiles, ${m.polygons} polygons (${m.built} built, ${m.fromCache} from cache, ${m.ms} ms)${m.problem ? ` - ${m.problem}` : ''}`,
+            )
+            .join(
+              '\n',
+            )}${result.saved ? `\nSaved ${result.saved.file} (${result.saved.bytes} bytes).` : ''}`,
+    )
+    return failed ? EXIT.failed : EXIT.ok
+  })
+}
+
 export async function screenshot(ctx: CommandContext): Promise<number> {
   const scene = ctx.args[0]
   const outFile = ctx.flags.out as string | undefined
@@ -401,6 +452,9 @@ export async function screenshot(ctx: CommandContext): Promise<number> {
     { width: size?.[0], height: size?.[1], loadStartScene: false },
     async (p) => {
       loadScene(p.app.world, JSON.parse(await p.platform.fs.readText(scene)), { id: scene })
+      // Frames run synchronously: wait for the scene's assets first, or systems that need them
+      // (tilemaps, navigation) sit out every frame before the capture.
+      await whenSceneReady(p.app.world, scene)
       const frames = flagNumber(ctx.flags.frames, 60)
       for (let i = 0; i < frames; i++) p.app.update(1 / p.app.fixedHz)
       const shot = await localTarget('headless', p.server).request<{

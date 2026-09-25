@@ -132,6 +132,25 @@ export class Game {
     },
   }
 
+  /** Navigation (nav plugin): paths and agents as data. */
+  readonly nav = {
+    /** `nav.describe`: grids, navmeshes (tiles, last bake), and agents. */
+    describe: async (): Promise<Json> => this.call('nav.describe'),
+    /** `nav.path` between two world points: `{ status, length, corners }`. */
+    path: async (
+      from: [number, number, number],
+      to: [number, number, number],
+    ): Promise<{ status: 'complete' | 'partial' | 'none'; length: number; corners: number[][] }> =>
+      this.call('nav.path', { from, to }),
+    /** One NavAgent from `nav.describe` by scene path (or a unique suffix): status, remaining, route. */
+    agent: async (path: string): Promise<Json | undefined> => {
+      const d = await this.call<{ agents: { path: string | null }[] }>('nav.describe')
+      return d.agents.find((a) => a.path === path || a.path?.endsWith(`/${path}`)) as
+        | Json
+        | undefined
+    },
+  }
+
   /** Saves a PNG of a camera (default: the first) to `.shard/test-results/<name>`. Returns the path. */
   async screenshot(
     name: string,

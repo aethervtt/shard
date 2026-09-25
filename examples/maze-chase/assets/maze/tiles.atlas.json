@@ -1,0 +1,13 @@
+{
+  "$schema": "../../.shard/schemas/atlas.schema.json",
+  "texture": {
+    "path": "assets/maze/tiles.png"
+  },
+  "grid": {
+    "columns": 4,
+    "rows": 1,
+    "cellWidth": 16,
+    "cellHeight": 16,
+    "prefix": "tile"
+  }
+}

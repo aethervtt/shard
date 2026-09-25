@@ -19,6 +19,7 @@
     "@shard/assets": "workspace:*",
     "@shard/audio": "workspace:*",
     "@shard/core": "workspace:*",
+    "@shard/nav": "workspace:*",
     "@shard/node": "workspace:*",
     "@shard/physics": "workspace:*",
     "@shard/platform-node": "workspace:*",

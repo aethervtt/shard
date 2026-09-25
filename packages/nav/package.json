@@ -1,0 +1,31 @@
+{
+  "name": "@shard/nav",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@shard/assets": "workspace:*",
+    "@shard/core": "workspace:*",
+    "@shard/mesh": "workspace:*",
+    "@shard/physics": "workspace:*",
+    "@shard/platform": "workspace:*",
+    "@shard/render": "workspace:*",
+    "@shard/runtime": "workspace:*",
+    "@shard/sprite": "workspace:*",
+    "@shard/transform": "workspace:*",
+    "recast-navigation": "0.43.1"
+  },
+  "devDependencies": {
+    "@shard/platform-node": "workspace:*",
+    "@shard/scene": "workspace:*",
+    "@types/node": "^26.6.2",
+    "@webgpu/types": "^0.1.74"
+  }
+}

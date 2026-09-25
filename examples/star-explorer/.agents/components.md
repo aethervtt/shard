@@ -199,6 +199,94 @@ Brings along: `core/GlobalTransform`.
 | `scale` | number[3] | `[1,1,1]` |  | Scale along local axes. |
 | `rotationEuler` | number[3] | | degrees | Scene files only: rotation as X, then Y, then Z degrees. |
 
+## `nav/NavAgent`
+
+Walks to a destination or follows a target along navigation paths: arrives, avoids other agents, repaths. Status in NavAgentState; NavArrived and NavUnreachable on changes.
+
+Brings along: `core/Transform`, `nav/NavAgentState`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `destination` | number[3] | `[0,0,0]` | m | Where to go (world space). Writing it starts a new path. |
+| `target` | null or integer or string | `null` |  | Follow this entity instead of destination: repaths when it moves more than a cell or every repathInterval. |
+| `speed` | number | `3.5` | ≥ 0, m/s | Top speed. |
+| `acceleration` | number | `8` | ≥ 0, m/s² |  |
+| `radius` | number | `0.4` | ≥ 0, m | Personal space: agents steer to keep this far apart. |
+| `stoppingDistance` | number | `0.2` | ≥ 0, m | Arrived this close to the destination. |
+| `avoidance` | boolean | `true` |  | Steer around other agents. |
+| `repathInterval` | number | `0.5` | ≥ 0, s | With a moving target: path again at least this often. |
+| `drive` | `"character"` \| `"transform"` \| `"velocity"` | `"character"` |  | character: writes CharacterIntent.move so physics walks it (slopes, steps, collisions; falls back to transform without a CharacterController). velocity: writes the rigid body’s Velocity. transform: moves the Transform directly. |
+| `stopped` | boolean | `false` |  | Hold position (status idle) until cleared. |
+| `nav` | null or integer or string | `null` |  | The NavGrid or NavMesh to walk on (default: the one the agent stands in). |
+
+## `nav/NavAgentState`
+
+What a NavAgent is doing. Written by navigation; read-only.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `status` | `"idle"` \| `"moving"` \| `"arrived"` \| `"unreachable"` | `"idle"` |  | idle: stopped or no navigation here. moving. arrived: within stoppingDistance. unreachable: no path; it walks to the closest point it can reach. |
+| `remaining` | number | `0` | m | Distance left along the path. |
+| `corners` | integer | `0` | ≥ 0, ≤ 65535 | Corners left on the path. |
+| `velocity` | number[3] | `[0,0,0]` | m/s | Steering velocity. |
+
+## `nav/NavGrid`
+
+A 2D navigation grid in the XY plane: walkable cells with costs, A* with diagonal rules, paths pulled straight. Queries and NavAgents inside it use it.
+
+Brings along: `core/Transform`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `source` | `"data"` \| `"tilemap"` \| `"colliders"` | `"data"` |  | data: costs from a *.navgrid.json (data). tilemap: a tilemap layer, cell per tile (size, cell size, and origin come from the tilemap). colliders: fixed 2D colliders rasterized into width × height cells. |
+| `width` | integer | `32` | ≥ 1, ≤ 4294967295 | colliders: cells across. |
+| `height` | integer | `32` | ≥ 1, ≤ 4294967295 | colliders: cells up. |
+| `cellSize` | number[2] | `[1,1]` | m | data, colliders: world size of one cell. |
+| `origin` | number[2] | `[0,0]` | m | data, colliders: world XY of cell (0, 0)'s lower-left corner, relative to the entity's position. |
+| `diagonal` | `"no-corners"` \| `"never"` \| `"always"` | `"no-corners"` |  | no-corners: diagonal steps unless they cut a blocked corner. never: four directions only. always: diagonals even past corners. |
+| `tilemap` | null or integer or string | `null` |  | tilemap: the Tilemap entity (default: this entity). |
+| `layer` | string | `""` |  | tilemap: the layer name (default: the first layer). |
+| `blockingTiles` | integer[] | `[]` |  | tilemap: only these tiles block (empty: every non-empty tile blocks). Tile numbers as in the tilemap data (region + 1). |
+| `data` | null or NavGridData ref | `null` |  | data: the *.navgrid.json asset. |
+| `mask` | integer | `65535` | ≥ 0, ≤ 65535 | colliders: collider layers (bitmask) that block cells. |
+
+## `nav/NavMesh`
+
+A navmesh baked with Recast from every NavSource, with OffMeshLinks. Tiles are cached by the geometry that made them. Queries and NavAgents inside it use it.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `agentRadius` | number | `0.4` | ≥ 0, m | Walls are this far from the walkable area. |
+| `agentHeight` | number | `1.8` | ≥ 0.01, m | Minimum clearance under ceilings. |
+| `maxClimb` | number | `0.3` | ≥ 0, m | Tallest step or ledge an agent walks up. |
+| `maxSlope` | number | `45` | ≥ 0, ≤ 89.9, deg | Steepest walkable slope. |
+| `cellSize` | number | `0.2` | ≥ 0.01, m | Voxel size across: smaller follows edges closer and bakes slower. |
+| `cellHeight` | number | `0.1` | ≥ 0.01, m | Voxel height. |
+| `tileSize` | integer | `64` | ≥ 8, ≤ 1024 | Cells per tile side: the unit that rebuilds when a source changes. |
+| `boundsMin` | number[3] | `[0,0,0]` | m | World-space bake bounds, min corner. Equal to boundsMax (the default): bounds of every source. |
+| `boundsMax` | number[3] | `[0,0,0]` | m | World-space bake bounds, max corner. |
+
+## `nav/NavSource`
+
+This entity's colliders (or, without a Collider, its Mesh3d) and those of descendants without their own NavSource feed the navmesh bake. Moving or changing one rebuilds the tiles it touches.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `area` | integer | `0` | ≥ 0, ≤ 62 | Area code the triangles bake as (0: ground). Costs per area are in nav/Areas; paths prefer cheap areas. |
+
+## `nav/OffMeshLink`
+
+A jump, drop, ladder, or door between two navmesh points: from this entity’s position to `to`. Agents cross it in a straight line.
+
+Brings along: `core/Transform`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `to` | null or integer or string | `null` |  | The link ends at this entity’s position. |
+| `bidirectional` | boolean | `true` |  | Agents cross it both ways. |
+| `radius` | number | `0.5` | ≥ 0.01, m | How close to either end counts as on it. |
+| `area` | integer | `0` | ≥ 0, ≤ 62 | Area code (costs in nav/Areas). |
+
 ## `particles/ParticleEmitterOverrides`
 
 Gameplay control of a ParticleSystem: its spawn rate, read every frame.

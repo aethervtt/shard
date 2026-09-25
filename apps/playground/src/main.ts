@@ -2,6 +2,7 @@ import { animationPlugin } from '@shard/animation'
 import { audioPlugin } from '@shard/audio'
 import { ShardError } from '@shard/core'
 import { inputPlugin } from '@shard/input'
+import { navGridPlugin, navPlugin } from '@shard/nav'
 import { particlesPlugin } from '@shard/particles'
 import { physics2dPlugin, physics3dPlugin } from '@shard/physics'
 import { createDomInputSource } from '@shard/platform-web'
@@ -26,6 +27,7 @@ import { galaxyPlugin, Population } from './galaxy'
 import { applyResolution, hudPlugin } from './hud'
 import { ikDemoPlugin } from './ik'
 import { lightsPlugin } from './lights'
+import { nav2dDemoPlugin, navDemoPlugin } from './nav'
 import { particlesDemoPlugin } from './particles'
 import { physics2dDemoPlugin, physicsDemoPlugin, planetDemoPlugin } from './physics'
 import { postPlugin } from './post'
@@ -60,6 +62,8 @@ const DEMOS = [
   'ik',
   'audio',
   'ui',
+  'nav',
+  'nav2d',
 ] as const
 const demo = DEMOS.find((d) => location.hash === `#${d}`) ?? 'scene'
 document.body.dataset.demo = demo
@@ -159,6 +163,17 @@ if (demo === 'galaxy') {
     hudPlugin,
     uiDemoPlugin,
   )
+} else if (demo === 'nav') {
+  app.addPlugin(
+    TransformPlugin,
+    forwardPlugin(),
+    physics3dPlugin,
+    navPlugin,
+    hudPlugin,
+    navDemoPlugin,
+  )
+} else if (demo === 'nav2d') {
+  app.addPlugin(TransformPlugin, forwardPlugin(), navGridPlugin, hudPlugin, nav2dDemoPlugin)
 } else if (demo === 'sky') {
   app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, skyPlugin)
 } else {

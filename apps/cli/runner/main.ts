@@ -8,6 +8,7 @@ import { createDomInputSource, createWebPlatform } from '@shard/platform-web'
 import {
   buildApp,
   inlineSourceMap,
+  loadProjectNavCache,
   locateInBundle,
   type ManifestValue,
   ProjectSession,
@@ -57,6 +58,7 @@ async function start() {
     audio: manifest.plugins.includes('audio') ? platform.audio : undefined,
   })
   await app.init()
+  await loadProjectNavCache(app, platform)
 
   // Project shaders: shaders/water/foam.wesl is project::water::foam.
   const shaders = app.world.resource(Shaders)

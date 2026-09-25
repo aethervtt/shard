@@ -1,0 +1,29 @@
+{
+  "name": "maze-chase",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "validate": "shard validate",
+    "test": "shard test",
+    "check": "shard check",
+    "dev": "shard dev",
+    "docs": "shard docs"
+  },
+  "dependencies": {
+    "@shard/cli": "workspace:*",
+    "@shard/core": "workspace:*",
+    "@shard/input": "workspace:*",
+    "@shard/nav": "workspace:*",
+    "@shard/project": "workspace:*",
+    "@shard/runtime": "workspace:*",
+    "@shard/scene": "workspace:*",
+    "@shard/sprite": "workspace:*",
+    "@shard/testing": "workspace:*",
+    "@shard/transform": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "@webgpu/types": "^0.1.74",
+    "typescript": "^7.0.2"
+  }
+}

@@ -84,7 +84,7 @@ UI, navigation, and saves. Each one exposes its state to agents as data.
 | [0034](0034-ik-retargeting.md) | IK, bone attachments, and retargeting | implemented |
 | [0035](0035-audio.md) | Audio (Web Audio, spatial, buses, headless voices) | implemented |
 | [0036](0036-ui.md) | UI and HUD (flexbox, themes, world-anchored) | implemented |
-| [0037](0037-navigation.md) | Navigation (grid A*, navmesh, agents) | accepted |
+| [0037](0037-navigation.md) | Navigation (grid A*, navmesh, agents) | implemented |
 | [0038](0038-save-settings-localization.md) | Save/load, settings, and localization | accepted |
 
 ## M7 — Procedural generation and large worlds

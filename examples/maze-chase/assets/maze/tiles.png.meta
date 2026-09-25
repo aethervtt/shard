@@ -1,0 +1,12 @@
+{
+  "guid": "447da941f50bc6910bdb425820c59067",
+  "importer": "texture",
+  "settings": {
+    "usage": "color",
+    "mipmaps": true,
+    "compression": "none",
+    "maxSize": 4096,
+    "flipY": false,
+    "premultiplyAlpha": false
+  }
+}

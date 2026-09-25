@@ -1,0 +1,83 @@
+{
+  "$schema": "../.shard/schemas/scene.schema.json",
+  "version": 1,
+  "entities": [
+    {
+      "name": "camera",
+      "components": {
+        "render/Camera3d": {
+          "projection": "orthographic",
+          "orthoHeight": 16,
+          "clearColor": [0.01, 0.012, 0.02, 1]
+        },
+        "core/Transform": {
+          "translation": [10.5, 7.5, 10]
+        }
+      }
+    },
+    {
+      "name": "maze",
+      "components": {
+        "core/Transform": {
+          "translation": [0, 15, 0]
+        },
+        "sprite/Tilemap": {
+          "atlas": {
+            "path": "assets/maze/tiles.atlas.json"
+          },
+          "data": {
+            "path": "assets/maze/maze.tilemap.json"
+          }
+        },
+        "nav/NavGrid": {
+          "source": "tilemap",
+          "layer": "walls",
+          "diagonal": "no-corners"
+        }
+      }
+    },
+    {
+      "name": "player",
+      "components": {
+        "core/Transform": {
+          "translation": [19.5, 1.5, 0.1]
+        },
+        "sprite/Sprite": {
+          "atlas": {
+            "path": "assets/maze/tiles.atlas.json"
+          },
+          "region": "tile2",
+          "size": [0.8, 0.8],
+          "layer": 1
+        },
+        "maze-chase/Player": {
+          "maze": "maze"
+        }
+      }
+    },
+    {
+      "name": "enemy",
+      "components": {
+        "core/Transform": {
+          "translation": [1.5, 13.5, 0.1]
+        },
+        "sprite/Sprite": {
+          "atlas": {
+            "path": "assets/maze/tiles.atlas.json"
+          },
+          "region": "tile3",
+          "size": [0.8, 0.8],
+          "layer": 1
+        },
+        "nav/NavAgent": {
+          "target": "player",
+          "speed": 3,
+          "radius": 0.3,
+          "stoppingDistance": 0.4,
+          "drive": "transform"
+        },
+        "maze-chase/Enemy": {}
+      }
+    }
+  ]
+}

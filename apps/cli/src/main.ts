@@ -2,6 +2,7 @@ import { resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { ShardError } from '@shard/core'
 import {
+  bake,
   type CommandContext,
   check,
   describe,
@@ -45,6 +46,10 @@ const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; 
   screenshot: {
     run: screenshot,
     help: 'screenshot <scene> --out f.png [--size WxH] [--frames N] [--camera path]',
+  },
+  bake: {
+    run: bake,
+    help: 'bake nav [--scene p] [--force]  bake navmeshes into .shard/cache/nav',
   },
   test: { run: testCommand, help: 'test [pattern]                  gameplay tests in tests/' },
   describe: {

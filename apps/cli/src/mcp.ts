@@ -11,6 +11,7 @@ import { animationMethods } from '@shard/animation'
 import { allImporters, findImporter } from '@shard/assets'
 import { audioMethods } from '@shard/audio'
 import { allComponents, findComponent, type JsonSchema, ShardError } from '@shard/core'
+import { navMethods } from '@shard/nav'
 import { listScenes } from '@shard/node'
 import { physicsMethods } from '@shard/physics'
 import { ProjectMethodParams } from '@shard/project'
@@ -48,7 +49,13 @@ const text = (value: unknown): ToolResult => ({
 })
 
 /** Methods engine plugins add to the app (served when the plugin is enabled). */
-const PLUGIN_METHODS = [...physicsMethods, ...animationMethods, ...audioMethods, ...uiMethods]
+const PLUGIN_METHODS = [
+  ...physicsMethods,
+  ...animationMethods,
+  ...audioMethods,
+  ...uiMethods,
+  ...navMethods,
+]
 
 /** The protocol method's parameter schema, as an MCP input schema. */
 function paramsSchema(method: string, overrides: Record<string, JsonSchema> = {}): JsonSchema {
@@ -387,6 +394,21 @@ export const TOOLS: Tool[] = [
     'audio_log',
     'audio.log',
     'Voices started, stopped (ended, stopped, stolen, removed), and dropped over the voice limit, by frame, with clip, entity, bus, position, gain, and pan. Pass since (a frame) for recent ones.',
+  ),
+  forward(
+    'nav_path',
+    'nav.path',
+    'A path between two world points (nav plugin), on the NavGrid or NavMesh containing from: status (complete; partial: ends at the closest reachable point; none), corners, and length. Checks a level is connected without running an agent.',
+  ),
+  forward(
+    'nav_describe',
+    'nav.describe',
+    'Navigation as data (nav plugin): each NavGrid (source, size, walkable cells, problem), each NavMesh (tiles, polygons, bounds, the last bake: tiles built by Recast vs loaded from the cache), sources skipped and why, and every NavAgent: status (idle, moving, arrived, unreachable), remaining distance, velocity, destination or target, and its route. Turn on the navmesh overlay to see it.',
+  ),
+  forward(
+    'nav_bake',
+    'nav.bake',
+    'Rebakes every NavMesh now and saves the tiles to .shard/cache/nav (save: false to skip; force: true rebuilds every tile). Reports tiles built and loaded from the cache.',
   ),
 ]
 
