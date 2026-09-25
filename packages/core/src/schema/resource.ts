@@ -1,3 +1,5 @@
+import { ShardError } from '../error'
+import type { ComponentDef } from './component'
 import { allocateId, assertName, isRedefinable, recordRedefinition } from './names'
 
 export interface ResourceDef<T> {
@@ -13,16 +15,37 @@ export interface ResourceDef<T> {
    * action maps).
    */
   readonly reload: 'keep' | 'replace'
+  /**
+   * The value's schema (`defineSchema`), for resources that are plain data: it validates,
+   * serializes, and migrates them. Settings and saved resources have one.
+   */
+  readonly schema: ComponentDef | undefined
+  /** Saved games include it (0038). Needs `schema`. */
+  readonly persist: boolean
   readonly __type?: T
+}
+
+export interface ResourceOptions<T> {
+  description?: string
+  init?: () => T
+  reload?: 'keep' | 'replace'
+  schema?: ComponentDef
+  persist?: boolean
 }
 
 const resources = new Map<string, ResourceDef<unknown>>()
 
-export function defineResource<T>(
-  name: string,
-  options: { description?: string; init?: () => T; reload?: 'keep' | 'replace' } = {},
-): ResourceDef<T> {
+export function defineResource<T>(name: string, options: ResourceOptions<T> = {}): ResourceDef<T> {
   assertName('resource', name)
+  if (options.persist && !options.schema) {
+    throw new ShardError(
+      'schema/persist-needs-schema',
+      `Resource "${name}" persists but has no schema`,
+      {
+        hint: 'Give it a schema (defineSchema) so saves can validate and migrate it.',
+      },
+    )
+  }
   const previous = isRedefinable(name) ? resources.get(name) : undefined
   const def: ResourceDef<T> = {
     kind: 'resource',
@@ -31,6 +54,8 @@ export function defineResource<T>(
     description: options.description,
     init: options.init,
     reload: options.reload ?? 'keep',
+    schema: options.schema,
+    persist: options.persist ?? false,
   }
   resources.set(name, def as ResourceDef<unknown>)
   if (previous) {
@@ -43,6 +68,11 @@ export function defineResource<T>(
     })
   }
   return def
+}
+
+/** Every resource defined in this process (latest definitions), sorted by name. */
+export function allResources(): ResourceDef<unknown>[] {
+  return [...resources.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
 
 /** The resource defined under `name` (the latest definition), or undefined. */

@@ -65,9 +65,15 @@ importers:
       '@shard/runtime':
         specifier: workspace:*
         version: link:../../packages/runtime
+      '@shard/save':
+        specifier: workspace:*
+        version: link:../../packages/save
       '@shard/scene':
         specifier: workspace:*
         version: link:../../packages/scene
+      '@shard/text':
+        specifier: workspace:*
+        version: link:../../packages/text
       '@shard/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -153,6 +159,9 @@ importers:
       '@shard/runtime':
         specifier: workspace:*
         version: link:../../packages/runtime
+      '@shard/save':
+        specifier: workspace:*
+        version: link:../../packages/save
       '@shard/scene':
         specifier: workspace:*
         version: link:../../packages/scene
@@ -770,6 +779,9 @@ importers:
       '@shard/runtime':
         specifier: workspace:*
         version: link:../runtime
+      '@shard/save':
+        specifier: workspace:*
+        version: link:../save
       '@shard/scene':
         specifier: workspace:*
         version: link:../scene
@@ -905,6 +917,58 @@ importers:
       '@shard/core':
         specifier: workspace:*
         version: link:../core
+
+  packages/save:
+    dependencies:
+      '@shard/assets':
+        specifier: workspace:*
+        version: link:../assets
+      '@shard/audio':
+        specifier: workspace:*
+        version: link:../audio
+      '@shard/core':
+        specifier: workspace:*
+        version: link:../core
+      '@shard/input':
+        specifier: workspace:*
+        version: link:../input
+      '@shard/platform':
+        specifier: workspace:*
+        version: link:../platform
+      '@shard/render':
+        specifier: workspace:*
+        version: link:../render
+      '@shard/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@shard/scene':
+        specifier: workspace:*
+        version: link:../scene
+      '@shard/text':
+        specifier: workspace:*
+        version: link:../text
+      '@shard/transform':
+        specifier: workspace:*
+        version: link:../transform
+    devDependencies:
+      '@shard/physics':
+        specifier: workspace:*
+        version: link:../physics
+      '@shard/platform-node':
+        specifier: workspace:*
+        version: link:../platform-node
+      '@shard/ui':
+        specifier: workspace:*
+        version: link:../ui
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+      '@webgpu/types':
+        specifier: ^0.1.74
+        version: 0.1.74
+      ajv:
+        specifier: ^8.17.1
+        version: 8.20.0
 
   packages/scene:
     dependencies:

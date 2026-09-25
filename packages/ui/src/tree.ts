@@ -15,7 +15,14 @@ import {
 import { Camera3d, RenderTargets, Window } from '@shard/render'
 import { LogResource } from '@shard/runtime'
 import { TextureAtlases } from '@shard/sprite'
-import { type Font, Fonts, layoutText, TextLayout, type TextLayoutOptions } from '@shard/text'
+import {
+  type Font,
+  Fonts,
+  Localized,
+  layoutText,
+  TextLayout,
+  type TextLayoutOptions,
+} from '@shard/text'
 import { Textures } from '@shard/texture'
 import { GlobalTransform } from '@shard/transform'
 import {
@@ -755,7 +762,10 @@ function syncTexts(world: World, store: UiStore, s: LayoutState): void {
     const placeholder = table.has(UiTextInput)
       ? table.column(UiTextInput, 'placeholder')
       : undefined
-    const text = table.column(UiText, 'text')
+    // A localized text shows its resolved string (0038).
+    const text = table.has(Localized)
+      ? table.column(Localized, 'value')
+      : table.column(UiText, 'text')
     for (let i = 0; i < table.count; i++) {
       const e = table.entities[i]!
       const r = store.rootOf.get(e)
@@ -767,7 +777,8 @@ function syncTexts(world: World, store: UiStore, s: LayoutState): void {
       let value = text[i] ?? ''
       if (input) value = input[i] || placeholder![i] || ''
       let t = r.texts[node]
-      if (!t) {
+      // A respawned tree puts other entities at the same indices: their text starts over.
+      if (!t || t.entity !== e) {
         t = {
           entity: e,
           value: '',

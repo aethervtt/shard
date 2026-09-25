@@ -30,6 +30,37 @@ Files: `*.prefab.json`
 
 No import settings.
 
+## `audio`
+
+Files: `*.wav`, `*.ogg`, `*.oga`, `*.opus`, `*.mp3`, `*.flac`
+
+| Setting | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `mode` | `"decoded"` \| `"stream"` | `"decoded"` |  | decoded: decoded into memory on first play; sample-accurate, for effects. stream: played through a media element as it loads; for music and long ambience. |
+| `normalize` | boolean | `false` |  | Scale the clip so its loudest sample is at full level. |
+| `loopStart` | number | `0` | ≥ 0, s | Where a looping source jumps back to. |
+| `loopEnd` | number | `0` | ≥ 0, s | Where a looping source jumps back from. 0: the end of the clip. |
+
+## `font`
+
+Files: `*.ttf`, `*.otf`
+
+| Setting | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `charset` | `"latin"` \| `"latin-extended"` \| `"custom"` | `"latin"` |  | Glyphs to put in the atlas. latin: ASCII, Latin-1, and typographic punctuation. latin-extended: plus Latin Extended-A. custom: the characters of customCharset. |
+| `customCharset` | string | `""` |  | The characters to include when charset is custom. |
+| `size` | integer | `48` | ≥ 8, ≤ 512 | Atlas pixels per em. |
+| `range` | number | `4` | ≥ 1, ≤ 32 | Distance range in atlas pixels. Larger allows wider outlines and glows, at the cost of atlas space. |
+| `fallback` | string[] | `[]` |  | Fonts (paths) tried in order for characters this font lacks. |
+| `kerning` | boolean | `true` |  | Import kerning pairs. |
+| `outlines` | boolean | `true` |  | Keep the font file in the artifact, so characters outside the charset are generated at runtime. |
+
+## `strings`
+
+Files: `*.strings.json`
+
+No import settings.
+
 ## `data/mask`
 
 Files: `*.mask.json`
@@ -53,17 +84,6 @@ No import settings.
 Files: `*.jointmap.json`
 
 No import settings.
-
-## `audio`
-
-Files: `*.wav`, `*.ogg`, `*.oga`, `*.opus`, `*.mp3`, `*.flac`
-
-| Setting | Type | Default | Range | Description |
-|---|---|---|---|---|
-| `mode` | `"decoded"` \| `"stream"` | `"decoded"` |  | decoded: decoded into memory on first play; sample-accurate, for effects. stream: played through a media element as it loads; for music and long ambience. |
-| `normalize` | boolean | `false` |  | Scale the clip so its loudest sample is at full level. |
-| `loopStart` | number | `0` | ≥ 0, s | Where a looping source jumps back to. |
-| `loopEnd` | number | `0` | ≥ 0, s | Where a looping source jumps back from. 0: the end of the clip. |
 
 ## `gltf`
 
@@ -115,20 +135,6 @@ No import settings.
 Files: `*.particles.json`
 
 No import settings.
-
-## `font`
-
-Files: `*.ttf`, `*.otf`
-
-| Setting | Type | Default | Range | Description |
-|---|---|---|---|---|
-| `charset` | `"latin"` \| `"latin-extended"` \| `"custom"` | `"latin"` |  | Glyphs to put in the atlas. latin: ASCII, Latin-1, and typographic punctuation. latin-extended: plus Latin Extended-A. custom: the characters of customCharset. |
-| `customCharset` | string | `""` |  | The characters to include when charset is custom. |
-| `size` | integer | `48` | ≥ 8, ≤ 512 | Atlas pixels per em. |
-| `range` | number | `4` | ≥ 1, ≤ 32 | Distance range in atlas pixels. Larger allows wider outlines and glows, at the cost of atlas space. |
-| `fallback` | string[] | `[]` |  | Fonts (paths) tried in order for characters this font lacks. |
-| `kerning` | boolean | `true` |  | Import kerning pairs. |
-| `outlines` | boolean | `true` |  | Keep the font file in the artifact, so characters outside the charset are generated at runtime. |
 
 ## `data/theme`
 

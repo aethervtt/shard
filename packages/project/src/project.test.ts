@@ -1,6 +1,6 @@
 import { defineComponent, t } from '@shard/core'
 import { createNodeGpuContext } from '@shard/gpu/node'
-import type { Platform } from '@shard/platform'
+import { createMemoryStorage, type Platform } from '@shard/platform'
 import { OffscreenTarget } from '@shard/render'
 import { findEntityByPath } from '@shard/scene'
 import { describe, expect, it } from 'vitest'
@@ -31,7 +31,7 @@ function memoryPlatform(files: Record<string, string>): Platform {
       writeBytes: async () => {},
       exists: async (path) => path in files,
     },
-    storage: { get: async () => undefined, set: async () => {}, delete: async () => {} },
+    storage: createMemoryStorage(),
     clock: { now: () => 0 },
     log: { log: () => {} },
   }

@@ -151,6 +151,33 @@ export class Game {
     },
   }
 
+  /** Saved games (save plugin): the same calls as save_game and load_game. */
+  readonly saves = {
+    /** Saves the game to a slot; returns `save.describe` of it. */
+    write: async (slot: string, meta?: unknown): Promise<Json> =>
+      this.call('save.write', meta === undefined ? { slot } : { slot, meta }),
+    /** Loads a slot, or a save file (an edited fixture). Returns `{ scenes, spawned, warnings }`. */
+    load: async (slot: string | Json): Promise<Json> =>
+      this.call('save.load', typeof slot === 'string' ? { slot } : { json: slot }),
+    /** A slot's save as JSON, or without a slot the game as it would save now. */
+    read: async (slot?: string): Promise<Json> => this.call('save.read', slot ? { slot } : {}),
+    describe: async (slot?: string): Promise<Json> =>
+      this.call('save.describe', slot ? { slot } : {}),
+  }
+
+  /** Settings resources (`engine/Settings` by default): read, or set and apply at once. */
+  readonly settings = {
+    get: async (name = 'engine/Settings'): Promise<Json> =>
+      (await this.call<{ settings: Json }>('settings.get', { name })).settings[name],
+    set: async (values: Json, name = 'engine/Settings'): Promise<Json> =>
+      this.call('settings.set', { name, values }),
+  }
+
+  /** Switches the locale (`"pt-BR"`); keyed text updates on the next frame. */
+  async locale(tag: string): Promise<void> {
+    await this.call('locale.set', { locale: tag })
+  }
+
   /** Saves a PNG of a camera (default: the first) to `.shard/test-results/<name>`. Returns the path. */
   async screenshot(
     name: string,

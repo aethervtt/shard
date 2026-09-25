@@ -6,7 +6,18 @@ export const TEXT_ALIGNS = ['left', 'center', 'right'] as const
 
 /** Fields shared by world and screen text. */
 const textFields = {
-  value: t.string({ description: 'The text. "\\n" breaks a line.' }),
+  value: t.string({
+    description: 'The text. "\\n" breaks a line. With a key, it shows until the key resolves.',
+  }),
+  key: t.string({
+    description:
+      "Localization key in the locales/*.strings.json tables: the text shows the current locale's string for it, and follows locale switches.",
+  }),
+  params: t.json({
+    default: {},
+    description:
+      'Values for the key\'s {name} placeholders: { "amount": 42 }. Numbers format for the locale; "n" (or "count") picks the plural form.',
+  }),
   font: t.handle('Font', { description: 'An imported font (.ttf, .otf).' }),
   color: t.color({ default: [1, 1, 1, 1], description: 'Fill color (linear).' }),
   align: t.enum(TEXT_ALIGNS, { description: 'Line alignment within the block.' }),
@@ -96,5 +107,19 @@ export const ScreenText = defineComponent(
     description:
       'Text over the finished image (after tonemapping), placed in pixels from a view corner.',
     requires: [Visibility],
+  },
+)
+
+/** The string a localized text shows: its key resolved in the current locale (0038). */
+export const Localized = defineComponent(
+  'text/Localized',
+  {
+    value: t.string({ readonly: true, description: 'The resolved string.' }),
+    locale: t.string({ readonly: true, description: 'The locale it came from ("" if missing).' }),
+  },
+  {
+    description:
+      'Set by localization on entities whose UiText, Text, or ScreenText has a key: the translated string, shown instead of the text. Derived: never written to scenes or saves.',
+    serialize: false,
   },
 )

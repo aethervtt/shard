@@ -1,10 +1,13 @@
 import { ShardError } from '@shard/core'
 import type { AudioBackend, Platform, PlatformFileSystem } from '@shard/platform'
 import { createWebAudioBackend } from './audio'
+import { createIndexedDbStorage } from './storage'
 
 export interface WebPlatformOptions {
   /** Base URL that project paths resolve against. Defaults to the document base. */
   baseUrl?: string
+  /** IndexedDB database for `storage` (saves, settings). Default `shard`. */
+  storageName?: string
 }
 
 export function createWebPlatform(options: WebPlatformOptions = {}): Platform {
@@ -45,11 +48,7 @@ export function createWebPlatform(options: WebPlatformOptions = {}): Platform {
       return audio
     },
     fs,
-    storage: {
-      get: async (key) => localStorage.getItem(key) ?? undefined,
-      set: async (key, value) => localStorage.setItem(key, value),
-      delete: async (key) => localStorage.removeItem(key),
-    },
+    storage: createIndexedDbStorage(options.storageName),
     clock: { now: () => performance.now() },
     log: {
       log: (level, message, data) => console[level](`[shard] ${message}`, data ?? ''),
@@ -59,3 +58,4 @@ export function createWebPlatform(options: WebPlatformOptions = {}): Platform {
 
 export { createWebAudioBackend, type WebAudioBackend } from './audio'
 export { createDomInputSource } from './input'
+export { createIndexedDbStorage } from './storage'

@@ -14,6 +14,7 @@ export {
   buildApp,
   loadProjectNavCache,
   loadProjectShaders,
+  loadProjectStrings,
   startProject,
 } from './host'
 export {

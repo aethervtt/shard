@@ -27,6 +27,7 @@
     "@shard/protocol": "workspace:*",
     "@shard/render": "workspace:*",
     "@shard/runtime": "workspace:*",
+    "@shard/save": "workspace:*",
     "@shard/scene": "workspace:*",
     "@shard/sprite": "workspace:*",
     "@shard/text": "workspace:*",

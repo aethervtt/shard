@@ -1,0 +1,7 @@
+{
+  "$schema": "../.shard/schemas/strings.schema.json",
+  "hud.speed": "SPEED",
+  "hud.speed-value": "{speed} m/s",
+  "hud.scan": "Scan",
+  "hud.scanning": "Scanning"
+}

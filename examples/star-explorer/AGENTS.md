@@ -24,7 +24,7 @@ shard mcp                 # MCP server for this project (see .mcp.json)
 - `shard.json`: manifest (start scene: `scenes/main.scene.json`, seed 1, plugins: render/forward, input, audio, ui)
 - `scripts/main.ts`: the project plugin; project types are named `star-explorer/<Name>`
 - `scenes/`: scene files; `tests/`: gameplay tests; `shaders/`: `project::` shader modules
-- `assets/`, `materials/`, `data/`, `prefabs/`: asset files, each with a `.meta` (guid, import settings)
+- `assets/`, `materials/`, `data/`, `prefabs/`, `locales/`: asset files, each with a `.meta` (guid, import settings)
 - `.agents/components.md`: every component and field; `.agents/assets.md`: importers and
   project data types;
   `.agents/errors.md`: error codes

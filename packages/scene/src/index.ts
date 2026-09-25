@@ -26,6 +26,7 @@ export {
   loadPrefab,
   mergeOverridesIntoPrefab,
   prefabOfInstance,
+  prefabRootComponents,
   releaseSceneHooks,
   ScenePlugin,
   type SpawnPrefabOptions,

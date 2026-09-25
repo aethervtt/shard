@@ -27,6 +27,7 @@ export class Rng {
   private b: number
   private c: number
   private d: number
+  private named: Map<string, Rng> | undefined
 
   constructor(seed = 0) {
     this.seed = seed >>> 0
@@ -87,7 +88,41 @@ export class Rng {
   fork(label: string): Rng {
     return new Rng(Math.imul(this.seed ^ hashString(label), 0x9e3779b1) ^ hashString(`${label}#`))
   }
+
+  /**
+   * A named fork this generator keeps: the same object on every call with the label. Saves record
+   * each stream's state (0038), so draws after a load match draws without one.
+   */
+  stream(label: string): Rng {
+    this.named ??= new Map()
+    let rng = this.named.get(label)
+    if (!rng) {
+      rng = this.fork(label)
+      this.named.set(label, rng)
+    }
+    return rng
+  }
+
+  /** The streams made with `stream`, by label. */
+  streams(): ReadonlyMap<string, Rng> {
+    return this.named ?? EMPTY
+  }
+
+  /** The four state words: where the sequence is now. */
+  getState(): [number, number, number, number] {
+    return [this.a >>> 0, this.b >>> 0, this.c >>> 0, this.d >>> 0]
+  }
+
+  /** Continues from a state `getState` returned. */
+  setState(state: readonly number[]): void {
+    this.a = state[0]! | 0
+    this.b = state[1]! | 0
+    this.c = state[2]! | 0
+    this.d = state[3]! | 0
+  }
 }
+
+const EMPTY: ReadonlyMap<string, Rng> = new Map()
 
 function rotl(x: number, k: number): number {
   return (x << k) | (x >>> (32 - k))

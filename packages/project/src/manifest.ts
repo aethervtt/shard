@@ -30,7 +30,7 @@ export const Manifest = defineSchema(
       { description: 'Window (or headless render target) size and anti-aliasing.' },
     ),
     assetRoots: t.list(t.string, {
-      default: ['assets', 'materials', 'data', 'prefabs'],
+      default: ['assets', 'materials', 'data', 'prefabs', 'locales'],
       description: 'Folders the asset database imports from. Nothing outside them is imported.',
     }),
     plugins: t.list(t.string, {

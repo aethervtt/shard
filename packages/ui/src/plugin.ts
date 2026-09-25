@@ -1,9 +1,9 @@
 import { First, PostUpdate } from '@shard/core'
 import { updateActions, updateInput } from '@shard/input'
 import { definePlugin } from '@shard/runtime'
-import { Fonts } from '@shard/text'
+import { Fonts, installLocalization, localizeComponent, localizeText } from '@shard/text'
 import { TransformSystems } from '@shard/transform'
-import { UiDefaults } from './components'
+import { UiDefaults, UiText } from './components'
 import { interactUi, UiPointer } from './interaction'
 import { uiMethods } from './methods'
 import { installUiRenderer } from './render'
@@ -27,9 +27,11 @@ export const uiPlugin = definePlugin({
     // Text measures with fonts even without the text renderer (headless layout).
     w.initResource(Fonts)
     observeUiStructure(w)
+    installLocalization(app)
+    localizeComponent(w, UiText)
     app
       .addSystems(First, interactUi.after(updateInput).before(updateActions))
-      .addSystems(PostUpdate, layoutUi.after(TransformSystems))
+      .addSystems(PostUpdate, layoutUi.after(TransformSystems, localizeText))
     app.addMethod(...uiMethods)
   },
   ready(app) {

@@ -11,11 +11,15 @@
     "fs:allow-write-file",
     "fs:allow-write-text-file",
     "fs:allow-exists",
+    "fs:allow-mkdir",
+    "fs:allow-read-dir",
+    "fs:allow-remove",
+    "fs:allow-rename",
     "fs:allow-watch",
     "fs:allow-unwatch",
     {
       "identifier": "fs:scope",
-      "allow": [{ "path": "$HOME/**" }]
+      "allow": [{ "path": "$HOME/**" }, { "path": "$APPDATA/**" }]
     }
   ]
 }

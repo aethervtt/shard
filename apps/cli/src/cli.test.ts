@@ -210,6 +210,45 @@ describe('commands', () => {
     }
   })
 
+  it('validate checks localization: keys a locale lacks and keys no table defines', () => {
+    const table = 'locales/zz.en.strings.json'
+    const scene = 'scenes/zz-keys.scene.json'
+    writeFileSync(join(example, table), JSON.stringify({ 'zz.only-english': 'Only English' }))
+    const cleanScene = temp(
+      scene,
+      JSON.stringify({
+        version: 1,
+        entities: [
+          { name: 'ok', components: { 'ui/UiText': { key: 'zz.only-english' } } },
+          { name: 'bad', components: { 'ui/UiText': { key: 'zz.nowhere' } } },
+        ],
+      }),
+    )
+    try {
+      const r = shard(['validate', '--json'])
+      expect(r.code).toBe(1)
+      const report = r.json()
+      expect(report.assets.filter((e: { code: string }) => e.code.startsWith('locale/'))).toEqual([
+        expect.objectContaining({
+          code: 'locale/missing-key',
+          source: 'locales/pt-BR.strings.json',
+          path: '/zz.only-english',
+          message: '"zz.only-english" is missing in pt-BR',
+        }),
+      ])
+      expect(report.scenes[scene]).toEqual([
+        expect.objectContaining({
+          code: 'locale/missing-key',
+          path: '/entities/1/components/ui~1UiText/key',
+        }),
+      ])
+    } finally {
+      cleanScene()
+      rmSync(join(example, table), { force: true })
+      rmSync(join(example, `${table}.meta`), { force: true })
+    }
+  })
+
   it('run is deterministic', () => {
     const a = shard(['run', '--frames', '300', '--seed', '7', '--json']).json()
     const b = shard(['run', '--frames', '300', '--seed', '7', '--json']).json()
@@ -249,7 +288,7 @@ describe('commands', () => {
   it('test passes on the example, and a failing test exits 1 with the failure', () => {
     const ok = shard(['test', '--json'])
     expect(ok.code).toBe(0)
-    expect(ok.json()).toMatchObject({ passed: 5, failed: 0 })
+    expect(ok.json()).toMatchObject({ passed: 8, failed: 0 })
     const cleanup = temp(
       'tests/zz-fail.test.ts',
       `import { expect, test } from '@shard/testing'\ntest('ships can teleport', async ({ game }) => {\n  await game.step(1)\n  expect(game.get('ship', 'core/Transform').translation[1]).toBe(999)\n})\n`,
@@ -507,6 +546,24 @@ describe('MCP server', () => {
     })
     expect(patched.isError).toBe(true)
     expect(patched.json()).toMatchObject({ code: 'protocol/invalid-components' })
+  })
+
+  it('saves and loads the game: save_game, then load_game puts it back', async () => {
+    await call('load_scene', { file: 'scenes/main.scene.json', id: 'scenes/main.scene.json' })
+    await call('patch_entity', {
+      entity: 'ship',
+      components: { 'core/Transform': { translation: [7, 8, 9] } },
+    })
+    const saved = (await call('save_game', { slot: 'mcp', meta: { note: 'test' } })).json()
+    expect(saved.scenes['scenes/main.scene.json'].changed.ship).toEqual(['core/Transform'])
+    await call('patch_entity', {
+      entity: 'ship',
+      components: { 'core/Transform': { translation: [0, 0, 0] } },
+    })
+    const loaded = (await call('load_game', { slot: 'mcp' })).json()
+    expect(loaded).toMatchObject({ scenes: ['scenes/main.scene.json'], warnings: [] })
+    const ship = (await call('get_entity', { entity: 'ship' })).json().components
+    expect(ship['core/Transform'].translation).toEqual([7, 8, 9])
   })
 
   it('routes tools to a live app when one attaches (--attach)', async () => {

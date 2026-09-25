@@ -9,6 +9,7 @@ import {
   buildApp,
   inlineSourceMap,
   loadProjectNavCache,
+  loadProjectStrings,
   locateInBundle,
   type ManifestValue,
   ProjectSession,
@@ -46,7 +47,11 @@ async function start() {
   const info = (await (await fetch('/@shard/project.json')).json()) as DevInfo
   const { manifest } = info
   document.title = `${manifest.name} · shard dev`
-  const platform = createWebPlatform({ baseUrl: `${location.origin}/@shard/files/` })
+  // Saves and settings: one IndexedDB database per project.
+  const platform = createWebPlatform({
+    baseUrl: `${location.origin}/@shard/files/`,
+    storageName: `shard:${manifest.name}`,
+  })
 
   await mapFor(info.bundle)
   const project = (await import(/* @vite-ignore */ info.bundle)).default as Plugin
@@ -56,6 +61,7 @@ async function start() {
     canvas,
     inputSource: createDomInputSource(canvas),
     audio: manifest.plugins.includes('audio') ? platform.audio : undefined,
+    platform,
   })
   await app.init()
   await loadProjectNavCache(app, platform)
@@ -98,6 +104,7 @@ async function start() {
 
   const assets = assetServer(app.world).configure({ platform, roots: manifest.assetRoots })
   await assets.scan()
+  await loadProjectStrings(app)
   loadScene(app.world, JSON.parse(await platform.fs.readText(manifest.startScene)), {
     id: manifest.startScene,
   })

@@ -2,13 +2,66 @@ import { watch as fsWatch } from 'node:fs'
 import { access, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
 import { ShardError } from '@shard/core'
-import type { FileChangeEvent, Platform } from '@shard/platform'
+import type { FileChangeEvent, KeyValueStorage, Platform } from '@shard/platform'
+
+/**
+ * Storage as files under `dir`: `saves/slot1.json` is `<dir>/saves/slot1.json`. Writes go to a
+ * temporary file first and are renamed into place, so a crash never leaves half a save.
+ */
+export function createFileStorage(dir: string): KeyValueStorage {
+  const file = (key: string) => {
+    const path = resolve(dir, key)
+    if (!path.startsWith(`${dir}/`) && path !== dir) {
+      throw new ShardError(
+        'platform/bad-storage-key',
+        `Storage key "${key}" leaves the data folder`,
+        {
+          hint: 'Keys are relative paths like "saves/slot1.json".',
+        },
+      )
+    }
+    return path
+  }
+  let temp = 0
+  return {
+    read: async (key) => {
+      try {
+        const data = await readFile(file(key))
+        return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+        throw err
+      }
+    },
+    write: async (key, data) => {
+      const path = file(key)
+      await mkdir(dirname(path), { recursive: true })
+      const tmp = `${path}.${process.pid}.${temp++}.tmp`
+      await writeFile(tmp, data)
+      await rename(tmp, path)
+    },
+    list: async (prefix) => {
+      const entries = await readdir(dir, { recursive: true, withFileTypes: true }).catch(() => [])
+      return entries
+        .filter((e) => e.isFile() && !e.name.endsWith('.tmp'))
+        .map((e) => relative(dir, resolve(e.parentPath, e.name)).split('\\').join('/'))
+        .filter((key) => key.startsWith(prefix))
+        .sort()
+    },
+    delete: async (key) => rm(file(key), { force: true }),
+  }
+}
 
 export interface NodePlatformOptions {
   /** Project root; relative paths resolve against it. */
   root: string
   /** Where log lines go. Default: stderr (stdout is reserved for command output). */
   logTo?: (line: string) => void
+  /**
+   * Where `storage` (saves, settings) writes. Default `.shard/user` in the project, so headless
+   * runs and tests never touch a player's own saves; relative paths resolve against `root`.
+   */
+  dataDir?: string
 }
 
 /** The platform for Node hosts: the CLI, headless runs, MCP, and gameplay tests. */
@@ -16,7 +69,7 @@ export function createNodePlatform(options: NodePlatformOptions): Platform {
   const root = resolve(options.root)
   const abs = (path: string) => (isAbsolute(path) ? path : resolve(root, path))
   const rel = (path: string) => relative(root, path).split('\\').join('/')
-  const storage = new Map<string, string>()
+  const dataDir = resolve(root, options.dataDir ?? '.shard/user')
   const write = options.logTo ?? ((line: string) => process.stderr.write(`${line}\n`))
 
   return {
@@ -88,11 +141,7 @@ export function createNodePlatform(options: NodePlatformOptions): Platform {
         return () => watcher.close()
       },
     },
-    storage: {
-      get: async (key) => storage.get(key),
-      set: async (key, value) => void storage.set(key, value),
-      delete: async (key) => void storage.delete(key),
-    },
+    storage: createFileStorage(dataDir),
     clock: { now: () => performance.now() },
     log: {
       log: (level, message, data) =>

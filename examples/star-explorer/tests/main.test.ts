@@ -73,3 +73,44 @@ test('the HUD shows speed and the planet marker, and the scan toggle clicks by p
   expect(await game.ui.node('scan')).toMatchObject({ widget: 'toggle', on: true })
   expect(await game.ui.node('scan/label')).toMatchObject({ text: 'Scanning' })
 })
+
+test('loading a save puts the ship back where it was saved', async ({ game }) => {
+  await game.load('scenes/main.scene.json')
+  game.input.hold('star-explorer/Controls.thrust')
+  await game.step(60)
+  game.input.release('star-explorer/Controls.thrust')
+  await game.step(1)
+  const saved = game.get('ship', 'core/Transform').translation as number[]
+  const speed = game.get('ship', 'star-explorer/Ship').speed as number
+  const described = await game.saves.write('slot1', { label: 'Leaving orbit' })
+  expect(described.scenes['scenes/main.scene.json'].changed.ship).toEqual(
+    expect.arrayContaining(['core/Transform', 'star-explorer/Ship']),
+  )
+  // Keep flying, then load.
+  await game.step(120)
+  expect(game.get('ship', 'core/Transform').translation).not.toEqual(saved)
+  const report = await game.saves.load('slot1')
+  expect(report.warnings).toEqual([])
+  expect(game.get('ship', 'core/Transform').translation).toEqual(saved)
+  expect(game.get('ship', 'star-explorer/Ship').speed).toBe(speed)
+})
+
+test('an edited save is a test fixture: a ship already at full speed', async ({ game }) => {
+  await game.load('scenes/main.scene.json')
+  const save = await game.saves.read()
+  save.scenes['scenes/main.scene.json'].changed.ship = { 'star-explorer/Ship': { speed: 40 } }
+  await game.saves.load(save)
+  expect(game.get('ship', 'star-explorer/Ship').speed).toBe(40)
+})
+
+test('the HUD speaks Portuguese', async ({ game }) => {
+  await game.load('scenes/main.scene.json')
+  await game.step(1)
+  expect(await game.ui.node('hud/speed/caption')).toMatchObject({ key: 'hud.speed', text: 'SPEED' })
+  await game.locale('pt-BR')
+  await game.step(1)
+  expect(await game.ui.node('hud/speed/caption')).toMatchObject({ text: 'VELOCIDADE' })
+  expect(await game.ui.node('hud/scan/label')).toMatchObject({ text: 'Escanear' })
+  // The choice is kept in the player's settings.
+  expect(await game.settings.get()).toMatchObject({ locale: 'pt-BR' })
+})

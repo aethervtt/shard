@@ -1,0 +1,33 @@
+{
+  "name": "@shard/save",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@shard/assets": "workspace:*",
+    "@shard/audio": "workspace:*",
+    "@shard/core": "workspace:*",
+    "@shard/input": "workspace:*",
+    "@shard/platform": "workspace:*",
+    "@shard/render": "workspace:*",
+    "@shard/runtime": "workspace:*",
+    "@shard/scene": "workspace:*",
+    "@shard/text": "workspace:*",
+    "@shard/transform": "workspace:*"
+  },
+  "devDependencies": {
+    "@shard/physics": "workspace:*",
+    "@shard/platform-node": "workspace:*",
+    "@shard/ui": "workspace:*",
+    "@types/node": "^26.6.2",
+    "@webgpu/types": "^0.1.74",
+    "ajv": "^8.17.1"
+  }
+}

@@ -9,11 +9,13 @@ import {
   type EventDef,
   type Fields,
   type ResourceDef,
+  type ResourceOptions,
   ShardError,
   type TagDef,
 } from '@shard/core'
 import { defineMaterial, type MaterialType, type MaterialTypeOptions } from '@shard/render'
 import type { App, Plugin } from '@shard/runtime'
+import { defineSettings, type SettingsDef } from '@shard/save'
 
 export interface ProjectOptions {
   /** Must match `shard.json`'s name. Becomes the namespace of every project type. */
@@ -31,11 +33,17 @@ export interface ProjectDef extends Plugin {
     options?: ComponentOptions,
   ): ComponentDef<F>
   tag(name: string, options?: { description?: string }): TagDef
-  resource<T>(
-    name: string,
-    options?: { description?: string; init?: () => T; reload?: 'keep' | 'replace' },
-  ): ResourceDef<T>
+  resource<T>(name: string, options?: ResourceOptions<T>): ResourceDef<T>
   event<T = undefined>(name: string, options?: { description?: string }): EventDef<T>
+  /**
+   * Defines the project's settings, `<project>/Settings`: a resource persisted per player in
+   * `settings.json` (defaults from `settings/*.json`), loaded before Startup. Read it like any
+   * resource; `setSettings` changes it and applies at once.
+   */
+  settings<const F extends Fields>(
+    fields: F,
+    options?: Pick<ComponentOptions, 'description' | 'version' | 'migrate'> & { name?: string },
+  ): SettingsDef<F>
   /**
    * Defines the material type `<project>/<name>`: fields (numbers, colors, texture handles) and a
    * shader in `shaders/` (`project::<file>`) that overrides hooks. Assets name it in `"type"`.
@@ -84,6 +92,13 @@ export function defineProject(options: ProjectOptions): ProjectDef {
     tag: (name, tagOptions) => defineTag(qualify(name), tagOptions),
     resource: (name, resourceOptions) => defineResource(qualify(name), resourceOptions),
     event: (name, eventOptions) => defineEvent(qualify(name), eventOptions),
+    settings: (fields, settingsOptions = {}) => {
+      const { name = 'Settings', ...rest } = settingsOptions
+      return defineSettings(qualify(name), fields, {
+        description: `${ns} settings, persisted per player.`,
+        ...rest,
+      })
+    },
     material: (name, materialOptions) => defineMaterial(qualify(name), materialOptions),
     dataAsset: (name, fields, dataOptions) =>
       defineDataType(qualify(name) as never, fields, dataOptions) as never,

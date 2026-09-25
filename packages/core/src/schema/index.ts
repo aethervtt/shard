@@ -46,10 +46,12 @@ export {
 } from './names'
 export { Registry, type RegistryDescription } from './registry'
 export {
+  allResources,
   defineEvent,
   defineResource,
   type EventDef,
   findEvent,
   findResource,
   type ResourceDef,
+  type ResourceOptions,
 } from './resource'

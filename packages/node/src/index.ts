@@ -7,7 +7,7 @@ import { type AssetServer, assetServer, type ScanReport } from '@shard/assets'
 import { ChildOf, ShardError, type World } from '@shard/core'
 import type { GpuContext } from '@shard/gpu'
 import { createNodeGpuContext } from '@shard/gpu/node'
-import type { Platform } from '@shard/platform'
+import { createMemoryStorage, type Platform } from '@shard/platform'
 import { createNodePlatform } from '@shard/platform-node'
 import {
   buildApp,
@@ -15,6 +15,7 @@ import {
   loadProject,
   loadProjectNavCache,
   loadProjectShaders,
+  loadProjectStrings,
   locateInBundle,
   type ManifestValue,
   ProjectSession,
@@ -46,6 +47,12 @@ export interface OpenProjectOptions {
    * directly (gameplay tests, where test files import the same modules).
    */
   code?: 'bundle' | 'source'
+  /**
+   * Where saves and settings go. 'memory' (default): gone when the process exits, so runs, tests,
+   * and screenshots never depend on what an earlier session saved. 'files': `.shard/user` in the
+   * project, kept across sessions (`shard serve`, `shard mcp`).
+   */
+  userData?: 'memory' | 'files'
 }
 
 export interface HeadlessProject {
@@ -101,7 +108,9 @@ export async function importProjectPlugin(root: string, manifest: ManifestValue)
 /** Opens a project headless: manifest, project code, Dawn GPU, offscreen target, protocol server. */
 export async function openProject(options: OpenProjectOptions): Promise<HeadlessProject> {
   const root = resolve(options.root)
-  const platform = createNodePlatform({ root })
+  const files = createNodePlatform({ root })
+  const platform =
+    options.userData === 'files' ? files : { ...files, storage: createMemoryStorage() }
   const loaded = (await loadProject(platform)).manifest
   const manifest = options.seed === undefined ? loaded : { ...loaded, seed: options.seed }
   const code = options.code ?? 'bundle'
@@ -127,12 +136,13 @@ export async function openProject(options: OpenProjectOptions): Promise<Headless
     width: options.width ?? manifest.window.width,
     height: options.height ?? manifest.window.height,
   })
-  const app = buildApp({ manifest, project, gpu, target })
+  const app = buildApp({ manifest, project, gpu, target, platform })
   await app.init()
   await loadProjectNavCache(app, platform)
   const stopShaders = await loadProjectShaders(app, platform, { watch: options.watch })
   const assets = assetServer(app.world).configure({ platform, roots: manifest.assetRoots })
   const imports = await assets.scan()
+  await loadProjectStrings(app)
   const stopWatching = options.watch ? await assets.watch() : () => {}
   let scene: LoadedSceneHandle | undefined
   if (options.loadStartScene ?? true) {

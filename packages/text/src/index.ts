@@ -1,7 +1,7 @@
 export { type PackItem, type PackResult, packRects, SkylinePacker } from '@shard/texture'
 export { buildFont, type FontBuild, type FontBuildOptions, fontFromBytes } from './build'
 export { type CharsetName, charsetCodepoints } from './charset'
-export { SCREEN_CORNERS, ScreenText, TEXT_ALIGNS, Text } from './components'
+export { Localized, SCREEN_CORNERS, ScreenText, TEXT_ALIGNS, Text } from './components'
 export {
   Font,
   type FontLoadOptions,
@@ -32,6 +32,34 @@ export {
   type TextLine,
   type TextMetrics,
 } from './layout'
+export {
+  installLocalization,
+  KEYED_COMPONENTS,
+  Locale,
+  LocaleState,
+  LocaleStore,
+  type LocaleValue,
+  type LocalizationReport,
+  loadStringTables,
+  localeChain,
+  localeMethods,
+  localeOfPath,
+  localizationKeysIn,
+  localizeComponent,
+  localizeText,
+  PLURAL_CATEGORIES,
+  type PluralCategory,
+  placeholdersOf,
+  type StringEntry,
+  StringTable,
+  StringTableAssetType,
+  StringTableImporter,
+  StringTables,
+  setLocale,
+  tr,
+  validateLocalization,
+  validateStringTable,
+} from './locale'
 export {
   blitMsdf,
   generateMsdf,

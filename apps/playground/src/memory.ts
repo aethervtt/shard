@@ -1,4 +1,10 @@
-import type { DirEntry, FileStat, Platform, PlatformFileSystem } from '@shard/platform'
+import {
+  createMemoryStorage,
+  type DirEntry,
+  type FileStat,
+  type Platform,
+  type PlatformFileSystem,
+} from '@shard/platform'
 
 /**
  * A project folder in memory, for demos that import real asset files: the playground has no file
@@ -54,15 +60,10 @@ export function memoryPlatform(): Platform {
       files.delete(path)
     },
   }
-  const kv = new Map<string, string>()
   return {
     name: 'memory',
     fs,
-    storage: {
-      get: async (k) => kv.get(k),
-      set: async (k, v) => void kv.set(k, v),
-      delete: async (k) => void kv.delete(k),
-    },
+    storage: createMemoryStorage(),
     clock: { now: () => performance.now() },
     log: { log() {} },
   }

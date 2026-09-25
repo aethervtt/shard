@@ -230,7 +230,6 @@ function buildRoot(
     clipPx[3] = r.clip[i * 4 + 3]! * F
     if (clipPx[2]! <= clipPx[0]! || clipPx[3]! <= clipPx[1]!) continue
     const angle = r.angle[i]!
-    const f = store.records
     // The box.
     if (style.background[3]! > 0 || (style.borderWidth > 0 && style.borderColor[3]! > 0)) {
       const o = quad(store, cam, x, y, w, h, KIND_BOX, null, false, clipPx, 0)
@@ -302,7 +301,8 @@ function buildRoot(
           clipPx,
           0,
         )
-        for (let k = 0; k < 4; k++) f[o + 4 + k] = l.uvs[q * 4 + k]!
+        // Not a cached array: quad() may have grown the records.
+        for (let k = 0; k < 4; k++) store.records[o + 4 + k] = l.uvs[q * 4 + k]!
         premultiplied(store.records, o + 8, style.color, ta)
         store.records[o + 26] = l.glyphs[q]!.font.range
       }

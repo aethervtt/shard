@@ -19,7 +19,7 @@ import {
 } from '@shard/render'
 import { App, animationFrameRunner, definePlugin, Time } from '@shard/runtime'
 import { lookAt, Transform, TransformPlugin } from '@shard/transform'
-import { homeDir } from '@tauri-apps/api/path'
+import { appDataDir, homeDir } from '@tauri-apps/api/path'
 
 const status = document.getElementById('status') as HTMLDivElement
 const canvas = document.getElementById('viewport') as HTMLCanvasElement
@@ -98,7 +98,10 @@ const studioScene = definePlugin({
 
 async function main() {
   // Project selection comes later; until then the platform is rooted at $HOME.
-  const platform = createTauriPlatform({ projectRoot: await homeDir() })
+  const platform = createTauriPlatform({
+    projectRoot: await homeDir(),
+    dataDir: (await appDataDir()).replace(/\/+$/, ''),
+  })
   const app = new App()
     .addPlugin(TransformPlugin, renderPlugin({ canvas }), forwardPlugin(), studioScene)
     .setRunner(animationFrameRunner())

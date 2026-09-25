@@ -186,7 +186,15 @@ export const UiText = defineComponent(
   'ui/UiText',
   {
     text: t.string({ description: 'The text. "\\n" breaks a line.' }),
-    key: t.string({ description: 'Localization key (0038); the text shows until it resolves.' }),
+    key: t.string({
+      description:
+        "Localization key in the locales/*.strings.json tables: the node shows the current locale's string, and follows locale switches. text shows until it resolves.",
+    }),
+    params: t.json({
+      default: {},
+      description:
+        'Values for the key\'s {name} placeholders: { "amount": 42 }. Numbers format for the locale; "n" (or "count") picks the plural form.',
+    }),
     size: t.f32({ default: 16, min: 0, unit: 'px', description: 'Height of one em.' }),
     color: t.color({ default: [1, 1, 1, 1], description: 'Text color (linear).' }),
     font: t.handle('Font', { description: "Font (null: the theme's, then UiDefaults.font)." }),

@@ -21,7 +21,7 @@ import {
 } from '@shard/render'
 import { type Texture, Textures } from '@shard/texture'
 import { GlobalTransform } from '@shard/transform'
-import { ScreenText, Text } from './components'
+import { Localized, ScreenText, Text } from './components'
 import type { Font, FontPage } from './font'
 import { type FontStore, Fonts } from './importer'
 import { layoutText, TextLayout, type TextLayoutOptions } from './layout'
@@ -251,7 +251,8 @@ interface TextColumns {
 function textColumns(table: Table, def: typeof Text | typeof ScreenText): TextColumns {
   const c = (name: string) => table.column(def as typeof Text, name as 'value') as unknown
   return {
-    value: c('value') as string[],
+    // A localized text shows its resolved string (0038).
+    value: (table.has(Localized) ? table.column(Localized, 'value') : c('value')) as string[],
     font: c('font') as TextColumns['font'],
     color: c('color') as Float32Array,
     align: c('align') as Uint8Array,

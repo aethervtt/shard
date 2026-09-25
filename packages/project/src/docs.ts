@@ -6,6 +6,7 @@ import {
   type ImporterDef,
 } from '@shard/assets'
 import { allComponents, type ComponentDef, type JsonSchema } from '@shard/core'
+import { saveJsonSchema } from '@shard/save'
 import { prefabJsonSchema, sceneJsonSchema } from '@shard/scene'
 import { BUILTIN_PLUGINS, type ManifestValue, manifestJsonSchema } from './manifest'
 
@@ -779,6 +780,83 @@ expect(await game.ui.node('fuel/label')).toMatchObject({ text: 'Fuel 100%', visi
 
 Turn on the \`ui-layout\` overlay (\`debug_overlays\`) to see node rects, padding, and margins.
 `,
+  'save-and-settings.md': `# Save the game, and remember settings
+
+Saves are on in every project (no plugin to add). A save holds only what changed: per loaded
+scene, the fields that differ from the scene file and the entities despawned; entities spawned at
+runtime (prefab instances as the prefab plus overrides); resources defined with \`persist\`; named
+RNG streams; and time. Loading reloads each scene from its current file, so scene edits made after
+a save show up, and the player's changes stay.
+
+\`\`\`ts
+import { loadGame, saveGame } from '@shard/save'
+
+await saveGame(world, 'slot1', { meta: { label: 'Crash site' } })
+await loadGame(world, 'slot1') // between frames: from a UI click handler, ready(), or a tool
+\`\`\`
+
+- What's saved: components that serialize, unless defined with \`save: false\`. Tag an entity
+  \`save/NoSave\` to leave it out (and keep it as it is through a load).
+- Resources: \`project.resource('Inventory', { schema, persist: true, init })\`, where \`schema\` is a
+  \`defineSchema\` of its fields. Only resources with \`persist\` go in saves.
+- Loot that matches after a load: draw from \`world.resource(GlobalRng).stream('<project>/loot')\`
+  (a named stream); saves record every stream's state.
+- A component whose fields change gets \`version\` and \`migrate\`; old saves migrate on load.
+  Migrations see only the saved fields, so handle missing ones.
+- Saves go to platform storage: \`.shard/user/saves/<slot>.json\` for \`shard serve\` and
+  \`shard mcp\` (tests and \`shard run\` keep them in memory), IndexedDB in the browser.
+
+Test fixtures: \`save_game\`, then \`save.read\` gives the JSON (schema
+\`.shard/schemas/save.schema.json\`). Edit a value and load it with \`load_game { json }\`:
+
+\`\`\`ts
+const save = await game.saves.read()
+save.scenes['scenes/main.scene.json'].changed.ship = { '<project>/Ship': { fuel: 10 } }
+await game.saves.load(save)
+\`\`\`
+
+\`load_game\` returns warnings (\`save/stale-entity\`) for saved changes whose entity is no longer in
+the scene file.
+
+## Settings
+
+\`\`\`ts
+export const Settings = project.settings({
+  invertY: t.bool(),
+  difficulty: t.enum(['normal', 'easy', 'hard']),
+})
+\`\`\`
+
+Settings load before Startup: project defaults from \`settings/*.json\`
+(\`{ "<project>/Settings": { "difficulty": "easy" } }\`), then the player's \`settings.json\`. Read them
+like any resource; plain writes persist within half a second. \`setSettings(world, Settings, {...})\`
+validates and applies at once. \`engine/Settings\` is built in: \`volumes\` (bus → volume), \`quality\`
+(shadow map sizes), \`locale\`, and \`bindings\`, which \`rebindAction(world, '<map>.<action>',
+['Key:KeyJ'])\` fills in. Agents use \`settings.get\` and \`settings.set\`.
+`,
+  'localize.md': `# Localize text
+
+String tables are \`locales/<locale>.strings.json\` (schema \`.shard/schemas/strings.schema.json\`),
+one per locale, named by BCP 47 tag:
+
+\`\`\`json
+{ "hud.fuel": "Fuel: {amount}%", "items.count": { "one": "{n} item", "other": "{n} items" } }
+\`\`\`
+
+- Give text a key instead of (or besides) its text: \`"ui/UiText": { "key": "hud.fuel", "params":
+  { "amount": 100 } }\`. \`text/Text\` and \`text/ScreenText\` take \`key\` and \`params\` too. The
+  translated string shows, and follows locale switches on the next frame. \`text\` shows until the
+  key resolves.
+- Update a parameter from a system: \`world.set(label, UiText, { params: { amount: pct } })\`.
+- Code: \`tr(world, 'items.count', { n: 3 })\`. Plural forms (zero, one, two, few, many, other) are
+  picked by \`n\` (or \`count\`) with \`Intl.PluralRules\`; numbers format with \`Intl.NumberFormat\`.
+- Switch: \`setLocale(world, 'pt-BR')\`, or \`locale.set\` from a tool. \`pt-BR\` falls back to \`pt\`,
+  then \`text/Locale\`'s \`fallback\` (\`en\`). The choice persists in \`engine/Settings\`.
+
+Check it: \`shard validate\` reports keys a locale lacks, \`{params}\` that differ between locales,
+and keys scenes and prefabs use that no table defines. At runtime, \`locale.missing\` lists what
+didn't resolve, and \`ui_describe\` shows each node's \`key\` and translated \`text\`.
+`,
   'make-it-navigate.md': `# Make it navigate
 
 Add \`"nav"\` to \`plugins\` in \`shard.json\` (\`"nav/grid"\` for grid-only 2D games: no WASM).
@@ -946,6 +1024,7 @@ export function generateDocs(
     '.shard/schemas/shard.schema.json': `${JSON.stringify(manifestJsonSchema(), null, 2)}\n`,
     '.shard/schemas/scene.schema.json': `${JSON.stringify(sceneJsonSchema(), null, 2)}\n`,
     '.shard/schemas/prefab.schema.json': `${JSON.stringify(prefabJsonSchema(), null, 2)}\n`,
+    '.shard/schemas/save.schema.json': `${JSON.stringify(saveJsonSchema(), null, 2)}\n`,
   }
   for (const [name, content] of Object.entries(SKILLS))
     files[`.agents/skills/${name}`] = content.replaceAll('<project>', manifest.name)

@@ -12,9 +12,11 @@ import { physics2dPlugin, physics3dPlugin } from '@shard/physics'
 import type { AudioBackend, InputSource, Platform } from '@shard/platform'
 import { forwardPlugin, type RenderTarget, renderPlugin, Shaders } from '@shard/render'
 import { App, LogResource, type Plugin } from '@shard/runtime'
+import { savePlugin } from '@shard/save'
 import { type LoadedSceneHandle, loadScene, ScenePlugin } from '@shard/scene'
 import { spritePlugin } from '@shard/sprite'
-import { textPlugin } from '@shard/text'
+// Also registers the string table importer and the StringTable asset type for every project host.
+import { LocaleState, loadStringTables, textPlugin } from '@shard/text'
 import { TransformPlugin } from '@shard/transform'
 // Also registers the theme importer and the UiTheme asset type for every project host.
 import { uiPlugin } from '@shard/ui'
@@ -31,6 +33,11 @@ export interface BuildAppOptions {
   inputSource?: InputSource
   /** Where sound goes (`platform.audio`). Without one, audio records voices (headless). */
   audio?: AudioBackend
+  /**
+   * The host: saves and settings go to its `storage`, and saved scenes reload from its files.
+   * Without one, saves live in memory.
+   */
+  platform?: Platform
 }
 
 /** An app with the manifest's engine plugins and the project plugin, not yet initialized. */
@@ -73,8 +80,28 @@ export function buildApp(options: BuildAppOptions): App {
   if (names.has('nav')) app.addPlugin(navPlugin)
   else if (names.has('nav/grid')) app.addPlugin(navGridPlugin)
   app.addPlugin(ScenePlugin)
+  app.addPlugin(
+    savePlugin({
+      storage: options.platform?.storage,
+      fs: options.platform?.fs,
+      engine: manifest.engine,
+    }),
+  )
   if (options.project) app.addPlugin(options.project)
   return app
+}
+
+/**
+ * Loads every string table (`locales/*.strings.json`) so keyed text resolves from the first frame.
+ * Call after the asset scan, before loading scenes. Does nothing without text or UI.
+ */
+export async function loadProjectStrings(app: App): Promise<void> {
+  if (!app.world.hasResource(LocaleState)) return
+  try {
+    await loadStringTables(app.world)
+  } catch (err) {
+    app.world.tryResource(LogResource)?.error(err)
+  }
 }
 
 /** Initializes the app and loads the start scene (id = its path). */

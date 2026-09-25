@@ -231,6 +231,27 @@ export function addActions<K extends string>(world: World, map: ActionMapDef<K>)
   return state
 }
 
+/**
+ * Rebinds one action by `"<map>.<action>"` (`rebindAction(world, 'game/Controls.jump',
+ * ['Key:KeyJ'])`); `undefined` restores the authored bindings. With the save plugin, the engine
+ * settings keep rebindings across restarts.
+ */
+export function rebindAction(
+  world: World,
+  action: string,
+  bindings: readonly unknown[] | undefined,
+): void {
+  const dot = action.lastIndexOf('.')
+  const mapName = action.slice(0, dot)
+  const map = world.resource(InputQueue).maps.find((m) => m.name === mapName)
+  if (dot === -1 || !map) {
+    throw new ShardError('input/unknown-action', `No action map "${mapName}" for "${action}"`, {
+      hint: 'Use "<map name>.<action>", e.g. "game/Controls.jump".',
+    })
+  }
+  map.rebind(action.slice(dot + 1), bindings as never)
+}
+
 export type InjectedInput =
   | RawInputEvent
   | { key: string; pressed: boolean }
@@ -302,6 +323,7 @@ export function describeInput(world: World) {
       context: m.context,
       live: m.live,
       values: m.snapshot(),
+      rebindings: m.rebindings(),
     })),
   }
 }

@@ -5,10 +5,11 @@ import { inputPlugin } from '@shard/input'
 import { navGridPlugin, navPlugin } from '@shard/nav'
 import { particlesPlugin } from '@shard/particles'
 import { physics2dPlugin, physics3dPlugin } from '@shard/physics'
-import { createDomInputSource } from '@shard/platform-web'
+import { createDomInputSource, createIndexedDbStorage } from '@shard/platform-web'
 import { connectToHub, createProtocolServer, DEFAULT_HUB_PORT } from '@shard/protocol'
 import { describeRender, forwardPlugin, renderPlugin } from '@shard/render'
 import { App, animationFrameRunner } from '@shard/runtime'
+import { savePlugin } from '@shard/save'
 import { ScenePlugin } from '@shard/scene'
 import { spritePlugin } from '@shard/sprite'
 import { TransformPlugin } from '@shard/transform'
@@ -32,6 +33,7 @@ import { particlesDemoPlugin } from './particles'
 import { physics2dDemoPlugin, physicsDemoPlugin, planetDemoPlugin } from './physics'
 import { postPlugin } from './post'
 import { prefabsDemoPlugin } from './prefabs'
+import { saveDemoPlugin } from './save'
 import { scenePlugin } from './scene'
 import { spritesPlugin } from './sprites'
 import { uiDemoPlugin } from './ui'
@@ -64,6 +66,7 @@ const DEMOS = [
   'ui',
   'nav',
   'nav2d',
+  'save',
 ] as const
 const demo = DEMOS.find((d) => location.hash === `#${d}`) ?? 'scene'
 document.body.dataset.demo = demo
@@ -171,6 +174,20 @@ if (demo === 'galaxy') {
     navPlugin,
     hudPlugin,
     navDemoPlugin,
+  )
+} else if (demo === 'save') {
+  app.addPlugin(
+    TransformPlugin,
+    forwardPlugin(),
+    ScenePlugin,
+    physics3dPlugin,
+    inputPlugin({ source: createDomInputSource(canvas) }),
+    audioPlugin({ backend: webAudio() }),
+    uiPlugin,
+    // Saves and settings survive a page reload: they live in IndexedDB.
+    savePlugin({ storage: createIndexedDbStorage('shard-playground') }),
+    hudPlugin,
+    saveDemoPlugin,
   )
 } else if (demo === 'nav2d') {
   app.addPlugin(TransformPlugin, forwardPlugin(), navGridPlugin, hudPlugin, nav2dDemoPlugin)

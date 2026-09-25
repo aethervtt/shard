@@ -1,9 +1,19 @@
-import type { AudioBackend, FileChangeEvent, Platform, PlatformFileSystem } from '@shard/platform'
+import type {
+  AudioBackend,
+  FileChangeEvent,
+  KeyValueStorage,
+  Platform,
+  PlatformFileSystem,
+} from '@shard/platform'
 import { createWebAudioBackend } from '@shard/platform-web'
 import {
   exists,
+  mkdir,
+  readDir,
   readFile,
   readTextFile,
+  remove,
+  rename,
   type WatchEvent,
   watch,
   writeFile,
@@ -13,6 +23,42 @@ import {
 export interface TauriPlatformOptions {
   /** Absolute path of the project root. Project paths resolve against it. */
   projectRoot: string
+  /**
+   * Absolute folder for `storage` (saves, settings): the app data folder for the project, e.g.
+   * `<appDataDir>/<project>`. Default `<projectRoot>/.shard/user`.
+   */
+  dataDir?: string
+}
+
+/** Storage as files under `dir`, through the fs plugin. Writes land in a temp file, then rename. */
+function createTauriStorage(dir: string): KeyValueStorage {
+  const path = (key: string) => `${dir}/${key}`
+  const parent = (p: string) => p.slice(0, p.lastIndexOf('/'))
+  const walk = async (folder: string, prefix: string, out: string[]) => {
+    const entries = await readDir(folder).catch(() => [])
+    for (const e of entries) {
+      const key = prefix === '' ? e.name : `${prefix}/${e.name}`
+      if (e.isDirectory) await walk(`${folder}/${e.name}`, key, out)
+      else if (e.isFile && !e.name.endsWith('.tmp')) out.push(key)
+    }
+  }
+  return {
+    read: async (key) => ((await exists(path(key))) ? readFile(path(key)) : undefined),
+    write: async (key, data) => {
+      const target = path(key)
+      await mkdir(parent(target), { recursive: true })
+      await writeFile(`${target}.tmp`, data)
+      await rename(`${target}.tmp`, target)
+    },
+    list: async (prefix) => {
+      const out: string[] = []
+      await walk(dir, '', out)
+      return out.filter((k) => k.startsWith(prefix)).sort()
+    },
+    delete: async (key) => {
+      if (await exists(path(key))) await remove(path(key))
+    },
+  }
 }
 
 export function createTauriPlatform(options: TauriPlatformOptions): Platform {
@@ -55,11 +101,7 @@ export function createTauriPlatform(options: TauriPlatformOptions): Platform {
       return audio
     },
     fs,
-    storage: {
-      get: async (key) => localStorage.getItem(key) ?? undefined,
-      set: async (key, value) => localStorage.setItem(key, value),
-      delete: async (key) => localStorage.removeItem(key),
-    },
+    storage: createTauriStorage((options.dataDir ?? `${root}/.shard/user`).replace(/\/+$/, '')),
     clock: { now: () => performance.now() },
     log: {
       log: (level, message, data) => console[level](`[shard] ${message}`, data ?? ''),

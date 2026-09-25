@@ -79,10 +79,33 @@ export interface FileStat {
   readonly mtime: number
 }
 
+/**
+ * The player's own data: saved games and settings, kept per user rather than in the project.
+ * Keys are paths (`saves/slot1.json`, `settings.json`). Node and Tauri write files under a user
+ * data folder, browsers use IndexedDB, and headless tests use `createMemoryStorage`.
+ */
 export interface KeyValueStorage {
-  get(key: string): Promise<string | undefined>
-  set(key: string, value: string): Promise<void>
+  /** The stored bytes, or undefined if nothing is stored under the key. */
+  read(key: string): Promise<Uint8Array | undefined>
+  write(key: string, data: Uint8Array): Promise<void>
+  /** Keys that start with `prefix`, sorted. */
+  list(prefix: string): Promise<string[]>
+  /** Removes the key if it exists. */
   delete(key: string): Promise<void>
+}
+
+/** Storage that lives as long as the process: headless runs and tests. Writes are copied. */
+export function createMemoryStorage(): KeyValueStorage {
+  const data = new Map<string, Uint8Array>()
+  return {
+    read: async (key) => {
+      const bytes = data.get(key)
+      return bytes?.slice()
+    },
+    write: async (key, bytes) => void data.set(key, bytes.slice()),
+    list: async (prefix) => [...data.keys()].filter((k) => k.startsWith(prefix)).sort(),
+    delete: async (key) => void data.delete(key),
+  }
 }
 
 export interface Clock {

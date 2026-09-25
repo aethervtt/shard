@@ -20,7 +20,7 @@ export const THEME_FIELDS: Readonly<Record<string, AnyField>> = (() => {
   const out: Record<string, AnyField> = {}
   for (const [name, field] of Object.entries(UiStyle.fields)) out[name] = field
   for (const [name, field] of Object.entries(UiText.fields)) {
-    if (name !== 'text' && name !== 'key') out[name] = field
+    if (name !== 'text' && name !== 'key' && name !== 'params') out[name] = field
   }
   return out
 })()

@@ -142,7 +142,7 @@ export interface AssetInfo {
 
 export interface AssetServerOptions {
   platform: Platform
-  /** Project folders to import from. Default `["assets", "materials", "data", "prefabs"]`. */
+  /** Project folders to import from. Default `["assets", "materials", "data", "prefabs", "locales"]`. */
   roots?: readonly string[]
   /** Default `.shard/cache`. */
   cacheDir?: string
@@ -200,7 +200,7 @@ function subPath(path: string, label: string): string {
 export class AssetServer {
   readonly world: World
   private platform: Platform | undefined
-  private roots: readonly string[] = ['assets', 'materials', 'data', 'prefabs']
+  private roots: readonly string[] = ['assets', 'materials', 'data', 'prefabs', 'locales']
   private cacheDir = '.shard/cache'
   private catalogPath = '.shard/catalog.json'
   private readonly sources = new Map<string, SourceRecord>()

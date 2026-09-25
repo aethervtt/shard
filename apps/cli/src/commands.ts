@@ -34,6 +34,7 @@ import {
   validateScene,
   whenSceneReady,
 } from '@shard/scene'
+import { localizationKeysIn, validateLocalization } from '@shard/text'
 import { Hub, localTarget, type ProtocolTarget } from './hub'
 import { createMcpServer } from './mcp'
 import { EXIT, errorJson, formatError, type Output } from './output'
@@ -167,6 +168,22 @@ export async function validate({ out, project }: CommandContext): Promise<number
         report.warnings.push(`${entry.source}${w.path ? ` ${w.path}` : ''}: ${w.message}`)
     }
     const failed = new Set(scan.failed.map((f) => f.path))
+    // String tables against each other; keys used in scenes and prefabs are checked below.
+    const strings = await validateLocalization(world)
+    for (const { source, error } of strings.errors)
+      report.assets.push({ ...error.toJSON(), source })
+    const undefinedKeys = (json: unknown) =>
+      localizationKeysIn(json)
+        .filter(({ key }) => !strings.keys.has(key))
+        .map(({ key, path }) =>
+          new ShardError('locale/missing-key', `No string table defines "${key}"`, {
+            path,
+            hint:
+              strings.locales.length > 0
+                ? `Add it to locales/${strings.locales[0]}.strings.json (and the other locales: ${strings.locales.join(', ')}).`
+                : 'Add locales/en.strings.json with { "key": "text" }.',
+          }).toJSON(),
+        )
     // Handles inside data files need the whole catalog, so they're checked after the scan.
     for (const { source, errors } of await validateDataAssets(world)) {
       for (const e of errors) report.assets.push({ ...e.toJSON(), source })
@@ -176,9 +193,10 @@ export async function validate({ out, project }: CommandContext): Promise<number
       if (!entry.source || failed.has(entry.source)) continue // reported with the imports
       const json = JSON.parse(await platform.fs.readText(entry.source))
       await loadInstanceAssets(world, json)
-      report.prefabs[entry.source] = validatePrefab(world, json, { id: entry.source }).map((e) =>
-        e.toJSON(),
-      )
+      report.prefabs[entry.source] = [
+        ...validatePrefab(world, json, { id: entry.source }).map((e) => e.toJSON()),
+        ...undefinedKeys(json),
+      ]
     }
     for (const scene of await listScenes(project)) {
       let json: unknown
@@ -191,7 +209,10 @@ export async function validate({ out, project }: CommandContext): Promise<number
         continue
       }
       await loadInstanceAssets(world, json)
-      report.scenes[scene] = validateScene(world, json, { id: scene }).map((e) => e.toJSON())
+      report.scenes[scene] = [
+        ...validateScene(world, json, { id: scene }).map((e) => e.toJSON()),
+        ...undefinedKeys(json),
+      ]
     }
   }
   const problems =
@@ -583,7 +604,7 @@ export async function serve(ctx: CommandContext): Promise<number> {
     flagNumber(ctx.flags.port ?? process.env.SHARD_HUB_PORT, DEFAULT_HUB_PORT),
   )
   const headless = existsSync(join(ctx.project, 'shard.json'))
-    ? await openProject({ root: ctx.project, watch: true })
+    ? await openProject({ root: ctx.project, watch: true, userData: 'files' })
     : undefined
   const target = (): ProtocolTarget | undefined =>
     hub.current() ?? (headless ? localTarget('headless', headless.server) : undefined)
@@ -624,7 +645,7 @@ export async function serve(ctx: CommandContext): Promise<number> {
 }
 
 export async function mcp(ctx: CommandContext): Promise<number> {
-  const headless = await openProject({ root: ctx.project, watch: true })
+  const headless = await openProject({ root: ctx.project, watch: true, userData: 'files' })
   let hub: Hub | undefined
   if (ctx.flags.attach) {
     hub = new Hub()

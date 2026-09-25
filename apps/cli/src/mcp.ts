@@ -16,6 +16,8 @@ import { listScenes } from '@shard/node'
 import { physicsMethods } from '@shard/physics'
 import { ProjectMethodParams } from '@shard/project'
 import { METHODS } from '@shard/protocol'
+import { saveMethods } from '@shard/save'
+import { localeMethods } from '@shard/text'
 import { uiMethods } from '@shard/ui'
 import type { ProtocolTarget } from './hub'
 
@@ -55,6 +57,8 @@ const PLUGIN_METHODS = [
   ...audioMethods,
   ...uiMethods,
   ...navMethods,
+  ...saveMethods,
+  ...localeMethods,
 ]
 
 /** The protocol method's parameter schema, as an MCP input schema. */
@@ -394,6 +398,16 @@ export const TOOLS: Tool[] = [
     'audio_log',
     'audio.log',
     'Voices started, stopped (ended, stopped, stolen, removed), and dropped over the voice limit, by frame, with clip, entity, bus, position, gain, and pan. Pass since (a frame) for recent ones.',
+  ),
+  forward(
+    'save_game',
+    'save.write',
+    'Saves the game to a slot: what changed in each loaded scene (field by field), runtime-spawned entities (prefab instances by reference), persisted resources, RNG streams, and time. Pass json to write an edited save instead (read one with save.read, change a value, write it back: a test fixture).',
+  ),
+  forward(
+    'load_game',
+    'save.load',
+    'Loads a slot (or a save json): scenes reload from their current files, then the saved changes, spawned entities, resources, RNG streams, and time apply. Warnings list what no longer matches the scenes (save/stale-entity).',
   ),
   forward(
     'nav_path',

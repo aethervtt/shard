@@ -869,6 +869,12 @@ Brings along: `render/Mesh3d`.
 | `start` | number | `0` | ≥ 0, m | Hidden when the camera is closer than this. |
 | `end` | number | `100` | ≥ 0, m | Hidden at this distance from the camera and beyond (shadows too). |
 
+## `save/NoSave`
+
+Leaves the entity out of saved games: loading keeps it as it is (debug helpers, the session's camera rig).
+
+Tag (no fields).
+
 ## `scene/InstancePart`
 
 Set on entities a SceneInstance or PrefabInstance spawned.
@@ -980,6 +986,17 @@ A ship the player flies: steer with arrows or the left stick, thrust with W.
 | `weapon` | null or star-explorer/Weapon ref | `null` |  | The mounted weapon. |
 | `cooldown` | number | `0` | ≥ 0, s | Seconds until the weapon fires again. |
 
+## `text/Localized`
+
+Set by localization on entities whose UiText, Text, or ScreenText has a key: the translated string, shown instead of the text. Derived: never written to scenes or saves.
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `value` | string | `""` |  | The resolved string. |
+| `locale` | string | `""` |  | The locale it came from ("" if missing). |
+
 ## `text/ScreenText`
 
 Text over the finished image (after tonemapping), placed in pixels from a view corner.
@@ -988,7 +1005,9 @@ Brings along: `render/Visibility`.
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `value` | string | `""` |  | The text. "\n" breaks a line. |
+| `value` | string | `""` |  | The text. "\n" breaks a line. With a key, it shows until the key resolves. |
+| `key` | string | `""` |  | Localization key in the locales/*.strings.json tables: the text shows the current locale's string for it, and follows locale switches. |
+| `params` | any | `{}` |  | Values for the key's {name} placeholders: { "amount": 42 }. Numbers format for the locale; "n" (or "count") picks the plural form. |
 | `font` | null or Font ref | `null` |  | An imported font (.ttf, .otf). |
 | `color` | string or number[4] | `"#ffffff"` |  | Fill color (linear). |
 | `align` | `"left"` \| `"center"` \| `"right"` | `"left"` |  | Line alignment within the block. |
@@ -1010,7 +1029,9 @@ Brings along: `core/Transform`, `render/Visibility`.
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `value` | string | `""` |  | The text. "\n" breaks a line. |
+| `value` | string | `""` |  | The text. "\n" breaks a line. With a key, it shows until the key resolves. |
+| `key` | string | `""` |  | Localization key in the locales/*.strings.json tables: the text shows the current locale's string for it, and follows locale switches. |
+| `params` | any | `{}` |  | Values for the key's {name} placeholders: { "amount": 42 }. Numbers format for the locale; "n" (or "count") picks the plural form. |
 | `font` | null or Font ref | `null` |  | An imported font (.ttf, .otf). |
 | `color` | string or number[4] | `"#ffffff"` |  | Fill color (linear). |
 | `align` | `"left"` \| `"center"` \| `"right"` | `"left"` |  | Line alignment within the block. |
@@ -1193,7 +1214,8 @@ Brings along: `ui/UiNode`.
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `text` | string | `""` |  | The text. "\n" breaks a line. |
-| `key` | string | `""` |  | Localization key (0038); the text shows until it resolves. |
+| `key` | string | `""` |  | Localization key in the locales/*.strings.json tables: the node shows the current locale's string, and follows locale switches. text shows until it resolves. |
+| `params` | any | `{}` |  | Values for the key's {name} placeholders: { "amount": 42 }. Numbers format for the locale; "n" (or "count") picks the plural form. |
 | `size` | number | `16` | ≥ 0, px | Height of one em. |
 | `color` | string or number[4] | `"#ffffff"` |  | Text color (linear). |
 | `font` | null or Font ref | `null` |  | Font (null: the theme's, then UiDefaults.font). |

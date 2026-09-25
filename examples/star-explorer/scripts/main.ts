@@ -35,6 +35,11 @@ const project = defineProject({
   },
 })
 
+/** The player's own settings, kept in their settings.json (defaults: settings/defaults.json). */
+export const Settings = project.settings({
+  invertPitch: t.bool({ description: 'Up on the stick (or arrow) pitches down, like a plane.' }),
+})
+
 /** Weapon stats are data: `data/weapons/*.weapon.json`, tuned without touching code. */
 export const Weapon = project.dataAsset(
   'Weapon',
@@ -77,7 +82,8 @@ const fly = defineSystem({
   run: ({ ships }, world) => {
     const dt = world.resource(FixedTime).step
     const controls = world.resource(Controls.resource)
-    const [yaw, pitch] = controls.axis2d('steer')
+    const [yaw, steerY] = controls.axis2d('steer')
+    const pitch = world.resource(Settings).invertPitch ? -steerY : steerY
     const thrust = controls.pressed('thrust')
     for (const table of ships.tables) {
       const speed = table.column(Ship, 'speed')
@@ -146,7 +152,8 @@ function hudEntity(world: World, cached: Entity | undefined, path: string): Enti
 
 /**
  * The HUD (prefabs/hud.prefab.json): the ship's speed, the distance to the planet marker's target,
- * and the scanner toggle's label. Text is written only when the shown number changes.
+ * and the scanner toggle's label. Labels are keys in locales/*.strings.json; the speed is a
+ * parameter of its key. Text is written only when the shown number changes.
  */
 const hud = defineSystem({
   name: 'star-explorer/hud',
@@ -171,7 +178,7 @@ const hud = defineSystem({
     const shown = Math.round(speed)
     if (s.speed !== undefined && shown !== s.shownSpeed) {
       s.shownSpeed = shown
-      world.set(s.speed, UiText, { text: `${shown} m/s` })
+      world.set(s.speed, UiText, { params: { speed: shown } })
     }
     if (s.marker !== undefined && s.distance !== undefined) {
       const d = Math.round(world.get(s.marker, UiLayout).distance)
@@ -183,7 +190,7 @@ const hud = defineSystem({
     for (const e of ctx.reader(UiChanged).read()) {
       if (s.scanLabel === undefined || !world.has(e.entity, UiToggle)) continue
       const on = world.get(e.entity, UiToggle).on
-      world.set(s.scanLabel, UiText, { text: on ? 'Scanning' : 'Scan' })
+      world.set(s.scanLabel, UiText, { key: on ? 'hud.scanning' : 'hud.scan' })
     }
   },
 })

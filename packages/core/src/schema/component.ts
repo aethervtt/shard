@@ -34,6 +34,11 @@ export interface ComponentOptions {
   requires?: readonly ComponentDef[]
   /** False for derived components (computed each frame), which scene files never contain. */
   serialize?: boolean
+  /**
+   * False leaves the component out of saved games (0038) while scenes still write it: state that
+   * rebuilds itself, or that belongs to the session rather than the playthrough.
+   */
+  save?: boolean
 }
 
 export interface ComponentDef<F extends Fields = Fields> {
@@ -51,6 +56,8 @@ export interface ComponentDef<F extends Fields = Fields> {
   readonly requires: readonly ComponentDef[]
   /** Whether scene files and the protocol write this component. */
   readonly serializable: boolean
+  /** Whether saved games include it: serializable, and not `save: false`. */
+  readonly saved: boolean
   defaults(): InferFields<F>
   serialize(value: InferFields<F>): JsonObject
   /** Validates, then converts. Throws the first validation error. */
@@ -165,6 +172,7 @@ function buildSchema<const F extends Fields>(
     layout,
     requires: options.requires ?? [],
     serializable: options.serialize ?? true,
+    saved: (options.serialize ?? true) && (options.save ?? true),
     defaults: () => defaultsOf(fields),
     serialize: (value) => objectToJson(fields, value as Record<string, unknown>),
     deserialize(json, ctx) {

@@ -116,12 +116,61 @@ export class ActionState<K extends string> {
   private readonly runtime = new Map<K, ButtonRuntime>()
   /** Pressed state injected by synthetic `action` events, by action name. */
   private readonly injected = new Map<string, { pressed: boolean; value: number }>()
+  /** The bindings as defined in code. */
+  private readonly authored: Readonly<Record<K, ActionDef>>
+  /** Bindings changed at runtime (a player's rebinding), by action. */
+  private readonly rebound = new Map<K, ActionDef['bindings']>()
+  /** Increments on every rebinding, so settings can tell the map changed. */
+  version = 0
 
-  constructor(name: string, compiled: Map<K, Compiled>, context = 'game') {
+  constructor(
+    name: string,
+    compiled: Map<K, Compiled>,
+    context = 'game',
+    authored: Readonly<Record<K, ActionDef>> = {} as Record<K, ActionDef>,
+  ) {
     this.name = name
     this.context = context
     this.compiled = compiled
+    this.authored = authored
     for (const key of compiled.keys()) this.runtime.set(key, newRuntime())
+  }
+
+  /** The action's bindings now: a rebinding if there is one, else the authored ones. */
+  bindings(action: K): ActionDef['bindings'] {
+    this.rt(action)
+    return this.rebound.get(action) ?? this.authored[action]!.bindings
+  }
+
+  /**
+   * Replaces the action's bindings (a player's rebinding): `rebind('jump', ['Key:KeyJ'])`. Checked
+   * like the authored ones, so a typo throws `input/unknown-binding`. `undefined` restores the
+   * authored bindings.
+   */
+  rebind(action: K, bindings: ActionDef['bindings'] | undefined): void {
+    this.rt(action)
+    const authored = this.authored[action]!
+    if (bindings === undefined) {
+      if (!this.rebound.delete(action)) return
+      this.compiled.set(action, compile(action, authored))
+    } else {
+      const def = { ...authored, bindings } as ActionDef
+      this.compiled.set(action, compile(action, def))
+      this.rebound.set(action, bindings)
+    }
+    this.version++
+  }
+
+  /** Every rebinding, by action (empty when the map is as authored). */
+  rebindings(): Partial<Record<K, ActionDef['bindings']>> {
+    const out: Partial<Record<K, ActionDef['bindings']>> = {}
+    for (const [action, bindings] of this.rebound) out[action] = bindings
+    return out
+  }
+
+  /** The action names. */
+  actions(): K[] {
+    return [...this.compiled.keys()]
   }
 
   pressed(action: K): boolean {
@@ -461,7 +510,7 @@ export function defineActions<const A extends Record<string, ActionDef>>(
     context,
     definition,
     resource,
-    create: () => new ActionState<K>(name, new Map(compiled), context),
+    create: () => new ActionState<K>(name, new Map(compiled), context, definition),
   }
 }
 

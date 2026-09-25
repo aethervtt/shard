@@ -1117,6 +1117,20 @@ export function instanceEntities(world: World, entity: Entity): Map<string, Enti
   return out
 }
 
+/**
+ * The components a prefab instance's root got from its prefab, as JSON (entity fields as paths
+ * relative to the instance, "." for itself). Undefined for entities that aren't spawned prefab
+ * instances. Saves compare against it to write only what changed.
+ */
+export function prefabRootComponents(
+  world: World,
+  entity: Entity,
+): ReadonlyMap<string, Record<string, JsonValue>> | undefined {
+  const state = perWorld.get(world)?.states.get(entity)
+  if (!state || state.def !== PrefabInstance) return undefined
+  return canonicalOf(state.template).get(-1)
+}
+
 /** The instance entity (prefab or model) at the top of a generated entity, or the entity itself. */
 export function instanceOf(world: World, entity: Entity): Entity | undefined {
   if (perWorld.get(world)?.states.has(entity)) return entity

@@ -72,6 +72,11 @@ Every engine error is a `ShardError` with one of these codes.
 | `ik/unknown-joint` | @shard/animation | Joint fields are paths under the IK entity or an ancestor (the model root): "Armature/Hips/UpLeg_L". animation_describe on the model lists what bound. |
 | `input/unknown-action` | @shard/input | Use "<map name>.<action>", e.g. "game/Controls.jump". |
 | `input/unknown-binding` | @shard/input | Use Gamepad:LeftStick, Gamepad:RightStick, { composite: "wasd" \| "arrows" }, or { up, down, left, right }. |
+| `locale/bad-locale` | @shard/text | Name tables by BCP 47 tag: locales/en.strings.json, locales/pt-BR.strings.json (or hud.pt-BR.strings.json). |
+| `locale/bad-plural` | @shard/text | "other" is the form every locale falls back to. |
+| `locale/invalid-table` | @shard/text | Map keys to strings: { "hud.fuel": "Fuel: {amount}%" }. |
+| `locale/missing-key` | @shard/text |  |
+| `locale/param-mismatch` | @shard/text | Every locale gets the same params: use the same {placeholders} in each. |
 | `mesh/invalid` | @shard/mesh | positions/normals: 3 per vertex, uvs/uvs1: 2, colors/tangents/joints/weights: 4; indices must be < vertex count. |
 | `mesh/invalid-artifact` | @shard/mesh | Re-import the source (`shard import --force`). |
 | `nav/bad-cache` | @shard/nav |  |
@@ -86,8 +91,10 @@ Every engine error is a `ShardError` with one of these codes.
 | `physics/invalid-shape` | @shard/physics | Check radius, halfExtents, halfHeight, points, or the mesh. |
 | `physics/not-ready` | @shard/physics | Add the physics3d or physics2d plugin and await app.init() before querying. |
 | `physics/unsupported-shape` | @shard/physics | 2D shapes: ball, cuboid, capsule, convex, trimesh, heightfield, segment, polyline. |
+| `platform/bad-storage-key` | @shard/platform-node | Keys are relative paths like "saves/slot1.json". |
 | `platform/fs-not-found` | @shard/platform-node |  |
 | `platform/fs-read-only` | @shard/platform-web | Writes need a writable host such as Studio or the CLI. |
+| `platform/no-storage` | @shard/platform-web | Private browsing modes and some embedded webviews disable it. |
 | `prefab/cycle` | @shard/scene | A prefab can’t contain or extend itself, directly or through others. |
 | `prefab/duplicate-name` | @shard/scene | Rename the child, or change the generated one with "overrides" instead. |
 | `prefab/invalid` | @shard/scene | Write { "version": 1, "root": { "name": "...", "components": {...}, "children": [...] } }, or a variant with "extends". |
@@ -139,6 +146,14 @@ Every engine error is a `ShardError` with one of these codes.
 | `render/unknown-camera` | @shard/render | Pass a Camera3d entity that has rendered at least one frame. |
 | `render/unknown-material-type` | @shard/render |  |
 | `retarget/unmapped-root` | @shard/animation | Add it to the joint map (*.jointmap.json): { "joints": { "<source>": "<target>" } }. |
+| `save/bad-slot` | @shard/save | Slots are letters, digits, "-", and "_" (e.g. "slot1", "autosave"). |
+| `save/invalid` | @shard/save |  |
+| `save/invalid-settings` | @shard/save |  |
+| `save/missing-scene` | @shard/save | The scene file was moved or deleted since the save was made. |
+| `save/not-found` | @shard/save | save.list shows the saved slots. |
+| `save/stale-field` | @shard/save |  |
+| `save/unknown-settings` | @shard/save |  |
+| `save/version-mismatch` | @shard/save |  |
 | `scene/already-loaded` | @shard/scene | Use reloadScene to replace it, or pass a different id. |
 | `scene/asset-unavailable` | @shard/scene |  |
 | `scene/conflicting-fields` | @shard/scene |  |
@@ -168,6 +183,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `schema/missing-field` | @shard/core | Give a "guid", a "path", or both. |
 | `schema/missing-migration` | @shard/core |  |
 | `schema/out-of-range` | @shard/core |  |
+| `schema/persist-needs-schema` | @shard/core | Give it a schema (defineSchema) so saves can validate and migrate it. |
 | `schema/redefinition-active` | @shard/core |  |
 | `schema/type-mismatch` | @shard/assets | Give the base file by path: { "path": "data/weapons/laser.weapon.json" }. |
 | `schema/unknown-field` | @shard/ui |  |

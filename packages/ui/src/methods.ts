@@ -1,5 +1,6 @@
 import { defineSchema, type Entity, findComponent, ShardError, t, type World } from '@shard/core'
 import type { AppMethod } from '@shard/runtime'
+import { Localized } from '@shard/text'
 import {
   UI_ANCHOR_STATES,
   UI_STATES,
@@ -88,7 +89,14 @@ function describeNode(
   if (text) {
     out.text = table.has(UiTextInput)
       ? table.column(UiTextInput, 'value')[row]
-      : table.column(UiText, 'text')[row]
+      : table.has(Localized)
+        ? table.column(Localized, 'value')[row]
+        : table.column(UiText, 'text')[row]
+    const key = table.column(UiText, 'key')[row]
+    if (key) {
+      out.key = key
+      if (!table.has(Localized)) out.problem = `locale/missing-key: no string for "${key}"`
+    }
     resolveStyle(describeStyle, textColumns(table), row, r.theme, style, 0)
     out.textSize = round(describeStyle.size)
     if (!text.font) out.problem = 'no font: set UiText.font, a theme font, or UiDefaults.font'

@@ -2,6 +2,7 @@ import { Last } from '@shard/core'
 import { Gpu, Graph, RenderDescribers, RenderSet, Shaders } from '@shard/render'
 import { definePlugin } from '@shard/runtime'
 import { Fonts } from './importer'
+import { installLocalization } from './locale'
 import {
   describeText,
   prepareTexts,
@@ -19,6 +20,7 @@ export const textPlugin = definePlugin({
   dependencies: ['render/forward'],
   build(app) {
     app.world.initResource(Fonts)
+    installLocalization(app)
     app.addSystems(Last, prepareTexts.inSet(RenderSet.Prepare))
   },
   ready(app) {

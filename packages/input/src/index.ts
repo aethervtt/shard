@@ -35,6 +35,7 @@ export {
   inputPlugin,
   Keyboard,
   Mouse,
+  rebindAction,
   startRecording,
   startReplay,
   stopRecording,
