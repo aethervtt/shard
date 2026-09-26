@@ -25,6 +25,12 @@ Files: `*.png`, `*.jpg`, `*.jpeg`, `*.webp`, `*.hdr`, `*.ktx2`
 | `premultiplyAlpha` | boolean | `false` |  | Multiply color by alpha on import. |
 | `normalMap` | `"opengl"` \| `"directx"` | `"opengl"` |  | Normal maps: opengl (+Y up, the engine convention) or directx (+Y down: green is flipped on import). |
 
+## `noise`
+
+Files: `*.noise.json`
+
+No import settings.
+
 ## `prefab`
 
 Files: `*.prefab.json`

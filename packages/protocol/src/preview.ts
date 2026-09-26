@@ -198,6 +198,7 @@ export async function previewAsset(
   path: string,
   width: number,
   height: number,
+  options?: Readonly<Record<string, unknown>>,
 ): Promise<PreviewImage> {
   const entry = assetServer(world).entry(path)
   if (!entry) {
@@ -217,7 +218,7 @@ export async function previewAsset(
   }
   // Asset types from other packages (atlases, sprite clips, …) register their own.
   const custom = findAssetPreview(entry.type)
-  if (custom) return custom(world, entry.path, width, height)
+  if (custom) return custom(world, entry.path, width, height, options)
   throw new ShardError('protocol/no-preview', `${entry.type} assets have no preview`, {
     hint: 'Previews exist for textures, materials, meshes, scenes, and types that register one.',
   })

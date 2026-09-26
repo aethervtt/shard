@@ -1,6 +1,19 @@
 import * as gl from 'gl-matrix'
 import { describe, expect, it } from 'vitest'
-import { aabb, affine, affine64, frustum, mat3, mat4, quat, Rng, ray, vec3 } from '.'
+import {
+  aabb,
+  affine,
+  affine64,
+  frustum,
+  hash32,
+  hashSeed,
+  mat3,
+  mat4,
+  quat,
+  Rng,
+  ray,
+  vec3,
+} from '.'
 
 const close = (a: ArrayLike<number>, b: ArrayLike<number>, digits = 5) => {
   expect(a.length).toBe(b.length)
@@ -279,6 +292,18 @@ describe('Rng', () => {
       Array.from({ length: 5 }, () => fb.float()),
     )
     expect(a.fork('terrain').float()).not.toBe(a.fork('props').float())
+  })
+
+  it('forks with hashSeed, and numeric labels hash as bytes', () => {
+    expect(new Rng(99).fork('terrain').seed).toBe(hashSeed(99, 'terrain'))
+    // The value fork has always produced for this seed and label (kept across the refactor).
+    expect(hashSeed(99, 'terrain')).toBe(568329866)
+    expect(hashSeed(7, 1)).not.toBe(hashSeed(7, 2))
+    expect(hashSeed(7, 1)).not.toBe(hashSeed(8, 1))
+    expect(hashSeed(7, 1)).toBeGreaterThanOrEqual(0)
+    expect(hash32(1, 2, 3, 4)).toBe(hash32(1, 2, 3, 4, 0))
+    expect(hash32(1, 2, 3, 4)).not.toBe(hash32(1, 2, 3, 5))
+    expect(hash32(-5 >>> 0, -1, -2)).toBeGreaterThanOrEqual(0)
   })
 })
 

@@ -1,0 +1,22 @@
+{
+  "$schema": "../../.shard/schemas/noise.schema.json",
+  "description": "Planet height on the unit sphere: continents, ridged mountains masked to land, and a warp so ridges bend.",
+  "output": "height",
+  "extent": 1,
+  "nodes": {
+    "continents": {
+      "fbm": {
+        "source": "simplex",
+        "octaves": 5,
+        "frequency": 0.8,
+        "gain": 0.5,
+        "lacunarity": 2.0,
+        "seed": 1
+      }
+    },
+    "mountains": { "ridged": { "source": "simplex", "octaves": 6, "frequency": 3.2, "seed": 2 } },
+    "mask": { "remap": { "input": "continents", "from": [0.1, 0.4], "to": [0, 1], "clamp": true } },
+    "warped": { "warp": { "input": "mountains", "by": "continents", "amount": 0.15 } },
+    "height": { "add": ["continents", { "multiply": ["warped", "mask"] }] }
+  }
+}

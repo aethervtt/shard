@@ -1074,11 +1074,15 @@ export const METHODS: MethodDef[] = [
   {
     name: 'asset.preview',
     description:
-      'A PNG of an asset: a texture (top mip), a material on a sphere, or a mesh or scene framed from its bounds. Renders in a private world; the game is untouched.',
+      'A PNG of an asset: a texture (top mip), a material on a sphere, a mesh or scene framed from its bounds, or a noise graph in grayscale (options: domain plane|sphere, seed, size, node to see an intermediate node). Renders in a private world; the game is untouched.',
     params: s('AssetPreviewParams', {
       asset: t.string({ required: true, description: 'Asset path or guid.' }),
       width: t.u32({ default: 256, min: 16, max: 2048 }),
       height: t.u32({ default: 256, min: 16, max: 2048 }),
+      options: t.json({
+        description:
+          'Type-specific options. NoiseGraph: { domain: "plane" | "sphere", seed, size, node }.',
+      }),
     }),
     handler: async ({ world }, p) => {
       const image = await previewAsset(
@@ -1086,6 +1090,7 @@ export const METHODS: MethodDef[] = [
         p.asset as string,
         p.width as number,
         p.height as number,
+        (p.options as Record<string, unknown> | null | undefined) ?? undefined,
       )
       const png = await encodePng(image.data, image.width, image.height)
       return { width: image.width, height: image.height, data: toBase64(png) }

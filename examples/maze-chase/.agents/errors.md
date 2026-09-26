@@ -85,6 +85,22 @@ Every engine error is a `ShardError` with one of these codes.
 | `nav/no-navmesh` | @shard/nav | Check nav.describe: the grid may be waiting for data, or the navmesh for sources. |
 | `nav/not-ready` | @shard/nav | Add the nav plugin (or nav/grid for grids only) and await app.init(). |
 | `nav/out-of-bounds` | @shard/nav | nav.describe lists each grid and navmesh with its bounds. |
+| `noise/arity` | @shard/noise | Give it two or more inputs: node names, inline nodes, or numbers, e.g. ["a", "b"]. |
+| `noise/cycle` | @shard/noise | A node can’t depend on itself; break the loop with a separate node. |
+| `noise/domain-mismatch` | @shard/noise | Set "dimensions": 4 on the graph and sample it with a w coordinate, or use dims 3. |
+| `noise/frequency-too-high` | @shard/noise | Lower the frequency or octaves: features that fine are invisible anywhere they apply at this extent. |
+| `noise/invalid-graph` | @shard/noise | Start from { "output": "height", "nodes": { … } }. |
+| `noise/invalid-node` | @shard/noise | For example { "fbm": { "octaves": 5 } }. |
+| `noise/invalid-param` | @shard/noise | Check the parameter against .shard/schemas/noise.schema.json. |
+| `noise/kernel-load-failed` | @shard/noise | The .wasm files live in packages/noise/wasm; the dev server must serve them. |
+| `noise/kernel-not-loaded` | @shard/noise | await loadNoiseKernel() (or load a NoiseGraph asset, which does) before sampling synchronously. |
+| `noise/not-a-graph` | @shard/noise | asset.list shows NoiseGraph assets (*.noise.json). |
+| `noise/not-loaded` | @shard/noise | asset.status shows why. |
+| `noise/out-too-small` | @shard/noise | Size out to one value per point (resolution² for patches, nx × ny for grids). |
+| `noise/too-many-octaves` | @shard/noise | Past 16 octaves the extra detail is below a pixel anywhere; raise frequency instead. |
+| `noise/too-many-points` | @shard/noise | Split the points over several calls, or use noise.stats for a summary of a whole domain. |
+| `noise/unknown-node` | @shard/noise |  |
+| `noise/unknown-type` | @shard/noise | Types: value, perlin, simplex, cellular, fbm, ridged, billow, add, multiply, min, max, lerp, select, remap, clamp, curve, terrace, abs, power, constant, warp, scale, translate. |
 | `particles/invalid-effect` | @shard/particles |  |
 | `physics/both-dimensions` | @shard/physics | Enable one physics plugin per app: physics3d for 3D games, physics2d for 2D. |
 | `physics/character-has-body` | @shard/physics | The controller makes its own kinematic body and capsule. Remove RigidBody and Collider, or put extra colliders on a child. |
@@ -95,6 +111,9 @@ Every engine error is a `ShardError` with one of these codes.
 | `platform/fs-not-found` | @shard/platform-node |  |
 | `platform/fs-read-only` | @shard/platform-web | Writes need a writable host such as Studio or the CLI. |
 | `platform/no-storage` | @shard/platform-web | Private browsing modes and some embedded webviews disable it. |
+| `platform/worker-crashed` | @shard/platform | The pool started a replacement; the job can be retried. |
+| `platform/worker-no-export` | @shard/platform | Worker functions are named exports of the module passed to run(). |
+| `platform/workers-disposed` | @shard/platform |  |
 | `prefab/cycle` | @shard/scene | A prefab can’t contain or extend itself, directly or through others. |
 | `prefab/duplicate-name` | @shard/scene | Rename the child, or change the generated one with "overrides" instead. |
 | `prefab/invalid` | @shard/scene | Write { "version": 1, "root": { "name": "...", "components": {...}, "children": [...] } }, or a variant with "extends". |
@@ -138,10 +157,12 @@ Every engine error is a `ShardError` with one of these codes.
 | `render/duplicate-node` | @shard/render |  |
 | `render/graph-cycle` | @shard/render | Check reads/writes and `after` on these nodes. |
 | `render/material-field-clash` | @shard/render | Give the field another name, or use extends: "none". |
+| `render/material-noise-name` | @shard/render | Use lowercase letters, digits, and underscores: { detail: "assets/noise/rock.noise.json" }. |
 | `render/material-standard-missing` | @shard/render |  |
 | `render/missing-resource` | @shard/render | Declare it in a node's `writes` (as a transient texture) or with graph.declare. |
 | `render/no-shadow-map` | @shard/render | Set shadows: true on the light, and check render.describe for the shadow budget. |
 | `render/no-view` | @shard/render | Spawn an entity with Camera3d, or pass the camera to pick from. |
+| `render/noise-graph-missing` | @shard/render | noise paths name *.noise.json assets, e.g. { detail: "assets/noise/rock.noise.json" }. |
 | `render/not-ready` | @shard/render | Await app.init() so the render plugin can create the GPU device. |
 | `render/too-many-joints` | @shard/gltf | Split the mesh, or remove helper bones before exporting. |
 | `render/unknown-buffer` | @shard/render |  |

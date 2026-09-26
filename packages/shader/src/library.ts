@@ -43,6 +43,9 @@ interface VariantState {
   pending: string | undefined
   /** Library version this variant was last built against. */
   version: number
+  /** What it was last requested with, so a change can rebuild it before the next request. */
+  gpu: GpuContext | undefined
+  request: LinkRequest | undefined
 }
 
 const PATH = /^[a-z_][a-z0-9_]*(::[a-z_][a-z0-9_]*)+$/
@@ -91,6 +94,27 @@ export class ShaderLibrary {
     this.version++
     this.linkCache.clear()
     for (const listener of this.listeners) listener([path])
+    this.scheduleRebuild()
+  }
+
+  private rebuildScheduled = false
+
+  /**
+   * After a change, rebuilds every variant already in use at once (in a microtask, so a batch of
+   * registrations rebuilds once), instead of waiting for its next `module()` call: an edited
+   * shader has usually compiled by the frame that draws it.
+   */
+  private scheduleRebuild(): void {
+    if (this.rebuildScheduled || this.variants.size === 0) return
+    this.rebuildScheduled = true
+    queueMicrotask(() => {
+      this.rebuildScheduled = false
+      for (const s of this.variants.values()) {
+        if (s.gpu && s.request && s.version !== this.version && s.pending === undefined) {
+          this.rebuild(s.gpu, s.request, s)
+        }
+      }
+    })
   }
 
   has(path: string): boolean {
@@ -177,45 +201,48 @@ export class ShaderLibrary {
     const key = variantKey(request)
     let state = this.variants.get(key)
     if (!state) {
-      state = { good: undefined, pending: undefined, version: -1 }
+      state = { good: undefined, pending: undefined, version: -1, gpu, request }
       this.variants.set(key, state)
     }
     const s = state
-    if (s.version !== this.version && s.pending === undefined) {
-      s.version = this.version
-      s.pending = 'linking'
-      this.link(request).then(
-        async (linked) => {
-          if (s.good?.code !== linked.code) {
-            s.pending = linked.code
-            const error = await compile(gpu, linked)
-            if (error) gpu.reportError(labelled(error, request.label))
-            else
-              s.good = {
-                code: linked.code,
-                module: moduleFor(gpu, linked),
-                linked,
-                generation: gpu.generation,
-              }
-          }
-          s.pending = undefined
-        },
-        (err: unknown) => {
-          gpu.reportError(
-            labelled(
-              err instanceof ShardError ? err : new ShardError('shader/link', String(err)),
-              request.label,
-            ),
-          )
-          s.pending = undefined
-        },
-      )
-    }
+    s.gpu = gpu
+    if (s.version !== this.version && s.pending === undefined) this.rebuild(gpu, request, s)
     // After device loss the old module belongs to a dead device; rebuild it from the linked code.
     if (s.good && s.good.generation !== gpu.generation) {
       s.good = { ...s.good, module: moduleFor(gpu, s.good.linked), generation: gpu.generation }
     }
     return s.good?.module
+  }
+
+  private rebuild(gpu: GpuContext, request: LinkRequest, s: VariantState): void {
+    s.version = this.version
+    s.pending = 'linking'
+    this.link(request).then(
+      async (linked) => {
+        if (s.good?.code !== linked.code) {
+          s.pending = linked.code
+          const error = await compile(gpu, linked)
+          if (error) gpu.reportError(labelled(error, request.label))
+          else
+            s.good = {
+              code: linked.code,
+              module: moduleFor(gpu, linked),
+              linked,
+              generation: gpu.generation,
+            }
+        }
+        s.pending = undefined
+      },
+      (err: unknown) => {
+        gpu.reportError(
+          labelled(
+            err instanceof ShardError ? err : new ShardError('shader/link', String(err)),
+            request.label,
+          ),
+        )
+        s.pending = undefined
+      },
+    )
   }
 
   /** Waits until every variant requested through `module()` has finished compiling. */

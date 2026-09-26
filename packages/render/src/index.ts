@@ -170,11 +170,20 @@ export {
   defineMaterial,
   findMaterialType,
   isTransparent,
+  type MaterialNoiseSlot,
   MaterialType,
   type MaterialTypeOptions,
   materialModulePath,
   onMaterialTypeChange,
 } from './materials'
+export {
+  materialNoise,
+  NoiseCompute,
+  type NoiseComputeDomain,
+  type NoiseComputeNodeOptions,
+  type NoiseComputeRequest,
+  noiseComputeNode,
+} from './noise'
 export {
   DebugOverlays,
   type DebugOverlaysValue,

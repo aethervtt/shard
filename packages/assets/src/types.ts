@@ -181,12 +181,16 @@ export interface PreviewImage {
   data: Uint8Array
 }
 
-/** Makes a picture of an asset of one type (`asset.preview`), fitting width × height. */
+/**
+ * Makes a picture of an asset of one type (`asset.preview`), fitting width × height. `options` are
+ * the request's type-specific options (a noise graph's domain and seed, say).
+ */
 export type AssetPreview = (
   world: World,
   path: string,
   width: number,
   height: number,
+  options?: Readonly<Record<string, unknown>>,
 ) => Promise<PreviewImage>
 
 const previews = new Map<string, AssetPreview>()

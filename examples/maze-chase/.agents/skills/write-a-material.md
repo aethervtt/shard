@@ -39,7 +39,9 @@ keep working because the shader only changes the surface.
    every pass, shadows included), `pbr_input(in) -> PbrInput` (the surface), and
    `fragment_output(color) -> vec4f` (pre-exposed HDR, before tonemapping). With
    `extends: 'none'`, override `shade(in) -> vec4f` instead: it returns radiance in cd/m² and
-   alpha, and no lighting runs.
+   alpha, and no lighting runs. `noise: { detail: 'assets/noise/rock.noise.json' }` in the
+   definition adds `noise_detail(p: vec3f, seed: u32) -> f32` to `material::lava` (see
+   make-a-noise-graph.md).
 
 3. Use it in a material file: `{ "type": "maze-chase/Lava", "crackLuminance": 30000,
    "cracks": { "path": "assets/cracks.png" } }`. Leaving out `"type"` means the standard material.

@@ -1,13 +1,16 @@
 import { ShardError } from '@shard/core'
-import type { AudioBackend, Platform, PlatformFileSystem } from '@shard/platform'
+import type { AudioBackend, Platform, PlatformFileSystem, Workers } from '@shard/platform'
 import { createWebAudioBackend } from './audio'
 import { createIndexedDbStorage } from './storage'
+import { createWebWorkers } from './workers'
 
 export interface WebPlatformOptions {
   /** Base URL that project paths resolve against. Defaults to the document base. */
   baseUrl?: string
   /** IndexedDB database for `storage` (saves, settings). Default `shard`. */
   storageName?: string
+  /** Web workers for `workers` (made on first use). 0 runs jobs inline. Default: cores − 1, 1 to 8. */
+  workers?: number
 }
 
 export function createWebPlatform(options: WebPlatformOptions = {}): Platform {
@@ -40,8 +43,13 @@ export function createWebPlatform(options: WebPlatformOptions = {}): Platform {
   }
 
   let audio: AudioBackend | undefined
+  let workers: Workers | undefined
   return {
     name: 'web',
+    get workers() {
+      workers ??= createWebWorkers(options.workers)
+      return workers
+    },
     // Made on first use, so pages that never play sound don't open an AudioContext.
     get audio() {
       audio ??= createWebAudioBackend()
@@ -59,3 +67,4 @@ export function createWebPlatform(options: WebPlatformOptions = {}): Platform {
 export { createWebAudioBackend, type WebAudioBackend } from './audio'
 export { createDomInputSource } from './input'
 export { createIndexedDbStorage } from './storage'
+export { createWebWorkers } from './workers'

@@ -16,6 +16,7 @@
     "@shard/core": "workspace:*",
     "@shard/gpu": "workspace:*",
     "@shard/mesh": "workspace:*",
+    "@shard/noise": "workspace:*",
     "@shard/runtime": "workspace:*",
     "@shard/shader": "workspace:*",
     "@shard/texture": "workspace:*",

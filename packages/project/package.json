@@ -19,6 +19,7 @@
     "@shard/gpu": "workspace:*",
     "@shard/input": "workspace:*",
     "@shard/nav": "workspace:*",
+    "@shard/noise": "workspace:*",
     "@shard/particles": "workspace:*",
     "@shard/physics": "workspace:*",
     "@shard/platform": "workspace:*",

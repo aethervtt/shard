@@ -31,6 +31,7 @@ import { ikDemoPlugin } from './ik'
 import { lightsPlugin } from './lights'
 import { lights2dDemoPlugin } from './lights2d'
 import { nav2dDemoPlugin, navDemoPlugin } from './nav'
+import { noiseDemoPlugin } from './noise'
 import { particlesDemoPlugin } from './particles'
 import { physics2dDemoPlugin, physicsDemoPlugin, planetDemoPlugin } from './physics'
 import { postPlugin } from './post'
@@ -71,6 +72,7 @@ const DEMOS = [
   'save',
   'lights2d',
   'grids',
+  'noise',
 ] as const
 const demo = DEMOS.find((d) => location.hash === `#${d}`) ?? 'scene'
 document.body.dataset.demo = demo
@@ -205,6 +207,8 @@ if (demo === 'galaxy') {
   )
 } else if (demo === 'grids') {
   app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, gridsDemoPlugin)
+} else if (demo === 'noise') {
+  app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, noiseDemoPlugin)
 } else if (demo === 'sky') {
   app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, skyPlugin)
 } else {

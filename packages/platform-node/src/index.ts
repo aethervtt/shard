@@ -2,7 +2,10 @@ import { watch as fsWatch } from 'node:fs'
 import { access, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
 import { ShardError } from '@shard/core'
-import type { FileChangeEvent, KeyValueStorage, Platform } from '@shard/platform'
+import type { FileChangeEvent, KeyValueStorage, Platform, Workers } from '@shard/platform'
+import { createNodeWorkers } from './workers'
+
+export { createNodeWorkers } from './workers'
 
 /**
  * Storage as files under `dir`: `saves/slot1.json` is `<dir>/saves/slot1.json`. Writes go to a
@@ -62,6 +65,8 @@ export interface NodePlatformOptions {
    * runs and tests never touch a player's own saves; relative paths resolve against `root`.
    */
   dataDir?: string
+  /** Worker threads for `workers` (made on first use). 0 runs jobs inline. Default: cores − 1, 1 to 8. */
+  workers?: number
 }
 
 /** The platform for Node hosts: the CLI, headless runs, MCP, and gameplay tests. */
@@ -71,9 +76,14 @@ export function createNodePlatform(options: NodePlatformOptions): Platform {
   const rel = (path: string) => relative(root, path).split('\\').join('/')
   const dataDir = resolve(root, options.dataDir ?? '.shard/user')
   const write = options.logTo ?? ((line: string) => process.stderr.write(`${line}\n`))
+  let workers: Workers | undefined
 
   return {
     name: 'node',
+    get workers() {
+      workers ??= createNodeWorkers(options.workers)
+      return workers
+    },
     fs: {
       writable: true,
       readText: async (path) => {

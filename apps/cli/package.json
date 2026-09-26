@@ -21,6 +21,7 @@
     "@shard/core": "workspace:*",
     "@shard/nav": "workspace:*",
     "@shard/node": "workspace:*",
+    "@shard/noise": "workspace:*",
     "@shard/physics": "workspace:*",
     "@shard/platform-node": "workspace:*",
     "@shard/platform-web": "workspace:*",

@@ -28,7 +28,19 @@ export interface MaterialTypeOptions<F extends Fields> {
   blend?: BlendMode
   /** The shader module with the hook overrides, e.g. `project::lava` (`shaders/lava.wesl`). */
   shader?: string
+  /**
+   * Noise graphs the shader calls, by name: `{ detail: 'assets/noise/rock.noise.json' }` makes
+   * `noise_detail(p: vec3f, seed: u32) -> f32` available in `material::<name>`. The graph is
+   * code, so it's chosen per type; editing the file relinks the material.
+   */
+  noise?: Readonly<Record<string, string>>
   description?: string
+}
+
+/** A material type's noise slot: `noise_<name>` calls the graph at `path`. */
+export interface MaterialNoiseSlot {
+  readonly name: string
+  readonly path: string
 }
 
 /** Bindings of the standard material in group 1; a type's own bindings follow. */
@@ -61,6 +73,8 @@ export class MaterialType {
   textures: string[]
   blend: BlendMode | undefined
   shader: string | undefined
+  /** Noise graphs the module wraps as `noise_<name>`. */
+  noise: MaterialNoiseSlot[]
   description: string
   /** Increments on every redefinition, so GPU state and pipelines rebuild. */
   version = 0
@@ -79,6 +93,7 @@ export class MaterialType {
     this.textures = []
     this.blend = options.blend
     this.shader = options.shader
+    this.noise = []
     this.description = options.description ?? ''
     this.assign(options, schema)
   }
@@ -97,6 +112,18 @@ export class MaterialType {
     this.textures = textures
     this.blend = options.blend
     this.shader = options.shader
+    this.noise = Object.entries(options.noise ?? {}).map(([name, path]) => {
+      if (!/^[a-z_][a-z0-9_]*$/.test(name)) {
+        throw new ShardError(
+          'render/material-noise-name',
+          `Noise slot "${name}" of ${this.name} isn't a WGSL name`,
+          {
+            hint: 'Use lowercase letters, digits, and underscores: { detail: "assets/noise/rock.noise.json" }.',
+          },
+        )
+      }
+      return { name, path }
+    })
     this.description = options.description ?? ''
     this.layout =
       Object.keys(numeric).length > 0
@@ -129,8 +156,11 @@ export class MaterialType {
     return this.standard && !isTransparent(this.blendOf(value))
   }
 
-  /** The generated `material::<name>` module: uniform struct and bindings. */
-  moduleSource(): string {
+  /**
+   * The generated `material::<name>` module: uniform struct and bindings, then `noise` (the noise
+   * slots' wrappers, once their graphs load).
+   */
+  moduleSource(noise = ''): string {
     const lines: string[] = []
     let binding = this.bindingBase
     if (this.layout) {
@@ -149,6 +179,7 @@ export class MaterialType {
       // WESL needs something to import; a constant keeps the module non-empty.
       lines.push(`const ${this.varName}_fields: u32 = 0u;`)
     }
+    if (noise) lines.push(noise)
     return `// Generated from the ${this.name} schema. Don't edit: change the material definition.\n${lines.join('\n')}\n`
   }
 

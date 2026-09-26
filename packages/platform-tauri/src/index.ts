@@ -4,8 +4,9 @@ import type {
   KeyValueStorage,
   Platform,
   PlatformFileSystem,
+  Workers,
 } from '@shard/platform'
-import { createWebAudioBackend } from '@shard/platform-web'
+import { createWebAudioBackend, createWebWorkers } from '@shard/platform-web'
 import {
   exists,
   mkdir,
@@ -93,8 +94,14 @@ export function createTauriPlatform(options: TauriPlatformOptions): Platform {
   }
 
   let audio: AudioBackend | undefined
+  let workers: Workers | undefined
   return {
     name: 'tauri',
+    // Web workers in the webview; made on first use.
+    get workers() {
+      workers ??= createWebWorkers()
+      return workers
+    },
     // The webview has Web Audio; made on first use.
     get audio() {
       audio ??= createWebAudioBackend()

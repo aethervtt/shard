@@ -1,4 +1,5 @@
 import type { ShardError } from '@shard/core'
+import type { Workers } from './workers'
 
 /**
  * Everything the engine needs from its host. The engine only talks to this interface;
@@ -12,7 +13,14 @@ export interface Platform {
   readonly log: Logger
   /** Where sound goes: Web Audio in a browser or webview. Absent when headless (the audio plugin records voices instead). */
   readonly audio?: AudioBackend
+  /**
+   * Background threads: web workers in a browser or webview, `worker_threads` in Node. Made on
+   * first use. Absent on hosts without threads; `workersOf` falls back to running jobs inline.
+   */
+  readonly workers?: Workers
 }
+
+export * from './workers'
 
 export type MouseButton = 'left' | 'middle' | 'right' | 'back' | 'forward'
 

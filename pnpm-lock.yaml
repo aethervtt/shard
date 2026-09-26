@@ -44,6 +44,9 @@ importers:
       '@shard/node':
         specifier: workspace:*
         version: link:../../packages/node
+      '@shard/noise':
+        specifier: workspace:*
+        version: link:../../packages/noise
       '@shard/physics':
         specifier: workspace:*
         version: link:../../packages/physics
@@ -135,6 +138,9 @@ importers:
       '@shard/nav':
         specifier: workspace:*
         version: link:../../packages/nav
+      '@shard/noise':
+        specifier: workspace:*
+        version: link:../../packages/noise
       '@shard/particles':
         specifier: workspace:*
         version: link:../../packages/particles
@@ -597,6 +603,40 @@ importers:
         specifier: ^0.1.74
         version: 0.1.74
 
+  packages/noise:
+    dependencies:
+      '@shard/assets':
+        specifier: workspace:*
+        version: link:../assets
+      '@shard/core':
+        specifier: workspace:*
+        version: link:../core
+      '@shard/gpu':
+        specifier: workspace:*
+        version: link:../gpu
+      '@shard/platform':
+        specifier: workspace:*
+        version: link:../platform
+      '@shard/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@shard/shader':
+        specifier: workspace:*
+        version: link:../shader
+    devDependencies:
+      '@shard/platform-node':
+        specifier: workspace:*
+        version: link:../platform-node
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+      '@webgpu/types':
+        specifier: ^0.1.74
+        version: 0.1.74
+      webgpu:
+        specifier: 0.6.1
+        version: 0.6.1
+
   packages/particles:
     dependencies:
       '@shard/assets':
@@ -761,6 +801,9 @@ importers:
       '@shard/nav':
         specifier: workspace:*
         version: link:../nav
+      '@shard/noise':
+        specifier: workspace:*
+        version: link:../noise
       '@shard/particles':
         specifier: workspace:*
         version: link:../particles
@@ -853,6 +896,9 @@ importers:
       '@shard/mesh':
         specifier: workspace:*
         version: link:../mesh
+      '@shard/noise':
+        specifier: workspace:*
+        version: link:../noise
       '@shard/platform-node':
         specifier: workspace:*
         version: link:../platform-node
@@ -886,6 +932,9 @@ importers:
       '@shard/mesh':
         specifier: workspace:*
         version: link:../mesh
+      '@shard/noise':
+        specifier: workspace:*
+        version: link:../noise
       '@shard/runtime':
         specifier: workspace:*
         version: link:../runtime

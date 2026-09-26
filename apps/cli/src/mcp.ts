@@ -13,6 +13,7 @@ import { audioMethods } from '@shard/audio'
 import { allComponents, findComponent, type JsonSchema, ShardError } from '@shard/core'
 import { navMethods } from '@shard/nav'
 import { listScenes } from '@shard/node'
+import { noiseMethods } from '@shard/noise'
 import { physicsMethods } from '@shard/physics'
 import { ProjectMethodParams } from '@shard/project'
 import { METHODS } from '@shard/protocol'
@@ -59,6 +60,7 @@ const PLUGIN_METHODS = [
   ...navMethods,
   ...saveMethods,
   ...localeMethods,
+  ...noiseMethods,
 ]
 
 /** The protocol method's parameter schema, as an MCP input schema. */
@@ -308,7 +310,7 @@ export const TOOLS: Tool[] = [
   {
     name: 'preview_asset',
     description:
-      'Shows an asset as an image: a texture, a material on a sphere, or a mesh or model framed from its bounds. Use it to look at a model before placing it, or at a material after changing it. Example: { "asset": "assets/ship.glb#Scene" }.',
+      'Shows an asset as an image: a texture, a material on a sphere, a mesh or model framed from its bounds, or a noise graph in grayscale. Use it to look at a model before placing it, or at a material after changing it. Example: { "asset": "assets/ship.glb#Scene" }.',
     inputSchema: paramsSchema('asset.preview'),
     run: async (ctx, args) => {
       const shot = await ctx
@@ -322,6 +324,53 @@ export const TOOLS: Tool[] = [
       }
     },
   },
+  {
+    name: 'preview_noise',
+    description:
+      'Shows a noise graph (*.noise.json) in grayscale, black at its minimum and white at its maximum, on a plane or on a sphere. `node` shows one intermediate node on its own (a mask, a layer). Example: { "graph": "assets/noise/planet.noise.json", "domain": "sphere", "node": "mask" }.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        graph: { type: 'string', description: 'NoiseGraph asset path or guid.' },
+        domain: { enum: ['plane', 'sphere'], default: 'plane' },
+        seed: { type: 'integer', minimum: 0, default: 0 },
+        size: { type: 'integer', minimum: 16, maximum: 2048, default: 256 },
+        node: { type: 'string', description: 'Preview this node instead of the output.' },
+      },
+      required: ['graph'],
+    },
+    run: async (ctx, args) => {
+      const { graph, ...options } = args
+      const size = (options.size as number | undefined) ?? 256
+      const shot = await ctx
+        .target()
+        .request<{ data: string; width: number; height: number }>('asset.preview', {
+          asset: graph,
+          width: size,
+          height: size,
+          options,
+        })
+      return {
+        content: [
+          { type: 'image', data: shot.data, mimeType: 'image/png' },
+          {
+            type: 'text',
+            text: `${graph}${options.node ? ` (${options.node})` : ''} (${shot.width}×${shot.height})`,
+          },
+        ],
+      }
+    },
+  },
+  forward(
+    'sample_noise',
+    'noise.sample',
+    'Exact values of a noise graph at up to 4096 points. `graph` is an asset path or inline graph JSON (try an edit before saving it); `origin` makes points offsets from an f64 origin (precise on a planet\'s surface). Example: { "graph": "assets/noise/planet.noise.json", "seed": 7, "points": [[0, 0, 0], [0.5, 0, 0]] }.',
+  ),
+  forward(
+    'noise_stats',
+    'noise.stats',
+    'Summarizes a noise graph over a plane or sphere: min, max, mean, stdDev, a histogram, and the area fraction below each threshold. Use it to check coverage numerically, e.g. { "graph": "assets/noise/planet.noise.json", "domain": "sphere", "thresholds": [0] } for how much of the planet is under sea level.',
+  ),
   forward(
     'measure_text',
     'text.measure',

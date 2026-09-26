@@ -7,6 +7,8 @@ import '@shard/gltf'
 import { inputPlugin } from '@shard/input'
 // Also registers the navgrid importer and the NavGridData asset type for every project host.
 import { loadNavCache, Nav, navGridPlugin, navPlugin } from '@shard/nav'
+// Also registers the noise importer and the NoiseGraph asset type for every project host.
+import { noisePlugin } from '@shard/noise'
 import { particlesPlugin } from '@shard/particles'
 import { physics2dPlugin, physics3dPlugin } from '@shard/physics'
 import type { AudioBackend, InputSource, Platform } from '@shard/platform'
@@ -79,6 +81,8 @@ export function buildApp(options: BuildAppOptions): App {
   if (names.has('ui')) app.addPlugin(uiPlugin)
   if (names.has('nav')) app.addPlugin(navPlugin)
   else if (names.has('nav/grid')) app.addPlugin(navGridPlugin)
+  // noise.sample and noise.stats, whatever the manifest says: graphs are data every project can use.
+  app.addPlugin(noisePlugin)
   app.addPlugin(ScenePlugin)
   app.addPlugin(
     savePlugin({

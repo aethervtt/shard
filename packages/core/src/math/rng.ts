@@ -1,12 +1,4 @@
-/** 32-bit FNV-1a, for turning fork labels into seeds. */
-function hashString(s: string): number {
-  let h = 0x811c9dc5
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i)
-    h = Math.imul(h, 0x01000193)
-  }
-  return h >>> 0
-}
+import { hashSeed } from './hash'
 
 /** splitmix32: spreads one seed into well-mixed state words. */
 function splitmix32(state: { s: number }): number {
@@ -86,7 +78,7 @@ export class Rng {
    * many numbers this generator has produced, so adding draws elsewhere never changes a fork.
    */
   fork(label: string): Rng {
-    return new Rng(Math.imul(this.seed ^ hashString(label), 0x9e3779b1) ^ hashString(`${label}#`))
+    return new Rng(hashSeed(this.seed, label))
   }
 
   /**

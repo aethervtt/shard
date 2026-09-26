@@ -1,0 +1,27 @@
+{
+  "name": "@shard/noise",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@shard/assets": "workspace:*",
+    "@shard/core": "workspace:*",
+    "@shard/gpu": "workspace:*",
+    "@shard/platform": "workspace:*",
+    "@shard/runtime": "workspace:*",
+    "@shard/shader": "workspace:*"
+  },
+  "devDependencies": {
+    "@shard/platform-node": "workspace:*",
+    "@types/node": "^26.6.2",
+    "@webgpu/types": "^0.1.74",
+    "webgpu": "0.6.1"
+  }
+}
