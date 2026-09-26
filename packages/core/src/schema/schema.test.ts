@@ -375,3 +375,23 @@ describe('f32 serialization', () => {
     }
   })
 })
+
+describe('t.ivec3', () => {
+  const Cell = defineComponent('test/IVec3Cell', { cell: t.ivec3 })
+
+  it('stores three i32 values and round-trips JSON', () => {
+    expect(Cell.layout[0]).toMatchObject({ storage: 'i32', stride: 3 })
+    const value = Cell.deserialize({ cell: [2_000_000_000, -7, 0] })
+    expect(value.cell).toEqual([2_000_000_000, -7, 0])
+    expect(Cell.serialize(value)).toEqual({ cell: [2_000_000_000, -7, 0] })
+  })
+
+  it('rejects fractions and values beyond i32', () => {
+    expect(Cell.validate({ cell: [1.5, 0, 0] })[0]?.code).toBe('schema/type-mismatch')
+    expect(Cell.validate({ cell: [2 ** 31, 0, 0] })[0]?.code).toBe('schema/out-of-range')
+    expect(Cell.validate({ cell: [0, 0] })[0]?.code).toBe('schema/type-mismatch')
+    expect(Cell.jsonSchema().properties).toMatchObject({
+      cell: { type: 'array', items: { type: 'integer' }, minItems: 3 },
+    })
+  })
+})

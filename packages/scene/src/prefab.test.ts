@@ -6,7 +6,7 @@ import { ChildOf, Commands, defineComponent, type Entity, t, World } from '@shar
 import { createNodePlatform } from '@shard/platform-node'
 import { Materials, Mesh3d, Meshes, MeshMaterial } from '@shard/render'
 import { App, Log, LogResource } from '@shard/runtime'
-import { Transform } from '@shard/transform'
+import { GridCell, Transform } from '@shard/transform'
 import { afterAll, describe, expect, it } from 'vitest'
 import { InstancePart, PrefabInstance } from './components'
 import type { SceneFile } from './format'
@@ -186,6 +186,45 @@ describe('instances', () => {
     w.set(at(w, 'player-ship/Exhaust'), Thruster, { power: 1 })
     const o = currentOverrides(w, at(w, 'player-ship'))!
     expect(o.Exhaust).toBeUndefined()
+  })
+
+  it('diffs and applies integer grid cells in overrides (spec 0040)', () => {
+    const w = world()
+    const STATION = 'prefabs/station.prefab.json'
+    const station = {
+      version: 1,
+      root: {
+        name: 'station',
+        components: {
+          'transform/Grid': { cellSize: 1e9 },
+          'transform/GridCell': { cell: [3, 0, 0] },
+        },
+        children: [
+          { name: 'dock', components: { 'transform/GridCell': { cell: [2147483647, 0, -5] } } },
+          // A grandchild with a cell is a mistake even inside a prefab.
+          {
+            name: 'arm',
+            children: [{ name: 'tip', components: { 'transform/GridCell': { cell: [1, 1, 1] } } }],
+          },
+        ],
+      },
+    }
+    expect(validatePrefab(w, station).map((e) => [e.code, e.path])).toEqual([
+      ['transform/cell-outside-grid', '/root/children/1/children/0/components/transform~1GridCell'],
+    ])
+    station.root.children.pop()
+    expect(validatePrefab(w, station)).toEqual([])
+    registerPrefab(w, STATION, station)
+    const e = spawnPrefab(w, STATION)
+    const dock = instanceEntities(w, e).get('dock')!
+    expect(w.get(dock, GridCell).cell).toEqual([2147483647, 0, -5])
+    w.set(dock, GridCell, { cell: [-2147483648, 0, -5] })
+    const overrides = currentOverrides(w, e)!
+    expect(overrides).toEqual({ dock: { 'transform/GridCell': { cell: [-2147483648, 0, -5] } } })
+    const again = spawnPrefab(w, STATION, { overrides })
+    expect(w.get(instanceEntities(w, again).get('dock')!, GridCell).cell).toEqual([
+      -2147483648, 0, -5,
+    ])
   })
 
   it("an overridden entity shares the prefab's #assets (no phantom difference)", () => {

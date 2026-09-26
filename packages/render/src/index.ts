@@ -144,6 +144,7 @@ export {
   selectLod,
   VisibilityRange,
 } from './instances'
+export { observeOriginShifts, shiftRenderHistory } from './large-world'
 export {
   AmbientLight,
   type AmbientLightValue,
@@ -178,6 +179,7 @@ export {
   DebugOverlays,
   type DebugOverlaysValue,
   defineOverlay,
+  gridsOverlay,
   isOverlayOn,
   OVERLAYS,
   type Overlay,
@@ -267,7 +269,14 @@ export {
   Skins,
   skinArtifact,
 } from './skinning'
-export { GpuMemory, type GpuMemoryData, RenderStats, type ViewStats } from './stats'
+export {
+  GpuMemory,
+  type GpuMemoryData,
+  RenderCounters,
+  type RenderCountersData,
+  RenderStats,
+  type ViewStats,
+} from './stats'
 export {
   OffscreenTarget,
   type OffscreenTargetOptions,
@@ -281,6 +290,7 @@ export {
   cameraOf,
   DEFAULT_CURVE,
   RenderPath,
+  shiftCameraHistory,
   TONEMAP_CURVES,
   type TonemapCurve,
   Tonemapping,

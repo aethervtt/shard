@@ -170,6 +170,26 @@ class GizmoList {
     this.lineCount = 0
     this.labelCount = 0
   }
+
+  /** Adds an offset to every line end and label anchor (a floating-origin shift). */
+  shift(x: number, y: number, z: number): void {
+    const f = this.lines
+    for (let i = 0; i < this.lineCount; i++) {
+      const o = i * GIZMO_LINE_FLOATS
+      f[o] = f[o]! + x
+      f[o + 1] = f[o + 1]! + y
+      f[o + 2] = f[o + 2]! + z
+      f[o + 3] = f[o + 3]! + x
+      f[o + 4] = f[o + 4]! + y
+      f[o + 5] = f[o + 5]! + z
+    }
+    const p = this.labelPos
+    for (let i = 0; i < this.labelCount; i++) {
+      p[i * 3] = p[i * 3]! + x
+      p[i * 3 + 1] = p[i * 3 + 1]! + y
+      p[i * 3 + 2] = p[i * 3 + 2]! + z
+    }
+  }
 }
 
 const m4 = new Float32Array(16)
@@ -549,6 +569,15 @@ export class GizmoStore {
       this.meta(options, true),
       until,
     )
+  }
+
+  /**
+   * The floating origin moved (spec 0040): retained (timed) drawings, and this frame's drawings made
+   * before the shift, move by `offset` so they stay put in the world. Overlays redraw each render.
+   */
+  shiftOrigin(x: number, y: number, z: number): void {
+    this.timed.shift(x, y, z)
+    this.frame.shift(x, y, z)
   }
 
   /** Lines and labels this frame, including timed ones still showing. */

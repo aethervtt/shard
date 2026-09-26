@@ -601,6 +601,34 @@ export class InstanceStore {
     }
   }
 
+  /**
+   * The floating origin moved (spec 0040): adds `x, y, z` to every slot's current and previous
+   * translation, so this frame's moves compare against last frame's pose in the new frame and
+   * motion vectors stay continuous. Runs once per shift, not per frame.
+   */
+  shiftOrigin(x: number, y: number, z: number): void {
+    const f = this.f32
+    const p = this.prev
+    for (let s = 0; s < this.high; s++) {
+      const o = s * INSTANCE_FLOATS
+      const q = s * 12
+      f[o + 3] = f[o + 3]! + x
+      f[o + 7] = f[o + 7]! + y
+      f[o + 11] = f[o + 11]! + z
+      p[q + 3] = p[q + 3]! + x
+      p[q + 7] = p[q + 7]! + y
+      p[q + 11] = p[q + 11]! + z
+    }
+    if (this.high === 0) return
+    this.boundsDirty = true
+    this.dirty.fill(1, 0, this.high)
+    this.prevDirty.fill(1, 0, this.high)
+    this.dirtyLo = Math.min(this.dirtyLo, 0)
+    this.dirtyHi = Math.max(this.dirtyHi, this.high - 1)
+    this.prevLo = 0
+    this.prevHi = Math.max(this.prevHi, this.high - 1)
+  }
+
   private markPrevDirty(slot: number): void {
     if (this.prevDirty[slot]) return
     this.prevDirty[slot] = 1

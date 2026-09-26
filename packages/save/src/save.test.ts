@@ -1,15 +1,18 @@
+import { createHash } from 'node:crypto'
 import {
   ChildOf,
   defineComponent,
   defineResource,
   defineSchema,
+  defineSystem,
   type Entity,
   t,
+  Update,
   type World,
 } from '@shard/core'
 import { Collider, physics3dPlugin, RigidBody, Velocity } from '@shard/physics'
 import { createMemoryStorage } from '@shard/platform'
-import { App, GlobalRng } from '@shard/runtime'
+import { App, GlobalRng, Time } from '@shard/runtime'
 import {
   currentOverrides,
   findEntityByPath,
@@ -24,7 +27,14 @@ import {
   spawnPrefab,
   whenSceneReady,
 } from '@shard/scene'
-import { Transform, TransformPlugin } from '@shard/transform'
+import {
+  GlobalTransform,
+  GridCell,
+  placeInGrid,
+  Transform,
+  TransformPlugin,
+  worldPosition64,
+} from '@shard/transform'
 import { describe, expect, it } from 'vitest'
 import { SAVE_VERSION, type SaveFile, saveJsonSchema } from './format'
 import { savePlugin } from './plugin'
@@ -108,10 +118,11 @@ interface Setup {
 }
 
 async function game(
-  options: { physics?: boolean; files?: Map<string, unknown> } = {},
+  options: { physics?: boolean; files?: Map<string, unknown>; thrust?: boolean } = {},
 ): Promise<Setup> {
   const app = new App({ seed: 7 }).addPlugin(TransformPlugin, ScenePlugin)
   if (options.physics) app.addPlugin(physics3dPlugin)
+  if (options.thrust) app.addSystems(Update, thrustSystem)
   const storage = createMemoryStorage()
   app.addPlugin(savePlugin({ storage }))
   await app.init()
@@ -408,5 +419,152 @@ describe('save and load', () => {
     s.world.set(at(s.world, 'ship'), Health, { current: 1 })
     const file = captureGame(s.world)
     expect(validate(JSON.parse(JSON.stringify(file))), JSON.stringify(validate.errors)).toBe(true)
+  })
+})
+
+// --- large worlds (spec 0040) --------------------------------------------------------------------
+
+const Thrust = defineComponent('save-test/Thrust', { speed: t.f32() })
+
+/** Flies Thrust entities along +x; recentering moves them between cells as they go. */
+const thrustSystem = defineSystem({
+  name: 'save-test/thrust',
+  setup: (world: World) => ({
+    q: world.query({ with: [Thrust, Transform] }),
+    time: world.resource(Time),
+  }),
+  run: ({ q, time }) => {
+    for (const table of q.tables) {
+      const speed = table.column(Thrust, 'speed')
+      const tr = table.column(Transform, 'translation')
+      for (let i = 0; i < table.count; i++) {
+        tr[i * 3] = tr[i * 3]! + speed[i]! * time.delta
+        table.markChanged(Transform, i)
+      }
+    }
+  },
+})
+
+const FAR = 500_000_000 // cells × 2000 m = 10¹² m
+
+function gridScene(): SceneFile {
+  return {
+    version: 1,
+    entities: [
+      {
+        name: 'system',
+        components: { 'transform/Grid': { cellSize: 2000 } },
+        children: [
+          {
+            name: 'ship',
+            components: {
+              'core/Transform': { translation: [10, 0, 0] },
+              'transform/GridCell': { cell: [FAR, 0, 0] },
+              'save-test/Thrust': { speed: 30_000 },
+            },
+            children: [
+              {
+                name: 'camera',
+                components: {
+                  'core/Transform': { translation: [0, 2, 8] },
+                  'transform/FloatingOrigin': {},
+                },
+              },
+            ],
+          },
+          {
+            name: 'beacon',
+            components: {
+              'core/Transform': { translation: [3, 0, 0] },
+              'transform/GridCell': { cell: [FAR + 20, 0, 0] },
+            },
+          },
+        ],
+      },
+    ],
+  }
+}
+
+/**
+ * A hash of the world independent of entity ids: every saved component and GlobalTransform, scene
+ * entities by path, runtime entities by content, entity fields as paths.
+ */
+function stateHash(world: World): string {
+  const keyOf = (e: unknown) =>
+    typeof e === 'number' && world.isAlive(e)
+      ? (world.tryGet(e as Entity, SceneMember)?.path ?? 'runtime')
+      : e
+  const rows: string[] = []
+  for (const table of world.allTables()) {
+    for (let row = 0; row < table.count; row++) {
+      const e = table.entities[row]! as Entity
+      const out: Record<string, unknown> = {}
+      for (const def of table.components) {
+        if (!def.saved && def !== GlobalTransform && def !== ChildOf) continue
+        const json = def.serialize(table.readComponent(def, row)) as Record<string, unknown>
+        if (def === ChildOf) json.parent = keyOf(json.parent)
+        if (def === GlobalTransform) json.matrix = Array.from(world.get(e, GlobalTransform).matrix)
+        out[def.name] = json
+      }
+      rows.push(JSON.stringify([world.tryGet(e, SceneMember)?.path ?? 'runtime', out]))
+    }
+  }
+  return createHash('sha256').update(rows.sort().join('\n')).digest('hex')
+}
+
+describe('large-world saves (spec 0040)', () => {
+  it('saves at 10¹² m and loads in a fresh world to the millimetre, with the same world hash', async () => {
+    const files = new Map<string, unknown>([[MAIN, gridScene()]])
+    const a = await game({ files, thrust: true })
+    await start(a)
+    const w = a.world
+    const system = at(w, 'system')
+    // A runtime probe placed by f64 position, 10¹² m + 1.2345 km out.
+    const probe = w.spawn(Transform, [Thrust, { speed: -700 }])
+    placeInGrid(w, probe, system, [1e12 + 1234.5, 17, -4])
+    for (let i = 0; i < 30; i++) a.app.update(1 / 60)
+    // The ship crossed cells on the way.
+    expect(w.get(at(w, 'system/ship'), GridCell).cell[0]).toBeGreaterThan(FAR + 5)
+
+    const file = captureGame(w)
+    expect(file.scenes[MAIN]!.changed['system/ship']).toMatchObject({
+      'transform/GridCell': { cell: [expect.any(Number), 0, 0] },
+    })
+    const saved = file.spawned.find((x) => x.components['save-test/Thrust'])!
+    expect(saved.parent).toBe('system')
+    expect(saved.components['transform/GridCell']).toEqual({ cell: [FAR, 0, 0] })
+    const at64 = (world: World, path: string | Entity) => {
+      const e = typeof path === 'number' ? path : at(world, path)
+      return [...worldPosition64(world, e, new Float64Array(3), at(world, 'system'))]
+    }
+    const probeAt = (world: World) =>
+      world.query({ with: [Thrust, GridCell], without: [SceneMember] }).entities()[0]!
+    const shipBefore = at64(w, 'system/ship')
+    const probeBefore = at64(w, probe)
+    const originBefore = [...worldPosition64(w, at(w, 'system/beacon'), new Float64Array(3))]
+
+    // Keep playing the run that never saved.
+    for (let i = 0; i < 30; i++) a.app.update(1 / 60)
+    const expected = stateHash(w)
+
+    // A fresh world loads the save and plays the same frames.
+    const b = await game({ files, thrust: true })
+    await start(b)
+    await loadGame(b.world, JSON.parse(JSON.stringify(file)))
+    const shipAfter = at64(b.world, 'system/ship')
+    const probeAfter = at64(b.world, probeAt(b.world))
+    expect(shipAfter[0]).toBeGreaterThan(1e12)
+    for (let k = 0; k < 3; k++) {
+      expect(Math.abs(shipAfter[k]! - shipBefore[k]!)).toBeLessThan(1e-3)
+      expect(Math.abs(probeAfter[k]! - probeBefore[k]!)).toBeLessThan(1e-3)
+    }
+    // Where the beacon sits relative to the camera doesn't depend on where the origin was at save time.
+    const originAfter = [
+      ...worldPosition64(b.world, at(b.world, 'system/beacon'), new Float64Array(3)),
+    ]
+    for (let k = 0; k < 3; k++)
+      expect(Math.abs(originAfter[k]! - originBefore[k]!)).toBeLessThan(1e-3)
+    for (let i = 0; i < 30; i++) b.app.update(1 / 60)
+    expect(stateHash(b.world)).toBe(expected)
   })
 })

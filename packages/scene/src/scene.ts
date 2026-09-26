@@ -16,6 +16,7 @@ import {
   type World,
 } from '@shard/core'
 import { Materials, Meshes, materialFromJson, validateMaterial } from '@shard/render'
+import { FloatingOrigin, Grid, GridCell, Transform } from '@shard/transform'
 import {
   InstancePart,
   type LoadedScene,
@@ -496,6 +497,83 @@ export function validateTree(
       if ((def === PrefabInstance || def === SceneInstance) && errors.length === before) {
         validateInstance(world, def, expanded, base, f, errors, { catalog })
       }
+    }
+  }
+  validateGrids(flat, errors, prefab === true)
+}
+
+/**
+ * Large-world placement (spec 0040): GridCell only on direct children of a Grid, translations of
+ * grid children within about a cell, and at most one FloatingOrigin.
+ */
+function validateGrids(flat: readonly FlatEntity[], errors: ShardError[], prefab: boolean): void {
+  const byPath = new Map<string, FlatEntity>()
+  for (const f of flat) if (typeof f.path === 'string') byPath.set(f.path, f)
+  const components = (f: FlatEntity | undefined) =>
+    isPlainObject(f?.entity?.components)
+      ? (f.entity.components as Record<string, unknown>)
+      : undefined
+  let origin: FlatEntity | undefined
+  for (const f of flat) {
+    const own = components(f)
+    if (!own) continue
+    if (own[FloatingOrigin.name] !== undefined) {
+      if (origin === undefined) origin = f
+      else {
+        errors.push(
+          new ShardError(
+            'transform/multiple-origins',
+            `"${f.path}" and "${origin.path}" both have FloatingOrigin`,
+            {
+              path: pointer(`${f.pointer}/components`, FloatingOrigin.name),
+              hint: 'Keep one transform/FloatingOrigin per world, usually on the camera.',
+            },
+          ),
+        )
+      }
+    }
+    // A prefab's root is placed when it spawns; a variant's children sit under a root not in this file.
+    if (prefab && f.path === '.') continue
+    const parentPath = f.parent ?? (prefab ? '.' : undefined)
+    const parent = parentPath === undefined ? undefined : byPath.get(parentPath)
+    if (parentPath !== undefined && parent === undefined) continue
+    const up = components(parent)
+    // An instance's root components come from its prefab, which can't be seen from here.
+    if (up && (up[PrefabInstance.name] !== undefined || up[SceneInstance.name] !== undefined))
+      continue
+    const grid = up?.[Grid.name]
+    const cell = own[GridCell.name]
+    if (grid === undefined) {
+      if (cell === undefined) continue
+      errors.push(
+        new ShardError(
+          'transform/cell-outside-grid',
+          `"${f.path}" has a GridCell but its parent isn't a Grid`,
+          {
+            path: pointer(`${f.pointer}/components`, GridCell.name),
+            hint: 'Nest the entity directly under an entity with transform/Grid, or remove its GridCell.',
+          },
+        ),
+      )
+      continue
+    }
+    const transform = own[Transform.name]
+    const translation = isPlainObject(transform) ? transform.translation : undefined
+    if (!Array.isArray(translation)) continue
+    const size = isPlainObject(grid) ? grid.cellSize : undefined
+    const cellSize =
+      typeof size === 'number' && size > 0 ? size : (Grid.fields.cellSize.defaultValue() as number)
+    if (translation.some((v) => typeof v === 'number' && Math.abs(v) > cellSize)) {
+      errors.push(
+        new ShardError(
+          'transform/translation-outside-cell',
+          `"${f.path}" is more than one cell (${cellSize} m) from its cell's centre`,
+          {
+            path: pointer(pointer(`${f.pointer}/components`, Transform.name), 'translation'),
+            hint: 'Split the position into transform/GridCell (whole cells) plus a translation under one cell, or place it with entity.patch { "position64": [x, y, z], "grid": <grid> }.',
+          },
+        ),
+      )
     }
   }
 }

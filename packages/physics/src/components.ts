@@ -56,6 +56,26 @@ export const Velocity = defineComponent(
   },
 )
 
+/**
+ * A body the physics world set aside because it is farther than `PhysicsRange.radius` from the
+ * floating origin (spec 0040). It isn't in Rapier: it doesn't move, collide, or show up in queries.
+ * It keeps its Transform and comes back, with this velocity, when the origin gets close again.
+ *
+ * Saved with the scene (the default): for a body without a Velocity component, this is the only
+ * record of how it was moving, so a ship parked mid-flight keeps flying after a load.
+ */
+export const PhysicsParked = defineComponent(
+  'physics/PhysicsParked',
+  {
+    linear: t.vec3({ unit: 'm/s', description: 'Linear velocity when it was parked.' }),
+    angular: t.vec3({ unit: 'rad/s', description: 'Angular velocity when it was parked (2D: z).' }),
+  },
+  {
+    description:
+      'Out of physics range: removed from the simulation until the origin comes back within PhysicsRange.radius. Added and removed by physics.',
+  },
+)
+
 export const SHAPES = [
   'ball',
   'cuboid',
@@ -336,6 +356,22 @@ export const PhysicsConfig = defineResource<PhysicsConfigValue>('physics/Config'
     paused: false,
   }),
 })
+
+/**
+ * With grids (spec 0040), bodies farther than `radius` from the floating origin are parked
+ * (PhysicsParked): out of Rapier, so f32 precision loss far away can't make them jitter or fall
+ * through the ground. They resume within 0.95 × radius, so an origin at the edge doesn't flip them.
+ */
+export const PhysicsRange = defineResource<PhysicsRangeValue>('physics/Range', {
+  description:
+    'How far from the floating origin bodies simulate (m). Farther ones are parked until the origin comes near. Only used when the world has a Grid.',
+  init: () => ({ radius: 20000 }),
+})
+
+export interface PhysicsRangeValue {
+  /** Bodies farther than this from the origin (m) are parked. */
+  radius: number
+}
 
 export interface PhysicsConfigValue {
   /** m/s². In 2D, x and y are used. */

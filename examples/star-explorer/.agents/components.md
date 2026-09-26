@@ -178,13 +178,13 @@ _Computed by the engine; never written in scene files._
 
 ## `core/GlobalTransform`
 
-World-space transform. Computed by core/transform-propagate; do not write.
+World-space transform relative to the floating origin (the world origin when there is none). Computed by core/transform-propagate; do not write.
 
 _Computed by the engine; never written in scene files._
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `matrix` | number[12] | `[1,0,0,0,0,1,0,0,0,0,1,0]` |  | World matrix (top three rows, row by row). Computed from Transform each frame. |
+| `matrix` | number[12] | `[1,0,0,0,0,1,0,0,0,0,1,0]` |  | World matrix (top three rows, row by row), relative to the floating origin. Computed from Transform each frame. |
 
 ## `core/Transform`
 
@@ -436,6 +436,15 @@ Sets a body’s mass directly instead of from collider density.
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `mass` | number | `1` | ≥ 0, kg | The body’s total mass. |
+
+## `physics/PhysicsParked`
+
+Out of physics range: removed from the simulation until the origin comes back within PhysicsRange.radius. Added and removed by physics.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `linear` | number[3] | `[0,0,0]` | m/s | Linear velocity when it was parked. |
+| `angular` | number[3] | `[0,0,0]` | rad/s | Angular velocity when it was parked (2D: z). |
 
 ## `physics/RigidBody`
 
@@ -1116,6 +1125,33 @@ Brings along: `core/Transform`, `render/Visibility`.
 | `shadow` | object | `{"offset":[0,0],"softness":0,"color":"#00000099"}` |  | A soft shadow or glow behind the glyphs. |
 | `size` | number | `1` | ≥ 0, m | Height of one em, in world units. |
 | `billboard` | boolean | `false` |  | Always face the camera (labels, markers). |
+
+## `transform/FloatingOrigin`
+
+At most one per world, usually the camera. GlobalTransform is relative to its grid cell, so everything near it is precise.
+
+Tag (no fields).
+
+## `transform/Grid`
+
+A frame for large worlds. Direct children carry GridCell; a nested grid is a Grid with a GridCell in its parent grid.
+
+Brings along: `core/Transform`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `cellSize` | number | `2000` | ≥ 1, m | Edge length of one cell. Children store their position as a cell plus an offset. |
+| `hysteresis` | number | `100` | ≥ 0, m | How far past the half-cell an entity may go before it moves to the next cell, so it does not flip back and forth. |
+
+## `transform/GridCell`
+
+The cell of a direct child of a Grid. Moved automatically when the translation leaves the cell.
+
+Brings along: `core/Transform`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `cell` | integer[3] | `[0,0,0]` |  | Integer cell in the parent grid. Position = cell × Grid.cellSize + Transform.translation. |
 
 ## `ui/UiAnchor`
 

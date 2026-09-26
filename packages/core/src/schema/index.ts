@@ -24,6 +24,7 @@ export type {
   FieldValue,
   InferFields,
   InitFields,
+  IVec3,
   Mat3,
   Mat4,
   NumericStorage,

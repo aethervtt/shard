@@ -2,6 +2,7 @@ import { assetServer } from '@shard/assets'
 import {
   allComponents,
   ChildOf,
+  Children,
   type ComponentDef,
   defineSchema,
   type Entity,
@@ -66,6 +67,16 @@ import {
   worldSchemaContext,
 } from '@shard/scene'
 import { Fonts, measureText } from '@shard/text'
+import {
+  createPlacement,
+  FloatingOrigin,
+  Grid,
+  gridOf,
+  placeInGrid,
+  placementOf,
+  Transform,
+  worldPosition64,
+} from '@shard/transform'
 import { encodePng, toBase64 } from './png'
 
 const CAPTURE_DEBUG_VIEWS = ['clusters', 'cascades', 'lod', 'culling', 'none']
@@ -167,7 +178,56 @@ function entityJson(world: World, entity: Entity, only?: readonly string[]) {
     components[def.name] = def.serialize(world.get(entity, def))
   }
   const path = pathOfEntity(world, entity)
-  return path === undefined ? { id: entity, components } : { id: entity, path, components }
+  const out: {
+    id: Entity
+    path?: string
+    components: typeof components
+    worldPosition64?: number[]
+  } = path === undefined ? { id: entity, components } : { id: entity, path, components }
+  // With grids, GlobalTransform is relative to the floating origin; this is the exact f64 position.
+  if (!only && hasGrids(world) && world.has(entity, Transform))
+    out.worldPosition64 = [...worldPosition64(world, entity, new Float64Array(3))]
+  return out
+}
+
+function hasGrids(world: World): boolean {
+  return world.query({ with: [Grid] }).count() > 0
+}
+
+function firstOf(world: World, def: ComponentDef): Entity | undefined {
+  return world.query({ with: [def] }).entities()[0]
+}
+
+/** The grid tree for app.describe (spec 0040): each grid and where the floating origin is. */
+function describeGrids(world: World) {
+  const place = createPlacement()
+  const refOf = (e: Entity) => pathOfEntity(world, e) ?? e
+  const grids = world
+    .query({ with: [Grid] })
+    .entities()
+    .map((e) => {
+      placementOf(world, e, place, true)
+      const children = world.tryGet(e, Children)?.entities ?? []
+      return {
+        grid: refOf(e),
+        cellSize: world.get(e, Grid).cellSize,
+        parent: place.grid < 0 ? null : refOf(place.grid),
+        cell: [...place.cell],
+        entities: children.filter((c) => c !== null).length,
+      }
+    })
+  const originEntity = firstOf(world, FloatingOrigin)
+  let origin: { entity: Entity | string; grid: Entity | string | null; cell: number[] } | null =
+    null
+  if (originEntity !== undefined) {
+    placementOf(world, originEntity, place, true)
+    origin = {
+      entity: refOf(originEntity),
+      grid: place.grid < 0 ? null : refOf(place.grid),
+      cell: [...place.cell],
+    }
+  }
+  return { grids, origin }
 }
 
 /** Validates and converts component JSON; throws with every error (pointer-prefixed) in `details`. */
@@ -310,6 +370,43 @@ function depthImage(map: { width: number; height: number; data: Float32Array }) 
   return { width: map.width, height: map.height, data }
 }
 
+/** entity.patch's position64/grid, checked before anything changes. */
+function placementParams(
+  world: World,
+  entity: Entity,
+  p: Record<string, unknown>,
+): { grid: Entity; position: number[] } | undefined {
+  const position = p.position64 as number[] | undefined
+  const hasGrid = p.grid !== null && p.grid !== undefined
+  if (!position || position.length === 0) {
+    if (hasGrid) {
+      throw new ShardError('protocol/invalid-position64', '"grid" needs "position64"', {
+        path: '/position64',
+        hint: 'Pass { "position64": [x, y, z], "grid": <grid> } together.',
+      })
+    }
+    return undefined
+  }
+  if (position.length !== 3 || !position.every((v) => Number.isFinite(v))) {
+    throw new ShardError('protocol/invalid-position64', '"position64" must be [x, y, z]', {
+      path: '/position64',
+      hint: 'Three finite numbers in metres, e.g. [3.8e8, 0, 0].',
+    })
+  }
+  const grid = hasGrid ? resolveEntity(world, p.grid) : gridOf(world, entity)
+  if (grid === undefined || !world.has(grid, Grid)) {
+    throw new ShardError(
+      'protocol/not-a-grid',
+      hasGrid ? `${JSON.stringify(p.grid)} is not a Grid` : 'The entity is not in a grid',
+      {
+        path: '/grid',
+        hint: 'Pass "grid": the id or path of an entity with transform/Grid.',
+      },
+    )
+  }
+  return { grid, position }
+}
+
 // --- methods -------------------------------------------------------------------
 
 const s = <F extends Parameters<typeof defineSchema>[1]>(name: string, fields: F) =>
@@ -331,6 +428,7 @@ export const METHODS: MethodDef[] = [
         out.input = describeInput(world)
       } catch {}
       out.scenes = [...(world.tryResource(SceneIndex)?.keys() ?? [])]
+      if (hasGrids(world)) out.grids = describeGrids(world)
       return toJson(out)
     },
   },
@@ -384,7 +482,8 @@ export const METHODS: MethodDef[] = [
   },
   {
     name: 'entity.get',
-    description: 'All components of one entity as JSON.',
+    description:
+      'All components of one entity as JSON. With grids, also worldPosition64: its exact position relative to the floating origin.',
     params: s('EntityGetParams', { entity: entityRef() }),
     handler: ({ world }, p) => entityJson(world, resolveEntity(world, p.entity)),
   },
@@ -410,13 +509,21 @@ export const METHODS: MethodDef[] = [
   {
     name: 'entity.patch',
     description:
-      'Merges fields into components (adding missing ones). All values are validated before anything changes; null removes a component.',
+      'Merges fields into components (adding missing ones). All values are validated before anything changes; null removes a component. position64 + grid places the entity at an exact f64 position in a grid (cell and translation computed for you).',
     params: s('PatchParams', {
       entity: entityRef(),
       components: t.json({ description: 'Partial values by component name.' }),
+      position64: t.list(t.f64, {
+        description:
+          "Exact position [x, y, z] in metres in `grid`'s frame; sets GridCell, Transform.translation, and the parent.",
+      }),
+      grid: t.entity({
+        description: 'Grid entity or path for position64 (default: the grid the entity is in).',
+      }),
     }),
     handler: ({ world }, p) => {
       const entity = resolveEntity(world, p.entity)
+      const place = placementParams(world, entity, p)
       const patch = (p.components ?? {}) as Record<string, unknown>
       const merged: Record<string, unknown> = {}
       const removals: ComponentDef[] = []
@@ -439,6 +546,7 @@ export const METHODS: MethodDef[] = [
         else world.add(entity, def, value)
       }
       for (const def of removals) world.remove(entity, def)
+      if (place) placeInGrid(world, entity, place.grid, place.position)
       return entityJson(world, entity)
     },
   },

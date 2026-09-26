@@ -27,3 +27,16 @@ export const GpuMemory = defineResource<GpuMemoryData>('render/GpuMemory', {
   description: 'GPU memory used by uploaded textures.',
   init: () => ({ textures: 0, textureBytes: 0 }),
 })
+
+export interface RenderCountersData {
+  /** Times a TAA history started over (new view, resize, device loss). Never on origin shifts. */
+  taaResets: number
+  /** Floating-origin shifts the renderer followed (spec 0040): history moved, not reset. */
+  originShifts: number
+}
+
+export const RenderCounters = defineResource<RenderCountersData>('render/Counters', {
+  description:
+    'Running totals since start: TAA history resets and floating-origin shifts followed.',
+  init: () => ({ taaResets: 0, originShifts: 0 }),
+})

@@ -1,6 +1,6 @@
 # 0040 — Large-world coordinates
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@shard/core`, `@shard/transform`, `@shard/render`, `@shard/particles`,
   `@shard/physics`, `@shard/scene`, `@shard/save`
 - **Depends on:** 0002, 0004, 0007, 0026, 0028, 0038
@@ -56,14 +56,15 @@ camera-relative without being touched.
 ### Components
 
 ```ts
-Grid { cellSize: f64 = 2000, hysteresis: f32 = 100 }
-GridCell { x: i32, y: i32, z: i32 }          // new field type: t.ivec3
-FloatingOrigin {}                              // tag, at most one per world
+Grid { cellSize: f64 = 2000, hysteresis: f32 = 100 }   // transform/Grid
+GridCell { cell: ivec3 }                               // transform/GridCell, new field type t.ivec3
+FloatingOrigin {}                                      // transform/FloatingOrigin, a tag, one per world
 ```
 
 - An entity is **in a grid** when its nearest `Grid` ancestor (or itself, for a nested grid) is
-  that grid. Its position in the grid is `GridCell × cellSize + Transform.translation`. Entities
-  without `GridCell` are in cell (0, 0, 0).
+  that grid. Its position in the grid is `GridCell × cellSize + Transform.translation`, so
+  `cell × cellSize` is the cell's centre. Entities without `GridCell` are in cell (0, 0, 0).
+- `Grid` and `GridCell` require `Transform`.
 - Only direct children of a grid carry `GridCell`. Deeper descendants are positioned by
   their parent's transform as usual. A `GridCell` on an entity whose parent isn't a grid is
   `transform/cell-outside-grid`.
@@ -71,7 +72,11 @@ FloatingOrigin {}                              // tag, at most one per world
   (rotation included) places its frame in the parent grid, so a spinning planet is a rotation on
   its grid entity.
 - Entities with no grid ancestor are in the implicit **root frame**, where everything works as it does today.
-- `t.ivec3` is a new schema field (three i32, stored like `vec3`). `Grid.cellSize` is `t.f64`.
+- `t.ivec3` is a new schema field (three i32, stored like `vec3` in an `Int32Array`). `Grid.cellSize`
+  is `t.f64`.
+- A grid may also sit under an ordinary entity (no `GridCell` then). Its frame composes that
+  entity's transform chain in f64. Change detection can't see that chain cheaply, so a world with
+  such a grid solves grid frames every frame.
 
 With i32 cells and nested grids:
 
@@ -83,22 +88,28 @@ With i32 cells and nested grids:
 
 ### The floating origin and `GlobalTransform`
 
-- The origin is the `FloatingOrigin` entity's cell in its grid (its **origin grid**).
-  `GlobalTransform` of every entity is its transform relative to the origin cell's corner,
-  expressed in the origin grid's orientation. With no `FloatingOrigin`, the origin is cell 0 of
-  the root frame, which is today's behavior.
-- Propagation gets one new step before the existing one. `transform/grids` walks the grid tree
-  (few entities) in f64 and computes, for each grid, an f64 affine from the grid's frame to the
-  origin frame. The step is written into a scratch `Float64Array`. Then, for each direct child of a
-  grid, root propagation seeds with
-  `gridToOrigin × (cell − originCellInThatGrid) × cellSize + translation`. The cell difference is
-  computed in integers first, then converted to f64, and the result rounded to f32. The existing
-  inlined `fromTRS` path and child propagation are unchanged.
+- The origin is the `FloatingOrigin` entity's cell in its grid (its **origin grid**): the cell of
+  its ancestor (or itself) that is a direct child of a grid. `GlobalTransform` of every entity is
+  its transform relative to the origin cell's centre, expressed in the origin grid's orientation.
+  With no `FloatingOrigin`, or with no `Grid` in the world, the origin is the root frame's origin,
+  which is today's behavior. With several origins, the first one found wins.
+- Propagation gets one new step before the existing one, inside `core/transform-propagate`. It
+  walks the grid tree (few entities) in f64 and stores, for each grid, a reference cell `ref` near
+  the origin and an f64 affine `A` with `origin = A · ((cell − ref) × cellSize + p)`. The origin
+  grid has `A = identity` and `ref` = the origin cell; grids above it solve upward from it
+  (`A_P = A_G · T(−ref_G × cs_G) · M_G⁻¹`, `ref_P` = the child grid's cell), every other grid
+  solves down from its parent (`ref = 0`). The frames live in the `transform/GridFrames` resource
+  (`Float64Array`/`Int32Array` slots), where physics and the renderer read them. Then each direct
+  child of a grid gets `A · ((cell − ref) × cellSize + TRS)`: the cell difference in integers, the
+  product in f64, the result rounded to f32. Grid entities get their frame, rounded to f32. The
+  existing inlined `fromTRS` root path and child propagation are unchanged; entities in the root
+  frame compose with the root frame's matrix only when it isn't the identity.
 - Cell differences are integer math, so two ships 10¹² m from the world origin but 3 m from each
   other get a 3 m difference with f32 precision.
 - If the origin grid, the origin cell, or any grid's transform changes, every entity under the
-  affected grids is re-propagated that frame. A grid that doesn't move costs nothing on frames
-  where the origin stays in its cell.
+  affected grids is re-propagated that frame (a grid whose solved frame is bit-identical to last
+  frame's doesn't count). When no grid table changed and the origin stays in its cell, the solve is
+  skipped: static grids cost one change check per grid table.
 - Grids far from the origin (a planet 10¹¹ m away) still get a `GlobalTransform`. It's in the
   f32 range and imprecise, which is fine at that distance: it's a distant dot, and 0046 draws it as
   an impostor.
@@ -112,15 +123,25 @@ changed, so it's a change-detection query and not a full scan.
 
 When the origin entity changes cells, the whole origin frame shifts by `Δ = oldCell − newCell`
 cells. The `OriginShift` event (`{ grid, delta: ivec3, offset: vec3 }`, `offset = Δ × cellSize`
-in origin-frame metres) lets consumers that keep state in the origin frame follow along:
+in origin-frame metres, the amount to add to an old-frame position) lets consumers that keep
+state in the origin frame follow along. Propagation sends it (for `world.reader`) and triggers it
+(for `world.observe`, which runs before anything else sees the new frame). When the origin changes
+grids, `delta` is zero and `offset` is where the old origin point lands in the new frame; the
+rotation between the two frames isn't part of the event.
 
 - **Render history.** The previous-frame instance matrices, the previous view matrix, and the TAA
-  history live in the old frame. On a shift, the renderer adds `offset` to `prevViewProj`'s
-  translation and to the previous instance rows during the same upload. Reprojection lines up, so
-  there's no smear. Shadow cascades are rebuilt from the new camera position as they are every frame.
+  history live in the old frame. An observer on the shift adds `offset` to every instance slot's
+  current and previous translation, and right-multiplies each camera's `prevViewProj` (and a
+  frozen culling frustum) by `translate(−offset)`. Reprojection lines up, so there's no smear, and
+  TAA history only resets when it's created, resized, or lost (`RenderCounters.taaResets` in
+  `render.describe` counts that). Shadow cascades are rebuilt from the new camera position as they
+  are every frame.
 - **Particles.** World-space particle positions live in GPU buffers. The simulate pass gets an
-  `originOffset` uniform, added once on the frame of a shift.
-- **Gizmos.** Retained world-space lines (`duration > 0`) are shifted on the CPU.
+  `originOffset` uniform. Each emitter accumulates shifts until its next update dispatch, so a
+  paused or still-compiling emitter doesn't lose one; particles spawned that frame are already in
+  the new frame. The CPU backend shifts its array directly.
+- **Gizmos.** World-space lines and labels, retained or drawn earlier this frame, are shifted on the
+  CPU.
 - **Physics.** See below.
 - **Audio.** Nothing to do: listener and sources are read from `GlobalTransform` every frame.
 
@@ -131,15 +152,28 @@ that needs a stable position stores `GridCell` + `Transform`, or calls `worldPos
 
 - Rapier stays the f32 build. It simulates in the origin frame: sync-in reads `GlobalTransform`,
   and sync-out writes back into `Transform` through the parent's inverse, as today.
-- On `OriginShift`, every body and collider is translated by `offset` with
+- Poses read from transforms (body creation, teleports) and written back (sync-out, interpolation,
+  the character controller) go through the grid's f64 frame for direct grid children, not the
+  grid entity's f32 `GlobalTransform`. Sync-out moves a body's `GridCell` itself when its
+  translation leaves the cell (same rule as `transform/recenter`), so the next sync-in doesn't read
+  the change as a teleport.
+- On `OriginShift`, every body and every collider without a body is translated by `offset` with
   `setTranslation(…, wakeUp: false)`. Velocities and contacts are unchanged. The interpolation
-  buffers get the same offset. This is O(bodies) once per cell crossing, which is every 2 km at
-  the default cell size.
-- `PhysicsRange { radius: f32 = 20000 }` (resource). Bodies whose `GlobalTransform` is farther
-  than `radius` from the origin are removed from the Rapier world and marked `PhysicsParked`. They
-  keep their `Transform`, and velocity is stored on the component. They come back when in range.
-  Queries (`physics.raycast`) never hit parked bodies. A distant ship doesn't fall through a
-  planet it isn't near.
+  buffers get the same offset. A zero-length step follows so the broad phase (and so raycasts)
+  sees the new positions before the next physics step. Rapier re-checks contacts and wakes
+  sleeping bodies anyway; they settle again on their own. This is O(bodies) once per cell
+  crossing, which is every 2 km at the default cell size.
+- `PhysicsRange { radius: f32 = 20000 }` (resource). While grids are active, bodies farther than
+  `radius` from the `FloatingOrigin` entity are disabled in Rapier (`setEnabled(false)`, which
+  keeps colliders, joints, and mass, and costs nothing in the step) and marked `PhysicsParked
+  { linear, angular }` with their velocity. They keep their `Transform`, and resume within
+  0.95 × `radius` so an origin at the edge doesn't flap. `PhysicsParked` is saved: for a body
+  without `Velocity` it's the only record of its motion. Colliders without a `RigidBody` aren't
+  parked; give distant static geometry a fixed body. Queries (`physics.raycast`) never hit parked
+  bodies. A distant ship doesn't fall through a planet it isn't near.
+- An origin grid that moves or rotates carries the origin frame with it without an `OriginShift`,
+  and physics doesn't compensate. Put the origin in the frame that should hold still (a planet's
+  grid on its surface).
 - Gravity sources (0028) keep working. They're positions in the origin frame like everything else.
 
 ### f64 helpers
@@ -147,56 +181,72 @@ that needs a stable position stores `GridCell` + `Transform`, or calls `worldPos
 ```ts
 // Position of `e` in `frame`'s coordinates (default: the origin frame), exact to f64.
 worldPosition64(world, e, out: Float64Array, frame?: Entity): Float64Array
-// The cell and translation that put `e` at `position` (f64) in `grid`; writes both components.
-placeInGrid(world, e, grid: Entity, position: Float64Array): void
+// The cell and translation that put `e` at `position` (f64) in `grid`; writes both components
+// and makes `e` a child of `grid`.
+placeInGrid(world, e, grid: Entity, position: ArrayLike<number>): void
 distance64(world, a: Entity, b: Entity): number
 // Moves an entity to another grid, keeping its origin-frame pose (entering a planet's grid).
 reparentToGrid(world, e, grid: Entity): void
+// The exact f64 affine from `e`'s frame to the origin frame, solved fresh from transforms.
+originMatrix64(world, e, out: Float64Array): Float64Array
 ```
 
-- `affine64` in `@shard/core` math: the `affine` functions on `Float64Array`. The transform package
-  uses it for the grid tree; the rest of the engine stays f32.
+- The helpers solve grid frames fresh from `Transform` and `GridCell`, so they're right between
+  propagations (right after a spawn). They're cold paths.
+
+- `affine64` in `@shard/core` math: the `affine` functions on `Float64Array`, plus `translateAt`
+  and `transformVectorAt`. The transform package uses it for the grid tree; the rest of the engine
+  stays f32.
 - `reparentToGrid` is how a ship moves from the system grid into a planet's grid on approach, so
   it co-rotates with the surface. It computes the new cell and translation in f64, then sets
   `GridCell`, `Transform`, and the parent together. It does this without a visible jump.
 
 ### Files and saves
 
-- Scene and prefab files write `GridCell` like any component (`"transform/GridCell": [0, 0, 12]`).
+- Scene and prefab files write `GridCell` like any component
+  (`"transform/GridCell": { "cell": [0, 0, 12] }`).
   `Transform.translation` stays within a cell, so f32 rounding in JSON is harmless.
 - Save files (0038) record `GridCell` in scene diffs and runtime entities, plus the
   `FloatingOrigin` entity. A load recomputes `GlobalTransform` from cells, so nothing depends on
   where the origin was at save time.
 - `shard validate` checks cell/grid placement (`transform/cell-outside-grid`,
-  `transform/translation-outside-cell` when a file's translation is more than one cell size from
-  zero, which almost always means a hand-written absolute position).
+  `transform/translation-outside-cell` when a grid child's translation in the file is more than one
+  cell size from zero, which almost always means a hand-written absolute position, and
+  `transform/multiple-origins`). They're scene errors, so a scene with them doesn't load. The cell
+  check skips a prefab's root, a variant's children, and children of instances, whose parent the
+  file can't see.
 
 ### API sketch
 
 ```ts
 import { Grid, GridCell, FloatingOrigin, OriginShift, worldPosition64 } from '@shard/transform'
 
-const system = world.spawn(Grid({ cellSize: 2000 }))
-const planet = world.spawn(Grid({ cellSize: 2000 }), GridCell({ x: 75_000, y: 0, z: 0 }),
-  Transform({ rotation: quat.fromAxisAngle(Y, spin) }), ChildOf(system))
-const ship = world.spawn(GridCell({ x: 74_990, y: 0, z: 0 }), Transform(), ChildOf(system))
-world.spawn(Camera3d(), FloatingOrigin(), ChildOf(ship))
+const system = world.spawn([Grid, { cellSize: 2000 }])
+const planet = world.spawn(Grid, [GridCell, { cell: [75_000, 0, 0] }],
+  [Transform, { rotation: spin }], [ChildOf, { parent: system }])
+const ship = world.spawn([GridCell, { cell: [74_990, 0, 0] }], Transform, [ChildOf, { parent: system }])
+world.spawn(Camera3d, FloatingOrigin, [ChildOf, { parent: ship }])
 
-world.on(OriginShift, (e) => { myCache.shift(e.offset) })
+world.observe(OriginShift, ({ data }) => myCache.shift(data.offset))
 ```
 
 ### Agent surface
 
-- `world.describe`/`app.describe` report the grid tree: each grid, its cell size, parent, how many
-  entities it holds, and the origin's grid and cell.
+- `app.describe` reports the grid tree when the world has grids: each grid, its cell size, parent,
+  cell, how many entities it holds, and the origin's entity, grid, and cell.
 - `entity.get` includes `worldPosition64` (in the origin frame, as a number array) alongside
-  `GlobalTransform`, so an agent can read absolute distances without doing cell math.
+  `GlobalTransform` when the world has grids, so an agent can read absolute distances without
+  doing cell math.
 - `entity.patch` accepts `{ "position64": [x, y, z], "grid": <entity> }` as a convenience that
-  calls `placeInGrid`, so an agent can place a moon 3.8×10⁸ m away without splitting cells by hand.
-- `debug.overlays` gains `grids`: the origin cell's bounds and neighboring cell edges.
-- `.agents/transforms.md` gets a section on grids with the table above and when to use them.
+  calls `placeInGrid` (`grid` defaults to the entity's current grid), so an agent can place a moon
+  3.8×10⁸ m away without splitting cells by hand.
+- A `grids` overlay (registered with `defineOverlay`): the origin cell's bounds and its neighbors'
+  edges.
+- The generated `.agents/skills/large-worlds.md` covers grids, with the table above and when to
+  use them.
 - **Errors:** `transform/cell-outside-grid`, `transform/translation-outside-cell`,
-  `transform/multiple-origins`.
+  `transform/multiple-origins`, `transform/not-a-grid`, `protocol/not-a-grid`,
+  `protocol/invalid-position64`.
 
 ## Decisions
 
@@ -214,28 +264,30 @@ world.on(OriginShift, (e) => { myCache.shift(e.offset) })
 
 ## Acceptance criteria
 
-- [ ] A cube 10¹² m from the root frame's origin, in a grid, viewed by a `FloatingOrigin` camera
+- [x] A cube 10¹² m from the root frame's origin, in a grid, viewed by a `FloatingOrigin` camera
       3 m away, renders identically (golden) to the same cube 3 m from a camera at the origin.
-- [ ] `distance64` of two entities 10¹² m from the root frame's origin and 1 mm apart reports
+- [x] `distance64` of two entities 10¹² m from the root frame's origin and 1 mm apart reports
       1 mm to within 1 µm, wherever the floating origin is (the cell difference is exact).
-- [ ] A camera flying at 5 km/s for 60 s crosses 150 cells. Across every crossing, the
+- [x] A camera flying at 5 km/s for 60 s crosses 150 cells. Across every crossing, the
       frame-to-frame screen position of a static object changes by less than 0.01 px beyond its
       motion, and TAA history isn't reset (no reset counter increment).
-- [ ] A rigid body stack resting 10⁸ m from the root origin, simulated with the origin on it, stays
+- [x] A rigid body stack resting 10⁸ m from the root origin, simulated with the origin on it, stays
       at rest for 600 frames (max drift < 1 mm). The same stack without grids at that distance
-      visibly jitters (the test documents why this exists).
-- [ ] A body carried across a cell boundary by a moving origin keeps its velocity to 1e-6 relative.
-- [ ] Bodies beyond `PhysicsRange.radius` are parked and don't appear in `physics.raycast`. When the
+      snaps to the 8 m f32 spacing there (the test documents why this exists).
+- [x] A body carried across a cell boundary by a moving origin keeps its velocity to 1e-6 relative
+      (200 m cells at 300 m/s: Rapier caps body speed at 400 m/s).
+- [x] Bodies beyond `PhysicsRange.radius` are parked and don't appear in `physics.raycast`. When the
       origin approaches, they resume with their stored velocity.
-- [ ] A world-space particle trail stays continuous across an origin shift (no gap or offset in
+- [x] A world-space particle trail stays continuous across an origin shift (no gap or offset in
       the golden).
-- [ ] `reparentToGrid` moves a ship from a system grid into a rotating planet grid with a pose
+- [x] `reparentToGrid` moves a ship from a system grid into a rotating planet grid with a pose
       change of less than 1 mm in the origin frame.
-- [ ] Save at 10¹² m, load in a fresh world: `worldPosition64` matches to the millimetre, and the
+- [x] Save at 10¹² m, load in a fresh world: `worldPosition64` matches to the millimetre, and the
       headless world hash matches a run that never saved.
-- [ ] A project with no `Grid` has no change in `pnpm bench` transform propagation (±3%). With 100
+- [x] A project with no `Grid` has no change in `pnpm bench` transform propagation (±3%). With 100
       static grids and the origin inside its cell, propagation of 100k entities costs no more than
-      5% over no grids.
+      5% over the same hierarchy without grids. 100k changed grid children propagate no slower
+      than 100k ordinary children.
 
 ## Open questions
 

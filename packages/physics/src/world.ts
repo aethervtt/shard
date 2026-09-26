@@ -11,6 +11,7 @@ import {
 import type { Mesh } from '@shard/mesh'
 import { Meshes } from '@shard/render'
 import { LogResource } from '@shard/runtime'
+import { GlobalTransform, GridFramesResource } from '@shard/transform'
 import {
   BODY_KINDS,
   CharacterController,
@@ -19,6 +20,7 @@ import {
   Joint,
   Mass,
   type PhysicsConfigValue,
+  PhysicsParked,
   RigidBody,
   type Shape,
   Velocity,
@@ -65,6 +67,8 @@ export interface BodyRecord {
   slot: number
   /** Position in `PhysicsWorld.list`. */
   index: number
+  /** Out of PhysicsRange: disabled in Rapier, the entity has PhysicsParked. */
+  parked: boolean
 }
 
 /** A character's Rapier controller and the body and capsule it moves. */
@@ -136,6 +140,8 @@ export interface PhysicsStats {
   stepMs: number
   steps: number
   pending: number
+  /** Bodies out of PhysicsRange, set aside until the origin comes near (spec 0040). */
+  parked: number
 }
 
 const KIND_DYNAMIC = 0
@@ -180,6 +186,10 @@ export class PhysicsWorld {
   /** Ticks: when sync-out last wrote Transforms, and when interpolation did. */
   writeTick = 0
   interpTick = 0
+  /** Whether the world had grids at the last sync (spec 0040), so a change resyncs every body. */
+  gridsActive = false
+  /** Bodies parked out of PhysicsRange. */
+  parkedCount = 0
   stepMs = 0
   steps = 0
   readonly config: PhysicsConfigValue
@@ -299,7 +309,14 @@ export class PhysicsWorld {
       if (this.dim === 3) desc.setAngvel({ x: ax, y: ay, z: az })
       else (desc as unknown as { setAngvel(a: number): void }).setAngvel(az)
     }
-    this.addBody(entity, this.raw.createRigidBody(desc), kind)
+    const record = this.addBody(entity, this.raw.createRigidBody(desc), kind)
+    // Parked when saved or rebuilt: it stays parked (and keeps its stored velocity) until the
+    // range check finds it near the origin.
+    if (world.has(entity, PhysicsParked)) {
+      record.body.setEnabled(false)
+      record.parked = true
+      this.parkedCount++
+    }
     // Colliders on this entity and on descendants attach to the new body.
     this.markSubtreeColliders(world, entity)
     for (const [jointEntity, j] of this.joints) {
@@ -322,6 +339,7 @@ export class PhysicsWorld {
       kind,
       slot: this.allocSlot(),
       index: this.list.length,
+      parked: false,
     }
     this.list.push(record)
     this.bodies.set(entity, record)
@@ -355,6 +373,7 @@ export class PhysicsWorld {
       }
     }
     this.raw.removeRigidBody(record.body)
+    if (record.parked) this.parkedCount--
     const last = this.list.pop()!
     if (last !== record) {
       this.list[record.index] = last
@@ -390,16 +409,16 @@ export class PhysicsWorld {
   }
 
   /** Teleports a body (or sets a kinematic target) to the entity's current world pose. */
-  moveBody(world: World, record: BodyRecord): void {
+  moveBody(world: World, record: BodyRecord, wake = true): void {
     const pose = poseOf(world, record.entity, this.scratchPose)
     const body = record.body
     const t = this.vec(pose[0]!, pose[1]!, pose[2]!)
-    if (record.kind === KIND_KINEMATIC_POSITION) {
+    if (record.kind === KIND_KINEMATIC_POSITION && wake) {
       body.setNextKinematicTranslation(t)
       body.setNextKinematicRotation(this.rotation(pose, 3))
     } else {
-      body.setTranslation(t, true)
-      body.setRotation(this.rotation(pose, 3), true)
+      body.setTranslation(t, wake)
+      body.setRotation(this.rotation(pose, 3), wake)
     }
     // A teleport shouldn't be interpolated from the old place.
     this.storePose(record)
@@ -419,6 +438,171 @@ export class PhysicsWorld {
         ang[o + 2]!,
         true,
       )
+  }
+
+  // --- large worlds (spec 0040) --------------------------------------------------
+
+  /**
+   * The floating origin moved: `offset` (m) takes a position in the old origin frame to the new
+   * one. Moves every body and free collider by it without waking them (velocities and contacts
+   * are relative, so they don't change), shifts the interpolation buffers, and refreshes the
+   * broad phase with a zero-length step so queries see the new places before the next step.
+   * O(bodies), once per cell crossing.
+   */
+  shiftOrigin(
+    ox: number,
+    oy: number,
+    oz: number,
+    onCollision: (e: CollisionEventData) => void,
+  ): void {
+    if (ox === 0 && oy === 0 && oz === 0) return
+    if (this.dim === 2) oz = 0
+    const curr = this.curr
+    const prev = this.prev
+    for (let i = 0; i < this.list.length; i++) {
+      const r = this.list[i]!
+      const t = r.body.translation(this.v3 as RAPIER.Vector)
+      r.body.setTranslation(this.vec(t.x + ox, t.y + oy, this.dim === 3 ? t.z + oz : 0), false)
+      const o = r.slot * 7
+      curr[o] = curr[o]! + ox
+      curr[o + 1] = curr[o + 1]! + oy
+      curr[o + 2] = curr[o + 2]! + oz
+      prev[o] = prev[o]! + ox
+      prev[o + 1] = prev[o + 1]! + oy
+      prev[o + 2] = prev[o + 2]! + oz
+    }
+    // Colliders without a body; ones on bodies moved with them.
+    for (const [entity, collider] of this.colliders) {
+      if (this.colliderOwner.has(entity)) continue
+      const t = collider.translation() as RAPIER.Vector
+      collider.setTranslation(this.vec(t.x + ox, t.y + oy, this.dim === 3 ? t.z + oz : 0))
+    }
+    this.raw.propagateModifiedBodyPositionsToColliders()
+    // Queries go through the broad phase, which only a step updates. Nothing moves in a zero-length
+    // step; contacts that started since the last step still report.
+    this.raw.timestep = 0
+    this.raw.step(this.events)
+    this.events.drainCollisionEvents((h1, h2, started) => {
+      const a = this.colliderEntity.get(h1)
+      const b = this.colliderEntity.get(h2)
+      if (a === undefined || b === undefined) return
+      onCollision({
+        kind: started ? 'started' : 'stopped',
+        a,
+        b,
+        bodyA: this.colliderOwner.get(a) ?? (-1 as Entity),
+        bodyB: this.colliderOwner.get(b) ?? (-1 as Entity),
+        sensor: this.colliders.get(a)!.isSensor() || this.colliders.get(b)!.isSensor(),
+      })
+    })
+    this.events.drainContactForceEvents(() => {})
+  }
+
+  /**
+   * The frame Rapier simulates in changed without an OriginShift (grids appeared or went away):
+   * puts every body and free collider back where its Transform says.
+   */
+  resync(world: World): void {
+    for (let i = 0; i < this.list.length; i++) {
+      const r = this.list[i]!
+      if (world.isAlive(r.entity)) this.moveBody(world, r, false)
+    }
+    for (const entity of this.colliders.keys()) {
+      if (!this.colliderOwner.has(entity)) this.dirtyColliders.add(entity)
+    }
+  }
+
+  /**
+   * Parks bodies farther than `radius` from the origin and brings parked ones back within
+   * 0.95 × radius. Active bodies are measured by their last simulated pose, parked ones by their
+   * GlobalTransform. Allocation-free unless a body changes state.
+   */
+  updateParking(world: World, radius: number): void {
+    const far = radius * radius
+    const near = far * 0.95 * 0.95
+    const curr = this.curr
+    // Measured from the FloatingOrigin entity (the origin frame's zero is its cell's center).
+    let cx = 0
+    let cy = 0
+    let cz = 0
+    const origin = world.tryResource(GridFramesResource)?.originEntity
+    if (origin !== undefined && origin >= 0 && world.isAlive(origin)) {
+      const table = world.entityTableUnchecked(origin)
+      if (table.has(GlobalTransform)) {
+        const m = table.column(GlobalTransform, 'matrix')
+        const o = world.entityRowUnchecked(origin) * 12
+        cx = m[o + 3]!
+        cy = m[o + 7]!
+        cz = m[o + 11]!
+      }
+    }
+    for (let i = 0; i < this.list.length; i++) {
+      const r = this.list[i]!
+      if (!r.parked) {
+        const o = r.slot * 7
+        const x = curr[o]! - cx
+        const y = curr[o + 1]! - cy
+        const z = this.dim === 3 ? curr[o + 2]! - cz : 0
+        if (x * x + y * y + z * z > far) this.park(world, r)
+        continue
+      }
+      const table = world.entityTableUnchecked(r.entity)
+      if (!table.has(GlobalTransform)) continue
+      const m = table.column(GlobalTransform, 'matrix')
+      const o = world.entityRowUnchecked(r.entity) * 12
+      const x = m[o + 3]! - cx
+      const y = m[o + 7]! - cy
+      const z = this.dim === 3 ? m[o + 11]! - cz : 0
+      if (x * x + y * y + z * z < near) this.unpark(world, r)
+    }
+  }
+
+  /** Takes a body out of the simulation, storing its velocity on PhysicsParked. */
+  park(world: World, record: BodyRecord): void {
+    const body = record.body
+    const v = body.linvel()
+    const linear: [number, number, number] = [v.x, v.y, this.dim === 3 ? v.z : 0]
+    const angular: [number, number, number] = [0, 0, 0]
+    if (this.dim === 3) {
+      const a = body.angvel()
+      angular[0] = a.x
+      angular[1] = a.y
+      angular[2] = a.z
+    } else {
+      angular[2] = body.angvel() as unknown as number
+    }
+    body.setEnabled(false)
+    record.parked = true
+    this.parkedCount++
+    world.add(record.entity, PhysicsParked, { linear, angular })
+  }
+
+  /** Puts a parked body back where its Transform says, moving with its stored velocity. */
+  unpark(world: World, record: BodyRecord): void {
+    const body = record.body
+    body.setEnabled(true)
+    record.parked = false
+    this.parkedCount--
+    // Straight to its pose (for kinematic bodies too: a target would sweep it there).
+    this.moveBody(world, record, false)
+    body.wakeUp()
+    const stored = world.tryGet(record.entity, PhysicsParked)
+    if (stored && record.kind !== KIND_FIXED && record.kind !== KIND_KINEMATIC_POSITION) {
+      const [lx, ly, lz] = stored.linear
+      const [ax, ay, az] = stored.angular
+      body.setLinvel(this.vec(lx, ly, lz), true)
+      if (this.dim === 3) body.setAngvel(this.vec(ax, ay, az), true)
+      else (body as unknown as { setAngvel(a: number, w: boolean): void }).setAngvel(az, true)
+    }
+    if (stored) world.remove(record.entity, PhysicsParked)
+  }
+
+  /** Grids went away: nothing is out of range any more. */
+  unparkAll(world: World): void {
+    for (let i = 0; i < this.list.length; i++) {
+      const r = this.list[i]!
+      if (r.parked && world.isAlive(r.entity)) this.unpark(world, r)
+    }
   }
 
   // --- characters ------------------------------------------------------------
@@ -1151,6 +1335,7 @@ export class PhysicsWorld {
       stepMs: this.stepMs,
       steps: this.steps,
       pending: this.pendingMesh.size,
+      parked: this.parkedCount,
     }
   }
 

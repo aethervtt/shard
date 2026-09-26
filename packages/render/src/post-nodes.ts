@@ -21,6 +21,7 @@ import { GpuAssetsResource } from './gpu-assets'
 import { type NodeContext, type NodeDescriptor, RenderPhase, type RenderView } from './graph'
 import { Graph, Shaders, Views } from './plugin'
 import { AutoExposure, cocParams, hasEffect, needsPrepass, PostEffect } from './post'
+import { RenderCounters } from './stats'
 import { type CameraData, cameraOf } from './view'
 
 // --- shared plumbing ---------------------------------------------------------------------------
@@ -472,6 +473,8 @@ function taaNode(): NodeDescriptor {
       const write = h.textures[1 - h.index]!
       scratch[0] = 0.1
       scratch[1] = h.valid ? 0 : 1
+      // Only a new, resized, or lost history starts over; an origin shift moves it (spec 0040).
+      if (!h.valid) ctx.world.initResource(RenderCounters).taaResets++
       scratch[2] = scratch[3] = 0
       const params = cache.buffer(gpu, `${ctx.view.name}/taa`, 16)
       params.write(scratch, 0, 0, 4)

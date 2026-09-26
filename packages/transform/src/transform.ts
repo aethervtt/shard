@@ -2,52 +2,33 @@ import {
   affine,
   ChildOf,
   Children,
-  defineComponent,
   defineSystem,
   defineSystemSet,
   type Entity,
-  type Infer,
   onAdd,
   onRemove,
   onSet,
   PostUpdate,
   quat,
   type Table,
-  t,
   vec3,
   type World,
 } from '@shard/core'
 import { definePlugin } from '@shard/runtime'
+import { GlobalTransform, Transform, type TransformValue } from './components'
+import {
+  FloatingOrigin,
+  Grid,
+  GridCell,
+  type GridFrames,
+  GridFramesResource,
+  OriginShift,
+  type OriginShiftData,
+  resetGrids,
+  solveGrids,
+} from './grid'
 
-export const GlobalTransform = defineComponent(
-  'core/GlobalTransform',
-  {
-    matrix: t.affine3x4({
-      readonly: true,
-      description: 'World matrix (top three rows, row by row). Computed from Transform each frame.',
-    }),
-  },
-  {
-    description: 'World-space transform. Computed by core/transform-propagate; do not write.',
-    serialize: false,
-  },
-)
-
-export const Transform = defineComponent(
-  'core/Transform',
-  {
-    translation: t.vec3({ unit: 'm', description: 'Position relative to the parent (or world).' }),
-    rotation: t.quat({ description: 'Rotation relative to the parent, as a unit quaternion.' }),
-    scale: t.vec3({ default: [1, 1, 1], description: 'Scale along local axes.' }),
-  },
-  {
-    description:
-      'Local transform. Y is up, -Z is forward. In 2D, translation.z orders layers and rotation is around Z.',
-    requires: [GlobalTransform],
-  },
-)
-
-export type TransformValue = Infer<typeof Transform>
+export { GlobalTransform, Transform, type TransformValue }
 
 /** Transform propagation runs in this set, in PostUpdate. Order systems that read world matrices after it. */
 export const TransformSystems = defineSystemSet('core/TransformSystems')
@@ -106,6 +87,9 @@ interface TableColumns {
   global: Float32Array | undefined
   globalChanged: Uint32Array | undefined
   children: ((Entity | null)[] | undefined)[] | undefined
+  isGrid: boolean
+  cell: Int32Array | undefined
+  cellChanged: Uint32Array | undefined
 }
 
 interface Walk {
@@ -113,6 +97,7 @@ interface Walk {
   since: number
   tick: number
   cache: (TableColumns | undefined)[]
+  frames: GridFrames
 }
 
 function columnsOf(walk: Walk, table: Table): TableColumns {
@@ -129,6 +114,9 @@ function columnsOf(walk: Walk, table: Table): TableColumns {
       global: undefined,
       globalChanged: undefined,
       children: undefined,
+      isGrid: false,
+      cell: undefined,
+      cellChanged: undefined,
     }
     walk.cache[table.id] = c
   }
@@ -144,6 +132,10 @@ function columnsOf(walk: Walk, table: Table): TableColumns {
     c.global = c.hasGlobal ? table.column(GlobalTransform, 'matrix') : undefined
     c.globalChanged = c.hasGlobal ? table.changedTicks(GlobalTransform) : undefined
     c.children = table.has(Children) ? table.column(Children, 'entities') : undefined
+    c.isGrid = table.has(Grid)
+    const hasCell = table.has(GridCell)
+    c.cell = hasCell ? table.column(GridCell, 'cell') : undefined
+    c.cellChanged = hasCell ? table.changedTicks(GridCell) : undefined
   }
   return c
 }
@@ -155,22 +147,60 @@ function columnsOf(walk: Walk, table: Table): TableColumns {
  */
 export const propagateTransforms = defineSystem({
   name: 'core/transform-propagate',
-  description: 'Computes GlobalTransform from Transform and the parent hierarchy.',
+  description:
+    'Solves grid frames against the floating origin, then computes GlobalTransform from Transform and the parent hierarchy.',
   setup: (world) => ({
     roots: world.query({ with: [Transform, GlobalTransform], without: [ChildOf] }),
-    walk: { world, since: 0, tick: 0, cache: [] } as Walk,
+    grids: world.query({ with: [Grid] }),
+    origins: world.query({ with: [FloatingOrigin] }),
+    walk: {
+      world,
+      since: 0,
+      tick: 0,
+      cache: [],
+      frames: world.initResource(GridFramesResource),
+    } as Walk,
+    shift: { grid: null, delta: [0, 0, 0], offset: [0, 0, 0] } as OriginShiftData,
   }),
-  run: ({ roots, walk }, world, ctx) => {
+  run: ({ roots, grids, origins, walk, shift }, world, ctx) => {
     walk.since = ctx.lastRunTick
     walk.tick = world.tick
     const since = walk.since
     const tick = walk.tick
+    const frames = walk.frames
+    // Grid frames: skipped entirely (one count per grid table) when there are no grids.
+    let gridCount = 0
+    for (let t = 0; t < grids.tables.length; t++) gridCount += grids.tables[t]!.count
+    if (gridCount > 0) {
+      let origin = -1 as Entity
+      for (let t = 0; t < origins.tables.length && origin < 0; t++) {
+        const table = origins.tables[t]!
+        if (table.count > 0) origin = table.entities[0]! as Entity
+      }
+      if (solveGrids(world, frames, grids.tables, origin, shift, since)) {
+        const data: OriginShiftData = {
+          grid: shift.grid,
+          delta: [shift.delta[0], shift.delta[1], shift.delta[2]],
+          offset: [shift.offset[0], shift.offset[1], shift.offset[2]],
+        }
+        world.send(OriginShift, data)
+        world.trigger(OriginShift, data)
+      }
+    } else resetGrids(frames)
+    const rootIdentity = frames.rootIdentity
+    const rootMoved = frames.moved[0] === 1
+    const rootFrame = frames.frame32
+
     const tables = roots.tables
     for (let ti = 0; ti < tables.length; ti++) {
       const table = tables[ti]!
       const n = table.count
       if (n === 0) continue
       const c = columnsOf(walk, table)
+      if (c.isGrid) {
+        propagateGridRows(walk, table, c)
+        continue
+      }
       const tr = c.translation!
       const ro = c.rotation!
       const sc = c.scale!
@@ -179,8 +209,26 @@ export const propagateTransforms = defineSystem({
       const globalChanged = c.globalChanged!
       const children = c.children
       let moved = false
+      if (!rootIdentity) {
+        // The origin is in a grid, so the root frame is offset: compose with its matrix.
+        for (let i = 0; i < n; i++) {
+          const dirty = rootMoved || changed[i]! > since
+          if (dirty) {
+            affine.fromTRSAt(scratch, 0, tr, i * 3, ro, i * 4, sc, i * 3)
+            affine.multiplyAt(g, i * 12, rootFrame, 0, scratch, 0)
+            globalChanged[i] = tick
+            moved = true
+          }
+          if (children !== undefined) {
+            const list = children[i]
+            if (list) propagateChildren(walk, list, g, i * 12, dirty)
+          }
+        }
+        if (moved) table.touch(GlobalTransform)
+        continue
+      }
       for (let i = 0; i < n; i++) {
-        const dirty = changed[i]! > since
+        const dirty = rootMoved || changed[i]! > since
         if (dirty) {
           // affine.fromTRSAt, inlined: this loop runs for every root that moved.
           const i3 = i * 3
@@ -230,6 +278,154 @@ export const propagateTransforms = defineSystem({
   },
 })
 
+/** Rows of a grid table reached as roots: each grid's GlobalTransform is its solved frame. */
+function propagateGridRows(walk: Walk, table: Table, c: TableColumns): void {
+  const frames = walk.frames
+  const g = c.global!
+  const globalChanged = c.globalChanged!
+  const children = c.children
+  let moved = false
+  for (let i = 0; i < table.count; i++) {
+    const slot = frames.slotOf.get(table.entities[i]! as Entity)
+    if (slot === undefined) continue
+    const dirty = frames.moved[slot] === 1
+    if (dirty) {
+      affine.copyAt(g, i * 12, frames.frame32, slot * 12)
+      globalChanged[i] = walk.tick
+      moved = true
+    }
+    if (children !== undefined) {
+      const list = children[i]
+      if (list) propagateGridChildren(walk, list, slot, dirty)
+    }
+  }
+  if (moved) table.touch(GlobalTransform)
+}
+
+/**
+ * Direct children of a grid: `GlobalTransform = A · ((cell − ref) × cellSize + TRS)`, with the cell
+ * difference taken in integers and the product in f64, then rounded to f32. Deeper descendants go
+ * through the ordinary f32 path.
+ */
+function propagateGridChildren(
+  walk: Walk,
+  list: readonly (Entity | null)[],
+  slot: number,
+  gridDirty: boolean,
+): void {
+  const world = walk.world
+  const frames = walk.frames
+  for (let k = 0; k < list.length; k++) {
+    const child = list[k]
+    if (child === null || child === undefined) continue
+    const table = world.entityTableUnchecked(child)
+    const row = world.entityRowUnchecked(child)
+    const c = columnsOf(walk, table)
+    if (c.isGrid) {
+      // A nested grid: its frame was solved with the others.
+      const s = frames.slotOf.get(child)
+      if (s === undefined) continue
+      const dirty = frames.moved[s] === 1
+      if (dirty && c.hasGlobal) {
+        affine.copyAt(c.global!, row * 12, frames.frame32, s * 12)
+        c.globalChanged![row] = walk.tick
+        table.touch(GlobalTransform)
+      }
+      const grandchildren = c.children?.[row]
+      if (grandchildren) propagateGridChildren(walk, grandchildren, s, dirty)
+      continue
+    }
+    if (!c.hasGlobal) {
+      const grandchildren = c.children?.[row]
+      if (grandchildren) {
+        propagateChildren(walk, grandchildren, frames.frame32, slot * 12, gridDirty)
+      }
+      continue
+    }
+    let dirty = gridDirty
+    if (c.hasTransform) dirty ||= c.changed![row]! > walk.since
+    if (c.cellChanged !== undefined) dirty ||= c.cellChanged[row]! > walk.since
+    if (dirty) {
+      writeGridChild(frames, slot, c, row)
+      c.globalChanged![row] = walk.tick
+      table.touch(GlobalTransform)
+    }
+    const grandchildren = c.children?.[row]
+    if (grandchildren) propagateChildren(walk, grandchildren, c.global!, row * 12, dirty)
+  }
+}
+
+/** Writes one grid child's GlobalTransform from its grid's f64 frame. Allocation-free. */
+function writeGridChild(frames: GridFrames, slot: number, c: TableColumns, row: number): void {
+  const a = frames.a
+  const ao = slot * 12
+  const cs = frames.cellSize[slot]!
+  const ref = frames.ref
+  const r3 = slot * 3
+  const cell = c.cell
+  const o3 = row * 3
+  let px = cell === undefined ? -ref[r3]! * cs : (cell[o3]! - ref[r3]!) * cs
+  let py = cell === undefined ? -ref[r3 + 1]! * cs : (cell[o3 + 1]! - ref[r3 + 1]!) * cs
+  let pz = cell === undefined ? -ref[r3 + 2]! * cs : (cell[o3 + 2]! - ref[r3 + 2]!) * cs
+  let l00 = 1
+  let l01 = 0
+  let l02 = 0
+  let l10 = 0
+  let l11 = 1
+  let l12 = 0
+  let l20 = 0
+  let l21 = 0
+  let l22 = 1
+  if (c.hasTransform) {
+    const tr = c.translation!
+    const ro = c.rotation!
+    const sc = c.scale!
+    const o4 = row * 4
+    px += tr[o3]!
+    py += tr[o3 + 1]!
+    pz += tr[o3 + 2]!
+    const x = ro[o4]!
+    const y = ro[o4 + 1]!
+    const z = ro[o4 + 2]!
+    const w = ro[o4 + 3]!
+    const sx = sc[o3]!
+    const sy = sc[o3 + 1]!
+    const sz = sc[o3 + 2]!
+    const x2 = x + x
+    const y2 = y + y
+    const z2 = z + z
+    const xx = x * x2
+    const yy = y * y2
+    const zz = z * z2
+    const xy = x * y2
+    const xz = x * z2
+    const yz = y * z2
+    const wx = w * x2
+    const wy = w * y2
+    const wz = w * z2
+    l00 = (1 - yy - zz) * sx
+    l01 = (xy - wz) * sy
+    l02 = (xz + wy) * sz
+    l10 = (xy + wz) * sx
+    l11 = (1 - xx - zz) * sy
+    l12 = (yz - wx) * sz
+    l20 = (xz - wy) * sx
+    l21 = (yz + wx) * sy
+    l22 = (1 - xx - yy) * sz
+  }
+  const g = c.global!
+  const o = row * 12
+  for (let r = 0; r < 3; r++) {
+    const a0 = a[ao + r * 4]!
+    const a1 = a[ao + r * 4 + 1]!
+    const a2 = a[ao + r * 4 + 2]!
+    g[o + r * 4] = a0 * l00 + a1 * l10 + a2 * l20
+    g[o + r * 4 + 1] = a0 * l01 + a1 * l11 + a2 * l21
+    g[o + r * 4 + 2] = a0 * l02 + a1 * l12 + a2 * l22
+    g[o + r * 4 + 3] = a0 * px + a1 * py + a2 * pz + a[ao + r * 4 + 3]!
+  }
+}
+
 function propagateChildren(
   walk: Walk,
   list: readonly (Entity | null)[],
@@ -245,6 +441,21 @@ function propagateChildren(
     const table = world.entityTableUnchecked(child)
     const row = world.entityRowUnchecked(child)
     const c = columnsOf(walk, table)
+    if (c.isGrid) {
+      // A grid under an ordinary entity: its frame was solved with the others.
+      const frames = walk.frames
+      const s = frames.slotOf.get(child)
+      if (s === undefined) continue
+      const moved = frames.moved[s] === 1
+      if (moved) {
+        affine.copyAt(c.global!, row * 12, frames.frame32, s * 12)
+        c.globalChanged![row] = walk.tick
+        table.touch(GlobalTransform)
+      }
+      const inside = c.children?.[row]
+      if (inside) propagateGridChildren(walk, inside, s, moved)
+      continue
+    }
     let dirty = parentDirty
     let matrix = parent
     let offset = parentOffset
@@ -295,8 +506,18 @@ export function propagateSubtree(world: World, entity: Entity): void {
   const g = table.column(GlobalTransform, 'matrix')
   let parent: Entity = -1 as Entity
   if (table.has(ChildOf)) parent = table.column(ChildOf, 'parent')[row]! as Entity
+  const frames = world.tryResource(GridFramesResource)
   if (parent >= 0 && world.isAlive(parent)) {
     const pt = world.entityTableUnchecked(parent)
+    const slot = frames?.active && pt.has(Grid) ? frames.slotOf.get(parent) : undefined
+    if (slot !== undefined) {
+      // A direct child of a grid: from the grid's f64 frame, like propagation does.
+      writeGridChild(frames!, slot, subtreeColumns(table), row)
+      table.changedTicks(GlobalTransform)[row] = world.tick
+      table.touch(GlobalTransform)
+      subtreeChildren(world, table, row, g, row * 12)
+      return
+    }
     if (pt.has(GlobalTransform)) {
       subtreeNode(
         world,
@@ -308,7 +529,7 @@ export function propagateSubtree(world: World, entity: Entity): void {
       return
     }
   }
-  // A root: its world matrix is its local one.
+  // A root: its world matrix is its local one, in the root frame.
   if (table.has(Transform)) {
     affine.fromTRSAt(
       g,
@@ -320,10 +541,35 @@ export function propagateSubtree(world: World, entity: Entity): void {
       table.column(Transform, 'scale'),
       row * 3,
     )
+    if (frames && !frames.rootIdentity) {
+      affine.copyAt(subtreeScratch, 0, g, row * 12)
+      affine.multiplyAt(g, row * 12, frames.frame32, 0, subtreeScratch, 0)
+    }
   }
   table.changedTicks(GlobalTransform)[row] = world.tick
   table.touch(GlobalTransform)
   subtreeChildren(world, table, row, g, row * 12)
+}
+
+/** Column view for writeGridChild outside a propagation run (cold). */
+function subtreeColumns(table: Table): TableColumns {
+  const hasTransform = table.has(Transform)
+  const hasCell = table.has(GridCell)
+  return {
+    stamp: -1,
+    hasTransform,
+    hasGlobal: true,
+    translation: hasTransform ? table.column(Transform, 'translation') : undefined,
+    rotation: hasTransform ? table.column(Transform, 'rotation') : undefined,
+    scale: hasTransform ? table.column(Transform, 'scale') : undefined,
+    changed: undefined,
+    global: table.column(GlobalTransform, 'matrix'),
+    globalChanged: undefined,
+    children: undefined,
+    isGrid: false,
+    cell: hasCell ? table.column(GridCell, 'cell') : undefined,
+    cellChanged: undefined,
+  }
 }
 
 function subtreeNode(
@@ -385,9 +631,61 @@ function markTransformChanged({ entity, world }: { entity: Entity; world: World 
   world.entityTable(entity).markChanged(Transform, world.entityRow(entity))
 }
 
+/**
+ * Moves grid children whose translation left their cell (past half a cell plus the grid's
+ * hysteresis) by whole cells: `cell += k`, `translation -= k × cellSize`. The position doesn't
+ * change, so nothing jumps. Only entities whose Transform changed are looked at.
+ */
+export const recenterGridCells = defineSystem({
+  name: 'transform/recenter',
+  description:
+    'Moves grid children to the neighboring cell when their translation leaves the cell.',
+  setup: (world) => ({ cells: world.query({ with: [GridCell, Transform, ChildOf] }) }),
+  run: ({ cells }, world, ctx) => {
+    const since = ctx.lastRunTick
+    for (let t = 0; t < cells.tables.length; t++) {
+      const table = cells.tables[t]!
+      if (table.count === 0 || table.lastChanged(Transform) <= since) continue
+      const ticks = table.changedTicks(Transform)
+      const tr = table.column(Transform, 'translation')
+      const cell = table.column(GridCell, 'cell')
+      const parents = table.column(ChildOf, 'parent')
+      for (let row = 0; row < table.count; row++) {
+        if (ticks[row]! <= since) continue
+        const parent = parents[row]! as Entity
+        if (parent < 0 || !world.isAlive(parent)) continue
+        const pt = world.entityTableUnchecked(parent)
+        if (!pt.has(Grid)) continue
+        const pr = world.entityRowUnchecked(parent)
+        const cs = pt.column(Grid, 'cellSize')[pr]!
+        const limit = cs / 2 + pt.column(Grid, 'hysteresis')[pr]!
+        const o = row * 3
+        let moved = false
+        for (let axis = 0; axis < 3; axis++) {
+          const v = tr[o + axis]!
+          if (v <= limit && v >= -limit) continue
+          const k = Math.round(v / cs)
+          cell[o + axis] = cell[o + axis]! + k
+          tr[o + axis] = v - k * cs
+          moved = true
+        }
+        if (moved) {
+          table.markChanged(Transform, row)
+          table.markChanged(GridCell, row)
+        }
+      }
+    }
+  },
+})
+
 export const TransformPlugin = definePlugin({
   name: 'core/transform',
   build(app) {
+    app.world.initResource(GridFramesResource)
+    app.addSystems(
+      PostUpdate,
+      recenterGridCells.inSet(TransformSystems).before(propagateTransforms),
+    )
     app.addSystems(PostUpdate, propagateTransforms.inSet(TransformSystems))
     app.world.observe(onAdd(ChildOf), markTransformChanged)
     app.world.observe(onSet(ChildOf), markTransformChanged)

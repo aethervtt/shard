@@ -33,6 +33,8 @@ export type FieldKind =
   | 'vec2'
   | 'vec3'
   | 'vec4'
+  /** Three i32 components (grid cells). */
+  | 'ivec3'
   | 'quat'
   | 'mat3'
   | 'mat4'
@@ -327,6 +329,7 @@ const bool = callable<boolean, 'u8'>((options) =>
 export type Vec2 = [number, number]
 export type Vec3 = [number, number, number]
 export type Vec4 = [number, number, number, number]
+export type IVec3 = [number, number, number]
 export type Quat = [number, number, number, number]
 export type Color = [number, number, number, number]
 
@@ -404,6 +407,41 @@ function vectorField<V extends number[]>(
     }),
   )
 }
+
+const I32_MIN = -2147483648
+const I32_MAX = 2147483647
+
+const ivec3 = callable<IVec3, 'i32'>((options) => {
+  const min = Math.max(I32_MIN, options.min ?? I32_MIN)
+  const max = Math.min(I32_MAX, options.max ?? I32_MAX)
+  return makeField<IVec3, 'i32'>({
+    kind: 'ivec3',
+    storage: 'i32',
+    stride: 3,
+    options,
+    defaultValue: () => [...(options.default ?? [0, 0, 0])] as IVec3,
+    read: (c, r) => readStrided(c, r, 3) as IVec3,
+    write: (c, r, v) => writeStrided(c, r, 3, v),
+    validate(json, path, errors) {
+      validateNumberArray(json, 3, path, errors, min, max)
+      if (!Array.isArray(json) || json.length !== 3) return
+      for (let i = 0; i < 3; i++) {
+        const v = json[i]
+        if (typeof v === 'number' && Number.isFinite(v) && !Number.isInteger(v)) {
+          errors.push(mismatch(pointer(path, i), 'an integer', v))
+        }
+      }
+    },
+    toJson: (v) => [...v],
+    fromJson: (json) => [...(json as IVec3)] as IVec3,
+    schema: () => ({
+      type: 'array',
+      items: { type: 'integer', minimum: min, maximum: max },
+      minItems: 3,
+      maxItems: 3,
+    }),
+  })
+})
 
 const color = callable<Color, 'f32'>((options) =>
   makeField<Color, 'f32'>({
@@ -778,6 +816,7 @@ export const t = {
   vec2: vectorField<Vec2>('vec2', [0, 0]),
   vec3: vectorField<Vec3>('vec3', [0, 0, 0]),
   vec4: vectorField<Vec4>('vec4', [0, 0, 0, 0]),
+  ivec3,
   quat: vectorField<Quat>('quat', [0, 0, 0, 1]),
   mat3: vectorField<Mat3>('mat3', [1, 0, 0, 0, 1, 0, 0, 0, 1]),
   mat4: vectorField<Mat4>('mat4', [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]),

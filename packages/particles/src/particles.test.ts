@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { assetServer } from '@shard/assets'
-import { quat } from '@shard/core'
+import { ChildOf, quat } from '@shard/core'
 import type { GpuContext } from '@shard/gpu'
 import { createNodeGpuContext } from '@shard/gpu/node'
 import { plane } from '@shard/mesh'
@@ -29,7 +29,16 @@ import {
 import { compareGolden, settle } from '@shard/render/testing'
 import { App, LogResource } from '@shard/runtime'
 import { Texture, Textures } from '@shard/texture'
-import { lookAt, Transform, TransformPlugin } from '@shard/transform'
+import {
+  FloatingOrigin,
+  GlobalTransform,
+  Grid,
+  GridCell,
+  lookAt,
+  OriginShift,
+  Transform,
+  TransformPlugin,
+} from '@shard/transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { ParticleEmitterOverrides, ParticleSystem } from './components'
 import { ParticleEffect, ParticleEffects, parseEffect } from './effect'
@@ -77,7 +86,7 @@ async function scene(width = 96, height = 96, root?: string) {
       await gpu.pipelines.whenIdle()
     }
   }
-  return { app, world: app.world, camera, step }
+  return { app, world: app.world, camera, step, targetRef }
 }
 
 type World = Awaited<ReturnType<typeof scene>>['world']
@@ -383,5 +392,99 @@ describe('particles', () => {
       expect(Math.abs(g!.min[k]! - c!.min[k]!)).toBeLessThan(0.05)
       expect(Math.abs(g!.max[k]! - c!.max[k]!)).toBeLessThan(0.05)
     }
+  })
+
+  it('keeps a world-space trail continuous across a floating-origin shift (spec 0040)', async () => {
+    const trail = {
+      emitters: [
+        {
+          name: 'trail',
+          capacity: 512,
+          spawn: { rate: 60 },
+          shape: { type: 'point' },
+          init: { lifetime: [4, 4], speed: [0, 0], size: [0.4, 0.4], color: '#64c8ff' },
+          update: [],
+          render: { blend: 'additive', emissive: 3000 },
+          offscreen: 'simulate',
+        },
+      ],
+    }
+    const images: Uint8Array[] = []
+    for (const backend of ['gpu', 'cpu'] as const) {
+      const { world, step, app, targetRef } = await scene(96, 64)
+      const grid = world.spawn([Grid, { cellSize: 100, hysteresis: 10 }])
+      const ship = world.spawn(
+        [ParticleSystem, { effect: effect(world, trail), seed: 5, backend }],
+        Transform,
+        GridCell,
+        [ChildOf, { parent: grid }],
+        FloatingOrigin,
+      )
+      const eye: [number, number, number] = [-12, 5, 25]
+      const cam = world.spawn(
+        [
+          Camera3d,
+          {
+            target: targetRef as never,
+            fovY: 50,
+            clearColor: [0, 0, 0, 1],
+          },
+        ],
+        [Exposure, { ev100: 10 }],
+        [Tonemapping, { curve: 'none', dither: false }],
+        [Transform, { translation: eye, rotation: lookAt(eye, [-12, 0, 0]) }],
+        [ChildOf, { parent: ship }],
+      )
+      let shifts = 0
+      world.observe(OriginShift, () => shifts++)
+      // 2 m a frame along +x: past the 60 m recentering limit (half a cell plus hysteresis) twice.
+      const v = 2 * 60
+      for (let f = 1; f <= 90; f++) {
+        world.set(ship, Transform, {
+          translation: [f * 2 - world.get(ship, GridCell).cell[0]! * 100, 0, 0],
+        })
+        await step(1)
+      }
+      expect(shifts).toBe(2)
+      expect(world.get(ship, GridCell).cell[0]).toBe(2)
+      const e = [...world.resource(Particles).systems.values()][0]!.emitters[0]!
+      const data = await readParticles(gpu, e)
+      const alive: { age: number; x: number; y: number; z: number }[] = []
+      for (let o = 0; o < data.length; o += 16) {
+        if (!(data[o + 7]! > 0 && data[o + 3]! < data[o + 7]!)) continue
+        alive.push({ age: data[o + 3]!, x: data[o]!, y: data[o + 1]!, z: data[o + 2]! })
+      }
+      alive.sort((a, b) => a.age - b.age)
+      expect(alive.length).toBeGreaterThan(80)
+      // The newest particle sits on the ship; each older one is v × its extra age behind it.
+      const shipX = world.get(ship, GlobalTransform).matrix[3]!
+      expect(Math.abs(alive[0]!.x - shipX)).toBeLessThan(1e-3)
+      let worst = 0
+      for (let i = 1; i < alive.length; i++) {
+        const a = alive[i - 1]!
+        const b = alive[i]!
+        worst = Math.max(
+          worst,
+          Math.abs(b.x - a.x + v * (b.age - a.age)),
+          Math.abs(b.y),
+          Math.abs(b.z),
+        )
+      }
+      // A missed shift would leave a 100 m gap at the crossing.
+      expect(worst, backend).toBeLessThan(0.01)
+      // The oldest particles were spawned before both shifts: the trail spans them.
+      expect(alive.at(-1)!.age).toBeGreaterThan(80 / 60)
+      const shot = captureView(world, `camera:${cam}`)
+      app.update(0)
+      images.push((await shot).data)
+      expect(world.resource(LogResource).errors()).toEqual([])
+    }
+    expect(
+      compareGolden(here, 'particles-origin-shift', { width: 96, height: 64, data: images[0]! })
+        .mean,
+    ).toBeLessThan(1)
+    let diff = 0
+    for (let i = 0; i < images[0]!.length; i++) diff += Math.abs(images[0]![i]! - images[1]![i]!)
+    expect(diff / images[0]!.length).toBeLessThan(1)
   })
 })

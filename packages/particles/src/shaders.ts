@@ -5,7 +5,7 @@ import { wgslFloat as f, WGSL_RANDOM } from './values'
 /** Floats per particle: pos + age, vel + life, size, rot, rot speed, seed, color. */
 export const PARTICLE_FLOATS = 16
 /** Bytes of the simulation uniform (see `Sim` below). */
-export const SIM_BYTES = 320
+export const SIM_BYTES = 336
 /** Bytes of the draw uniform (see `Draw` below). */
 export const DRAW_BYTES = 112
 
@@ -39,6 +39,8 @@ struct Sim {
   seed: u32,
   local: u32,
   has_depth: u32,
+  /** A floating-origin shift to add to particles alive before this frame (spec 0040); else 0. */
+  origin_offset: vec4f,
 }`
 
 /** Module code of an emitter, with an id per module (so helper names don't clash). */
@@ -162,6 +164,9 @@ fn update(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_i
       let seed = bitcast<u32>(q.p2.w);
       let rot_speed = q.p2.z;
       var pos = q.p0.xyz;
+      // Slots spawned this frame are already in the new origin frame; older ones catch up.
+      let origin_fresh = (gid.x + sim.capacity - sim.spawn_base % sim.capacity) % sim.capacity < sim.spawn_count;
+      if (!origin_fresh) { pos += sim.origin_offset.xyz; }
       var vel = q.p1.xyz;
       var rot = q.p2.y;
       age += dt;

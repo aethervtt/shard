@@ -25,5 +25,6 @@ export {
   prepareParticles,
   readParticles,
   type SystemState,
+  shiftParticles,
 } from './sim'
 export { pcg, rand } from './values'

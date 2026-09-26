@@ -122,10 +122,12 @@ Every engine error is a `ShardError` with one of these codes.
 | `protocol/internal` | @shard/protocol |  |
 | `protocol/invalid-components` | @shard/protocol |  |
 | `protocol/invalid-params` | @shard/protocol |  |
+| `protocol/invalid-position64` | @shard/protocol | Pass { "position64": [x, y, z], "grid": <grid> } together. |
 | `protocol/no-files` | @shard/protocol |  |
 | `protocol/no-preview` | @shard/protocol | Previews exist for textures, materials, meshes, scenes, and types that register one. |
 | `protocol/no-renderer` | @shard/protocol |  |
 | `protocol/no-view` | @shard/protocol |  |
+| `protocol/not-a-grid` | @shard/protocol | Pass "grid": the id or path of an entity with transform/Grid. |
 | `protocol/unknown-component` | @shard/protocol | schema.list returns every component name. |
 | `protocol/unknown-debug-view` | @shard/protocol | Use 'clusters', 'cascades', 'lod', 'culling', 'none', or 'shadow-map:<light>'. |
 | `protocol/unknown-entity` | @shard/protocol | Pass an entity id from world.query, or a scene path like "ship/camera". |
@@ -223,6 +225,11 @@ Every engine error is a `ShardError` with one of these codes.
 | `texture/normal-map-mismatch` | @shard/sprite | A normal-map companion must match its image pixel for pixel. |
 | `texture/transcoder-unavailable` | @shard/texture | Basis Universal ships in @shard/texture/vendor/basis; check the files are present. |
 | `texture/unsupported-format` | @shard/texture | Use a 2D image or a cube map (6 faces). |
+| `transform/cell-outside-grid` | @shard/scene | Nest the entity directly under an entity with transform/Grid, or remove its GridCell. |
+| `transform/grid-cycle` | @shard/transform | Check the ChildOf chain of your Grid entities. |
+| `transform/multiple-origins` | @shard/scene | Keep one transform/FloatingOrigin per world, usually on the camera. |
+| `transform/not-a-grid` | @shard/transform | Pass an entity that has the transform/Grid component. |
+| `transform/translation-outside-cell` | @shard/scene | Split the position into transform/GridCell (whole cells) plus a translation under one cell, or place it with entity.patch { "position64": [x, y, z], "grid": <grid> }. |
 | `ui/ambiguous-path` | @shard/ui |  |
 | `ui/disabled` | @shard/ui | Set disabled to false on its UiButton or UiToggle first. |
 | `ui/hidden` | @shard/ui | A node with display none, under a hidden anchor, or outside a root can't be clicked. |

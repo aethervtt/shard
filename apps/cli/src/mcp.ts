@@ -149,7 +149,7 @@ export const TOOLS: Tool[] = [
   forward(
     'get_entity',
     'entity.get',
-    'All components of one entity as JSON. "entity" is an id or a scene path like "ship/camera".',
+    'All components of one entity as JSON. "entity" is an id or a scene path like "ship/camera". In a world with grids it also returns worldPosition64: the exact position relative to the floating origin\'s cell.',
   ),
   forward(
     'spawn_entity',
@@ -159,7 +159,7 @@ export const TOOLS: Tool[] = [
   forward(
     'patch_entity',
     'entity.patch',
-    'Changes component fields on an entity; unspecified fields keep their values, null removes a component. All values are validated first; nothing changes if any is invalid. Example: { "entity": "ship", "components": { "core/Transform": { "translation": [0, 5, 0] } } }.',
+    'Changes component fields on an entity; unspecified fields keep their values, null removes a component. All values are validated first; nothing changes if any is invalid. Example: { "entity": "ship", "components": { "core/Transform": { "translation": [0, 5, 0] } } }. In a large world, { "entity": "moon", "position64": [3.8e8, 0, 0], "grid": "system" } places it exactly (cell and translation computed for you).',
   ),
   forward('despawn_entity', 'entity.despawn', 'Despawns an entity and (by default) its children.'),
   forward(
@@ -367,7 +367,7 @@ export const TOOLS: Tool[] = [
   forward(
     'physics_describe',
     'physics.describe',
-    'Physics state: bodies by kind and how many sleep, colliders by shape, joints, contact pairs, colliders waiting for a mesh, and the last step time.',
+    'Physics state: bodies by kind, how many sleep, and how many are parked beyond the physics range (large worlds), colliders by shape, joints, contact pairs, colliders waiting for a mesh, the range radius, and the last step time.',
   ),
   forward(
     'animation_describe',

@@ -7,7 +7,7 @@ import {
   type World,
 } from '@shard/core'
 import type { Mesh } from '@shard/mesh'
-import { GlobalTransform } from '@shard/transform'
+import { GlobalTransform, GridFramesResource } from '@shard/transform'
 import { ForwardStateResource } from './forward'
 import { type GizmoStore, Gizmos } from './gizmos'
 import {
@@ -389,3 +389,52 @@ function draw(world: World, o: DebugOverlaysValue, g: GizmoStore): void {
     }
   }
 }
+
+const GRID_CELL = [0.3, 1, 0.5, 1]
+const NEIGHBOR = [0.3, 0.6, 1, 0.45]
+const ga = new Float32Array(3)
+const gb = new Float32Array(3)
+const GRID_LINE = { width: 1.5 }
+const CELL_LINE = { width: 2.5 }
+
+/**
+ * `grids`: the origin cell's bounds and the edges of its 26 neighbors, in the origin grid. The
+ * origin frame is the origin grid's own frame with the origin cell's centre at (0, 0, 0), so the
+ * origin cell spans ±cellSize/2 on each axis.
+ */
+export const gridsOverlay = defineOverlay({
+  name: 'grids',
+  description:
+    "Large worlds: the floating origin's cell (bright) and its neighbors' edges, in the origin grid.",
+  draw: (world, g) => {
+    const frames = world.tryResource(GridFramesResource)
+    if (!frames?.active || frames.originSlot === 0) return
+    const cs = frames.cellSize[frames.originSlot]!
+    if (!(cs > 0)) return
+    const h = cs / 2
+    // Lattice lines of the 3×3×3 block: along each axis, at every pair of the other two coordinates.
+    for (let axis = 0; axis < 3; axis++) {
+      const u = (axis + 1) % 3
+      const v = (axis + 2) % 3
+      for (let i = 0; i < 4; i++) {
+        for (let j = 0; j < 4; j++) {
+          const pu = (i - 1.5) * cs
+          const pv = (j - 1.5) * cs
+          ga[axis] = -3 * h
+          gb[axis] = 3 * h
+          ga[u] = gb[u] = pu
+          ga[v] = gb[v] = pv
+          g.line(ga, gb, NEIGHBOR, GRID_LINE)
+        }
+      }
+      // The origin cell's four edges along this axis.
+      for (let k = 0; k < 4; k++) {
+        ga[axis] = -h
+        gb[axis] = h
+        ga[u] = gb[u] = k & 1 ? h : -h
+        ga[v] = gb[v] = k & 2 ? h : -h
+        g.line(ga, gb, GRID_CELL, CELL_LINE)
+      }
+    }
+  },
+})

@@ -75,6 +75,11 @@ export interface EmitterState {
   simulate: boolean
   dt: number
   visible: boolean
+  /**
+   * Floating-origin offset (spec 0040) the GPU hasn't applied yet: world-space particles move by it
+   * in the next update dispatch. Accumulates while the emitter isn't simulated.
+   */
+  originShift: Float64Array
 }
 
 export interface SystemState {
@@ -348,6 +353,7 @@ function createEmitter(
     simulate: true,
     dt: 0,
     visible: true,
+    originShift: keep ? previous.originShift : new Float64Array(3),
   }
   if (state.sort) writeSortSteps(gpu, state.sort, def.capacity)
   return state
@@ -557,6 +563,9 @@ function writeUniforms(e: EmitterState, sys: SystemState, cam: CameraData | unde
   simU32[78] = sys.local ? 1 : 0
   // The simulate node binds the primary camera's depth whenever there is one.
   simU32[79] = cam ? 1 : 0
+  s[80] = e.originShift[0]!
+  s[81] = e.originShift[1]!
+  s[82] = e.originShift[2]!
   e.sim.write(s)
   const d = drawScratch
   d.set(sys.model, 0)
@@ -827,6 +836,7 @@ export function simulateNode(): NodeDescriptor {
             }
             pass.setPipeline(p.update)
             pass.dispatchWorkgroups(Math.ceil(e.capacity / 64))
+            e.originShift[0] = e.originShift[1] = e.originShift[2] = 0
             e.spawned += e.spawnCount
             e.backlog = 0
           }
@@ -1093,6 +1103,31 @@ export async function readParticles(gpu: GpuContext, e: EmitterState): Promise<F
   staging.unmap()
   staging.destroy()
   return out
+}
+
+/**
+ * The floating origin moved by `offset` (spec 0040): world-space particles move with it so trails
+ * stay continuous. The CPU backend shifts its particles now; GPU emitters add it in their next
+ * update dispatch. Local-space systems move with their entity and need nothing.
+ */
+export function shiftParticles(store: ParticleStore, x: number, y: number, z: number): void {
+  for (const sys of store.systems.values()) {
+    if (sys.local) continue
+    for (const e of sys.emitters) {
+      if (sys.cpu && e.cpu) {
+        const d = e.cpu
+        for (let o = 0; o < d.length; o += PARTICLE_FLOATS) {
+          d[o] = d[o]! + x
+          d[o + 1] = d[o + 1]! + y
+          d[o + 2] = d[o + 2]! + z
+        }
+      } else {
+        e.originShift[0] = e.originShift[0]! + x
+        e.originShift[1] = e.originShift[1]! + y
+        e.originShift[2] = e.originShift[2]! + z
+      }
+    }
+  }
 }
 
 /** The particles section of `render.describe`. */

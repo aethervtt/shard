@@ -21,7 +21,7 @@ import {
   Shaders,
 } from '@shard/render'
 import { App } from '@shard/runtime'
-import { Transform, TransformPlugin } from '@shard/transform'
+import { Grid, GridCell, Transform, TransformPlugin } from '@shard/transform'
 import Ajv2020 from 'ajv/dist/2020'
 import { describe, expect, it } from 'vitest'
 import type { SceneFile } from './format'
@@ -284,6 +284,105 @@ describe('saving', () => {
     expect(saveScene(w, 'main').entities[0]!.components!['core/Transform']).toEqual({
       rotation: [0, 0, 0, 1],
     })
+  })
+})
+
+describe('large-world grids (spec 0040)', () => {
+  const galaxy: SceneFile = {
+    version: 1,
+    entities: [
+      {
+        name: 'galaxy',
+        components: { 'transform/Grid': { cellSize: 1e12 } },
+        children: [
+          {
+            name: 'system',
+            components: {
+              'transform/Grid': { cellSize: 2000, hysteresis: 50 },
+              'transform/GridCell': { cell: [2147483000, -2147483000, 7] },
+            },
+            children: [
+              {
+                name: 'ship',
+                components: {
+                  'core/Transform': { translation: [12.5, 0, -3] },
+                  'transform/GridCell': { cell: [-2147483648, 0, 2147483647] },
+                },
+                children: [{ name: 'camera', components: { 'transform/FloatingOrigin': {} } }],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  }
+
+  it('round-trips cells near ±2³¹ and an f64 cell size exactly', () => {
+    const w = world()
+    expect(validateScene(w, galaxy)).toEqual([])
+    const { entities } = loadScene(w, galaxy)
+    expect(w.get(entities.get('galaxy')!, Grid).cellSize).toBe(1e12)
+    expect(w.get(entities.get('galaxy/system')!, GridCell).cell).toEqual([
+      2147483000, -2147483000, 7,
+    ])
+    expect(w.get(entities.get('galaxy/system/ship')!, GridCell).cell).toEqual([
+      -2147483648, 0, 2147483647,
+    ])
+    expect(stringifyScene(saveScene(w, 'main'))).toBe(stringifyScene(galaxy))
+    // A changed cell is written like any field.
+    w.set(entities.get('galaxy/system/ship')!, GridCell, { cell: [5, 6, -2147483648] })
+    const saved = saveScene(w, 'main')
+    const ship = saved.entities[0]!.children![0]!.children![0]!.components!
+    expect(ship['transform/GridCell']).toEqual({ cell: [5, 6, -2147483648] })
+  })
+
+  it('reports misplaced cells, absolute translations, and a second origin', () => {
+    const bad: SceneFile = {
+      version: 1,
+      entities: [
+        {
+          name: 'system',
+          components: { 'transform/Grid': { cellSize: 500 } },
+          children: [
+            // 10⁶ m written as a translation: should be a cell plus an offset.
+            { name: 'moon', components: { 'core/Transform': { translation: [1e6, 0, 0] } } },
+            { name: 'ok', components: { 'core/Transform': { translation: [-499, 0, 0] } } },
+            {
+              name: 'ship',
+              components: { 'transform/GridCell': { cell: [1, 0, 0] } },
+              children: [
+                // A grandchild doesn't carry a cell.
+                { name: 'turret', components: { 'transform/GridCell': { cell: [0, 0, 0] } } },
+                { name: 'camera', components: { 'transform/FloatingOrigin': {} } },
+              ],
+            },
+          ],
+        },
+        { name: 'stray', components: { 'transform/GridCell': { cell: [0, 0, 1] } } },
+        { name: 'second', components: { 'transform/FloatingOrigin': {} } },
+        { name: 'fraction', components: { 'transform/GridCell': { cell: [0.5, 0, 2 ** 31] } } },
+      ],
+    }
+    const errors = validateScene(world(), bad).map((e) => [e.code, e.path])
+    expect(errors).toHaveLength(7)
+    expect(errors).toEqual(
+      expect.arrayContaining([
+        [
+          'transform/translation-outside-cell',
+          '/entities/0/children/0/components/core~1Transform/translation',
+        ],
+        [
+          'transform/cell-outside-grid',
+          '/entities/0/children/2/children/0/components/transform~1GridCell',
+        ],
+        ['transform/cell-outside-grid', '/entities/1/components/transform~1GridCell'],
+        ['transform/multiple-origins', '/entities/2/components/transform~1FloatingOrigin'],
+        ['schema/type-mismatch', '/entities/3/components/transform~1GridCell/cell/0'],
+        ['schema/out-of-range', '/entities/3/components/transform~1GridCell/cell/2'],
+        ['transform/cell-outside-grid', '/entities/3/components/transform~1GridCell'],
+      ]),
+    )
+    expect(() => loadScene(world(), bad)).toThrow(/7 errors/)
   })
 })
 

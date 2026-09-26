@@ -1,5 +1,6 @@
 export * as aabb from './aabb'
 export * as affine from './affine'
+export * as affine64 from './affine64'
 export * as frustum from './frustum'
 export * as mat3 from './mat3'
 export * as mat4 from './mat4'

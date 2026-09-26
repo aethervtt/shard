@@ -335,6 +335,35 @@ export const extractCameras = defineSystem({
   },
 })
 
+/** `m · translate(x, y, z)` in place (column-major mat4). */
+function translateRight(m: Float32Array, x: number, y: number, z: number): void {
+  for (let r = 0; r < 4; r++) m[12 + r] = m[r]! * x + m[4 + r]! * y + m[8 + r]! * z + m[12 + r]!
+}
+
+/**
+ * The floating origin moved by `offset` (spec 0040): last frame's camera now lives in the new frame,
+ * so reprojection (motion vectors, TAA) lines up instead of seeing a cell-sized jump. A point `p` in
+ * the new frame was `p − offset` in the old one, so the old view-projection gains `translate(−offset)`.
+ * `viewProjNoJitter` becomes next extraction's `prevViewProj`; a frozen culling frustum moves too.
+ */
+export function shiftCameraHistory(cam: CameraData, x: number, y: number, z: number): void {
+  translateRight(cam.viewProjNoJitter, -x, -y, -z)
+  translateRight(cam.prevViewProj, -x, -y, -z)
+  const fp = cam.frozenPosition
+  if (fp) {
+    fp[0] = fp[0]! + x
+    fp[1] = fp[1]! + y
+    fp[2] = fp[2]! + z
+  }
+  const ff = cam.frozenFrustum
+  if (ff) {
+    // n · p + d = 0 in the old frame is n · p + (d − n · offset) = 0 in the new one.
+    for (let p = 0; p < ff.length; p += 4) {
+      ff[p + 3] = ff[p + 3]! - (ff[p]! * x + ff[p + 1]! * y + ff[p + 2]! * z)
+    }
+  }
+}
+
 /** The radical inverse of k in a base: the Halton sequence. */
 function halton(k: number, base: number): number {
   let f = 1

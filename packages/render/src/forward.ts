@@ -40,6 +40,7 @@ import {
   observeInstanceRemovals,
   prepareInstances,
 } from './instances'
+import { observeOriginShifts } from './large-world'
 import {
   AmbientLight,
   extractLights,
@@ -1237,6 +1238,7 @@ export function forwardPlugin(options: ForwardPluginOptions = {}): Plugin {
       w.initResource(Picking)
       observeInstanceRemovals(w)
       observeLightRemovals(w)
+      observeOriginShifts(w)
       app
         .addSystems(
           PostUpdate,

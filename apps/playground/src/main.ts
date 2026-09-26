@@ -25,6 +25,7 @@ import { deferredPlugin } from './deferred'
 import { iblPlugin, skyPlugin } from './environment'
 import { fpsGraphPlugin } from './fps-graph'
 import { galaxyPlugin, Population } from './galaxy'
+import { gridsDemoPlugin } from './grids'
 import { applyResolution, hudPlugin } from './hud'
 import { ikDemoPlugin } from './ik'
 import { lightsPlugin } from './lights'
@@ -69,6 +70,7 @@ const DEMOS = [
   'nav2d',
   'save',
   'lights2d',
+  'grids',
 ] as const
 const demo = DEMOS.find((d) => location.hash === `#${d}`) ?? 'scene'
 document.body.dataset.demo = demo
@@ -201,6 +203,8 @@ if (demo === 'galaxy') {
     hudPlugin,
     lights2dDemoPlugin,
   )
+} else if (demo === 'grids') {
+  app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, gridsDemoPlugin)
 } else if (demo === 'sky') {
   app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, skyPlugin)
 } else {

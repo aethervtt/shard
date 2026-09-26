@@ -14,7 +14,14 @@ import {
 } from '@shard/core'
 import { defineOverlay } from '@shard/render'
 import { type App, FixedTime, type Plugin } from '@shard/runtime'
-import { GlobalTransform, Transform, TransformSystems } from '@shard/transform'
+import {
+  GlobalTransform,
+  GridCell,
+  GridFramesResource,
+  OriginShift,
+  Transform,
+  TransformSystems,
+} from '@shard/transform'
 import { characterSystem } from './character'
 import {
   CharacterController,
@@ -27,12 +34,13 @@ import {
   GravitySource,
   Joint,
   PhysicsConfig,
+  PhysicsRange,
   RigidBody,
   Velocity,
 } from './components'
 import { createGravitySources, gatherGravitySources, sampleGravity } from './gravity'
 import { physicsMethods } from './methods'
-import { parentOf, rotate, worldToLocal } from './pose'
+import { isGrid, parentOf, rotate, worldToLocal } from './pose'
 import { type BodyRecord, loadRapier, Physics, PhysicsWorld } from './world'
 
 export { Physics }
@@ -93,6 +101,14 @@ const syncIn = defineSystem({
     // Interpolation left blended poses in Transform; put the simulated ones back first.
     const userTick = Math.max(p.writeTick, p.interpTick)
     if (p.config.interpolate && p.interpTick > p.writeTick) restorePoses(world, p)
+
+    // Grids appeared or went away (spec 0040): the frame Rapier simulates in changed under it.
+    const frames = world.tryResource(GridFramesResource)
+    const gridsActive = frames?.active === true
+    if (gridsActive !== p.gridsActive) {
+      p.gridsActive = gridsActive
+      p.resync(world)
+    }
 
     // Bodies added or changed rebuild; ones reparented teleport.
     for (let t = 0; t < s.bodies.tables.length; t++) {
@@ -156,14 +172,22 @@ const syncIn = defineSystem({
     for (let t = 0; t < s.bodies.tables.length; t++) {
       const table = s.bodies.tables[t]!
       const kinematicMoved = table.lastChanged(GlobalTransform) > since
-      if (table.lastChanged(Transform) <= userTick && !kinematicMoved) continue
+      // A game moving a grid child to another cell is a teleport too.
+      const cells =
+        table.has(GridCell) && table.lastChanged(GridCell) > userTick
+          ? table.changedTicks(GridCell)
+          : undefined
+      if (table.lastChanged(Transform) <= userTick && !kinematicMoved && cells === undefined) {
+        continue
+      }
       const ticks = table.changedTicks(Transform)
       const globals = table.changedTicks(GlobalTransform)
       for (let row = 0; row < table.count; row++) {
         const record = p.bodies.get(table.entities[row]!)
         if (!record) continue
-        if (ticks[row]! > userTick) p.moveBody(world, record)
-        else if (record.kind === KIND_KINEMATIC_POSITION && globals[row]! > since) {
+        if (ticks[row]! > userTick || (cells !== undefined && cells[row]! > userTick)) {
+          p.moveBody(world, record)
+        } else if (record.kind === KIND_KINEMATIC_POSITION && globals[row]! > since) {
           p.moveBody(world, record)
         }
       }
@@ -213,19 +237,78 @@ const syncIn = defineSystem({
     }
 
     applyForces(s, p, since)
+
+    // Far from the origin: out of Rapier until it comes back (spec 0040). Nothing without grids.
+    if (gridsActive) p.updateParking(world, world.resource(PhysicsRange).radius)
+    else if (p.parkedCount > 0) p.unparkAll(world)
   },
 })
 
+const scratchPos = new Float64Array(3)
+const scratchRot = new Float64Array(4)
+
+/** Whether the root frame is the origin frame (always, unless the origin is inside a grid). */
+function rootIsOrigin(world: World): boolean {
+  return world.tryResource(GridFramesResource)?.rootIdentity !== false
+}
+
+/**
+ * How a body's origin-frame pose goes into its Transform: 0 directly (a root, with the root frame
+ * the origin frame), 1 through its grid's frame (a grid child, or a root with the origin in a
+ * grid), -1 not at all (parented to an ordinary entity: interpolation leaves it alone).
+ */
+function writeMode(world: World, entity: Entity, rootIdentity: boolean): number {
+  const parent = parentOf(world, entity)
+  if (parent === undefined) return rootIdentity ? 0 : 1
+  return isGrid(world, parent) ? 1 : -1
+}
+
+/** Writes an origin-frame pose (position, rotation) into a Transform through its grid's frame. */
+function writeGridPose(
+  world: World,
+  entity: Entity,
+  table: Table,
+  row: number,
+  pos: Float64Array,
+  rot: Float64Array,
+  dim: 2 | 3,
+): void {
+  const tr = table.column(Transform, 'translation')
+  const z = tr[row * 3 + 2]!
+  worldToLocal(
+    world,
+    parentOf(world, entity),
+    entity,
+    pos,
+    rot,
+    tr,
+    row * 3,
+    table.column(Transform, 'rotation'),
+    row * 4,
+  )
+  if (dim === 2) tr[row * 3 + 2] = z
+  table.markChanged(Transform, row)
+}
+
 function restorePoses(world: World, p: PhysicsWorld): void {
+  const rootIdentity = rootIsOrigin(world)
   for (let i = 0; i < p.list.length; i++) {
     const r = p.list[i]!
-    if (r.kind === KIND_FIXED || r.kind === KIND_KINEMATIC_POSITION) continue
+    if (r.kind === KIND_FIXED || r.kind === KIND_KINEMATIC_POSITION || r.parked) continue
     const table = world.entityTableUnchecked(r.entity)
     const row = world.entityRowUnchecked(r.entity)
     // Only poses interpolation wrote (and nobody changed since).
     if (table.changedTicks(Transform)[row] !== p.interpTick) continue
-    if (parentOf(world, r.entity) !== undefined) continue
-    writePose(table, row, p.curr, r.slot * 7, p.dim)
+    const mode = writeMode(world, r.entity, rootIdentity)
+    if (mode < 0) continue
+    if (mode === 0) {
+      writePose(table, row, p.curr, r.slot * 7, p.dim)
+      continue
+    }
+    const o = r.slot * 7
+    for (let k = 0; k < 3; k++) scratchPos[k] = p.curr[o + k]!
+    for (let k = 0; k < 4; k++) scratchRot[k] = p.curr[o + 3 + k]!
+    writeGridPose(world, r.entity, table, row, scratchPos, scratchRot, p.dim)
   }
 }
 
@@ -391,6 +474,7 @@ const syncOut = defineSystem({
     tick: 0,
     pos: new Float64Array(3),
     rot: new Float64Array(4),
+    rootIdentity: true,
     cache: {
       table: undefined,
       tr: new Float32Array(0),
@@ -408,6 +492,7 @@ const syncOut = defineSystem({
     p.writeTick = ctx.thisRunTick
     s.tick = ctx.thisRunTick
     s.cache.table = undefined
+    s.rootIdentity = rootIsOrigin(world)
     s.visit ??= (handle: number) => {
       const record = p.bodyByHandle.get(handle)
       if (!record || record.kind === KIND_FIXED) return
@@ -424,7 +509,7 @@ const syncOut = defineSystem({
         const parent = c.parented ? parentOf(world, e) : undefined
         const tr = c.tr
         const rt = c.rt
-        if (parent === undefined) {
+        if (parent === undefined && s.rootIdentity) {
           tr[row * 3] = curr[o]!
           tr[row * 3 + 1] = curr[o + 1]!
           if (p.dim === 3) tr[row * 3 + 2] = curr[o + 2]!
@@ -436,7 +521,7 @@ const syncOut = defineSystem({
           for (let k = 0; k < 3; k++) s.pos[k] = curr[o + k]!
           for (let k = 0; k < 4; k++) s.rot[k] = curr[o + 3 + k]!
           const z = tr[row * 3 + 2]!
-          worldToLocal(world, parent, s.pos, s.rot, tr, row * 3, rt, row * 4)
+          worldToLocal(world, parent, e, s.pos, s.rot, tr, row * 3, rt, row * 4)
           if (p.dim === 2) tr[row * 3 + 2] = z
         }
         c.trTicks[row] = s.tick
@@ -485,20 +570,23 @@ const interpolate = defineSystem({
     const ours = Math.max(p.writeTick, p.interpTick)
     const prev = p.prev
     const curr = p.curr
+    const rootIdentity = rootIsOrigin(world)
+    const pos = scratchPos
+    const rot = scratchRot
     for (let i = 0; i < p.list.length; i++) {
       const r = p.list[i]!
-      if (r.kind === KIND_FIXED || r.kind === KIND_KINEMATIC_POSITION) continue
+      if (r.kind === KIND_FIXED || r.kind === KIND_KINEMATIC_POSITION || r.parked) continue
       const table = world.entityTableUnchecked(r.entity)
       const row = world.entityRowUnchecked(r.entity)
-      // Skip bodies a game moved since the step (a teleport pending), and parented ones.
+      // Skip bodies a game moved since the step (a teleport pending), and ones parented to an
+      // ordinary entity.
       if (table.changedTicks(Transform)[row]! > ours) continue
-      if (parentOf(world, r.entity) !== undefined) continue
+      const mode = writeMode(world, r.entity, rootIdentity)
+      if (mode < 0) continue
       const o = r.slot * 7
-      const tr = table.column(Transform, 'translation')
-      const rt = table.column(Transform, 'rotation')
-      tr[row * 3] = prev[o]! + (curr[o]! - prev[o]!) * alpha
-      tr[row * 3 + 1] = prev[o + 1]! + (curr[o + 1]! - prev[o + 1]!) * alpha
-      if (p.dim === 3) tr[row * 3 + 2] = prev[o + 2]! + (curr[o + 2]! - prev[o + 2]!) * alpha
+      pos[0] = prev[o]! + (curr[o]! - prev[o]!) * alpha
+      pos[1] = prev[o + 1]! + (curr[o + 1]! - prev[o + 1]!) * alpha
+      pos[2] = prev[o + 2]! + (curr[o + 2]! - prev[o + 2]!) * alpha
       // Normalized lerp, taking the short way around.
       let ax = prev[o + 3]!
       let ay = prev[o + 4]!
@@ -514,19 +602,28 @@ const interpolate = defineSystem({
         az = -az
         aw = -aw
       }
-      let x = ax + (bx - ax) * alpha
-      let y = ay + (by - ay) * alpha
-      let z = az + (bz - az) * alpha
-      let w = aw + (bw - aw) * alpha
+      const x = ax + (bx - ax) * alpha
+      const y = ay + (by - ay) * alpha
+      const z = az + (bz - az) * alpha
+      const w = aw + (bw - aw) * alpha
       const len = Math.sqrt(x * x + y * y + z * z + w * w) || 1
-      x /= len
-      y /= len
-      z /= len
-      w /= len
-      rt[row * 4] = x
-      rt[row * 4 + 1] = y
-      rt[row * 4 + 2] = z
-      rt[row * 4 + 3] = w
+      rot[0] = x / len
+      rot[1] = y / len
+      rot[2] = z / len
+      rot[3] = w / len
+      if (mode === 1) {
+        writeGridPose(world, r.entity, table, row, pos, rot, p.dim)
+        continue
+      }
+      const tr = table.column(Transform, 'translation')
+      const rt = table.column(Transform, 'rotation')
+      tr[row * 3] = pos[0]!
+      tr[row * 3 + 1] = pos[1]!
+      if (p.dim === 3) tr[row * 3 + 2] = pos[2]!
+      rt[row * 4] = rot[0]!
+      rt[row * 4 + 1] = rot[1]!
+      rt[row * 4 + 2] = rot[2]!
+      rt[row * 4 + 3] = rot[3]!
       table.markChanged(Transform, row)
     }
     p.interpTick = ctx.thisRunTick
@@ -564,6 +661,12 @@ function observe(world: World): void {
   world.observe(onAdd(ChildOf), mark)
   world.observe(onSet(ChildOf), mark)
   world.observe(onRemove(ChildOf), mark)
+  // The floating origin moved to another cell (spec 0040): move the simulation with it.
+  const onCollision = (e: import('./components').CollisionEventData) =>
+    world.send(CollisionEvent, e)
+  world.observe(OriginShift, ({ data }) => {
+    get()?.shiftOrigin(data.offset[0], data.offset[1], data.offset[2], onCollision)
+  })
 }
 
 function physicsPlugin(dim: 2 | 3): Plugin {
@@ -581,6 +684,7 @@ function physicsPlugin(dim: 2 | 3): Plugin {
       }
       dimensionOf.set(app.world, dim)
       app.world.initResource(PhysicsConfig)
+      app.world.initResource(PhysicsRange)
       if (dim === 2) {
         const config = app.world.resource(PhysicsConfig)
         config.gravity = [0, -9.81, 0]

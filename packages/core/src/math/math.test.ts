@@ -1,6 +1,6 @@
 import * as gl from 'gl-matrix'
 import { describe, expect, it } from 'vitest'
-import { aabb, affine, frustum, mat3, mat4, quat, Rng, ray, vec3 } from '.'
+import { aabb, affine, affine64, frustum, mat3, mat4, quat, Rng, ray, vec3 } from '.'
 
 const close = (a: ArrayLike<number>, b: ArrayLike<number>, digits = 5) => {
   expect(a.length).toBe(b.length)
@@ -279,5 +279,20 @@ describe('Rng', () => {
       Array.from({ length: 5 }, () => fb.float()),
     )
     expect(a.fork('terrain').float()).not.toBe(a.fork('props').float())
+  })
+})
+
+describe('affine64', () => {
+  it('keeps f64 precision where affine on f32 would not', () => {
+    const a = affine64.create()
+    affine64.translateAt(a, 0, a, 0, 1e12, 0, 0)
+    const b = affine64.create()
+    affine64.translateAt(b, 0, b, 0, 0.001, 0, 0)
+    const out = affine64.multiply(affine64.create(), a, b)
+    // f64 spacing at 1e12 is ~1.2e-4 m; f32 would be ~65 km.
+    expect(Math.abs(out[3]! - 1e12 - 0.001)).toBeLessThan(2e-4)
+    const inv = affine64.invert(affine64.create(), out)!
+    expect(inv[3]).toBeCloseTo(-(1e12 + 0.001), 3)
+    expect(affine64.transformVectorAt([0, 0, 0], out, 0, [1, 2, 3])).toEqual([1, 2, 3])
   })
 })

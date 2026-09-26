@@ -1,7 +1,7 @@
 import type RAPIER from '@dimforge/rapier3d-compat'
 import { defineSystem, type Entity, type Table, type World } from '@shard/core'
 import { FixedTime } from '@shard/runtime'
-import { GlobalTransform, Transform } from '@shard/transform'
+import { GlobalTransform, GridFramesResource, Transform } from '@shard/transform'
 import {
   CharacterController,
   CharacterGroundEvent,
@@ -116,6 +116,7 @@ export const characterSystem = defineSystem({
     r1: rot(),
     r2: rot(),
     moved: vec(),
+    rootIdentity: true,
   }),
   run: (s, world, ctx) => {
     const p = world.tryResource(Physics)
@@ -134,12 +135,13 @@ export const characterSystem = defineSystem({
     p.raw.timestep = dt
     gatherGravitySources(s.sources, s.gravity)
     s.hit ??= new p.R.CharacterCollision()
+    s.rootIdentity = world.tryResource(GridFramesResource)?.rootIdentity !== false
     for (let t = 0; t < s.query.tables.length; t++) {
       const table = s.query.tables[t]!
       columns(table, s.cols)
       for (let row = 0; row < table.count; row++) {
         const record = p.characters.get(table.entities[row]!)
-        if (record) stepCharacter(s, world, p, table, row, record, dt)
+        if (record && !record.body.parked) stepCharacter(s, world, p, table, row, record, dt)
       }
       table.markChanged(CharacterState)
       table.markChanged(Transform)
@@ -437,7 +439,7 @@ function stepCharacter(
   body.setNextKinematicTranslation(p.vec(pos[0]!, pos[1]!, pos[2]!))
   body.setNextKinematicRotation(p.rotation(q, 0))
   const parent = parentOf(world, entity)
-  if (parent === undefined) {
+  if (parent === undefined && s.rootIdentity) {
     c.translation[o3] = pos[0]!
     c.translation[o3 + 1] = pos[1]!
     c.translation[o3 + 2] = pos[2]!
@@ -446,7 +448,7 @@ function stepCharacter(
     c.rotation[row * 4 + 2] = q[2]!
     c.rotation[row * 4 + 3] = q[3]!
   } else {
-    worldToLocal(world, parent, pos, q, c.translation, o3, c.rotation, row * 4)
+    worldToLocal(world, parent, entity, pos, q, c.translation, o3, c.rotation, row * 4)
   }
 
   c.grounded[row] = grounded ? 1 : 0
