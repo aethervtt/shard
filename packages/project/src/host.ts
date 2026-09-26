@@ -12,6 +12,7 @@ import { noisePlugin } from '@shard/noise'
 import { particlesPlugin } from '@shard/particles'
 import { physics2dPlugin, physics3dPlugin } from '@shard/physics'
 import type { AudioBackend, InputSource, Platform } from '@shard/platform'
+import { procgenPlugin } from '@shard/procgen'
 import { forwardPlugin, type RenderTarget, renderPlugin, Shaders } from '@shard/render'
 import { App, LogResource, type Plugin } from '@shard/runtime'
 import { savePlugin } from '@shard/save'
@@ -84,6 +85,14 @@ export function buildApp(options: BuildAppOptions): App {
   // noise.sample and noise.stats, whatever the manifest says: graphs are data every project can use.
   app.addPlugin(noisePlugin)
   app.addPlugin(ScenePlugin)
+  // Generators are code every project can define: outputs, GeneratorInstance, procgen.* methods.
+  app.addPlugin(
+    procgenPlugin({
+      fs: options.platform?.fs,
+      storage: options.platform?.storage,
+      cacheSize: (manifest.procgen?.cacheSize ?? 256) * 1024 * 1024,
+    }),
+  )
   app.addPlugin(
     savePlugin({
       storage: options.platform?.storage,

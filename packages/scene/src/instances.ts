@@ -570,6 +570,64 @@ function checkContext(world: World, flat: Flat, id: string): SchemaContext {
   }
 }
 
+// --- instance kinds ------------------------------------------------------------------------------
+
+/**
+ * A component that spawns a Prefab or Scene asset as generated children: SceneInstance,
+ * PrefabInstance, and kinds other packages add (procgen's GeneratorInstance). The component needs
+ * an `overrides` json field; saves write the children's changes there.
+ */
+export interface InstanceKind {
+  readonly def: ComponentDef
+  /**
+   * The Prefab or Scene asset an instance with this value spawns: registered (it may still be
+   * loading; unloaded ones are requested), or undefined when there's nothing to spawn.
+   */
+  source(world: World, value: Record<string, unknown>, entity: Entity): AssetEntry | undefined
+  /** Respawns reuse the entities whose path is unchanged, so references to them survive. */
+  readonly keepIds?: boolean
+  /** A tag added to every entity this kind spawns (procgen/Generated). */
+  readonly mark?: ComponentDef
+  /**
+   * Instances on generated entities spawn their own children (lazily, as part of nothing). Without
+   * it, instances inside a prefab are inlined into it.
+   */
+  readonly nested?: boolean
+  /** Extra checks of the component's JSON in scene and prefab files. */
+  validate?(
+    world: World,
+    json: Record<string, JsonValue>,
+    base: string,
+    errors: ShardError[],
+    options: { catalog: boolean },
+  ): void
+}
+
+function handleEntry(world: World, ref: unknown): AssetEntry | undefined {
+  return ref ? assetServer(world).entry(ref as AssetRef) : undefined
+}
+
+const kinds: InstanceKind[] = [
+  { def: SceneInstance, source: (world, value) => handleEntry(world, value.scene) },
+  { def: PrefabInstance, source: (world, value) => handleEntry(world, value.prefab) },
+]
+
+/** Adds a kind of instance component (see InstanceKind). */
+export function defineInstanceKind(kind: InstanceKind): void {
+  const i = kinds.findIndex((k) => k.def.name === kind.def.name)
+  if (i === -1) kinds.push(kind)
+  else kinds[i] = kind
+}
+
+/** Every instance kind: SceneInstance, PrefabInstance, then added ones. */
+export function instanceKinds(): readonly InstanceKind[] {
+  return kinds
+}
+
+export function instanceKindOf(def: ComponentDef): InstanceKind | undefined {
+  return kinds.find((k) => k.def === def)
+}
+
 // --- per-world state -------------------------------------------------------------------------------
 
 interface InstanceState {
@@ -594,6 +652,8 @@ interface WorldInstances {
   templates: Map<string, Template>
   off: () => void
   dirty: boolean
+  /** Instance components whose add/set/remove mark the world dirty. */
+  observed: Set<ComponentDef>
 }
 
 /** Per world: spawned instances, compiled templates, and the asset-server listener. */
@@ -607,12 +667,17 @@ function stateOf(world: World): WorldInstances {
       const type = assetServer(world).entry(e.guid)?.type
       if (type === 'Scene' || type === 'Prefab') updateInstances(world)
     })
-    s = { states: new Map(), templates: new Map(), off, dirty: true }
+    s = { states: new Map(), templates: new Map(), off, dirty: true, observed: new Set() }
     perWorld.set(world, s)
+  }
+  if (s.observed.size !== kinds.length) {
+    const state = s
     const mark = () => {
-      s!.dirty = true
+      state.dirty = true
     }
-    for (const def of [SceneInstance, PrefabInstance] as ComponentDef[]) {
+    for (const { def } of kinds) {
+      if (state.observed.has(def)) continue
+      state.observed.add(def)
       world.observe(onAdd(def), mark)
       world.observe(onSet(def), mark)
       world.observe(onRemove(def), mark)
@@ -682,6 +747,7 @@ function spawnReserved(
   ids: readonly Entity[],
   member: Member | undefined,
   paths: string[] | undefined,
+  mark?: ComponentDef,
 ): void {
   const scene = member ? world.tryResource(SceneIndex)?.get(member.scene) : undefined
   for (let i = 0; i < plan.entities.length; i++) {
@@ -695,14 +761,16 @@ function spawnReserved(
     if (t.refs.length > 0) resolveRefs(t, ids, instance)
     if (member) {
       const path = `${member.path}/${t.path}`
-      world.spawnReserved(id, [
+      const inits: [ComponentDef, Record<string, unknown>][] = [
         ...t.inits,
         [SceneMember as ComponentDef, { scene: member.scene, path }],
-      ])
+      ]
+      if (mark) inits.push([mark, {}])
+      world.spawnReserved(id, inits)
       scene?.entities.set(path, id)
       paths?.push(path)
     } else {
-      world.spawnReserved(id, t.inits)
+      world.spawnReserved(id, mark ? [...t.inits, [mark, {}]] : t.inits)
     }
   }
 }
@@ -836,13 +904,21 @@ function instantiate(
   template: Template,
   overrides: Overrides,
   previous: InstanceState | undefined,
+  keep = false,
+  mark?: ComponentDef,
 ): InstanceState {
   const member = memberOf(world, entity)
   const where = member ? `${member.scene}:${member.path}` : `entity ${entity}`
   const plan = planFor(world, template, overrides, reportTo(world, where))
-  const ids = reserve(world, plan)
   const paths: string[] = []
-  spawnReserved(world, plan, entity, ids, member, paths)
+  let ids: Entity[]
+  if (keep && previous) {
+    ids = respawnKeeping(world, previous, plan, entity, member, paths, mark)
+  } else {
+    if (previous) despawnGenerated(world, previous, entity)
+    ids = reserve(world, plan)
+    spawnReserved(world, plan, entity, ids, member, paths, mark)
+  }
   const state: InstanceState = {
     def,
     template,
@@ -859,6 +935,94 @@ function instantiate(
   const scene = member ? world.tryResource(SceneIndex)?.get(member.scene) : undefined
   if (scene) for (const g of template.requested) scene.assets.add(g)
   return state
+}
+
+/**
+ * Respawns an instance's children from a new plan, reusing the entity of every path the old one
+ * had: its components are replaced by the new template's (components the game added stay).
+ * Entities whose path is gone are despawned; what the game parented under them moves to the
+ * instance. Returns the ids per node of the new plan.
+ */
+function respawnKeeping(
+  world: World,
+  old: InstanceState,
+  plan: Plan,
+  instance: Entity,
+  member: Member | undefined,
+  paths: string[],
+  mark?: ComponentDef,
+): Entity[] {
+  const byPath = new Map<string, number>()
+  for (let i = 0; i < old.ids.length; i++) {
+    const id = old.ids[i]!
+    if (id >= 0 && world.isAlive(id)) byPath.set(old.plan.flat.nodes[i]!.path, i)
+  }
+  const ids: Entity[] = new Array(plan.entities.length)
+  const reused = new Set<Entity>()
+  for (let i = 0; i < plan.entities.length; i++) {
+    if (!plan.entities[i]) {
+      ids[i] = -1
+      continue
+    }
+    const k = byPath.get(plan.flat.nodes[i]!.path)
+    const id = k === undefined ? -1 : old.ids[k]!
+    if (id >= 0) {
+      ids[i] = id
+      reused.add(id)
+    } else ids[i] = world.reserveEntity()
+  }
+  // Gone: despawned one by one, so reused descendants survive; the game's own children move up.
+  const generated = new Set(old.ids)
+  for (let i = 0; i < old.ids.length; i++) {
+    const id = old.ids[i]!
+    if (id < 0 || reused.has(id) || !world.isAlive(id)) continue
+    const children = world.tryGet(id, Children)?.entities
+    if (children) {
+      for (const child of [...children]) {
+        if (child === null || generated.has(child) || !world.isAlive(child)) continue
+        if (!world.has(child, InstancePart)) world.add(child, ChildOf, { parent: instance })
+      }
+    }
+    world.despawnSingle(id)
+  }
+  const scene =
+    old.sceneId === undefined ? undefined : world.tryResource(SceneIndex)?.get(old.sceneId)
+  if (scene) for (const path of old.paths) scene.entities.delete(path)
+  const sceneNow = member ? world.tryResource(SceneIndex)?.get(member.scene) : undefined
+  const oldDefs = new Map<Entity, readonly ComponentDef[]>()
+  for (let i = 0; i < old.ids.length; i++) {
+    const t = old.plan.entities[i]
+    if (t && reused.has(old.ids[i]!)) oldDefs.set(old.ids[i]!, t.defs)
+  }
+  for (let i = 0; i < plan.entities.length; i++) {
+    const t = plan.entities[i]
+    const id = ids[i]!
+    if (!t || id < 0) continue
+    const parent = t.parent === -1 ? instance : ids[t.parent]!
+    if (parent < 0) continue
+    t.childOf.parent = parent
+    t.part.instance = instance
+    if (t.refs.length > 0) resolveRefs(t, ids, instance)
+    const path = member ? `${member.path}/${t.path}` : undefined
+    const inits: [ComponentDef, Record<string, unknown>][] = member
+      ? [...t.inits, [SceneMember as ComponentDef, { scene: member.scene, path }]]
+      : [...t.inits]
+    if (mark) inits.push([mark, {}])
+    if (reused.has(id)) {
+      const next = new Set(t.defs)
+      for (const d of oldDefs.get(id) ?? [])
+        if (!next.has(d) && world.has(id, d)) world.remove(id, d)
+      for (const [d, value] of inits) world.add(id, d, value as never)
+      if (!member && world.has(id, SceneMember)) world.remove(id, SceneMember)
+    } else {
+      world.spawnReserved(id, inits)
+    }
+    if (path !== undefined) {
+      sceneNow?.entities.set(path, id)
+      paths.push(path)
+    }
+  }
+  return ids
 }
 
 /** Spawns instances system: does nothing on frames without instance or asset changes. */
@@ -894,17 +1058,21 @@ export function updateInstances(world: World): void {
     despawnGenerated(world, state, entity)
     s.states.delete(entity)
   }
-  const todo: [Entity, InstanceDef, AssetEntry, Overrides][] = []
-  for (const def of [SceneInstance, PrefabInstance] as InstanceDef[]) {
-    const field = def === PrefabInstance ? 'prefab' : 'scene'
-    const q = world.query({ with: [def], without: [InstancePart] })
+  const todo: [Entity, InstanceKind, AssetEntry, Overrides][] = []
+  for (const kind of kinds) {
+    const def = kind.def
+    const q = world.query(kind.nested ? { with: [def] } : { with: [def], without: [InstancePart] })
     for (const table of q.tables) {
-      const refs = table.column(def, field as never) as unknown as (AssetRef | null)[]
-      const overrides = table.column(def, 'overrides' as never) as unknown as JsonValue[]
       for (let i = 0; i < table.count; i++) {
-        const ref = refs[i]
         const entity = table.entities[i]! as Entity
-        const entry = ref ? server.entry(ref) : undefined
+        const value = world.get(entity, def) as Record<string, unknown>
+        let entry: AssetEntry | undefined
+        try {
+          entry = kind.source(world, value, entity)
+        } catch (err) {
+          world.tryResource(LogResource)?.error(err)
+          continue
+        }
         if (!entry) continue
         if (entry.state === 'unloaded') {
           server.request(entry.guid)
@@ -912,7 +1080,7 @@ export function updateInstances(world: World): void {
         }
         if (entry.state !== 'loaded') continue
         const state = s.states.get(entity)
-        const o = overridesOf(overrides[i])
+        const o = overridesOf(value.overrides as JsonValue | undefined)
         if (
           state &&
           state.def === def &&
@@ -923,11 +1091,12 @@ export function updateInstances(world: World): void {
         ) {
           continue
         }
-        todo.push([entity, def, entry, o])
+        todo.push([entity, kind, entry, o])
       }
     }
   }
-  for (const [entity, def, entry, overrides] of todo) {
+  for (const [entity, kind, entry, overrides] of todo) {
+    if (!world.isAlive(entity)) continue // a respawn earlier in this pass removed it
     let template: Template
     try {
       template = templateFor(world, entry)
@@ -937,8 +1106,11 @@ export function updateInstances(world: World): void {
     }
     if (template.flat.missing.size > 0) continue // nested assets still loading
     const old = s.states.get(entity)
-    if (old) despawnGenerated(world, old, entity)
-    s.states.set(entity, instantiate(world, entity, def, template, overrides, old))
+    const keep = kind.keepIds === true && old?.def === kind.def
+    s.states.set(
+      entity,
+      instantiate(world, entity, kind.def, template, overrides, old, keep, kind.mark),
+    )
   }
 }
 
@@ -948,13 +1120,20 @@ export async function settleInstances(world: World): Promise<void> {
   for (let round = 0; round < 8; round++) {
     updateInstances(world)
     const pending = new Set<string>()
-    for (const def of [SceneInstance, PrefabInstance] as InstanceDef[]) {
-      const field = def === PrefabInstance ? 'prefab' : 'scene'
-      const q = world.query({ with: [def], without: [InstancePart] })
+    for (const kind of kinds) {
+      const def = kind.def
+      const q = world.query(
+        kind.nested ? { with: [def] } : { with: [def], without: [InstancePart] },
+      )
       for (const table of q.tables) {
-        const refs = table.column(def, field as never) as unknown as (AssetRef | null)[]
         for (let i = 0; i < table.count; i++) {
-          const entry = refs[i] ? server.entry(refs[i]!) : undefined
+          const entity = table.entities[i]! as Entity
+          let entry: AssetEntry | undefined
+          try {
+            entry = kind.source(world, world.get(entity, def) as Record<string, unknown>, entity)
+          } catch {
+            continue
+          }
           if (entry && (entry.state === 'loading' || entry.state === 'unloaded'))
             pending.add(entry.guid)
         }

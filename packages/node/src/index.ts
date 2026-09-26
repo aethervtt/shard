@@ -9,6 +9,7 @@ import type { GpuContext } from '@shard/gpu'
 import { createNodeGpuContext } from '@shard/gpu/node'
 import { createMemoryStorage, type Platform } from '@shard/platform'
 import { createNodePlatform } from '@shard/platform-node'
+import { configureProcgenHost, procgenHost } from '@shard/procgen'
 import {
   buildApp,
   type ErrorCode,
@@ -25,6 +26,7 @@ import { OffscreenTarget } from '@shard/render'
 import { type App, LogResource, type Plugin } from '@shard/runtime'
 import { type LoadedSceneHandle, loadScene, whenSceneReady } from '@shard/scene'
 import { type BuiltBundle, type Bundler, createBundler } from './bundle'
+import { prepareGenerators } from './generators'
 
 export { createNodePlatform } from '@shard/platform-node'
 
@@ -47,6 +49,11 @@ export interface OpenProjectOptions {
    * directly (gameplay tests, where test files import the same modules).
    */
   code?: 'bundle' | 'source'
+  /**
+   * Run generator jobs on worker threads (default true): the project's code is bundled with the
+   * engine into `.shard/build/procgen-worker.<hash>.mjs`. False runs them inline.
+   */
+  generatorWorkers?: boolean
   /**
    * Where saves and settings go. 'memory' (default): gone when the process exits, so runs, tests,
    * and screenshots never depend on what an earlier session saved. 'files': `.shard/user` in the
@@ -129,6 +136,14 @@ export async function openProject(options: OpenProjectOptions): Promise<Headless
   } else {
     project = await importProjectPlugin(root, manifest)
   }
+  const generators = {
+    root,
+    namespace: manifest.name,
+    entry: manifest.entry,
+    workers: platform.workers,
+    worker: options.generatorWorkers ?? true,
+  }
+  await prepareGenerators({ ...generators, graph: bundler?.last?.graph })
   const ownGpu = !options.gpu
   const gpu = options.gpu ?? (await createNodeGpuContext({ features: ['timestamp-query'] }))
   const target = new OffscreenTarget(gpu, {
@@ -180,6 +195,7 @@ export async function openProject(options: OpenProjectOptions): Promise<Headless
     const b = bundler
     session.rebuild = async () => {
       const built = await b.build()
+      await prepareGenerators({ ...generators, graph: built.graph, background: true })
       return { load: () => import(b.importUrl(built)), hash: built.hash, ms: built.ms }
     }
   }
@@ -195,10 +211,14 @@ export async function openProject(options: OpenProjectOptions): Promise<Headless
     stopCode = bundler.watch((result) => {
       if (result instanceof Error) session.buildFailed(result)
       else
-        void session.reload(() => import(bundler!.importUrl(result)), {
-          hash: result.hash,
-          ms: result.ms,
-        })
+        void prepareGenerators({ ...generators, graph: result.graph, background: true })
+          .then(() =>
+            session.reload(() => import(bundler!.importUrl(result)), {
+              hash: result.hash,
+              ms: result.ms,
+            }),
+          )
+          .catch((err) => session.buildFailed(err))
     })
   }
   return {
@@ -222,6 +242,10 @@ export async function openProject(options: OpenProjectOptions): Promise<Headless
       server.close()
       target.destroy()
       if (ownGpu) gpu.destroy()
+      // The pool's threads hold the project's code; a closed project frees them.
+      if (procgenHost().workers === platform.workers)
+        configureProcgenHost({ workers: undefined, workerModule: undefined })
+      platform.workers?.dispose()
     },
   }
 }
@@ -342,3 +366,11 @@ export async function collectErrorCodes(): Promise<ErrorCode[]> {
 }
 
 export { type BuiltBundle, type Bundler, createBundler } from './bundle'
+export {
+  buildGeneratorWorker,
+  type GeneratorWorkerBundle,
+  generatorCodeHashes,
+  type ModuleGraph,
+  prepareGenerators,
+  projectModuleGraph,
+} from './generators'

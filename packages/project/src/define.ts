@@ -13,6 +13,12 @@ import {
   ShardError,
   type TagDef,
 } from '@shard/core'
+import {
+  defineGenerator,
+  type Generator,
+  type GeneratorOptions,
+  type OutputSpec,
+} from '@shard/procgen'
 import { defineMaterial, type MaterialType, type MaterialTypeOptions } from '@shard/render'
 import type { App, Plugin } from '@shard/runtime'
 import { defineSettings, type SettingsDef } from '@shard/save'
@@ -59,6 +65,16 @@ export interface ProjectDef extends Plugin {
     fields: F,
     options: DataTypeOptions,
   ): DataType<F, N extends `${string}/${string}` ? N : `${string}/${N}`>
+  /**
+   * Defines the generator `<project>/<name>`: `(seed, params) → output` (a mesh, texture, data
+   * value, or entities), cached by the hash of its inputs and run on the worker pool. Place its
+   * output with a `generators/*.gen.json` file, a `procedural:<project>/<name>?…` ref, a
+   * `procgen/GeneratorInstance`, or `generate(world, gen, params, seed)`.
+   */
+  generator<const P extends Fields, const O extends OutputSpec>(
+    name: string,
+    options: GeneratorOptions<P, O>,
+  ): Generator<P, O>
 }
 
 /**
@@ -102,5 +118,6 @@ export function defineProject(options: ProjectOptions): ProjectDef {
     material: (name, materialOptions) => defineMaterial(qualify(name), materialOptions),
     dataAsset: (name, fields, dataOptions) =>
       defineDataType(qualify(name) as never, fields, dataOptions) as never,
+    generator: (name, generatorOptions) => defineGenerator(qualify(name), generatorOptions),
   }
 }

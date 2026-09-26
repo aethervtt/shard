@@ -5,6 +5,7 @@
 import { assetServer } from '@shard/assets'
 import { ShardError } from '@shard/core'
 import { createDomInputSource, createWebPlatform } from '@shard/platform-web'
+import { configureProcgenHost, setGeneratorCodeHashes } from '@shard/procgen'
 import {
   buildApp,
   inlineSourceMap,
@@ -23,7 +24,26 @@ import { loadScene, whenSceneReady } from '@shard/scene'
 interface DevInfo {
   manifest: ManifestValue
   bundle: string
+  /** Generators' code hashes, and the worker bundle their jobs run in. */
+  procgen?: DevGenerators
   hub: string
+}
+
+interface DevGenerators {
+  codeHashes: Record<string, string>
+  worker?: string
+}
+
+/** Before project code (re)loads: its generators' hashes, and jobs on this page's web workers. */
+function useGenerators(
+  g: DevGenerators | undefined,
+  workers: Parameters<typeof configureProcgenHost>[0]['workers'],
+): void {
+  if (!g) return
+  setGeneratorCodeHashes(g.codeHashes)
+  if (g.worker && workers) {
+    configureProcgenHost({ workers, workerModule: new URL(g.worker, location.href).href })
+  }
 }
 
 const canvas = document.getElementById('viewport') as HTMLCanvasElement
@@ -53,6 +73,7 @@ async function start() {
     storageName: `shard:${manifest.name}`,
   })
 
+  useGenerators(info.procgen, platform.workers)
   await mapFor(info.bundle)
   const project = (await import(/* @vite-ignore */ info.bundle)).default as Plugin
   const app = buildApp({
@@ -130,7 +151,12 @@ async function start() {
   // Hot reload: the dev server pushes new bundles and asset changes over Vite's socket.
   import.meta.hot?.on(
     'shard:project',
-    (msg: { url?: string; ms?: number; error?: Record<string, string> }) => {
+    (msg: {
+      url?: string
+      ms?: number
+      procgen?: DevGenerators
+      error?: Record<string, string>
+    }) => {
       if (msg.error) {
         const e = msg.error
         session.buildFailed(
@@ -145,6 +171,7 @@ async function start() {
         return
       }
       const url = msg.url!
+      useGenerators(msg.procgen, platform.workers)
       void mapFor(url).then(() =>
         session.reload(() => import(/* @vite-ignore */ url), { hash: url, ms: msg.ms ?? 0 }),
       )

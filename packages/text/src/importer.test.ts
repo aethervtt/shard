@@ -33,6 +33,10 @@ function fakeContext(settings: Record<string, unknown>) {
     read: async () => {
       throw new Error('no reads')
     },
+    asset: async () => {
+      throw new Error('no assets')
+    },
+    depend: () => {},
     resolve: (p) => `assets/fonts/${p}`,
     warn: (m) => {
       warnings.push(m)

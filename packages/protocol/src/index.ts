@@ -1,4 +1,5 @@
 export { decodePng, encodePng, toBase64 } from './png'
+export { type PreviewImage, previewAsset, previewKtx2 } from './preview'
 export {
   createProtocolServer,
   type HandlerContext,

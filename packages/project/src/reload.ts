@@ -13,6 +13,7 @@ import {
   ShardError,
   type World,
 } from '@shard/core'
+import { ProcgenResource } from '@shard/procgen'
 import type { App, Plugin } from '@shard/runtime'
 import { pathOfEntity } from '@shard/scene'
 
@@ -26,6 +27,11 @@ export interface ReloadReport {
   systems: { added: string[]; removed: string[]; changed: string[] }
   /** Data files re-imported because their type changed (and those that no longer validate). */
   assets: { imported: string[]; failed: string[] }
+  /**
+   * Generator outputs whose generator's code changed: generator files re-imported, and loaded
+   * runtime outputs regenerating in the background (each swaps in place when ready).
+   */
+  procgen: { regenerated: string[] }
   error?: { code: string; message: string; path?: string; hint?: string; source?: string }
 }
 
@@ -211,6 +217,7 @@ export function createProjectReloader(app: App, options: { namespace: string; cu
         orphaned: [],
         systems: { added: [], removed: [], changed: [] },
         assets: { imported: [], failed: [] },
+        procgen: { regenerated: [] },
       }
       const finish = (error?: unknown): ReloadReport => {
         report.ms = performance.now() - start
@@ -298,7 +305,11 @@ export function createProjectReloader(app: App, options: { namespace: string; cu
         const scan = await assets.scan()
         report.assets.imported = scan.imported
         report.assets.failed = scan.failed.map((f) => f.path)
+        // Generator files whose generator's code hash changed re-imported with the scan.
+        report.procgen.regenerated = scan.imported.filter((p) => p.endsWith('.gen.json'))
       }
+      const runtime = world.tryResource(ProcgenResource)
+      if (runtime) report.procgen.regenerated.push(...runtime.regenerateStale())
       return finish()
     },
   }

@@ -18,6 +18,7 @@ import {
   type ImportContext,
   type ImportedAsset,
   type ImporterDef,
+  importDependencyHash,
   importerFor,
 } from './types'
 
@@ -77,6 +78,8 @@ interface DepRecord {
   mtime: number
   /** A directory listing (ImportContext.list): `hash` is of its file names. */
   listing?: boolean
+  /** Not a file (ImportContext.depend): `hash` comes from `defineImportDependency`. */
+  virtual?: boolean
 }
 
 interface SourceRecord {
@@ -142,7 +145,10 @@ export interface AssetInfo {
 
 export interface AssetServerOptions {
   platform: Platform
-  /** Project folders to import from. Default `["assets", "materials", "data", "prefabs", "locales"]`. */
+  /**
+   * Project folders to import from. Default
+   * `["assets", "materials", "data", "prefabs", "locales", "generators"]`.
+   */
   roots?: readonly string[]
   /** Default `.shard/cache`. */
   cacheDir?: string
@@ -151,6 +157,7 @@ export interface AssetServerOptions {
 }
 
 const INDEX_VERSION = 1
+const DEFAULT_ROOTS = ['assets', 'materials', 'data', 'prefabs', 'locales', 'generators']
 const IGNORED_DIRS = new Set(['node_modules'])
 
 const encoder = new TextEncoder()
@@ -192,6 +199,30 @@ function subPath(path: string, label: string): string {
   return label === '' ? path : `${path}#${label}`
 }
 
+/** Options for `AssetServer.virtual`. */
+export interface VirtualOptions {
+  /** Register without loading: the asset loads on the first `load` or `request`. */
+  lazy?: boolean
+  /**
+   * `collect` may unload it when nothing reaches it (it's made again on the next load). For assets
+   * whose `create` is cheap or cached, such as generator outputs.
+   */
+  collectable?: boolean
+}
+
+/**
+ * Finds assets the catalog doesn't list, by path or guid (generators by name, say). Returns an
+ * entry registered with `server.virtual`, or undefined.
+ */
+export type AssetResolver = (server: AssetServer, pathOrGuid: string) => AssetEntry | undefined
+
+const resolvers: AssetResolver[] = []
+
+/** Adds a resolver `entry` and `resolve` consult when the catalog has no match. */
+export function defineAssetResolver(resolver: AssetResolver): void {
+  resolvers.push(resolver)
+}
+
 /**
  * The asset database for one world: imports sources into cached artifacts, keeps the catalog of
  * paths and guids, loads artifacts into stores, hot reloads, and unloads what nothing references.
@@ -200,7 +231,7 @@ function subPath(path: string, label: string): string {
 export class AssetServer {
   readonly world: World
   private platform: Platform | undefined
-  private roots: readonly string[] = ['assets', 'materials', 'data', 'prefabs', 'locales']
+  private roots: readonly string[] = DEFAULT_ROOTS
   private cacheDir = '.shard/cache'
   private catalogPath = '.shard/catalog.json'
   private readonly sources = new Map<string, SourceRecord>()
@@ -209,6 +240,11 @@ export class AssetServer {
   private readonly loading = new Map<string, Promise<void>>()
   private readonly memory = new Map<string, Uint8Array | string>()
   private readonly virtuals = new Map<string, () => unknown>()
+  private readonly collectable = new Set<string>()
+  /** Sources being imported by the current scan, for `ImportContext.asset`. */
+  private scanning = new Map<string, Promise<SourceRecord | undefined>>()
+  /** Which source each importing source is waiting on (`ImportContext.asset`), to catch cycles. */
+  private readonly waits = new Map<string, string>()
   private readonly pins = new Map<string, Set<string>>()
   private readonly listeners = new Set<(event: AssetEventData) => void>()
   private claimedMoves = new Set<SourceRecord>()
@@ -237,12 +273,29 @@ export class AssetServer {
 
   /** The entry for a path (`assets/ship.glb#Mesh/Hull`), a guid, or a ref. */
   entry(ref: AssetRef | string | { guid?: string; path?: string }): AssetEntry | undefined {
-    if (typeof ref === 'string') return this.byPath.get(ref) ?? this.entries.get(ref)
+    if (typeof ref === 'string')
+      return this.byPath.get(ref) ?? this.entries.get(ref) ?? this.fromResolvers(ref)
     if (ref.guid !== undefined) {
       const byGuid = this.entries.get(ref.guid)
       if (byGuid) return byGuid
     }
-    return ref.path === undefined ? undefined : this.byPath.get(ref.path)
+    if (ref.path !== undefined) {
+      const byPath = this.byPath.get(ref.path)
+      if (byPath) return byPath
+    }
+    if (resolvers.length === 0) return undefined
+    return (
+      (ref.path === undefined ? undefined : this.fromResolvers(ref.path)) ??
+      (ref.guid === undefined ? undefined : this.fromResolvers(ref.guid))
+    )
+  }
+
+  private fromResolvers(pathOrGuid: string): AssetEntry | undefined {
+    for (const resolve of resolvers) {
+      const found = resolve(this, pathOrGuid)
+      if (found) return found
+    }
+    return undefined
   }
 
   /** A ref for a path or guid, or undefined if the catalog has no such asset. */
@@ -274,9 +327,16 @@ export class AssetServer {
 
   /**
    * Registers (once) and loads a virtual asset: made by code rather than imported, e.g. procedural
-   * meshes (`proc:<key>`). Created synchronously, so it's usable immediately.
+   * meshes (`proc:<key>`). A synchronous `create` makes it usable immediately; an async one
+   * (generator outputs) leaves it `loading` until the promise settles, and `load` waits for it.
    */
-  virtual(guid: string, path: string, type: string, create: () => unknown): AssetEntry {
+  virtual(
+    guid: string,
+    path: string,
+    type: string,
+    create: () => unknown,
+    options: VirtualOptions = {},
+  ): AssetEntry {
     let entry = this.entries.get(guid)
     if (!entry) {
       entry = {
@@ -291,21 +351,36 @@ export class AssetServer {
       }
       this.addEntry(entry)
       this.virtuals.set(guid, create)
+      if (options.collectable) this.collectable.add(guid)
     }
-    if (entry.state !== 'loaded') this.loadVirtual(entry)
+    if (!options.lazy && entry.state === 'unloaded') void this.loadVirtual(entry)
     return entry
   }
 
   /**
    * Replaces a virtual asset's contents (registering it if new) and reloads it in place, like a hot
-   * reload of a file: listeners get a 'modified' event.
+   * reload of a file: listeners get a 'modified' event. An async `create` keeps the old object
+   * until the new one is ready.
    */
-  updateVirtual(guid: string, path: string, type: string, create: () => unknown): AssetEntry {
+  updateVirtual(
+    guid: string,
+    path: string,
+    type: string,
+    create: () => unknown,
+    options: VirtualOptions = {},
+  ): AssetEntry {
     const entry = this.entries.get(guid)
-    if (!entry) return this.virtual(guid, path, type, create)
+    if (!entry) return this.virtual(guid, path, type, create, options)
     this.virtuals.set(guid, create)
-    this.loadVirtual(entry, entry.state === 'loaded')
+    if (entry.state === 'loaded' || !options.lazy)
+      void this.loadVirtual(entry, entry.state === 'loaded')
     return entry
+  }
+
+  /** Whether an entry is virtual (made by code, not imported). */
+  isVirtual(ref: AssetRef | string): boolean {
+    const entry = this.entry(ref)
+    return entry !== undefined && this.virtuals.has(entry.guid)
   }
 
   // --- loading ---------------------------------------------------------------
@@ -323,12 +398,13 @@ export class AssetServer {
       )
     }
     if (entry.state === 'loaded') return Promise.resolve()
-    if (this.virtuals.has(entry.guid)) {
-      this.loadVirtual(entry)
-      return entry.error ? Promise.reject(entry.error) : Promise.resolve()
-    }
     const pending = this.loading.get(entry.guid)
     if (pending) return pending
+    if (this.virtuals.has(entry.guid)) {
+      const async = this.loadVirtual(entry)
+      if (async) return async
+      return entry.error ? Promise.reject(entry.error) : Promise.resolve()
+    }
     const promise = this.loadEntry(entry, false).finally(() => this.loading.delete(entry.guid))
     this.loading.set(entry.guid, promise)
     return promise
@@ -360,21 +436,62 @@ export class AssetServer {
     await Promise.allSettled([...refs].map((r) => this.load(r)))
   }
 
-  private loadVirtual(entry: AssetEntry, reload = false): void {
+  /** Makes a virtual asset's object. Returns a promise when `create` is async. */
+  private loadVirtual(entry: AssetEntry, reload = false): Promise<void> | undefined {
     const type = findAssetType(entry.type)
     const create = this.virtuals.get(entry.guid)!
-    try {
-      if (!type) throw this.unknownType(entry)
-      this.world.initResource(type.store).set(entry.guid, create())
+    const fail = (err: unknown) => {
+      const error = err instanceof ShardError ? err : toShardError(errorJson(err, entry.path))
+      entry.error = error
+      if (reload && entry.state === 'loaded') {
+        // Keep the last good object, as a failed file reload does.
+        this.world.tryResource(LogResource)?.error(error)
+        return
+      }
+      entry.state = 'failed'
+      this.emit(entry, 'failed')
+    }
+    const set = (item: unknown) => {
+      const store = this.world.initResource(type!.store)
+      const existing = store.byGuid(entry.guid)
+      if (reload && existing !== undefined && type!.update) type!.update(existing, item)
+      else store.set(entry.guid, item)
       entry.state = 'loaded'
       entry.error = undefined
       entry.version++
       this.emit(entry, reload ? 'modified' : 'loaded')
-    } catch (err) {
-      entry.state = 'failed'
-      entry.error = err instanceof ShardError ? err : toShardError(errorJson(err, entry.path))
-      this.emit(entry, 'failed')
     }
+    let made: unknown
+    try {
+      if (!type) throw this.unknownType(entry)
+      made = create()
+    } catch (err) {
+      fail(err)
+      return undefined
+    }
+    if (!(made instanceof Promise)) {
+      set(made)
+      return undefined
+    }
+    if (!reload || entry.state !== 'loaded') entry.state = 'loading'
+    const promise = made.then(
+      (item) => {
+        // A newer update replaced this one while it ran: its result wins.
+        if (this.loading.get(entry.guid) !== promise) return
+        this.loading.delete(entry.guid)
+        if (!this.entries.has(entry.guid)) return
+        set(item)
+      },
+      (err) => {
+        if (this.loading.get(entry.guid) !== promise) return
+        this.loading.delete(entry.guid)
+        fail(err)
+        throw entry.error
+      },
+    )
+    this.loading.set(entry.guid, promise)
+    promise.catch(() => {})
+    return promise
   }
 
   private async loadEntry(entry: AssetEntry, reload: boolean): Promise<void> {
@@ -551,9 +668,8 @@ export class AssetServer {
     }
     const unloaded: string[] = []
     for (const entry of this.entries.values()) {
-      if (entry.state !== 'loaded' || entry.source === undefined || reachable.has(entry.guid)) {
-        continue
-      }
+      if (entry.state !== 'loaded' || reachable.has(entry.guid)) continue
+      if (entry.source === undefined && !this.collectable.has(entry.guid)) continue
       this.unloadEntry(entry)
       unloaded.push(entry.path)
     }
@@ -725,12 +841,22 @@ export class AssetServer {
       }
     }
     const changed: SourceRecord[] = []
-    await Promise.all(
-      sourcePaths.map(async (path) => {
-        const result = await this.scanSource(path, isForced(path), removedByHash, report)
-        if (result) changed.push(result)
-      }),
-    )
+    // Every source's import starts now, so one can wait for another's (ImportContext.asset).
+    const scanning = new Map<string, Promise<SourceRecord | undefined>>()
+    this.scanning = scanning
+    for (const path of sourcePaths) {
+      scanning.set(path, this.scanSource(path, isForced(path), removedByHash, report))
+    }
+    try {
+      await Promise.all(
+        [...scanning.values()].map(async (pending) => {
+          const result = await pending
+          if (result) changed.push(result)
+        }),
+      )
+    } finally {
+      this.scanning = new Map()
+    }
 
     // Removed sources that weren't moved. A moved record is no longer in removedByHash.
     const claimed = this.claimedMoves
@@ -935,6 +1061,10 @@ export class AssetServer {
         return files
       },
       warn: (message, p) => warnings.push(p === undefined ? { message } : { message, path: p }),
+      asset: (p) => this.importDependency(path, p, ctx),
+      depend: (id, hash) => {
+        deps.push({ path: id, hash, size: 0, mtime: 0, virtual: true })
+      },
     }
     let assets: ImportedAsset[]
     try {
@@ -994,6 +1124,58 @@ export class AssetServer {
     return record
   }
 
+  /** `ImportContext.asset`: waits for another source's import, then returns its artifact. */
+  private async importDependency(from: string, p: string, ctx: ImportContext) {
+    const full = this.resolveFrom(from, p)
+    const hash = full.indexOf('#')
+    const file = hash === -1 ? full : full.slice(0, hash)
+    const cycle = () =>
+      new ShardError('assets/import-cycle', `${from} needs ${full}, which needs ${from}`, {
+        path: from,
+        hint: 'An asset can’t depend on itself, directly or through others.',
+      })
+    if (file === from) throw cycle()
+    const pending = this.scanning.get(file)
+    if (pending) {
+      for (let at: string | undefined = file, n = 0; at !== undefined && n < 256; n++) {
+        if (at === from) throw cycle()
+        at = this.waits.get(at)
+      }
+      this.waits.set(from, file)
+      try {
+        await pending
+      } finally {
+        this.waits.delete(from)
+      }
+    }
+    const record = this.sources.get(file)
+    const entry = this.entry(full)
+    if (!record || !entry || entry.source === undefined) {
+      throw new ShardError('assets/not-found', `No imported asset "${full}"`, {
+        path: full,
+        hint: 'Check the path; it starts at the project root, e.g. "assets/noise/planet.noise.json".',
+      })
+    }
+    // The source and its settings are inputs of this import.
+    await ctx.read(`/${file}`)
+    if (await this.platform!.fs.exists(`${file}.meta`)) await ctx.read(`/${file}.meta`)
+    if (record.error) {
+      throw new ShardError(
+        'assets/dependency-failed',
+        `${from} needs ${full}, which failed to import: ${record.error.message}`,
+        { path: full, hint: 'Fix that file first; this one re-imports with it.' },
+      )
+    }
+    const asset = this.assetRecord(entry)!
+    return {
+      guid: entry.guid,
+      path: entry.path,
+      type: entry.type,
+      artifact: await this.readArtifact(asset.artifact),
+      hash: JSON.stringify(asset.artifact),
+    }
+  }
+
   /** Records a failed import. The last good artifacts (if any) stay loaded and loadable. */
   private fail(
     path: string,
@@ -1047,6 +1229,10 @@ export class AssetServer {
   private async depsUnchanged(record: SourceRecord, byHash = false): Promise<boolean> {
     const fs = this.platform!.fs
     for (const dep of record.deps) {
+      if (dep.virtual) {
+        if (importDependencyHash(dep.path) !== dep.hash) return false
+        continue
+      }
       if (dep.listing) {
         const files = await this.listFiles(dep.path)
         if ((await sha256Hex(encoder.encode(files.join('\n')))) !== dep.hash) return false

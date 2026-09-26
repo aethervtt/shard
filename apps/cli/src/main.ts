@@ -7,6 +7,7 @@ import {
   check,
   describe,
   docs,
+  gen,
   importCommand,
   init,
   mcp,
@@ -46,6 +47,10 @@ const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; 
   screenshot: {
     run: screenshot,
     help: 'screenshot <scene> --out f.png [--size WxH] [--frames N] [--camera path]',
+  },
+  gen: {
+    run: gen,
+    help: 'gen <generator|file> [--seed N | --seeds 1-9] [--param k=v] [--out sheet.png]',
   },
   bake: {
     run: bake,
@@ -92,6 +97,8 @@ export async function main(argv: string[]): Promise<number> {
         size: { type: 'string' },
         camera: { type: 'string' },
         port: { type: 'string' },
+        seeds: { type: 'string' },
+        param: { type: 'string', multiple: true },
         hub: { type: 'string' },
         attach: { type: 'boolean' },
         help: { type: 'boolean', short: 'h' },

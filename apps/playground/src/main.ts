@@ -36,6 +36,7 @@ import { particlesDemoPlugin } from './particles'
 import { physics2dDemoPlugin, physicsDemoPlugin, planetDemoPlugin } from './physics'
 import { postPlugin } from './post'
 import { prefabsDemoPlugin } from './prefabs'
+import { procgenDemoPlugin } from './procgen'
 import { saveDemoPlugin } from './save'
 import { scenePlugin } from './scene'
 import { spritesPlugin } from './sprites'
@@ -73,6 +74,7 @@ const DEMOS = [
   'lights2d',
   'grids',
   'noise',
+  'procgen',
 ] as const
 const demo = DEMOS.find((d) => location.hash === `#${d}`) ?? 'scene'
 document.body.dataset.demo = demo
@@ -209,6 +211,8 @@ if (demo === 'galaxy') {
   app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, gridsDemoPlugin)
 } else if (demo === 'noise') {
   app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, noiseDemoPlugin)
+} else if (demo === 'procgen') {
+  app.addPlugin(TransformPlugin, forwardPlugin(), ScenePlugin, hudPlugin, procgenDemoPlugin)
 } else if (demo === 'sky') {
   app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, skyPlugin)
 } else {

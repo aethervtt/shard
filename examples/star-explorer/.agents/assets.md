@@ -37,16 +37,11 @@ Files: `*.prefab.json`
 
 No import settings.
 
-## `audio`
+## `procgen`
 
-Files: `*.wav`, `*.ogg`, `*.oga`, `*.opus`, `*.mp3`, `*.flac`
+Files: `*.gen.json`
 
-| Setting | Type | Default | Range | Description |
-|---|---|---|---|---|
-| `mode` | `"decoded"` \| `"stream"` | `"decoded"` |  | decoded: decoded into memory on first play; sample-accurate, for effects. stream: played through a media element as it loads; for music and long ambience. |
-| `normalize` | boolean | `false` |  | Scale the clip so its loudest sample is at full level. |
-| `loopStart` | number | `0` | ≥ 0, s | Where a looping source jumps back to. |
-| `loopEnd` | number | `0` | ≥ 0, s | Where a looping source jumps back from. 0: the end of the clip. |
+No import settings.
 
 ## `font`
 
@@ -67,6 +62,17 @@ Files: `*.ttf`, `*.otf`
 Files: `*.strings.json`
 
 No import settings.
+
+## `audio`
+
+Files: `*.wav`, `*.ogg`, `*.oga`, `*.opus`, `*.mp3`, `*.flac`
+
+| Setting | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `mode` | `"decoded"` \| `"stream"` | `"decoded"` |  | decoded: decoded into memory on first play; sample-accurate, for effects. stream: played through a media element as it loads; for music and long ambience. |
+| `normalize` | boolean | `false` |  | Scale the clip so its loudest sample is at full level. |
+| `loopStart` | number | `0` | ≥ 0, s | Where a looping source jumps back to. |
+| `loopEnd` | number | `0` | ≥ 0, s | Where a looping source jumps back from. 0: the end of the clip. |
 
 ## `data/mask`
 

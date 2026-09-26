@@ -1,0 +1,5 @@
+{
+  "$schema": "../../.shard/schemas/material.schema.json",
+  "baseColor": "#6f665e",
+  "roughness": 0.95
+}

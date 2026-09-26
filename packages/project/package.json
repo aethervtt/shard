@@ -23,6 +23,7 @@
     "@shard/particles": "workspace:*",
     "@shard/physics": "workspace:*",
     "@shard/platform": "workspace:*",
+    "@shard/procgen": "workspace:*",
     "@shard/protocol": "workspace:*",
     "@shard/render": "workspace:*",
     "@shard/runtime": "workspace:*",

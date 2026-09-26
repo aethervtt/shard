@@ -56,6 +56,9 @@ importers:
       '@shard/platform-web':
         specifier: workspace:*
         version: link:../../packages/platform-web
+      '@shard/procgen':
+        specifier: workspace:*
+        version: link:../../packages/procgen
       '@shard/project':
         specifier: workspace:*
         version: link:../../packages/project
@@ -153,6 +156,9 @@ importers:
       '@shard/platform-web':
         specifier: workspace:*
         version: link:../../packages/platform-web
+      '@shard/procgen':
+        specifier: workspace:*
+        version: link:../../packages/procgen
       '@shard/project':
         specifier: workspace:*
         version: link:../../packages/project
@@ -297,6 +303,15 @@ importers:
       '@shard/input':
         specifier: workspace:*
         version: link:../../packages/input
+      '@shard/mesh':
+        specifier: workspace:*
+        version: link:../../packages/mesh
+      '@shard/noise':
+        specifier: workspace:*
+        version: link:../../packages/noise
+      '@shard/procgen':
+        specifier: workspace:*
+        version: link:../../packages/procgen
       '@shard/project':
         specifier: workspace:*
         version: link:../../packages/project
@@ -574,6 +589,9 @@ importers:
       '@shard/platform-node':
         specifier: workspace:*
         version: link:../platform-node
+      '@shard/procgen':
+        specifier: workspace:*
+        version: link:../procgen
       '@shard/project':
         specifier: workspace:*
         version: link:../project
@@ -596,6 +614,15 @@ importers:
         specifier: 0.6.1
         version: 0.6.1
     devDependencies:
+      '@shard/mesh':
+        specifier: workspace:*
+        version: link:../mesh
+      '@shard/save':
+        specifier: workspace:*
+        version: link:../save
+      '@shard/transform':
+        specifier: workspace:*
+        version: link:../transform
       '@types/node':
         specifier: ^26.6.2
         version: 26.6.2
@@ -775,6 +802,58 @@ importers:
         specifier: workspace:*
         version: link:../platform
 
+  packages/procgen:
+    dependencies:
+      '@shard/assets':
+        specifier: workspace:*
+        version: link:../assets
+      '@shard/core':
+        specifier: workspace:*
+        version: link:../core
+      '@shard/mesh':
+        specifier: workspace:*
+        version: link:../mesh
+      '@shard/noise':
+        specifier: workspace:*
+        version: link:../noise
+      '@shard/platform':
+        specifier: workspace:*
+        version: link:../platform
+      '@shard/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@shard/render':
+        specifier: workspace:*
+        version: link:../render
+      '@shard/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@shard/scene':
+        specifier: workspace:*
+        version: link:../scene
+      '@shard/texture':
+        specifier: workspace:*
+        version: link:../texture
+    devDependencies:
+      '@shard/gpu':
+        specifier: workspace:*
+        version: link:../gpu
+      '@shard/platform-node':
+        specifier: workspace:*
+        version: link:../platform-node
+      '@shard/transform':
+        specifier: workspace:*
+        version: link:../transform
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+      '@webgpu/types':
+        specifier: ^0.1.74
+        version: 0.1.74
+      webgpu:
+        specifier: 0.6.1
+        version: 0.6.1
+
   packages/project:
     dependencies:
       '@shard/animation':
@@ -813,6 +892,9 @@ importers:
       '@shard/platform':
         specifier: workspace:*
         version: link:../platform
+      '@shard/procgen':
+        specifier: workspace:*
+        version: link:../procgen
       '@shard/protocol':
         specifier: workspace:*
         version: link:../protocol

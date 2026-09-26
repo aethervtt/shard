@@ -16,8 +16,10 @@ import {
   listScenes,
   type OpenProjectOptions,
   openProject,
+  prepareGenerators,
   worldHash,
 } from '@shard/node'
+import { findNondeterminism, requireGenerator } from '@shard/procgen'
 import {
   generateDocs,
   loadProject,
@@ -154,6 +156,7 @@ export async function validate({ out, project }: CommandContext): Promise<number
   if (manifestErrors.length === 0) {
     const { manifest } = await loadProject(platform)
     await importProjectPlugin(resolve(project), manifest) // defines the project's components
+    await setupGenerators(project, manifest, platform)
     const world = new World()
     // Scenes reference assets by path, so the catalog has to be current first.
     const scan = await assetServer(world).configure({ platform, roots: manifest.assetRoots }).scan()
@@ -313,6 +316,28 @@ export function typecheckProject(
   })
 }
 
+/** `procgen/nondeterministic` diagnostics for generator modules under `scripts/`. */
+async function nondeterministicCalls(project: string): Promise<Diagnostic[]> {
+  const dir = join(project, 'scripts')
+  const files = (await readdir(dir, { recursive: true }).catch(() => [] as string[])).filter((f) =>
+    /\.(ts|js|mts)$/.test(f),
+  )
+  const out: Diagnostic[] = []
+  for (const f of files.sort()) {
+    const file = `scripts/${f.split('\\').join('/')}`
+    for (const call of findNondeterminism(file, await readFile(join(dir, f), 'utf8'))) {
+      out.push({
+        file: call.file,
+        line: call.line,
+        column: call.column,
+        code: 'procgen/nondeterministic',
+        message: `${call.call} in a generator module: generators must be pure (use ctx.rng; pass times in as params).`,
+      })
+    }
+  }
+  return out
+}
+
 export async function check({ out, project }: CommandContext): Promise<number> {
   if (!existsSync(join(project, 'tsconfig.json'))) {
     throw new ShardError('project/not-found', 'No tsconfig.json here', {
@@ -320,6 +345,9 @@ export async function check({ out, project }: CommandContext): Promise<number> {
     })
   }
   const result = await typecheckProject(project)
+  // Generators must be pure: clock and Math.random calls in their modules are errors too.
+  const found = await nondeterministicCalls(project)
+  result.diagnostics.push(...found)
   const lines = [
     result.diagnostics.length === 0
       ? `No type errors (${Math.round(result.ms)} ms).`
@@ -334,10 +362,25 @@ export async function check({ out, project }: CommandContext): Promise<number> {
 
 // --- import / mv ------------------------------------------------------------------
 
+/** Generators' code hashes, and their jobs on worker threads, for commands that import. */
+async function setupGenerators(
+  project: string,
+  manifest: { name: string; entry: string },
+  platform: ReturnType<typeof createNodePlatform>,
+): Promise<void> {
+  await prepareGenerators({
+    root: resolve(project),
+    namespace: manifest.name,
+    entry: manifest.entry,
+    workers: platform.workers,
+  })
+}
+
 async function projectAssets(project: string) {
   const platform = createNodePlatform({ root: project })
   const { manifest } = await loadProject(platform)
   await importProjectPlugin(resolve(project), manifest)
+  await setupGenerators(project, manifest, platform)
   const world = new World()
   return assetServer(world).configure({ platform, roots: manifest.assetRoots })
 }
@@ -495,6 +538,130 @@ export async function screenshot(ctx: CommandContext): Promise<number> {
       return EXIT.ok
     },
   )
+}
+
+// --- gen -------------------------------------------------------------------------
+
+/** `--param radius=2 --param shape=assets/noise/rock.noise.json`: typed by the generator's schema. */
+function parseParams(values: unknown, generator: string): Record<string, unknown> {
+  const list = Array.isArray(values) ? values : values === undefined ? [] : [values]
+  const out: Record<string, unknown> = {}
+  const gen = (() => {
+    try {
+      return requireGenerator(generator)
+    } catch {
+      return undefined
+    }
+  })()
+  for (const item of list as string[]) {
+    const eq = item.indexOf('=')
+    if (eq <= 0)
+      throw new ShardError('cli/usage', `--param must look like name=value, got "${item}"`)
+    const key = item.slice(0, eq)
+    const raw = item.slice(eq + 1)
+    const field = gen?.params.fields[key]
+    if (field?.kind === 'handle') out[key] = { path: raw }
+    else {
+      try {
+        out[key] = JSON.parse(raw)
+      } catch {
+        out[key] = raw
+      }
+    }
+  }
+  return out
+}
+
+export async function gen(ctx: CommandContext): Promise<number> {
+  const target = ctx.args[0]
+  if (!target) {
+    throw new ShardError(
+      'cli/usage',
+      'Usage: shard gen <generator|file.gen.json> [--seed N | --seeds 1-9] [--param k=v] [--size 256] [--out sheet.png]',
+    )
+  }
+  return withProject(ctx, { loadStartScene: false }, async (p) => {
+    const local = localTarget('headless', p.server)
+    const described = await local.request<{ generators: { name: string }[] }>('procgen.describe')
+    const name = target.startsWith('scripts:') ? `${p.manifest.name}/${target.slice(8)}` : target
+    const known = described.generators.find((g) => g.name === name || g.name.endsWith(`/${name}`))
+    const generator = target.includes('.gen.json') ? target : (known?.name ?? name)
+    const params = parseParams(ctx.flags.param, known?.name ?? name)
+    const seeds =
+      ctx.flags.seeds !== undefined
+        ? String(ctx.flags.seeds)
+        : ctx.flags.seed !== undefined
+          ? String(flagNumber(ctx.flags.seed, 0))
+          : undefined
+    const list = seeds === undefined ? [undefined] : parseSeedList(seeds)
+    const results: Record<string, unknown>[] = []
+    for (const seed of list) {
+      results.push(
+        await local.request('procgen.run', {
+          generator,
+          params,
+          ...(seed === undefined ? {} : { seed }),
+        }),
+      )
+    }
+    let written: { out: string; width: number; height: number } | undefined
+    const outFile = ctx.flags.out as string | undefined
+    if (outFile) {
+      const size = ctx.flags.size ? flagNumber(ctx.flags.size, 256) : 256
+      const shot = await local.request<{ data: string; width: number; height: number }>(
+        'procgen.preview',
+        {
+          generator,
+          params,
+          size,
+          ...(ctx.flags.seeds !== undefined
+            ? { seeds }
+            : list[0] !== undefined
+              ? { seed: list[0] }
+              : {}),
+        },
+      )
+      const file = resolve(outFile)
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, Buffer.from(shot.data, 'base64'))
+      written = { out: file, width: shot.width, height: shot.height }
+    }
+    const lines = results.map((r) => {
+      const s = r as {
+        generator: string
+        seed: number
+        hit: string
+        ms: number
+        key?: string
+        vertices?: number
+        triangles?: number
+        entities?: number
+        output: string
+      }
+      const size =
+        s.vertices !== undefined
+          ? `${s.vertices} vertices, ${s.triangles} triangles`
+          : s.entities !== undefined
+            ? `${s.entities} entities`
+            : s.output
+      return `${s.generator} seed ${s.seed}: ${size} (${s.hit === 'run' ? `ran in ${s.ms} ms` : `cache: ${s.hit}`}) key ${s.key?.slice(0, 12) ?? '-'}`
+    })
+    if (written) lines.push(`Wrote ${outFile} (${written.width}×${written.height}).`)
+    ctx.out.result({ generator, results, ...(written ? written : {}) }, lines.join('\n'))
+    return EXIT.ok
+  })
+}
+
+function parseSeedList(spec: string): number[] {
+  const out: number[] = []
+  for (const part of spec.split(',')) {
+    const m = /^\s*(\d+)\s*(?:-\s*(\d+))?\s*$/.exec(part)
+    if (!m) throw new ShardError('cli/usage', `--seeds must look like 1-9 or 1,4,9, got "${spec}"`)
+    const a = Number(m[1])
+    const b = m[2] === undefined ? a : Number(m[2])
+    for (let s = Math.min(a, b); s <= Math.max(a, b); s++) out.push(s)
+  }
+  return out
 }
 
 export async function describe(ctx: CommandContext): Promise<number> {

@@ -25,6 +25,7 @@
     "@shard/physics": "workspace:*",
     "@shard/platform-node": "workspace:*",
     "@shard/platform-web": "workspace:*",
+    "@shard/procgen": "workspace:*",
     "@shard/project": "workspace:*",
     "@shard/protocol": "workspace:*",
     "@shard/render": "workspace:*",

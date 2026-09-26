@@ -34,7 +34,9 @@ Every engine error is a `ShardError` with one of these codes.
 | `app/plugin-cycle` | @shard/runtime |  |
 | `app/system-cycle` | @shard/core | Remove one of the after/before constraints in this cycle. |
 | `app/system-failed` | @shard/core |  |
+| `assets/dependency-failed` | @shard/assets | Fix that file first; this one re-imports with it. |
 | `assets/duplicate-extension` | @shard/assets | Every data type needs its own extension. Pick another one. |
+| `assets/import-cycle` | @shard/assets | An asset can’t depend on itself, directly or through others. |
 | `assets/import-failed` | @shard/assets |  |
 | `assets/invalid-importer` | @shard/assets |  |
 | `assets/invalid-meta` | @shard/assets | Delete the .meta to get a new guid (references by guid will break), or restore it. |
@@ -126,6 +128,20 @@ Every engine error is a `ShardError` with one of these codes.
 | `prefab/unknown-field` | @shard/scene | A prefab has "root" (an entity), or "extends" plus "rootComponents", "overrides", and "children" (a variant). |
 | `prefab/unknown-path` | @shard/scene | Override paths are relative to the root, e.g. "Hull" or "Hull/Cockpit". |
 | `prefab/unsupported-version` | @shard/scene |  |
+| `procgen/bad-file` | @shard/procgen | A generator file has "generator", "seed", and "params". |
+| `procgen/bad-mesh` | @shard/procgen | Detail 6 is already 40 962 vertices. |
+| `procgen/bad-name` | @shard/procgen | Generator names are "<namespace>/<Name>", e.g. "star-explorer/Rock". |
+| `procgen/bad-output` | @shard/procgen | Use "mesh", "texture", "data", "entities", or a data type (project.dataAsset). |
+| `procgen/bad-params` | @shard/procgen | Seeds are integers from 0 to 4294967295; derive child seeds with ctx.childSeed. |
+| `procgen/cycle` | @shard/procgen | A generator that calls itself needs different params or a different seed (ctx.childSeed) each level. |
+| `procgen/dependency-failed` | @shard/procgen | Add the plugin that defines the asset type to the project. |
+| `procgen/generator-failed` | @shard/procgen | The error is in the generator; procgen.run with the same seed and params reproduces it. |
+| `procgen/no-preview` | @shard/procgen | procgen.run returns the value summary; asset.get shows it. |
+| `procgen/nondeterministic` | @shard/procgen | Generators are pure: use ctx.rng for randomness and pass times in as params. |
+| `procgen/output-mismatch` | @shard/procgen | Use its output as a handle instead (a mesh: render/Mesh3d { "mesh": { "path": "procedural:…" } }). |
+| `procgen/undeclared-dependency` | @shard/procgen | ctx.load takes the handles in the params (declare a t.handle param and pass the asset in). |
+| `procgen/unknown-generator` | @shard/procgen | Name a generator ("star-explorer/StarSystem") or a *.gen.json#Generator. |
+| `procgen/worker-bundle-failed` | @shard/node | The project code has to bundle for browsers (no Node built-ins). |
 | `project/bundle-failed` | @shard/node |  |
 | `project/entry-failed` | @shard/node | The entry must be a module whose default export is defineProject({...}). |
 | `project/entry-invalid` | @shard/node | End the file with `export default project`, where project = defineProject({...}). |

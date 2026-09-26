@@ -18,6 +18,8 @@ export interface BuiltBundle {
   code: string
   map: SourceMap | undefined
   ms: number
+  /** Inputs and their imports (esbuild's metafile): generators' code hashes come from it. */
+  graph: { inputs: Record<string, { imports: { path: string; external?: boolean }[] }> }
 }
 
 export interface BundlerOptions {
@@ -92,6 +94,7 @@ export async function createBundler(options: BundlerOptions) {
     sourcesContent: false,
     external: ['@shard/*'],
     write: false,
+    metafile: true,
     logLevel: 'silent',
     plugins: [noNodeBuiltins],
   })
@@ -118,6 +121,7 @@ export async function createBundler(options: BundlerOptions) {
       code,
       map: inlineSourceMap(code),
       ms: performance.now() - start,
+      graph: result.metafile as BuiltBundle['graph'],
     }
     return last
   }

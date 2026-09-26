@@ -473,6 +473,25 @@ A body’s velocity. Written by physics each step; writing it sets the body’s 
 | `linear` | number[3] | `[0,0,0]` | m/s | World-space linear velocity. |
 | `angular` | number[3] | `[0,0,0]` | rad/s | World-space angular velocity (2D: z). |
 
+## `procgen/Generated`
+
+Spawned by a GeneratorInstance; rebuilt from the generator, never saved.
+
+_Computed by the engine; never written in scene files._
+
+Tag (no fields).
+
+## `procgen/GeneratorInstance`
+
+Spawns an entities generator's output as children (procgen/Generated). Patching seed or params regenerates on the pool; children at unchanged paths keep their entity ids. Saves write only this component.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `generator` | null or Generator ref | `null` |  | The generator, by name ({ "path": "star-explorer/StarSystem" }), or a generator file's #Generator ({ "path": "generators/sol.gen.json#Generator" }), whose seed and params are defaults. |
+| `seed` | integer | `0` | ≥ 0, ≤ 4294967295 | The seed. 0 uses the generator file's seed (0 for a generator by name). |
+| `params` | any | `{}` |  | Params, checked against the generator's schema; missing ones take the file's or the defaults. |
+| `overrides` | any | `{}` |  | Changes to generated entities by path relative to this entity, as in scene/PrefabInstance. Saves write the children's runtime changes here. |
+
 ## `render/Antialiasing`
 
 Anti-aliasing for a camera. Without it: MSAA in forward views (per forwardPlugin), none in deferred ones.

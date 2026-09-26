@@ -15,6 +15,7 @@ import { navMethods } from '@shard/nav'
 import { listScenes } from '@shard/node'
 import { noiseMethods } from '@shard/noise'
 import { physicsMethods } from '@shard/physics'
+import { procgenMethods } from '@shard/procgen'
 import { ProjectMethodParams } from '@shard/project'
 import { METHODS } from '@shard/protocol'
 import { saveMethods } from '@shard/save'
@@ -61,6 +62,7 @@ const PLUGIN_METHODS = [
   ...saveMethods,
   ...localeMethods,
   ...noiseMethods,
+  ...procgenMethods,
 ]
 
 /** The protocol method's parameter schema, as an MCP input schema. */
@@ -324,6 +326,40 @@ export const TOOLS: Tool[] = [
       }
     },
   },
+  forward(
+    'run_generator',
+    'procgen.run',
+    'Runs a generator (or finds its cached output) and summarizes it: output type, cache key and whether it was a hit, time, vertex and triangle counts and bounds (meshes), size (textures), entities by component (entities), warnings. The output is an asset at the returned "path" (procedural:…), usable as a handle. Example: { "generator": "star-explorer/Rock", "params": { "radius": 2 }, "seed": 3 }.',
+  ),
+  {
+    name: 'preview_generator',
+    description:
+      'Shows a generator output: a mesh in neutral studio light from a three-quarter view, a texture as is, entities framed on their bounds. With "seeds" ("1-9", "1,5,9", or [1, 5, 9]) it is a labelled contact sheet, one cell per seed: the main loop for tuning a generator. Change one param, preview nine seeds, compare. Example: { "generator": "star-explorer/Rock", "seeds": "1-9", "params": { "roughness": 0.6 } }.',
+    inputSchema: paramsSchema('procgen.preview'),
+    run: async (ctx, args) => {
+      const shot = await ctx.target().request<{
+        data: string
+        width: number
+        height: number
+        generator: string
+        keys: string[]
+      }>('procgen.preview', args)
+      return {
+        content: [
+          { type: 'image', data: shot.data, mimeType: 'image/png' },
+          {
+            type: 'text',
+            text: `${shot.generator}${args.seeds ? ` seeds ${JSON.stringify(args.seeds)}` : ''} (${shot.width}×${shot.height})`,
+          },
+        ],
+      }
+    },
+  },
+  forward(
+    'describe_generators',
+    'procgen.describe',
+    'Every generator in the project and engine: params (a JSON Schema with units, ranges, defaults), output type, version, and code hash. Also the output cache (records, bytes, limit), run and hit counts, jobs running now, and how many workers run jobs.',
+  ),
   {
     name: 'preview_noise',
     description:

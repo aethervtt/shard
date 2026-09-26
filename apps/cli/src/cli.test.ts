@@ -285,10 +285,59 @@ describe('commands', () => {
     expect(sum / expected.length).toBeLessThan(1.5)
   })
 
+  it('gen writes a labelled 3×3 contact sheet matching a golden; --json reports keys and cache hits', async () => {
+    const out = join(example, '.shard', 'cli-test-gen.png')
+    const args = ['gen', 'scripts:Rock', '--seeds', '1-9', '--size', '64', '--out', out, '--json']
+    const r = shard(args)
+    expect(r.code).toBe(0)
+    const result = r.json()
+    expect(result.generator).toBe('star-explorer/Rock')
+    expect(result.results).toHaveLength(9)
+    expect(result.results.map((x: { seed: number }) => x.seed)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9])
+    const keys = result.results.map((x: { key: string }) => x.key)
+    for (const key of keys) expect(key).toMatch(/^[0-9a-f]{64}$/)
+    expect(new Set(keys).size).toBe(9)
+    expect(result.results[0]).toMatchObject({ output: 'Mesh', vertices: 642, triangles: 1280 })
+    // Same inputs again: the same keys, all from the cache.
+    const again = shard(args).json()
+    expect(again.results.map((x: { key: string }) => x.key)).toEqual(keys)
+    expect(again.results.every((x: { cacheHit: boolean }) => x.cacheHit)).toBe(true)
+    const png = await decodePng(new Uint8Array(readFileSync(out)))
+    // Three 64 px cells a side, 2 px apart.
+    expect([png.width, png.height]).toEqual([200, 200])
+    const golden = join(here, '__golden__', 'gen-rock-sheet.rgba')
+    if (!existsSync(golden)) writeFileSync(golden, png.data)
+    const expected = new Uint8Array(readFileSync(golden))
+    let sum = 0
+    for (let i = 0; i < expected.length; i++) sum += Math.abs(expected[i]! - png.data[i]!)
+    expect(sum / expected.length).toBeLessThan(1.5)
+  })
+
+  it('check reports Math.random in a generator module with file, line, and column', () => {
+    const cleanup = temp(
+      'scripts/zz-random.ts',
+      `import { t } from '@shard/core'\nimport { defineGenerator } from '@shard/procgen'\n\nexport const Noisy = defineGenerator('star-explorer/Noisy', {\n  params: { n: t.u32() },\n  output: 'data',\n  run: (_ctx, p) => p.n + Math.random(),\n})\n`,
+    )
+    try {
+      const r = shard(['check', '--json'])
+      expect(r.code).toBe(1)
+      expect(r.json().diagnostics).toEqual([
+        expect.objectContaining({
+          file: 'scripts/zz-random.ts',
+          line: 7,
+          column: 27,
+          code: 'procgen/nondeterministic',
+        }),
+      ])
+    } finally {
+      cleanup()
+    }
+  })
+
   it('test passes on the example, and a failing test exits 1 with the failure', () => {
     const ok = shard(['test', '--json'])
     expect(ok.code).toBe(0)
-    expect(ok.json()).toMatchObject({ passed: 8, failed: 0 })
+    expect(ok.json()).toMatchObject({ passed: 10, failed: 0 })
     const cleanup = temp(
       'tests/zz-fail.test.ts',
       `import { expect, test } from '@shard/testing'\ntest('ships can teleport', async ({ game }) => {\n  await game.step(1)\n  expect(game.get('ship', 'core/Transform').translation[1]).toBe(999)\n})\n`,
@@ -495,6 +544,9 @@ describe('MCP server', () => {
         'physics_raycast',
         'spawn_prefab',
         'prefab_overrides',
+        'run_generator',
+        'preview_generator',
+        'describe_generators',
       ]),
     )
     expect(tools.find((t) => t.name === 'physics_raycast')!.inputSchema).toMatchObject({
@@ -546,6 +598,41 @@ describe('MCP server', () => {
     })
     expect(patched.isError).toBe(true)
     expect(patched.json()).toMatchObject({ code: 'protocol/invalid-components' })
+  })
+
+  it('tunes a generator: describe_generators, run_generator, preview_generator', async () => {
+    const described = (await call('describe_generators')).json()
+    const rock = described.generators.find((g: { name: string }) => g.name === 'star-explorer/Rock')
+    expect(rock).toMatchObject({ output: 'Mesh', version: 1 })
+    expect(rock.params.properties.radius).toMatchObject({ minimum: 0.05, 'x-unit': 'm' })
+    const ran = (
+      await call('run_generator', {
+        generator: 'star-explorer/Rock',
+        params: { detail: 1 },
+        seed: 5,
+      })
+    ).json()
+    expect(ran).toMatchObject({ output: 'Mesh', vertices: 42, triangles: 80, seed: 5 })
+    expect(ran.path).toBe('procedural:star-explorer/Rock?detail=1&seed=5')
+    const again = (
+      await call('run_generator', { generator: 'Rock', params: { detail: 1 }, seed: 5 })
+    ).json()
+    expect(again).toMatchObject({ key: ran.key, cacheHit: true })
+    const sheet = await call('preview_generator', {
+      generator: 'star-explorer/Rock',
+      seeds: '1-4',
+      size: 64,
+      params: { detail: 1 },
+    })
+    expect(sheet.content[0]).toMatchObject({ type: 'image', mimeType: 'image/png' })
+    const png = await decodePng(Buffer.from(sheet.content[0]!.data!, 'base64'))
+    expect([png.width, png.height]).toEqual([134, 134])
+    const bad = await call('run_generator', {
+      generator: 'star-explorer/Rock',
+      params: { radius: 0 },
+    })
+    expect(bad.isError).toBe(true)
+    expect(bad.json()).toMatchObject({ code: 'procgen/bad-params', path: '/radius' })
   })
 
   it('saves and loads the game: save_game, then load_game puts it back', async () => {

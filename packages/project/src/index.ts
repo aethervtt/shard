@@ -8,6 +8,7 @@ export {
   renderAssetCatalog,
   renderComponentCatalog,
   renderErrorCatalog,
+  renderGeneratorCatalog,
 } from './docs'
 export {
   type BuildAppOptions,

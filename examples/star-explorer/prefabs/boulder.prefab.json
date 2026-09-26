@@ -1,0 +1,15 @@
+{
+  "$schema": "../.shard/schemas/prefab.schema.json",
+  "version": 1,
+  "assets": {
+    "stone": { "type": "Material", "value": { "baseColor": "#8a7f74", "roughness": 0.9 } }
+  },
+  "root": {
+    "name": "boulder",
+    "components": {
+      "core/Transform": {},
+      "render/Mesh3d": { "mesh": { "path": "generators/boulder.gen.json" } },
+      "render/MeshMaterial": { "material": { "path": "#stone" } }
+    }
+  }
+}

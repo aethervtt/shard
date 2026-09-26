@@ -1,0 +1,97 @@
+{
+  "$schema": "../.shard/schemas/scene.schema.json",
+  "version": 1,
+  "assets": {
+    "stone": {
+      "type": "Material",
+      "value": {
+        "baseColor": "#6f665e",
+        "roughness": 0.95
+      }
+    }
+  },
+  "resources": {
+    "render/AmbientLight": {
+      "color": [0.6, 0.7, 1],
+      "brightness": 400
+    }
+  },
+  "entities": [
+    {
+      "name": "sun",
+      "components": {
+        "render/DirectionalLight": {
+          "illuminance": "daylight"
+        },
+        "core/Transform": {
+          "rotationEuler": [-35, 40, 0]
+        }
+      }
+    },
+    {
+      "name": "boulder",
+      "components": {
+        "scene/PrefabInstance": {
+          "prefab": {
+            "path": "prefabs/boulder.prefab.json"
+          }
+        },
+        "core/Transform": {
+          "translation": [-3, 0, 0]
+        }
+      }
+    },
+    {
+      "name": "pebble",
+      "components": {
+        "core/Transform": {
+          "translation": [2.5, -0.5, 0]
+        },
+        "render/Mesh3d": {
+          "mesh": {
+            "path": "procedural:star-explorer/Rock?radius=1.2&roughness=0.6&seed=11"
+          }
+        },
+        "render/MeshMaterial": {
+          "material": {
+            "path": "#stone"
+          }
+        }
+      }
+    },
+    {
+      "name": "field",
+      "components": {
+        "core/Transform": {
+          "translation": [0, 0, -30]
+        },
+        "procgen/GeneratorInstance": {
+          "generator": {
+            "path": "star-explorer/AsteroidField"
+          },
+          "seed": 7,
+          "params": {
+            "count": 24,
+            "radius": 14,
+            "material": {
+              "path": "assets/materials/stone.material.json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "camera",
+      "components": {
+        "render/Camera3d": {
+          "fovY": 40,
+          "clearColor": [0.02, 0.02, 0.05, 1]
+        },
+        "core/Transform": {
+          "translation": [0, 3, 12],
+          "rotationEuler": [-12, 0, 0]
+        }
+      }
+    }
+  ]
+}

@@ -20,7 +20,12 @@ export {
 } from './format'
 export {
   currentOverrides,
+  defineInstanceKind,
+  hookInstances,
+  type InstanceKind,
   instanceEntities,
+  instanceKindOf,
+  instanceKinds,
   instanceOf,
   loadInstanceAssets,
   loadPrefab,
@@ -31,6 +36,7 @@ export {
   ScenePlugin,
   type SpawnPrefabOptions,
   sceneInstancesSystem,
+  settleInstances,
   spawnPrefab,
   updateInstances,
 } from './instances'
@@ -43,7 +49,14 @@ export {
   registerPrefab,
   validatePrefab,
 } from './prefab-file'
-export { PROCEDURAL_MESHES, type ProceduralRef, parseProcedural } from './procedural'
+export {
+  defineProceduralSource,
+  PROCEDURAL_MESHES,
+  type ProceduralRef,
+  type ProceduralSource,
+  parseProcedural,
+  proceduralSourceFor,
+} from './procedural'
 export {
   addSceneReadyCheck,
   expandComponentAliases,

@@ -16,6 +16,7 @@
     "@shard/gpu": "workspace:*",
     "@shard/platform": "workspace:*",
     "@shard/platform-node": "workspace:*",
+    "@shard/procgen": "workspace:*",
     "@shard/project": "workspace:*",
     "@shard/protocol": "workspace:*",
     "@shard/render": "workspace:*",
@@ -25,6 +26,9 @@
     "webgpu": "0.6.1"
   },
   "devDependencies": {
+    "@shard/mesh": "workspace:*",
+    "@shard/save": "workspace:*",
+    "@shard/transform": "workspace:*",
     "@types/node": "^26.6.2",
     "@webgpu/types": "^0.1.74"
   }

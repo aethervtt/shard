@@ -1,4 +1,4 @@
-import { ShardError } from '@shard/core'
+import { type ResolvedAsset, ShardError, type World } from '@shard/core'
 import { box, capsule, cone, cube, cylinder, type Mesh, plane, sphere, torus } from '@shard/mesh'
 
 type Factory = (params: Record<string, number>) => Mesh
@@ -71,4 +71,34 @@ export function parseProcedural(
     .map((k) => `${k}=${out[k]}`)
     .join('&')}`
   return { source: name, params: out, key }
+}
+
+// --- other sources -------------------------------------------------------------------------------
+
+/**
+ * A kind of `procedural:` ref beyond the built-in meshes, e.g. project generators
+ * (`procedural:star-explorer/Rock?seed=3`). `spec` is everything after `procedural:`.
+ */
+export interface ProceduralSource {
+  /** Whether this source handles refs named `name` (the part before `?`). */
+  handles(name: string): boolean
+  /** Checks a ref without making anything; throws a ShardError (with `path`) if it's invalid. */
+  check(spec: string, path?: string): { type: string }
+  /** The asset for a ref, registered with the world's asset server (it may still be loading). */
+  resolve(world: World, spec: string): ResolvedAsset
+}
+
+const sources: ProceduralSource[] = []
+
+/** Adds a source of `procedural:` refs. */
+export function defineProceduralSource(source: ProceduralSource): void {
+  sources.push(source)
+}
+
+/** The source for a `procedural:` spec, if it isn't a built-in mesh. */
+export function proceduralSourceFor(spec: string): ProceduralSource | undefined {
+  const q = spec.indexOf('?')
+  const name = q === -1 ? spec : spec.slice(0, q)
+  if (PROCEDURAL_MESHES[name]) return undefined
+  return sources.find((s) => s.handles(name))
 }

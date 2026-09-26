@@ -23,13 +23,13 @@ import {
   findEntityByPath,
   InstancePart,
   instanceEntities,
+  instanceKindOf,
   loadPrefab,
   loadScene,
   type Overrides,
   PrefabInstance,
   prefabRootComponents,
   SceneIndex,
-  SceneInstance,
   SceneMember,
   spawnPrefab,
   unloadScene,
@@ -248,7 +248,7 @@ export function captureGame(world: World, options: CaptureOptions = {}): SaveFil
       const out: Record<string, Record<string, JsonValue> | null> = {}
       for (const [def, value] of now) {
         // An instance's generated entities aren't saved: what changed in them becomes overrides.
-        if (def === PrefabInstance || def === SceneInstance)
+        if (instanceKindOf(def))
           value.overrides = (currentOverrides(world, entity) ?? value.overrides) as JsonValue
         const before = loaded.get(def.name)
         if (!before) {

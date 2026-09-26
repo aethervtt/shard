@@ -50,6 +50,8 @@ async function readWasm(file: string): Promise<Uint8Array | Response> {
  * `simd` says so), the scalar build otherwise. The two give bitwise-equal results.
  */
 export function loadNoiseKernel(options: { simd?: boolean } = {}): Promise<NoiseKernel> {
+  // A kernel installed from a posted module (a worker) is this thread's kernel.
+  if (options.simd === undefined && current && installed) return Promise.resolve(current)
   const simd = options.simd ?? simdSupported()
   let p = loaded.get(simd)
   if (!p) {
@@ -75,6 +77,21 @@ export function loadNoiseKernel(options: { simd?: boolean } = {}): Promise<Noise
     loaded.set(simd, p)
   }
   return p
+}
+
+let installed = false
+
+/**
+ * Makes a compiled kernel module (`noiseKernel().module`, posted from another thread) this thread's
+ * kernel, so a worker samples without fetching the .wasm. Later `loadNoiseKernel()` calls return it.
+ */
+export function useNoiseKernel(module: WebAssembly.Module, simd = true): NoiseKernel {
+  if (current?.module === module) return current
+  const kernel: NoiseKernel = { module, state: instantiate(module), simd }
+  loaded.set(simd, Promise.resolve(kernel))
+  current = kernel
+  installed = true
+  return kernel
 }
 
 /** The kernel sync sampling uses. Throws `noise/kernel-not-loaded` before `loadNoiseKernel`. */

@@ -84,6 +84,42 @@ export interface ImportContext {
   resolve(path: string): string
   /** Records a non-fatal problem; shown by `asset.get` and `shard import`. */
   warn(message: string, path?: string): void
+  /**
+   * Another imported asset (`noise/planet.noise.json`, `a.glb#Mesh/Hull`): waits for its import in
+   * this scan and returns its artifact. Its source and `.meta` become import dependencies, so
+   * editing either re-imports this source. `hash` names the artifact's contents.
+   */
+  asset(path: string): Promise<{
+    guid: string
+    path: string
+    type: string
+    artifact: Artifact
+    hash: string
+  }>
+  /**
+   * Records an input that isn't a file (a generator's code hash): when the source registered for
+   * `id`'s prefix with `defineImportDependency` reports a different hash, this source re-imports.
+   */
+  depend(id: string, hash: string): void
+}
+
+const dependencySources = new Map<string, (id: string) => string | undefined>()
+
+/**
+ * Registers where non-file import dependencies with ids starting `prefix` get their current hash
+ * (e.g. `generator:` ids hash a generator's code). Undefined means the input is gone.
+ */
+export function defineImportDependency(
+  prefix: string,
+  hash: (id: string) => string | undefined,
+): void {
+  dependencySources.set(prefix, hash)
+}
+
+/** The current hash of a non-file import dependency, or undefined if nothing provides it. */
+export function importDependencyHash(id: string): string | undefined {
+  for (const [prefix, hash] of dependencySources) if (id.startsWith(prefix)) return hash(id)
+  return undefined
 }
 
 export interface ImportedAsset {

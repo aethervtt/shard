@@ -15,13 +15,16 @@ export {
   type AssetEventData,
   type AssetEventKind,
   type AssetInfo,
+  type AssetResolver,
   AssetServer,
   type AssetServerOptions,
   AssetServerResource,
   type AssetState,
   assetServer,
+  defineAssetResolver,
   normalizePath,
   type ScanReport,
+  type VirtualOptions,
 } from './server'
 export { AssetStore } from './store'
 export {
@@ -34,6 +37,7 @@ export {
   defineAssetPreview,
   defineAssetSchema,
   defineAssetType,
+  defineImportDependency,
   defineImporter,
   findAssetPreview,
   findAssetType,
@@ -43,6 +47,7 @@ export {
   type ImporterDef,
   type ImportResult,
   type ImportSource,
+  importDependencyHash,
   importerFor,
   type LoadContext,
   type PreviewImage,

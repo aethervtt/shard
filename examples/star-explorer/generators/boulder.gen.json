@@ -1,0 +1,6 @@
+{
+  "$schema": "../.shard/schemas/gen.schema.json",
+  "generator": "star-explorer/Rock",
+  "seed": 3,
+  "params": { "radius": 2, "roughness": 0.45, "detail": 4 }
+}

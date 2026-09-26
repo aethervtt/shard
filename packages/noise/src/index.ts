@@ -28,7 +28,13 @@ export {
   patchOrigin,
   patchPoints,
 } from './kernel'
-export { loadNoiseKernel, type NoiseKernel, noiseKernel, simdSupported } from './loader'
+export {
+  loadNoiseKernel,
+  type NoiseKernel,
+  noiseKernel,
+  simdSupported,
+  useNoiseKernel,
+} from './loader'
 export { MAX_SAMPLE_POINTS, noiseMethods, resolveGraph } from './methods'
 export {
   CELL_DISTANCES,

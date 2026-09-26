@@ -16,6 +16,8 @@ import { findEntityByPath } from '@shard/scene'
 import { Transform } from '@shard/transform'
 import { UiChanged, UiLayout, UiText, UiToggle } from '@shard/ui'
 
+export { AsteroidField, Rock } from './rock'
+
 /** Flight controls. Bindings are data: an agent (or player) can remap them without code changes. */
 export const Controls = defineActions('star-explorer/Controls', {
   thrust: { kind: 'button', bindings: ['Key:KeyW', 'Key:Space', 'Gamepad:RightTrigger'] },

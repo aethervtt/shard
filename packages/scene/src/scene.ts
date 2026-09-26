@@ -26,8 +26,15 @@ import {
   SceneMember,
 } from './components'
 import { SCENE_VERSION, type SceneAsset, type SceneEntity, type SceneFile } from './format'
-import { currentOverrides, hookInstances, settleInstances, validateInstance } from './instances'
-import { PROCEDURAL_MESHES, parseProcedural } from './procedural'
+import {
+  currentOverrides,
+  hookInstances,
+  instanceKindOf,
+  instanceKinds,
+  settleInstances,
+  validateInstance,
+} from './instances'
+import { PROCEDURAL_MESHES, parseProcedural, proceduralSourceFor } from './procedural'
 
 export interface LoadedSceneHandle {
   id: string
@@ -154,6 +161,25 @@ export function resolveAssets(
       // Scenes repeat the same procedural ref across many entities: resolve each string once.
       const cached = local.get(path)
       if (cached) return cached
+      const spec = path.slice('procedural:'.length)
+      const source = proceduralSourceFor(spec)
+      if (source) {
+        let resolved: ResolvedAsset
+        if (mode === 'check') {
+          try {
+            resolved = { guid: `pending:${path}`, path, type: source.check(spec).type }
+          } catch {
+            return undefined // reported with a better message by validateScene
+          }
+        } else {
+          const made = source.resolve(world, spec)
+          server.request(made.guid)
+          requested?.add(made.guid)
+          resolved = { ...made, path }
+        }
+        local.set(path, resolved)
+        return resolved
+      }
       let proc: ReturnType<typeof parseProcedural>
       try {
         proc = parseProcedural(path.slice('procedural:'.length))
@@ -486,7 +512,10 @@ export function validateTree(
           const p = value.path
           if (p.startsWith('procedural:') && !checkedProcedural.has(p)) {
             try {
-              parseProcedural(p.slice('procedural:'.length), {}, pointer(base, field))
+              const spec = p.slice('procedural:'.length)
+              const source = proceduralSourceFor(spec)
+              if (source) source.check(spec, pointer(base, field))
+              else parseProcedural(spec, {}, pointer(base, field))
               checkedProcedural.add(p) // valid: later uses of the same string need no re-check
             } catch (e) {
               if (e instanceof ShardError) errors.push(e)
@@ -496,6 +525,8 @@ export function validateTree(
       }
       if ((def === PrefabInstance || def === SceneInstance) && errors.length === before) {
         validateInstance(world, def, expanded, base, f, errors, { catalog })
+      } else if (errors.length === before) {
+        instanceKindOf(def)?.validate?.(world, expanded, base, errors, { catalog })
       }
     }
   }
@@ -539,8 +570,7 @@ function validateGrids(flat: readonly FlatEntity[], errors: ShardError[], prefab
     if (parentPath !== undefined && parent === undefined) continue
     const up = components(parent)
     // An instance's root components come from its prefab, which can't be seen from here.
-    if (up && (up[PrefabInstance.name] !== undefined || up[SceneInstance.name] !== undefined))
-      continue
+    if (up && instanceKinds().some((k) => up[k.def.name] !== undefined)) continue
     const grid = up?.[Grid.name]
     const cell = own[GridCell.name]
     if (grid === undefined) {
@@ -599,7 +629,7 @@ function isCatalogMiss(e: ShardError, json: Record<string, JsonValue>): boolean 
 export function dedupeErrors(errors: ShardError[]): ShardError[] {
   const specific = new Set(
     errors
-      .filter((e) => e.code.startsWith('scene/') && e.code !== 'scene/invalid')
+      .filter((e) => !e.code.startsWith('schema/') && e.code !== 'scene/invalid')
       .map((e) => e.path),
   )
   const seen = new Set<string>()
@@ -798,7 +828,7 @@ export function saveScene(world: World, id: string): SceneFile {
     const loaded = scene.loaded.get(entity)!
     const current = serializeComponents(world, entity)
     // An instance's generated children aren't written; what changed in them becomes its overrides.
-    for (const def of [PrefabInstance, SceneInstance]) {
+    for (const { def } of instanceKinds()) {
       const value = current.get(def.name)
       if (value) value.overrides = currentOverrides(world, entity) ?? value.overrides!
     }

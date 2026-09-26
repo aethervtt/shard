@@ -5,7 +5,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { assetServer } from '@shard/assets'
 import { beginRedefinition, endRedefinition, type ShardError, World } from '@shard/core'
-import { type BuiltBundle, createBundler } from '@shard/node'
+import { type BuiltBundle, createBundler, prepareGenerators } from '@shard/node'
 import { createNodePlatform } from '@shard/platform-node'
 import { loadProject } from '@shard/project'
 import { DEFAULT_HUB_PORT } from '@shard/protocol'
@@ -85,6 +85,25 @@ export async function dev(ctx: CommandContext): Promise<number> {
   bundles.set(current.hash, current)
   const bundleUrl = (b: BuiltBundle) => `/@shard/bundle/${b.hash}.mjs`
   let reloads = 0
+  // Generators: code hashes for both sides, and a self-contained worker bundle the page's web
+  // workers load (they have no import map, so the engine is inlined).
+  const workerFiles = new Map<string, string>()
+  const generators = async (bundle: BuiltBundle) => {
+    const g = await prepareGenerators({
+      root,
+      namespace: manifest.name,
+      entry: manifest.entry,
+      workers: platform.workers,
+      graph: bundle.graph,
+    })
+    const worker = await g.worker
+    if (worker) workerFiles.set(worker.hash, worker.file)
+    return {
+      codeHashes: g.codeHashes,
+      ...(worker ? { worker: `/@shard/procgen-worker/${worker.hash}.mjs` } : {}),
+    }
+  }
+  let procgen = await generators(current)
 
   // The Node side owns the asset database: it imports and watches, and the page reads its catalog.
   // It evaluates the project bundle too, so the project's data types have importers here.
@@ -127,6 +146,7 @@ export async function dev(ctx: CommandContext): Promise<number> {
             JSON.stringify({
               manifest,
               bundle: bundleUrl(current),
+              procgen,
               hub: `ws://127.0.0.1:${hubPort}`,
             }),
           )
@@ -143,6 +163,18 @@ export async function dev(ctx: CommandContext): Promise<number> {
           res.setHeader('content-type', 'text/javascript')
           res.setHeader('cache-control', 'no-store')
           res.end(b.code)
+          return
+        }
+        const worker = /^\/@shard\/procgen-worker\/([0-9a-f]+)\.mjs$/.exec(url.pathname)
+        if (worker) {
+          const file = workerFiles.get(worker[1]!)
+          if (!file) {
+            res.statusCode = 404
+            res.end()
+            return
+          }
+          res.setHeader('content-type', 'text/javascript')
+          res.end(await readFile(file))
           return
         }
         if (url.pathname === '/@shard/shaders.json') {
@@ -197,10 +229,19 @@ export async function dev(ctx: CommandContext): Promise<number> {
     current = result
     bundles.set(result.hash, result)
     ctx.out.say(`rebuilt in ${Math.round(result.ms)} ms`)
-    // A fresh query per reload, so reverting to identical code still evaluates a new module.
-    send('shard:project', { url: `${bundleUrl(result)}?r=${++reloads}`, ms: result.ms })
-    // A changed data type re-imports its files; the page picks them up from the catalog.
-    void defineProjectTypes(result, true)
+    // New code hashes (and worker bundle) first: a changed generator regenerates its outputs.
+    void generators(result)
+      .then((next) => {
+        procgen = next
+        // A fresh query per reload, so reverting to identical code still evaluates a new module.
+        send('shard:project', {
+          url: `${bundleUrl(result)}?r=${++reloads}`,
+          ms: result.ms,
+          procgen,
+        })
+      })
+      // A changed data type (or generator) re-imports its files; the page reads the catalog.
+      .then(() => defineProjectTypes(result, true))
       .then(() => assets.scan())
       .then((report) => {
         for (const f of report.failed)

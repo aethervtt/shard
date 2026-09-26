@@ -14,6 +14,7 @@ shard run --frames 600    # headless run
 shard screenshot scenes/main.scene.json --out shot.png
 shard test --json         # gameplay tests in tests/
 shard check --json        # type-check scripts: file, line, column
+shard gen <generator> --seeds 1-9 --out sheet.png   # preview a generator's outputs
 shard dev                 # play it in a browser; saves hot reload in place
 shard docs                # regenerate this block, .agents/, and .shard/schemas/
 shard mcp                 # MCP server for this project (see .mcp.json)
@@ -24,7 +25,8 @@ shard mcp                 # MCP server for this project (see .mcp.json)
 - `shard.json`: manifest (start scene: `scenes/main.scene.json`, seed 1, plugins: render/forward, input, audio, ui)
 - `scripts/main.ts`: the project plugin; project types are named `star-explorer/<Name>`
 - `scenes/`: scene files; `tests/`: gameplay tests; `shaders/`: `project::` shader modules
-- `assets/`, `materials/`, `data/`, `prefabs/`, `locales/`: asset files, each with a `.meta` (guid, import settings)
+- `generators/`: `*.gen.json` generator outputs; `.agents/generators.md`: every generator and its params
+- `assets/`, `materials/`, `data/`, `prefabs/`, `locales/`, `generators/`: asset files, each with a `.meta` (guid, import settings)
 - `.agents/components.md`: every component and field; `.agents/assets.md`: importers and
   project data types;
   `.agents/errors.md`: error codes

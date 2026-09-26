@@ -1,10 +1,19 @@
 import { AssetServerResource, assetServer, findAssetPreview } from '@shard/assets'
-import { quat, ShardError, vec3, type World } from '@shard/core'
+import {
+  Children,
+  type Entity,
+  findResource,
+  quat,
+  ShardError,
+  vec3,
+  type World,
+} from '@shard/core'
 import {
   captureView,
   forwardPlugin,
   Gpu,
   Materials,
+  Mesh3d,
   Meshes,
   OffscreenTarget,
   RenderStats,
@@ -14,14 +23,16 @@ import {
 import { App } from '@shard/runtime'
 import {
   loadScene,
+  PrefabAssets,
   releaseSceneHooks,
   SceneAssets,
   type SceneFile,
   ScenePlugin,
+  unloadScene,
   whenSceneReady,
 } from '@shard/scene'
 import { readKtx2, Textures, transcodeBasis } from '@shard/texture'
-import { TransformPlugin } from '@shard/transform'
+import { GlobalTransform, TransformPlugin } from '@shard/transform'
 
 export interface PreviewImage {
   width: number
@@ -57,7 +68,16 @@ function fit(src: Uint8Array, sw: number, sh: number, width: number, height: num
 /** A texture's top mip as RGBA8, on the CPU (HDR tonemapped, normal maps shown as color). */
 async function texturePreview(world: World, path: string, width: number, height: number) {
   const artifact = await assetServer(world).artifact(path)
-  const ktx = readKtx2(artifact.bytes!)
+  return previewKtx2(artifact.bytes!, width, height)
+}
+
+/** The top mip of a KTX2 texture as RGBA8, fit into width × height (HDR tonemapped). */
+export async function previewKtx2(
+  bytes: Uint8Array,
+  width: number,
+  height: number,
+): Promise<PreviewImage> {
+  const ktx = readKtx2(bytes)
   let rgba: Uint8Array
   if (ktx.basis) {
     rgba = (await transcodeBasis(ktx.bytes, 'rgba8')).levels[0]!
@@ -93,8 +113,13 @@ async function renderPreview(
   const app = new App()
   // Share what's already loaded: the preview loads through the main server into the main stores.
   app.world.insertResource(AssetServerResource, server)
-  for (const def of [Meshes, Materials, Textures, SceneAssets] as const) {
+  for (const def of [Meshes, Materials, Textures, SceneAssets, PrefabAssets] as const) {
     app.world.insertResource(def as never, world.initResource(def as never))
+  }
+  // Stores and runtimes of other packages (generator outputs), by name so this one needn't import them.
+  for (const name of ['procgen/Runtime', 'procgen/Generators', 'procgen/Data']) {
+    const def = findResource(name)
+    if (def && world.hasResource(def)) app.world.insertResource(def, world.resource(def))
   }
   app.addPlugin(
     TransformPlugin,
@@ -113,6 +138,8 @@ async function renderPreview(
     if (type === 'Material') {
       subject['render/Mesh3d'] = { mesh: { path: 'procedural:sphere?radius=1&segments=48' } }
       subject['render/MeshMaterial'] = { material: { path } }
+    } else if (type === 'Prefab') {
+      subject['scene/PrefabInstance'] = { prefab: { path } }
     } else if (type === 'Mesh') {
       subject['render/Mesh3d'] = { mesh: { path } }
       const b = world.resource(Meshes).get(server.resolve(path))!.bounds
@@ -127,6 +154,22 @@ async function renderPreview(
         min = bounds.min
         max = bounds.max
       }
+    }
+    if (type === 'Prefab') {
+      // A prefab's extent is only known once it's spawned: place it alone first and measure.
+      const probe = loadScene(
+        app.world,
+        { version: 1, entities: [{ name: 'subject', components: subject as never }] },
+        { id: 'preview-bounds' },
+      )
+      await whenSceneReady(app.world, 'preview-bounds')
+      app.update(1 / 60)
+      const box = worldBounds(app.world, probe.entities.get('subject')!)
+      if (box) {
+        min = box.min
+        max = box.max
+      }
+      unloadScene(app.world, 'preview-bounds', { collect: false })
     }
     const center = [0, 1, 2].map((i) => (min[i]! + max[i]!) / 2)
     const radius = Math.max(
@@ -192,6 +235,34 @@ async function renderPreview(
   }
 }
 
+/** World bounds of an entity's meshes and those of its descendants (after transform propagation). */
+function worldBounds(world: World, root: Entity): { min: number[]; max: number[] } | undefined {
+  const meshes = world.resource(Meshes)
+  const min = [Infinity, Infinity, Infinity]
+  const max = [-Infinity, -Infinity, -Infinity]
+  const visit = (e: Entity) => {
+    const m = world.tryGet(e, Mesh3d)
+    const g = world.tryGet(e, GlobalTransform)?.matrix
+    const mesh = m && meshes.get(m.mesh)
+    if (mesh && g) {
+      const b = mesh.bounds
+      for (let c = 0; c < 8; c++) {
+        const x = c & 1 ? b[3]! : b[0]!
+        const y = c & 2 ? b[4]! : b[1]!
+        const z = c & 4 ? b[5]! : b[2]!
+        for (let r = 0; r < 3; r++) {
+          const v = g[r * 4]! * x + g[r * 4 + 1]! * y + g[r * 4 + 2]! * z + g[r * 4 + 3]!
+          if (v < min[r]!) min[r] = v
+          if (v > max[r]!) max[r] = v
+        }
+      }
+    }
+    for (const child of world.tryGet(e, Children)?.entities ?? []) if (child !== null) visit(child)
+  }
+  visit(root)
+  return min[0]! <= max[0]! ? { min, max } : undefined
+}
+
 /** A preview image of any asset: textures on the CPU, everything else rendered. */
 export async function previewAsset(
   world: World,
@@ -207,7 +278,12 @@ export async function previewAsset(
     })
   }
   if (entry.type === 'Texture') return texturePreview(world, entry.path, width, height)
-  if (entry.type === 'Material' || entry.type === 'Mesh' || entry.type === 'Scene') {
+  if (
+    entry.type === 'Material' ||
+    entry.type === 'Mesh' ||
+    entry.type === 'Scene' ||
+    entry.type === 'Prefab'
+  ) {
     if (!world.tryResource(Gpu)) {
       throw new ShardError(
         'protocol/no-renderer',

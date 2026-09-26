@@ -30,9 +30,20 @@ export const Manifest = defineSchema(
       { description: 'Window (or headless render target) size and anti-aliasing.' },
     ),
     assetRoots: t.list(t.string, {
-      default: ['assets', 'materials', 'data', 'prefabs', 'locales'],
+      default: ['assets', 'materials', 'data', 'prefabs', 'locales', 'generators'],
       description: 'Folders the asset database imports from. Nothing outside them is imported.',
     }),
+    procgen: t.struct(
+      {
+        cacheSize: t.u32({
+          default: 256,
+          min: 1,
+          unit: 'MB',
+          description: 'Generator outputs kept in memory (and in browser storage), in megabytes.',
+        }),
+      },
+      { description: 'Generators (0042): output cache limits.' },
+    ),
     plugins: t.list(t.string, {
       default: ['render/forward', 'input'],
       description:

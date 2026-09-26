@@ -1,0 +1,10 @@
+{
+  "$schema": "../../.shard/schemas/noise.schema.json",
+  "description": "Boulder displacement on the unit sphere: broad lumps with finer ridges on top.",
+  "output": "shape",
+  "nodes": {
+    "lumps": { "fbm": { "source": "simplex", "octaves": 3, "frequency": 1.2, "seed": 1 } },
+    "cracks": { "ridged": { "source": "simplex", "octaves": 3, "frequency": 3.5, "seed": 2 } },
+    "shape": { "add": ["lumps", { "multiply": ["cracks", 0.25] }] }
+  }
+}
