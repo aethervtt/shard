@@ -345,7 +345,11 @@ keep working because the shader only changes the surface.
    \`extends: 'none'\`, override \`shade(in) -> vec4f\` instead: it returns radiance in cd/m² and
    alpha, and no lighting runs. \`noise: { detail: 'assets/noise/rock.noise.json' }\` in the
    definition adds \`noise_detail(p: vec3f, seed: u32) -> f32\` to \`material::lava\` (see
-   make-a-noise-graph.md).
+   make-a-noise-graph.md). In \`vertex_position\`, \`shard::mesh\` also gives the vertex's
+   \`vertex_uv1()\` and \`vertex_tangent()\`, \`vertex_world(p)\` (object to world), and
+   \`vertex_instance_data()\`: the two numbers of the entity's \`render/InstanceData\` (a fade,
+   flags). \`arrays: ['layers']\` binds a texture field as \`texture_2d_array\` (a
+   \`*.texarray.json\`).
 
 3. Use it in a material file: \`{ "type": "<project>/Lava", "crackLuminance": 30000,
    "cracks": { "path": "assets/cracks.png" } }\`. Leaving out \`"type"\` means the standard material.
@@ -1142,6 +1146,43 @@ integer and the translation stays under half a cell, so everything near the came
   ship into a rotating planet grid without a jump.
 - Physics runs in the origin's frame, so bodies near the camera are precise; saves store cells, so a
   save 10¹² m out loads to the millimetre.
+`,
+  'make-a-planet.md': `# Make a planet you can land on
+
+A planet is an entity with \`terrain/Planet\` (it brings \`transform/Grid\`) and the \`terrain\` plugin in
+\`shard.json\` (with \`render/forward\` to draw it and \`physics3d\` to stand on it). Heights come from a
+noise graph (make-a-noise-graph.md); chunks are generated on the GPU as the camera moves, from six at
+orbit down to 0.4 m vertex spacing on the ground. Put the camera in the planet's grid with
+\`transform/FloatingOrigin\` (large-worlds.md).
+
+\`\`\`json
+{ "name": "planet", "components": {
+    "transform/Grid": { "cellSize": 2000 },
+    "terrain/Planet": { "radius": 600000, "heightScale": 3000, "seed": 7,
+      "height": { "path": "assets/noise/planet.noise.json" },
+      "climate": { "path": "assets/noise/climate.noise.json" },
+      "biomes": { "path": "assets/biomes/planet.biomes.json" }, "ocean": true, "seaLevel": 0 },
+    "physics/GravitySource": { "strength": 9.81, "radius": 600000 } } }
+\`\`\`
+
+- Height: the graph's output (about −1 to 1) × \`heightScale\` metres above \`radius\`. The graph is
+  sampled at points on the sphere in metres, so frequency 1e-5 is 100 km features. Keep \`radius\` under
+  50 000 km (\`terrain/radius-too-large\`).
+- Climate: a graph with \`temperature\` and \`moisture\` nodes (−1 to 1). Latitude and altitude cool it
+  (\`latitudeBias\`, \`snowLine\` in the BiomeSet).
+- Biomes: \`*.biome.json\` files (ranges of temperature, moisture, height, slope; a tint; up to four
+  texture layers by slope) listed in a \`*.biomes.json\` with \`albedo\`, \`normal\`, and \`orm\`
+  \`*.texarray.json\` texture arrays (\`{ "layers": ["grass.png", "rock.png"], "size": 1024 }\`).
+- Standing on it: characters, dynamic bodies, and \`terrain/TerrainAnchor\` entities get collider chunks
+  within \`colliderRadius\`, built from the same CPU noise as \`planetHeightAt(world, planet, dir)\`, and
+  those chunks render their own vertices. Use \`CharacterController\` with \`up: "gravity"\`.
+- Walking agents: add \`terrain/PlanetNav\` to the planet; a navmesh follows the \`NavAgent\`s.
+- Check it: MCP \`terrain_map\` (\`{ "mode": "biomes" }\`) shows continents, sea, and poles in one image;
+  \`sample_terrain\` gives height, water depth, slope, and biome at \`[lat, lon]\` points;
+  \`describe_terrain\` lists chunks per depth, generation, and colliders. Overlays \`terrain-lod\`,
+  \`terrain-biomes\`, and \`terrain-colliders\` show them in a screenshot.
+- Edit the height graph while \`shard dev\` runs: visible chunks regenerate together, colliders too.
+  \`terrain/Budget\` caps chunks per frame and GPU time.
 `,
   'inspect-a-scene.md': `# Find what's wrong in a scene
 

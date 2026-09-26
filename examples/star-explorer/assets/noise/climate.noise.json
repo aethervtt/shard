@@ -1,0 +1,9 @@
+{
+  "$schema": "../../.shard/schemas/noise.schema.json",
+  "description": "Planet climate in metres: temperature and moisture, -1 to 1 (latitude and altitude cool it further).",
+  "output": "temperature",
+  "nodes": {
+    "temperature": { "add": [{ "fbm": { "octaves": 3, "frequency": 2e-6, "seed": 7 } }, 0.5] },
+    "moisture": { "fbm": { "octaves": 3, "frequency": 3e-6, "seed": 8 } }
+  }
+}

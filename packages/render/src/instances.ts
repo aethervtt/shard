@@ -149,6 +149,21 @@ export const VisibilityRange = defineComponent(
   },
 )
 
+export const InstanceData = defineComponent(
+  'render/InstanceData',
+  {
+    x: t.f32({ description: 'First value (stored as a half float).' }),
+    y: t.f32({
+      description: 'Second value (stored as a half float; integers up to 2048 are exact).',
+    }),
+  },
+  {
+    description:
+      "Two numbers this instance's material reads in its vertex stage (vertex_instance_data() in shard::mesh), e.g. a fade or per-edge flags. They share the slot word VisibilityRange uses, so an entity has one or the other.",
+    requires: [Mesh3d],
+  },
+)
+
 /** Floats per instance record: affine rows (12), batch, flags, visibility range, entity. */
 export const INSTANCE_FLOATS = 16
 export const INSTANCE_BYTES = INSTANCE_FLOATS * 4
@@ -744,8 +759,19 @@ export class InstanceStore {
       }
       byMaterial.set(material, batch)
       this.batches.push(batch)
-      this.sorted.push(batch)
-      this.sortBatches(this.batchKey)
+      if (!this.materialOrder.has(material))
+        this.materialOrder.set(material, this.materialOrder.size)
+      if (!this.meshOrder.has(mesh)) this.meshOrder.set(mesh, this.meshOrder.size)
+      // Into its place in draw order (binary search): a full sort per new batch is quadratic in
+      // scenes that make many meshes (terrain chunks).
+      let lo = 0
+      let hi = this.sorted.length
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1
+        if (this.compareBatches(this.sorted[mid]!, batch, this.batchKey) <= 0) lo = mid + 1
+        else hi = mid
+      }
+      this.sorted.splice(lo, 0, batch)
       this.structureVersion++
     }
     return batch
@@ -791,17 +817,18 @@ export class InstanceStore {
 
   /** Draw order: grouped by pipeline, then material, then mesh, so switches stay rare. */
   sortBatches(key: (b: Batch) => number = this.batchKey): void {
-    const materialIds = new Map<MaterialAsset, number>()
-    const meshIds = new Map<Mesh, number>()
-    for (const b of this.batches) {
-      if (!materialIds.has(b.material)) materialIds.set(b.material, materialIds.size)
-      if (!meshIds.has(b.mesh)) meshIds.set(b.mesh, meshIds.size)
-    }
-    this.sorted.sort(
-      (a, b) =>
-        key(a) - key(b) ||
-        materialIds.get(a.material)! - materialIds.get(b.material)! ||
-        meshIds.get(a.mesh)! - meshIds.get(b.mesh)!,
+    this.sorted.sort((a, b) => this.compareBatches(a, b, key))
+  }
+
+  /** Materials and meshes in the order their first batch appeared (draw order within a pipeline). */
+  private readonly materialOrder = new Map<MaterialAsset, number>()
+  private readonly meshOrder = new Map<Mesh, number>()
+
+  private compareBatches(a: Batch, b: Batch, key: (b: Batch) => number): number {
+    return (
+      key(a) - key(b) ||
+      this.materialOrder.get(a.material)! - this.materialOrder.get(b.material)! ||
+      this.meshOrder.get(a.mesh)! - this.meshOrder.get(b.mesh)!
     )
   }
 
@@ -1295,7 +1322,8 @@ function tableChanged(table: Table, since: number): boolean {
     table.lastChanged(InstanceSlot) > since ||
     (table.has(MeshMaterial) && table.lastChanged(MeshMaterial) > since) ||
     (table.has(Lod) && table.lastChanged(Lod) > since) ||
-    (table.has(VisibilityRange) && table.lastChanged(VisibilityRange) > since)
+    (table.has(VisibilityRange) && table.lastChanged(VisibilityRange) > since) ||
+    (table.has(InstanceData) && table.lastChanged(InstanceData) > since)
   )
 }
 
@@ -1350,6 +1378,10 @@ export const prepareInstances = defineSystem({
       const rangeStart = hasRange ? table.column(VisibilityRange, 'start') : undefined
       const rangeEnd = hasRange ? table.column(VisibilityRange, 'end') : undefined
       const rangeChanged = hasRange ? table.changedTicks(VisibilityRange) : zeroTicks(n)
+      const hasData = !hasRange && table.has(InstanceData)
+      const dataX = hasData ? table.column(InstanceData, 'x') : undefined
+      const dataY = hasData ? table.column(InstanceData, 'y') : undefined
+      const dataChanged = hasData ? table.changedTicks(InstanceData) : zeroTicks(n)
       const vis = table.column(ComputedVisibility, 'visible')
       const tableFlags =
         (table.has(SkinnedMesh) ? InstanceFlags.Skinned : 0) |
@@ -1404,6 +1436,8 @@ export const prepareInstances = defineSystem({
         if (fresh || rangeChanged[i]! > since) {
           if (hasRange) store.setRange(slot, rangeStart![i]!, rangeEnd![i]!)
         }
+        if (hasData && (fresh || dataChanged[i]! > since))
+          store.setRange(slot, dataX![i]!, dataY![i]!)
       }
       tableHidden[table.id] = hidden - hiddenBefore
       rows += n

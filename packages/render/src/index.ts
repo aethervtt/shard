@@ -128,6 +128,7 @@ export {
   type DrawList,
   INSTANCE_BYTES,
   INSTANCE_FLOATS,
+  InstanceData,
   InstanceFlags,
   InstanceSlot,
   InstanceStore,

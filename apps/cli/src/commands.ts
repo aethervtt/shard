@@ -29,6 +29,7 @@ import {
   validateManifest,
 } from '@shard/project'
 import { DEFAULT_HUB_PORT } from '@shard/protocol'
+import { Gpu, Shaders } from '@shard/render'
 import {
   loadInstanceAssets,
   loadScene,
@@ -520,7 +521,18 @@ export async function screenshot(ctx: CommandContext): Promise<number> {
       // (tilemaps, navigation) sit out every frame before the capture.
       await whenSceneReady(p.app.world, scene)
       const frames = flagNumber(ctx.flags.frames, 60)
-      for (let i = 0; i < frames; i++) p.app.update(1 / p.app.fixedHz)
+      const gpu = p.app.world.tryResource(Gpu)
+      for (let i = 0; i < frames; i++) {
+        p.app.update(1 / p.app.fixedHz)
+        // Shaders link and pipelines compile asynchronously, and GPU readbacks land between
+        // frames: work that waits on them (terrain generation, a new material) gets them within
+        // the frames asked for, as it would in a running game, not after the capture.
+        if (gpu) {
+          await p.app.world.tryResource(Shaders)?.whenIdle()
+          if (gpu.pipelines.pending > 0) await gpu.pipelines.whenIdle()
+          await new Promise((r) => setTimeout(r, 0))
+        }
+      }
       const shot = await localTarget('headless', p.server).request<{
         data: string
         width: number

@@ -81,6 +81,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `locale/param-mismatch` | @shard/text | Every locale gets the same params: use the same {placeholders} in each. |
 | `mesh/invalid` | @shard/mesh | positions/normals: 3 per vertex, uvs/uvs1: 2, colors/tangents/joints/weights: 4; indices must be < vertex count. |
 | `mesh/invalid-artifact` | @shard/mesh | Re-import the source (`shard import --force`). |
+| `mesh/not-gpu` | @shard/mesh | Change a CPU mesh with update(). |
 | `nav/bad-cache` | @shard/nav |  |
 | `nav/bake-failed` | @shard/nav | Check the NavSource geometry has upward faces flatter than maxSlope, wide enough for agentRadius. |
 | `nav/invalid-grid` | @shard/nav |  |
@@ -251,6 +252,16 @@ Every engine error is a `ShardError` with one of these codes.
 | `sprite/tile-out-of-range` | @shard/sprite |  |
 | `sprite/tilemap-not-loaded` | @shard/sprite | Wait for its TilemapData asset, or create one with TilemapData.create. |
 | `sprite/unsupported-image` | @shard/sprite |  |
+| `terrain/bad-direction` | @shard/terrain | Pass a direction from the planet’s center in its frame, e.g. the position of a point on it. |
+| `terrain/bad-points` | @shard/terrain | e.g. { "latlon": [[0, 0], [45, 90]] }, or { "directions": [[0, 1, 0]] } for the north pole. |
+| `terrain/bad-resolution` | @shard/terrain | Use 17, 33 (the default), 65, or 129 vertices per chunk edge. |
+| `terrain/climate-outputs` | @shard/terrain | Name the two climate layers "temperature" and "moisture"; each should stay in [−1, 1]. |
+| `terrain/no-planet` | @shard/terrain | Add terrain/Planet (with a Grid) to an entity, and the terrain plugin to the app. |
+| `terrain/not-a-planet` | @shard/terrain | Add terrain/Planet (and a Grid) to the planet entity, and the terrain plugin to the app. |
+| `terrain/not-ready` | @shard/terrain | Its graphs and biomes load asynchronously; step a frame (or await the asset loads) first. |
+| `terrain/radius-too-large` | @shard/terrain | Rocky planets go up to about 16 000 km; gas giants have no surface (spec 0046 renders them). |
+| `terrain/too-many-biomes` | @shard/terrain | Merge similar biomes, or split the planet’s surface into fewer, broader ones. |
+| `terrain/which-planet` | @shard/terrain | Pass planet: an entity id or a scene path (terrain.describe lists them). |
 | `testing/missing-component` | @shard/testing |  |
 | `testing/unknown-entity` | @shard/testing | Use a scene path like "ship/camera" or an entity id. |
 | `text/font-parse-failed` | @shard/text | Fonts import from .ttf and .otf files (TrueType or CFF outlines). |
@@ -259,9 +270,10 @@ Every engine error is a `ShardError` with one of these codes.
 | `text/not-loaded` | @shard/protocol | asset.list shows fonts (type Font); pass a .ttf or .otf path. |
 | `texture/decode-failed` | @shard/texture |  |
 | `texture/invalid` | @shard/texture |  |
+| `texture/invalid-array` | @shard/texture |  |
 | `texture/normal-map-mismatch` | @shard/sprite | A normal-map companion must match its image pixel for pixel. |
 | `texture/transcoder-unavailable` | @shard/texture | Basis Universal ships in @shard/texture/vendor/basis; check the files are present. |
-| `texture/unsupported-format` | @shard/texture | Use a 2D image or a cube map (6 faces). |
+| `texture/unsupported-format` | @shard/texture | Use a 2D image, a 2D array (*.texarray.json), or a cube map (6 faces). |
 | `transform/cell-outside-grid` | @shard/scene | Nest the entity directly under an entity with transform/Grid, or remove its GridCell. |
 | `transform/grid-cycle` | @shard/transform | Check the ChildOf chain of your Grid entities. |
 | `transform/multiple-origins` | @shard/scene | Keep one transform/FloatingOrigin per world, usually on the camera. |

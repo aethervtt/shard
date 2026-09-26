@@ -176,6 +176,14 @@ _Computed by the engine; never written in scene files._
 |---|---|---|---|---|
 | `entities` | null or integer or string[] | `[]` |  | Maintained automatically from ChildOf. Do not write. |
 
+## `core/Derived`
+
+An entity the engine rebuilds from other state every run (terrain chunks). Saved games and world hashes leave it out.
+
+_Computed by the engine; never written in scene files._
+
+Tag (no fields).
+
 ## `core/GlobalTransform`
 
 World-space transform relative to the floating origin (the world origin when there is none). Computed by core/transform-propagate; do not write.
@@ -284,6 +292,7 @@ A navmesh baked with Recast from every NavSource, with OffMeshLinks. Tiles are c
 | `tileSize` | integer | `64` | ≥ 8, ≤ 1024 | Cells per tile side: the unit that rebuilds when a source changes. |
 | `boundsMin` | number[3] | `[0,0,0]` | m | World-space bake bounds, min corner. Equal to boundsMax (the default): bounds of every source. |
 | `boundsMax` | number[3] | `[0,0,0]` | m | World-space bake bounds, max corner. |
+| `frame` | null or integer or string | `null` |  | Bake and query in this entity's local space instead of the world's: its +Y is up. Positions and paths stay world-space in the API. Lets a navmesh ride a moving or rotating frame (a planet's surface) and keeps its tiles when the floating origin moves. Bounds are in this space. |
 
 ## `nav/NavSource`
 
@@ -652,6 +661,17 @@ Brings along: `render/Camera3d`.
 | `heightFalloff` | number | `0.1` | ≥ 0, 1/m | How fast fog thins with height (0: uniform). |
 | `start` | number | `0` | ≥ 0, m | Clear distance from the camera. |
 | `sunScattering` | number | `0.5` | ≥ 0, ≤ 1 | Glow toward the sun (forward scattering). |
+
+## `render/InstanceData`
+
+Two numbers this instance's material reads in its vertex stage (vertex_instance_data() in shard::mesh), e.g. a fade or per-edge flags. They share the slot word VisibilityRange uses, so an entity has one or the other.
+
+Brings along: `render/Mesh3d`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `x` | number | `0` |  | First value (stored as a half float). |
+| `y` | number | `0` |  | Second value (stored as a half float; integers up to 2048 are exact). |
 
 ## `render/InstanceSlot`
 
@@ -1091,6 +1111,126 @@ Brings along: `core/Transform`, `render/Visibility`.
 | `chunkSize` | integer | `32` | ≥ 4, ≤ 256 | Tiles per chunk side: chunks are the unit of culling and re-upload. |
 | `layer` | integer | `0` | ≥ -32768, ≤ 32767 | Draw-order band, like Sprite.layer (tilemaps draw first in a band). |
 | `lit` | boolean | `true` |  | Lit by 2D lights under a Lighting2d camera. |
+
+## `terrain/Chunk`
+
+A terrain chunk the planet spawned. Rebuilt from the planet; never saved.
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `planet` | null or integer or string | `null` |  |  |
+| `key` | string | `""` |  | face/depth/x/y |
+| `kind` | `"render"` \| `"ocean"` \| `"collider"` | `"render"` |  |  |
+
+## `terrain/Ocean`
+
+Planet ocean: a lit transparent surface with scrolling wave normals.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `baseColor` | string or number[4] | `[0.8,0.8,0.8,1]` |  | Albedo (linear), alpha in w. |
+| `metallic` | number | `0` | ≥ 0, ≤ 1 | 0 for dielectrics, 1 for metals. |
+| `roughness` | number | `0.5` | ≥ 0, ≤ 1 | Microsurface roughness. |
+| `emissive` | string or number[4] | `"#ffffff"` |  | Emitted color (linear), scaled by emissiveLuminance. |
+| `emissiveLuminance` | number | `0` | ≥ 0, cd/m² | Emitted luminance. 0 = not emissive. |
+| `doubleSided` | boolean | `false` |  | Draw back faces too (no culling). |
+| `alphaMode` | `"opaque"` \| `"mask"` \| `"alpha"` \| `"additive"` \| `"premultiplied"` | `"opaque"` |  | opaque ignores alpha; mask discards pixels below alphaCutoff; alpha blends (transparent, drawn after opaque, sorted back to front); additive adds light (glows); premultiplied expects color already multiplied by alpha. |
+| `alphaCutoff` | number | `0.5` | ≥ 0, ≤ 1 | Alpha threshold for alphaMode "mask". |
+| `normalScale` | number | `1` |  | Strength of the normal map. |
+| `occlusionStrength` | number | `1` | ≥ 0, ≤ 1 | Strength of the occlusion map. |
+| `baseColorTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Albedo (sRGB), multiplied with baseColor. |
+| `metallicRoughnessTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | G = roughness, B = metallic (linear), multiplied with the factors. |
+| `normalTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Tangent-space normal map. |
+| `occlusionTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Ambient occlusion in R (linear). |
+| `emissiveTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Emission color (sRGB), multiplied with emissive. |
+| `center` | number[4] | `[0,0,0,0]` |  | Set by the terrain every frame: the planet center (origin frame) and radius. |
+| `rot0` | number[4] | `[0,0,0,0]` |  | Set by the terrain: origin → planet rotation rows (xyz), planet-space texture origin (w). |
+| `rot1` | number[4] | `[0,0,0,0]` |  |  |
+| `rot2` | number[4] | `[0,0,0,0]` |  |  |
+| `camera` | number[4] | `[0,0,0,0]` |  | Set by the terrain: the selecting camera (xyz) and pixels per radian / errorPixels (w). |
+| `shallow` | string or number[4] | `[0.05,0.35,0.4,1]` |  | Color over shallow ground. |
+| `deep` | string or number[4] | `[0.005,0.03,0.08,1]` |  | Color over deep water. |
+| `water` | number[4] | `[0.08,0.25,0.35,0.04]` |  | x: color depth falloff (1/m), y: opacity falloff (1/m), z: minimum opacity, w: roughness. |
+
+## `terrain/Planet`
+
+A planet you can see from orbit and walk on: a cube-sphere quadtree of chunks generated from noise graphs, with biomes, an ocean, colliders near bodies, and navmesh tiles near agents. Needs a Grid (its chunks are grid children); hiding it hides its chunks.
+
+Brings along: `transform/Grid`, `core/Transform`, `render/Visibility`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `radius` | number | `4000` | ≥ 1, m | Surface radius before heights, 1 km to 50 000 km (Earth is 6 371 000). |
+| `shape` | number[3] | `[1,1,1]` |  | Ellipsoid axis ratios: [1, 1, 1] is a sphere, [1, 0.7, 1.2] a lumpy moon. |
+| `height` | null or NoiseGraph ref | `null` |  | Height graph (*.noise.json), output in [−1, 1], sampled on the sphere of `radius`. None: a smooth sphere. |
+| `heightScale` | number | `600` | ≥ 0, m | Metres per unit of the height graph. |
+| `seed` | integer | `0` | ≥ 0, ≤ 4294967295 | Mixed into every graph: the same graphs make a new planet. |
+| `ocean` | boolean | `true` |  | A sea surface at seaLevel. |
+| `seaLevel` | number | `0` | m | Sea surface height above radius. |
+| `climate` | null or NoiseGraph ref | `null` |  | Climate graph with nodes named `temperature` and `moisture` (each in [−1, 1]). None: both 0. |
+| `biomes` | null or terrain/BiomeSet ref | `null` |  | Biomes (*.biomes.json): what the surface looks like where. |
+| `resolution` | integer | `33` | ≥ 5, ≤ 129 | Vertices per chunk edge, 2^n + 1. |
+| `minSpacing` | number | `0.4` | ≥ 0.01, m | Finest vertex spacing: sets the deepest quadtree level. |
+| `errorPixels` | number | `2` | ≥ 0.1 | A chunk splits when its geometric error covers more pixels than this. |
+| `colliderRadius` | number | `96` | ≥ 0, m | Collider chunks (and full-detail rendering) within this distance of every TerrainAnchor, character, and dynamic body. |
+| `skirts` | boolean | `true` |  | Walls under chunk edges that hide cracks while neighbors change level. |
+
+## `terrain/PlanetNav`
+
+Navigation on a planet: a NavMesh baked from collider chunks near NavAgents, in a tangent frame (up is radial) that follows them.
+
+Brings along: `terrain/Planet`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `agentRadius` | number | `0.4` | ≥ 0, m |  |
+| `agentHeight` | number | `1.8` | ≥ 0.01, m |  |
+| `maxSlope` | number | `45` | ≥ 0, ≤ 89.9, deg |  |
+| `radius` | number | `150` | ≥ 1, m | Navmesh around every NavAgent on the planet, this far out. |
+
+## `terrain/PlanetSurface`
+
+Planet terrain: biome blending and triplanar texture-array layers, with geomorphing between LOD levels.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `baseColor` | string or number[4] | `[0.8,0.8,0.8,1]` |  | Albedo (linear), alpha in w. |
+| `metallic` | number | `0` | ≥ 0, ≤ 1 | 0 for dielectrics, 1 for metals. |
+| `roughness` | number | `0.5` | ≥ 0, ≤ 1 | Microsurface roughness. |
+| `emissive` | string or number[4] | `"#ffffff"` |  | Emitted color (linear), scaled by emissiveLuminance. |
+| `emissiveLuminance` | number | `0` | ≥ 0, cd/m² | Emitted luminance. 0 = not emissive. |
+| `doubleSided` | boolean | `false` |  | Draw back faces too (no culling). |
+| `alphaMode` | `"opaque"` \| `"mask"` \| `"alpha"` \| `"additive"` \| `"premultiplied"` | `"opaque"` |  | opaque ignores alpha; mask discards pixels below alphaCutoff; alpha blends (transparent, drawn after opaque, sorted back to front); additive adds light (glows); premultiplied expects color already multiplied by alpha. |
+| `alphaCutoff` | number | `0.5` | ≥ 0, ≤ 1 | Alpha threshold for alphaMode "mask". |
+| `normalScale` | number | `1` |  | Strength of the normal map. |
+| `occlusionStrength` | number | `1` | ≥ 0, ≤ 1 | Strength of the occlusion map. |
+| `baseColorTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Albedo (sRGB), multiplied with baseColor. |
+| `metallicRoughnessTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | G = roughness, B = metallic (linear), multiplied with the factors. |
+| `normalTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Tangent-space normal map. |
+| `occlusionTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Ambient occlusion in R (linear). |
+| `emissiveTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Emission color (sRGB), multiplied with emissive. |
+| `albedoArray` | null or Texture ref | `null` |  | The BiomeSet’s albedo array. |
+| `normalArray` | null or Texture ref | `null` |  | The BiomeSet’s normal map array. |
+| `ormArray` | null or Texture ref | `null` |  | The BiomeSet’s occlusion/roughness/metallic array. |
+| `biomeTable` | null or Texture ref | `null` |  | Set by the terrain: biome ranges, tints, and layers as a small float texture. |
+| `center` | number[4] | `[0,0,0,0]` |  | Set by the terrain every frame: the planet center (origin frame) and radius. |
+| `rot0` | number[4] | `[0,0,0,0]` |  | Set by the terrain: origin → planet rotation rows (xyz), planet-space texture origin (w). |
+| `rot1` | number[4] | `[0,0,0,0]` |  |  |
+| `rot2` | number[4] | `[0,0,0,0]` |  |  |
+| `camera` | number[4] | `[0,0,0,0]` |  | Set by the terrain: the selecting camera (xyz) and pixels per radian / errorPixels (w). |
+| `biomeParams` | number[4] | `[0,0,0,0]` |  | Set by the terrain: biome count, latitude bias, snow line, texture period. |
+| `debugParams` | number[4] | `[0,0,0,0]` |  | Set by the terrain: debug mode (0 off, 1 dominant biome, 2 seams, 3 levels), far-texturing distance, has ORM, 0. |
+
+## `terrain/TerrainAnchor`
+
+Terrain colliders around this entity. Characters and dynamic bodies are anchors without it; add it with enabled: false to opt one out.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `enabled` | boolean | `true` |  | False: this body gets no terrain colliders (a ship in orbit, a projectile). |
+| `radius` | number | `0` | ≥ 0, m | Collider chunks within this distance (0: the planet’s colliderRadius). |
 
 ## `text/Localized`
 

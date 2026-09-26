@@ -4,7 +4,15 @@ import { createRequire } from 'node:module'
 import { dirname, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { type AssetServer, assetServer, type ScanReport } from '@shard/assets'
-import { ChildOf, ShardError, type World } from '@shard/core'
+import {
+  type AnyField,
+  ChildOf,
+  Derived,
+  type Entity,
+  type Fields,
+  ShardError,
+  type World,
+} from '@shard/core'
 import type { GpuContext } from '@shard/gpu'
 import { createNodeGpuContext } from '@shard/gpu/node'
 import { createMemoryStorage, type Platform } from '@shard/platform'
@@ -312,17 +320,45 @@ export async function listScenes(root: string): Promise<string[]> {
 
 /**
  * A stable hash of every entity's serializable components (and parents). Equal worlds hash equal,
- * so determinism checks compare one string.
+ * so determinism checks compare one string. `core/Derived` entities (rebuilt from other state, like
+ * terrain chunks) are left out, and entity ids are numbered by rank among the rest, so a run that
+ * spawns render-only chunks (a GPU) hashes like one that doesn't (headless).
  */
 export function worldHash(world: World): string {
+  const kept: Entity[] = []
+  for (const table of world.allTables()) {
+    if (table.has(Derived)) continue
+    for (let row = 0; row < table.count; row++) kept.push(table.entities[row]!)
+  }
+  kept.sort((a, b) => a - b)
+  const rank = new Map<number, number>()
+  for (let i = 0; i < kept.length; i++) rank.set(kept[i]!, i)
+  const id = (e: unknown) => (typeof e === 'number' && e >= 0 ? (rank.get(e) ?? -1) : e)
+  const remap = (field: AnyField, value: unknown): unknown => {
+    if (value === null || value === undefined) return value
+    if (field.kind === 'entity') return id(value)
+    if (field.kind === 'list' && field.item && Array.isArray(value))
+      return value.map((v) => remap(field.item!, v))
+    if (field.kind === 'struct' && field.fields && typeof value === 'object')
+      return remapFields(field.fields, value as Record<string, unknown>)
+    return value
+  }
+  const remapFields = (fields: Fields, value: Record<string, unknown>) => {
+    const out: Record<string, unknown> = { ...value }
+    for (const key in fields) if (key in out) out[key] = remap(fields[key]!, out[key])
+    return out
+  }
   const rows: string[] = []
   for (const table of world.allTables()) {
+    if (table.has(Derived)) continue
+    const components = table.components.filter((c) => c.serializable || c === ChildOf)
     for (let row = 0; row < table.count; row++) {
       const entity = table.entities[row]!
-      const values = table.components
-        .filter((c) => c.serializable || c === ChildOf)
-        .map((c) => [c.name, c.serialize(table.readComponent(c, row))])
-      rows.push(JSON.stringify([entity, values]))
+      const values = components.map((c) => [
+        c.name,
+        remapFields(c.fields, c.serialize(table.readComponent(c, row)) as Record<string, unknown>),
+      ])
+      rows.push(JSON.stringify([rank.get(entity), values]))
     }
   }
   return createHash('sha256').update(rows.sort().join('\n')).digest('hex')

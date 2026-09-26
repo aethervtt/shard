@@ -65,6 +65,9 @@ export interface AgentRecord {
   agentTick: number
   /** The drive actually used (character without a CharacterController drives the transform). */
   drive: number
+  /** On a framed navmesh: steering happens in its space, from this position (set each step). */
+  framed: boolean
+  lpos: Float64Array
   /**
    * Crossing an off-mesh link: where it started (x, z), the link's near and far surface
    * heights and far end (x, z), how high the entity sits above the surface (a character's capsule

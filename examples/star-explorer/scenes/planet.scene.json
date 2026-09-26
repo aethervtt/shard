@@ -1,0 +1,52 @@
+{
+  "$schema": "../.shard/schemas/scene.schema.json",
+  "version": 1,
+  "resources": {
+    "render/AmbientLight": { "color": [0.6, 0.7, 1], "brightness": 600 }
+  },
+  "entities": [
+    {
+      "name": "sun",
+      "components": {
+        "render/DirectionalLight": { "illuminance": "daylight" },
+        "core/Transform": { "rotationEuler": [-30, 35, 0] }
+      }
+    },
+    {
+      "name": "planet",
+      "components": {
+        "transform/Grid": { "cellSize": 2000 },
+        "terrain/Planet": {
+          "radius": 600000,
+          "heightScale": 3000,
+          "seed": 7,
+          "height": { "path": "assets/noise/terrain.noise.json" },
+          "climate": { "path": "assets/noise/climate.noise.json" },
+          "biomes": { "path": "assets/biomes/planet.biomes.json" },
+          "ocean": true,
+          "seaLevel": 0
+        },
+        "physics/GravitySource": { "strength": 9.81, "radius": 600000 }
+      },
+      "children": [
+        {
+          "name": "lander",
+          "components": {
+            "transform/GridCell": { "cell": [0, 300, 0] },
+            "core/Transform": { "translation": [0, 817, 0] },
+            "terrain/TerrainAnchor": { "radius": 60 }
+          }
+        },
+        {
+          "name": "camera",
+          "components": {
+            "transform/GridCell": { "cell": [0, 300, 0] },
+            "core/Transform": { "translation": [0, 980, 420], "rotationEuler": [-20, 0, 0] },
+            "render/Camera3d": { "fovY": 60, "near": 0.1, "clearColor": [0.02, 0.03, 0.06, 1] },
+            "transform/FloatingOrigin": {}
+          }
+        }
+      ]
+    }
+  ]
+}

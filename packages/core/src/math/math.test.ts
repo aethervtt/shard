@@ -122,6 +122,19 @@ describe('quat', () => {
     const up = vec3.transformQuat(vec3.create(), [0, 1, 0], q)
     expect(up[1]).toBeGreaterThan(0)
   })
+
+  it('lookRotation still looks along forward when up is parallel to it', () => {
+    for (const forward of [
+      [0, 0, -1],
+      [0, 1, 0],
+      [0.6, 0.35, 0.72],
+    ]) {
+      const f = vec3.normalize(vec3.create(), forward)
+      const q = quat.lookRotation(quat.create(), f, vec3.scale(vec3.create(), f, -1))
+      close(vec3.transformQuat(vec3.create(), [0, 0, -1], q), f)
+      expect(Math.hypot(q[0]!, q[1]!, q[2]!, q[3]!)).toBeCloseTo(1, 6)
+    }
+  })
 })
 
 describe('affine 3x4', () => {

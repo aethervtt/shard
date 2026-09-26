@@ -19,6 +19,7 @@ import { procgenMethods } from '@shard/procgen'
 import { ProjectMethodParams } from '@shard/project'
 import { METHODS } from '@shard/protocol'
 import { saveMethods } from '@shard/save'
+import { terrainMethods } from '@shard/terrain'
 import { localeMethods } from '@shard/text'
 import { uiMethods } from '@shard/ui'
 import type { ProtocolTarget } from './hub'
@@ -63,6 +64,7 @@ const PLUGIN_METHODS = [
   ...localeMethods,
   ...noiseMethods,
   ...procgenMethods,
+  ...terrainMethods,
 ]
 
 /** The protocol method's parameter schema, as an MCP input schema. */
@@ -351,6 +353,33 @@ export const TOOLS: Tool[] = [
             type: 'text',
             text: `${shot.generator}${args.seeds ? ` seeds ${JSON.stringify(args.seeds)}` : ''} (${shot.width}×${shot.height})`,
           },
+        ],
+      }
+    },
+  },
+  forward(
+    'describe_terrain',
+    'terrain.describe',
+    'Planet terrain as data: chunks selected per depth, partial chunks waiting for children, requests in flight, pool use, collider chunks and their anchors, vertex spacing at the finest and collider depths, and the height, biome, and slope under the camera. Problems (radius too large, a climate graph missing temperature or moisture) show here too. Use it to check LOD and colliders while flying around.',
+  ),
+  forward(
+    'sample_terrain',
+    'terrain.sample',
+    'The surface of a planet at up to 4096 points, from the same CPU noise colliders use: height above the radius, underwater and water depth, slope, temperature, moisture, and biome weights. Points are directions from the center or [lat, lon] in degrees. Example: { "latlon": [[0, 0], [80, 20]] } to compare the equator with the arctic.',
+  ),
+  {
+    name: 'terrain_map',
+    description:
+      'An equirectangular image of a whole planet: "biomes" colors land by its dominant biome (shaded by slope), "height" dark lowlands to white peaks; water is blue, darker when deeper. One image answers "are there continents, oceans, and polar caps". Example: { "mode": "biomes", "size": 512 }.',
+    inputSchema: paramsSchema('terrain.map'),
+    run: async (ctx, args) => {
+      const map = await ctx
+        .target()
+        .request<{ data: string; width: number; height: number }>('terrain.map', args)
+      return {
+        content: [
+          { type: 'image', data: map.data, mimeType: 'image/png' },
+          { type: 'text', text: `${args.mode ?? 'biomes'} map (${map.width}×${map.height})` },
         ],
       }
     },

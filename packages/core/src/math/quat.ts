@@ -192,11 +192,13 @@ export function lookRotation<T extends Writable>(out: T, forward: Readable, up: 
   let xz = up[0]! * zy - up[1]! * zx
   len = Math.sqrt(xx * xx + xy * xy + xz * xz)
   if (len < 1e-6) {
-    // forward is parallel to up: pick any perpendicular
-    xx = 1
-    xy = 0
-    xz = 0
-    len = 1
+    // forward is parallel to up: cross with the world axis least aligned with it instead.
+    const hx = Math.abs(zy) < 0.99 ? 0 : 1
+    const hy = Math.abs(zy) < 0.99 ? 1 : 0
+    xx = hy * zz
+    xy = -hx * zz
+    xz = hx * zy - hy * zx
+    len = Math.sqrt(xx * xx + xy * xy + xz * xz)
   }
   xx /= len
   xy /= len

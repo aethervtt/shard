@@ -1,3 +1,4 @@
+export { resizeImage, type TextureArrayFile, TextureArrayImporter } from './array'
 export { encodeBasis, type TranscodedTexture, type TranscodeTarget, transcodeBasis } from './basis'
 export {
   decodeHdr,

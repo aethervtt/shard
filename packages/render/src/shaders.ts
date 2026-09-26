@@ -118,9 +118,36 @@ fn previous_world(instance_index: u32, position: vec3f) -> vec3f {
   return vec3f(dot(previous[slot * 3u], p), dot(previous[slot * 3u + 1u], p), dot(previous[slot * 3u + 2u], p));
 }
 
+/** The vertex mesh_vertex is processing, for vertex_position overrides (see vertex_uv1). */
+var<private> mesh_current_instance: Instance;
+var<private> mesh_current_uv1: vec2f;
+var<private> mesh_current_tangent: vec4f;
+
+/** In vertex_position: the vertex's second uv set. */
+fn vertex_uv1() -> vec2f {
+  return mesh_current_uv1;
+}
+
+/** In vertex_position: the vertex's tangent (xyz, handedness in w) after deformation. */
+fn vertex_tangent() -> vec4f {
+  return mesh_current_tangent;
+}
+
+/** In vertex_position: the instance's render/InstanceData (x, y). */
+fn vertex_instance_data() -> vec2f {
+  return unpack2x16float(mesh_current_instance.range);
+}
+
+/** In vertex_position: an object-space point in world space, by this instance's transform. */
+fn vertex_world(p: vec3f) -> vec3f {
+  return instance_world(mesh_current_instance, p);
+}
+
 /**
  * Object-space displacement, applied in every pass that draws the mesh (forward, depth, shadows,
- * G-buffer), so a swaying mesh's shadow sways with it. Override it in a material's shader.
+ * G-buffer), so a swaying mesh's shadow sways with it. Override it in a material's shader; it can
+ * read the vertex's uv1 and tangent and its world position with vertex_uv1(), vertex_tangent(),
+ * and vertex_world(p).
  */
 @hook fn vertex_position(position: vec3f, normal: vec3f, uv: vec2f) -> vec3f {
   return position;
@@ -211,6 +238,9 @@ fn deform_vertex(instance_index: u32, vertex_index: u32, position: vec3f, normal
 
 /** Object space to world space, with normals through the cofactor (correct under any scale). */
 fn mesh_vertex(inst: Instance, position: vec3f, normal: vec3f, uv: vec2f, uv1: vec2f, tangent: vec4f) -> VertexOutput {
+  mesh_current_instance = inst;
+  mesh_current_uv1 = uv1;
+  mesh_current_tangent = tangent;
   let world = instance_world(inst, vertex_position(position, normal, uv));
   let c0 = vec3f(inst.row0.x, inst.row1.x, inst.row2.x);
   let c1 = vec3f(inst.row0.y, inst.row1.y, inst.row2.y);

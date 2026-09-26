@@ -1,0 +1,7 @@
+{
+  "$schema": "../../.shard/schemas/biome.schema.json",
+  "temperature": [-0.35, 3],
+  "moisture": [-2, 0.1],
+  "slope": [0, 28],
+  "tint": [0.25, 0.5, 0.15, 1]
+}

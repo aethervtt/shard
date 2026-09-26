@@ -603,6 +603,10 @@ export function drawShadowCasters(
   pass.setBindGroup(0, uniforms.bindGroup, [offset])
   pass.setBindGroup(2, instances)
   let current: GPURenderPipeline | undefined
+  let boundMaterial: GPUBindGroup | undefined
+  let boundPositions: GPUBuffer | undefined
+  let boundTangents: GPUBuffer | undefined
+  let boundIndices: GPUBuffer | undefined
   const draws = view.draws
   for (let d = 0; d < draws.length; d++) {
     const item = draws.items[d]!
@@ -637,17 +641,29 @@ export function drawShadowCasters(
     if (pipeline !== current) {
       pass.setPipeline(pipeline)
       current = pipeline
+      boundMaterial = undefined
     }
-    pass.setBindGroup(1, mat.bindGroup)
-    pass.setVertexBuffer(0, gm.positions)
-    pass.setVertexBuffer(1, gm.normals)
-    pass.setVertexBuffer(2, gm.uvs)
-    pass.setVertexBuffer(3, gm.uvs1)
-    pass.setVertexBuffer(4, gm.tangents)
+    // Consecutive draws often share these (terrain chunks share one set of buffers).
+    if (mat.bindGroup !== boundMaterial) {
+      pass.setBindGroup(1, mat.bindGroup)
+      boundMaterial = mat.bindGroup
+    }
+    if (gm.positions !== boundPositions || gm.tangents !== boundTangents) {
+      pass.setVertexBuffer(0, gm.positions)
+      pass.setVertexBuffer(1, gm.normals)
+      pass.setVertexBuffer(2, gm.uvs)
+      pass.setVertexBuffer(3, gm.uvs1)
+      pass.setVertexBuffer(4, gm.tangents)
+      boundPositions = gm.positions
+      boundTangents = gm.tangents
+    }
     if (gm.indices) {
-      pass.setIndexBuffer(gm.indices, gm.indexFormat)
+      if (gm.indices !== boundIndices) {
+        pass.setIndexBuffer(gm.indices, gm.indexFormat)
+        boundIndices = gm.indices
+      }
       if (item.indirect >= 0) pass.drawIndexedIndirect(args, item.indirect)
-      else pass.drawIndexed(gm.count, item.count, 0, 0, item.first)
+      else pass.drawIndexed(gm.count, item.count, 0, gm.baseVertex, item.first)
     } else if (item.indirect >= 0) {
       pass.drawIndirect(args, item.indirect)
     } else {

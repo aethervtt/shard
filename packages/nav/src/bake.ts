@@ -1,6 +1,7 @@
 import { assetServer } from '@shard/assets'
 import {
   type AssetRef,
+  affine64,
   Children,
   defineSystem,
   type Entity,
@@ -424,6 +425,12 @@ function updateMeshes(s: BakeQueries, world: World, nav: NavState, since: number
     nav.meshList = [...nav.meshes.values()]
   }
   if (nav.meshes.size === 0) return
+  // Frames: a navmesh baked in an entity's space follows it; a moved frame rebakes.
+  for (let i = 0; i < nav.meshList.length; i++) {
+    const rt = nav.meshList[i]!
+    const frame = world.get(rt.entity, NavMesh).frame
+    if (updateFrame(world, rt, frame)) changed = true
+  }
   const areas = world.tryResource(NavAreas)
   const signature = areasSignature(areas)
   if (nav.areas !== signature) {
@@ -444,6 +451,68 @@ function updateMeshes(s: BakeQueries, world: World, nav: NavState, since: number
       world.tryResource(LogResource)?.error(err)
     }
   }
+}
+
+/**
+ * Takes a navmesh's frame from its entity's GlobalTransform. Returns whether it changed (so every
+ * tile moves in the frame and rebakes).
+ */
+function updateFrame(world: World, rt: NavMeshRuntime, frame: Entity | null): boolean {
+  const alive =
+    frame !== null && frame >= 0 && world.isAlive(frame) && world.has(frame, GlobalTransform)
+  if (!alive) {
+    if (rt.frame === null) return false
+    rt.frame = null
+    rt.toLocal.set([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0])
+    rt.toWorld.set([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0])
+    return true
+  }
+  const m = world.get(frame, GlobalTransform).matrix
+  let same = rt.frame === frame
+  for (let i = 0; i < 12 && same; i++) if (rt.toWorld[i] !== m[i]) same = false
+  if (same) return false
+  rt.frame = frame
+  for (let i = 0; i < 12; i++) rt.toWorld[i] = m[i]!
+  if (!affine64.invert(rt.toLocal, rt.toWorld)) rt.toLocal.set([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0])
+  return true
+}
+
+/** The world soup, links, and hashes moved into a framed navmesh's space. */
+function localize(nav: NavState, rt: NavMeshRuntime) {
+  const src = nav.soup
+  const soup = rt.local
+  soup.clear()
+  const m = rt.toLocal
+  const p = src.positions
+  const q = new Float64Array(9)
+  for (let t = 0; t < src.count; t++) {
+    for (let k = 0; k < 3; k++) {
+      const o = t * 9 + k * 3
+      const x = p[o]!
+      const y = p[o + 1]!
+      const z = p[o + 2]!
+      q[k * 3] = m[0]! * x + m[1]! * y + m[2]! * z + m[3]!
+      q[k * 3 + 1] = m[4]! * x + m[5]! * y + m[6]! * z + m[7]!
+      q[k * 3 + 2] = m[8]! * x + m[9]! * y + m[10]! * z + m[11]!
+    }
+    soup.push(q[0]!, q[1]!, q[2]!, q[3]!, q[4]!, q[5]!, q[6]!, q[7]!, q[8]!, src.areas[t]!)
+  }
+  if (rt.localHashes.length < soup.count * 2) rt.localHashes = new Uint32Array(soup.count * 2)
+  const lp = soup.positions
+  for (let t = 0; t < soup.count; t++) {
+    hash.reset()
+    for (let k = 0; k < 9; k++) hash.f32word(lp[t * 9 + k]!)
+    hash.u32word(soup.areas[t]!)
+    hash.lanes(rt.localHashes, t * 2)
+  }
+  const out = new Float64Array(3)
+  const links = nav.links.map((l) => {
+    rt.pointIn(l.start[0], l.start[1], l.start[2], out)
+    const start: [number, number, number] = [out[0]!, out[1]!, out[2]!]
+    rt.pointIn(l.end[0], l.end[1], l.end[2], out)
+    return { ...l, start, end: [out[0]!, out[1]!, out[2]!] as [number, number, number] }
+  })
+  return { soup, lanes: rt.localHashes, links }
 }
 
 /** Whether any watched entity died or had its transform, shape, mesh, or tags changed. */
@@ -612,7 +681,9 @@ function gather(s: BakeQueries, world: World, nav: NavState): void {
 function bakeRuntime(world: World, nav: NavState, rt: NavMeshRuntime): void {
   const t0 = performance.now()
   const R = rt.R
-  const soup = nav.soup
+  const framed = rt.frame !== null ? localize(nav, rt) : undefined
+  const soup = framed ? framed.soup : nav.soup
+  const allLinks = framed ? framed.links : nav.links
   const s = rt.settings
   const v = voxelSettings(s)
   const tw = rt.tileWorld
@@ -664,12 +735,12 @@ function bakeRuntime(world: World, nav: NavState, rt: NavMeshRuntime): void {
 
   const cache = world.initResource(NavCache)
   rt.reserve(perTile.size)
+  const lanes = framed ? framed.lanes : nav.triHashes
   const stats = rt.stats
   stats.built = 0
   stats.cached = 0
   stats.kept = 0
   stats.removed = 0
-  const lanes = nav.triHashes
   let indices = new Int32Array(64)
   for (const [k, list] of perTile) {
     const tx = Math.floor(k / 65536) - 32768
@@ -691,7 +762,7 @@ function bakeRuntime(world: World, nav: NavState, rt: NavMeshRuntime): void {
     yMax = Math.ceil(yMax) + 1
     const x0 = tx * tw
     const z0 = tz * tw
-    const links = nav.links.filter(
+    const links = allLinks.filter(
       (l) => l.start[0] >= x0 && l.start[0] < x0 + tw && l.start[2] >= z0 && l.start[2] < z0 + tw,
     )
     hash.reset().string(BAKE_FORMAT)

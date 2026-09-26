@@ -531,6 +531,10 @@ export function drawMaterials(
   renderPass.setBindGroup(0, viewBindGroup(gpu, ctx.world, pv, cam))
   renderPass.setBindGroup(2, instances)
   let current: GPURenderPipeline | undefined
+  let boundMaterial: GPUBindGroup | undefined
+  let boundPositions: GPUBuffer | undefined
+  let boundTangents: GPUBuffer | undefined
+  let boundIndices: GPUBuffer | undefined
   let switches = 0
   for (let d = 0; d < draws.length; d++) {
     const item = draws.items[d]!
@@ -609,18 +613,30 @@ export function drawMaterials(
     if (pipeline !== current) {
       renderPass.setPipeline(pipeline)
       current = pipeline
+      boundMaterial = undefined
       switches++
     }
-    renderPass.setBindGroup(1, mat.bindGroup)
-    renderPass.setVertexBuffer(0, gm.positions)
-    renderPass.setVertexBuffer(1, gm.normals)
-    renderPass.setVertexBuffer(2, gm.uvs)
-    renderPass.setVertexBuffer(3, gm.uvs1)
-    renderPass.setVertexBuffer(4, gm.tangents)
+    // Consecutive draws often share these (terrain chunks share one set of buffers).
+    if (mat.bindGroup !== boundMaterial) {
+      renderPass.setBindGroup(1, mat.bindGroup)
+      boundMaterial = mat.bindGroup
+    }
+    if (gm.positions !== boundPositions || gm.tangents !== boundTangents) {
+      renderPass.setVertexBuffer(0, gm.positions)
+      renderPass.setVertexBuffer(1, gm.normals)
+      renderPass.setVertexBuffer(2, gm.uvs)
+      renderPass.setVertexBuffer(3, gm.uvs1)
+      renderPass.setVertexBuffer(4, gm.tangents)
+      boundPositions = gm.positions
+      boundTangents = gm.tangents
+    }
     if (gm.indices) {
-      renderPass.setIndexBuffer(gm.indices, gm.indexFormat)
+      if (gm.indices !== boundIndices) {
+        renderPass.setIndexBuffer(gm.indices, gm.indexFormat)
+        boundIndices = gm.indices
+      }
       if (item.indirect >= 0) renderPass.drawIndexedIndirect(args, item.indirect)
-      else renderPass.drawIndexed(gm.count, item.count, 0, 0, item.first)
+      else renderPass.drawIndexed(gm.count, item.count, 0, gm.baseVertex, item.first)
     } else if (item.indirect >= 0) {
       renderPass.drawIndirect(args, item.indirect)
     } else {

@@ -250,6 +250,10 @@ time, and frame count are untouched. Scene previews reuse `SceneInstance`.
   mesh previews in its own local space.
 - Draws whose texture isn't loaded yet are skipped and counted as pending, like meshes.
 
+- Texture arrays (0043): `Texture.create({ …, layers })`, KTX2 layer counts, and the
+  `*.texarray.json` importer (`{ "layers": [...], "size", "usage" }`; every layer resized to one
+  size with its own mip chain). Deferred here, done for planet biomes.
+
 ## Open questions
 
 - None blocking. Deferred: GPU mip generation (M7) and export compression presets (M9).

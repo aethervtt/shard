@@ -32,6 +32,7 @@
     "@shard/save": "workspace:*",
     "@shard/scene": "workspace:*",
     "@shard/sprite": "workspace:*",
+    "@shard/terrain": "workspace:*",
     "@shard/text": "workspace:*",
     "@shard/texture": "workspace:*",
     "@shard/transform": "workspace:*",

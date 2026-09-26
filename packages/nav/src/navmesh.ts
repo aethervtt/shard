@@ -1,4 +1,5 @@
 import type { Entity } from '@shard/core'
+import { TriangleSoup } from './geometry'
 import { areaFlags, type BakeSettings, type Recast, voxelSettings } from './recast'
 
 type RNavMesh = InstanceType<Recast['NavMesh']>
@@ -75,6 +76,38 @@ export class NavMeshRuntime {
   problem: string | null = null
   /** Source meshes still loading; the bake reruns when they arrive. */
   pending = 0
+  /** Bakes and queries happen in this entity's local space (null: world space). */
+  frame: Entity | null = null
+  /** World → navmesh space and back (affine 3×4, row by row). */
+  readonly toLocal = new Float64Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0])
+  readonly toWorld = new Float64Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0])
+  /** Framed bakes: the world soup moved into navmesh space, with its hash lanes. */
+  readonly local = new TriangleSoup()
+  localHashes = new Uint32Array(0)
+
+  /** A world point into navmesh space (identity without a frame). */
+  pointIn(x: number, y: number, z: number, out: { [i: number]: number }): void {
+    const m = this.toLocal
+    out[0] = m[0]! * x + m[1]! * y + m[2]! * z + m[3]!
+    out[1] = m[4]! * x + m[5]! * y + m[6]! * z + m[7]!
+    out[2] = m[8]! * x + m[9]! * y + m[10]! * z + m[11]!
+  }
+
+  /** A navmesh-space point into world space. */
+  pointOut(x: number, y: number, z: number, out: { [i: number]: number }): void {
+    const m = this.toWorld
+    out[0] = m[0]! * x + m[1]! * y + m[2]! * z + m[3]!
+    out[1] = m[4]! * x + m[5]! * y + m[6]! * z + m[7]!
+    out[2] = m[8]! * x + m[9]! * y + m[10]! * z + m[11]!
+  }
+
+  /** A navmesh-space direction into world space. */
+  vectorOut(x: number, y: number, z: number, out: { [i: number]: number }): void {
+    const m = this.toWorld
+    out[0] = m[0]! * x + m[1]! * y + m[2]! * z
+    out[1] = m[4]! * x + m[5]! * y + m[6]! * z
+    out[2] = m[8]! * x + m[9]! * y + m[10]! * z
+  }
 
   constructor(R: Recast, entity: Entity, settings: BakeSettings, maxTiles = 256) {
     this.R = R

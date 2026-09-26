@@ -77,6 +77,9 @@ importers:
       '@shard/scene':
         specifier: workspace:*
         version: link:../../packages/scene
+      '@shard/terrain':
+        specifier: workspace:*
+        version: link:../../packages/terrain
       '@shard/text':
         specifier: workspace:*
         version: link:../../packages/text
@@ -180,6 +183,9 @@ importers:
       '@shard/sprite':
         specifier: workspace:*
         version: link:../../packages/sprite
+      '@shard/terrain':
+        specifier: workspace:*
+        version: link:../../packages/terrain
       '@shard/text':
         specifier: workspace:*
         version: link:../../packages/text
@@ -913,6 +919,9 @@ importers:
       '@shard/sprite':
         specifier: workspace:*
         version: link:../sprite
+      '@shard/terrain':
+        specifier: workspace:*
+        version: link:../terrain
       '@shard/text':
         specifier: workspace:*
         version: link:../text
@@ -1193,6 +1202,64 @@ importers:
       '@shard/mesh':
         specifier: workspace:*
         version: link:../mesh
+      '@shard/platform-node':
+        specifier: workspace:*
+        version: link:../platform-node
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+      '@webgpu/types':
+        specifier: ^0.1.74
+        version: 0.1.74
+      webgpu:
+        specifier: 0.6.1
+        version: 0.6.1
+
+  packages/terrain:
+    dependencies:
+      '@shard/assets':
+        specifier: workspace:*
+        version: link:../assets
+      '@shard/core':
+        specifier: workspace:*
+        version: link:../core
+      '@shard/gpu':
+        specifier: workspace:*
+        version: link:../gpu
+      '@shard/mesh':
+        specifier: workspace:*
+        version: link:../mesh
+      '@shard/nav':
+        specifier: workspace:*
+        version: link:../nav
+      '@shard/noise':
+        specifier: workspace:*
+        version: link:../noise
+      '@shard/physics':
+        specifier: workspace:*
+        version: link:../physics
+      '@shard/platform':
+        specifier: workspace:*
+        version: link:../platform
+      '@shard/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@shard/render':
+        specifier: workspace:*
+        version: link:../render
+      '@shard/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@shard/shader':
+        specifier: workspace:*
+        version: link:../shader
+      '@shard/texture':
+        specifier: workspace:*
+        version: link:../texture
+      '@shard/transform':
+        specifier: workspace:*
+        version: link:../transform
+    devDependencies:
       '@shard/platform-node':
         specifier: workspace:*
         version: link:../platform-node

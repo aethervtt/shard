@@ -41,7 +41,11 @@ keep working because the shader only changes the surface.
    `extends: 'none'`, override `shade(in) -> vec4f` instead: it returns radiance in cd/m² and
    alpha, and no lighting runs. `noise: { detail: 'assets/noise/rock.noise.json' }` in the
    definition adds `noise_detail(p: vec3f, seed: u32) -> f32` to `material::lava` (see
-   make-a-noise-graph.md).
+   make-a-noise-graph.md). In `vertex_position`, `shard::mesh` also gives the vertex's
+   `vertex_uv1()` and `vertex_tangent()`, `vertex_world(p)` (object to world), and
+   `vertex_instance_data()`: the two numbers of the entity's `render/InstanceData` (a fade,
+   flags). `arrays: ['layers']` binds a texture field as `texture_2d_array` (a
+   `*.texarray.json`).
 
 3. Use it in a material file: `{ "type": "maze-chase/Lava", "crackLuminance": 30000,
    "cracks": { "path": "assets/cracks.png" } }`. Leaving out `"type"` means the standard material.

@@ -5,7 +5,7 @@ import { GlobalTransform, Transform } from '@shard/transform'
 import { NavAgent, NavAgentState, NavAreas, NavArrived, NavUnreachable } from './components'
 import { traceSegment } from './grid'
 import type { NavMeshRuntime } from './navmesh'
-import { createNavPath, findPath, type NavPath } from './query'
+import { createNavPath, findPath, meshPathLocal, type NavPath } from './query'
 import { type AgentRecord, type GridRecord, Nav, type NavState } from './state'
 
 const IDLE = 0
@@ -48,6 +48,7 @@ interface Columns {
   velocity: Float32Array
   translation: Float32Array
   rotation: Float32Array
+  global: Float32Array
 }
 
 function columns(table: Table, out: Columns): void {
@@ -69,6 +70,7 @@ function columns(table: Table, out: Columns): void {
   out.velocity = table.column(NavAgentState, 'velocity') as Float32Array
   out.translation = table.column(Transform, 'translation') as Float32Array
   out.rotation = table.column(Transform, 'rotation') as Float32Array
+  out.global = table.column(GlobalTransform, 'matrix') as Float32Array
 }
 
 function newRecord(entity: Entity): AgentRecord {
@@ -87,6 +89,8 @@ function newRecord(entity: Entity): AgentRecord {
     status: IDLE,
     agentTick: 0,
     drive: DRIVE_TRANSFORM,
+    framed: false,
+    lpos: new Float64Array(3),
     link: { active: false, lift: 0, x0: 0, z0: 0, y0: 0, x1: 0, z1: 0, y1: 0, arc: 0 },
   }
 }
@@ -198,8 +202,22 @@ function grow(a: Float64Array): Float64Array<ArrayBuffer> {
 
 const hashCell = (x: number, y: number) => (Math.imul(x, 73856093) ^ Math.imul(y, 19349663)) & 1023
 
-/** Picks the grid or navmesh an agent is in: its `nav`, else the one containing it. */
-function locate(nav: NavState, preferred: number, x: number, y: number, z: number): number {
+const framePos = new Float64Array(3)
+
+/**
+ * Picks the grid or navmesh an agent is in: its `nav`, else the one containing it. Framed
+ * navmeshes test its world position (wx, wy, wz) moved into their space.
+ */
+function locate(
+  nav: NavState,
+  preferred: number,
+  x: number,
+  y: number,
+  z: number,
+  wx: number,
+  wy: number,
+  wz: number,
+): number {
   if (preferred >= 0) return nav.grids.has(preferred) || nav.meshes.has(preferred) ? preferred : -1
   for (let i = 0; i < nav.gridList.length; i++) {
     const g = nav.gridList[i]!
@@ -211,13 +229,22 @@ function locate(nav: NavState, preferred: number, x: number, y: number, z: numbe
   for (let i = 0; i < nav.meshList.length; i++) {
     const m = nav.meshList[i]!
     const pad = m.settings.agentRadius + m.settings.cellSize * 2
+    let px = x
+    let py = y
+    let pz = z
+    if (m.frame !== null) {
+      m.pointIn(wx, wy, wz, framePos)
+      px = framePos[0]!
+      py = framePos[1]!
+      pz = framePos[2]!
+    }
     if (
-      x >= m.min[0]! - pad &&
-      x <= m.max[0]! + pad &&
-      z >= m.min[2]! - pad &&
-      z <= m.max[2]! + pad &&
-      y >= m.min[1]! - m.settings.agentHeight &&
-      y <= m.max[1]! + m.settings.agentHeight
+      px >= m.min[0]! - pad &&
+      px <= m.max[0]! + pad &&
+      pz >= m.min[2]! - pad &&
+      pz <= m.max[2]! + pad &&
+      py >= m.min[1]! - m.settings.agentHeight &&
+      py <= m.max[1]! + m.settings.agentHeight
     )
       return m.entity
   }
@@ -262,7 +289,17 @@ function stepAgent(
       : drive === DRIVE_VELOCITY && !table.has(Velocity)
         ? DRIVE_TRANSFORM
         : drive
-  const navEntity = locate(nav, c.nav[row]!, pos[0], pos[1], pos[2])
+  const g12 = row * 12
+  const navEntity = locate(
+    nav,
+    c.nav[row]!,
+    pos[0],
+    pos[1],
+    pos[2],
+    c.global[g12 + 3]!,
+    c.global[g12 + 7]!,
+    c.global[g12 + 11]!,
+  )
   if (navEntity !== rec.nav) {
     removeFromCrowd(nav, rec)
     rec.nav = navEntity
@@ -274,6 +311,15 @@ function stepAgent(
     removeFromCrowd(nav, rec)
     halt(s, world, table, row, rec, IDLE, dim)
     return false
+  }
+  // On a framed navmesh everything steers in its space: from the world position.
+  const framedMesh = rec.kind === 'mesh' ? nav.meshes.get(rec.nav) : undefined
+  rec.framed = framedMesh !== undefined && framedMesh.frame !== null
+  if (rec.framed) {
+    framedMesh!.pointIn(c.global[g12 + 3]!, c.global[g12 + 7]!, c.global[g12 + 11]!, pos)
+    rec.lpos[0] = pos[0]!
+    rec.lpos[1] = pos[1]!
+    rec.lpos[2] = pos[2]!
   }
   // Where it's going: the target's position, or the destination.
   const target = c.target[row]!
@@ -289,6 +335,7 @@ function stepAgent(
     goal[1] = c.destination[o3 + 1]!
     goal[2] = c.destination[o3 + 2]!
   }
+  if (rec.framed) framedMesh!.pointIn(goal[0]!, goal[1]!, goal[2]!, goal)
   rec.sinceRepath += dt
   const grid = rec.kind === 'grid' ? nav.grids.get(rec.nav)! : undefined
   const mesh = rec.kind === 'mesh' ? nav.meshes.get(rec.nav)! : undefined
@@ -331,7 +378,9 @@ function plan(s: State, world: World, nav: NavState, rec: AgentRecord): void {
   }
   s.find.out = path
   s.find.nav = rec.nav
-  findPath(world, pos, rec.goal, s.find)
+  const mesh = rec.kind === 'mesh' ? nav.meshes.get(rec.nav) : undefined
+  if (mesh && rec.framed) meshPathLocal(mesh, pos, rec.goal, path)
+  else findPath(world, pos, rec.goal, s.find)
   rec.corners.set(path.corners.subarray(0, path.count * 3))
   rec.count = path.count
   rec.next = 1
@@ -366,10 +415,13 @@ function setStatus(world: World, s: State, row: number, rec: AgentRecord, status
   else if (status === UNREACHABLE) world.send(NavUnreachable, { entity: rec.entity })
 }
 
+const worldVel = new Float64Array(3)
+
 /**
  * Writes a world velocity to the agent's drive. character: CharacterIntent.move in the
  * character's frame (2D: x only). velocity: the body's Velocity (keeping its vertical part in
- * 3D, for gravity). transform: moves by `v · dt`.
+ * 3D, for gravity). transform: moves by `v · dt`. On a framed navmesh (`mesh`) the velocity is in
+ * its space: it goes to world space first, and into the entity's frame through its GlobalTransform.
  */
 function applyDrive(
   table: Table,
@@ -380,7 +432,13 @@ function applyDrive(
   vz: number,
   dt: number,
   dim: number,
+  mesh?: NavMeshRuntime,
 ): void {
+  if (rec.framed && mesh) {
+    mesh.vectorOut(vx, vy, vz, worldVel)
+    driveFramed(table, row, rec, worldVel[0]!, worldVel[1]!, worldVel[2]!, dt)
+    return
+  }
   if (rec.drive === DRIVE_CHARACTER) {
     const move = table.column(CharacterIntent, 'move') as Float32Array
     if (dim === 2) {
@@ -419,6 +477,67 @@ function applyDrive(
     tr[row * 3 + 2] = tr[row * 3 + 2]! + vz * dt
     table.markChanged(Transform, row)
   }
+}
+
+/**
+ * A world velocity for an agent that may sit anywhere in a hierarchy (a planet's grid): its own
+ * frame from its GlobalTransform's axes for characters, its parent's (global rotation times the
+ * inverse of its local one) for moving the transform.
+ */
+function driveFramed(
+  table: Table,
+  row: number,
+  rec: AgentRecord,
+  vx: number,
+  vy: number,
+  vz: number,
+  dt: number,
+): void {
+  const m = table.column(GlobalTransform, 'matrix') as Float32Array
+  const o = row * 12
+  const ax = axis(m, o, 0)
+  const ay = axis(m, o, 1)
+  const az = axis(m, o, 2)
+  // The velocity in the entity's own frame.
+  const lx = (vx * m[o]! + vy * m[o + 4]! + vz * m[o + 8]!) / ax
+  const ly = (vx * m[o + 1]! + vy * m[o + 5]! + vz * m[o + 9]!) / ay
+  const lz = (vx * m[o + 2]! + vy * m[o + 6]! + vz * m[o + 10]!) / az
+  if (rec.drive === DRIVE_CHARACTER) {
+    const move = table.column(CharacterIntent, 'move') as Float32Array
+    move[row * 3] = lx
+    move[row * 3 + 1] = 0
+    move[row * 3 + 2] = lz
+    table.markChanged(CharacterIntent, row)
+    return
+  }
+  if (rec.drive === DRIVE_VELOCITY) {
+    const lin = table.column(Velocity, 'linear') as Float32Array
+    lin[row * 3] = vx
+    lin[row * 3 + 1] = vy
+    lin[row * 3 + 2] = vz
+    table.markChanged(Velocity, row)
+    return
+  }
+  if (dt > 0) {
+    // Into the parent's frame: the entity's local rotation applied to its own-frame velocity.
+    const q = table.column(Transform, 'rotation') as Float32Array
+    const qx = q[row * 4]!
+    const qy = q[row * 4 + 1]!
+    const qz = q[row * 4 + 2]!
+    const qw = q[row * 4 + 3]!
+    const tx = 2 * (qy * lz - qz * ly)
+    const ty = 2 * (qz * lx - qx * lz)
+    const tz = 2 * (qx * ly - qy * lx)
+    const tr = table.column(Transform, 'translation') as Float32Array
+    tr[row * 3] = tr[row * 3]! + (lx + qw * tx + (qy * tz - qz * ty)) * dt
+    tr[row * 3 + 1] = tr[row * 3 + 1]! + (ly + qw * ty + (qz * tx - qx * tz)) * dt
+    tr[row * 3 + 2] = tr[row * 3 + 2]! + (lz + qw * tz + (qx * ty - qy * tx)) * dt
+    table.markChanged(Transform, row)
+  }
+}
+
+function axis(m: Float32Array, o: number, c: number): number {
+  return Math.sqrt(m[o + c]! ** 2 + m[o + 4 + c]! ** 2 + m[o + 8 + c]! ** 2) || 1
 }
 
 // --- grid agents -----------------------------------------------------------------
@@ -657,15 +776,19 @@ function readCrowd(
   let vx = raw.get_vel(0)
   let vy = raw.get_vel(1)
   let vz = raw.get_vel(2)
+  // Where it is, in the navmesh's space (a framed navmesh's own; the Transform's otherwise).
+  const hx = rec.framed ? rec.lpos[0]! : c.translation[o3]!
+  const hy = rec.framed ? rec.lpos[1]! : c.translation[o3 + 1]!
+  const hz = rec.framed ? rec.lpos[2]! : c.translation[o3 + 2]!
   const e = (rec.count - 1) * 3
-  const ex = rec.corners[e]! - c.translation[o3]!
-  const ez = rec.corners[e + 2]! - c.translation[o3 + 2]!
-  const ey = rec.corners[e + 1]! - c.translation[o3 + 1]!
+  const ex = rec.corners[e]! - hx
+  const ez = rec.corners[e + 2]! - hz
+  const ey = rec.corners[e + 1]! - hy
   // Remaining: along the crowd's corners, then straight on to the path's end.
   let remaining = 0
-  let lx = c.translation[o3]!
-  let ly = c.translation[o3 + 1]!
-  let lz = c.translation[o3 + 2]!
+  let lx = hx
+  let ly = hy
+  let lz = hz
   const n = raw.get_ncorners()
   let ended = false
   for (let i = 0; i < n; i++) {
@@ -693,14 +816,14 @@ function readCrowd(
     halt(s, world, table, row, rec, rec.reachable ? ARRIVED : UNREACHABLE, dim)
     c.remaining[row] = flat
     // Leave the crowd agent where the entity is, so the next path starts there.
-    raw.set_npos(0, c.translation[o3]!)
-    raw.set_npos(1, c.translation[o3 + 1]!)
-    raw.set_npos(2, c.translation[o3 + 2]!)
+    raw.set_npos(0, hx)
+    raw.set_npos(1, hy)
+    raw.set_npos(2, hz)
     return
   }
   const offmesh = raw.get_state() === CROWD_OFFMESH
   const link = rec.link
-  if (offmesh && !link.active) startLink(nav, rec, c.translation[o3 + 1]!, px, py, pz)
+  if (offmesh && !link.active) startLink(nav, rec, hy, px, py, pz)
   link.active = offmesh
   if (rec.drive === DRIVE_TRANSFORM || offmesh) {
     // The crowd moved it on the navmesh (and across links): put the entity there. On a link the
@@ -714,17 +837,25 @@ function readCrowd(
       const t = total > 1e-6 ? Math.min(1, done / total) : 1
       y = link.y0 + (link.y1 - link.y0) * t + link.lift + link.arc * 4 * t * (1 - t)
     }
-    const tr = c.translation
-    vx = (px - tr[o3]!) / dt
-    vy = (y - tr[o3 + 1]!) / dt
-    vz = (pz - tr[o3 + 2]!) / dt
-    tr[o3] = px
-    tr[o3 + 1] = y
-    tr[o3 + 2] = pz
-    table.markChanged(Transform, row)
-    if (rec.drive !== DRIVE_TRANSFORM) applyDrive(table, row, rec, 0, 0, 0, 0, dim)
+    vx = (px - hx) / dt
+    vy = (y - hy) / dt
+    vz = (pz - hz) / dt
+    if (rec.framed) {
+      // Move by the step, through the frame into the entity's parent.
+      const drive = rec.drive
+      rec.drive = DRIVE_TRANSFORM
+      applyDrive(table, row, rec, vx, vy, vz, dt, dim, rt)
+      rec.drive = drive
+    } else {
+      const tr = c.translation
+      tr[o3] = px
+      tr[o3 + 1] = y
+      tr[o3 + 2] = pz
+      table.markChanged(Transform, row)
+    }
+    if (rec.drive !== DRIVE_TRANSFORM) applyDrive(table, row, rec, 0, 0, 0, 0, dim, rt)
   } else {
-    applyDrive(table, row, rec, vx, vy, vz, dt, dim)
+    applyDrive(table, row, rec, vx, vy, vz, dt, dim, rt)
   }
   c.velocity[o3] = vx
   c.velocity[o3 + 1] = vy

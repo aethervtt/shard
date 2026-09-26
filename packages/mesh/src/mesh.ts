@@ -29,6 +29,30 @@ export interface MorphTarget {
   tangents?: Float32Array
 }
 
+/**
+ * A mesh the GPU writes (compute shaders fill its vertex buffers): sizes and bounds, no CPU data.
+ * Every mesh passing the same `indices` array shares one GPU index buffer.
+ */
+export interface GpuMeshDescriptor {
+  vertexCount: number
+  /** Triangles, shared: the renderer uploads each array once. */
+  indices: Uint16Array | Uint32Array
+  /** Indices drawn (default: all of them), e.g. a prefix without skirt triangles. */
+  indexCount?: number
+  /** Local-space bounds `[minX, minY, minZ, maxX, maxY, maxZ]` (update them when known). */
+  bounds: ArrayLike<number>
+  /**
+   * Draw another GPU mesh's vertex buffers with these indices (a subset of its triangles) instead
+   * of owning buffers.
+   */
+  share?: Mesh
+  /**
+   * Where this mesh's vertices start in `share`'s buffers (default: where `share`'s do), so many
+   * meshes can live in one set of buffers and draw without rebinding them.
+   */
+  baseVertex?: number
+}
+
 /** Morph targets a mesh can blend at once (the vertex stage adds the heaviest ones). */
 export const MAX_MORPH_TARGETS = 8
 
@@ -74,13 +98,62 @@ export class Mesh {
   readonly bounds = aabb.create()
   /** Increments on `update`, so GPU copies know to re-upload. */
   version = 0
+  /**
+   * Set for meshes the GPU writes (`Mesh.gpu`): their vertex buffers are storage buffers with no
+   * CPU copy; `positions` is empty.
+   */
+  gpu:
+    | Readonly<{
+        vertexCount: number
+        indexCount: number
+        indices: Uint16Array | Uint32Array
+        share: Mesh | undefined
+        baseVertex: number
+      }>
+    | undefined
 
-  private constructor(data: MeshData) {
-    this.assign(data)
+  private constructor(data: MeshData | undefined) {
+    if (data) this.assign(data)
   }
 
   static create(data: MeshData): Mesh {
     return new Mesh(data)
+  }
+
+  /**
+   * A mesh whose vertex buffers the GPU fills: positions, normals, uvs, uvs1, and tangents as
+   * separate storage + vertex buffers (f32, 3/3/2/2/4 per vertex), written by a compute pass and
+   * drawn like any mesh. Terrain chunks (0043) and GPU foliage (0045) use it.
+   */
+  static gpu(desc: GpuMeshDescriptor): Mesh {
+    const mesh = new Mesh(undefined)
+    mesh.positions = new Float32Array(0)
+    mesh.indices = undefined
+    mesh.gpu = {
+      vertexCount: desc.vertexCount,
+      indexCount: desc.indexCount ?? desc.indices.length,
+      indices: desc.indices,
+      share: desc.share,
+      baseVertex: desc.baseVertex ?? desc.share?.baseVertex ?? 0,
+    }
+    for (let i = 0; i < 6; i++) mesh.bounds[i] = desc.bounds[i]!
+    return mesh
+  }
+
+  /**
+   * Draws a GPU mesh (`Mesh.gpu`) with other triangles over the same vertices: another shared
+   * index array (and count). Cheap: the vertex buffers stay, and its batch stays the same.
+   */
+  setIndices(indices: Uint16Array | Uint32Array, indexCount = indices.length): void {
+    const g = this.gpu
+    if (!g) {
+      throw new ShardError('mesh/not-gpu', 'setIndices is for GPU meshes (Mesh.gpu)', {
+        hint: 'Change a CPU mesh with update().',
+      })
+    }
+    if (g.indices === indices && g.indexCount === indexCount) return
+    this.gpu = { ...g, indices, indexCount }
+    this.version++
   }
 
   /**
@@ -99,15 +172,27 @@ export class Mesh {
   private static skipIndexCheck = false
 
   get vertexCount(): number {
-    return this.positions.length / 3
+    return this.gpu ? this.gpu.vertexCount : this.positions.length / 3
+  }
+
+  /** Whether draws are indexed: CPU meshes with indices, and every GPU mesh. */
+  get indexed(): boolean {
+    return this.gpu !== undefined || this.indices !== undefined
+  }
+
+  /** Where the mesh's vertices start in its vertex buffers (non-zero only for shared GPU meshes). */
+  get baseVertex(): number {
+    return this.gpu ? this.gpu.baseVertex : 0
   }
 
   /** Vertices drawn: the index count, or the vertex count for non-indexed meshes. */
   get drawCount(): number {
+    if (this.gpu) return this.gpu.indexCount
     return this.indices ? this.indices.length : this.vertexCount
   }
 
   update(data: MeshData): void {
+    this.gpu = undefined
     this.assign(data)
     this.version++
   }

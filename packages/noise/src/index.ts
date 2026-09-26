@@ -19,6 +19,7 @@ export {
 } from './graph'
 export {
   BLOCK,
+  computeOrigins,
   directionToFace,
   faceToDirection,
   gridOrigin,

@@ -191,6 +191,11 @@ override fn pbr_input(in: VertexOutput) -> PbrInput {
 - **Generated skill:** `write-a-material.md` covers fields, the lava shader, the hooks, a material
   file, and checking it.
 
+- Added with 0043: `shard::mesh` accessors for vertex hooks (`vertex_uv1()`, `vertex_tangent()`,
+  `vertex_world(p)`, `vertex_instance_data()` for `render/InstanceData`), rather than new hook
+  arguments, so existing overrides keep compiling; and `arrays: [...]` on a material type binds
+  those texture fields as `texture_2d_array`.
+
 ## Open questions
 
 - None blocking. Deferred: material instancing of per-entity parameters (a per-instance storage

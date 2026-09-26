@@ -176,6 +176,12 @@ NavAgentState { status: 'idle' | 'moving' | 'arrived' | 'unreachable', remaining
 - [x] A 2D enemy with a tilemap grid chases a moving player through a maze in a gameplay test
       (`examples/maze-chase`).
 
+## Implementation notes
+
+- `NavMesh.frame` (0043): an entity whose local space the navmesh bakes, queries, and steers agents
+  in (world positions go in and come out; Recast works in the frame). Planets keep a navmesh in a
+  tangent frame this way.
+
 ## Open questions
 
 - None blocking.

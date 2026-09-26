@@ -19,6 +19,12 @@ export interface GpuMesh {
   indices: GPUBuffer | undefined
   indexFormat: GPUIndexFormat
   count: number
+  /** The index buffer belongs to every GPU mesh sharing its array (`Mesh.gpu`): never destroyed here. */
+  sharedIndices: boolean
+  /** The vertex buffers belong to another mesh (`Mesh.gpu` with `share`). */
+  sharedVertices: boolean
+  /** Where this mesh's vertices start in its (shared) vertex buffers. */
+  baseVertex: number
 }
 
 export interface GpuMaterial {
@@ -41,6 +47,9 @@ export interface GpuTexture {
   texture: GPUTexture
   linear: GPUTextureView
   srgb: GPUTextureView
+  /** 2D-array views (the texture's own for arrays; one layer for plain 2D textures). */
+  arrayLinear: GPUTextureView | undefined
+  arraySrgb: GPUTextureView | undefined
   version: number
   generation: number
   bytes: number
@@ -115,15 +124,12 @@ export class GpuAssets {
   mesh(mesh: Mesh): GpuMesh {
     const gpu = this.gpu
     let gm = this.meshes.get(mesh)
-    if (gm && gm.version === mesh.version && gm.generation === gpu.generation) return gm
-    if (gm && gm.generation === gpu.generation) {
-      gm.positions.destroy()
-      gm.normals.destroy()
-      gm.uvs.destroy()
-      gm.uvs1.destroy()
-      gm.tangents.destroy()
-      gm.indices?.destroy()
+    if (gm && gm.version === mesh.version && gm.generation === gpu.generation) {
+      if (mesh.gpu) gm.count = mesh.drawCount
+      return gm
     }
+    if (gm && gm.generation === gpu.generation) this.destroyMesh(gm)
+    if (mesh.gpu) return this.gpuMesh(mesh)
     const device = gpu.device
     const n = mesh.vertexCount
     const upload = (
@@ -162,9 +168,89 @@ export class GpuAssets {
       indices: indices ? upload(indices, GPUBufferUsage.INDEX, 'mesh/indices') : undefined,
       indexFormat: mesh.indices instanceof Uint32Array ? 'uint32' : 'uint16',
       count: mesh.drawCount,
+      sharedIndices: false,
+      sharedVertices: false,
+      baseVertex: 0,
     }
     this.meshes.set(mesh, gm)
     return gm
+  }
+
+  private destroyMesh(gm: GpuMesh): void {
+    if (gm.sharedVertices) return
+    gm.positions.destroy()
+    gm.normals.destroy()
+    gm.uvs.destroy()
+    gm.uvs1.destroy()
+    gm.tangents.destroy()
+    if (!gm.sharedIndices) gm.indices?.destroy()
+  }
+
+  /** Index buffers shared by GPU meshes, per index array. */
+  private readonly sharedIndexBuffers = new WeakMap<
+    object,
+    { generation: number; buffer: GPUBuffer }
+  >()
+
+  /**
+   * A GPU-written mesh (`Mesh.gpu`): storage + vertex buffers compute passes fill (positions,
+   * normals, uvs, uvs1, tangents; f32), and the index buffer every mesh with the same array shares.
+   */
+  private gpuMesh(mesh: Mesh): GpuMesh {
+    const gpu = this.gpu
+    const desc = mesh.gpu!
+    const n = desc.vertexCount
+    const usage =
+      GPUBufferUsage.STORAGE |
+      GPUBufferUsage.VERTEX |
+      GPUBufferUsage.COPY_DST |
+      GPUBufferUsage.COPY_SRC
+    const make = (width: number, label: string) =>
+      gpu.device.createBuffer({ label, size: Math.max(16, n * width * 4), usage })
+    let shared = this.sharedIndexBuffers.get(desc.indices)
+    if (!shared || shared.generation !== gpu.generation) {
+      const data = desc.indices
+      const bytes = (data.byteLength + 3) & ~3
+      const buffer = gpu.device.createBuffer({
+        label: 'mesh/shared-indices',
+        size: Math.max(16, bytes),
+        usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+      })
+      if (data.byteLength % 4 === 0) gpu.device.queue.writeBuffer(buffer, 0, data, 0, data.length)
+      else {
+        const padded = new Uint16Array(data.length + 1)
+        padded.set(data)
+        gpu.device.queue.writeBuffer(buffer, 0, padded, 0, padded.length)
+      }
+      shared = { generation: gpu.generation, buffer }
+      this.sharedIndexBuffers.set(desc.indices, shared)
+    }
+    const source = desc.share ? this.mesh(desc.share) : undefined
+    const gm: GpuMesh = {
+      version: mesh.version,
+      generation: gpu.generation,
+      positions: source?.positions ?? make(3, 'mesh/gpu-positions'),
+      normals: source?.normals ?? make(3, 'mesh/gpu-normals'),
+      uvs: source?.uvs ?? make(2, 'mesh/gpu-uvs'),
+      uvs1: source?.uvs1 ?? make(2, 'mesh/gpu-uvs1'),
+      tangents: source?.tangents ?? make(4, 'mesh/gpu-tangents'),
+      indices: shared.buffer,
+      indexFormat: desc.indices instanceof Uint32Array ? 'uint32' : 'uint16',
+      count: mesh.drawCount,
+      sharedIndices: true,
+      sharedVertices: source !== undefined,
+      baseVertex: mesh.baseVertex,
+    }
+    this.meshes.set(mesh, gm)
+    return gm
+  }
+
+  /** Frees a mesh's GPU buffers now (they're made again if it's drawn later). */
+  releaseMesh(mesh: Mesh): void {
+    const gm = this.meshes.get(mesh)
+    if (!gm) return
+    if (gm.generation === this.gpu.generation) this.destroyMesh(gm)
+    this.meshes.delete(mesh)
   }
 
   /** Uploads a texture (all levels) on first use and when its version changes. */
@@ -185,9 +271,10 @@ export class GpuAssets {
     }
     existing?.texture.destroy()
     const info = FORMAT_INFO[texture.format]
+    const layers = texture.faces * texture.layers
     const handle = gpu.device.createTexture({
       label: `texture/${texture.format}`,
-      size: { width: texture.width, height: texture.height, depthOrArrayLayers: texture.faces },
+      size: { width: texture.width, height: texture.height, depthOrArrayLayers: layers },
       format: texture.format as GPUTextureFormat,
       mipLevelCount: texture.mipCount,
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
@@ -205,18 +292,36 @@ export class GpuAssets {
         {
           width: blocksWide * info.block,
           height: blocksHigh * info.block,
-          depthOrArrayLayers: texture.faces,
+          depthOrArrayLayers: layers,
         },
       )
     }
-    const dimension: GPUTextureViewDimension = texture.faces === 6 ? 'cube' : '2d'
+    const dimension: GPUTextureViewDimension =
+      texture.faces === 6 ? 'cube' : texture.layers > 1 ? '2d-array' : '2d'
     const linear = handle.createView({ dimension })
+    const srgb = info.srgbView
+      ? handle.createView({ format: info.srgbView as GPUTextureFormat, dimension })
+      : linear
+    const plain = texture.faces === 1
     const out: GpuTexture = {
       texture: handle,
       linear,
-      srgb: info.srgbView
-        ? handle.createView({ format: info.srgbView as GPUTextureFormat, dimension })
-        : linear,
+      srgb,
+      arrayLinear: !plain
+        ? undefined
+        : dimension === '2d-array'
+          ? linear
+          : handle.createView({ dimension: '2d-array' }),
+      arraySrgb: !plain
+        ? undefined
+        : dimension === '2d-array'
+          ? srgb
+          : info.srgbView
+            ? handle.createView({
+                format: info.srgbView as GPUTextureFormat,
+                dimension: '2d-array',
+              })
+            : undefined,
       version: texture.version,
       generation: gpu.generation,
       bytes: texture.byteSize,
@@ -247,6 +352,8 @@ export class GpuAssets {
         texture,
         linear,
         srgb: texture.createView({ format: 'rgba8unorm-srgb' }),
+        arrayLinear: texture.createView({ dimension: '2d-array' }),
+        arraySrgb: texture.createView({ format: 'rgba8unorm-srgb', dimension: '2d-array' }),
         version: 0,
         generation: gpu.generation,
         bytes: 4,
@@ -459,8 +566,22 @@ export class GpuAssets {
       if (gm.ownBuffer) entries.push({ binding, resource: { buffer: gm.ownBuffer } })
       binding++
       for (let i = 0; i < type.textures.length; i++) {
-        const g = gm.ownBound[i] ?? defaults.white
-        entries.push({ binding: binding++, resource: g.linear })
+        const name = type.textures[i]!
+        if (type.arrays.has(name)) {
+          // Arrays of color textures (albedo layers) read through the sRGB view.
+          const texture = this.ownTextures[i]
+          const g =
+            gm.ownBound[i] ??
+            (name.toLowerCase().includes('normal') ? defaults.normal : defaults.white)
+          const color = texture ? texture.usage === 'color' : false
+          entries.push({
+            binding: binding++,
+            resource: (color ? (g.arraySrgb ?? g.arrayLinear) : g.arrayLinear) ?? g.linear,
+          })
+        } else {
+          const g = gm.ownBound[i] ?? defaults.white
+          entries.push({ binding: binding++, resource: g.linear })
+        }
         entries.push({ binding: binding++, resource: this.sampler('repeat', 'linear') })
       }
       gm.bindGroup = gpu.device.createBindGroup({

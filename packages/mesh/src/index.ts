@@ -1,5 +1,6 @@
 export { decodeMesh, encodeMesh } from './codec'
 export {
+  type GpuMeshDescriptor,
   MAX_MORPH_TARGETS,
   MESH_ATTRIBUTE_WIDTH,
   MESH_ATTRIBUTES,

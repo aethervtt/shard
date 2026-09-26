@@ -1,6 +1,6 @@
 # 0043 — Planet terrain
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@shard/terrain` (new), `@shard/render`, `@shard/texture`, `@shard/physics`,
   `@shard/nav`, `@shard/procgen`
 - **Depends on:** 0016, 0020, 0022, 0028, 0029, 0031, 0037, 0040, 0041, 0042
@@ -40,7 +40,7 @@ has a deeper tree. Gas giants have no solid surface and aren't terrain; 0046 ren
 - A sea-level ocean surface with its own quadtree.
 - Streaming with a per-frame budget, priority by visible error, and an LRU of generated chunks.
 - Headless runs build colliders and heights with no GPU, so gameplay tests work in `shard test`.
-- Navmesh tiles baked per nearby chunk in its tangent frame.
+- A navmesh on the surface around agents, in a tangent frame.
 
 ## Non-goals
 
@@ -57,25 +57,29 @@ has a deeper tree. Gas giants have no solid surface and aren't terrain; 0046 ren
 
 ```ts
 Planet {
-  radius: f32 = 4000                        // metres, 1 km – 50 000 km
+  radius: f64 = 4000                        // metres, 1 km – 50 000 km
   shape: vec3 = [1, 1, 1]                   // ellipsoid axis ratios (lumpy asteroids, 0047)
   height: handle('NoiseGraph')              // output in [−1, 1], scaled by heightScale
   heightScale: f32 = 600                    // metres
   seed: u32                                 // mixed into every graph
-  seaLevel: f32 = 0                         // metres above radius; NaN = no ocean
+  ocean: bool = true                        // a sea surface at seaLevel
+  seaLevel: f32 = 0                         // metres above radius
   climate: handle('NoiseGraph')             // outputs temperature and moisture (two nodes)
-  biomes: handle('BiomeSet')
+  biomes: handle('terrain/BiomeSet')
   resolution: u16 = 33                      // vertices per chunk edge (2^n + 1)
   minSpacing: f32 = 0.4                     // finest vertex spacing, metres; sets the max depth
   errorPixels: f32 = 2                      // split when projected error exceeds this
-  colliderRadius: f32 = 600                 // CPU colliders for chunks within this of a body
+  colliderRadius: f32 = 96                  // CPU colliders for chunks within this of an anchor
+  skirts: bool = true                       // off only for the seam test
 }
+TerrainAnchor { enabled, radius }           // extra collider anchors (bodies and characters are anchors anyway)
+TerrainBudget { chunksPerFrame: 8, msPerFrame: 1.5, pool: 2048, colliderCache: 256 }
 
-// Data types (0031)
-Biome { layers: list(struct { albedo, normal, orm: handle('Texture'), scale: f32 }),
-        temperature: vec2, moisture: vec2, height: vec2, slope: vec2, blend: f32,
-        scatter: handle('ScatterSet') /* 0045 */, tint: color }
-BiomeSet { biomes: list(handle('Biome')), latitudeBias: f32, snowLine: f32 }
+// Data types (0031): *.biome.json and *.biomes.json
+Biome { layers: list(struct { layer: u16, scale: f32 }),   // layers of the set's texture arrays
+        temperature: vec2, moisture: vec2, height: vec2, slope: vec2, blend: f32, tint: color }
+BiomeSet { biomes: list(handle('terrain/Biome')), albedo, normal, orm: handle('Texture') /* arrays */,
+           latitudeBias: f32, snowLine: f32 }
 ```
 
 - The planet entity is a `Grid`. Chunk entities are its children with a `GridCell` and a
@@ -85,8 +89,9 @@ BiomeSet { biomes: list(handle('Biome')), latitudeBias: f32, snowLine: f32 }
   33 vertices per edge, that's depth 9 for a 4 km moon, 20 for Earth, and 21 for a 16 000 km
   super-Earth. Depth 24 is the cap, since node keys hold 24 bits per axis, and that's enough for
   0.4 m spacing up to ~50 000 km.
-- `Planet` requires `Grid` and `Transform`, so its rotation is the planet's spin (0040) and chunk
-  entities never move relative to it.
+- `Planet` requires `Grid`, `Transform`, and `Visibility` (chunk entities inherit visibility from
+  it), so its rotation is the planet's spin (0040) and chunk entities never move relative to it.
+  Chunk entities are tagged `core/Derived`: saves and the world hash skip them.
 
 ### The quadtree
 
@@ -101,8 +106,11 @@ BiomeSet { biomes: list(handle('Biome')), latitudeBias: f32, snowLine: f32 }
   frustum. It splits above `errorPixels`, merges below half of it, and culls nodes beyond the
   horizon (a sphere-horizon test) or outside the frustum. The walk uses scratch arrays with no
   allocation, and the tree is kept as flat TypedArrays indexed by node slot.
-- A node renders only if all four of its children are ready or it is a leaf, so a split never
-  shows a hole. The parent stays visible until the last child arrives.
+- A split never shows a hole. While some children aren't ready, the parent draws only the
+  quadrants they would cover (a *partial parent*: an index set per quadrant mask) and the ready
+  children draw the rest. Children that replace a parent fade in from the parent's shape over
+  0.5 s, so a late split slides instead of popping. Children near the split distance are
+  prefetched, and a slot whose node blocks a split this frame is never evicted.
 - Physics and shadows add their own selection inputs. A body with `TerrainAnchor` (default: every
   dynamic body and character) forces depth ≥ `colliderDepth` around it within `colliderRadius`.
   Shadow cascades reuse the camera's selection.
@@ -111,35 +119,50 @@ BiomeSet { biomes: list(handle('Biome')), latitudeBias: f32, snowLine: f32 }
 
 - Neighbors may differ by one depth level. The quadtree enforces a 2:1 balance, splitting extra
   nodes when needed.
-- **Skirts**: each chunk has a strip of vertices hanging below its border, hiding T-junction slivers.
-- **Geomorphing**: each vertex stores its position plus the delta to where its parent level would
-  put it (in `uvs1`). The vertex shader blends by distance within the node's LOD band, so splits and
-  merges slide instead of pop. The morph needs per-vertex camera distance and the node's band in
-  the vertex hook. 0020's `vertex_position` hook gains `uv1` and `color` arguments for this (an
-  additive change; 0020's spec is updated in the same change).
+- **Stitching**: an edge that meets a coarser neighbor draws only its even vertices, the
+  neighbor's, so there is no T-junction (a vertex on the neighbor's edge up to rounding shows
+  pixel-sized holes). Index sets are cached per (quadrant mask, stitched edges), and a slot switches
+  between them with `Mesh.setIndices`, keeping one mesh and one batch per slot.
+- **Skirts**: each chunk has a double-sided strip hanging below its drawn border, covering what
+  rounding still leaves, from either side.
+- **Geomorphing**: each vertex stores the delta to where its parent level would put it (tangent.xyz;
+  tangent.w is the height) and its lock code and the depth's error (uv1). The vertex shader blends
+  by distance within the node's LOD band. Edges locked to a coarser neighbor take the parent's
+  shape, edges toward a finer one keep their own, center lines of a partial parent keep their own,
+  and edges never fade. The per-instance lock bits, fade, and quadrant mask ride in
+  `render/InstanceData` (two numbers per instance). 0020's hooks read them through accessors in
+  `shard::mesh` (`vertex_uv1()`, `vertex_tangent()`, `vertex_world(p)`, `vertex_instance_data()`)
+  rather than new hook arguments, so existing overrides keep compiling.
 
 ### GPU generation
 
-- Render support: **GPU-only meshes**. `Mesh.gpu({ vertexCount, indexCount, attributes, bounds })`
-  makes a `Mesh` whose buffers have `STORAGE | VERTEX` usage and no CPU copy. The terrain writes
-  them from compute, and the renderer treats them like any mesh. All chunks share one index buffer
-  (per resolution, skirts included).
+- Render support: **GPU-only meshes**. `Mesh.gpu({ vertexCount, indices, bounds, share?,
+  baseVertex? })` makes a `Mesh` whose buffers have `STORAGE | VERTEX` usage and no CPU copy; with
+  `share` it draws another GPU mesh's buffers from `baseVertex`. Chunk slots live 256 to an arena
+  (one set of buffers), so consecutive chunks draw with no rebinding; the forward and shadow passes
+  skip redundant binds, and GPU culling carries the base vertex in its indirect arguments. Index
+  arrays are shared (one GPU buffer per array).
 - Per chunk, `terrain/generate` (a compute node, once per frame for all views) dispatches the
   planet's generated WGSL. For `(resolution + 2)²` points (one-vertex border for normals), it
   writes height, climate, and biome weights to a scratch buffer, then a second kernel writes
   positions, normals (central differences), tangents, morph deltas, and packed biome weights into
   the chunk's mesh. Normals match across neighbors because borders sample the same domain points.
-- **Precision at any radius.** Chunk centers and tangent frames are computed on the CPU in f64 and
-  passed to the kernel. Noise is sampled with 0041's origin offsets, with the origin at the chunk
-  center. A vertex's position relative to the chunk center is `dir(u, v) × (R + h) − center`, which
-  cancels catastrophically in f32 at Earth radius. The kernel computes that one expression in
-  two-float (hi + lo f32) arithmetic, about 20 extra ALU ops per vertex, so vertices are
-  sub-millimetre on any planet.
-- The chunk's geometric error, min/max height, and bounds are read back once per chunk, a few
-  frames later (no stall), to feed selection. Until then, conservative bounds from the parent are
-  used.
-- Budget: `TerrainBudget { chunksPerFrame: 8, msPerFrame: 1.5 }` (GPU time measured by timestamp
-  queries where available). Jobs are prioritized by projected error, then by distance.
+- **Precision at any radius.** The CPU prepares each job's points in f64: the vertex's zero-height
+  position relative to the chunk center and its direction, so the kernel only adds `dir × h` in
+  f32 (no two-float math needed). Noise is sampled with 0041's origin offsets relative to a lattice
+  origin every 64 m (`SNAP`), not the chunk center, and domain points are `dir × R + NOISE_OFFSET`
+  (away from OpenSimplex2's tie planes, where CPU and GPU rounding pick different lattice points).
+  So a vertex two chunks (or two depths) share samples the same numbers: edges are bit-identical.
+- Geometric errors are measured per depth when the planet's graphs change (sample chunks, made
+  non-increasing, with a safety factor), not per chunk. Each chunk's min/max height is read back a
+  frame or two later (no stall) to tighten its bounds; until then the planet's range is used.
+- Budget: `TerrainBudget { chunksPerFrame: 8, msPerFrame: 1.5 }`. All of a frame's jobs run in one
+  timed compute pass; where timestamps exist, the per-frame job count drops so the pass stays under
+  `msPerFrame`. Jobs still queued (kernels compiling) count against the next frame. The highest
+  projected errors go first.
+- **Hot reload.** An edited graph bumps the planet's version. Old chunks keep drawing until the new
+  kernels compile; then every visible chunk and its ancestors regenerate in one frame (outside the
+  budget), and other stale nodes stop counting as ready, so old and new never meet at a seam.
 - Chunk meshes are pooled per planet (default 2 048 slots) and evicted LRU among nodes not
   selected. Regenerating an evicted chunk is deterministic, so eviction is invisible.
 
@@ -147,14 +170,17 @@ BiomeSet { biomes: list(handle('Biome')), latitudeBias: f32, snowLine: f32 }
 
 - `planetHeightAt(world, planet, direction, out?)` samples the height graph on the CPU (0041,
   sync) and returns metres above radius. It powers placement, gameplay queries, and headless tests.
-- Collider chunks are generated on the worker pool at `colliderDepth` (default: the depth whose
-  spacing is ≤ 1 m) for nodes within `colliderRadius` of any `TerrainAnchor`. Each becomes a
-  fixed-body child entity with a `trimesh` collider in the chunk frame. They're cached in an LRU
-  of 256 chunks and keyed by `(planet key, node key)`, so walking back and forth doesn't regenerate.
+- Collider chunks are generated on the worker pool at `colliderDepth` (the depth whose spacing is
+  ≤ 1 m) for nodes within `colliderRadius` of any anchor: `TerrainAnchor` entities, characters,
+  dynamic bodies, and `NavAgent`s when the planet has `PlanetNav`. Each becomes a fixed-body child
+  entity with a `trimesh` collider. Scheduling is deterministic: a chunk becomes a collider two
+  frames after it's wanted, from the pool's result if it's in, else built on the main thread.
+  They're cached in an LRU (`colliderCache`, 256).
 - **What you see is what you stand on.** GPU and CPU heights agree only within 0041's tolerance,
   which grows with `heightScale` (a few centimetres for Earth-like relief). So chunks that have a
-  collider render from the collider's CPU vertices (uploaded once into the chunk's mesh) instead of
-  the GPU ones. Only distant chunks use GPU heights, and there the difference is sub-pixel.
+  collider render from the collider's CPU vertices (copied into the chunk slot's buffers) instead
+  of the GPU ones, and render depth near anchors stops at `colliderDepth`. Only distant chunks use
+  GPU heights, and there the difference is sub-pixel.
 - Headless (no GPU), selection runs for anchors only and produces collider chunks. The render path
   is skipped, and the world hash is identical to a run with a GPU.
 - The character controller (0029) works as is: `GravitySource` on the planet provides up, and
@@ -165,34 +191,33 @@ BiomeSet { biomes: list(handle('Biome')), latitudeBias: f32, snowLine: f32 }
 - Texture arrays arrive in `@shard/texture`: `Texture.create({ …, layers: n })` and a
   `TextureArray` importer (`*.texarray.json` listing files, all resized to one size and format).
   0016 deferred this to M7.
-- Per vertex, the generation kernel computes biome weights from climate, height, slope, and
-  latitude (a `smoothstep` window per biome range, with `blend` as the softness). It keeps the top
-  four biomes and writes their indices and weights into the vertex (`color` holds weights and
-  `joints` holds indices). A `BiomeSet` has at most 32 biomes, and each has up to 4 layers.
-- The `terrain/Planet` material extends `standard`. Its `pbr_input` hook samples each of the four
-  biomes' layers from one albedo, one normal, and one ORM texture array, triplanar in chunk-local
-  space with height-based blending. Distant chunks (by LOD depth) switch to one sample per biome
-  at a coarser scale, so orbit views don't shimmer.
-- Materials can still be replaced: `Planet.material` takes any material that extends
-  `terrain/Planet`, so a project can add lava glow or ice sparkle.
+- The kernel writes climate per vertex (uv = temperature, moisture). The `terrain/PlanetSurface`
+  material's `pbr_input` computes biome weights per fragment from a biome table texture (a
+  `smoothstep` window per range, `blend` the softness; effective temperature subtracts
+  `latitudeBias · |latitude|` and height over `snowLine`), keeps the top four, and samples their
+  layers from the set's albedo, normal, and ORM arrays, triplanar in planet space (repeating every
+  1 024 m so f32 stays precise), by slope. A `BiomeSet` has at most 32 biomes, each up to 4
+  layers. The CPU does the same math for `terrain.sample` and `terrain.map`.
+- Material type fields bind as `texture_2d_array` with `arrays: [...]` (0020).
 
 ### Ocean
 
-- If `seaLevel` isn't NaN, a second quadtree at `radius + seaLevel` uses the same selection and
-  a flat (height 0) generation kernel. It renders through a `terrain/Ocean` material: transparent,
-  forward, with scrolling normal maps, depth-based absorption against the terrain depth, and
+- With `ocean`, a second quadtree at `radius + seaLevel` uses the same selection and a flat
+  generation kernel that also writes the water depth. It renders through a `terrain/Ocean` material:
+  transparent, forward, with procedural wave normals, depth-based color from the water depth, and
   Fresnel reflection of the environment.
 - `planetSurfaceAt` reports `{ height, underwater, depth }` for gameplay. Swimming and buoyancy are
   game code.
 
 ### Navigation
 
-- `PlanetNav { agentRadius, agentHeight, maxSlope, radius: f32 = 150 }` on a planet bakes
-  `NavMesh` tiles for collider chunks within `radius` of any `NavAgent`, one tile per chunk, in the
-  chunk's tangent frame (up = radial at the chunk center).
-- 0037 gains a `frame` field on `NavMesh`: bake and query in that entity's local space. Paths
-  crossing chunk boundaries join tiles through Detour's tile links, since neighboring chunk frames
-  differ by less than a degree at bake depth.
+- `PlanetNav { agentRadius, agentHeight, maxSlope, radius: f32 = 150 }` on a planet keeps one
+  `NavMesh` in a tangent frame (up = radial) at the ground under its `NavAgent`s, baked from the
+  collider chunks within `radius` (they get `NavSource`). The frame moves, and the navmesh rebakes,
+  once the agents drift half the radius away. One frame is flat enough over a few hundred metres,
+  and Detour's ordinary tiles join across chunks.
+- 0037 gains a `frame` field on `NavMesh`: bake, query, and steer agents in that entity's local
+  space.
 
 ### Agent surface
 
@@ -200,11 +225,11 @@ BiomeSet { biomes: list(handle('Biome')), latitudeBias: f32, snowLine: f32 }
   usage, GPU time per frame, collider chunks, and the biome under the camera.
 - `terrain.sample { planet, directions | latlon }` returns height, biome weights, slope, and
   underwater, from the CPU path, headless-safe.
-- `debug.overlays` gains `terrain-lod` (chunk edges colored by depth), `terrain-biomes` (dominant
-  biome color), and `terrain-colliders`.
-- `procgen.preview` of a planet generator (0046) renders it from orbit, and `terrain.map { planet,
-  size }` returns an equirectangular PNG of height or biomes, so an agent can check "are there
-  oceans and poles" in one image.
+- `debug.overlays` gains `terrain-lod` (chunks shaded by depth), `terrain-biomes` (dominant
+  biome color), and `terrain-colliders` (collider chunk borders and anchors).
+- `terrain.map { planet, size, mode }` returns an equirectangular PNG of height or biomes, so an
+  agent can check "are there oceans and poles" in one image. (A planet generator's
+  `procgen.preview` comes with 0046.)
 - MCP tools: `describe_terrain`, `sample_terrain`, `terrain_map`.
 - **Errors:** `terrain/radius-too-large` (over 50 000 km), `terrain/bad-resolution` (not 2^n + 1),
   `terrain/too-many-biomes`, `terrain/climate-outputs` (climate graph lacks temperature or
@@ -218,41 +243,58 @@ BiomeSet { biomes: list(handle('Biome')), latitudeBias: f32, snowLine: f32 }
   and the same mesh feature serves 0045's GPU foliage.
 - **CPU colliders from the canonical kernel.** Physics has to work headless and match across
   machines, and only a few dozen chunks near bodies need them.
-- **Skirts plus geomorphing instead of stitched index buffers.** One shared index buffer per
-  resolution, no per-neighbor variants, and smooth transitions.
-- **Offsets and two-float math instead of a radius cap.** The only f32 cancellation left is one
-  expression per vertex, and fixing it costs a few ALU ops. That's cheaper than restricting the
-  planets a game can have.
+- **Stitching, skirts, and geomorphing together.** Geomorphing alone left T-junction sparkles with
+  skirts off; index sets per (mask, stitched edges) are cached and shared, and switching them is a
+  cheap index swap on the slot's mesh.
+- **CPU-prepared local offsets instead of two-float math.** The CPU already builds each job's
+  points in f64, so the kernel never sees the cancelling expression.
+- **Canonical sampling.** Lattice-origin snapping and the noise offset make shared vertices
+  bit-identical across chunks and depths, which is what crack-free edges and matching normals need.
 - **Tangent-adjusted cube mapping.** Nearly uniform chunk sizes with cheap forward and inverse
   mapping, which both kernels and gameplay queries use.
 
 ## Acceptance criteria
 
-- [ ] A 4 km planet renders from 20 000 km away (six root chunks) down to standing on the surface.
+- [x] A 4 km planet renders from 20 000 km away (six root chunks) down to standing on the surface.
       A scripted descent at 500 m/s never shows a hole (frame-by-frame hole detection against the
       sky color in a test render).
-- [ ] The same holds for an Earth-radius planet (6 371 km) descending from 40 000 km to the surface
+- [x] The same holds for an Earth-radius planet (6 371 km) descending from 40 000 km to the surface
       in 120 s, and for a 16 000 km super-Earth. The visible chunk count at 2 m altitude is within
       2× of the 4 km planet's.
-- [ ] On the Earth-radius planet, standing still on the surface, vertices show no jitter (screen
+- [x] On the Earth-radius planet, standing still on the surface, vertices show no jitter (screen
       position stable to 0.01 px over 600 frames), and a 0.5 m noise octave renders as smooth
       bumps, not steps (golden).
-- [ ] No cracks: a render with skirts disabled and a debug seam shader shows zero seam pixels at
+- [x] No cracks: a render with skirts disabled and a debug seam shader shows zero seam pixels at
       2:1 boundaries in five golden views.
-- [ ] Geomorphing: during a descent, no vertex's screen position jumps by more than 1 px between
+- [x] Geomorphing: during a descent, no vertex's screen position jumps by more than 1 px between
       frames beyond camera motion.
-- [ ] CPU `planetHeightAt` and the GPU chunk heights agree within 0041's tolerance times
+- [x] CPU `planetHeightAt` and the GPU chunk heights agree within 0041's tolerance times
       `heightScale` at 10 000 random points. Collider chunks render exactly the collider's vertices,
       so a character's feet are within 1 cm of the visible ground on the Earth-radius planet.
-- [ ] A character dropped at 20 random points walks 100 m in a straight line headless without
+- [x] A character dropped at 20 random points walks 100 m in a straight line headless without
       falling through, and the world hash matches across Node and Chrome.
-- [ ] Generation stays within `TerrainBudget` in the bench, and with the default settings a
+- [x] Generation stays within `TerrainBudget` in the bench, and with the default settings a
       descent keeps frame time under 16.6 ms on the reference GPU.
-- [ ] A planet with an ocean shows water where `terrain.sample` reports underwater, and the
+- [x] A planet with an ocean shows water where `terrain.sample` reports underwater, and the
       `terrain.map` golden shows continents, poles (snow biome), and sea.
-- [ ] A `NavAgent` on the surface paths 120 m across at least three chunk tiles.
-- [ ] Editing the height graph in `shard dev` regenerates visible chunks within 1 s without
+- [x] A `NavAgent` on the surface paths 120 m across at least three chunk tiles.
+- [x] Editing the height graph in `shard dev` regenerates visible chunks within 1 s without
       holes, and colliders update too.
+
+## As built
+
+- Tests: `packages/terrain/src/*.test.ts` cover every criterion. The descent runs a hole detector
+  every frame (4 km, Earth, and 16 000 km, zero holes; 198 / 225 / 192 chunks standing at 2 m);
+  seams use the debug shader with skirts off in five golden views; geomorphing replays the vertex
+  stage on the CPU (worst step under 1 px); CPU/GPU heights match at 10 000 points and feet are
+  within 1 cm of the drawn collider triangles; 20 characters walk 100 m; the walk checksum is pinned
+  (`0da23929`) and the playground's `#terrain` page shows Chrome's next to it; the bench holds a
+  960×540 descent to p95 frame time under 16.6 ms (CPU p95 8.5 ms, GPU p95 9.3 ms) at no more than
+  8 jobs a frame; hot reload regenerates every visible chunk in 4 frames with no hole pixels.
+- Deferred: scatter per biome (0045), a custom planet material (needs material type inheritance),
+  and distance-based single-sample texturing.
+- Example: star-explorer's `scenes/planet.scene.json` (a 600 km planet with climate, five biomes,
+  and an ocean) and `tests/planet.test.ts`.
 
 ## Open questions
 

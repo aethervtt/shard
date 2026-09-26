@@ -321,6 +321,46 @@ describe('textures in code and in projects', () => {
     expect(tex).toMatchObject({ width: 8, height: 8, version: 1 })
   })
 
+  it('imports a *.texarray.json as a texture array, resizing layers and re-importing on edits', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'shard-texture-'))
+    roots.push(root)
+    mkdirSync(join(root, 'assets'))
+    writeFileSync(join(root, 'assets/grass.png'), await pngOf(pattern(16, 16), 16, 16))
+    writeFileSync(join(root, 'assets/rock.png'), await pngOf(pattern(32, 32), 32, 32))
+    writeFileSync(
+      join(root, 'assets/ground.texarray.json'),
+      JSON.stringify({ layers: ['grass.png', 'rock.png'], usage: 'color' }),
+    )
+    writeFileSync(join(root, 'assets/bad.texarray.json'), JSON.stringify({ layers: [] }))
+    const assets = assetServer(new World()).configure({
+      platform: createNodePlatform({ root, logTo: () => {} }),
+    })
+    const report = await assets.scan()
+    expect(report.failed.map((f) => f.error.code)).toEqual(['texture/invalid-array'])
+    expect(assets.info('assets/ground.texarray.json').info).toMatchObject({
+      width: 16,
+      height: 16,
+      layers: 2,
+      mips: 5,
+    })
+    // The 32² layer was resized to the first one's size (with a warning).
+    expect(JSON.stringify(assets.info('assets/ground.texarray.json').warnings)).toContain(
+      'resized to 16×16',
+    )
+    await assets.load('assets/ground.texarray.json')
+    const tex = assets.world.resource(Textures).get(assets.resolve('assets/ground.texarray.json'))!
+    expect(tex).toMatchObject({ width: 16, height: 16, layers: 2, usage: 'color', mipCount: 5 })
+    // Level 0 holds both layers: the first one's pixels, then the (resized) second one's.
+    expect(tex.levels?.[0]?.byteLength).toBe(16 * 16 * 4 * 2)
+    await new Promise((r) => setTimeout(r, 10))
+    writeFileSync(
+      join(root, 'assets/ground.texarray.json'),
+      JSON.stringify({ layers: ['grass.png', 'rock.png', 'grass.png'], size: 8 }),
+    )
+    await assets.scan()
+    expect(tex).toMatchObject({ width: 8, height: 8, layers: 3, version: 1 })
+  })
+
   it('imports a 2048² PNG in under 1.5 s', async () => {
     const png = await pngOf(pattern(2048, 2048), 2048, 2048)
     const start = performance.now()

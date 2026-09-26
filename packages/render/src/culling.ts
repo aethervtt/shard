@@ -228,7 +228,8 @@ export class GpuCuller {
       const ez = (b[5]! - b[2]!) * 0.5
       this.batchF32[o + 3] = Math.fround(Math.sqrt(ex * ex + ey * ey + ez * ez))
       this.batchData[o + 4] = batch.mesh.drawCount
-      this.batchData[o + 5] = batch.mesh.indices ? 1 : 0
+      // 0: not indexed; else 1 + the base vertex (meshes sharing vertex buffers).
+      this.batchData[o + 5] = batch.mesh.indexed ? 1 + batch.mesh.baseVertex : 0
       this.batchData[o + 6] = batch.region
       this.batchData[o + 7] =
         (batch.transparent ? BATCH_TRANSPARENT : 0) | (batch.ready ? 0 : BATCH_NOT_READY)

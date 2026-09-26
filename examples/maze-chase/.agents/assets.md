@@ -25,6 +25,12 @@ Files: `*.png`, `*.jpg`, `*.jpeg`, `*.webp`, `*.hdr`, `*.ktx2`
 | `premultiplyAlpha` | boolean | `false` |  | Multiply color by alpha on import. |
 | `normalMap` | `"opengl"` \| `"directx"` | `"opengl"` |  | Normal maps: opengl (+Y up, the engine convention) or directx (+Y down: green is flipped on import). |
 
+## `texture-array`
+
+Files: `*.texarray.json`
+
+No import settings.
+
 ## `noise`
 
 Files: `*.noise.json`
@@ -146,6 +152,18 @@ No import settings.
 ## `particles`
 
 Files: `*.particles.json`
+
+No import settings.
+
+## `data/biome`
+
+Files: `*.biome.json`
+
+No import settings.
+
+## `data/biomes`
+
+Files: `*.biomes.json`
 
 No import settings.
 

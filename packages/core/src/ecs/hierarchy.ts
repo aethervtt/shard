@@ -1,4 +1,4 @@
-import { defineComponent } from '../schema/component'
+import { defineComponent, defineTag } from '../schema/component'
 import { t } from '../schema/field'
 
 export const ChildOf = defineComponent(
@@ -20,3 +20,9 @@ export const Children = defineComponent(
     serialize: false,
   },
 )
+
+export const Derived = defineTag('core/Derived', {
+  description:
+    'An entity the engine rebuilds from other state every run (terrain chunks). Saved games and world hashes leave it out.',
+  serialize: false,
+})

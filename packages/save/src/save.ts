@@ -4,6 +4,7 @@ import {
   allResources,
   ChildOf,
   type ComponentDef,
+  Derived,
   defineResource,
   defineTag,
   type Entity,
@@ -103,7 +104,7 @@ function isRuntimeSaved(world: World, entity: Entity, authored: Set<Entity>): bo
   const components = world.componentsOf(entity)
   let saved = false
   for (const def of components) {
-    if (def === InstancePart || def === NoSave) return false
+    if (def === InstancePart || def === NoSave || def === Derived) return false
     if (isSaved(def)) saved = true
   }
   return saved

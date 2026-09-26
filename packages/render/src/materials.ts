@@ -34,6 +34,11 @@ export interface MaterialTypeOptions<F extends Fields> {
    * code, so it's chosen per type; editing the file relinks the material.
    */
   noise?: Readonly<Record<string, string>>
+  /**
+   * Texture fields bound as `texture_2d_array<f32>` (a `*.texarray.json`, or any texture as one
+   * layer). Arrays of color textures sample through the sRGB view.
+   */
+  arrays?: readonly string[]
   description?: string
 }
 
@@ -71,6 +76,8 @@ export class MaterialType {
   layout: WgslLayout<Fields> | undefined
   /** The type's own texture fields, in binding order. */
   textures: string[]
+  /** Texture fields bound as 2D arrays. */
+  arrays: Set<string>
   blend: BlendMode | undefined
   shader: string | undefined
   /** Noise graphs the module wraps as `noise_<name>`. */
@@ -91,6 +98,7 @@ export class MaterialType {
     this.schema = schema
     this.layout = undefined
     this.textures = []
+    this.arrays = new Set()
     this.blend = options.blend
     this.shader = options.shader
     this.noise = []
@@ -110,6 +118,7 @@ export class MaterialType {
     this.extends = options.extends ?? 'standard'
     this.schema = schema
     this.textures = textures
+    this.arrays = new Set(options.arrays ?? [])
     this.blend = options.blend
     this.shader = options.shader
     this.noise = Object.entries(options.noise ?? {}).map(([name, path]) => {
@@ -172,7 +181,8 @@ export class MaterialType {
       binding++ // the uniform binding is reserved either way
     }
     for (const tex of this.textures) {
-      lines.push(`@group(1) @binding(${binding++}) var ${this.varName}_${tex}: texture_2d<f32>;`)
+      const kind = this.arrays.has(tex) ? 'texture_2d_array<f32>' : 'texture_2d<f32>'
+      lines.push(`@group(1) @binding(${binding++}) var ${this.varName}_${tex}: ${kind};`)
       lines.push(`@group(1) @binding(${binding++}) var ${this.varName}_${tex}_sampler: sampler;`)
     }
     if (!this.layout && this.textures.length === 0) {
@@ -192,8 +202,15 @@ export class MaterialType {
     let binding = this.bindingBase
     if (this.layout) entries.push({ binding, visibility, buffer: { type: 'uniform' } })
     binding++
-    for (const _ of this.textures) {
-      entries.push({ binding: binding++, visibility, texture: { sampleType: 'float' } })
+    for (const tex of this.textures) {
+      entries.push({
+        binding: binding++,
+        visibility,
+        texture: {
+          sampleType: 'float',
+          viewDimension: this.arrays.has(tex) ? '2d-array' : '2d',
+        },
+      })
       entries.push({ binding: binding++, visibility, sampler: { type: 'filtering' } })
     }
     const layout = gpu.layouts.bindGroupLayout({ label: `material/${this.name}`, entries })

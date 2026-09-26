@@ -94,7 +94,7 @@ UI, navigation, and saves. Each one exposes its state to agents as data.
 | [0040](0040-large-world-coordinates.md) | Large-world coordinates (grids, floating origin, f64 helpers) | implemented |
 | [0041](0041-noise.md) | Noise library (graphs as data, WASM kernel, WGSL codegen, worker pool) | implemented |
 | [0042](0042-generators.md) | Generators as assets (seeded, cached by input hash, previews) | implemented |
-| [0043](0043-planet-terrain.md) | Planet terrain (cube-sphere, quadtree LOD, GPU chunks, biomes, streaming) | accepted |
+| [0043](0043-planet-terrain.md) | Planet terrain (cube-sphere, quadtree LOD, GPU chunks, biomes, streaming) | implemented |
 | [0044](0044-atmosphere.md) | Atmosphere scattering (Hillaire LUTs, aerial perspective, any altitude) | accepted |
 | [0045](0045-scatter-foliage-procedural-meshes.md) | Scatter, foliage, and procedural meshes | accepted |
 | [0046](0046-star-systems-galaxy.md) | Star systems and galaxy generation | accepted |

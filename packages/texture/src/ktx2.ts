@@ -31,6 +31,7 @@ export function writeKtx2(
   usage: TextureUsage,
   faces = 1,
   premultiplied = false,
+  layers = 1,
 ): Uint8Array {
   const hdr = usage === 'hdr'
   const c = createDefaultContainer()
@@ -44,6 +45,8 @@ export function writeKtx2(
   c.pixelHeight = chain.height
   c.levelCount = chain.levels.length
   c.faceCount = faces
+  // A texture array (each level holds its layers one after another); 0 means not an array.
+  c.layerCount = layers > 1 ? layers : 0
   c.supercompressionScheme = KHR_SUPERCOMPRESSION_NONE
   c.levels = chain.levels.map((level) => {
     const bytes: Uint8Array<ArrayBuffer> = hdr
@@ -88,6 +91,8 @@ export interface Ktx2Data {
   bytes: Uint8Array
   /** 1, or 6 for a cube map (each level holds the faces in order +X, -X, +Y, -Y, +Z, -Z). */
   faces: number
+  /** Array layers (1 for a plain texture); each level holds them one after another. */
+  layers: number
   /** Color is already multiplied by alpha. */
   premultiplied: boolean
 }
@@ -103,10 +108,18 @@ export function readKtx2(bytes: Uint8Array): Ktx2Data {
       { cause },
     )
   }
-  if (c.layerCount > 1 || (c.faceCount !== 1 && c.faceCount !== 6) || c.pixelDepth > 1) {
-    throw new ShardError('texture/unsupported-format', 'Array and 3D KTX2 textures come later', {
-      hint: 'Use a 2D image or a cube map (6 faces).',
-    })
+  if (
+    (c.faceCount !== 1 && c.faceCount !== 6) ||
+    c.pixelDepth > 1 ||
+    (c.layerCount > 1 && c.faceCount !== 1)
+  ) {
+    throw new ShardError(
+      'texture/unsupported-format',
+      '3D and cube-array KTX2 textures come later',
+      {
+        hint: 'Use a 2D image, a 2D array (*.texarray.json), or a cube map (6 faces).',
+      },
+    )
   }
   const dfd = c.dataFormatDescriptor[0]
   const basis =
@@ -117,10 +130,14 @@ export function readKtx2(bytes: Uint8Array): Ktx2Data {
           ? 'uastc'
           : undefined
       : undefined
-  if (c.faceCount === 6 && basis) {
-    throw new ShardError('texture/unsupported-format', 'Basis-compressed cube maps come later', {
-      hint: 'Store cube maps uncompressed (RGBA16F for HDR environments).',
-    })
+  if ((c.faceCount === 6 || c.layerCount > 1) && basis) {
+    throw new ShardError(
+      'texture/unsupported-format',
+      'Basis-compressed cube maps and arrays come later',
+      {
+        hint: 'Store cube maps and texture arrays uncompressed.',
+      },
+    )
   }
   if (c.vkFormat === 0 && !basis) {
     throw new ShardError(
@@ -161,6 +178,7 @@ export function readKtx2(bytes: Uint8Array): Ktx2Data {
     srgb,
     bytes,
     faces: c.faceCount,
+    layers: Math.max(1, c.layerCount),
     premultiplied:
       c.keyValue[PREMULTIPLIED_KEY] !== undefined ||
       ((dfd?.flags ?? 0) & KHR_DF_FLAG_ALPHA_PREMULTIPLIED) !== 0,

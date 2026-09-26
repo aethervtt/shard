@@ -1,0 +1,36 @@
+{
+  "name": "@shard/terrain",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@shard/assets": "workspace:*",
+    "@shard/core": "workspace:*",
+    "@shard/gpu": "workspace:*",
+    "@shard/mesh": "workspace:*",
+    "@shard/nav": "workspace:*",
+    "@shard/noise": "workspace:*",
+    "@shard/physics": "workspace:*",
+    "@shard/platform": "workspace:*",
+    "@shard/protocol": "workspace:*",
+    "@shard/render": "workspace:*",
+    "@shard/runtime": "workspace:*",
+    "@shard/shader": "workspace:*",
+    "@shard/texture": "workspace:*",
+    "@shard/transform": "workspace:*"
+  },
+  "devDependencies": {
+    "@shard/platform-node": "workspace:*",
+    "@types/node": "^26.6.2",
+    "@webgpu/types": "^0.1.74",
+    "webgpu": "0.6.1"
+  }
+}

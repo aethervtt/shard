@@ -109,6 +109,8 @@ export const BUILTIN_PLUGINS = {
   nav: 'navigation: NavGrid A* (2D), NavMesh baked by Recast from NavSource geometry, OffMeshLink, path queries, NavAgent steering (includes core/transform)',
   'nav/grid':
     'navigation on NavGrids only, without loading the Recast WASM (includes core/transform)',
+  terrain:
+    'planets: Planet cube-sphere terrain from noise graphs with LOD, geomorphing, oceans, biomes, collider chunks around characters, navmeshes on the surface; terrain.* methods (includes core/transform; add render/forward to draw it, physics3d for colliders)',
   'core/transform': 'Transform and hierarchy propagation',
 } as const
 

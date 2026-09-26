@@ -1,0 +1,12 @@
+{
+  "$schema": "../../.shard/schemas/biomes.schema.json",
+  "biomes": [
+    { "path": "assets/biomes/grass.biome.json" },
+    { "path": "assets/biomes/beach.biome.json" },
+    { "path": "assets/biomes/forest.biome.json" },
+    { "path": "assets/biomes/rock.biome.json" },
+    { "path": "assets/biomes/snow.biome.json" }
+  ],
+  "latitudeBias": 1.2,
+  "snowLine": 6000
+}

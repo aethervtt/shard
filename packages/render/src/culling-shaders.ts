@@ -99,7 +99,7 @@ fn reset(@builtin(global_invocation_id) id: vec3u) {
   atomicStore(&args[o + 2u], 0u);
   // Indexed: (count, instances, first index, base vertex, first instance).
   // Non-indexed: (count, instances, first vertex, first instance).
-  atomicStore(&args[o + 3u], select(first, 0u, batch.indexed != 0u));
+  atomicStore(&args[o + 3u], select(first, batch.indexed - 1u, batch.indexed != 0u));
   atomicStore(&args[o + 4u], select(0u, first, batch.indexed != 0u));
 }
 

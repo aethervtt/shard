@@ -8,7 +8,7 @@ export {
   makeEntity,
 } from './entity'
 export { EventQueue, EventReader } from './events'
-export { ChildOf, Children } from './hierarchy'
+export { ChildOf, Children, Derived } from './hierarchy'
 export {
   type LifecycleEvent,
   type LifecycleKind,

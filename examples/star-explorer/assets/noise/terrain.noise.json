@@ -1,0 +1,19 @@
+{
+  "$schema": "../../.shard/schemas/noise.schema.json",
+  "description": "Surface height for the landable planet, sampled in metres: continents a few hundred km across, ridged mountains, and hills.",
+  "output": "height",
+  "nodes": {
+    "continents": { "fbm": { "source": "simplex", "octaves": 6, "frequency": 2.5e-6, "seed": 4 } },
+    "mountains": {
+      "ridged": { "source": "simplex", "octaves": 7, "frequency": 1.5e-4, "seed": 5 }
+    },
+    "hills": { "fbm": { "source": "simplex", "octaves": 5, "frequency": 2e-3, "seed": 6 } },
+    "height": {
+      "add": [
+        { "add": ["continents", 0.08] },
+        { "multiply": ["mountains", 0.25] },
+        { "multiply": ["hills", 0.01] }
+      ]
+    }
+  }
+}

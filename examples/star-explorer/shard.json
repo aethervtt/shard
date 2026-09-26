@@ -11,5 +11,5 @@
     "height": 720,
     "msaa": 4
   },
-  "plugins": ["render/forward", "input", "audio", "ui"]
+  "plugins": ["render/forward", "input", "audio", "ui", "physics3d", "terrain"]
 }

@@ -121,6 +121,10 @@ export const NavMesh = defineComponent(
         'World-space bake bounds, min corner. Equal to boundsMax (the default): bounds of every source.',
     }),
     boundsMax: t.vec3({ unit: 'm', description: 'World-space bake bounds, max corner.' }),
+    frame: t.entity({
+      description:
+        "Bake and query in this entity's local space instead of the world's: its +Y is up. Positions and paths stay world-space in the API. Lets a navmesh ride a moving or rotating frame (a planet's surface) and keeps its tiles when the floating origin moves. Bounds are in this space.",
+    }),
   },
   {
     description:

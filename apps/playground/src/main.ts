@@ -12,6 +12,7 @@ import { App, animationFrameRunner } from '@shard/runtime'
 import { savePlugin } from '@shard/save'
 import { ScenePlugin } from '@shard/scene'
 import { spritePlugin } from '@shard/sprite'
+import { terrainPlugin } from '@shard/terrain'
 import { TransformPlugin } from '@shard/transform'
 import { uiPlugin } from '@shard/ui'
 import { animationDemoPlugin } from './animation'
@@ -40,6 +41,7 @@ import { procgenDemoPlugin } from './procgen'
 import { saveDemoPlugin } from './save'
 import { scenePlugin } from './scene'
 import { spritesPlugin } from './sprites'
+import { terrainDemoPlugin } from './terrain'
 import { uiDemoPlugin } from './ui'
 
 const canvas = document.getElementById('viewport') as HTMLCanvasElement
@@ -75,6 +77,7 @@ const DEMOS = [
   'grids',
   'noise',
   'procgen',
+  'terrain',
 ] as const
 const demo = DEMOS.find((d) => location.hash === `#${d}`) ?? 'scene'
 document.body.dataset.demo = demo
@@ -213,6 +216,8 @@ if (demo === 'galaxy') {
   app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, noiseDemoPlugin)
 } else if (demo === 'procgen') {
   app.addPlugin(TransformPlugin, forwardPlugin(), ScenePlugin, hudPlugin, procgenDemoPlugin)
+} else if (demo === 'terrain') {
+  app.addPlugin(TransformPlugin, forwardPlugin(), terrainPlugin(), hudPlugin, terrainDemoPlugin)
 } else if (demo === 'sky') {
   app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, skyPlugin)
 } else {

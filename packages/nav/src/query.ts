@@ -67,6 +67,7 @@ function inMesh(m: NavMeshRuntime, x: number, y: number, z: number): boolean {
 /** What `locate` found; module state so per-frame queries don't allocate a result. */
 let foundGrid: GridRecord | null = null
 let foundMesh: NavMeshRuntime | null = null
+const inFrame = new Float64Array(3)
 
 /** Finds the grid or navmesh (`nav`, else the one containing the point) into found*. */
 function locate(state: NavState, point: ArrayLike<number>, nav: Entity | null): boolean {
@@ -90,7 +91,13 @@ function locate(state: NavState, point: ArrayLike<number>, nav: Entity | null): 
   }
   for (let i = 0; i < state.meshList.length; i++) {
     const m = state.meshList[i]!
-    if (inMesh(m, x, y, z)) {
+    if (m.frame !== null) {
+      m.pointIn(x, y, z, inFrame)
+      if (inMesh(m, inFrame[0]!, inFrame[1]!, inFrame[2]!)) {
+        foundMesh = m
+        return true
+      }
+    } else if (inMesh(m, x, y, z)) {
       foundMesh = m
       return true
     }
@@ -161,9 +168,41 @@ export function findPath(
     gridPath(navState(world), foundGrid, from, to, out)
   } else {
     out.nav = foundMesh!.entity
-    meshPath(foundMesh!, from, to, out, options.areas)
+    const m = foundMesh!
+    if (m.frame === null) meshPath(m, from, to, out, options.areas)
+    else {
+      // In the navmesh's frame, then the corners back to world space.
+      m.pointIn(from[0]!, from[1]!, from[2] ?? 0, fromLocal)
+      m.pointIn(to[0]!, to[1]!, to[2] ?? 0, toLocal)
+      meshPath(m, fromLocal, toLocal, out, options.areas)
+      const c = out.corners
+      for (let i = 0; i < out.count; i++) {
+        m.pointOut(c[i * 3]!, c[i * 3 + 1]!, c[i * 3 + 2]!, inFrame)
+        c[i * 3] = inFrame[0]!
+        c[i * 3 + 1] = inFrame[1]!
+        c[i * 3 + 2] = inFrame[2]!
+      }
+    }
   }
   return out
+}
+
+const fromLocal = new Float64Array(3)
+const toLocal = new Float64Array(3)
+
+/**
+ * A path on a navmesh with every point in its own space (framed navmeshes: the frame's local
+ * space). For agents, which steer in that space.
+ */
+export function meshPathLocal(
+  m: NavMeshRuntime,
+  from: ArrayLike<number>,
+  to: ArrayLike<number>,
+  out: NavPath,
+  areas?: Record<number, number>,
+): void {
+  out.nav = m.entity
+  meshPath(m, from, to, out, areas)
 }
 
 function gridPath(
@@ -387,14 +426,16 @@ export function nearestPoint(
     return true
   }
   const m = foundMesh!
-  v3.x = point[0]!
-  v3.y = point[1]!
-  v3.z = point[2]!
+  m.pointIn(point[0]!, point[1]!, point[2] ?? 0, inFrame)
+  v3.x = inFrame[0]!
+  v3.y = inFrame[1]!
+  v3.z = inFrame[2]!
   const r = m.query.findClosestPoint(v3, { filter: m.filter, halfExtents: queryExtents(m) })
   if (!r.success || r.polyRef === 0) return false
-  out[0] = r.point.x
-  out[1] = r.point.y
-  out[2] = r.point.z
+  m.pointOut(r.point.x, r.point.y, r.point.z, inFrame)
+  out[0] = inFrame[0]!
+  out[1] = inFrame[1]!
+  out[2] = inFrame[2]!
   return true
 }
 
@@ -451,9 +492,11 @@ export function navRaycast(
     return !clear
   }
   const m = foundMesh!
-  v3.x = from[0]!
-  v3.y = from[1]!
-  v3.z = from[2]!
+  m.pointIn(from[0]!, from[1]!, from[2] ?? 0, fromLocal)
+  m.pointIn(to[0]!, to[1]!, to[2] ?? 0, toLocal)
+  v3.x = fromLocal[0]!
+  v3.y = fromLocal[1]!
+  v3.z = fromLocal[2]!
   const start = m.query.findNearestPoly(v3, { filter: m.filter, halfExtents: queryExtents(m) })
   if (!start.success || start.nearestRef === 0) {
     hit.t = 0
@@ -462,21 +505,20 @@ export function navRaycast(
     hit.point[2] = from[2]!
     return true
   }
-  v3b.x = to[0]!
-  v3b.y = to[1]!
-  v3b.z = to[2]!
+  v3b.x = toLocal[0]!
+  v3b.y = toLocal[1]!
+  v3b.z = toLocal[2]!
   const r = m.query.raycast(start.nearestRef, start.nearestPoint, v3b, { filter: m.filter })
   const t = r.t > 1 ? 1 : r.t
   hit.t = t
   const sp = start.nearestPoint
-  hit.point[0] = sp.x + (to[0]! - sp.x) * t
-  hit.point[1] = sp.y + (to[1]! - sp.y) * t
-  hit.point[2] = sp.z + (to[2]! - sp.z) * t
-  if (t < 1) {
-    hit.normal[0] = r.hitNormal.x
-    hit.normal[1] = r.hitNormal.y
-    hit.normal[2] = r.hitNormal.z
-  }
+  m.pointOut(
+    sp.x + (toLocal[0]! - sp.x) * t,
+    sp.y + (toLocal[1]! - sp.y) * t,
+    sp.z + (toLocal[2]! - sp.z) * t,
+    hit.point,
+  )
+  if (t < 1) m.vectorOut(r.hitNormal.x, r.hitNormal.y, r.hitNormal.z, hit.normal)
   return t < 1
 }
 
