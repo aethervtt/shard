@@ -91,13 +91,17 @@ UI, navigation, and saves. Each one exposes its state to agents as data.
 
 | Spec | Title | Status |
 |---|---|---|
-| — | Noise library (WASM + compute) | planned |
-| — | Generators as assets | planned |
-| — | Large-world coordinates (floating origin, double-precision positions) | planned |
-| — | Planet terrain (cube-sphere, quadtree LOD, GPU heightfields, streaming) | planned |
-| — | Atmosphere scattering and sky | planned |
-| — | Scatter, foliage, and procedural meshes | planned |
-| — | Star systems and galaxy generation | planned |
+| [0040](0040-large-world-coordinates.md) | Large-world coordinates (grids, floating origin, f64 helpers) | accepted |
+| [0041](0041-noise.md) | Noise library (graphs as data, WASM kernel, WGSL codegen, worker pool) | accepted |
+| [0042](0042-generators.md) | Generators as assets (seeded, cached by input hash, previews) | accepted |
+| [0043](0043-planet-terrain.md) | Planet terrain (cube-sphere, quadtree LOD, GPU chunks, biomes, streaming) | accepted |
+| [0044](0044-atmosphere.md) | Atmosphere scattering (Hillaire LUTs, aerial perspective, any altitude) | accepted |
+| [0045](0045-scatter-foliage-procedural-meshes.md) | Scatter, foliage, and procedural meshes | accepted |
+| [0046](0046-star-systems-galaxy.md) | Star systems and galaxy generation | accepted |
+| [0047](0047-small-bodies.md) | Small bodies (asteroids, belts, rings, comets) | accepted |
+| [0048](0048-creatures.md) | Creatures (body plans, procedural locomotion, behavior, fauna) | accepted |
+| [0049](0049-clouds-weather.md) | Clouds and weather (volumetric clouds, timeline weather, precipitation) | accepted |
+| [0050](0050-soundscapes.md) | Soundscapes and procedural audio | accepted |
 
 ## M8 — Proof project: No Man's Sky-style explorer
 
