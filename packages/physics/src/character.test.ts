@@ -1,4 +1,5 @@
 import { type Entity, ProfilerResource, type World } from '@aethervtt/shard-core'
+import { budget } from '@aethervtt/shard-core/test-env'
 import { App } from '@aethervtt/shard-runtime'
 import { Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { describe, expect, it } from 'vitest'
@@ -16,8 +17,6 @@ import {
 } from './components'
 import { Physics, physics2dPlugin, physics3dPlugin } from './plugin'
 
-/** Spec budgets hold under `pnpm bench` (serial); parallel `pnpm test` runs get 3x slack. */
-const budget = (ms: number) => ms * (process.env.SHARD_BENCH ? 1 : 3)
 const DT = 1 / 60
 /** Capsule center above the feet for the default 1.8 m character. */
 const HALF = 0.9

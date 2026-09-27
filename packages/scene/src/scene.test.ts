@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ChildOf, defineComponent, t, vec3, World } from '@aethervtt/shard-core'
+import { budget } from '@aethervtt/shard-core/test-env'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import {
   AmbientLight,
@@ -34,9 +35,6 @@ import {
   validateScene,
 } from './scene'
 import { sceneJsonSchema } from './schema'
-
-/** Spec budgets hold under `pnpm bench` (serial); parallel `pnpm test` runs get 3x slack. */
-const budget = (ms: number) => ms * (process.env.SHARD_BENCH ? 1 : 3)
 
 /** A component with an entity reference, to test path resolution. */
 const Follow = defineComponent('test/Follow', { target: t.entity, distance: t.f32({ default: 5 }) })

@@ -1,3 +1,4 @@
+import { timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { loadNoiseKernel, NoiseGraph } from '@aethervtt/shard-noise'
@@ -28,7 +29,9 @@ afterAll(() => gpu?.destroy())
 const R = 600_000
 
 describe('planet atmospheres (spec 0044)', () => {
-  it("takes the planet's radius and hazes its terrain from orbit like its limb", async () => {
+  it("takes the planet's radius and hazes its terrain from orbit like its limb", {
+    timeout: timeout(120_000),
+  }, async () => {
     const shots = []
     for (const withAtmosphere of [false, true]) {
       const p = await planetApp(gpu, {
@@ -87,5 +90,5 @@ describe('planet atmospheres (spec 0044)', () => {
     expect(b[0]!).toBeLessThan(a[0]! * 0.995)
     expect(b[2]! / b[0]!).toBeGreaterThan((a[2]! / a[0]!) * 1.02)
     expect(ring(hazy)).toBeGreaterThan(ring(bare) + 10)
-  }, 120_000)
+  })
 })

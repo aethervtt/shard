@@ -1,4 +1,5 @@
 import { ChildOf, defineComponent, t } from '@aethervtt/shard-core'
+import { budget, timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import {
@@ -30,9 +31,6 @@ import {
   spawnBiped,
   spawnCreatures,
 } from './testing'
-
-/** Spec budgets hold under `pnpm bench` (serial); parallel `pnpm test` runs get 3x slack. */
-const budget = (ms: number) => ms * (process.env.SHARD_BENCH ? 1 : 3)
 
 /** 200 positions on a 20 × 10 grid, 1.6 m apart. */
 function grid(): [number, number, number][] {
@@ -288,7 +286,7 @@ describe('performance', () => {
     expect(median(list)).toBeLessThan(budget(1))
   })
 
-  it('200 skinned characters hold 60 fps at 1080p', async () => {
+  it('200 skinned characters hold 60 fps at 1080p', { timeout: timeout(60_000) }, async () => {
     const gpu: GpuContext = await createNodeGpuContext()
     const target = new OffscreenTarget(gpu, { label: 'perf', width: 1920, height: 1080 })
     const app = new App().addPlugin(
@@ -336,5 +334,5 @@ describe('performance', () => {
       target.destroy()
       gpu.destroy()
     }
-  }, 60_000)
+  })
 })

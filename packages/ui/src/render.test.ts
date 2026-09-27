@@ -1,5 +1,6 @@
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { inputPlugin } from '@aethervtt/shard-input'
@@ -201,7 +202,9 @@ async function hudScene(world3d = false) {
 }
 
 describe('UI rendering', () => {
-  it('renders a HUD prefab: rounded bordered panels, nine-slice image, wrapped text, clipped scroll (golden)', async () => {
+  it('renders a HUD prefab: rounded bordered panels, nine-slice image, wrapped text, clipped scroll (golden)', {
+    timeout: timeout(60_000),
+  }, async () => {
     const { app, world, camera } = await hudScene()
     await settle(app)
     const shot = captureView(world, `camera:${camera}`)
@@ -222,9 +225,9 @@ describe('UI rendering', () => {
     expect(corner).toEqual(pixel(image, 2, 2))
     const edge = pixel(image, Math.round(panel.x + panel.width / 2), Math.round(panel.y) + 1)
     expect(edge[2]).toBeGreaterThan(150)
-  }, 60_000)
+  })
 
-  it('uploads nothing on an unchanged frame', async () => {
+  it('uploads nothing on an unchanged frame', { timeout: timeout(60_000) }, async () => {
     const { app, world } = await hudScene()
     await settle(app)
     app.update(1 / 60)
@@ -249,9 +252,11 @@ describe('UI rendering', () => {
     expect(world.resource(UiRenderer).rebuilds).toBe(1)
     app.update(1 / 60)
     expect(world.resource(UiRenderer).rebuilds).toBe(0)
-  }, 60_000)
+  })
 
-  it('world picks under the HUD hit the UI, not the world', async () => {
+  it('world picks under the HUD hit the UI, not the world', {
+    timeout: timeout(60_000),
+  }, async () => {
     const { app, world, camera } = await hudScene(true)
     await settle(app)
     const panel = world.get(findEntityByPath(world, 'hud/scanner')!, UiLayout)
@@ -260,14 +265,14 @@ describe('UI rendering', () => {
     await settle(app, 4)
     expect(await onPanel).toBeUndefined()
     expect((await offPanel)?.entity).toBeDefined()
-  }, 60_000)
+  })
 
-  it('draws the ui-layout overlay', async () => {
+  it('draws the ui-layout overlay', { timeout: timeout(60_000) }, async () => {
     const { app, world } = await hudScene()
     await settle(app)
     const before = world.resource(UiRenderer).count
     setOverlays(world, { 'ui-layout': true })
     app.update(1 / 60)
     expect(world.resource(UiRenderer).count).toBeGreaterThan(before + 10)
-  }, 60_000)
+  })
 })

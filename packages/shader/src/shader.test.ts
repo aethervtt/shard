@@ -1,4 +1,5 @@
 import { defineComponent, type ShardError, t } from '@aethervtt/shard-core'
+import { budget } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -106,7 +107,7 @@ ${helpers}
       await lib.link({ root: 'project::big' })
       if (i >= 5) best = Math.min(best, performance.now() - start) // first runs warm up the JIT
     }
-    expect(best).toBeLessThan(5)
+    expect(best).toBeLessThan(budget(5))
   })
 
   it('reloads modules from watched files', async () => {

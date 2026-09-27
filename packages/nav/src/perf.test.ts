@@ -1,4 +1,5 @@
 import type { Entity } from '@aethervtt/shard-core'
+import { budget } from '@aethervtt/shard-core/test-env'
 import { Transform } from '@aethervtt/shard-transform'
 import { describe, expect, it } from 'vitest'
 import { NavAgent, NavGrid, NavGridDatas, NavMesh } from './components'
@@ -6,8 +7,6 @@ import { createNavPath, findPath } from './query'
 import { frames, navApp, slab } from './test-level'
 import { maze, rng } from './test-maze'
 
-/** Spec budgets hold under `pnpm bench` (serial); parallel `pnpm test` runs get 3x slack. */
-const budget = (ms: number) => ms * (process.env.SHARD_BENCH ? 1 : 3)
 const median = (t: number[]) => [...t].sort((a, b) => a - b)[t.length >> 1]!
 const DT = 1 / 60
 

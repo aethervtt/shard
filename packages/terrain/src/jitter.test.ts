@@ -1,6 +1,7 @@
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { quat } from '@aethervtt/shard-core'
+import { timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { loadNoiseKernel, NoiseGraph } from '@aethervtt/shard-noise'
@@ -39,7 +40,9 @@ afterAll(() => gpu?.destroy())
 const R = 6.371e6
 
 describe('precision on an Earth-sized planet (spec 0043)', () => {
-  it('keeps vertices still on screen (0.01 px over 600 frames) while the planet spins under a standing camera', async () => {
+  it('keeps vertices still on screen (0.01 px over 600 frames) while the planet spins under a standing camera', {
+    timeout: timeout(120_000),
+  }, async () => {
     const p = await planetApp(gpu, {
       radius: R,
       heightScale: 600,
@@ -130,9 +133,11 @@ describe('precision on an Earth-sized planet (spec 0043)', () => {
     expect(first.length).toBeGreaterThan(1000)
     expect(worst).toBeLessThanOrEqual(0.01)
     expect(w.resource(Gpu).errors).toEqual([])
-  }, 120_000)
+  })
 
-  it('renders a 0.5 m noise octave as smooth bumps, not steps (golden)', async () => {
+  it('renders a 0.5 m noise octave as smooth bumps, not steps (golden)', {
+    timeout: timeout(120_000),
+  }, async () => {
     const p = await planetApp(gpu, {
       radius: R,
       heightScale: 600,
@@ -179,5 +184,5 @@ describe('precision on an Earth-sized planet (spec 0043)', () => {
     for (let i = 0; i < rt.selection.renderedCount; i++)
       deepest = Math.max(deepest, rt.tree.depth[rt.selection.rendered[i]!]!)
     expect(rt.spacing(deepest)).toBeLessThan(0.1)
-  }, 120_000)
+  })
 })

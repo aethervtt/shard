@@ -1,16 +1,14 @@
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { AssetStore } from '@aethervtt/shard-assets'
 import { findComponent, findResource } from '@aethervtt/shard-core'
+import { budget } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { LogResource } from '@aethervtt/shard-runtime'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { type HeadlessProject, openProject } from './index'
-
-/** Spec budgets hold under `pnpm bench` (serial); parallel `pnpm test` runs get 3x slack. */
-const budget = (ms: number) => ms * (process.env.SHARD_BENCH ? 1 : 3)
 
 const example = resolve(fileURLToPath(import.meta.url), '../../../../examples/star-explorer')
 
@@ -37,6 +35,8 @@ const ship = async () =>
 beforeAll(async () => {
   gpu = await createNodeGpuContext()
   // Inside the example, so `@aethervtt/shard-*` resolves through its node_modules.
+  // .shard is gitignored, so a fresh clone doesn't have it yet.
+  mkdirSync(join(example, '.shard'), { recursive: true })
   root = mkdtempSync(join(example, '.shard', 'reload-'))
   for (const dir of [
     'scripts',

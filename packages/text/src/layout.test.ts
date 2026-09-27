@@ -1,12 +1,10 @@
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { budget } from '@aethervtt/shard-core/test-env'
 import { describe, expect, it } from 'vitest'
 import { fontFromBytes } from './build'
 import { layoutText, measureText, TextLayout } from './layout'
-
-/** Spec budgets hold under `pnpm bench` (serial); parallel `pnpm test` runs get 3x slack. */
-const budget = (ms: number) => ms * (process.env.SHARD_BENCH ? 1 : 3)
 
 const fixtures = resolve(dirname(fileURLToPath(import.meta.url)), '../fixtures')
 const read = (name: string) => new Uint8Array(readFileSync(resolve(fixtures, name)))

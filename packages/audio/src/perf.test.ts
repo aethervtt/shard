@@ -1,4 +1,5 @@
 import type { AssetRef } from '@aethervtt/shard-core'
+import { budget } from '@aethervtt/shard-core/test-env'
 import { App } from '@aethervtt/shard-runtime'
 import { GlobalTransform, Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { describe, expect, it } from 'vitest'
@@ -9,8 +10,6 @@ import { updateAudio } from './mixer'
 import { audioPlugin } from './plugin'
 import { sineWav } from './testing-utils'
 
-/** Spec budgets hold under `pnpm bench` (serial); parallel `pnpm test` runs get 3x slack. */
-const budget = (ms: number) => ms * (process.env.SHARD_BENCH ? 1 : 3)
 const median = (t: number[]) => [...t].sort((a, b) => a - b)[t.length >> 1]!
 
 /** Times `audio/update` alone over moving sources, counting GC events. */

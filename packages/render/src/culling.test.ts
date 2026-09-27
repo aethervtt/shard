@@ -1,6 +1,7 @@
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ProfilerResource, quat, Rng } from '@aethervtt/shard-core'
+import { budget, timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { cube, sphere } from '@aethervtt/shard-mesh'
@@ -44,8 +45,6 @@ afterAll(() => gpu.destroy())
 const q = (x: number, y: number, z: number) =>
   quat.fromEuler([0, 0, 0, 1], x, y, z) as [number, number, number, number]
 const ALL = 0xffffffff
-/** Spec budgets hold under `pnpm bench` (serial); parallel `pnpm test` runs get 3x slack. */
-const budget = (ms: number) => ms * (process.env.SHARD_BENCH ? 1 : 3)
 const PREP_SYSTEMS = ['render/prepare-instances', 'render/forward-queue', 'render/upload-visible']
 const here = dirname(fileURLToPath(import.meta.url))
 
@@ -205,7 +204,9 @@ describe('GPU culling', () => {
     expect(world.resource(Gpu).errors).toEqual([])
   })
 
-  it('uploads nothing for a static 200k scene within 1 ms of CPU, and one record per moved instance', async () => {
+  it('uploads nothing for a static 200k scene within 1 ms of CPU, and one record per moved instance', {
+    timeout: timeout(60_000),
+  }, async () => {
     const { app, world, material, cameraAt } = await scene(32, 32)
     const mesh = world.resource(Meshes).add(cube({ size: 0.5 }))
     const entities: number[] = []
@@ -242,7 +243,7 @@ describe('GPU culling', () => {
     expect(store.uploadedBytes).toBe(100 * 64)
     app.update(1 / 60)
     expect(store.uploadedBytes).toBe(0)
-  }, 60_000)
+  })
 
   it('still sees changes to rows of tables it skipped as static', async () => {
     const { app, world, material, cameraAt } = await scene(32, 32)

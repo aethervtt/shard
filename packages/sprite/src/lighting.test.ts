@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { assetServer, findAssetPreview } from '@aethervtt/shard-assets'
+import { budget, timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { createNodePlatform } from '@aethervtt/shard-platform-node'
@@ -45,7 +46,6 @@ import { setTile, Tilemap, TilemapData, TilemapDatas } from './tilemap'
 import './index'
 
 const here = dirname(fileURLToPath(import.meta.url))
-const budget = (ms: number) => ms * (process.env.SHARD_BENCH ? 1 : 3)
 
 describe('2D lighting on the CPU', () => {
   it('projects light circles into pixels and culls those off screen', () => {
@@ -574,7 +574,9 @@ describe('2D lighting', () => {
 })
 
 describe('2D lighting performance', () => {
-  it('lights 20k sprites with 250 lights (64 shadowed) and 2000 segments at 1080p in under 2.5 ms', async () => {
+  it('lights 20k sprites with 250 lights (64 shadowed) and 2000 segments at 1080p in under 2.5 ms', {
+    timeout: timeout(120_000),
+  }, async () => {
     const { app, world, camera } = await scene(1920, 1080)
     const tex = solid(world, [180, 160, 140, 255], 8)
     const normal = dome(world, 16)
@@ -640,5 +642,5 @@ describe('2D lighting performance', () => {
     expect(lit).toBeLessThan(budget(1000 / 60))
     expect(lit - unlit).toBeLessThan(budget(2.5))
     expect(world.resource(Gpu).errors).toEqual([])
-  }, 120_000)
+  })
 })

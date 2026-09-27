@@ -2,13 +2,11 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { defineComponent, defineResource, defineSchema, t, World } from '@aethervtt/shard-core'
+import { budget, timeout } from '@aethervtt/shard-core/test-env'
 import type { Platform } from '@aethervtt/shard-platform'
 import { createNodePlatform } from '@aethervtt/shard-platform-node'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { AssetServer, AssetStore, defineAssetType, defineDataAsset, defineImporter } from './index'
-
-/** Spec budgets hold under `pnpm bench` (serial); parallel `pnpm test` runs get 3x slack. */
-const budget = (ms: number) => ms * (process.env.SHARD_BENCH ? 1 : 3)
 
 // --- a tiny test format ----------------------------------------------------------
 
@@ -195,7 +193,7 @@ describe('the import cache', () => {
     expect(again.world.resource(Texts).get(again.resolve('assets/a.txt'))?.text).toBe('a')
   })
 
-  it('stats 1,000 unchanged sources in under 200 ms', async () => {
+  it('stats 1,000 unchanged sources in under 200 ms', { timeout: timeout(60_000) }, async () => {
     for (let i = 0; i < 1000; i++)
       write(`assets/many/${Math.floor(i / 100)}/f${i}.txt`, `file ${i}`)
     await server().scan()
@@ -207,7 +205,7 @@ describe('the import cache', () => {
     expect(report.imported).toEqual([])
     expect(report.unchanged).toBe(1000)
     expect(ms).toBeLessThan(budget(200))
-  }, 60_000)
+  })
 })
 
 describe('errors', () => {

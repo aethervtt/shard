@@ -10,6 +10,7 @@ import {
   Update,
   type World,
 } from '@aethervtt/shard-core'
+import { budget } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { cube, plane, sphere } from '@aethervtt/shard-mesh'
@@ -36,8 +37,6 @@ beforeAll(async () => {
 afterAll(() => gpu.destroy())
 
 const here = dirname(fileURLToPath(import.meta.url))
-/** Spec budgets hold under `pnpm bench` (serial); parallel `pnpm test` runs get 3x slack. */
-const budget = (ms: number) => ms * (process.env.SHARD_BENCH ? 1 : 3)
 const q = (x: number, y: number, z: number) =>
   quat.fromEuler([0, 0, 0, 1], x, y, z) as [number, number, number, number]
 

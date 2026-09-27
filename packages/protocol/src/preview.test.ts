@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { assetServer } from '@aethervtt/shard-assets'
+import { timeout } from '@aethervtt/shard-core/test-env'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import '@aethervtt/shard-gltf'
 import { createNodePlatform } from '@aethervtt/shard-platform-node'
@@ -21,7 +22,9 @@ const root = mkdtempSync(join(tmpdir(), 'shard-preview-'))
 afterAll(() => rmSync(root, { recursive: true, force: true }))
 
 describe('asset.preview', () => {
-  it('previews a texture, a material, a mesh, and a scene without touching the game', async () => {
+  it('previews a texture, a material, a mesh, and a scene without touching the game', {
+    timeout: timeout(60_000),
+  }, async () => {
     mkdirSync(join(root, 'assets'), { recursive: true })
     cpSync(
       join(fixtures, 'CesiumMan/glTF-Binary/CesiumMan.glb'),
@@ -76,5 +79,5 @@ describe('asset.preview', () => {
     // The model's bounds frame it: it touches neither the left nor right edge columns fully.
     expect(app.world.resource(Time).frame).toBe(frame)
     gpu.destroy()
-  }, 60_000)
+  })
 })

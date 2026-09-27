@@ -1,4 +1,5 @@
 import { type Entity, ProfilerResource, Rng, type World } from '@aethervtt/shard-core'
+import { budget, timeout } from '@aethervtt/shard-core/test-env'
 import { Mesh, plane, sphere } from '@aethervtt/shard-mesh'
 import { Meshes } from '@aethervtt/shard-render'
 import { App, FixedTime } from '@aethervtt/shard-runtime'
@@ -20,8 +21,6 @@ import {
 import { Physics, physics2dPlugin, physics3dPlugin } from './plugin'
 import { createRayHit } from './world'
 
-/** Spec budgets hold under `pnpm bench` (serial); parallel `pnpm test` runs get 3x slack. */
-const budget = (ms: number) => ms * (process.env.SHARD_BENCH ? 1 : 3)
 const DT = 1 / 60
 
 async function app(dim: 2 | 3 = 3, setup?: (app: App) => void): Promise<App> {
@@ -79,7 +78,9 @@ describe('physics 3d', () => {
     expect(worldPosition(a.world, b)[1]).toBeCloseTo(0.5, 1) // propagation saw the writes
   })
 
-  it('settles a pile of 1,000 dropped boxes until they all sleep', async () => {
+  it('settles a pile of 1,000 dropped boxes until they all sleep', {
+    timeout: timeout(120_000),
+  }, async () => {
     const a = await app()
     ground(a.world)
     const rng = new Rng(3)
@@ -117,9 +118,11 @@ describe('physics 3d', () => {
     }
     expect(asleep).toBe(boxes.length)
     expect(seconds).toBeGreaterThan(2) // it really fell and tumbled
-  }, 120_000)
+  })
 
-  it('runs physics for 5,000 awake bodies in under 8 ms per step (bench)', async () => {
+  it('runs physics for 5,000 awake bodies in under 8 ms per step (bench)', {
+    timeout: timeout(60_000),
+  }, async () => {
     const a = await app()
     ground(a.world)
     for (let i = 0; i < 5000; i++) {
@@ -136,9 +139,11 @@ describe('physics 3d', () => {
       ms += profiler.timing(name)!.avg
     }
     expect(ms).toBeLessThan(budget(8))
-  }, 60_000)
+  })
 
-  it('replays exactly: two runs of the same scene give the same poses', async () => {
+  it('replays exactly: two runs of the same scene give the same poses', {
+    timeout: timeout(60_000),
+  }, async () => {
     const run = async () => {
       const a = await app()
       ground(a.world)
@@ -157,7 +162,7 @@ describe('physics 3d', () => {
     const first = await run()
     const second = await run()
     expect(second).toEqual(first)
-  }, 60_000)
+  })
 
   it('builds trimesh, convex, and heightfield colliders', async () => {
     const a = await app()

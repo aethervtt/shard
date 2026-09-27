@@ -1,3 +1,4 @@
+import { timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { loadNoiseKernel, NoiseGraph } from '@aethervtt/shard-noise'
@@ -83,7 +84,9 @@ function closestOnTriangle(p: number[], a: number[], b: number[], c: number[]): 
 }
 
 describe('CPU and GPU agree (spec 0043)', () => {
-  it('GPU chunk heights match CPU heights (and planetHeightAt) within the noise tolerance at 10 000 points', async () => {
+  it('GPU chunk heights match CPU heights (and planetHeightAt) within the noise tolerance at 10 000 points', {
+    timeout: timeout(120_000),
+  }, async () => {
     const radius = 6.371e6
     const heightScale = 600
     const p = await planetApp(gpu, {
@@ -178,9 +181,11 @@ describe('CPU and GPU agree (spec 0043)', () => {
     expect(worstCpu).toBeLessThanOrEqual(1)
     expect(worstQuery).toBeLessThanOrEqual(1)
     expect(p.world.resource(Gpu).errors).toEqual([])
-  }, 120_000)
+  })
 
-  it('renders collider chunks from the collider’s own vertices: feet within 1 cm of the visible ground', async () => {
+  it('renders collider chunks from the collider’s own vertices: feet within 1 cm of the visible ground', {
+    timeout: timeout(120_000),
+  }, async () => {
     const radius = 6.371e6
     const p = await planetApp(gpu, {
       radius,
@@ -265,5 +270,5 @@ describe('CPU and GPU agree (spec 0043)', () => {
     expect(collidersOf(rt).chunks.size).toBeGreaterThan(0)
     expect(w.resource(Gpu).errors).toEqual([])
     void keyString
-  }, 120_000)
+  })
 })

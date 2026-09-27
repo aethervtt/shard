@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ProfilerResource, quat } from '@aethervtt/shard-core'
+import { budget, timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import {
@@ -36,7 +37,6 @@ beforeAll(async () => {
 afterAll(() => gpu.destroy())
 
 /** Budgets hold under `pnpm bench` (serial); parallel `pnpm test` runs get 3x slack. */
-const budget = (ms: number) => ms * (process.env.SHARD_BENCH ? 1 : 3)
 
 async function scene(width: number, height: number) {
   const app = new App().addPlugin(
@@ -88,7 +88,7 @@ function edgeWidth(
 }
 
 describe('text rendering', () => {
-  it('stays sharp at 8, 48, and 400 px (golden images)', async () => {
+  it('stays sharp at 8, 48, and 400 px (golden images)', { timeout: timeout(60_000) }, async () => {
     for (const px of [8, 48, 400]) {
       const w = px === 400 ? 520 : px === 48 ? 320 : 96
       const h = Math.round(px * 1.6)
@@ -106,7 +106,7 @@ describe('text rendering', () => {
       if (px === 400) expect(mid, `${px}px`).toBeLessThanOrEqual(8)
       expect(world.resource(Gpu).errors).toEqual([])
     }
-  }, 60_000)
+  })
 
   it('renders world text at 60° to the camera, with outline and shadow (golden images)', async () => {
     const { world, fontRef, camera, shoot } = await scene(384, 192)
@@ -150,7 +150,9 @@ describe('text rendering', () => {
     expect(compareGolden(here, 'text-billboard', image).mean).toBeLessThan(1.5)
   })
 
-  it('lays out 10k glyphs changing every frame in under 2 ms of CPU a frame', async () => {
+  it('lays out 10k glyphs changing every frame in under 2 ms of CPU a frame', {
+    timeout: timeout(60_000),
+  }, async () => {
     const { app, world, fontRef, camera } = await scene(64, 64)
     const counters = []
     for (let i = 0; i < 1000; i++) {
@@ -178,5 +180,5 @@ describe('text rendering', () => {
     expect(d.relayouts).toBe(1000)
     console.info(`text/prepare, 10k changing glyphs: ${best.toFixed(2)} ms`)
     expect(best).toBeLessThan(budget(2))
-  }, 60_000)
+  })
 })

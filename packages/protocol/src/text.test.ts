@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { assetServer } from '@aethervtt/shard-assets'
+import { timeout } from '@aethervtt/shard-core/test-env'
 import { createNodePlatform } from '@aethervtt/shard-platform-node'
 import { App } from '@aethervtt/shard-runtime'
 import '@aethervtt/shard-text'
@@ -15,7 +16,9 @@ const root = mkdtempSync(join(tmpdir(), 'shard-text-protocol-'))
 afterAll(() => rmSync(root, { recursive: true, force: true }))
 
 describe('text over the protocol', () => {
-  it('measures text without rendering, and previews a font as a specimen', async () => {
+  it('measures text without rendering, and previews a font as a specimen', {
+    timeout: timeout(60_000),
+  }, async () => {
     mkdirSync(join(root, 'assets/fonts'), { recursive: true })
     cpSync(
       resolve(here, '../../text/fixtures/Inter-Regular.ttf'),
@@ -71,5 +74,5 @@ describe('text over the protocol', () => {
     let ink = 0
     for (let p = 0; p < png.data.length; p += 4) if (png.data[p]! > 200) ink++
     expect(ink).toBeGreaterThan(1000)
-  }, 60_000)
+  })
 })

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { assetServer } from '@aethervtt/shard-assets'
 import { ChildOf, Commands, defineComponent, type Entity, t, World } from '@aethervtt/shard-core'
+import { budget } from '@aethervtt/shard-core/test-env'
 import { createNodePlatform } from '@aethervtt/shard-platform-node'
 import { Materials, Mesh3d, Meshes, MeshMaterial } from '@aethervtt/shard-render'
 import { App, Log, LogResource } from '@aethervtt/shard-runtime'
@@ -28,9 +29,6 @@ import {
   whenSceneReady,
 } from './scene'
 import { prefabJsonSchema } from './schema'
-
-/** Spec budgets hold under `pnpm bench` (serial); parallel `pnpm test` runs get 3x slack. */
-const budget = (ms: number) => ms * (process.env.SHARD_BENCH ? 1 : 3)
 
 const Health = defineComponent('test/Health', {
   max: t.f32({ default: 10 }),

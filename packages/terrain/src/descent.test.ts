@@ -1,3 +1,4 @@
+import { timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { loadNoiseKernel, NoiseGraph } from '@aethervtt/shard-noise'
@@ -207,7 +208,9 @@ describe('descent without holes (spec 0043)', () => {
     )
   })
 
-  it('lands on a 4 km planet from 20 000 km (500 m/s near the ground) without a hole', async () => {
+  it('lands on a 4 km planet from 20 000 km (500 m/s near the ground) without a hole', {
+    timeout: timeout(240_000),
+  }, async () => {
     const p = await planetApp(gpu, {
       radius: 4000,
       heightScale: 300,
@@ -221,9 +224,11 @@ describe('descent without holes (spec 0043)', () => {
     expect(result.holes).toBe(0)
     expect(result.frames).toBeGreaterThan(400)
     expect(result.generated).toBeGreaterThan(50)
-  }, 240_000)
+  })
 
-  it('lands on an Earth-sized planet from 40 000 km in 120 s, and a 16 000 km super-Earth, without a hole', async () => {
+  it('lands on an Earth-sized planet from 40 000 km in 120 s, and a 16 000 km super-Earth, without a hole', {
+    timeout: timeout(600_000),
+  }, async () => {
     const counts: number[] = []
     for (const radius of [6.371e6, 1.6e7]) {
       const p = await planetApp(gpu, {
@@ -258,5 +263,5 @@ describe('descent without holes (spec 0043)', () => {
       expect(c / reference).toBeLessThan(2)
       expect(reference / c).toBeLessThan(2)
     }
-  }, 600_000)
+  })
 })

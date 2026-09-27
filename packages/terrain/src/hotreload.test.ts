@@ -1,3 +1,4 @@
+import { timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { loadNoiseKernel, NoiseGraph } from '@aethervtt/shard-noise'
@@ -35,7 +36,9 @@ beforeAll(async () => {
 afterAll(() => gpu?.destroy())
 
 describe('hot reload (spec 0043)', () => {
-  it('regenerates visible chunks within 1 s of a height graph edit, without holes, and rebuilds colliders', async () => {
+  it('regenerates visible chunks within 1 s of a height graph edit, without holes, and rebuilds colliders', {
+    timeout: timeout(120_000),
+  }, async () => {
     const height = await NoiseGraph.create(graph(0.1))
     const p = await planetApp(gpu, {
       radius: R,
@@ -116,5 +119,5 @@ describe('hot reload (spec 0043)', () => {
     p.app.update(1 / 60)
     expect((pr.material.value as Record<string, number[]>).debugParams![0]).toBe(0)
     expect(w.resource(Gpu).errors).toEqual([])
-  }, 120_000)
+  })
 })

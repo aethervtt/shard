@@ -1,4 +1,5 @@
 import { ChildOf, defineSystem, FixedUpdate, ProfilerResource } from '@aethervtt/shard-core'
+import { budget } from '@aethervtt/shard-core/test-env'
 import { addActions, defineActions, injectInput } from '@aethervtt/shard-input'
 import { Camera3d } from '@aethervtt/shard-render'
 import { LogResource } from '@aethervtt/shard-runtime'
@@ -29,7 +30,6 @@ import { UiThemeAsset, UiThemes } from './theme'
 import { UiState } from './tree'
 
 /** Budgets hold under `pnpm bench` (serial); parallel `pnpm test` runs get 3x slack. */
-const budget = (ms: number) => ms * (process.env.SHARD_BENCH ? 1 : 3)
 
 describe('layout in the world', () => {
   it('lays out a tree into UiLayout, in root pixels', async () => {

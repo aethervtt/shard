@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { assetServer, findAssetPreview } from '@aethervtt/shard-assets'
+import { timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { createNodePlatform } from '@aethervtt/shard-platform-node'
@@ -147,7 +148,9 @@ describe('sprites', () => {
     expect(await center()).toEqual(before)
   })
 
-  it('draws 100k sprites from 4 atlases in at most 8 draw calls; a static set uploads nothing', async () => {
+  it('draws 100k sprites from 4 atlases in at most 8 draw calls; a static set uploads nothing', {
+    timeout: timeout(60_000),
+  }, async () => {
     const { app, world, camera } = await scene(64, 64)
     const atlases = world.resource(TextureAtlases)
     const refs = [0, 1, 2, 3].map((k) => {
@@ -191,9 +194,11 @@ describe('sprites', () => {
     }
     expect(d.drawCalls).toBeLessThanOrEqual(8)
     expect(Object.values(d.perLayer)).toEqual([25_000, 25_000, 25_000, 25_000])
-  }, 60_000)
+  })
 
-  it('packs a folder of 50 images without overlaps, with extruded edges that stop bleeding', async () => {
+  it('packs a folder of 50 images without overlaps, with extruded edges that stop bleeding', {
+    timeout: timeout(60_000),
+  }, async () => {
     const root = mkdtempSync(join(tmpdir(), 'shard-sprites-'))
     roots.push(root)
     mkdirSync(join(root, 'assets/sprites/icons'), { recursive: true })
@@ -310,7 +315,7 @@ describe('sprites', () => {
       .resource(SpriteClips)
       .get(server.resolve('assets/sprites/blink.clip.json') as never)!
     expect(clip.regions).toEqual(['icon00', 'icon01', 'icon02'])
-  }, 60_000)
+  })
 
   it('plays a SpriteClip at its frame durations and sends its events', async () => {
     const { app, world } = await scene(16, 16)

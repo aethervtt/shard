@@ -236,8 +236,12 @@ describe('GPU codegen matches the CPU kernel', () => {
     const graph = NoiseGraph.fromJson(PLANET, { name: 'planet', module: 'noise::parity::planet' })
     const r = lcg(99)
     const pts4 = new Float32Array(COUNT * 4)
-    // Its finest octave (the mountains' sixth) is 0.01 units long: ±0.5 units is a chunk's worth.
-    for (let i = 0; i < pts4.length; i++) pts4[i] = r() - 0.5
+    // The contract covers a chunk's worth of lattice cells (±4) of every octave. The finest here
+    // (the mountains' sixth) has frequency 3.2 × 2⁵ = 102.4, so ±4 cells is ±0.039 units. Wider
+    // spans leave it: the GPU's fused multiply-adds round an ulp of the lattice position differently,
+    // and that ulp grows with the span (±51 cells differs by ~1e-3 on Metal and software Vulkan).
+    const half = 4 / 102.4
+    for (let i = 0; i < pts4.length; i++) pts4[i] = (r() * 2 - 1) * half
     const pts = new Float32Array(COUNT * 3)
     for (let i = 0; i < COUNT; i++) pts.set(pts4.subarray(i * 4, i * 4 + 3), i * 3)
     const cpu = new Float32Array(COUNT)

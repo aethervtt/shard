@@ -796,9 +796,17 @@ function bloomNode(): NodeDescriptor {
 /** Metered EV100 per camera (from the GPU histogram, a frame or two late) and the adapted EV. */
 export interface ExposureState {
   metered: number | undefined
+  /** Histogram readings landed so far. Each lands a few frames after its own, when the GPU gets to it. */
+  readings: number
   ev: number
   started: boolean
 }
+
+/**
+ * Histogram readbacks in flight per camera. A frame whose readbacks are all still mapping isn't
+ * metered, so a change in the scene shows up within this many readings plus one.
+ */
+export const METER_READBACKS = 3
 
 export const ExposureMeters = defineResource<Map<Entity, ExposureState>>('render/ExposureMeters', {
   description: 'Auto exposure per camera: the last metered EV100 and the adapted one.',
@@ -881,14 +889,14 @@ function autoExposureNode(): NodeDescriptor {
             size: METER_BYTES,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
           }),
-          readbacks: [0, 1, 2].map((i) =>
+          readbacks: Array.from({ length: METER_READBACKS }, (_, i) =>
             gpu.device.createBuffer({
               label: `${ctx.view.name}/exposure-readback-${i}`,
               size: METER_BYTES,
               usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
             }),
           ),
-          busy: [false, false, false],
+          busy: Array.from({ length: METER_READBACKS }, () => false),
           generation: gpu.generation,
         }
         perView.set(ctx.view.name, state)
@@ -938,7 +946,10 @@ function autoExposureNode(): NodeDescriptor {
             readback.unmap()
             busy[k] = false
             const m = meters.get(entity)
-            if (m && ev !== undefined) m.metered = ev
+            if (m && ev !== undefined) {
+              m.metered = ev
+              m.readings++
+            }
           },
           () => {
             busy[k] = false
@@ -971,7 +982,7 @@ export const adaptExposure = defineSystem({
         const entity = table.entities[i]!
         let m = meters.get(entity)
         if (!m) {
-          m = { metered: undefined, ev: ev[i]!, started: true }
+          m = { metered: undefined, readings: 0, ev: ev[i]!, started: true }
           meters.set(entity, m)
         }
         if (m.metered !== undefined) {

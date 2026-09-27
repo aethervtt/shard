@@ -1,4 +1,5 @@
 import { type Entity, hash32, type World } from '@aethervtt/shard-core'
+import { timeout } from '@aethervtt/shard-core/test-env'
 import { loadNoiseKernel, NoiseGraph, NoiseGraphs } from '@aethervtt/shard-noise'
 import {
   CharacterController,
@@ -74,7 +75,9 @@ function altitude(w: World, planet: Entity, p: Float64Array): number {
 }
 
 describe('walking on a planet (headless)', () => {
-  it('keeps a character on the ground for 100 m at 20 random points on an Earth-sized planet', async () => {
+  it('keeps a character on the ground for 100 m at 20 random points on an Earth-sized planet', {
+    timeout: timeout(240_000),
+  }, async () => {
     const { app, w, planet } = await planetApp()
     const positions: number[] = []
     for (let k = 0; k < 20; k++) {
@@ -117,14 +120,16 @@ describe('walking on a planet (headless)', () => {
     const set = collidersOf(w.resource(Terrain).planets.get(planet)!)
     expect(set.chunks.size).toBeGreaterThan(0)
     expect(positions.length).toBe(60)
-  }, 240_000)
+  })
 })
 
 describe('walk checksum (Node and Chrome)', () => {
-  it('matches the pinned checksum the playground #terrain page shows', async () => {
+  it('matches the pinned checksum the playground #terrain page shows', {
+    timeout: timeout(120_000),
+  }, async () => {
     const r = await walkChecksum()
     for (const m of r.walked) expect(m).toBeGreaterThan(12)
     expect(r.colliders).toBeGreaterThan(0)
     expect(r.checksum).toBe(WALK_CHECKSUM)
-  }, 120_000)
+  })
 })

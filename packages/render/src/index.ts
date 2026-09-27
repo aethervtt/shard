@@ -283,6 +283,7 @@ export {
   ExposureMeters,
   type ExposureState,
   histogramEv,
+  METER_READBACKS,
   POST_NODES,
   whiteBalance,
 } from './post-nodes'

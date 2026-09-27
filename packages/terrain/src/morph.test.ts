@@ -1,3 +1,4 @@
+import { timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { loadNoiseKernel, NoiseGraph } from '@aethervtt/shard-noise'
@@ -275,12 +276,16 @@ describe('geomorphing (spec 0043)', () => {
     return worst
   }
 
-  it('never moves the surface more than a pixel between frames during a descent, uncapped', async () => {
+  it('never moves the surface more than a pixel between frames during a descent, uncapped', {
+    timeout: timeout(240_000),
+  }, async () => {
     // The LOD machinery alone: no vertex cap, and no triangle budget steering the detail.
     expect(await descentMotion(0, 1, 0)).toBeLessThanOrEqual(1)
-  }, 240_000)
+  })
 
-  it('with vertexPixels, morphs continuously: a few px a frame at any speed, never a pop', async () => {
+  it('with vertexPixels, morphs continuously: a few px a frame at any speed, never a pop', {
+    timeout: timeout(480_000),
+  }, async () => {
     // Capped detail splits closer, so each split's parent-to-child displacement is larger and the
     // new chunk's 0.5 s fade paces it: at most 1/30 of it a frame. A pop would move the whole
     // displacement at once, tens of pixels here. Slower descents don't move faster.
@@ -289,5 +294,5 @@ describe('geomorphing (spec 0043)', () => {
     expect(fast).toBeLessThan(6)
     expect(slow).toBeLessThan(6)
     expect(slow).toBeLessThan(fast * 1.25)
-  }, 480_000)
+  })
 })

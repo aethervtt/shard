@@ -1,3 +1,4 @@
+import { budget } from '@aethervtt/shard-core/test-env'
 import { describe, expect, it } from 'vitest'
 import {
   DIAGONAL_ALWAYS,
@@ -11,8 +12,6 @@ import {
 } from './grid'
 import { maze, rng } from './test-maze'
 
-/** Spec budgets hold under `pnpm bench` (serial); parallel `pnpm test` runs get 3x slack. */
-const budget = (ms: number) => ms * (process.env.SHARD_BENCH ? 1 : 3)
 const median = (t: number[]) => [...t].sort((a, b) => a - b)[t.length >> 1]!
 
 /** Reference: plain Dijkstra with the same move rules and costs, no heuristic, no cleverness. */

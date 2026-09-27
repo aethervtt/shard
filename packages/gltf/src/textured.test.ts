@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { assetServer } from '@aethervtt/shard-assets'
+import { budget, timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { createNodePlatform } from '@aethervtt/shard-platform-node'
@@ -33,9 +34,6 @@ import { TransformPlugin } from '@aethervtt/shard-transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { parseGltf } from './document'
 import './index'
-
-/** Spec budgets hold under `pnpm bench` (serial); parallel `pnpm test` runs get 3x slack. */
-const budget = (ms: number) => ms * (process.env.SHARD_BENCH ? 1 : 3)
 
 const here = dirname(fileURLToPath(import.meta.url))
 const fixtures = resolve(here, '../fixtures/khronos')
@@ -172,7 +170,9 @@ function editGlb(file: string, edit: (json: Record<string, unknown>) => void): U
 }
 
 describe('textured models', () => {
-  it('BoxTextured renders its texture (golden image), from .glb and from .gltf + .png', async () => {
+  it('BoxTextured renders its texture (golden image), from .glb and from .gltf + .png', {
+    timeout: timeout(60_000),
+  }, async () => {
     const scene = modelScene('assets/BoxTextured.glb#Scene', [0.9, 0.7, 2.4])
     scene.entities.at(-1)!.components!['core/Transform'] = {
       translation: [1.3, 1.1, 2.2],
@@ -203,9 +203,11 @@ describe('textured models', () => {
     for (let i = 0; i < image.length; i++) sum += Math.abs(image[i]! - external.image[i]!)
     expect(sum / image.length).toBeLessThan(1.5)
     expect(external.assets.state('assets/box/CesiumLogoFlat.png')).toBe('loaded')
-  }, 60_000)
+  })
 
-  it('normal maps render with generated and with authored tangents (golden images)', async () => {
+  it('normal maps render with generated and with authored tangents (golden images)', {
+    timeout: timeout(60_000),
+  }, async () => {
     const a = await render(
       { 'assets/NormalTangentTest.glb': 'NormalTangentTest/glTF-Binary/NormalTangentTest.glb' },
       modelScene('assets/NormalTangentTest.glb#Scene', [0, 0, 3.1]),
@@ -221,9 +223,11 @@ describe('textured models', () => {
       128,
     )
     golden('normal-tangent-mirror.rgba', b.image, 128)
-  }, 60_000)
+  })
 
-  it('generated MikkTSpace tangents match the file’s own (within 1°)', async () => {
+  it('generated MikkTSpace tangents match the file’s own (within 1°)', {
+    timeout: timeout(60_000),
+  }, async () => {
     const file = 'NormalTangentMirrorTest/glTF-Binary/NormalTangentMirrorTest.glb'
     const stripped = editGlb(file, (json) => {
       for (const mesh of json.meshes as {
@@ -258,9 +262,9 @@ describe('textured models', () => {
     }
     expect(worst).toBeLessThan(1)
     expect(signs).toBe(tri.length)
-  }, 60_000)
+  })
 
-  it('texture transforms render (golden image)', async () => {
+  it('texture transforms render (golden image)', { timeout: timeout(60_000) }, async () => {
     const dir = 'TextureTransformTest/glTF'
     const files: Record<string, string> = {}
     for (const f of [
@@ -280,11 +284,13 @@ describe('textured models', () => {
       200,
     )
     golden('texture-transform.rgba', image, 200)
-  }, 60_000)
+  })
 })
 
 describe('compressed textures', () => {
-  it('a UASTC texture transcodes to BC7 when the device has it and renders like the original', async () => {
+  it('a UASTC texture transcodes to BC7 when the device has it and renders like the original', {
+    timeout: timeout(120_000),
+  }, async () => {
     const { deflateSync, crc32 } = await import('node:zlib')
     const size = 64
     const rgba = new Uint8Array(size * size * 4)
@@ -327,7 +333,11 @@ describe('compressed textures', () => {
       )
     const mat = (tex: string) =>
       new TextEncoder().encode(
-        JSON.stringify({ metallic: 0, roughness: 1, baseColorTexture: { texture: { path: tex } } }),
+        JSON.stringify({
+          metallic: 0,
+          roughness: 1,
+          baseColorTexture: { texture: { path: tex } },
+        }),
       )
     const root = project({
       'assets/raw.png': png,
@@ -380,7 +390,7 @@ describe('compressed textures', () => {
     let sum = 0
     for (let i = 0; i < a.image.length; i++) sum += Math.abs(a.image[i]! - b.image[i]!)
     expect(sum / a.image.length).toBeLessThan(3)
-  }, 120_000)
+  })
 })
 
 describe('textures at runtime', () => {
@@ -437,7 +447,9 @@ describe('textures at runtime', () => {
     expect(blue[2]!).toBeGreaterThan(blue[0]! + 50)
   })
 
-  it('textured draws recover after the GPU device is lost', async () => {
+  it('textured draws recover after the GPU device is lost', {
+    timeout: timeout(60_000),
+  }, async () => {
     const own = await createNodeGpuContext()
     const root = project({ 'assets/BoxTextured.glb': 'BoxTextured/glTF-Binary/BoxTextured.glb' })
     const target = new OffscreenTarget(own, { label: 'loss', width: 64, height: 64 })
@@ -489,9 +501,9 @@ describe('textures at runtime', () => {
       .filter((e) => !/device/i.test(e.message))
     expect(errors).toEqual([])
     own.destroy()
-  }, 60_000)
+  })
 
-  it('loads and uploads a 2048² texture in under 30 ms', async () => {
+  it('loads and uploads a 2048² texture in under 30 ms', { timeout: timeout(60_000) }, async () => {
     const size = 2048
     const { importImageBytes } = await import('@aethervtt/shard-texture')
     const rgba = new Uint8Array(size * size * 4).map((_, i) => (i * 13) & 255)
@@ -532,7 +544,7 @@ describe('textures at runtime', () => {
     const ms = performance.now() - start2
     handle.destroy()
     expect(ms).toBeLessThan(budget(30))
-  }, 60_000)
+  })
 
   it('an imported _LOD chain loads as a Lod entity and draws through a LOD set', async () => {
     // A quad facing +Z, used for every level.

@@ -1,3 +1,4 @@
+import { timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { loadNoiseKernel, NoiseGraph } from '@aethervtt/shard-noise'
@@ -25,7 +26,9 @@ beforeAll(async () => {
 afterAll(() => gpu?.destroy())
 
 describe('terrain detail limits', () => {
-  it('stops splitting rough terrain at a screen vertex spacing, without holes', async () => {
+  it('stops splitting rough terrain at a screen vertex spacing, without holes', {
+    timeout: timeout(240_000),
+  }, async () => {
     const R = 6_371_000
     const counts: number[] = []
     for (const vertexPixels of [0, 4]) {
@@ -63,9 +66,11 @@ describe('terrain detail limits', () => {
     }
     // Rough ground: well under two thirds of the chunks.
     expect(counts[1]!).toBeLessThan(counts[0]! * 0.67)
-  }, 240_000)
+  })
 
-  it('holds TerrainBudget.triangles by coarsening, and refines back when the budget allows', async () => {
+  it('holds TerrainBudget.triangles by coarsening, and refines back when the budget allows', {
+    timeout: timeout(240_000),
+  }, async () => {
     const R = 6_371_000
     const p = await planetApp(gpu, {
       radius: R,
@@ -96,9 +101,11 @@ describe('terrain detail limits', () => {
     budget.triangles = free * 4
     for (let f = 0; f < 240; f++) p.app.update(1 / 60)
     expect(rt.lodBias).toBe(1)
-  }, 240_000)
+  })
 
-  it('stops generating once a still camera has its chunks, even with the pool full', async () => {
+  it('stops generating once a still camera has its chunks, even with the pool full', {
+    timeout: timeout(240_000),
+  }, async () => {
     const R = 6_371_000
     const p = await planetApp(gpu, {
       radius: R,
@@ -124,5 +131,5 @@ describe('terrain detail limits', () => {
     // Prefetches no longer evict each other: nothing regenerates while nothing moves.
     expect(pr.stats.generated - generated).toBe(0)
     expect(pr.stats.evicted - evicted).toBe(0)
-  }, 240_000)
+  })
 })

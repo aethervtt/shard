@@ -1,11 +1,9 @@
 import { defineSystem, findResource, t, Update, type World } from '@aethervtt/shard-core'
+import { budget, timeout } from '@aethervtt/shard-core/test-env'
 import { App } from '@aethervtt/shard-runtime'
 import { describe, expect, it } from 'vitest'
 import { defineProject, type ProjectDef } from './define'
 import { createProjectReloader } from './reload'
-
-/** Spec budgets hold under `pnpm bench` (serial); parallel `pnpm test` runs get 3x slack. */
-const budget = (ms: number) => ms * (process.env.SHARD_BENCH ? 1 : 3)
 
 /**
  * A stand-in for a project bundle: calling it defines the project's types (inside the reloader's
@@ -84,7 +82,9 @@ describe('project hot reload', () => {
     expect(app.world.resource(findResource('hr-a/Score')!)).toBe(score)
   })
 
-  it('adding a field migrates every instance, keeping other values, fast', async () => {
+  it('adding a field migrates every instance, keeping other values, fast', {
+    timeout: timeout(30_000),
+  }, async () => {
     const { app, entities, reloader } = await start('hr-b', 100_000)
     const report = await reloader.reload(bundle('hr-b', { extraField: true }))
     expect(report.ok).toBe(true)
@@ -100,7 +100,7 @@ describe('project hot reload', () => {
     })
     app.update(1 / 60)
     expect(x(app, e)).toBe(43211)
-  }, 30_000)
+  })
 
   it('failures leave the old code running: bad module, throwing build, impossible migration', async () => {
     const { app, entities, reloader } = await start('hr-c')

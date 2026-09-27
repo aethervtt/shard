@@ -4,6 +4,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type AssetServer, assetServer } from '@aethervtt/shard-assets'
 import { World } from '@aethervtt/shard-core'
+import { timeout } from '@aethervtt/shard-core/test-env'
 import { createNodePlatform } from '@aethervtt/shard-platform-node'
 import { Materials, Meshes } from '@aethervtt/shard-render'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -79,7 +80,7 @@ const FIXTURES: Record<string, string> = {
 }
 
 describe('importing the Khronos samples', () => {
-  it('imports every fixture without errors', async () => {
+  it('imports every fixture without errors', { timeout: timeout(60_000) }, async () => {
     const s = await server(project(FIXTURES))
     const sources = Object.keys(FIXTURES).filter((f) => !f.endsWith('.bin'))
     for (const source of sources) {
@@ -90,9 +91,11 @@ describe('importing the Khronos samples', () => {
     expect(s.info('assets/Box.glb').subAssets?.map((a) => a.label)).toEqual(
       expect.arrayContaining(['Mesh/Mesh', 'Material/Red', 'Scene']),
     )
-  }, 60_000)
+  })
 
-  it('decodes positions, normals, and indices the same as a reference decode', async () => {
+  it('decodes positions, normals, and indices the same as a reference decode', {
+    timeout: timeout(60_000),
+  }, async () => {
     const s = await server(project(FIXTURES))
     const w = s.world
     const mesh = async (path: string) => {
@@ -167,7 +170,7 @@ describe('importing the Khronos samples', () => {
     expect(Array.from((await mesh('assets/SparseEmbedded.gltf#Mesh/0')).positions)).toEqual(
       Array.from(sparse.positions),
     )
-  }, 60_000)
+  })
 
   it('imports materials, including their factors', async () => {
     const s = await server(project({ 'assets/Box.glb': 'Box/glTF-Binary/Box.glb' }))

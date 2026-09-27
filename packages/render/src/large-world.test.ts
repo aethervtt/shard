@@ -1,6 +1,7 @@
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ChildOf, defineSystem, type Entity, mat4, quat, Update } from '@aethervtt/shard-core'
+import { timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { cube } from '@aethervtt/shard-mesh'
@@ -107,7 +108,9 @@ function screen(
 }
 
 describe('large-world rendering (spec 0040)', () => {
-  it('renders a cube 10¹² m out, 3 m from a FloatingOrigin camera, like one 3 m from the origin', async () => {
+  it('renders a cube 10¹² m out, 3 m from a FloatingOrigin camera, like one 3 m from the origin', {
+    timeout: timeout(60_000),
+  }, async () => {
     const size = 96
     const cell = 500_000_000 // × 2000 m = 10¹² m from the root frame's origin
     const far = await scene(size, size)
@@ -139,9 +142,11 @@ describe('large-world rendering (spec 0040)', () => {
     for (let i = 0; i < a.data.length; i++) diff = Math.max(diff, Math.abs(a.data[i]! - b.data[i]!))
     expect(diff).toBe(0)
     expect(compareGolden(here, 'large-world-cube', a).mean).toBeLessThan(0.5)
-  }, 60_000)
+  })
 
-  it('flies at 5 km/s for 60 s across 150 cells: no screen jump, continuous motion vectors, no TAA reset', async () => {
+  it('flies at 5 km/s for 60 s across 150 cells: no screen jump, continuous motion vectors, no TAA reset', {
+    timeout: timeout(120_000),
+  }, async () => {
     const W = 128
     const H = 128
     const { app, world, targetRef } = await scene(W, H)
@@ -268,7 +273,7 @@ describe('large-world rendering (spec 0040)', () => {
     // f32 spacing at ~1 km is 6e-5 m.
     expect(worstPrevRow).toBeLessThan(2e-4)
     expect(world.resource(Gpu).errors).toEqual([])
-  }, 120_000)
+  })
 
   it('shifts retained gizmo lines with the origin and draws the grids overlay', async () => {
     const { app, world } = await scene(32, 32)

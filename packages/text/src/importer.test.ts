@@ -4,6 +4,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { assetServer, type ImportContext, importerFor } from '@aethervtt/shard-assets'
 import { World } from '@aethervtt/shard-core'
+import { budget } from '@aethervtt/shard-core/test-env'
 import { createNodePlatform } from '@aethervtt/shard-platform-node'
 import { readKtx2, Textures } from '@aethervtt/shard-texture'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -11,9 +12,6 @@ import type { FontMetricsJson } from './font'
 import { FontImporter, FontImportSettings, Fonts } from './importer'
 import { layoutText } from './layout'
 import './index'
-
-/** Spec budgets hold under `pnpm bench` (serial); parallel `pnpm test` runs get 3x slack. */
-const budget = (ms: number) => ms * (process.env.SHARD_BENCH ? 1 : 3)
 
 const fixtures = resolve(dirname(fileURLToPath(import.meta.url)), '../fixtures')
 const interBytes = new Uint8Array(readFileSync(resolve(fixtures, 'Inter-Regular.ttf')))

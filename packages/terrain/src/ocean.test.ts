@@ -1,5 +1,6 @@
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { loadNoiseKernel, NoiseGraph } from '@aethervtt/shard-noise'
@@ -78,7 +79,9 @@ function addBiomes(p: PlanetApp) {
 }
 
 describe('oceans and biomes (spec 0043)', () => {
-  it('maps continents, polar snow, and sea (terrain.map golden)', async () => {
+  it('maps continents, polar snow, and sea (terrain.map golden)', {
+    timeout: timeout(120_000),
+  }, async () => {
     const p = await planetApp(undefined, {
       radius: R,
       heightScale: 1500,
@@ -124,9 +127,11 @@ describe('oceans and biomes (spec 0043)', () => {
     expect(land / (sea + land)).toBeGreaterThan(0.2)
     expect(polar).toBeGreaterThan(50)
     expect(polarSnow / polar).toBeGreaterThan(0.8)
-  }, 120_000)
+  })
 
-  it('shows water where terrain.sample says underwater, land elsewhere', async () => {
+  it('shows water where terrain.sample says underwater, land elsewhere', {
+    timeout: timeout(120_000),
+  }, async () => {
     const p = await planetApp(gpu, {
       radius: R,
       heightScale: 1500,
@@ -194,5 +199,5 @@ describe('oceans and biomes (spec 0043)', () => {
     expect(dry).toBeGreaterThan(20)
     expect(waterOk / water).toBeGreaterThan(0.95)
     expect(dryOk / dry).toBeGreaterThan(0.95)
-  }, 120_000)
+  })
 })

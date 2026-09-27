@@ -1,6 +1,7 @@
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { quat } from '@aethervtt/shard-core'
+import { timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { cube, plane, sphere } from '@aethervtt/shard-mesh'
@@ -25,7 +26,7 @@ import {
   Ssao,
   Vignette,
 } from './post'
-import { ExposureMeters } from './post-nodes'
+import { ExposureMeters, METER_READBACKS } from './post-nodes'
 import { OffscreenTarget } from './target'
 import { compareGolden, renderView, settle } from './testing'
 import { cameraOf, RenderPath, Tonemapping } from './view'
@@ -139,7 +140,9 @@ const meanDiff = (a: Uint8Array, b: Uint8Array) => {
 }
 
 describe('post-processing', () => {
-  it('renders each effect on the fixture (golden images)', async () => {
+  it('renders each effect on the fixture (golden images)', {
+    timeout: timeout(120_000),
+  }, async () => {
     const base = await effect('none', [])
     expect(compareGolden(here, 'post-none', base.image).mean).toBeLessThan(1.5)
     const cases: [string, unknown[], { msaa?: 1 | 4; path?: 'forward' | 'deferred' }?][] = [
@@ -162,7 +165,7 @@ describe('post-processing', () => {
       if (name !== 'motion-blur')
         expect(meanDiff(image.data, base.image.data), name).toBeGreaterThan(0.2)
     }
-  }, 120_000)
+  })
 
   it('lists active effects in order, and removing a component removes its node', async () => {
     const { app, world, cam } = await effect('all', [
@@ -212,7 +215,9 @@ describe('post-processing', () => {
     expect(world.resource(Gpu).errors).toEqual([])
   })
 
-  it('adapts from an interior to daylight within 0.25 EV of the metered target in its adaptation time', async () => {
+  it('adapts from an interior to daylight within 0.25 EV of the metered target in its adaptation time', {
+    timeout: timeout(60_000),
+  }, async () => {
     const { app, world, targetRef } = await scene(96, 64, 1)
     const meshes = world.resource(Meshes)
     const materials = world.resource(Materials)
@@ -254,15 +259,18 @@ describe('post-processing', () => {
     const luminance = (10_000 * 0.18) / Math.PI
     const expected = Math.log2((luminance * 100) / 12.5)
     const meter = () => world.resource(ExposureMeters).get(cam)!
-    // The meter sees the change when its readback lands: a frame or two in a browser, a few more
-    // under headless Dawn. Adaptation time counts from there.
-    let latency = 0
-    while (meter().metered! < interior + 1 && latency < 30) {
-      await step()
-      latency++
-    }
-    expect(latency).toBeLessThan(20)
+    // The meter sees the change when a reading of a frame drawn after it lands. How many frames
+    // that takes depends on how fast the GPU maps readbacks (a frame or two in a browser, dozens on
+    // a software GPU), so the test counts readings: the ones already in flight, then this one.
+    const before = meter().readings
     let frames = 0
+    while (meter().metered! < interior + 1 && frames < 600) {
+      await step()
+      frames++
+    }
+    expect(meter().metered!).toBeGreaterThanOrEqual(interior + 1)
+    expect(meter().readings - before).toBeLessThanOrEqual(METER_READBACKS + 1)
+    frames = 0
     const target = meter().metered!
     expect(Math.abs(target - expected)).toBeLessThan(0.25)
     // The configured adaptation time: the EV distance at speedUp (3 EV/s).
@@ -279,9 +287,11 @@ describe('post-processing', () => {
     expect(Math.abs(ev() - expected)).toBeLessThan(0.25)
     const post = describeRender(world).post as { views: Record<string, { meteredEv100: number }> }
     expect(post.views[`camera:${cam}`]!.meteredEv100).toBeCloseTo(expected, 0)
-  }, 60_000)
+  })
 
-  it('blurs by the thin-lens circle of confusion, within 10%', async () => {
+  it('blurs by the thin-lens circle of confusion, within 10%', {
+    timeout: timeout(60_000),
+  }, async () => {
     const size = 400
     const { app, world, targetRef } = await scene(size, size, 1)
     const meshes = world.resource(Meshes)
@@ -354,9 +364,11 @@ describe('post-processing', () => {
     for (let t = 0; t <= 1; t += 1e-4) if (cover(t) <= 0.9) t90 = t
     const measured = width / (2 * t90)
     expect(Math.abs(measured - expected) / expected).toBeLessThan(0.1)
-  }, 60_000)
+  })
 
-  it('TAA lowers edge aliasing and does not ghost behind a moving object', async () => {
+  it('TAA lowers edge aliasing and does not ghost behind a moving object', {
+    timeout: timeout(60_000),
+  }, async () => {
     const size = 96
     const make = async (mode: 'none' | 'taa', scale = 1) => {
       const { app, world, targetRef } = await scene(size * scale, size * scale, 1)
@@ -463,5 +475,5 @@ describe('post-processing', () => {
         data: strip,
       }).mean,
     ).toBeLessThan(1.5)
-  }, 60_000)
+  })
 })

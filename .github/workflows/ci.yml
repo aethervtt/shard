@@ -37,5 +37,9 @@ jobs:
 
       - run: pnpm typecheck
 
+      # SHARD_CI: correctness only. Shared runners render on a software GPU, so time budgets are off
+      # there and timeouts are 5x (see packages/core/src/test-env.ts); `pnpm bench` holds the budgets.
       # --continue: report every failing package, not just the first.
       - run: pnpm test --continue
+        env:
+          SHARD_CI: '1'

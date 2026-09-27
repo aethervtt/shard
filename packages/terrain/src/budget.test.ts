@@ -1,3 +1,4 @@
+import { budget, timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { loadNoiseKernel, NoiseGraph } from '@aethervtt/shard-noise'
@@ -7,8 +8,6 @@ import { TerrainBudget } from './components'
 import { heightAt } from './heights'
 import type { PlanetRender } from './render'
 import { placeCamera, planetApp } from './test-planet'
-
-const budget = (ms: number) => ms * (process.env.SHARD_BENCH ? 1 : 3)
 
 let gpu: GpuContext
 let terrain: NoiseGraph
@@ -32,7 +31,9 @@ const sorted = (a: number[]) => [...a].sort((x, y) => x - y)
 const pct = (a: number[], p: number) => sorted(a)[Math.min(a.length - 1, Math.floor(a.length * p))]!
 
 describe('terrain budget (spec 0043)', () => {
-  it('keeps generation within TerrainBudget and a descent under 16.6 ms a frame', async () => {
+  it('keeps generation within TerrainBudget and a descent under 16.6 ms a frame', {
+    timeout: timeout(240_000),
+  }, async () => {
     const R = 6.371e6
     const p = await planetApp(gpu, {
       radius: R,
@@ -94,5 +95,5 @@ describe('terrain budget (spec 0043)', () => {
       )
     expect(pct(times, 0.5)).toBeLessThan(budget(16.6))
     expect(pct(times, 0.95)).toBeLessThan(budget(16.6))
-  }, 240_000)
+  })
 })

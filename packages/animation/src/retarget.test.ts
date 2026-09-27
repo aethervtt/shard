@@ -1,5 +1,6 @@
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { timeout } from '@aethervtt/shard-core/test-env'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { plane } from '@aethervtt/shard-mesh'
 import {
@@ -28,7 +29,9 @@ import { addBipedAssets, biped, spawnBiped } from './testing'
 
 const here = dirname(fileURLToPath(import.meta.url))
 
-it('a walk retargeted from a tall rig to a short one with other bind orientations keeps its feet on the ground (golden image)', async () => {
+it('a walk retargeted from a tall rig to a short one with other bind orientations keeps its feet on the ground (golden image)', {
+  timeout: timeout(60_000),
+}, async () => {
   const gpu = await createNodeGpuContext()
   const target = new OffscreenTarget(gpu, { label: 'retarget', width: 160, height: 120 })
   const app = new App().addPlugin(
@@ -85,4 +88,4 @@ it('a walk retargeted from a tall rig to a short one with other bind orientation
     target.destroy()
     gpu.destroy()
   }
-}, 60_000)
+})

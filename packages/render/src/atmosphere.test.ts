@@ -1,6 +1,7 @@
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type Entity, ProfilerResource, quat } from '@aethervtt/shard-core'
+import { budget, timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { box, plane } from '@aethervtt/shard-mesh'
@@ -38,8 +39,6 @@ beforeAll(async () => {
 afterAll(() => gpu.destroy())
 
 const here = dirname(fileURLToPath(import.meta.url))
-/** Spec budgets hold under `pnpm bench` (serial); parallel `pnpm test` runs get 3x slack. */
-const budget = (ms: number) => ms * (process.env.SHARD_BENCH ? 1 : 3)
 const rad = (d: number) => (d * Math.PI) / 180
 const R = 6_360_000
 const lum = (c: ArrayLike<number>) => 0.2126 * c[0]! + 0.7152 * c[1]! + 0.0722 * c[2]!
@@ -117,7 +116,9 @@ async function hdr(app: App, cam: Entity) {
 const EV = { 60: 13.5, 10: 12, 0: 10, [-4]: 6 } as Record<number, number>
 
 describe('atmosphere (spec 0044)', () => {
-  it('renders Earth at sun elevations 60°, 10°, 0°, −4° from 2 m, 10 km, and 400 km (goldens)', async () => {
+  it('renders Earth at sun elevations 60°, 10°, 0°, −4° from 2 m, 10 km, and 400 km (goldens)', {
+    timeout: timeout(120_000),
+  }, async () => {
     for (const altitude of [2, 10_000, 400_000]) {
       for (const elevation of [60, 10, 0, -4]) {
         const { app, world, targetRef } = await scene(96, 54)
@@ -134,7 +135,7 @@ describe('atmosphere (spec 0044)', () => {
         expect(world.resource(Gpu).errors).toEqual([])
       }
     }
-  }, 120_000)
+  })
 
   it('zenith luminance at a 60° sun from 2 m matches the model (GPU and CPU agree)', async () => {
     const { app, world, targetRef } = await scene(32, 32)
@@ -189,7 +190,9 @@ describe('atmosphere (spec 0044)', () => {
     expect(compareGolden(here, 'atmosphere-mars-sunset', image).mean).toBeLessThan(1.5)
   })
 
-  it('flies from 2 m to 400 km and back in 20 s without a jump in luminance', async () => {
+  it('flies from 2 m to 400 km and back in 20 s without a jump in luminance', {
+    timeout: timeout(120_000),
+  }, async () => {
     // Big enough that the horizon crossing a pixel row isn't itself a 3% step.
     const { app, world, targetRef } = await scene(64, 36)
     world.spawn([Atmosphere, AtmospherePresets.earth], [Transform, { translation: [0, -R, 0] }])
@@ -223,7 +226,7 @@ describe('atmosphere (spec 0044)', () => {
     }
     expect(worst).toBeLessThan(0.03)
     expect(world.resource(Gpu).errors).toEqual([])
-  }, 120_000)
+  })
 
   it('hazes terrain 20 km away more than terrain 1 km away, the same in forward and deferred', async () => {
     const images = []
@@ -387,7 +390,9 @@ describe('atmosphere (spec 0044)', () => {
     }
   })
 
-  it('costs little per frame over a skybox: one primary with aerial perspective, and four atmospheres', async () => {
+  it('costs little per frame over a skybox: one primary with aerial perspective, and four atmospheres', {
+    timeout: timeout(120_000),
+  }, async () => {
     /** GPU time of one frame: submit to done, the queue idle when it starts. */
     async function frameMs(app: App) {
       await gpu.device.queue.onSubmittedWorkDone()
@@ -467,7 +472,7 @@ describe('atmosphere (spec 0044)', () => {
     expect(s.lutComputes).toBe(computes)
     const select = one.world.resource(ProfilerResource).timing('render/atmosphere-select')!
     expect(select.avg).toBeLessThan(budget(0.1))
-  }, 120_000)
+  })
 
   it('keeps the same image far from the origin (camera-relative math)', async () => {
     const images = []

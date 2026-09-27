@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { assetServer } from '@aethervtt/shard-assets'
+import { budget, timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { createNodePlatform } from '@aethervtt/shard-platform-node'
@@ -35,9 +36,6 @@ import { GlobalTransform, TransformPlugin } from '@aethervtt/shard-transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Skins } from './index'
 import './index'
-
-/** Spec budgets hold under `pnpm bench` (serial); parallel `pnpm test` runs get 3x slack. */
-const budget = (ms: number) => ms * (process.env.SHARD_BENCH ? 1 : 3)
 
 const here = dirname(fileURLToPath(import.meta.url))
 const fixtures = resolve(here, '../fixtures/khronos')
@@ -333,7 +331,9 @@ describe('SceneInstance', () => {
 })
 
 describe('performance', () => {
-  it('imports a 1M-triangle .glb in under 2 s and loads its mesh in under 20 ms', async () => {
+  it('imports a 1M-triangle .glb in under 2 s and loads its mesh in under 20 ms', {
+    timeout: timeout(60_000),
+  }, async () => {
     // A 708x708 grid: 1,000,000+ triangles.
     const n = 708
     const verts = (n + 1) * (n + 1)
@@ -410,5 +410,5 @@ describe('performance', () => {
       app.world.resource(Meshes).get(assets.resolve('assets/grid.glb#Mesh/Grid'))!.drawCount / 3,
     ).toBeGreaterThan(1_000_000)
     expect(loadMs).toBeLessThan(budget(20))
-  }, 60_000)
+  })
 })

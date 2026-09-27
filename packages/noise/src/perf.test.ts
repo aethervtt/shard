@@ -1,3 +1,4 @@
+import { budget, slack } from '@aethervtt/shard-core/test-env'
 import { createNodeWorkers } from '@aethervtt/shard-platform-node'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
@@ -9,10 +10,6 @@ import {
   sampleSpherePatchAsync,
 } from '.'
 import { PLANET } from './planet'
-
-/** Spec budgets hold under `pnpm bench` (serial); parallel `pnpm test` runs get 3x slack. */
-const slack = process.env.SHARD_BENCH ? 1 : 3
-const budget = (ms: number) => ms * slack
 
 beforeAll(async () => {
   await loadNoiseKernel()

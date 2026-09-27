@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto'
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { PerformanceObserver } from 'node:perf_hooks'
 import { fileURLToPath } from 'node:url'
 import { assetServer } from '@aethervtt/shard-assets'
 import { ChildOf, type Entity, type World } from '@aethervtt/shard-core'
+import { budget } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { encodeMesh } from '@aethervtt/shard-mesh'
@@ -63,9 +64,6 @@ function stateHash(world: World): string {
   return createHash('sha256').update(rows.sort().join('\n')).digest('hex')
 }
 
-/** Spec budgets hold under `pnpm bench` (serial); parallel `pnpm test` runs get 3x slack. */
-const budget = (ms: number) => ms * (process.env.SHARD_BENCH ? 1 : 3)
-
 const example = resolve(fileURLToPath(import.meta.url), '../../../../examples/star-explorer')
 
 let gpu: GpuContext
@@ -93,6 +91,8 @@ function checksum(bytes: Uint8Array): string {
 beforeAll(async () => {
   gpu = await createNodeGpuContext()
   // Inside the example, so `@aethervtt/shard-*` resolves through its node_modules.
+  // .shard is gitignored, so a fresh clone doesn't have it yet.
+  mkdirSync(join(example, '.shard'), { recursive: true })
   root = mkdtempSync(join(example, '.shard', 'procgen-'))
   for (const dir of [
     'scripts',

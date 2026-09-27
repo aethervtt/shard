@@ -1,5 +1,6 @@
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { loadNoiseKernel, NoiseGraph } from '@aethervtt/shard-noise'
@@ -37,7 +38,9 @@ const H = 120
 const FOV = 60
 
 describe('no cracks between levels (spec 0043)', () => {
-  it('shows no background through 2:1 edges with skirts off, in five views', async () => {
+  it('shows no background through 2:1 edges with skirts off, in five views', {
+    timeout: timeout(240_000),
+  }, async () => {
     const radius = 6.371e6
     const p = await planetApp(gpu, {
       radius,
@@ -123,5 +126,5 @@ describe('no cracks between levels (spec 0043)', () => {
       expect(golden.mean).toBeLessThan(1)
     }
     expect(p.world.resource(Gpu).errors).toEqual([])
-  }, 240_000)
+  })
 })

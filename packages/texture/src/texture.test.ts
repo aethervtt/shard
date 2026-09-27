@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import * as zlib from 'node:zlib'
 import { assetServer } from '@aethervtt/shard-assets'
 import { World } from '@aethervtt/shard-core'
+import { budget, timeout } from '@aethervtt/shard-core/test-env'
 import { createNodePlatform } from '@aethervtt/shard-platform-node'
 import jpeg from 'jpeg-js'
 import {
@@ -21,9 +22,6 @@ import { readKtx2, writeKtx2 } from './ktx2'
 import { buildMips } from './mips'
 import { setTextureCapabilities, Texture, Textures, textureFromKtx2 } from './texture'
 import './index'
-
-/** Spec budgets hold under `pnpm bench` (serial); parallel `pnpm test` runs get 3x slack. */
-const budget = (ms: number) => ms * (process.env.SHARD_BENCH ? 1 : 3)
 
 const here = dirname(fileURLToPath(import.meta.url))
 const fixtures = resolve(here, '../fixtures')
@@ -223,7 +221,9 @@ describe('KTX2 and Basis', () => {
     }
   })
 
-  it('encodes UASTC and transcodes to BC7 or RGBA8 depending on the device', async () => {
+  it('encodes UASTC and transcodes to BC7 or RGBA8 depending on the device', {
+    timeout: timeout(60_000),
+  }, async () => {
     const src = pattern(64, 64)
     const { bytes } = await importImageBytes(src.length ? await pngOf(src, 64, 64) : src, {
       usage: 'color',
@@ -246,7 +246,7 @@ describe('KTX2 and Basis', () => {
     expect(bc.levels![0]!.length).toBe((64 / 4) * (64 / 4) * 16)
     setTextureCapabilities({ bc: false, astc: false, etc2: false })
     expect((await textureFromKtx2(bytes)).format).toBe('rgba8unorm')
-  }, 60_000)
+  })
 })
 
 /** A PNG from RGBA8 pixels, via the protocol encoder's approach (deflate stored as zlib). */
@@ -361,7 +361,7 @@ describe('textures in code and in projects', () => {
     expect(tex).toMatchObject({ width: 8, height: 8, layers: 3, version: 1 })
   })
 
-  it('imports a 2048² PNG in under 1.5 s', async () => {
+  it('imports a 2048² PNG in under 1.5 s', { timeout: timeout(30_000) }, async () => {
     const png = await pngOf(pattern(2048, 2048), 2048, 2048)
     const start = performance.now()
     const out = await importImageBytes(png, {
@@ -375,11 +375,13 @@ describe('textures in code and in projects', () => {
     const ms = performance.now() - start
     expect(out.info.mips).toBe(12)
     expect(ms).toBeLessThan(budget(1500))
-  }, 30_000)
+  })
 })
 
 describe('the same pixels on every host', () => {
-  it('decodes the cross-host fixtures to their recorded hashes', async () => {
+  it('decodes the cross-host fixtures to their recorded hashes', {
+    timeout: timeout(30_000),
+  }, async () => {
     const { createHash } = await import('node:crypto')
     const hashes = JSON.parse(
       readFileSync(join(fixtures, 'crosshost-hashes.json'), 'utf8'),
@@ -397,5 +399,5 @@ describe('the same pixels on every host', () => {
           : (await decodeImage(bytes)).data
       expect(sha(data), file).toBe(hash)
     }
-  }, 30_000)
+  })
 })
