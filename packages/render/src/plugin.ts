@@ -96,7 +96,7 @@ const execute = defineSystem({
     if (recovering.value) return
     const views = world.resource(Views).list
     const window = world.tryResource(Window)
-    const options = world.resource(Options)
+    const options = world.resource(RenderOptions)
     if (views.length === 0 && window && options.windowView) {
       views.push({ name: WINDOW_VIEW, target: window, order: 0, data: {} })
     }
@@ -114,16 +114,28 @@ export const RenderDescribers = defineResource<Map<string, (world: World) => unk
   { description: 'Sections plugins add to render.describe.', init: () => new Map() },
 )
 
-const Options = defineResource<Required<Pick<RenderPluginOptions, 'windowView'>>>('render/Options')
+export const RenderOptions =
+  defineResource<Required<Pick<RenderPluginOptions, 'windowView'>>>('render/Options')
 
 export function renderPlugin(options: RenderPluginOptions = {}): Plugin {
   return definePlugin({
     name: 'render',
+    provides: [
+      // graph and device
+      Gpu,
+      GpuDeviceLost,
+      Graph,
+      RenderDescribers,
+      RenderOptions,
+      Shaders,
+      Views,
+      Window,
+    ],
     dependencies: ['core/time'],
     build(app) {
       app
         .insertResource(Views, { list: [] })
-        .insertResource(Options, { windowView: options.windowView ?? true })
+        .insertResource(RenderOptions, { windowView: options.windowView ?? true })
         .configureSets(
           Last,
           RenderSet.Extract.after(RenderSet.Begin),

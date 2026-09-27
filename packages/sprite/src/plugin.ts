@@ -1,9 +1,14 @@
 import { Last, Update } from '@aethervtt/shard-core'
 import { Gpu, Graph, Picking, RenderDescribers, RenderSet, Shaders } from '@aethervtt/shard-render'
 import { definePlugin } from '@aethervtt/shard-runtime'
+import * as atlasModule from './atlas'
 import { TextureAtlases } from './atlas'
+import * as clipModule from './clip'
 import { animateSprites, SpriteClips } from './clip'
+import * as lightingModule from './lighting'
+import * as lights2dModule from './lights2d'
 import { lights2dNode, prepareLights2d } from './lights2d'
+import * as renderModule from './render'
 import {
   describeSprites,
   drawSpritePicks,
@@ -16,7 +21,9 @@ import {
   Tilemaps,
 } from './render'
 import { SPRITE_SHADERS } from './shaders'
+import * as spriteModule from './sprite'
 import { Sprite2dSettings } from './sprite'
+import * as tilemapModule from './tilemap'
 import { TilemapDatas } from './tilemap'
 
 /**
@@ -26,6 +33,15 @@ import { TilemapDatas } from './tilemap'
  */
 export const spritePlugin = definePlugin({
   name: 'sprite',
+  provides: [
+    atlasModule,
+    clipModule,
+    lightingModule,
+    lights2dModule,
+    renderModule,
+    spriteModule,
+    tilemapModule,
+  ],
   dependencies: ['render/forward'],
   build(app) {
     const w = app.world

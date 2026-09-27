@@ -218,9 +218,14 @@ export type AssetResolver = (server: AssetServer, pathOrGuid: string) => AssetEn
 
 const resolvers: AssetResolver[] = []
 
-/** Adds a resolver `entry` and `resolve` consult when the catalog has no match. */
-export function defineAssetResolver(resolver: AssetResolver): void {
-  resolvers.push(resolver)
+/** Adds a resolver `entry` and `resolve` consult when the catalog has no match. Once per resolver. */
+export function defineAssetResolver(resolver: AssetResolver): AssetResolver {
+  if (!resolvers.includes(resolver)) resolvers.push(resolver)
+  return resolver
+}
+
+export function allAssetResolvers(): readonly AssetResolver[] {
+  return resolvers
 }
 
 /**

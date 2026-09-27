@@ -1,10 +1,15 @@
 import { onRemove, PostUpdate } from '@aethervtt/shard-core'
 import { definePlugin } from '@aethervtt/shard-runtime'
 import { propagateTransforms, TransformSystems } from '@aethervtt/shard-transform'
+import * as animatorModule from './animator'
 import { Animator, AnimatorStateResource, evaluateGraphs, forgetAnimator } from './animator'
+import * as clipModule from './clip'
 import { AnimationClips } from './clip'
+import * as componentsModule from './components'
 import { AnimationMasks, AnimationPlayer } from './components'
+import * as graphModule from './graph'
 import { AnimationGraphs } from './graph'
+import * as ikModule from './ik'
 import {
   ChainIk,
   FootPlacement,
@@ -16,8 +21,12 @@ import {
   TwoBoneIk,
 } from './ik'
 import { animationMethods } from './methods'
+import * as playerModule from './player'
 import { AnimationStateResource, forgetBinding, sampleAnimations } from './player'
+import * as previewModule from './preview'
+import * as retargetModule from './retarget'
 import { JointMaps } from './retarget'
+import * as socketModule from './socket'
 import { Attach, AttachStateResource, attachToSockets, forgetAttachment } from './socket'
 
 /**
@@ -26,6 +35,17 @@ import { Attach, AttachStateResource, attachToSockets, forgetAttachment } from '
  */
 export const animationPlugin = definePlugin({
   name: 'animation',
+  provides: [
+    animatorModule,
+    clipModule,
+    componentsModule,
+    graphModule,
+    ikModule,
+    playerModule,
+    previewModule,
+    retargetModule,
+    socketModule,
+  ],
   dependencies: ['core/transform'],
   build(app) {
     const w = app.world

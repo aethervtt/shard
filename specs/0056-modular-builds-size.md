@@ -23,10 +23,9 @@ worker, and doesn't measure either.
 
 ## Goals
 
-- Definitions stay where they are, and plugins declare the ones they provide, so a bundle keeps
-  exactly the definitions of the plugins it installs.
-- Catalog-only registrations (importers, previews, overlays, resolvers) move into plugin `build()`,
-  and every registration is idempotent.
+- Registrations stay where they are, and plugins declare the modules and values they provide, so a
+  bundle keeps exactly what the plugins it installs need. No bare side-effect imports.
+- Every registration is idempotent and returns what it registered, so it can be provided.
 - `"sideEffects": false` on every package, so importing a name keeps only what it uses.
 - A minimal `forwardPlugin`, with each render feature as its own plugin, plus a preset that keeps
   today's behavior.
@@ -47,48 +46,55 @@ worker, and doesn't measure either.
 
 ## Design
 
-### Definitions and catalogs
+### Definitions and registrations
 
-Two kinds of registration exist, and they get different rules.
+Definitions (components, tags, resources, events, materials, data types, settings, asset types)
+create an identity and a catalog entry in one call, and scene files, saves, the protocol and
+animation tracks look them up by name. Catalog entries (importers, previews, asset schemas,
+overlays, resolvers, import dependencies, procedural sources, instance kinds) are registered the same
+way. Both stay module-level and register when their module evaluates.
 
-**Definitions** (components, tags, resources, events, materials, data types, settings, asset
-types) create an identity and a catalog entry in one call. Scene files, saves, the protocol and
-animation tracks all look them up by name, and a second call under the same name breaks that
-(`schema/ambiguous-name` for components, a new id for resources). So they stay module-level
-`export const`s, evaluated when their module is.
-
-What makes that safe to tree-shake is **reachability**. `Plugin` gains `provides`:
+What makes that safe with `sideEffects: false` is **reachability**. A bundler drops a module only
+when nothing reachable uses it, so each plugin declares what it needs:
 
 ```ts
 definePlugin({
   name: 'physics3d',
-  provides: { components: [RigidBody, Collider, Velocity, …], resources: [Physics, …], events: [Contact, …] },
+  provides: [componentsModule, collidersOverlay],   // import * as componentsModule from './components'
   build(app) { … },
 })
 ```
 
-An installed plugin references its definitions, so their modules stay in the bundle and register.
-A package whose plugins aren't installed drops out entirely, definitions included, and nothing
-reachable could have named them: a scene that uses `physics/RigidBody` needs `physics3d` anyway.
-A registry test checks that every definition exported by a package appears in some plugin's
-`provides` in that package, so a new component can't be forgotten.
+`provides` takes module namespaces or values. Namespaces are convenient, but they keep every
+export of the module. So packages where size matters (render, transform) list the definitions
+themselves, grouped by feature. An installed plugin keeps what it provides; a package whose plugins
+aren't installed drops out, and nothing reachable could have named its definitions.
 
-**Catalog entries** (importers, asset previews, asset schemas, overlays, asset resolvers, import
-dependencies, procedural sources, instance kinds, the ref parser, the standard material fields,
-texture capabilities, environment bakers) carry no identity. They move out of module scope into a
-`register…()` function per package that its plugins' `build()` calls. Each one is keyed by name
-and idempotent: `defineAssetResolver` and `defineProceduralSource` stop appending duplicates. The
-six bare side-effect imports (`import './preview'` and the like) go away. A test imports every
-package index in a fresh module graph and asserts that no catalog registry changed.
+Registration functions return what they registered (`export const noiseGraphPreview =
+defineAssetPreview(…)`), so every registration is an export something can provide. The two that
+appended (`defineAssetResolver`, `defineProceduralSource`) now add each value once.
 
-**Name lookups across packages** (`'scene/SceneMember'`, `'physics/Collider'`,
-`'terrain/Planet'` and others) stop caching a miss. They cache the definition once found and look
-again until then, so a package installed later is still seen.
+**The rule, as a test.** `project/src/provides.test.ts` imports every source module of every engine
+package and attributes each registry entry to the package that exports it (following one or two
+levels in: a material's component, a data type's importer and file schema). It then checks that
+each entry is reachable from a plugin of that package. An entry no module exports fails too, since
+nothing could provide it.
 
-A headless tool that loads assets without installing plugins (the CLI's `import`, `validate`,
-`docs`) calls `registerAll()` from `@aethervtt/shard-project`, which calls every package's
-`register…()`; `shard validate` also reports a scene component whose plugin isn't in the
-manifest, naming the plugin (`scene/plugin-missing`).
+**No bare side-effect imports.** The six `import './preview'`-style imports are gone; the plugins
+that need those modules provide them. glTF's importer, which the project host imported bare, gets a
+`gltfPlugin` the host installs.
+
+**Name lookups across packages** (`'scene/SceneMember'`, `'physics/Collider'`, `'terrain/Planet'`
+and others) stop caching a miss. They cache the definition once found and look again until then.
+
+**Order.** `defineMaterial` used to need `setStandardFields()` to have run first, a module-level
+call in `render/assets.ts`. Once a bundler prunes unused re-exports, nothing guarantees that order,
+so the standard fields move to `standard-fields.ts`, which `materials.ts` imports directly.
+
+**Bundles without plugins.** The generator worker (0042) bundles the project's code with the engine
+inlined and runs no plugins, and a job may load any asset type. Its esbuild build sets
+`ignoreAnnotations`, which keeps every module despite `sideEffects: false`. Project code bundles
+keep `@aethervtt/shard-*` external, so they share the host's module instances and aren't affected.
 
 ### Render features as plugins
 
@@ -142,7 +148,8 @@ physics and nav for `Meshes` and `defineOverlay`, sprite, text, terrain and part
 import keeps only what it uses. Two cycles need breaking: `overlays.ts` imports
 `ForwardStateResource` from `forward.ts` (so `defineOverlay` reaches the whole forward graph), and
 `animation` and `particles` load their previews, which import `renderPlugin` and `forwardPlugin`,
-from their indexes. Previews move behind their packages' `register…()` and load lazily.
+from their plugins. The previews' render code moves behind a dynamic import, so it loads only when
+a preview is asked for.
 
 ### WASM
 
@@ -202,12 +209,12 @@ against the `.d.ts` only. `pnpm release --check` runs it.
 
 ## Decisions
 
-- **Definitions stay at module level; plugins declare them.** A definition's identity is its
+- **Registrations stay at module level; plugins declare them.** A definition's identity is its
   catalog entry, and scene files name definitions, so moving them into `build()` would break
   loading. Reachability through `provides` makes `sideEffects: false` safe instead: a module is
-  dropped only when no installed plugin could need it.
-- **Catalog-only registrations move into `build()`.** They have no identity, so there's nothing to
-  keep them at import time, and moving them makes registration explicit and ordered.
+  dropped only when no installed plugin could need it. Catalog entries follow the same rule rather
+  than moving into `build()`, so the CLI and tests, which import packages without plugins, keep
+  working unchanged.
 - **Clustered lights stay in core.** Every lit 3D scene needs them, and a separate lighting model
   for "a few lights" would be a second path to maintain.
 - **A preset instead of feature detection from scene contents.** Scenes load after the build, so a
@@ -218,12 +225,12 @@ against the `.d.ts` only. `pnpm release --check` runs it.
 
 ## Acceptance criteria
 
-- [ ] Importing every package index in a fresh module graph changes no catalog registry
-      (definitions are allowed), and no package has a bare side-effect import (test).
-- [ ] Every definition a package exports appears in a `provides` of one of its plugins (test).
-- [ ] Registering any catalog entry twice leaves one entry (test per registry).
-- [ ] Every package declares `"sideEffects": false`, and the playground, examples, CLI and
-      `pnpm test` pass unchanged with `standardRenderPlugins`.
+- [x] Every registration a package makes is exported and reachable from one of its plugins'
+      `provides` (`project/src/provides.test.ts`), and no package has a bare side-effect import.
+- [x] Registering a resolver or procedural source twice leaves one entry; the other registries were
+      already keyed by name.
+- [x] Every package declares `"sideEffects": false`, and the playground, examples, CLI and
+      `pnpm test` pass unchanged. (`standardRenderPlugins` arrives with the render split.)
 - [ ] Each feature plugin's off state renders: `renderer-min` without `environmentPlugin`,
       `postPlugin` or `atmospherePlugin` matches its golden, and the full set matches today's
       goldens.

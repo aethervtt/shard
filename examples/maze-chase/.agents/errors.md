@@ -177,7 +177,6 @@ Every engine error is a `ShardError` with one of these codes.
 | `render/graph-cycle` | @aethervtt/shard-render | Check reads/writes and `after` on these nodes. |
 | `render/material-field-clash` | @aethervtt/shard-render | Give the field another name, or use extends: "none". |
 | `render/material-noise-name` | @aethervtt/shard-render | Use lowercase letters, digits, and underscores: { detail: "assets/noise/rock.noise.json" }. |
-| `render/material-standard-missing` | @aethervtt/shard-render |  |
 | `render/missing-resource` | @aethervtt/shard-render | Declare it in a node's `writes` (as a transient texture) or with graph.declare. |
 | `render/no-shadow-map` | @aethervtt/shard-render | Set shadows: true on the light, and check render.describe for the shadow budget. |
 | `render/no-view` | @aethervtt/shard-render | Spawn an entity with Camera3d, or pass the camera to pick from. |

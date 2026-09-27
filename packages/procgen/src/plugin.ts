@@ -2,7 +2,11 @@ import { assetServer } from '@aethervtt/shard-assets'
 import type { KeyValueStorage, PlatformFileSystem } from '@aethervtt/shard-platform'
 import { definePlugin } from '@aethervtt/shard-runtime'
 import { updateInstances } from '@aethervtt/shard-scene'
+import * as importerModule from './importer'
+import * as instanceModule from './instance'
 import { procgenMethods } from './methods'
+import * as refsModule from './refs'
+import * as runtimeModule from './runtime'
 import { procgen } from './runtime'
 
 export interface ProcgenPluginOptions {
@@ -18,6 +22,7 @@ export interface ProcgenPluginOptions {
 export function procgenPlugin(options: ProcgenPluginOptions = {}) {
   return definePlugin({
     name: 'procgen',
+    provides: [importerModule, instanceModule, refsModule, runtimeModule],
     build(app) {
       const runtime = procgen(app.world).configure({
         ...(options.fs ? { fs: options.fs } : {}),

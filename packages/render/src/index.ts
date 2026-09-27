@@ -215,6 +215,7 @@ export {
   noiseComputeNode,
 } from './noise'
 export {
+  allOverlays,
   DebugOverlays,
   type DebugOverlaysValue,
   defineOverlay,

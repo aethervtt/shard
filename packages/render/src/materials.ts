@@ -8,6 +8,7 @@ import {
 } from '@aethervtt/shard-core'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { type WgslLayout, wgslLayout } from '@aethervtt/shard-shader'
+import { STANDARD_FIELDS } from './standard-fields'
 
 export const BLEND_MODES = ['opaque', 'mask', 'alpha', 'additive', 'premultiplied'] as const
 export type BlendMode = (typeof BLEND_MODES)[number]
@@ -246,11 +247,9 @@ export function defineMaterial<const F extends Fields>(
   standardFields?: Fields,
 ): MaterialType {
   const ext = options.extends ?? 'standard'
-  if (ext === 'standard' && !standardFields && !defaultStandardFields) {
-    throw new ShardError('render/material-standard-missing', 'The standard material is not loaded')
-  }
+  const standard: Fields = standardFields ?? STANDARD_FIELDS
   for (const key of Object.keys(options.fields ?? {})) {
-    if (ext === 'standard' && (standardFields ?? defaultStandardFields)![key]) {
+    if (ext === 'standard' && standard[key]) {
       throw new ShardError(
         'render/material-field-clash',
         `Material ${name} redefines the standard field "${key}"`,
@@ -259,7 +258,7 @@ export function defineMaterial<const F extends Fields>(
     }
   }
   const fields: Fields = {
-    ...(ext === 'standard' ? (standardFields ?? defaultStandardFields!) : {}),
+    ...(ext === 'standard' ? standard : {}),
     ...(options.fields ?? {}),
   }
   const existing = types.get(name)
@@ -277,13 +276,6 @@ export function defineMaterial<const F extends Fields>(
   const type = new MaterialType(name, options as MaterialTypeOptions<Fields>, schema)
   types.set(name, type)
   return type
-}
-
-let defaultStandardFields: Fields | undefined
-
-/** Registers the standard material's fields (called once by the assets module). */
-export function setStandardFields(fields: Fields): void {
-  defaultStandardFields = fields
 }
 
 export function findMaterialType(name: string): MaterialType | undefined {

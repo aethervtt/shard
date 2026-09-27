@@ -101,7 +101,7 @@ export function instanceRequest(
 /** The last error each instance logged, so a bad value logs once rather than every update. */
 const reported = new WeakMap<World, Map<Entity, string>>()
 
-defineInstanceKind({
+export const generatorInstanceKind = defineInstanceKind({
   def: GeneratorInstance,
   mark: Generated,
   keepIds: true,

@@ -2,7 +2,11 @@ import { Last } from '@aethervtt/shard-core'
 import { Graph, RenderDescribers, RenderSet } from '@aethervtt/shard-render'
 import { definePlugin } from '@aethervtt/shard-runtime'
 import { OriginShift } from '@aethervtt/shard-transform'
+import * as componentsModule from './components'
+import * as effectModule from './effect'
 import { ParticleEffects } from './effect'
+import * as previewModule from './preview'
+import * as simModule from './sim'
 import {
   describeParticles,
   drawNode,
@@ -11,11 +15,11 @@ import {
   shiftParticles,
   simulateNode,
 } from './sim'
-import './preview'
 
 /** GPU particles (and the CPU backend): simulated after the depth resolve, drawn over HDR. */
 export const particlesPlugin = definePlugin({
   name: 'particles',
+  provides: [componentsModule, effectModule, previewModule, simModule],
   dependencies: ['render/forward'],
   build(app) {
     app.world.initResource(ParticleEffects)

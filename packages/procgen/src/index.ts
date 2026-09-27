@@ -1,6 +1,5 @@
 // Side effects: `procedural:<generator>` refs, generators in the catalog by name, the *.gen.json
 // importer, and the GeneratorInstance kind.
-import './refs'
 
 export { findNondeterminism, type NondeterministicCall } from './check'
 export {

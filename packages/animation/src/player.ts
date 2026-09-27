@@ -994,7 +994,7 @@ function applyRootMotion(world: World, entity: Entity, b: Binding, mode: string)
   const sc = table.column(Transform, 'scale')
   const moved = r.motion[0] !== 0 || r.motion[2] !== 0
   if (mode === 'character') {
-    if (intentDef === undefined) intentDef = findComponent('physics/CharacterIntent') ?? null
+    if (!intentDef) intentDef = findComponent('physics/CharacterIntent') ?? null
     if (intentDef && table.has(intentDef)) {
       const move = table.column(intentDef, 'move') as Float32Array
       const inv = dt > 0 ? 1 / dt : 0

@@ -1,6 +1,7 @@
 import { animationPlugin } from '@aethervtt/shard-animation'
 import { audioPlugin } from '@aethervtt/shard-audio'
 import { ShardError } from '@aethervtt/shard-core'
+import { gltfPlugin } from '@aethervtt/shard-gltf'
 import { inputPlugin } from '@aethervtt/shard-input'
 import { navGridPlugin, navPlugin } from '@aethervtt/shard-nav'
 import { particlesPlugin } from '@aethervtt/shard-particles'
@@ -137,6 +138,7 @@ if (demo === 'galaxy') {
     TransformPlugin,
     forwardPlugin(),
     ScenePlugin,
+    gltfPlugin,
     animationPlugin,
     hudPlugin,
     animationDemoPlugin,

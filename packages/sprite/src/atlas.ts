@@ -554,56 +554,59 @@ export const AtlasPackImporter = defineImporter({
  * The atlas texture with each region outlined and labeled with its index, and its alpha outline
  * (green) where it has one. An atlas with normals shows albedo and normals side by side.
  */
-defineAssetPreview('TextureAtlas', async (world, path, width, height) => {
-  const server = assetServer(world)
-  const artifact = await server.artifact(path)
-  const atlas = TextureAtlas.fromJson(artifact.json)
-  const pathOf = (ref: { path?: string } | null) =>
-    ref?.path?.startsWith('#') ? `${path.split('#')[0]}${ref.path}` : ref?.path
-  const texturePath = pathOf(atlas.texture)
-  if (!texturePath) {
-    throw new ShardError('sprite/no-texture', `${path} has no texture`, { path: '/texture' })
-  }
-  const ktx = readKtx2((await server.artifact(texturePath)).bytes!)
-  const normalsPath = pathOf(atlas.normals)
-  const nktx = normalsPath ? readKtx2((await server.artifact(normalsPath)).bytes!) : undefined
-  // Side by side: albedo on the left, normals on the right, with a 4-pixel gap.
-  const sw = nktx ? ktx.width * 2 + 4 : ktx.width
-  const src = new Uint8Array(sw * ktx.height * 4)
-  for (let y = 0; y < ktx.height; y++) {
-    src.set(ktx.levels[0]!.subarray(y * ktx.width * 4, (y + 1) * ktx.width * 4), y * sw * 4)
-    if (nktx && nktx.width === ktx.width && nktx.height === ktx.height) {
-      src.set(
-        nktx.levels[0]!.subarray(y * ktx.width * 4, (y + 1) * ktx.width * 4),
-        (y * sw + ktx.width + 4) * 4,
-      )
+export const textureAtlasPreview = defineAssetPreview(
+  'TextureAtlas',
+  async (world, path, width, height) => {
+    const server = assetServer(world)
+    const artifact = await server.artifact(path)
+    const atlas = TextureAtlas.fromJson(artifact.json)
+    const pathOf = (ref: { path?: string } | null) =>
+      ref?.path?.startsWith('#') ? `${path.split('#')[0]}${ref.path}` : ref?.path
+    const texturePath = pathOf(atlas.texture)
+    if (!texturePath) {
+      throw new ShardError('sprite/no-texture', `${path} has no texture`, { path: '/texture' })
     }
-  }
-  const image = fitImage(src, sw, ktx.height, width, height)
-  const scale = image.width / sw
-  const panels = nktx ? [0, ktx.width + 4] : [0]
-  for (const ox of panels) {
-    for (let i = 0; i < atlas.count; i++) {
-      const [x, y, w, h] = atlas.rects.subarray(i * 4, i * 4 + 4)
-      outline(image, (x! + ox) * scale, y! * scale, w! * scale, h! * scale, [255, 0, 180, 255])
-      const o = atlas.outlines[i]
-      if (o) {
-        const n = o.length / 2
-        for (let k = 0; k < n; k++) {
-          const j = (k + 1) % n
-          drawLine(
-            image,
-            (x! + ox + o[k * 2]! * w!) * scale,
-            (y! + o[k * 2 + 1]! * h!) * scale,
-            (x! + ox + o[j * 2]! * w!) * scale,
-            (y! + o[j * 2 + 1]! * h!) * scale,
-            [40, 255, 90, 255],
-          )
-        }
+    const ktx = readKtx2((await server.artifact(texturePath)).bytes!)
+    const normalsPath = pathOf(atlas.normals)
+    const nktx = normalsPath ? readKtx2((await server.artifact(normalsPath)).bytes!) : undefined
+    // Side by side: albedo on the left, normals on the right, with a 4-pixel gap.
+    const sw = nktx ? ktx.width * 2 + 4 : ktx.width
+    const src = new Uint8Array(sw * ktx.height * 4)
+    for (let y = 0; y < ktx.height; y++) {
+      src.set(ktx.levels[0]!.subarray(y * ktx.width * 4, (y + 1) * ktx.width * 4), y * sw * 4)
+      if (nktx && nktx.width === ktx.width && nktx.height === ktx.height) {
+        src.set(
+          nktx.levels[0]!.subarray(y * ktx.width * 4, (y + 1) * ktx.width * 4),
+          (y * sw + ktx.width + 4) * 4,
+        )
       }
-      if (ox === 0)
-        drawLabel(image, String(i), Math.round(x! * scale) + 2, Math.round(y! * scale) + 2)
     }
-  }
-  return image
-})
+    const image = fitImage(src, sw, ktx.height, width, height)
+    const scale = image.width / sw
+    const panels = nktx ? [0, ktx.width + 4] : [0]
+    for (const ox of panels) {
+      for (let i = 0; i < atlas.count; i++) {
+        const [x, y, w, h] = atlas.rects.subarray(i * 4, i * 4 + 4)
+        outline(image, (x! + ox) * scale, y! * scale, w! * scale, h! * scale, [255, 0, 180, 255])
+        const o = atlas.outlines[i]
+        if (o) {
+          const n = o.length / 2
+          for (let k = 0; k < n; k++) {
+            const j = (k + 1) % n
+            drawLine(
+              image,
+              (x! + ox + o[k * 2]! * w!) * scale,
+              (y! + o[k * 2 + 1]! * h!) * scale,
+              (x! + ox + o[j * 2]! * w!) * scale,
+              (y! + o[j * 2 + 1]! * h!) * scale,
+              [40, 255, 90, 255],
+            )
+          }
+        }
+        if (ox === 0)
+          drawLabel(image, String(i), Math.round(x! * scale) + 2, Math.round(y! * scale) + 2)
+      }
+    }
+    return image
+  },
+)

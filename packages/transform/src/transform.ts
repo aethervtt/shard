@@ -680,6 +680,16 @@ export const recenterGridCells = defineSystem({
 
 export const TransformPlugin = definePlugin({
   name: 'core/transform',
+  provides: [
+    // transforms and large-world grids
+    GlobalTransform,
+    Transform,
+    FloatingOrigin,
+    Grid,
+    GridCell,
+    GridFramesResource,
+    OriginShift,
+  ],
   build(app) {
     app.world.initResource(GridFramesResource)
     app.addSystems(

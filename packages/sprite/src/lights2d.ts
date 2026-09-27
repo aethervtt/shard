@@ -278,7 +278,7 @@ export class OccluderStore {
 
 let colliderDef: ComponentDef | null | undefined
 function colliderOf(world: World, entity: Entity): ColliderValue | undefined {
-  if (colliderDef === undefined) colliderDef = findComponent('physics/Collider') ?? null
+  if (!colliderDef) colliderDef = findComponent('physics/Collider') ?? null
   if (!colliderDef) return undefined
   return world.tryGet(entity, colliderDef) as ColliderValue | undefined
 }
@@ -345,7 +345,7 @@ interface LightQueries {
 function updateOccluders(world: World, store: OccluderStore, since: number, q: LightQueries): void {
   const frame = ++store.frame
   store.chunkRebuilds = 0
-  if (colliderDef === undefined) colliderDef = findComponent('physics/Collider') ?? null
+  if (!colliderDef) colliderDef = findComponent('physics/Collider') ?? null
   for (const table of q.occluders.tables) {
     const n = table.count
     if (n === 0) continue
@@ -1263,7 +1263,7 @@ const lightColor = new Float32Array(4)
 const OCCLUDER_COLOR = [1, 0.35, 0.2, 1]
 const RING_COLOR = [1, 1, 1, 0.8]
 
-defineOverlay({
+export const lights2dOverlay = defineOverlay({
   name: 'lights2d',
   description:
     "2D lights: each light's radius (and cone), its shadow row as a ring, and occluder segments, from the first lit view.",

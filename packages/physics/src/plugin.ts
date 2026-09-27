@@ -23,6 +23,7 @@ import {
   TransformSystems,
 } from '@aethervtt/shard-transform'
 import { characterSystem } from './character'
+import * as componentsModule from './components'
 import {
   CharacterController,
   CharacterState,
@@ -40,6 +41,7 @@ import {
 } from './components'
 import { createGravitySources, gatherGravitySources, sampleGravity } from './gravity'
 import { physicsMethods } from './methods'
+import * as pluginModule from './plugin'
 import { isGrid, parentOf, rotate, worldToLocal } from './pose'
 import { type BodyRecord, loadRapier, Physics, PhysicsWorld } from './world'
 
@@ -672,6 +674,7 @@ function observe(world: World): void {
 function physicsPlugin(dim: 2 | 3): Plugin {
   return {
     name: dim === 3 ? 'physics3d' : 'physics2d',
+    provides: [componentsModule, pluginModule],
     dependencies: ['core/transform'],
     build(app: App) {
       const other = dimensionOf.get(app.world)
@@ -729,7 +732,7 @@ const pb = new Float64Array(3)
 const q = new Float64Array(4)
 const center = new Float64Array(3)
 
-defineOverlay({
+export const collidersOverlay = defineOverlay({
   name: 'colliders',
   description:
     'Physics collider outlines, colored by body kind (sleeping dimmed, sensors green, characters cyan with their up in yellow), and contact normals.',

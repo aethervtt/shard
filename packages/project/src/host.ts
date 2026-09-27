@@ -1,9 +1,8 @@
 import { animationPlugin } from '@aethervtt/shard-animation'
 // Also registers the audio importer and the AudioClip asset type for every project host.
 import { audioPlugin } from '@aethervtt/shard-audio'
+import { gltfPlugin } from '@aethervtt/shard-gltf'
 import type { GpuContext } from '@aethervtt/shard-gpu'
-// Registers the .gltf/.glb importer and the Skin/AnimationClip asset types for every project host.
-import '@aethervtt/shard-gltf'
 import { inputPlugin } from '@aethervtt/shard-input'
 // Also registers the navgrid importer and the NavGridData asset type for every project host.
 import { loadNavCache, Nav, navGridPlugin, navPlugin } from '@aethervtt/shard-nav'
@@ -65,6 +64,8 @@ export function buildApp(options: BuildAppOptions): App {
   )
     names.add('core/transform')
   const app = new App({ seed: manifest.seed })
+  // A project host imports sources (glTF among them) whatever the manifest installs.
+  app.addPlugin(gltfPlugin)
   if (names.has('core/transform')) app.addPlugin(TransformPlugin)
   if (names.has('render')) {
     app.addPlugin(

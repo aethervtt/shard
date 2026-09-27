@@ -286,42 +286,45 @@ function sendPassed(
 }
 
 /** A clip's frames side by side, in order, each labeled with its index. */
-defineAssetPreview('SpriteClip', async (world, path, width, height) => {
-  const server = assetServer(world)
-  const clip = SpriteClipSchema.deserialize((await server.artifact(path)).json) as unknown as {
-    atlas: { path?: string } | null
-    frames: { region: string }[]
-  }
-  const atlasPath = clip.atlas?.path
-  if (!atlasPath)
-    throw new ShardError('sprite/no-atlas', `${path} has no atlas`, { path: '/atlas' })
-  const atlas = TextureAtlas.fromJson((await server.artifact(atlasPath)).json)
-  const texturePath = atlas.texture?.path?.startsWith('#')
-    ? `${atlasPath.split('#')[0]}${atlas.texture.path}`
-    : atlas.texture?.path
-  if (!texturePath) throw new ShardError('sprite/no-texture', `${atlasPath} has no texture`)
-  const ktx = readKtx2((await server.artifact(texturePath)).bytes!)
-  const src = ktx.levels[0]!
-  // Frames in a row, each in a cell as big as the largest frame.
-  const rects = clip.frames.map((f) => {
-    const r = atlas.region(f.region)
-    return r < 0 ? [0, 0, 1, 1] : [...atlas.rects.subarray(r * 4, r * 4 + 4)]
-  })
-  const cw = Math.max(1, ...rects.map((r) => r[2]!))
-  const ch = Math.max(1, ...rects.map((r) => r[3]!))
-  const sheetW = cw * rects.length
-  const sheet = new Uint8Array(sheetW * ch * 4)
-  rects.forEach(([x, y, w, h], k) => {
-    for (let j = 0; j < h!; j++) {
-      for (let i = 0; i < w!; i++) {
-        const s = ((y! + j) * ktx.width + x! + i) * 4
-        sheet.set(src.subarray(s, s + 4), (j * sheetW + k * cw + i) * 4)
-      }
+export const spriteClipPreview = defineAssetPreview(
+  'SpriteClip',
+  async (world, path, width, height) => {
+    const server = assetServer(world)
+    const clip = SpriteClipSchema.deserialize((await server.artifact(path)).json) as unknown as {
+      atlas: { path?: string } | null
+      frames: { region: string }[]
     }
-  })
-  const image = fitImage(sheet, sheetW, ch, width, height)
-  const scale = image.width / sheetW
-  for (let k = 0; k < rects.length; k++)
-    drawLabel(image, String(k), Math.round(k * cw * scale) + 1, 1)
-  return image
-})
+    const atlasPath = clip.atlas?.path
+    if (!atlasPath)
+      throw new ShardError('sprite/no-atlas', `${path} has no atlas`, { path: '/atlas' })
+    const atlas = TextureAtlas.fromJson((await server.artifact(atlasPath)).json)
+    const texturePath = atlas.texture?.path?.startsWith('#')
+      ? `${atlasPath.split('#')[0]}${atlas.texture.path}`
+      : atlas.texture?.path
+    if (!texturePath) throw new ShardError('sprite/no-texture', `${atlasPath} has no texture`)
+    const ktx = readKtx2((await server.artifact(texturePath)).bytes!)
+    const src = ktx.levels[0]!
+    // Frames in a row, each in a cell as big as the largest frame.
+    const rects = clip.frames.map((f) => {
+      const r = atlas.region(f.region)
+      return r < 0 ? [0, 0, 1, 1] : [...atlas.rects.subarray(r * 4, r * 4 + 4)]
+    })
+    const cw = Math.max(1, ...rects.map((r) => r[2]!))
+    const ch = Math.max(1, ...rects.map((r) => r[3]!))
+    const sheetW = cw * rects.length
+    const sheet = new Uint8Array(sheetW * ch * 4)
+    rects.forEach(([x, y, w, h], k) => {
+      for (let j = 0; j < h!; j++) {
+        for (let i = 0; i < w!; i++) {
+          const s = ((y! + j) * ktx.width + x! + i) * 4
+          sheet.set(src.subarray(s, s + 4), (j * sheetW + k * cw + i) * 4)
+        }
+      }
+    })
+    const image = fitImage(sheet, sheetW, ch, width, height)
+    const scale = image.width / sheetW
+    for (let k = 0; k < rects.length; k++)
+      drawLabel(image, String(k), Math.round(k * cw * scale) + 1, 1)
+    return image
+  },
+)

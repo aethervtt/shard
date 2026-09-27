@@ -112,8 +112,13 @@ const dependencySources = new Map<string, (id: string) => string | undefined>()
 export function defineImportDependency(
   prefix: string,
   hash: (id: string) => string | undefined,
-): void {
+): (id: string) => string | undefined {
   dependencySources.set(prefix, hash)
+  return hash
+}
+
+export function allImportDependencies(): ((id: string) => string | undefined)[] {
+  return [...dependencySources.values()]
 }
 
 /** The current hash of a non-file import dependency, or undefined if nothing provides it. */
@@ -151,6 +156,8 @@ export interface ImporterDef {
   /** Data assets (`defineDataAsset`): the asset type they import as, and its schema. */
   readonly dataType?: string
   readonly schema?: ComponentDef
+  /** Data assets: the JSON Schema of their files, as published by `defineAssetSchema`. */
+  readonly fileSchema?: () => unknown
   /**
    * Checks an artifact against the whole catalog (run by `shard validate` after a scan, when every
    * path can be resolved): referenced assets exist and have the right type.
@@ -232,8 +239,13 @@ export type AssetPreview = (
 const previews = new Map<string, AssetPreview>()
 
 /** Registers how `asset.preview` shows assets of a type, for packages that define asset types. */
-export function defineAssetPreview(type: string, preview: AssetPreview): void {
+export function defineAssetPreview(type: string, preview: AssetPreview): AssetPreview {
   previews.set(type, preview)
+  return preview
+}
+
+export function allAssetPreviews(): AssetPreview[] {
+  return [...previews.values()]
 }
 
 export function findAssetPreview(type: string): AssetPreview | undefined {
@@ -248,8 +260,9 @@ const assetSchemas = new Map<string, () => unknown>()
  * Publishes the JSON Schema of a data file format: `shard docs` writes it to
  * `.shard/schemas/<file>` so editors and agents validate as they write. Data assets register theirs.
  */
-export function defineAssetSchema(file: string, schema: () => unknown): void {
+export function defineAssetSchema(file: string, schema: () => unknown): () => unknown {
   assetSchemas.set(file, schema)
+  return schema
 }
 
 export function allAssetSchemas(): [string, () => unknown][] {

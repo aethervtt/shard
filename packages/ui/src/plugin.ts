@@ -3,11 +3,16 @@ import { updateActions, updateInput } from '@aethervtt/shard-input'
 import { definePlugin } from '@aethervtt/shard-runtime'
 import { Fonts, installLocalization, localizeComponent, localizeText } from '@aethervtt/shard-text'
 import { TransformSystems } from '@aethervtt/shard-transform'
+import * as componentsModule from './components'
 import { UiDefaults, UiText } from './components'
+import * as interactionModule from './interaction'
 import { interactUi, UiPointer } from './interaction'
 import { uiMethods } from './methods'
+import * as renderModule from './render'
 import { installUiRenderer } from './render'
+import * as themeModule from './theme'
 import { UiThemes } from './theme'
+import * as treeModule from './tree'
 import { layoutUi, observeUiStructure, UiState } from './tree'
 
 /**
@@ -17,6 +22,7 @@ import { layoutUi, observeUiStructure, UiState } from './tree'
  */
 export const uiPlugin = definePlugin({
   name: 'ui',
+  provides: [componentsModule, interactionModule, renderModule, themeModule, treeModule],
   dependencies: ['core/transform'],
   build(app) {
     const w = app.world

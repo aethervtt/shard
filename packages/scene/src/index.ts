@@ -50,6 +50,7 @@ export {
   validatePrefab,
 } from './prefab-file'
 export {
+  allProceduralSources,
   defineProceduralSource,
   PROCEDURAL_MESHES,
   type ProceduralRef,

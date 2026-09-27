@@ -412,7 +412,7 @@ function positionOf(world: World, entity: Entity, out: Float32Array): boolean {
   return true
 }
 
-defineOverlay({
+export const skeletonOverlay = defineOverlay({
   name: 'skeleton',
   description:
     'Skinned meshes’ joints (yellow) and bones to their parent joints (cyan), in the current pose.',

@@ -4,15 +4,19 @@ import type { Workers } from '@aethervtt/shard-platform'
 import { computeVisibility } from '@aethervtt/shard-render'
 import { definePlugin, type Plugin } from '@aethervtt/shard-runtime'
 import { TransformSystems } from '@aethervtt/shard-transform'
+import * as biomesModule from './biomes'
 import { anchorQueries, clearColliders, gatherAnchors, updateColliders } from './colliders'
+import * as componentsModule from './components'
 import { Planet, TerrainBudget } from './components'
+import * as heightsModule from './heights'
 import { Terrain } from './heights'
+import * as materialModule from './material'
 import { terrainMethods } from './methods'
 import { clearPlanetNav, updatePlanetNav } from './nav'
+import * as overlaysModule from './overlays'
 import { PlanetRuntime } from './planet'
 import { cleanupRender, registerNode, selectChunks } from './render'
 // Registers the terrain-lod, terrain-biomes, and terrain-colliders overlays.
-import './overlays'
 
 export interface TerrainPluginOptions {
   /** Where collider chunks sample (default: inline on the main thread). */
@@ -74,6 +78,7 @@ export const updatePlanets = defineSystem({
 export function terrainPlugin(options: TerrainPluginOptions = {}): Plugin {
   return definePlugin({
     name: 'terrain',
+    provides: [biomesModule, componentsModule, heightsModule, materialModule, overlaysModule],
     dependencies: ['core/transform'],
     build(app) {
       const world = app.world

@@ -47,6 +47,7 @@ export {
 } from './names'
 export { Registry, type RegistryDescription } from './registry'
 export {
+  allEvents,
   allResources,
   defineEvent,
   defineResource,

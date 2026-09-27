@@ -100,9 +100,14 @@ export interface ProceduralSource {
 
 const sources: ProceduralSource[] = []
 
-/** Adds a source of `procedural:` refs. */
-export function defineProceduralSource(source: ProceduralSource): void {
-  sources.push(source)
+/** Adds a source of `procedural:` refs. Once per source. */
+export function defineProceduralSource(source: ProceduralSource): ProceduralSource {
+  if (!sources.includes(source)) sources.push(source)
+  return source
+}
+
+export function allProceduralSources(): readonly ProceduralSource[] {
+  return sources
 }
 
 /** The source for a `procedural:` spec, if it isn't a built-in mesh. */

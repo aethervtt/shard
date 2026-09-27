@@ -2,7 +2,9 @@ import { Last } from '@aethervtt/shard-core'
 import type { KeyValueStorage, PlatformFileSystem } from '@aethervtt/shard-platform'
 import { definePlugin, type Plugin } from '@aethervtt/shard-runtime'
 import { saveMethods } from './methods'
+import * as saveModule from './save'
 import { NoSave, SaveConfig } from './save'
+import * as settingsModule from './settings'
 import { loadSettings, SettingsState, settingsSystem } from './settings'
 
 export interface SavePluginOptions {
@@ -21,6 +23,7 @@ export interface SavePluginOptions {
 export function savePlugin(options: SavePluginOptions = {}): Plugin {
   return definePlugin({
     name: 'save',
+    provides: [saveModule, settingsModule],
     dependencies: ['core/time', 'scene'],
     build(app) {
       const fs = options.fs

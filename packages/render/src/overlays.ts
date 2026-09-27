@@ -48,6 +48,10 @@ export function defineOverlay(def: OverlayDef): OverlayDef {
   return def
 }
 
+export function allOverlays(): OverlayDef[] {
+  return [...extraOverlays.values()]
+}
+
 /** Every overlay name: the built-in ones, then registered ones. */
 export function overlayNames(): string[] {
   return [...OVERLAYS, ...extraOverlays.keys()]
@@ -79,7 +83,7 @@ export interface DebugOverlaysValue extends Record<Overlay, boolean> {
 
 let memberDef: ComponentDef | null | undefined
 function scenePath(world: World, entity: Entity): string | undefined {
-  if (memberDef === undefined) memberDef = findComponent('scene/SceneMember') ?? null
+  if (!memberDef) memberDef = findComponent('scene/SceneMember') ?? null
   if (!memberDef) return undefined
   const v = world.tryGet(entity, memberDef) as { path?: string } | undefined
   return v?.path || undefined

@@ -1211,7 +1211,7 @@ const clipSchema = {
 const loopSchema = { enum: [...LOOP_MODES], description: 'loop (default), once, or ping-pong.' }
 const speedSchema = { type: 'number', description: 'Playback rate. Default 1.' }
 
-defineAssetSchema('animgraph.schema.json', () => ({
+export const animGraphSchema = defineAssetSchema('animgraph.schema.json', () => ({
   $schema: 'http://json-schema.org/draft-07/schema#',
   title: 'Animation graph (*.animgraph.json)',
   type: 'object',

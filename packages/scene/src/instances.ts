@@ -20,6 +20,7 @@ import {
 } from '@aethervtt/shard-core'
 import { type Log, LogResource, type Plugin } from '@aethervtt/shard-runtime'
 import { Transform } from '@aethervtt/shard-transform'
+import * as componentsModule from './components'
 import {
   InstancePart,
   PrefabAssets,
@@ -30,6 +31,7 @@ import {
   SceneMember,
 } from './components'
 import type { Overrides, PrefabFile, SceneAsset, SceneEntity, SceneFile } from './format'
+import * as prefabFileModule from './prefab-file'
 import {
   ALIASES,
   componentDef,
@@ -607,16 +609,23 @@ function handleEntry(world: World, ref: unknown): AssetEntry | undefined {
   return ref ? assetServer(world).entry(ref as AssetRef) : undefined
 }
 
-const kinds: InstanceKind[] = [
-  { def: SceneInstance, source: (world, value) => handleEntry(world, value.scene) },
-  { def: PrefabInstance, source: (world, value) => handleEntry(world, value.prefab) },
-]
+export const sceneInstanceKind: InstanceKind = {
+  def: SceneInstance,
+  source: (world, value) => handleEntry(world, value.scene),
+}
+export const prefabInstanceKind: InstanceKind = {
+  def: PrefabInstance,
+  source: (world, value) => handleEntry(world, value.prefab),
+}
+
+const kinds: InstanceKind[] = [sceneInstanceKind, prefabInstanceKind]
 
 /** Adds a kind of instance component (see InstanceKind). */
-export function defineInstanceKind(kind: InstanceKind): void {
+export function defineInstanceKind(kind: InstanceKind): InstanceKind {
   const i = kinds.findIndex((k) => k.def.name === kind.def.name)
   if (i === -1) kinds.push(kind)
   else kinds[i] = kind
+  return kind
 }
 
 /** Every instance kind: SceneInstance, PrefabInstance, then added ones. */
@@ -1038,6 +1047,7 @@ export const sceneInstancesSystem = defineSystem({
 /** Scene support for apps: spawns instance children added while the app runs. */
 export const ScenePlugin: Plugin = {
   name: 'scene',
+  provides: [componentsModule, prefabFileModule, sceneInstanceKind, prefabInstanceKind],
   build(app) {
     hookInstances(app.world)
     app.addSystems(PreUpdate, sceneInstancesSystem)

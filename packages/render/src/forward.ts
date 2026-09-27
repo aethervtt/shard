@@ -11,15 +11,26 @@ import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
 import { definePlugin, LogResource, type Plugin, Time } from '@aethervtt/shard-runtime'
 import { setTextureCapabilities, Textures } from '@aethervtt/shard-texture'
 import { TransformSystems } from '@aethervtt/shard-transform'
-import { Materials, Meshes, RenderTargets } from './assets'
 import {
+  MaterialAssetType,
+  MaterialImporter,
+  Materials,
+  MeshAsset,
+  Meshes,
+  RenderTargets,
+  STANDARD_TYPE,
+  StandardMaterial,
+} from './assets'
+import {
+  Atmosphere,
+  AtmosphereSettings,
   Atmospheres,
   atmosphereMethods,
   describeAtmospheres,
   selectAtmospheres,
 } from './atmosphere'
-import { addAtmosphereNodes, uploadAtmospheres } from './atmosphere-nodes'
-import { applyPhysicalCameras } from './camera'
+import { AtmosphereGpuResource, addAtmosphereNodes, uploadAtmospheres } from './atmosphere-nodes'
+import { applyPhysicalCameras, Camera3d, Exposure, PhysicalCamera } from './camera'
 import {
   CLUSTER_COUNT,
   CLUSTER_Z,
@@ -34,34 +45,48 @@ import { addDeferredNodes } from './deferred'
 import {
   DefaultEnvironment,
   describeEnvironment,
+  EnvironmentMap,
   Environments,
   environmentParams,
+  ProceduralSky,
   prepareEnvironments,
   runEnvironmentWork,
+  Skybox,
 } from './environment'
-import { beginGizmos, Gizmos, gizmoNode, uploadGizmos } from './gizmos'
+import { beginGizmos, GizmoGpuResource, Gizmos, gizmoNode, uploadGizmos } from './gizmos'
 import { GpuAssets, GpuAssetsResource } from './gpu-assets'
 import { type ColorAttachment, type NodeContext, RenderPhase, type RenderView } from './graph'
 import {
   type CullParams,
   type DrawList,
+  InstanceData,
   InstanceFlags,
+  InstanceSlot,
   InstanceStore,
   Instances,
   LOD_UNSET,
+  Lod,
   Mesh3d,
   MeshMaterial,
+  MorphWeights,
+  NotShadowCaster,
+  NotShadowReceiver,
   observeInstanceRemovals,
   prepareInstances,
+  SkinnedMesh,
+  VisibilityRange,
 } from './instances'
 import { observeOriginShifts } from './large-world'
 import {
   AmbientLight,
+  DirectionalLight,
   extractLights,
   LightingSettings,
   LightStore,
   Lights,
   observeLightRemovals,
+  PointLight,
+  SpotLight,
 } from './lights'
 import {
   blendState,
@@ -72,18 +97,29 @@ import {
   variantCull,
 } from './material-pipelines'
 import { isTransparent, type MaterialType } from './materials'
-import { DebugOverlays, drawOverlays } from './overlays'
-import { addPickNodes, Picking } from './picking'
-import { pixelUpscaleNode } from './pixel-perfect'
+import { DebugOverlays, drawOverlays, gridsOverlay } from './overlays'
+import { addPickNodes, BvhResource, Picking } from './picking'
+import { PixelPerfect, PixelTargets, pixelUpscaleNode } from './pixel-perfect'
 import { Gpu, Graph, RenderDescribers, RenderSet, Shaders, Views } from './plugin'
-import { adaptExposure, addPostNodes, describePost } from './post-nodes'
+import {
+  Antialiasing,
+  AutoExposure,
+  Bloom,
+  ColorGrading,
+  DepthOfField,
+  Fog,
+  MotionBlur,
+  Ssao,
+  Vignette,
+} from './post'
+import { adaptExposure, addPostNodes, describePost, ExposureMeters } from './post-nodes'
 import {
   describeRenderScale,
   RenderScale,
   type RenderScaleValue,
   updateRenderScale,
 } from './render-scale'
-import { viewLayout } from './shaders'
+import { ViewUniform, viewLayout } from './shaders'
 import {
   assignLocalShadows,
   Cascades,
@@ -97,10 +133,18 @@ import {
   ShadowsResource,
   shadowViewLayout,
 } from './shadows'
-import { prepareDeforms, Skins } from './skinning'
-import { GpuMemory, RenderStats } from './stats'
-import { type CameraData, Cameras, cameraOf, extractCameras, ViewSettings } from './view'
-import { computeVisibility } from './visibility'
+import { prepareDeforms, SkinAssetType, Skins, skeletonOverlay } from './skinning'
+import { GpuMemory, RenderCounters, RenderStats } from './stats'
+import {
+  type CameraData,
+  Cameras,
+  cameraOf,
+  extractCameras,
+  RenderPath,
+  Tonemapping,
+  ViewSettings,
+} from './view'
+import { ComputedVisibility, computeVisibility, Visibility } from './visibility'
 
 export { Mesh3d, MeshMaterial }
 
@@ -1256,6 +1300,89 @@ function ensureLayouts(
 export function forwardPlugin(options: ForwardPluginOptions = {}): Plugin {
   return definePlugin({
     name: 'render/forward',
+    provides: [
+      // core
+      MaterialAssetType,
+      MaterialImporter,
+      Materials,
+      MeshAsset,
+      Meshes,
+      RenderTargets,
+      STANDARD_TYPE,
+      StandardMaterial,
+      Camera3d,
+      Exposure,
+      PhysicalCamera,
+      ForwardStateResource,
+      Mesh3d,
+      MeshMaterial,
+      GpuAssetsResource,
+      InstanceData,
+      InstanceSlot,
+      Instances,
+      Lod,
+      MorphWeights,
+      NotShadowCaster,
+      NotShadowReceiver,
+      SkinnedMesh,
+      VisibilityRange,
+      AmbientLight,
+      DirectionalLight,
+      LightingSettings,
+      Lights,
+      PointLight,
+      SpotLight,
+      ComputedVisibility,
+      Visibility,
+      Cameras,
+      RenderPath,
+      Tonemapping,
+      ViewSettings,
+      Culler,
+      ViewUniform,
+      GpuMemory,
+      RenderCounters,
+      RenderStats,
+      SkinAssetType,
+      Skins,
+      skeletonOverlay,
+      RenderScale,
+      // shadows
+      ShadowsResource,
+      // environment
+      DefaultEnvironment,
+      EnvironmentMap,
+      Environments,
+      ProceduralSky,
+      Skybox,
+      // atmosphere
+      Atmosphere,
+      AtmosphereSettings,
+      Atmospheres,
+      AtmosphereGpuResource,
+      // post
+      Antialiasing,
+      AutoExposure,
+      Bloom,
+      ColorGrading,
+      DepthOfField,
+      Fog,
+      MotionBlur,
+      Ssao,
+      Vignette,
+      ExposureMeters,
+      // pixel-perfect
+      PixelPerfect,
+      PixelTargets,
+      // gizmos and overlays
+      GizmoGpuResource,
+      Gizmos,
+      DebugOverlays,
+      gridsOverlay,
+      // picking
+      BvhResource,
+      Picking,
+    ],
     dependencies: ['render', 'core/transform'],
     build(app) {
       const w = app.world

@@ -397,4 +397,7 @@ export function particleEffectJsonSchema(): Record<string, unknown> {
   }
 }
 
-defineAssetSchema('particle-effect.schema.json', particleEffectJsonSchema)
+export const particleEffectSchema = defineAssetSchema(
+  'particle-effect.schema.json',
+  particleEffectJsonSchema,
+)

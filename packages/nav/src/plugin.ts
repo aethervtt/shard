@@ -15,11 +15,14 @@ import { type App, definePlugin, type Plugin } from '@aethervtt/shard-runtime'
 import { TransformSystems } from '@aethervtt/shard-transform'
 import { dropAgent, navAgents } from './agents'
 import { navBake } from './bake'
+import * as cacheModule from './cache'
 import { NavCache } from './cache'
+import * as componentsModule from './components'
 import { NavAgent, NavAreas, NavGridDatas, NavSource, OffMeshLink } from './components'
 import { navMethods } from './methods'
-import './overlay'
+import * as overlayModule from './overlay'
 import { loadRecast } from './recast'
+import * as stateModule from './state'
 import { Nav, type NavState } from './state'
 
 /** Whether an entity is a source or sits under one (its colliders and meshes bake). */
@@ -69,6 +72,7 @@ function build(app: App): void {
  */
 export const navPlugin: Plugin = definePlugin({
   name: 'nav',
+  provides: [cacheModule, componentsModule, overlayModule, stateModule],
   dependencies: ['core/transform'],
   build,
   async ready(app) {
@@ -82,6 +86,7 @@ export const navPlugin: Plugin = definePlugin({
  */
 export const navGridPlugin: Plugin = definePlugin({
   name: 'nav/grid',
+  provides: [cacheModule, componentsModule, overlayModule, stateModule],
   dependencies: ['core/transform'],
   build,
 })

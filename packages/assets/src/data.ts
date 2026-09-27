@@ -276,7 +276,7 @@ export function defineDataAsset(
       { hint: 'Every data type needs its own extension. Pick another one.' },
     )
   }
-  defineAssetSchema(`${options.extension}.schema.json`, () => fileSchema(schema))
+  const published = defineAssetSchema(`${options.extension}.schema.json`, () => fileSchema(schema))
   return defineImporter({
     name,
     version: schemaVersion(schema),
@@ -284,6 +284,7 @@ export function defineDataAsset(
     settings: NoSettings,
     dataType: type,
     schema,
+    fileSchema: published,
     import: (source, ctx) => importData(source, ctx, type, schema, extension),
   })
 }

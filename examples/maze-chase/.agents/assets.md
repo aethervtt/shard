@@ -5,6 +5,12 @@ by extension. Each gets a `.meta` next to it with its guid and import settings; 
 Reference assets in scenes by path: `{ "path": "materials/hull.material.json" }`, or a
 sub-asset with `#`: `{ "path": "assets/ship.glb#Mesh/Hull" }`.
 
+## `noise`
+
+Files: `*.noise.json`
+
+No import settings.
+
 ## `data/material`
 
 Files: `*.material.json`
@@ -28,12 +34,6 @@ Files: `*.png`, `*.jpg`, `*.jpeg`, `*.webp`, `*.hdr`, `*.ktx2`
 ## `texture-array`
 
 Files: `*.texarray.json`
-
-No import settings.
-
-## `noise`
-
-Files: `*.noise.json`
 
 No import settings.
 

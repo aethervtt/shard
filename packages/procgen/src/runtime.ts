@@ -703,8 +703,9 @@ let parseRef: (spec: string) => GenRequest = () => {
 }
 
 /** Set by the package index (keeps a module cycle out of the runtime). */
-export function setRefParser(parse: (spec: string) => GenRequest): void {
+export function setRefParser(parse: (spec: string) => GenRequest): (spec: string) => GenRequest {
   parseRef = parse
+  return parse
 }
 
 export const ProcgenResource = defineResource<ProcgenRuntime>('procgen/Runtime', {

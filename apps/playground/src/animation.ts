@@ -25,7 +25,6 @@ import {
   quat,
   Update,
 } from '@aethervtt/shard-core'
-import '@aethervtt/shard-gltf'
 import {
   AmbientLight,
   Camera3d,

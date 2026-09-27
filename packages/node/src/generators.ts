@@ -123,6 +123,10 @@ export async function buildGeneratorWorker(options: {
       target: 'es2023',
       // Host-only fallbacks (reading .wasm files from disk) stay dynamic imports that never run here.
       external: ['node:*'],
+      // Keep every engine module, ignoring `sideEffects: false`. A worker runs no plugins, so their
+      // `provides` can't keep definitions alive, and a job may load any asset type (a noise graph,
+      // a mesh, a data asset) whose definition registers on import.
+      ignoreAnnotations: true,
       write: false,
       logLevel: 'silent',
     })

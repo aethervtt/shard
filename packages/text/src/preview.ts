@@ -11,7 +11,7 @@ const SPECIMEN = [
 ]
 
 /** A font specimen: sample lines at 16, 32, and 64 px, rendered from the distance field on the CPU. */
-defineAssetPreview('Font', async (world, path, width, height) => {
+export const fontPreview = defineAssetPreview('Font', async (world, path, width, height) => {
   const server = assetServer(world)
   await server.whenSettled([path])
   const font = world.resource(Fonts).get(server.resolve(path) as never)

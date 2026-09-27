@@ -15,8 +15,8 @@ let partDef: ComponentDef | null | undefined
  * (`scene/InstancePart`). Undefined for entities made in code without either. Cold path: allocates.
  */
 export function entityName(world: World, entity: Entity): string | undefined {
-  if (memberDef === undefined) memberDef = findComponent('scene/SceneMember') ?? null
-  if (partDef === undefined) partDef = findComponent('scene/InstancePart') ?? null
+  if (!memberDef) memberDef = findComponent('scene/SceneMember') ?? null
+  if (!partDef) partDef = findComponent('scene/InstancePart') ?? null
   const path =
     (memberDef && (world.tryGet(entity, memberDef) as { path?: string } | undefined)?.path) ||
     (partDef && (world.tryGet(entity, partDef) as { path?: string } | undefined)?.path)

@@ -112,7 +112,7 @@ const mid = new Float64Array(3)
 /** Budget of segments per frame: past it the overlay is unreadable anyway. */
 const MAX_SEGMENTS = 60_000
 
-defineOverlay({
+export const navOverlay = defineOverlay({
   name: 'navmesh',
   description:
     'Navigation: navmesh polygon edges colored by area, off-mesh links as arcs, NavGrid walkable-area outlines, and every NavAgent’s path (yellow; red when unreachable).',

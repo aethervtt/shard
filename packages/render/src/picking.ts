@@ -281,7 +281,7 @@ interface Bvh {
   tables: number
 }
 
-const BvhResource = defineResource<{ bvh: Bvh | undefined }>('render/RaycastBvh', {
+export const BvhResource = defineResource<{ bvh: Bvh | undefined }>('render/RaycastBvh', {
   description: 'The CPU raycast acceleration structure.',
   init: () => ({ bvh: undefined }),
 })

@@ -10,13 +10,13 @@ function label(spec: string): string {
   return hash === -1 ? '' : spec.slice(hash + 1)
 }
 
-setRefParser((spec) => parseProceduralRef(spec))
+export const refParser = setRefParser((spec) => parseProceduralRef(spec))
 
 /**
  * `procedural:<generator>?params&seed=N` in scenes and prefabs: an output of a project or engine
  * generator. Equal canonical params (and seed) are one asset.
  */
-defineProceduralSource({
+export const generatorSource = defineProceduralSource({
   handles: (name) => name.includes('/'),
   check(spec, path) {
     const request = parseProceduralRef(spec, path)
@@ -33,7 +33,7 @@ defineProceduralSource({
  * The catalog knows generators by name (`star-explorer/Rock`, a `Generator` asset) and outputs by
  * `procedural:` path, without anything imported.
  */
-defineAssetResolver((server, ref) => {
+export const generatorResolver = defineAssetResolver((server, ref) => {
   if (ref.startsWith('procedural:')) {
     const spec = ref.slice('procedural:'.length)
     const name = spec.split(/[?#]/)[0]!

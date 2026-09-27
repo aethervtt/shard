@@ -1,8 +1,13 @@
 import { Last } from '@aethervtt/shard-core'
 import { Gpu, Graph, RenderDescribers, RenderSet, Shaders } from '@aethervtt/shard-render'
 import { definePlugin } from '@aethervtt/shard-runtime'
+import * as componentsModule from './components'
+import * as importerModule from './importer'
 import { Fonts } from './importer'
+import * as localeModule from './locale'
 import { installLocalization } from './locale'
+import * as previewModule from './preview'
+import * as renderModule from './render'
 import {
   describeText,
   prepareTexts,
@@ -12,11 +17,11 @@ import {
   textNode,
 } from './render'
 import { TEXT_SHADERS } from './shaders'
-import './preview'
 
 /** Text and ScreenText: MSDF glyphs in the world (after transparent 3D) and over the image. */
 export const textPlugin = definePlugin({
   name: 'text',
+  provides: [componentsModule, importerModule, localeModule, previewModule, renderModule],
   dependencies: ['render/forward'],
   build(app) {
     app.world.initResource(Fonts)

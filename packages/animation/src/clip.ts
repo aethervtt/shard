@@ -525,7 +525,7 @@ export const ClipImporter = defineImporter({
   },
 })
 
-defineAssetSchema('anim.schema.json', () => ({
+export const animClipSchema = defineAssetSchema('anim.schema.json', () => ({
   $schema: 'http://json-schema.org/draft-07/schema#',
   title: 'Animation clip (*.anim.json)',
   type: 'object',

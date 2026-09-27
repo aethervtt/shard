@@ -21,12 +21,12 @@ function generatorHash(gen: Generator): string {
   return `${gen.version}:${codeHashOf(gen)}`
 }
 
-defineImportDependency('generator:', (id) => {
+export const generatorDependency = defineImportDependency('generator:', (id) => {
   const gen = findGenerator(id.slice('generator:'.length))
   return gen ? generatorHash(gen) : undefined
 })
 
-defineAssetSchema('gen.schema.json', genFileSchema)
+export const generatorSchema = defineAssetSchema('gen.schema.json', genFileSchema)
 
 /** The parsed body of a generator file. */
 export interface GenFile {

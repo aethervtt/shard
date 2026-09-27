@@ -116,6 +116,10 @@ export function defineEvent<T = undefined>(
 const events = new Map<string, EventDef<unknown>>()
 
 /** The event defined under `name` (the latest definition), or undefined. */
+export function allEvents(): EventDef<unknown>[] {
+  return [...events.values()]
+}
+
 export function findEvent(name: string): EventDef<unknown> | undefined {
   return events.get(name)
 }

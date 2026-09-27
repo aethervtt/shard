@@ -192,7 +192,7 @@ export const StringTableImporter: ImporterDef = defineImporter({
   },
 })
 
-defineAssetSchema('strings.schema.json', () => ({
+export const stringTableSchema = defineAssetSchema('strings.schema.json', () => ({
   $schema: 'https://json-schema.org/draft/2020-12/schema',
   title: 'Shard string table',
   description:

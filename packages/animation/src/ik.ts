@@ -946,7 +946,7 @@ const qFoot = quatId()
 
 /** The physics world when @aethervtt/shard-physics is installed and ready (found by name: no dependency). */
 function raycaster(world: World): Raycaster | undefined {
-  if (physicsWorld === undefined) physicsWorld = findResource('physics/World') ?? null
+  if (!physicsWorld) physicsWorld = findResource('physics/World') ?? null
   if (physicsWorld === null) {
     physicsWorld = undefined // physics may register later
     return undefined
@@ -1480,7 +1480,7 @@ function cross(
   }
 }
 
-defineOverlay({
+export const ikOverlay = defineOverlay({
   name: 'ik',
   description:
     'IK: targets (magenta), poles (blue), solved chains (orange), and foot rays (green where they hit the ground, red where they miss).',

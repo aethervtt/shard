@@ -312,4 +312,4 @@ export const NoiseGraphImporter = defineImporter({
   },
 })
 
-defineAssetSchema('noise.schema.json', noiseJsonSchema)
+export const noiseGraphSchema = defineAssetSchema('noise.schema.json', noiseJsonSchema)

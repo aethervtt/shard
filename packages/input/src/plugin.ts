@@ -10,6 +10,7 @@ import {
   MouseState,
   TouchesState,
 } from './devices'
+import * as pluginModule from './plugin'
 
 export const Keyboard = defineResource<KeyboardState>('input/Keyboard', {
   description: 'Keys by KeyboardEvent.code.',
@@ -196,6 +197,7 @@ export const updateActions = defineSystem({
 export function inputPlugin(options: InputPluginOptions = {}): Plugin {
   return definePlugin({
     name: 'input',
+    provides: [pluginModule],
     dependencies: ['core/time'],
     build(app) {
       const queue: InputQueueState = {

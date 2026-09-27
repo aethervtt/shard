@@ -2,9 +2,12 @@ import { PostUpdate } from '@aethervtt/shard-core'
 import type { AudioBackend } from '@aethervtt/shard-platform'
 import { definePlugin, LogResource, type Plugin } from '@aethervtt/shard-runtime'
 import { TransformSystems } from '@aethervtt/shard-transform'
+import * as clipModule from './clip'
 import { AudioClips } from './clip'
+import * as componentsModule from './components'
 import { AudioBuses } from './components'
 import { audioMethods } from './methods'
+import * as mixerModule from './mixer'
 import { AudioConfig, AudioState, createAudioState, defaultBackend, updateAudio } from './mixer'
 
 export interface AudioPluginOptions {
@@ -21,6 +24,7 @@ export interface AudioPluginOptions {
 export function audioPlugin(options: AudioPluginOptions = {}): Plugin {
   return definePlugin({
     name: 'audio',
+    provides: [clipModule, componentsModule, mixerModule],
     dependencies: ['core/transform'],
     build(app) {
       const w = app.world

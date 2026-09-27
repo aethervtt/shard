@@ -109,14 +109,17 @@ export const noiseMethods: AppMethod[] = [
 ]
 
 // asset.preview for NoiseGraph: { domain, seed, size, node } in options.
-defineAssetPreview('NoiseGraph', async (world, path, width, height, options) => {
-  const graph = await resolveGraph(world, path)
-  const o = (options ?? {}) as Record<string, unknown>
-  return previewNoise(graph, width, height, {
-    ...(o.domain === 'sphere' ? { domain: 'sphere' as const } : {}),
-    ...(typeof o.seed === 'number' ? { seed: o.seed } : {}),
-    ...(typeof o.size === 'number' ? { size: Math.max(16, Math.min(2048, o.size)) } : {}),
-    ...(typeof o.node === 'string' ? { node: o.node } : {}),
-    ...(typeof o.span === 'number' ? { span: o.span } : {}),
-  })
-})
+export const noiseGraphPreview = defineAssetPreview(
+  'NoiseGraph',
+  async (world, path, width, height, options) => {
+    const graph = await resolveGraph(world, path)
+    const o = (options ?? {}) as Record<string, unknown>
+    return previewNoise(graph, width, height, {
+      ...(o.domain === 'sphere' ? { domain: 'sphere' as const } : {}),
+      ...(typeof o.seed === 'number' ? { seed: o.seed } : {}),
+      ...(typeof o.size === 'number' ? { size: Math.max(16, Math.min(2048, o.size)) } : {}),
+      ...(typeof o.node === 'string' ? { node: o.node } : {}),
+      ...(typeof o.span === 'number' ? { span: o.span } : {}),
+    })
+  },
+)
