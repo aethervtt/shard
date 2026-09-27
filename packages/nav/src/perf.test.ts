@@ -1,5 +1,5 @@
 import type { Entity } from '@aethervtt/shard-core'
-import { budget } from '@aethervtt/shard-core/test-env'
+import { budget, gcWindow } from '@aethervtt/shard-core/test-env'
 import { Transform } from '@aethervtt/shard-transform'
 import { describe, expect, it } from 'vitest'
 import { NavAgent, NavGrid, NavGridDatas, NavMesh } from './components'
@@ -13,14 +13,9 @@ const DT = 1 / 60
 async function countGc(fn: () => void): Promise<number> {
   globalThis.gc?.()
   await new Promise((r) => setTimeout(r, 200))
-  let collections = 0
-  const observer = new PerformanceObserver((list) => {
-    collections += list.getEntries().length
-  })
-  observer.observe({ entryTypes: ['gc'] })
+  const gcs = gcWindow()
   fn()
-  await new Promise((r) => setTimeout(r, 50))
-  observer.disconnect()
+  const collections = await gcs.end()
   return collections
 }
 

@@ -1,4 +1,5 @@
 import { hashSeed, type ShardError } from '@aethervtt/shard-core'
+import { gcWindow } from '@aethervtt/shard-core/test-env'
 import { createInlineWorkers } from '@aethervtt/shard-platform'
 import { createNodeWorkers } from '@aethervtt/shard-platform-node'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -594,14 +595,9 @@ describe('allocation', () => {
     expect(globalThis.gc, 'run with --expose-gc').toBeTypeOf('function')
     globalThis.gc!()
     await new Promise((r) => setTimeout(r, 100))
-    let collections = 0
-    const observer = new PerformanceObserver((list) => {
-      collections += list.getEntries().length
-    })
-    observer.observe({ entryTypes: ['gc'] })
+    const gcs = gcWindow()
     run()
-    await new Promise((r) => setTimeout(r, 50))
-    observer.disconnect()
+    const collections = await gcs.end()
     expect(collections).toBe(0)
     expect(noiseKernel().simd).toBe(true)
   })

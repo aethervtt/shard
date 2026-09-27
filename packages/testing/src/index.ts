@@ -253,3 +253,8 @@ export function test(
     timeout,
   )
 }
+
+/** A gameplay test that's registered but not run. Say why next to it (and in TODO.md). */
+test.skip = (name: string, _fn: (ctx: { game: Game }) => Promise<void> | void): void => {
+  vitestTest.skip(name, () => {})
+}

@@ -33,7 +33,11 @@ beforeAll(async () => {
   await loadNoiseKernel()
 })
 
-afterAll(() => gpu?.destroy())
+// Descents submit frames faster than a software GPU runs them: wait for the queue before destroying.
+afterAll(async () => {
+  await gpu?.device.queue.onSubmittedWorkDone()
+  gpu?.destroy()
+}, timeout(120_000))
 
 describe('hot reload (spec 0043)', () => {
   it('regenerates visible chunks within 1 s of a height graph edit, without holes, and rebuilds colliders', {

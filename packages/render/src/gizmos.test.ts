@@ -1,5 +1,4 @@
 import { dirname } from 'node:path'
-import { PerformanceObserver } from 'node:perf_hooks'
 import { fileURLToPath } from 'node:url'
 import {
   defineSystem,
@@ -10,7 +9,7 @@ import {
   Update,
   type World,
 } from '@aethervtt/shard-core'
-import { budget } from '@aethervtt/shard-core/test-env'
+import { budget, gcWindow } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { cube, plane, sphere } from '@aethervtt/shard-mesh'
@@ -144,11 +143,7 @@ describe('gizmos', () => {
     }
     const gc = (globalThis as { gc?: () => void }).gc
     gc?.()
-    let collections = 0
-    const observer = new PerformanceObserver((list) => {
-      collections += list.getEntries().length
-    })
-    observer.observe({ entryTypes: ['gc'] })
+    const gcs = gcWindow()
     const drawTimes: number[] = []
     const uploadTimes: number[] = []
     for (let f = 0; f < 30; f++) {
@@ -159,8 +154,7 @@ describe('gizmos', () => {
       drawTimes.push(t1 - t0)
       uploadTimes.push(performance.now() - t1)
     }
-    await new Promise((resolve) => setTimeout(resolve, 50))
-    observer.disconnect()
+    const collections = await gcs.end()
     const median = (t: number[]) => t.sort((x, y) => x - y)[t.length >> 1]!
     // The fastest frame is the code's cost; the median also has whatever else the machine ran.
     const best = Math.min(...drawTimes)

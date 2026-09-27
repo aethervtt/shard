@@ -23,7 +23,11 @@ beforeAll(async () => {
   })
 })
 
-afterAll(() => gpu?.destroy())
+// Descents submit frames faster than a software GPU runs them: wait for the queue before destroying.
+afterAll(async () => {
+  await gpu?.device.queue.onSubmittedWorkDone()
+  gpu?.destroy()
+}, timeout(120_000))
 
 describe('terrain detail limits', () => {
   it('stops splitting rough terrain at a screen vertex spacing, without holes', {

@@ -1,3 +1,4 @@
+import { timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { loadNoiseKernel, NoiseGraph } from '@aethervtt/shard-noise'
@@ -21,7 +22,11 @@ beforeAll(async () => {
   })
 })
 
-afterAll(() => gpu?.destroy())
+// Descents submit frames faster than a software GPU runs them: wait for the queue before destroying.
+afterAll(async () => {
+  await gpu?.device.queue.onSubmittedWorkDone()
+  gpu?.destroy()
+}, timeout(120_000))
 
 const isSky = (d: Uint8Array, i: number) => d[i]! > 200 && d[i + 1]! < 60 && d[i + 2]! > 200
 

@@ -1,5 +1,5 @@
 import type { AssetRef } from '@aethervtt/shard-core'
-import { budget } from '@aethervtt/shard-core/test-env'
+import { budget, gcWindow } from '@aethervtt/shard-core/test-env'
 import { App } from '@aethervtt/shard-runtime'
 import { GlobalTransform, Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { describe, expect, it } from 'vitest'
@@ -56,18 +56,13 @@ async function measure(sources: number) {
   ;(globalThis as { gc?: () => void }).gc?.()
   await new Promise((resolve) => setTimeout(resolve, 200))
   const times = new Float64Array(300)
-  let collections = 0
-  const observer = new PerformanceObserver((list) => {
-    collections += list.getEntries().length
-  })
-  observer.observe({ entryTypes: ['gc'] })
+  const gcs = gcWindow()
   for (let f = 0; f < times.length; f++) {
     const t0 = performance.now()
     step(f)
     times[f] = performance.now() - t0
   }
-  await new Promise((resolve) => setTimeout(resolve, 50))
-  observer.disconnect()
+  const collections = await gcs.end()
   return { list: [...times], collections }
 }
 

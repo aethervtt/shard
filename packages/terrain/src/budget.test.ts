@@ -25,7 +25,11 @@ beforeAll(async () => {
   })
 })
 
-afterAll(() => gpu?.destroy())
+// Descents submit frames faster than a software GPU runs them: wait for the queue before destroying.
+afterAll(async () => {
+  await gpu?.device.queue.onSubmittedWorkDone()
+  gpu?.destroy()
+}, timeout(120_000))
 
 const sorted = (a: number[]) => [...a].sort((x, y) => x - y)
 const pct = (a: number[], p: number) => sorted(a)[Math.min(a.length - 1, Math.floor(a.length * p))]!

@@ -1,4 +1,4 @@
-import { budget } from '@aethervtt/shard-core/test-env'
+import { budget, gcWindow } from '@aethervtt/shard-core/test-env'
 import { describe, expect, it } from 'vitest'
 import {
   DIAGONAL_ALWAYS,
@@ -148,14 +148,10 @@ describe('grid A*', () => {
     for (let r = 0; r < 20; r++) for (const p of pairs) search.search(grid, ...p, 0)
     globalThis.gc?.()
     await new Promise((r) => setTimeout(r, 200))
-    let collections = 0
-    const observer = new PerformanceObserver((list) => {
-      collections += list.getEntries().length
-    })
-    observer.observe({ entryTypes: ['gc'] })
     const times = new Float64Array(10 * pairs.length)
     const out = new Float32Array(2 * 512)
     const ends = new Float64Array(4)
+    const gcs = gcWindow()
     for (let r = 0; r < 10; r++) {
       for (let i = 0; i < pairs.length; i++) {
         const p = pairs[i]!
@@ -166,8 +162,7 @@ describe('grid A*', () => {
         times[r * pairs.length + i] = performance.now() - t0
       }
     }
-    await new Promise((r) => setTimeout(r, 50))
-    observer.disconnect()
+    const collections = await gcs.end()
     expect(collections).toBe(0)
     expect(median([...times])).toBeLessThan(budget(2))
     // The corner-to-corner query explores most of the maze: hold it to the budget too.

@@ -35,7 +35,11 @@ beforeAll(async () => {
   })
 })
 
-afterAll(() => gpu?.destroy())
+// Descents submit frames faster than a software GPU runs them: wait for the queue before destroying.
+afterAll(async () => {
+  await gpu?.device.queue.onSubmittedWorkDone()
+  gpu?.destroy()
+}, timeout(120_000))
 
 const R = 6.371e6
 

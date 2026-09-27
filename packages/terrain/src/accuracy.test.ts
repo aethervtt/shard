@@ -31,7 +31,11 @@ beforeAll(async () => {
   })
 })
 
-afterAll(() => gpu?.destroy())
+// Descents submit frames faster than a software GPU runs them: wait for the queue before destroying.
+afterAll(async () => {
+  await gpu?.device.queue.onSubmittedWorkDone()
+  gpu?.destroy()
+}, timeout(120_000))
 
 async function readBuffer(buffer: GPUBuffer, floats: number, offset = 0): Promise<Float32Array> {
   const read = gpu.device.createBuffer({

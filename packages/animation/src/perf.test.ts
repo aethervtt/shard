@@ -1,5 +1,5 @@
 import { ChildOf, defineComponent, t } from '@aethervtt/shard-core'
-import { budget, timeout } from '@aethervtt/shard-core/test-env'
+import { budget, gcWindow, timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import {
@@ -75,19 +75,14 @@ describe('performance', () => {
     // Let the garbage from spawning 12,000 entities settle before counting collections.
     await new Promise((resolve) => setTimeout(resolve, 200))
     const times = new Float64Array(300)
-    let collections = 0
-    const observer = new PerformanceObserver((list) => {
-      collections += list.getEntries().length
-    })
-    observer.observe({ entryTypes: ['gc'] })
+    const gcs = gcWindow()
     for (let f = 0; f < times.length; f++) {
       w.incrementTick()
       const t0 = performance.now()
       run()
       times[f] = performance.now() - t0
     }
-    await new Promise((resolve) => setTimeout(resolve, 50))
-    observer.disconnect()
+    const collections = await gcs.end()
     const list = [...times]
     console.log(
       `sampling 200 × 60 joints: ${Math.min(...list).toFixed(3)} ms best, ${median(list).toFixed(3)} ms median; GC events: ${collections}`,
@@ -180,11 +175,7 @@ describe('performance', () => {
     // Enough frames that 16 bytes per animator per frame (one boxed number) would fill the young
     // generation.
     const times = new Float64Array(5000)
-    let collections = 0
-    const observer = new PerformanceObserver((list) => {
-      collections += list.getEntries().length
-    })
-    observer.observe({ entryTypes: ['gc'] })
+    const gcs = gcWindow()
     for (let f = 0; f < times.length; f++) {
       move()
       w.incrementTick()
@@ -192,8 +183,7 @@ describe('performance', () => {
       step()
       times[f] = performance.now() - t0
     }
-    await new Promise((resolve) => setTimeout(resolve, 50))
-    observer.disconnect()
+    const collections = await gcs.end()
     const list = [...times]
     console.log(
       `200 animators: ${Math.min(...list).toFixed(3)} ms best, ${median(list).toFixed(3)} ms median; GC events: ${collections}`,
@@ -265,19 +255,14 @@ describe('performance', () => {
     ;(globalThis as { gc?: () => void }).gc?.()
     await new Promise((resolve) => setTimeout(resolve, 200))
     const times = new Float64Array(2000)
-    let collections = 0
-    const observer = new PerformanceObserver((list) => {
-      collections += list.getEntries().length
-    })
-    observer.observe({ entryTypes: ['gc'] })
+    const gcs = gcWindow()
     for (let f = 0; f < times.length; f++) {
       w.incrementTick()
       const t0 = performance.now()
       run()
       times[f] = performance.now() - t0
     }
-    await new Promise((resolve) => setTimeout(resolve, 50))
-    observer.disconnect()
+    const collections = await gcs.end()
     const list = [...times]
     console.log(
       `two-bone IK, 100 characters × 2 legs: ${Math.min(...list).toFixed(3)} ms best, ${median(list).toFixed(3)} ms median; GC events: ${collections}`,

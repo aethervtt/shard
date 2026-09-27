@@ -322,7 +322,7 @@ describe('generators in a project', () => {
     } else {
       // Parallel runs share cores with other files' workers, which stretches a step now and then.
       expect(sorted[Math.floor(sorted.length * 0.99)]!).toBeLessThan(budget(2))
-      expect(sorted.at(-1)!).toBeLessThan(30)
+      expect(sorted.at(-1)!).toBeLessThan(budget(10))
     }
   })
 })

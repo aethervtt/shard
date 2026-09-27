@@ -27,3 +27,41 @@ export function budget(ms: number): number {
 export function timeout(ms: number): number {
   return timingMode === 'ci' ? ms * 5 : ms
 }
+
+interface GcObserver {
+  observe(options: { entryTypes: string[] }): void
+  disconnect(): void
+}
+
+const host = globalThis as unknown as {
+  PerformanceObserver: new (
+    callback: (list: { getEntries(): { startTime: number }[] }) => void,
+  ) => GcObserver
+  performance: { now(): number }
+  setTimeout(fn: () => void, ms: number): unknown
+}
+
+/**
+ * Counts the garbage collections that start between now and `end()`, for "allocates nothing"
+ * checks. GC entries are delivered asynchronously, so `end()` waits for them, but it only counts
+ * the ones that started inside the window: what the test runner allocates while we wait isn't the
+ * code under test. Collect garbage (`gc()`, with `--expose-gc`) before opening the window.
+ */
+export function gcWindow(): { end(): Promise<number> } {
+  const starts: number[] = []
+  const observer = new host.PerformanceObserver((list) => {
+    for (const entry of list.getEntries()) starts.push(entry.startTime)
+  })
+  observer.observe({ entryTypes: ['gc'] })
+  const from = host.performance.now()
+  return {
+    async end() {
+      const to = host.performance.now()
+      await new Promise<void>((resolve) => host.setTimeout(resolve, 50))
+      observer.disconnect()
+      let count = 0
+      for (const start of starts) if (start >= from && start <= to) count++
+      return count
+    },
+  }
+}
