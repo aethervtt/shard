@@ -1,0 +1,22 @@
+{
+  "name": "@aethervtt/shard-bench-size",
+  "version": "0.0.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "size": "node run.mjs"
+  },
+  "dependencies": {
+    "@aethervtt/shard-core": "workspace:*",
+    "@aethervtt/shard-mesh": "workspace:*",
+    "@aethervtt/shard-render": "workspace:*",
+    "@aethervtt/shard-runtime": "workspace:*",
+    "@aethervtt/shard-transform": "workspace:*",
+    "three": "0.160.1"
+  },
+  "devDependencies": {
+    "@webgpu/types": "^0.1.74",
+    "vite": "^8.3.0"
+  }
+}

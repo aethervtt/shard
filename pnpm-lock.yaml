@@ -23,9 +23,6 @@ importers:
 
   apps/cli:
     dependencies:
-      '@modelcontextprotocol/sdk':
-        specifier: 1.30.0
-        version: 1.30.0(zod@3.25.76)
       '@aethervtt/shard-animation':
         specifier: workspace:*
         version: link:../../packages/animation
@@ -86,6 +83,9 @@ importers:
       '@aethervtt/shard-ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@modelcontextprotocol/sdk':
+        specifier: 1.30.0
+        version: 1.30.0(zod@3.25.76)
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
@@ -242,6 +242,34 @@ importers:
       '@types/node':
         specifier: ^26.6.2
         version: 26.6.2
+      '@webgpu/types':
+        specifier: ^0.1.74
+        version: 0.1.74
+      vite:
+        specifier: ^8.3.0
+        version: 8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15)
+
+  bench/size:
+    dependencies:
+      '@aethervtt/shard-core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@aethervtt/shard-mesh':
+        specifier: workspace:*
+        version: link:../../packages/mesh
+      '@aethervtt/shard-render':
+        specifier: workspace:*
+        version: link:../../packages/render
+      '@aethervtt/shard-runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
+      '@aethervtt/shard-transform':
+        specifier: workspace:*
+        version: link:../../packages/transform
+      three:
+        specifier: 0.160.1
+        version: 0.160.1
+    devDependencies:
       '@webgpu/types':
         specifier: ^0.1.74
         version: 0.1.74
@@ -712,12 +740,6 @@ importers:
 
   packages/physics:
     dependencies:
-      '@dimforge/rapier2d-compat':
-        specifier: 0.20.0
-        version: 0.20.0
-      '@dimforge/rapier3d-compat':
-        specifier: 0.20.0
-        version: 0.20.0
       '@aethervtt/shard-assets':
         specifier: workspace:*
         version: link:../assets
@@ -736,6 +758,12 @@ importers:
       '@aethervtt/shard-transform':
         specifier: workspace:*
         version: link:../transform
+      '@dimforge/rapier2d-compat':
+        specifier: 0.20.0
+        version: 0.20.0
+      '@dimforge/rapier3d-compat':
+        specifier: 0.20.0
+        version: 0.20.0
     devDependencies:
       '@aethervtt/shard-animation':
         specifier: workspace:*
@@ -1346,15 +1374,15 @@ importers:
 
   packages/texture:
     dependencies:
-      '@jsquash/webp':
-        specifier: ^1.5.0
-        version: 1.5.0
       '@aethervtt/shard-assets':
         specifier: workspace:*
         version: link:../assets
       '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
+      '@jsquash/webp':
+        specifier: ^1.5.0
+        version: 1.5.0
       fzstd:
         specifier: ^0.1.1
         version: 0.1.1
@@ -2542,6 +2570,9 @@ packages:
   std-env@4.2.0:
     resolution: {integrity: sha512-oCUKSupKTHX53EyjDtuZQ64pjLJ6yYCtpmEw0goYxtjG9KpbRe8KAsl2tBUGU9DyMcJ0RwJ8GqJAFzMXcXW1Rw==}
 
+  three@0.160.1:
+    resolution: {integrity: sha512-Bgl2wPJypDOZ1stAxwfWAcJ0WQf7QzlptsxkjYiURPz+n5k4RBDLsq+6f9Y75TYxn6aHLcWz+JNmwTOXWrQTBQ==}
+
   tinybench@6.1.4:
     resolution: {integrity: sha512-9APumHG7r4yOk4X4WlkmE71aZcv1gvin1czO3OQ1U9iJcFA5Ja/ygyb0vPOVHTthFozUYs8CLoLUlM8grb2lTQ==}
     engines: {node: '>=20.0.0'}
@@ -3603,6 +3634,8 @@ snapshots:
   statuses@2.0.2: {}
 
   std-env@4.2.0: {}
+
+  three@0.160.1: {}
 
   tinybench@6.1.4: {}
 

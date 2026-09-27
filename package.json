@@ -18,7 +18,8 @@
     "studio": "pnpm --filter @aethervtt/shard-studio tauri dev",
     "bench": "pnpm --filter @aethervtt/shard-core bench && SHARD_BENCH=1 turbo run test --concurrency=1 --force",
     "build:wasm": "sh crates/shard-noise/build-wasm.sh",
-    "check:wasm": "sh crates/shard-noise/build-wasm.sh && git diff --exit-code -- packages/noise/wasm"
+    "check:wasm": "sh crates/shard-noise/build-wasm.sh && git diff --exit-code -- packages/noise/wasm",
+    "size": "pnpm --filter @aethervtt/shard-bench-size size"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",

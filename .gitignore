@@ -7,3 +7,4 @@ target/
 .DS_Store
 apps/studio/src-tauri/gen/
 .playwright-mcp/
+bench/size/report.json

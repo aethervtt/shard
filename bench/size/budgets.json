@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "note": "Brotli bytes. Lower these by hand when a change shrinks a build; --check fails 2% over.",
+  "fixtures": {
+    "renderer-min": {
+      "entry": 190649,
+      "js": 197442
+    },
+    "full": {
+      "entry": 343534,
+      "js": 2121237
+    }
+  }
+}
