@@ -16,7 +16,7 @@ import {
   type ResourceDef,
   ShardError,
   type World,
-} from '@shard/core'
+} from '@aethervtt/shard-core'
 import { assetServer, normalizePath } from './server'
 import { AssetStore } from './store'
 import {

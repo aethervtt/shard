@@ -3,7 +3,7 @@ import type {
   AudioSpatialDesc,
   AudioVoiceDesc,
   AudioVoiceParams,
-} from '@shard/platform'
+} from '@aethervtt/shard-platform'
 import { distanceGain, listenerRelative } from './spatial'
 
 /** One voice the headless backend was asked to play, with what a Web Audio graph would make of it. */

@@ -1,5 +1,5 @@
-import { defineResource, type Entity, ShardError, type World } from '@shard/core'
-import type { TileLayer } from '@shard/sprite'
+import { defineResource, type Entity, ShardError, type World } from '@aethervtt/shard-core'
+import type { TileLayer } from '@aethervtt/shard-sprite'
 import type { GridSource } from './components'
 import { TriangleSoup } from './geometry'
 import { GridSearch, type NavGridData } from './grid'

@@ -7,7 +7,7 @@ import {
   defineImporter,
   type ImportedAsset,
   type LoadContext,
-} from '@shard/assets'
+} from '@aethervtt/shard-assets'
 import {
   type AssetRef,
   defineResource,
@@ -15,8 +15,15 @@ import {
   type JsonValue,
   ShardError,
   t,
-} from '@shard/core'
-import { buildMips, decodeImage, flipGreen, packRects, readKtx2, writeKtx2 } from '@shard/texture'
+} from '@aethervtt/shard-core'
+import {
+  buildMips,
+  decodeImage,
+  flipGreen,
+  packRects,
+  readKtx2,
+  writeKtx2,
+} from '@aethervtt/shard-texture'
 import { alphaOutline } from './outline'
 import { drawLabel, drawLine, fitImage, outline } from './preview'
 

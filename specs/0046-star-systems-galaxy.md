@@ -1,7 +1,7 @@
 # 0046 — Star systems and galaxy generation
 
 - **Status:** accepted
-- **Packages:** `@shard/space` (new), `@shard/render`, `@shard/procgen`, `@shard/terrain`
+- **Packages:** `@aethervtt/shard-space` (new), `@aethervtt/shard-render`, `@aethervtt/shard-procgen`, `@aethervtt/shard-terrain`
 - **Depends on:** 0018, 0019, 0022, 0040, 0041, 0042, 0043, 0044
 
 ## Context

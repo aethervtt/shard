@@ -1,5 +1,5 @@
-import { AssetServerResource, assetServer, defineAssetPreview } from '@shard/assets'
-import { quat, ShardError, vec3 } from '@shard/core'
+import { AssetServerResource, assetServer, defineAssetPreview } from '@aethervtt/shard-assets'
+import { quat, ShardError, vec3 } from '@aethervtt/shard-core'
 import {
   captureView,
   forwardPlugin,
@@ -10,17 +10,17 @@ import {
   renderPlugin,
   Shaders,
   Skins,
-} from '@shard/render'
-import { App } from '@shard/runtime'
+} from '@aethervtt/shard-render'
+import { App } from '@aethervtt/shard-runtime'
 import {
   loadScene,
   releaseSceneHooks,
   SceneAssets,
   ScenePlugin,
   whenSceneReady,
-} from '@shard/scene'
-import { Textures } from '@shard/texture'
-import { TransformPlugin } from '@shard/transform'
+} from '@aethervtt/shard-scene'
+import { Textures } from '@aethervtt/shard-texture'
+import { TransformPlugin } from '@aethervtt/shard-transform'
 import { animationLayer } from './api'
 import { AnimationClips } from './clip'
 import { AnimationPlayer } from './components'

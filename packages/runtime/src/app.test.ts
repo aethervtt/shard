@@ -13,7 +13,7 @@ import {
   t,
   Update,
   type World,
-} from '@shard/core'
+} from '@aethervtt/shard-core'
 import { describe, expect, it } from 'vitest'
 import { App } from './app'
 import { definePlugin } from './plugin'
@@ -472,7 +472,7 @@ describe('frame control and log', () => {
   it('logs ShardErrors with their code, path, and hint', async () => {
     const app = await ready(new App())
     const { LogResource } = await import('./log')
-    const { ShardError } = await import('@shard/core')
+    const { ShardError } = await import('@aethervtt/shard-core')
     const log = app.world.resource(LogResource)
     log.info('hello')
     log.error(new ShardError('test/bad', 'Broken', { path: 'a/b', hint: 'Fix it' }))

@@ -8,11 +8,11 @@ import {
   onSet,
   PostUpdate,
   type World,
-} from '@shard/core'
-import { Collider, PhysicsSystems } from '@shard/physics'
-import { Mesh3d } from '@shard/render'
-import { type App, definePlugin, type Plugin } from '@shard/runtime'
-import { TransformSystems } from '@shard/transform'
+} from '@aethervtt/shard-core'
+import { Collider, PhysicsSystems } from '@aethervtt/shard-physics'
+import { Mesh3d } from '@aethervtt/shard-render'
+import { type App, definePlugin, type Plugin } from '@aethervtt/shard-runtime'
+import { TransformSystems } from '@aethervtt/shard-transform'
 import { dropAgent, navAgents } from './agents'
 import { navBake } from './bake'
 import { NavCache } from './cache'

@@ -1,7 +1,7 @@
 # 0055 — Host-driven scenes and incremental structure
 
 - **Status:** accepted
-- **Packages:** `@shard/mirror` (new), `@shard/structure` (new), `@shard/render`, `@shard/gpu`
+- **Packages:** `@aethervtt/shard-mirror` (new), `@aethervtt/shard-structure` (new), `@aethervtt/shard-render`, `@aethervtt/shard-gpu`
 - **Depends on:** 0001, 0007, 0018, 0022, 0052
 
 ## Context
@@ -25,9 +25,9 @@ prop triangles. Its shadow-stress fixture is 5,000 walls, 64 doors, 256 props, 1
 
 ## Goals
 
-- `@shard/mirror`: keyed sync from host documents to entities. It is O(n) over revisions, writes
+- `@aethervtt/shard-mirror`: keyed sync from host documents to entities. It is O(n) over revisions, writes
   only changed fields, and allocates nothing when nothing changed.
-- `@shard/structure`: walls, openings (doors and windows) and floors as components. Walls compile
+- `@aethervtt/shard-structure`: walls, openings (doors and windows) and floors as components. Walls compile
   into chunked, per-material meshes; an edit rebuilds only the chunks it touches. Door leaves are
   their own instances.
 - Upload accounting: bytes written to the GPU per frame, by category, and rebuild counts.
@@ -37,7 +37,7 @@ prop triangles. Its shadow-stress fixture is 5,000 walls, 64 doors, 256 props, 1
 ## Non-goals
 
 - Vision, fog of war, line of sight and the planar authority itself. The host's server stays
-  authoritative. `@shard/structure/planar` offers the barrier split as a pure function a host may
+  authoritative. `@aethervtt/shard-structure/planar` offers the barrier split as a pure function a host may
   reuse, but nothing depends on it.
 - Grid, drawings, measurement templates and labels. Each gets its own spec when Aether migrates.
 - Multi-level structures (Aether's contract is single-level too).
@@ -82,7 +82,7 @@ StructureSettings (resource) { chunkSize: f32 = 8, doorSwingMs: f32 = 250, reduc
 **Units.** Structure is in world units (metres by convention), and the host converts its own
 coordinates with **one fixed visual scale**. For Aether that's `world = px × pxToWorld`, a
 constant of the adapter. It is never derived from the grid's game distance (`distance`, `unit`,
-"5 ft per square"). Those give cells a game meaning for measurement (`@shard/grid/math`
+"5 ft per square"). Those give cells a game meaning for measurement (`@aethervtt/shard-grid/math`
 `distance`, 0057) and don't place anything. Changing a scene's distance or unit changes no
 geometry.
 
@@ -128,7 +128,7 @@ A `state` change sets the leaf's target angle. `structure/doors` animates it ove
 therefore zero chunk rebuilds and one instance slot per animated frame. Windows get a glass pane
 entity with a blended material.
 
-**Planar split.** `planarBarriers(walls, openings) → Segment[]` in `@shard/structure/planar` is
+**Planar split.** `planarBarriers(walls, openings) → Segment[]` in `@aethervtt/shard-structure/planar` is
 the same split compile uses, with `sight` and `movement` channels, as a pure function with no ECS
 or GPU.
 
@@ -151,9 +151,9 @@ over a static structure, renders no shadow passes.
 ### API sketch
 
 ```ts
-import { createMirror } from '@shard/mirror'
-import { structurePlugin, Wall, Opening, Floor, StructureSettings } from '@shard/structure'
-import { planarBarriers } from '@shard/structure/planar'
+import { createMirror } from '@aethervtt/shard-mirror'
+import { structurePlugin, Wall, Opening, Floor, StructureSettings } from '@aethervtt/shard-structure'
+import { planarBarriers } from '@aethervtt/shard-structure/planar'
 world.spawn([DirectionalLight, { shadowUpdate: 'on-change' }], Transform)
 app.world.resource(RenderStats).lastFrame.bytes.instances
 ```

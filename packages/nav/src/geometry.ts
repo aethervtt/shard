@@ -1,4 +1,4 @@
-import type { Mesh } from '@shard/mesh'
+import type { Mesh } from '@aethervtt/shard-mesh'
 
 /**
  * World-space triangles for a bake: 9 floats per triangle (three xyz corners) and an area code

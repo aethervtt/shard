@@ -1,5 +1,5 @@
 {
-  "name": "@shard/node",
+  "name": "@aethervtt/shard-node",
   "version": "0.0.0",
   "license": "MIT",
   "private": true,
@@ -12,24 +12,24 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@shard/assets": "workspace:*",
-    "@shard/core": "workspace:*",
-    "@shard/gpu": "workspace:*",
-    "@shard/platform": "workspace:*",
-    "@shard/platform-node": "workspace:*",
-    "@shard/procgen": "workspace:*",
-    "@shard/project": "workspace:*",
-    "@shard/protocol": "workspace:*",
-    "@shard/render": "workspace:*",
-    "@shard/runtime": "workspace:*",
-    "@shard/scene": "workspace:*",
+    "@aethervtt/shard-assets": "workspace:*",
+    "@aethervtt/shard-core": "workspace:*",
+    "@aethervtt/shard-gpu": "workspace:*",
+    "@aethervtt/shard-platform": "workspace:*",
+    "@aethervtt/shard-platform-node": "workspace:*",
+    "@aethervtt/shard-procgen": "workspace:*",
+    "@aethervtt/shard-project": "workspace:*",
+    "@aethervtt/shard-protocol": "workspace:*",
+    "@aethervtt/shard-render": "workspace:*",
+    "@aethervtt/shard-runtime": "workspace:*",
+    "@aethervtt/shard-scene": "workspace:*",
     "esbuild": "^0.28.2",
     "webgpu": "0.6.1"
   },
   "devDependencies": {
-    "@shard/mesh": "workspace:*",
-    "@shard/save": "workspace:*",
-    "@shard/transform": "workspace:*",
+    "@aethervtt/shard-mesh": "workspace:*",
+    "@aethervtt/shard-save": "workspace:*",
+    "@aethervtt/shard-transform": "workspace:*",
     "@types/node": "^26.6.2",
     "@webgpu/types": "^0.1.74"
   }

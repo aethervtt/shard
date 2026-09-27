@@ -1,7 +1,7 @@
 # 0003 — App, plugins, and scheduler
 
 - **Status:** implemented
-- **Packages:** `@shard/core` (scheduler), `@shard/runtime` (App, runners)
+- **Packages:** `@aethervtt/shard-core` (scheduler), `@aethervtt/shard-runtime` (App, runners)
 - **Depends on:** 0001, 0002
 
 ## Context

@@ -1,7 +1,7 @@
 # 0057 — Tabletop layers: grids, drawings, tokens, outlines, and ground order
 
 - **Status:** accepted
-- **Packages:** `@shard/render`, `@shard/grid` (new), `@shard/vector` (new)
+- **Packages:** `@aethervtt/shard-render`, `@aethervtt/shard-grid` (new), `@aethervtt/shard-vector` (new)
 - **Depends on:** 0007, 0018, 0022, 0024, 0027, 0055
 
 ## Context
@@ -29,9 +29,9 @@ because the adapter reads today's documents; nothing is converted on disk.
 
 - Ground bands: coplanar layers drawn in band order, depth-tested against 3D geometry.
 - `RenderLayers`: an entity-side and a camera-side bitmask, for per-view visuals.
-- `@shard/grid`: square and hex (pointy and flat) grids, drawn analytically with lines of constant
+- `@aethervtt/shard-grid`: square and hex (pointy and flat) grids, drawn analytically with lines of constant
   CSS-pixel width, plus cell math.
-- `@shard/vector`: pen, line, rectangle, ellipse, cone and polygon-with-holes shapes, with stroke
+- `@aethervtt/shard-vector`: pen, line, rectangle, ellipse, cone and polygon-with-holes shapes, with stroke
   and fill, tessellated once per revision. Fog (0058) uses the same tessellator.
 - `Outline`: selection and hover outlines as a post pass that costs nothing when no outline exists.
 - A tabletop light falloff (full bright radius, linear to the dim radius) on point lights.
@@ -88,7 +88,7 @@ only by `distance()` below and never places or sizes anything, so relabelling a 
 leaves the picture unchanged. Grid `size` is visual: it resizes the grid and anything the host
 sizes in cells (token footprints, per-cell props), as 0055 describes.
 
-`@shard/grid/math`, a set of pure functions: `cellAt(grid, x, z)`, `cellCenter`, `cellPolygon`,
+`@aethervtt/shard-grid/math`, a set of pure functions: `cellAt(grid, x, z)`, `cellCenter`, `cellPolygon`,
 axial and cube hex coordinates, `neighbors`, and `distance(grid, a, b, diagonal)` with Aether's
 `euclidean | equal | alternating` rules.
 
@@ -108,7 +108,7 @@ VectorShape {
 polyline (round caps and joins for pen), and ellipses and cones subdivided to a chord error of 0.5
 CSS px at the densest zoom. The mesh is rebuilt only when `rev` changes. CSS-pixel strokes widen in
 the vertex shader from the view's pixel scale, so they don't need a rebuild on zoom. Pure
-functions, used by `@shard/fog`.
+functions, used by `@aethervtt/shard-fog`.
 
 ### Outlines
 

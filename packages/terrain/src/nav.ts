@@ -1,6 +1,11 @@
-import { ChildOf, Derived, type Entity, type Query, quat, type World } from '@shard/core'
-import { NavMesh, NavSource } from '@shard/nav'
-import { GlobalTransform, placeInGrid, propagateSubtree, Transform } from '@shard/transform'
+import { ChildOf, Derived, type Entity, type Query, quat, type World } from '@aethervtt/shard-core'
+import { NavMesh, NavSource } from '@aethervtt/shard-nav'
+import {
+  GlobalTransform,
+  placeInGrid,
+  propagateSubtree,
+  Transform,
+} from '@aethervtt/shard-transform'
 import { collidersOf } from './colliders'
 import { PlanetNav } from './components'
 import { heightAt } from './heights'

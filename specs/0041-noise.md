@@ -1,9 +1,9 @@
 # 0041 — Noise library
 
 - **Status:** implemented
-- **Packages:** `@shard/noise` (new), `@shard/core`, `@shard/platform`, `@shard/platform-web`,
-  `@shard/platform-node`, `@shard/platform-tauri`, `@shard/shader`, `@shard/render`,
-  `@shard/protocol`, `crates/shard-noise` (new)
+- **Packages:** `@aethervtt/shard-noise` (new), `@aethervtt/shard-core`, `@aethervtt/shard-platform`, `@aethervtt/shard-platform-web`,
+  `@aethervtt/shard-platform-node`, `@aethervtt/shard-platform-tauri`, `@aethervtt/shard-shader`, `@aethervtt/shard-render`,
+  `@aethervtt/shard-protocol`, `crates/shard-noise` (new)
 - **Depends on:** 0002, 0006, 0014, 0016
 
 ## Context
@@ -77,7 +77,7 @@ kernels, and this is the first one.
   inline node, or a number. Names make agent edits local ("lower `mountains.frequency`").
   Optional fields: `dimensions` (2, 3, or 4; default 3), `extent` (the largest distance from the
   origin it's sampled at, e.g. a planet radius), and `description`.
-- One table in `@shard/noise` (`nodes.ts`) describes every node type: its parameters, defaults,
+- One table in `@aethervtt/shard-noise` (`nodes.ts`) describes every node type: its parameters, defaults,
   ranges, and docs. The validator, the JSON Schema, and the agent docs read it; the compiler and the
   WGSL generator switch on the node type. Adding an operator is a table entry, a compiler case, a
   Rust instruction, and a WGSL template.
@@ -160,7 +160,7 @@ await sampleSpherePatchAsync(platform.workers, graph, seed, patch, out)   // and
   `project.material('Rock', { …, noise: { detail: 'assets/noise/rock.noise.json' } })` adds
   `noise_detail(p, seed)` to `material::rock`. Draws wait until the graph loads; editing the file
   re-registers the module and relinks the material as soon as the asset reloads.
-- `NoiseCompute` (in `@shard/render`) fills a storage buffer over a grid or a sphere patch with the
+- `NoiseCompute` (in `@aethervtt/shard-render`) fills a storage buffer over a grid or a sphere patch with the
   offset form, and `noiseComputeNode({ graph, domain: 'grid2d' | 'sphere-patch', next })` runs it
   from the render graph; 0043 dispatches one per chunk. Grids compute their local points in the
   shader; sphere patches upload the same f32 local points `sampleSpherePatch` uses.
@@ -205,7 +205,7 @@ and `local` is a small f32 offset from it.
 ### Worker pool
 
 ```ts
-// @shard/platform
+// @aethervtt/shard-platform
 interface Workers {
   readonly size: number
   run<T>(module: string, fn: string, args: readonly unknown[],
@@ -283,7 +283,7 @@ interface Workers {
 - **Material graphs per type, not per material.** A graph compiles to shader code, so choosing one
   per material would compile a pipeline per material; materials vary seeds and scales instead.
 - **Render depends on noise.** Material slots and the compute helper need the render graph and the
-  material system, so they live in `@shard/render`; `@shard/noise` stays free of render.
+  material system, so they live in `@aethervtt/shard-render`; `@aethervtt/shard-noise` stays free of render.
 
 ## Acceptance criteria
 

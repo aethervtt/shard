@@ -1,11 +1,11 @@
-import { ShardError } from '@shard/core'
+import { ShardError } from '@aethervtt/shard-core'
 import type {
   AudioBackend,
   AudioClipSource,
   AudioContextState,
   AudioVoiceDesc,
   AudioVoiceParams,
-} from '@shard/platform'
+} from '@aethervtt/shard-platform'
 
 interface Decoded {
   buffer: AudioBuffer

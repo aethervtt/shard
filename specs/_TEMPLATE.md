@@ -1,7 +1,7 @@
 # NNNN — Title
 
 - **Status:** draft
-- **Packages:** `@shard/...`
+- **Packages:** `@aethervtt/shard-...`
 - **Depends on:** NNNN, NNNN
 
 ## Context

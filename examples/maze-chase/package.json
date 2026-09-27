@@ -11,16 +11,16 @@
     "docs": "shard docs"
   },
   "dependencies": {
-    "@shard/cli": "workspace:*",
-    "@shard/core": "workspace:*",
-    "@shard/input": "workspace:*",
-    "@shard/nav": "workspace:*",
-    "@shard/project": "workspace:*",
-    "@shard/runtime": "workspace:*",
-    "@shard/scene": "workspace:*",
-    "@shard/sprite": "workspace:*",
-    "@shard/testing": "workspace:*",
-    "@shard/transform": "workspace:*"
+    "@aethervtt/shard-cli": "workspace:*",
+    "@aethervtt/shard-core": "workspace:*",
+    "@aethervtt/shard-input": "workspace:*",
+    "@aethervtt/shard-nav": "workspace:*",
+    "@aethervtt/shard-project": "workspace:*",
+    "@aethervtt/shard-runtime": "workspace:*",
+    "@aethervtt/shard-scene": "workspace:*",
+    "@aethervtt/shard-sprite": "workspace:*",
+    "@aethervtt/shard-testing": "workspace:*",
+    "@aethervtt/shard-transform": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^26.6.2",

@@ -1,6 +1,13 @@
-import { defineSchema, type Entity, findComponent, ShardError, t, type World } from '@shard/core'
-import { encodePng, toBase64 } from '@shard/protocol'
-import type { AppMethod } from '@shard/runtime'
+import {
+  defineSchema,
+  type Entity,
+  findComponent,
+  ShardError,
+  t,
+  type World,
+} from '@aethervtt/shard-core'
+import { encodePng, toBase64 } from '@aethervtt/shard-protocol'
+import type { AppMethod } from '@aethervtt/shard-runtime'
 import { collidersOf } from './colliders'
 import { Terrain, terrainSample } from './heights'
 import type { PlanetRuntime } from './planet'

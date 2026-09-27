@@ -1,6 +1,6 @@
-import { defineComponent, t } from '@shard/core'
-import { Visibility } from '@shard/render'
-import { Transform } from '@shard/transform'
+import { defineComponent, t } from '@aethervtt/shard-core'
+import { Visibility } from '@aethervtt/shard-render'
+import { Transform } from '@aethervtt/shard-transform'
 
 const lightFields = {
   color: t.color({ default: [1, 1, 1, 1], description: 'Light color (linear).' }),

@@ -6,7 +6,7 @@ import {
   type Entity,
   t,
   type World,
-} from '@shard/core'
+} from '@aethervtt/shard-core'
 
 export const ComputedVisibility = defineComponent(
   'render/ComputedVisibility',

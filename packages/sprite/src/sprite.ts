@@ -1,6 +1,6 @@
-import { defineComponent, defineResource, t } from '@shard/core'
-import { Visibility } from '@shard/render'
-import { Transform } from '@shard/transform'
+import { defineComponent, defineResource, t } from '@aethervtt/shard-core'
+import { Visibility } from '@aethervtt/shard-render'
+import { Transform } from '@aethervtt/shard-transform'
 
 /** The sprite's slot in the sprite renderer's persistent buffer. Managed by the renderer. */
 export const SpriteSlot = defineComponent(

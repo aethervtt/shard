@@ -1,5 +1,11 @@
-import { type Entity, type Profiler, ProfilerResource, ShardError, type World } from '@shard/core'
-import type { GpuContext } from '@shard/gpu'
+import {
+  type Entity,
+  type Profiler,
+  ProfilerResource,
+  ShardError,
+  type World,
+} from '@aethervtt/shard-core'
+import type { GpuContext } from '@aethervtt/shard-gpu'
 import { Culler } from './culling'
 import { ForwardStateResource } from './forward'
 import type { CapturedBuffer } from './graph'

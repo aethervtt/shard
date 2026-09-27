@@ -1,15 +1,21 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { AudioBuses, audioPlugin } from '@shard/audio'
-import { t } from '@shard/core'
-import { addActions, defineActions, injectInput, inputPlugin, rebindAction } from '@shard/input'
-import { createFileStorage, createNodePlatform } from '@shard/platform-node'
-import { LightingSettings } from '@shard/render'
-import { App, definePlugin } from '@shard/runtime'
-import { ScenePlugin } from '@shard/scene'
-import { Locale } from '@shard/text'
-import { TransformPlugin } from '@shard/transform'
+import { AudioBuses, audioPlugin } from '@aethervtt/shard-audio'
+import { t } from '@aethervtt/shard-core'
+import {
+  addActions,
+  defineActions,
+  injectInput,
+  inputPlugin,
+  rebindAction,
+} from '@aethervtt/shard-input'
+import { createFileStorage, createNodePlatform } from '@aethervtt/shard-platform-node'
+import { LightingSettings } from '@aethervtt/shard-render'
+import { App, definePlugin } from '@aethervtt/shard-runtime'
+import { ScenePlugin } from '@aethervtt/shard-scene'
+import { Locale } from '@aethervtt/shard-text'
+import { TransformPlugin } from '@aethervtt/shard-transform'
 import { afterAll, describe, expect, it } from 'vitest'
 import { savePlugin } from './plugin'
 import { defineSettings, EngineSettings, flushSettings, setSettings } from './settings'

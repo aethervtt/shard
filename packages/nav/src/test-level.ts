@@ -1,7 +1,7 @@
-import type { Entity, World } from '@shard/core'
-import { Collider } from '@shard/physics'
-import { App, type Plugin } from '@shard/runtime'
-import { Transform, TransformPlugin } from '@shard/transform'
+import type { Entity, World } from '@aethervtt/shard-core'
+import { Collider } from '@aethervtt/shard-physics'
+import { App, type Plugin } from '@aethervtt/shard-runtime'
+import { Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { NavSource } from './components'
 import { navPlugin } from './plugin'
 

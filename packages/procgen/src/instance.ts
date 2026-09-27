@@ -1,4 +1,4 @@
-import { type AssetEntry, assetServer } from '@shard/assets'
+import { type AssetEntry, assetServer } from '@aethervtt/shard-assets'
 import {
   type AssetRef,
   defineComponent,
@@ -10,9 +10,9 @@ import {
   ShardError,
   t,
   type World,
-} from '@shard/core'
-import { LogResource } from '@shard/runtime'
-import { defineInstanceKind } from '@shard/scene'
+} from '@aethervtt/shard-core'
+import { LogResource } from '@aethervtt/shard-runtime'
+import { defineInstanceKind } from '@aethervtt/shard-scene'
 import { findGenerator, type Generator, type GenRequest, requestOf } from './generator'
 import { GeneratorBindings, procgen } from './runtime'
 

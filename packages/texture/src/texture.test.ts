@@ -3,9 +3,9 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as zlib from 'node:zlib'
-import { assetServer } from '@shard/assets'
-import { World } from '@shard/core'
-import { createNodePlatform } from '@shard/platform-node'
+import { assetServer } from '@aethervtt/shard-assets'
+import { World } from '@aethervtt/shard-core'
+import { createNodePlatform } from '@aethervtt/shard-platform-node'
 import jpeg from 'jpeg-js'
 import {
   createDefaultContainer,

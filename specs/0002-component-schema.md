@@ -1,7 +1,7 @@
 # 0002 — Component schema and reflection
 
 - **Status:** implemented
-- **Packages:** `@shard/core`
+- **Packages:** `@aethervtt/shard-core`
 - **Depends on:** none
 
 ## Context

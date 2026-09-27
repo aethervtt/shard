@@ -1,9 +1,9 @@
-import { createNodeGpuContext } from '@shard/gpu/node'
-import { inputPlugin } from '@shard/input'
-import { forwardPlugin, OffscreenTarget, renderPlugin } from '@shard/render'
-import { App, AppControlResource, LogResource, Time } from '@shard/runtime'
-import { loadScene } from '@shard/scene'
-import { TransformPlugin } from '@shard/transform'
+import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
+import { inputPlugin } from '@aethervtt/shard-input'
+import { forwardPlugin, OffscreenTarget, renderPlugin } from '@aethervtt/shard-render'
+import { App, AppControlResource, LogResource, Time } from '@aethervtt/shard-runtime'
+import { loadScene } from '@aethervtt/shard-scene'
+import { TransformPlugin } from '@aethervtt/shard-transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { WebSocketServer } from 'ws'
 import { decodePng } from './png'
@@ -307,8 +307,8 @@ describe('assets', () => {
     const { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
-    const { createNodePlatform } = await import('@shard/platform-node')
-    const { assetServer } = await import('@shard/assets')
+    const { createNodePlatform } = await import('@aethervtt/shard-platform-node')
+    const { assetServer } = await import('@aethervtt/shard-assets')
     const root = mkdtempSync(join(tmpdir(), 'shard-protocol-assets-'))
     try {
       mkdirSync(join(root, 'materials'), { recursive: true })
@@ -373,9 +373,9 @@ describe('assets', () => {
     const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
-    const { createNodePlatform } = await import('@shard/platform-node')
-    const { assetServer, defineDataType } = await import('@shard/assets')
-    const { t } = await import('@shard/core')
+    const { createNodePlatform } = await import('@aethervtt/shard-platform-node')
+    const { assetServer, defineDataType } = await import('@aethervtt/shard-assets')
+    const { t } = await import('@aethervtt/shard-core')
     defineDataType(
       'test-protocol/Item',
       { price: t.u32({ default: 5 }), weight: t.f32({ default: 1 }) },
@@ -418,9 +418,9 @@ describe('prefabs', () => {
     const { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
-    const { createNodePlatform } = await import('@shard/platform-node')
-    const { assetServer } = await import('@shard/assets')
-    const { ScenePlugin } = await import('@shard/scene')
+    const { createNodePlatform } = await import('@aethervtt/shard-platform-node')
+    const { assetServer } = await import('@aethervtt/shard-assets')
+    const { ScenePlugin } = await import('@aethervtt/shard-scene')
     const root = mkdtempSync(join(tmpdir(), 'shard-protocol-prefabs-'))
     const prefab = {
       version: 1,

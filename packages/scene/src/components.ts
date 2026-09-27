@@ -1,5 +1,11 @@
-import { AssetStore, defineAssetType } from '@shard/assets'
-import { defineComponent, defineResource, type Entity, type JsonValue, t } from '@shard/core'
+import { AssetStore, defineAssetType } from '@aethervtt/shard-assets'
+import {
+  defineComponent,
+  defineResource,
+  type Entity,
+  type JsonValue,
+  t,
+} from '@aethervtt/shard-core'
 import type { PrefabFile, SceneEntity, SceneFile } from './format'
 
 /** Marks entities that came from a scene file. */

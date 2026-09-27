@@ -51,7 +51,7 @@ A prefab is a reusable entity tree: `prefabs/<name>.prefab.json`, validated agai
    bullets). In a system, pass `ctx.commands` to spawn when the commands apply:
 
    ```ts
-   import { loadPrefab, spawnPrefab } from '@shard/scene'
+   import { loadPrefab, spawnPrefab } from '@aethervtt/shard-scene'
    await loadPrefab(world, 'prefabs/ship.prefab.json') // e.g. in the plugin's setup
    const ship = spawnPrefab(ctx.commands, 'prefabs/ship.prefab.json', {
      transform: { translation: [0, 5, 0] },

@@ -1,4 +1,4 @@
-import { loadNoiseKernel, NoiseGraph } from '@shard/noise'
+import { loadNoiseKernel, NoiseGraph } from '@aethervtt/shard-noise'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { buildChunk, chunkLayout } from './chunk'
 import {

@@ -1,6 +1,6 @@
-import { defineSystem, ProfilerResource, Update, type World } from '@shard/core'
-import { RenderScale, RenderStats } from '@shard/render'
-import { DisplayRate, definePlugin, Time } from '@shard/runtime'
+import { defineSystem, ProfilerResource, Update, type World } from '@aethervtt/shard-core'
+import { RenderScale, RenderStats } from '@aethervtt/shard-render'
+import { DisplayRate, definePlugin, Time } from '@aethervtt/shard-runtime'
 
 /** Extra HUD lines a demo adds (e.g. physics body counts), read each refresh. */
 export const hudExtras: ((world: World) => string[])[] = []

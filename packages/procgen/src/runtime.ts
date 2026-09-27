@@ -7,7 +7,7 @@ import {
   defineAssetType,
   findAssetType,
   sha256Hex,
-} from '@shard/assets'
+} from '@aethervtt/shard-assets'
 import {
   type AnyField,
   type AssetRef,
@@ -17,10 +17,10 @@ import {
   type JsonValue,
   ShardError,
   type World,
-} from '@shard/core'
-import { loadNoiseKernel } from '@shard/noise'
-import type { KeyValueStorage, PlatformFileSystem, Workers } from '@shard/platform'
-import { LogResource } from '@shard/runtime'
+} from '@aethervtt/shard-core'
+import { loadNoiseKernel } from '@aethervtt/shard-noise'
+import type { KeyValueStorage, PlatformFileSystem, Workers } from '@aethervtt/shard-platform'
+import { LogResource } from '@aethervtt/shard-runtime'
 import {
   codeHashOf,
   type Generator,
@@ -84,7 +84,7 @@ export interface ProcgenHost {
   workers?: Workers
   /**
    * URL of a module exporting `runGeneratorJob` with every generator defined (the project bundle
-   * plus `@shard/procgen/worker`, built self-contained by the host). Without it, jobs run inline.
+   * plus `@aethervtt/shard-procgen/worker`, built self-contained by the host). Without it, jobs run inline.
    */
   workerModule?: string | Promise<string>
 }

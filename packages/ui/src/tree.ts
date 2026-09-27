@@ -11,10 +11,10 @@ import {
   ShardError,
   type Table,
   type World,
-} from '@shard/core'
-import { Camera3d, RenderTargets, Window } from '@shard/render'
-import { LogResource } from '@shard/runtime'
-import { TextureAtlases } from '@shard/sprite'
+} from '@aethervtt/shard-core'
+import { Camera3d, RenderTargets, Window } from '@aethervtt/shard-render'
+import { LogResource } from '@aethervtt/shard-runtime'
+import { TextureAtlases } from '@aethervtt/shard-sprite'
 import {
   type Font,
   Fonts,
@@ -22,9 +22,9 @@ import {
   layoutText,
   TextLayout,
   type TextLayoutOptions,
-} from '@shard/text'
-import { Textures } from '@shard/texture'
-import { GlobalTransform } from '@shard/transform'
+} from '@aethervtt/shard-text'
+import { Textures } from '@aethervtt/shard-texture'
+import { GlobalTransform } from '@aethervtt/shard-transform'
 import {
   UiAnchor,
   UiAnchorArrow,

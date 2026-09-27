@@ -1,5 +1,5 @@
 {
-  "name": "@shard/platform-tauri",
+  "name": "@aethervtt/shard-platform-tauri",
   "version": "0.0.0",
   "license": "MIT",
   "private": true,
@@ -12,9 +12,9 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@shard/core": "workspace:*",
-    "@shard/platform": "workspace:*",
-    "@shard/platform-web": "workspace:*",
+    "@aethervtt/shard-core": "workspace:*",
+    "@aethervtt/shard-platform": "workspace:*",
+    "@aethervtt/shard-platform-web": "workspace:*",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-fs": "^2.5.2"
   }

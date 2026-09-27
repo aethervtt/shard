@@ -1,4 +1,4 @@
-import { createNodeWorkers } from '@shard/platform-node'
+import { createNodeWorkers } from '@aethervtt/shard-platform-node'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   loadNoiseKernel,

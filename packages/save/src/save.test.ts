@@ -9,10 +9,10 @@ import {
   t,
   Update,
   type World,
-} from '@shard/core'
-import { Collider, physics3dPlugin, RigidBody, Velocity } from '@shard/physics'
-import { createMemoryStorage } from '@shard/platform'
-import { App, GlobalRng, Time } from '@shard/runtime'
+} from '@aethervtt/shard-core'
+import { Collider, physics3dPlugin, RigidBody, Velocity } from '@aethervtt/shard-physics'
+import { createMemoryStorage } from '@aethervtt/shard-platform'
+import { App, GlobalRng, Time } from '@aethervtt/shard-runtime'
 import {
   currentOverrides,
   findEntityByPath,
@@ -26,7 +26,7 @@ import {
   ScenePlugin,
   spawnPrefab,
   whenSceneReady,
-} from '@shard/scene'
+} from '@aethervtt/shard-scene'
 import {
   GlobalTransform,
   GridCell,
@@ -34,7 +34,7 @@ import {
   Transform,
   TransformPlugin,
   worldPosition64,
-} from '@shard/transform'
+} from '@aethervtt/shard-transform'
 import { describe, expect, it } from 'vitest'
 import { SAVE_VERSION, type SaveFile, saveJsonSchema } from './format'
 import { savePlugin } from './plugin'

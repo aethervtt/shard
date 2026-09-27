@@ -5,8 +5,8 @@ import {
   type Entity,
   Last,
   type World,
-} from '@shard/core'
-import { GpuBuffer, type GpuContext } from '@shard/gpu'
+} from '@aethervtt/shard-core'
+import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
 import {
   cameraOf,
   DebugOverlays,
@@ -23,11 +23,11 @@ import {
   RenderSet,
   type RenderView,
   Shaders,
-} from '@shard/render'
-import type { App } from '@shard/runtime'
-import { type TextureAtlas, TextureAtlases } from '@shard/sprite'
-import type { FontPage } from '@shard/text'
-import { type Texture, Textures } from '@shard/texture'
+} from '@aethervtt/shard-render'
+import type { App } from '@aethervtt/shard-runtime'
+import { type TextureAtlas, TextureAtlases } from '@aethervtt/shard-sprite'
+import type { FontPage } from '@aethervtt/shard-text'
+import { type Texture, Textures } from '@aethervtt/shard-texture'
 import { UiImage, UiInteraction, UiNode, UiSlider, UiTextInput, UiToggle } from './components'
 import { hitTest, UiPointer } from './interaction'
 import { describeExtras } from './methods'

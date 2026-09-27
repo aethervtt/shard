@@ -1,4 +1,4 @@
-import { ShardError } from '@shard/core'
+import { ShardError } from '@aethervtt/shard-core'
 import type * as RecastModule from 'recast-navigation'
 import type { TriangleSoup } from './geometry'
 

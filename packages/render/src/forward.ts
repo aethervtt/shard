@@ -6,11 +6,11 @@ import {
   PostUpdate,
   ProfilerResource,
   type World,
-} from '@shard/core'
-import { GpuBuffer, type GpuContext } from '@shard/gpu'
-import { definePlugin, LogResource, type Plugin, Time } from '@shard/runtime'
-import { setTextureCapabilities, Textures } from '@shard/texture'
-import { TransformSystems } from '@shard/transform'
+} from '@aethervtt/shard-core'
+import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
+import { definePlugin, LogResource, type Plugin, Time } from '@aethervtt/shard-runtime'
+import { setTextureCapabilities, Textures } from '@aethervtt/shard-texture'
+import { TransformSystems } from '@aethervtt/shard-transform'
 import { Materials, Meshes, RenderTargets } from './assets'
 import {
   Atmospheres,

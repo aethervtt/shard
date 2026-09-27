@@ -1,8 +1,8 @@
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { GpuContext } from '@shard/gpu'
-import { createNodeGpuContext } from '@shard/gpu/node'
-import { createProtocolServer, type ProtocolServer } from '@shard/protocol'
+import type { GpuContext } from '@aethervtt/shard-gpu'
+import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
+import { createProtocolServer, type ProtocolServer } from '@aethervtt/shard-protocol'
 import {
   Camera3d,
   forwardPlugin,
@@ -10,11 +10,11 @@ import {
   RenderTargets,
   renderPlugin,
   setOverlays,
-} from '@shard/render'
-import { compareGolden, renderView } from '@shard/render/testing'
-import { App } from '@shard/runtime'
-import { loadScene, ScenePlugin, whenSceneReady } from '@shard/scene'
-import { lookAt, Transform, TransformPlugin } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { compareGolden, renderView } from '@aethervtt/shard-render/testing'
+import { App } from '@aethervtt/shard-runtime'
+import { loadScene, ScenePlugin, whenSceneReady } from '@aethervtt/shard-scene'
+import { lookAt, Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Physics, physics2dPlugin, physics3dPlugin } from './plugin'
 
@@ -104,7 +104,7 @@ describe('physics through scenes and the protocol', () => {
     expect(described.colliders).toEqual({ trimesh: 1, cuboid: 1, capsule: 1, ball: 1, cylinder: 1 })
     expect(described.pending).toBe(0)
 
-    const { findEntityByPath } = await import('@shard/scene')
+    const { findEntityByPath } = await import('@aethervtt/shard-scene')
     const [cx, , cz] = app.world.get(findEntityByPath(app.world, 'crate')!, Transform).translation
     const down = (await call(server, 'physics.raycast', {
       origin: [cx, 10, cz],
@@ -145,7 +145,7 @@ describe('physics through scenes and the protocol', () => {
 
   it('builds a character from a scene and reports its state through entity.get and physics.describe', async () => {
     const { app, server } = await start()
-    const { findEntityByPath } = await import('@shard/scene')
+    const { findEntityByPath } = await import('@aethervtt/shard-scene')
     // A second scene file with just the character; required components come with it.
     loadScene(
       app.world,

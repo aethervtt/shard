@@ -1,4 +1,4 @@
-import type { ShardError } from '@shard/core'
+import type { ShardError } from '@aethervtt/shard-core'
 import { describe, expect, it } from 'vitest'
 import {
   circlePolygon,

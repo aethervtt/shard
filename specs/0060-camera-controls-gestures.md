@@ -1,7 +1,7 @@
 # 0060 — Camera controls, gestures, and object drag
 
 - **Status:** accepted
-- **Packages:** `@shard/controls` (new), `@shard/input`, `@shard/platform-web`
+- **Packages:** `@aethervtt/shard-controls` (new), `@aethervtt/shard-input`, `@aethervtt/shard-platform-web`
 - **Depends on:** 0008, 0027, 0057
 
 ## Context
@@ -102,7 +102,7 @@ world.events(DragEnded)   // { entity, position, start, cancelled }
 The host calls `begin` from its own `drag-start` handler after `pick()` says what's under the
 pointer and the host decides it's movable. `PlaneDrag` claims the gesture, then projects the
 pointer onto the plane each move, keeping the offset from the grab point. It runs `snap` (for
-example to a grid cell center, with `@shard/grid/math`) and writes the entity's `Transform`: one
+example to a grid cell center, with `@aethervtt/shard-grid/math`) and writes the entity's `Transform`: one
 instance slot per move. On cancel it restores the start transform. The host commits on
 `DragEnded`, as Aether patches on drop today.
 

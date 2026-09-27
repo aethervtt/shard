@@ -1,7 +1,7 @@
 # 0004 — Math, transforms, and hierarchy propagation
 
 - **Status:** implemented
-- **Packages:** `@shard/core` (math, RNG, required components), `@shard/transform`
+- **Packages:** `@aethervtt/shard-core` (math, RNG, required components), `@aethervtt/shard-transform`
 - **Depends on:** 0001, 0002, 0003
 
 ## Context
@@ -41,7 +41,7 @@ perspective projections use **reversed Z** with an infinite far plane for depth 
 Functions in namespaces, gl-matrix style, writing into an `out` argument:
 
 ```ts
-import { mat4, quat, vec3 } from '@shard/core/math'
+import { mat4, quat, vec3 } from '@aethervtt/shard-core/math'
 
 vec3.add(out, a, b)
 quat.fromEuler(out, x, y, z)

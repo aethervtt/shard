@@ -1,5 +1,14 @@
-import { defineSystem, quat, Rng, Update } from '@shard/core'
-import { box, capsule, cone, cylinder, type Mesh, plane, sphere, torus } from '@shard/mesh'
+import { defineSystem, quat, Rng, Update } from '@aethervtt/shard-core'
+import {
+  box,
+  capsule,
+  cone,
+  cylinder,
+  type Mesh,
+  plane,
+  sphere,
+  torus,
+} from '@aethervtt/shard-mesh'
 import {
   Camera3d,
   DirectionalLight,
@@ -11,9 +20,9 @@ import {
   Meshes,
   MeshMaterial,
   VisibilityRange,
-} from '@shard/render'
-import { definePlugin, Time } from '@shard/runtime'
-import { lookAt, Transform } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { definePlugin, Time } from '@aethervtt/shard-runtime'
+import { lookAt, Transform } from '@aethervtt/shard-transform'
 import { effectsFromUrl } from './post'
 
 const still = new URLSearchParams(location.search).has('still')

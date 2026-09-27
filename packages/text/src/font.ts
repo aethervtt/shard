@@ -1,5 +1,5 @@
-import type { AssetRef } from '@shard/core'
-import { SkylinePacker, Texture } from '@shard/texture'
+import type { AssetRef } from '@aethervtt/shard-core'
+import { SkylinePacker, Texture } from '@aethervtt/shard-texture'
 import { FontSource, rasterizeGlyph } from './source'
 
 /** One glyph in the metrics JSON. Lengths are em units; the atlas box is in pixels. */

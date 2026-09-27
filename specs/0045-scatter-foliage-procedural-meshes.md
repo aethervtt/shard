@@ -1,7 +1,7 @@
 # 0045 — Scatter, foliage, and procedural meshes
 
 - **Status:** accepted
-- **Packages:** `@shard/procgen`, `@shard/mesh`, `@shard/terrain`, `@shard/render`
+- **Packages:** `@aethervtt/shard-procgen`, `@aethervtt/shard-mesh`, `@aethervtt/shard-terrain`, `@aethervtt/shard-render`
 - **Depends on:** 0020, 0022, 0030, 0031, 0041, 0042, 0043
 
 ## Context
@@ -147,7 +147,7 @@ bushes, grass, and crystals. It also adds automatic LODs through meshoptimizer.
   from 2D noise, weighted by vertex height in the blade. It shades two-sided and alpha-tested, with
   a translucency term. Foliage renders in shadows only within `shadowRange` (default 30 m).
 
-### Mesh toolkit (`@shard/mesh`)
+### Mesh toolkit (`@aethervtt/shard-mesh`)
 
 ```ts
 const b = MeshBuilder.create()

@@ -5,8 +5,8 @@ import type {
   Platform,
   PlatformFileSystem,
   Workers,
-} from '@shard/platform'
-import { createWebAudioBackend, createWebWorkers } from '@shard/platform-web'
+} from '@aethervtt/shard-platform'
+import { createWebAudioBackend, createWebWorkers } from '@aethervtt/shard-platform-web'
 import {
   exists,
   mkdir,

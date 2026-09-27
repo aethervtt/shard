@@ -1,4 +1,4 @@
-import { AssetServerResource } from '@shard/assets'
+import { AssetServerResource } from '@aethervtt/shard-assets'
 import {
   allComponents,
   beginRedefinition,
@@ -12,10 +12,10 @@ import {
   type ResourceDef,
   ShardError,
   type World,
-} from '@shard/core'
-import { ProcgenResource } from '@shard/procgen'
-import type { App, Plugin } from '@shard/runtime'
-import { pathOfEntity } from '@shard/scene'
+} from '@aethervtt/shard-core'
+import { ProcgenResource } from '@aethervtt/shard-procgen'
+import type { App, Plugin } from '@aethervtt/shard-runtime'
+import { pathOfEntity } from '@aethervtt/shard-scene'
 
 export interface ReloadReport {
   ok: boolean

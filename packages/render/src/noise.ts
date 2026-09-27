@@ -1,6 +1,6 @@
-import { AssetServerResource, assetServer } from '@shard/assets'
-import { type AssetRef, ShardError, type World } from '@shard/core'
-import { GpuBuffer, type GpuContext } from '@shard/gpu'
+import { AssetServerResource, assetServer } from '@aethervtt/shard-assets'
+import { type AssetRef, ShardError, type World } from '@aethervtt/shard-core'
+import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
 import {
   type Grid2d,
   type GridParams,
@@ -12,9 +12,9 @@ import {
   patchPoints,
   registerNoiseGraph,
   type SpherePatch,
-} from '@shard/noise'
-import { LogResource, Time } from '@shard/runtime'
-import type { ShaderLibrary } from '@shard/shader'
+} from '@aethervtt/shard-noise'
+import { LogResource, Time } from '@aethervtt/shard-runtime'
+import type { ShaderLibrary } from '@aethervtt/shard-shader'
 import type { NodeDescriptor } from './graph'
 import type { MaterialType } from './materials'
 import { Shaders } from './plugin'

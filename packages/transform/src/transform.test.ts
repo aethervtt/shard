@@ -1,5 +1,5 @@
-import { affine, ChildOf, defineSystem, quat, Update, vec3 } from '@shard/core'
-import { App } from '@shard/runtime'
+import { affine, ChildOf, defineSystem, quat, Update, vec3 } from '@aethervtt/shard-core'
+import { App } from '@aethervtt/shard-runtime'
 import { describe, expect, it } from 'vitest'
 import {
   GlobalTransform,

@@ -1,7 +1,7 @@
 # 0033 — Animation state machines
 
 - **Status:** implemented
-- **Packages:** `@shard/animation`
+- **Packages:** `@aethervtt/shard-animation`
 - **Depends on:** 0031, 0032
 
 ## Context

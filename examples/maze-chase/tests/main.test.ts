@@ -1,6 +1,6 @@
-import { findEntityByPath } from '@shard/scene'
-import { tileAt } from '@shard/sprite'
-import { expect, test } from '@shard/testing'
+import { findEntityByPath } from '@aethervtt/shard-scene'
+import { tileAt } from '@aethervtt/shard-sprite'
+import { expect, test } from '@aethervtt/shard-testing'
 
 type Vec3 = [number, number, number]
 const at = (game: { get(e: string, c: string): unknown }, path: string) =>

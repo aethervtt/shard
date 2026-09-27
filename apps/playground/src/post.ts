@@ -1,5 +1,5 @@
-import { defineComponent, defineSystem, quat, Rng, t, Update } from '@shard/core'
-import { cube, plane, sphere } from '@shard/mesh'
+import { defineComponent, defineSystem, quat, Rng, t, Update } from '@aethervtt/shard-core'
+import { cube, plane, sphere } from '@aethervtt/shard-mesh'
 import {
   Antialiasing,
   AutoExposure,
@@ -19,9 +19,9 @@ import {
   PhysicalCamera,
   Ssao,
   Vignette,
-} from '@shard/render'
-import { definePlugin, Time } from '@shard/runtime'
-import { lookAt, Transform } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { definePlugin, Time } from '@aethervtt/shard-runtime'
+import { lookAt, Transform } from '@aethervtt/shard-transform'
 
 const Spin = defineComponent('playground/Spin', { radius: t.f32, speed: t.f32, height: t.f32 })
 

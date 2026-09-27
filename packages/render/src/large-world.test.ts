@@ -1,10 +1,10 @@
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { ChildOf, defineSystem, type Entity, mat4, quat, Update } from '@shard/core'
-import type { GpuContext } from '@shard/gpu'
-import { createNodeGpuContext } from '@shard/gpu/node'
-import { cube } from '@shard/mesh'
-import { App, LogResource } from '@shard/runtime'
+import { ChildOf, defineSystem, type Entity, mat4, quat, Update } from '@aethervtt/shard-core'
+import type { GpuContext } from '@aethervtt/shard-gpu'
+import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
+import { cube } from '@aethervtt/shard-mesh'
+import { App, LogResource } from '@aethervtt/shard-runtime'
 import {
   FloatingOrigin,
   GlobalTransform,
@@ -15,7 +15,7 @@ import {
   placeInGrid,
   Transform,
   TransformPlugin,
-} from '@shard/transform'
+} from '@aethervtt/shard-transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { MaterialAsset, Materials, Meshes, RenderTargets } from './assets'
 import { Camera3d, Exposure } from './camera'

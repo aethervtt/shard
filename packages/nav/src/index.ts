@@ -1,4 +1,4 @@
-import type { World } from '@shard/core'
+import type { World } from '@aethervtt/shard-core'
 import { NavAreas, type NavAreasValue } from './components'
 
 export { navAgents } from './agents'

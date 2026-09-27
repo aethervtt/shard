@@ -1,4 +1,4 @@
-import type { AudioDistanceModel } from '@shard/platform'
+import type { AudioDistanceModel } from '@aethervtt/shard-platform'
 
 /**
  * Web Audio's distance gain for a PannerNode (spec formulas, including the edge cases), so the

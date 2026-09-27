@@ -1,6 +1,13 @@
-import { defineSchema, type Entity, findComponent, ShardError, t, type World } from '@shard/core'
-import type { AppMethod } from '@shard/runtime'
-import { Localized } from '@shard/text'
+import {
+  defineSchema,
+  type Entity,
+  findComponent,
+  ShardError,
+  t,
+  type World,
+} from '@aethervtt/shard-core'
+import type { AppMethod } from '@aethervtt/shard-runtime'
+import { Localized } from '@aethervtt/shard-text'
 import {
   UI_ANCHOR_STATES,
   UI_STATES,

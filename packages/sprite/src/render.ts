@@ -6,8 +6,8 @@ import {
   onRemove,
   type Table,
   type World,
-} from '@shard/core'
-import { GpuBuffer, type GpuContext } from '@shard/gpu'
+} from '@aethervtt/shard-core'
+import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
 import {
   type CameraData,
   ComputedVisibility,
@@ -21,10 +21,10 @@ import {
   type RenderView,
   Shaders,
   sceneColor,
-} from '@shard/render'
-import { Time } from '@shard/runtime'
-import { type Texture, Textures } from '@shard/texture'
-import { GlobalTransform } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { Time } from '@aethervtt/shard-runtime'
+import { type Texture, Textures } from '@aethervtt/shard-texture'
+import { GlobalTransform } from '@aethervtt/shard-transform'
 import { TextureAtlases } from './atlas'
 import { layerBit, SpriteLighting } from './lighting'
 import {

@@ -1,7 +1,7 @@
 # 0021 — Deferred rendering path
 
 - **Status:** implemented
-- **Packages:** `@shard/render`
+- **Packages:** `@aethervtt/shard-render`
 - **Depends on:** 0007, 0018, 0019, 0020
 
 ## Context

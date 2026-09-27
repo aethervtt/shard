@@ -1,7 +1,7 @@
 # 0056 — Modular builds and size budgets
 
 - **Status:** accepted
-- **Packages:** every `@shard/*` package, `apps/playground`, `bench/size` (new)
+- **Packages:** every `@aethervtt/shard-*` package, `apps/playground`, `bench/size` (new)
 - **Depends on:** 0005, 0007, 0017, 0052
 
 ## Context
@@ -16,7 +16,7 @@ imported: `defineImporter`, `defineAssetType`, `defineOverlay`, `setStandardFiel
 `import './preview'`. None of them declares `"sideEffects"`, so bundlers keep everything that's
 imported. Second, `forwardPlugin.ready` installs every render feature unconditionally (atmosphere,
 clusters, shadows, deferred, post, pixel upscale, gizmos, picking), `renderPlugin` registers all
-engine WGSL, and `@shard/render` depends on `@shard/noise`.
+engine WGSL, and `@aethervtt/shard-render` depends on `@aethervtt/shard-noise`.
 
 Aether ships three.js 0.160 from the root module inside a 3.18 MB app chunk, plus a 2.95 MB dice
 worker, and doesn't measure either.
@@ -51,7 +51,7 @@ shared across apps, 0052) and registration stays idempotent. A test imports ever
 in a fresh module graph and asserts that no registry changed. That's the rule, checked by CI.
 
 A headless tool that loads assets without a plugin (the CLI's `import`, `validate`) calls
-`registerAll()` from `@shard/project`, which calls every package's registration function.
+`registerAll()` from `@aethervtt/shard-project`, which calls every package's registration function.
 
 ### Render features as plugins
 
@@ -65,7 +65,7 @@ that depends on it:
 | `clusteredLightsPlugin` | Forward+ point and spot lights beyond the default few |
 | `deferredPlugin` | G-buffer path (0021) |
 | `environmentPlugin` | IBL, skybox, `DefaultEnvironment`, `ProceduralSky` |
-| `atmospherePlugin` | 0044, and the `@shard/noise` dependency |
+| `atmospherePlugin` | 0044, and the `@aethervtt/shard-noise` dependency |
 | `postPlugin` | bloom, auto exposure, DoF, motion blur, TAA, SSAO, fog, grading (each a flag) |
 | `fxaaPlugin` | FXAA |
 | `pixelArtPlugin` | pixel-perfect upscale |
@@ -102,7 +102,7 @@ per fixture and per chunk, the min, gzip and brotli sizes, and which packages ea
 | `renderer-min` | `renderPlugin`, `forwardPlugin`, `shadowsPlugin`: a camera, a directional light with shadows, 100 standard-material cubes |
 | `three-min` | the same scene in three.js 0.160 (`WebGLRenderer`, `MeshStandardMaterial`, `DirectionalLight`, PCF shadows), imported as Aether does |
 | `dice` | `dicePlugin` on a transparent surface, with its worker as a separate chunk |
-| `vtt` | `renderer-min` + `@shard/structure` + `@shard/mirror` + instanced tokens |
+| `vtt` | `renderer-min` + `@aethervtt/shard-structure` + `@aethervtt/shard-mirror` + instanced tokens |
 | `full` | `standardRenderPlugins` and every plugin, like the playground |
 
 `bench/size/budgets.json` holds a brotli budget per fixture and per chunk kind (entry, worker,
@@ -122,7 +122,7 @@ Inside the monorepo, packages keep exporting `./src/index.ts`, with no build ste
 - **Types.** `.d.ts` files from `tsc --declaration --emitDeclarationOnly`.
 - **Exports.** `package.json` `exports` rewritten to `dist/`, with `types` conditions and
   `sideEffects: false`. Internal `workspace:*` dependencies become the exact release version.
-- **Versioning.** All `@shard/*` packages share one version, `0.MINOR.PATCH`. A minor bump may
+- **Versioning.** All `@aethervtt/shard-*` packages share one version, `0.MINOR.PATCH`. A minor bump may
   break, a patch never does, and `CHANGELOG.md` lists each release's spec numbers. Each package
   also records the git sha it was built from (`shard.buildSha`), so a host can pin by version and
   trace by commit.
@@ -160,7 +160,7 @@ against the `.d.ts` only. `pnpm release --check` runs it.
       this spec records both numbers and the gap, and the budget becomes the plan to close it.
 - [ ] The `dice` entry chunk contains no Rapier. Its worker contains Rapier exactly once, and the
       deterministic variant only.
-- [ ] `@shard/physics/track` (0053) bundles with no `@shard/render` or `@shard/gpu` modules.
+- [ ] `@aethervtt/shard-physics/track` (0053) bundles with no `@aethervtt/shard-render` or `@aethervtt/shard-gpu` modules.
 - [ ] `bench/consumer` installs the release tarballs, builds with Vite and with `bun build`,
       typechecks against the shipped `.d.ts` with no Shard source present, and runs a dice roll
       whose worker loads from its own chunk.

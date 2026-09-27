@@ -1,5 +1,5 @@
-import type { World } from '@shard/core'
-import { OriginShift } from '@shard/transform'
+import type { World } from '@aethervtt/shard-core'
+import { OriginShift } from '@aethervtt/shard-transform'
 import { Gizmos } from './gizmos'
 import { Instances } from './instances'
 import { RenderCounters } from './stats'

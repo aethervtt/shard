@@ -1,4 +1,4 @@
-import { ShardError } from '@shard/core'
+import { ShardError } from '@aethervtt/shard-core'
 import { LayoutCache, PipelineCache } from './caches'
 import { type GpuErrorListener, toShardError } from './errors'
 

@@ -1,5 +1,5 @@
-import { defineResource, ShardError, type World } from '@shard/core'
-import type { PlatformFileSystem } from '@shard/platform'
+import { defineResource, ShardError, type World } from '@aethervtt/shard-core'
+import type { PlatformFileSystem } from '@aethervtt/shard-platform'
 
 /** Where `shard bake nav` and `nav.bake` keep baked tiles, relative to the project root. */
 export const NAV_CACHE_PATH = '.shard/cache/nav/tiles.bin'

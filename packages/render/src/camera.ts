@@ -1,5 +1,5 @@
-import { defineComponent, defineSystem, type Infer, t } from '@shard/core'
-import { Transform } from '@shard/transform'
+import { defineComponent, defineSystem, type Infer, t } from '@aethervtt/shard-core'
+import { Transform } from '@aethervtt/shard-transform'
 
 /** Light presets in lux, paired with the exposure presets below. */
 export const LightPresets = {

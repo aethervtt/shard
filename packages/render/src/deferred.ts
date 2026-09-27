@@ -1,5 +1,5 @@
-import { ShardError, type World } from '@shard/core'
-import { GpuBuffer } from '@shard/gpu'
+import { ShardError, type World } from '@aethervtt/shard-core'
+import { GpuBuffer } from '@aethervtt/shard-gpu'
 import { Culler } from './culling'
 import {
   drawMaterials,

@@ -1,7 +1,7 @@
-import { defineSystem, Last, ProfilerResource } from '@shard/core'
-import type { GpuContext } from '@shard/gpu'
-import { createNodeGpuContext } from '@shard/gpu/node'
-import { App, headlessRunner } from '@shard/runtime'
+import { defineSystem, Last, ProfilerResource } from '@aethervtt/shard-core'
+import type { GpuContext } from '@aethervtt/shard-gpu'
+import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
+import { App, headlessRunner } from '@aethervtt/shard-runtime'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { VIEW_TARGET } from './graph'
 import {

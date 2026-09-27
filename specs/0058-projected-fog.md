@@ -1,7 +1,7 @@
 # 0058 — Projected fog
 
 - **Status:** accepted
-- **Packages:** `@shard/fog` (new), `@shard/vector`, `@shard/render`
+- **Packages:** `@aethervtt/shard-fog` (new), `@aethervtt/shard-vector`, `@aethervtt/shard-render`
 - **Depends on:** 0023, 0057
 
 ## Context
@@ -16,7 +16,7 @@ Today Aether rasterizes this into a canvas texture on a scene-sized plane, feath
 blur, and repaints the whole canvas on any change. On a Tabletop view, a flat plane covers the
 floor, but tall props stick out of it.
 
-`@shard/fog` draws fog from those inputs and nothing else. It never decides visibility. Which
+`@aethervtt/shard-fog` draws fog from those inputs and nothing else. It never decides visibility. Which
 tokens a player receives is the server's decision; the fog only darkens what's there.
 
 ## Goals
@@ -70,7 +70,7 @@ Each layer owns one `r8unorm` mask over its extent: 1 is fog, 0 is clear. Region
 - `reveal`: `dst = dst × (1 − strength × c)`
 
 where `c` is the region's coverage. Coverage comes from geometry, not from a blur. Each shape is
-tessellated by `@shard/vector` with a feather ring: an outer strip whose coverage ramps from 1 at
+tessellated by `@aethervtt/shard-vector` with a feather ring: an outer strip whose coverage ramps from 1 at
 the edge to 0 at `feather`, around holes too. Brushes are a chain of capsules of `radius` plus the
 ring. Every region's edge is soft by its own amount, with no blur pass and no bleed between
 regions.
@@ -94,7 +94,7 @@ selection stays visible.
 ### API sketch
 
 ```ts
-import { fogPlugin, FogLayer, FogRegions, FogSettings } from '@shard/fog'
+import { fogPlugin, FogLayer, FogRegions, FogSettings } from '@aethervtt/shard-fog'
 const manual = world.resource(FogRegionsStore).add({ rev: 1, regions: [...] })
 world.spawn([FogLayer, { base: 'revealed', extent, regions: manual }])
 world.patchResource(FogSettings, { viewerOpacity: isGm ? 0.45 : 1 })   // wakes an idle app (0052)

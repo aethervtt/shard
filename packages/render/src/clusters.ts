@@ -1,4 +1,4 @@
-import { GpuBuffer, type GpuContext } from '@shard/gpu'
+import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
 import type { LightRecord } from './lights'
 import type { CameraData } from './view'
 

@@ -5,8 +5,8 @@ import {
   ShardError,
   type Table,
   type World,
-} from '@shard/core'
-import { Gamepads, InputContext, Keyboard, Mouse, Touches } from '@shard/input'
+} from '@aethervtt/shard-core'
+import { Gamepads, InputContext, Keyboard, Mouse, Touches } from '@aethervtt/shard-input'
 import {
   UiChanged,
   UiClick,

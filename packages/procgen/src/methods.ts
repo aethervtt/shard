@@ -1,7 +1,20 @@
-import { assetServer } from '@shard/assets'
-import { defineSchema, isPlainObject, type JsonValue, ShardError, t, type World } from '@shard/core'
-import { encodePng, type PreviewImage, previewAsset, previewKtx2, toBase64 } from '@shard/protocol'
-import type { AppMethod } from '@shard/runtime'
+import { assetServer } from '@aethervtt/shard-assets'
+import {
+  defineSchema,
+  isPlainObject,
+  type JsonValue,
+  ShardError,
+  t,
+  type World,
+} from '@aethervtt/shard-core'
+import {
+  encodePng,
+  type PreviewImage,
+  previewAsset,
+  previewKtx2,
+  toBase64,
+} from '@aethervtt/shard-protocol'
+import type { AppMethod } from '@aethervtt/shard-runtime'
 import {
   allGenerators,
   codeHashOf,

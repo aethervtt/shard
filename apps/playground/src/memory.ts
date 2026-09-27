@@ -4,7 +4,7 @@ import {
   type FileStat,
   type Platform,
   type PlatformFileSystem,
-} from '@shard/platform'
+} from '@aethervtt/shard-platform'
 
 /**
  * A project folder in memory, for demos that import real asset files: the playground has no file

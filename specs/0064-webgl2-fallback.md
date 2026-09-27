@@ -1,8 +1,8 @@
 # 0064 — WebGL2 fallback and the baseline tier
 
 - **Status:** accepted
-- **Packages:** `@shard/gpu`, `@shard/gpu-webgl2` (new), `@shard/shader`, `@shard/render`,
-  `@shard/sprite`, `@shard/text`, `@shard/ui`, `@shard/particles`, `apps/cli`
+- **Packages:** `@aethervtt/shard-gpu`, `@aethervtt/shard-gpu-webgl2` (new), `@aethervtt/shard-shader`, `@aethervtt/shard-render`,
+  `@aethervtt/shard-sprite`, `@aethervtt/shard-text`, `@aethervtt/shard-ui`, `@aethervtt/shard-particles`, `apps/cli`
 - **Depends on:** 0005, 0006, 0020, 0022, 0052, 0056, 0061, 0062
 
 ## Context
@@ -35,7 +35,7 @@ its own, and a WebGPU replacement can ship before any of it (see Staging).
 - **The baseline tier:** a deliberately chosen subset that WebGL2 can run: no storage buffers in
   vertex or fragment shaders, no compute, and a fixed set of texture view kinds. The subset is
   Shard's choice, not a description of any one API.
-- `@shard/gpu-webgl2`: the WebGPU subset Shard uses, implemented over WebGL2, including a concrete
+- `@aethervtt/shard-gpu-webgl2`: the WebGPU subset Shard uses, implemented over WebGL2, including a concrete
   mapping for every texture view kind the engine creates.
 - WGSL stays the only shader language. naga (WASM) translates it to GLSL ES 3.0 through a cache
   keyed by everything its output depends on, with a latency budget for misses.
@@ -82,7 +82,7 @@ compatibility-mode device too, until an intermediate tier exists. `RenderHealth`
 `render.describe` report the backend, the tier, the capabilities and the reasons. On WebGL2,
 `webglcontextlost` maps to device loss and follows the existing recovery.
 
-### `@shard/gpu-webgl2`
+### `@aethervtt/shard-gpu-webgl2`
 
 It implements the WebGPU interfaces Shard calls over one `WebGL2RenderingContext`:
 
@@ -232,7 +232,7 @@ Each stage is useful by itself, and none blocks a WebGPU replacement of Aether's
    compatibility device rejects. A canary test proves the device enforces them. This proves the
    restricted render path with tools that already work (Dawn goldens, the benchmarks), and it's
    where most of the engine work is.
-2. **The shim, one small scene.** `@shard/gpu-webgl2` renders one lit, textured, shadowed scene
+2. **The shim, one small scene.** `@aethervtt/shard-gpu-webgl2` renders one lit, textured, shadowed scene
    with bloom and picking, covering every row of the view table. Tested in Playwright's Chromium
    with WebGPU disabled, where WebGL2 runs in software.
 3. **Aether's full fixture on WebGL2.** The parity fixture (0057), fog (0058), tilemaps (0059), the
@@ -278,7 +278,7 @@ Each stage is useful by itself, and none blocks a WebGPU replacement of Aether's
       as `baseline`, Chromium with WebGPU disabled as `webgl2`/`baseline`, and a simulated missing
       `EXT_color_buffer_float` as `none` with that reason. It never throws, and a compatibility
       request that returns a core adapter classifies as `full`.
-- [ ] With WebGPU available, a session loads no `@shard/gpu-webgl2`, naga or shader cache bytes
+- [ ] With WebGPU available, a session loads no `@aethervtt/shard-gpu-webgl2`, naga or shader cache bytes
       (network log). The full-tier WGSL for the forward pipeline is byte-identical before and after
       the accessor change, and full-tier goldens and `pnpm bench` timings are unchanged.
 - [ ] Stage 1 runs on a Dawn compatibility adapter whose probe reports `core: false`. A canary

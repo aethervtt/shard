@@ -13,8 +13,8 @@ import {
   type Table,
   vec3,
   type World,
-} from '@shard/core'
-import { definePlugin } from '@shard/runtime'
+} from '@aethervtt/shard-core'
+import { definePlugin } from '@aethervtt/shard-runtime'
 import { GlobalTransform, Transform, type TransformValue } from './components'
 import {
   FloatingOrigin,

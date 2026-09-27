@@ -1,6 +1,6 @@
-import { assetServer, defineAssetPreview } from '@shard/assets'
-import { ShardError } from '@shard/core'
-import { readKtx2 } from '@shard/texture'
+import { assetServer, defineAssetPreview } from '@aethervtt/shard-assets'
+import { ShardError } from '@aethervtt/shard-core'
+import { readKtx2 } from '@aethervtt/shard-texture'
 import { Fonts } from './importer'
 import { layoutText } from './layout'
 

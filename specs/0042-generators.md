@@ -1,8 +1,8 @@
 # 0042 — Generators as assets
 
 - **Status:** implemented
-- **Packages:** `@shard/procgen` (new), `@shard/assets`, `@shard/scene`, `@shard/save`,
-  `@shard/noise`, `@shard/project`, `@shard/node`, `@shard/protocol`, `@shard/cli`
+- **Packages:** `@aethervtt/shard-procgen` (new), `@aethervtt/shard-assets`, `@aethervtt/shard-scene`, `@aethervtt/shard-save`,
+  `@aethervtt/shard-noise`, `@aethervtt/shard-project`, `@aethervtt/shard-node`, `@aethervtt/shard-protocol`, `@aethervtt/shard-cli`
 - **Depends on:** 0010, 0014, 0017, 0030, 0031, 0041
 
 ## Context
@@ -69,7 +69,7 @@ export const Rock = project.generator('Rock', {
 ```
 
 - The name is namespaced (`star-explorer/Rock`). Engine packages define theirs with
-  `defineGenerator` from `@shard/procgen` (`shard/Rock`, `shard/Tree`, … in 0045).
+  `defineGenerator` from `@aethervtt/shard-procgen` (`shard/Rock`, `shard/Tree`, … in 0045).
   `project.generator('Rock', …)` needs `project` in scope, and a module the entry imports can't
   import the entry back (ES module cycles evaluate it first). So a generator in its own module
   calls `defineGenerator('star-explorer/Rock', …)`, as the example's `scripts/rock.ts` does.
@@ -189,7 +189,7 @@ GeneratorInstance { generator: handle('Generator'), seed: u32, params: json, ove
   or at a generator file's `#Generator` (`{ "path": "generators/sol.gen.json#Generator" }`), whose
   seed and params act as defaults the instance overrides. A `seed` of 0 means the file's seed.
 - It's a third kind of scene instance next to SceneInstance and PrefabInstance
-  (`defineInstanceKind` in `@shard/scene`). Kinds say whether respawns keep entity ids (this one
+  (`defineInstanceKind` in `@aethervtt/shard-scene`). Kinds say whether respawns keep entity ids (this one
   does) and whether they run on generated entities too. This one does, so a galaxy fragment can
   hold lazy `GeneratorInstance`s for its systems. Saves and scene files write `overrides` for
   every kind.
@@ -204,7 +204,7 @@ them under `procgen.regenerated`.
 ### API sketch
 
 ```ts
-import { generate, GeneratorInstance } from '@shard/procgen'
+import { generate, GeneratorInstance } from '@aethervtt/shard-procgen'
 
 const mesh = await generate(world, Rock, { radius: 2, roughness: 0.6 }, 42)   // AssetRef<Mesh>
 world.spawn(Mesh3d({ mesh }), MeshMaterial({ material: stone }), Transform())
@@ -250,8 +250,8 @@ world.spawn(GeneratorInstance({ generator: StarSystem, seed: starSeed, params: {
   already solved for prefabs. A generator doesn't get its own entity-creation API.
 - **Workers by default.** Generation is the work most likely to hitch a frame. Running it off
   the main thread from day one keeps generators honest about purity too. Worker threads load
-  plain modules, and project code imports `@shard/*`. So Node hosts (`openProject`, the CLI,
-  `shard dev`) bundle the project with `@shard/procgen/worker` into one self-contained module
+  plain modules, and project code imports `@aethervtt/shard-*`. So Node hosts (`openProject`, the CLI,
+  `shard dev`) bundle the project with `@aethervtt/shard-procgen/worker` into one self-contained module
   (`.shard/build/procgen-worker.<hash>.mjs`, the engine inlined) and hand its URL to
   `configureProcgenHost`. The playground points it at a Vite-served module instead. Without a
   worker module, jobs run inline after an await. Dependencies travel as artifacts, and the noise

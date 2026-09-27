@@ -1,4 +1,4 @@
-import type { JsonSchema } from '@shard/core'
+import type { JsonSchema } from '@aethervtt/shard-core'
 import { allGenerators } from './generator'
 
 /**

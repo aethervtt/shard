@@ -1,4 +1,4 @@
-import { defineComponent, type Table, t } from '@shard/core'
+import { defineComponent, type Table, t } from '@aethervtt/shard-core'
 import { Camera3d, PhysicalCamera } from './camera'
 import type { RenderView } from './graph'
 import { type CameraData, cameraOf, isScaled } from './view'

@@ -1,8 +1,8 @@
-import { type Entity, ProfilerResource, Rng, type World } from '@shard/core'
-import { Mesh, plane, sphere } from '@shard/mesh'
-import { Meshes } from '@shard/render'
-import { App, FixedTime } from '@shard/runtime'
-import { Transform, TransformPlugin, transform2d, worldPosition } from '@shard/transform'
+import { type Entity, ProfilerResource, Rng, type World } from '@aethervtt/shard-core'
+import { Mesh, plane, sphere } from '@aethervtt/shard-mesh'
+import { Meshes } from '@aethervtt/shard-render'
+import { App, FixedTime } from '@aethervtt/shard-runtime'
+import { Transform, TransformPlugin, transform2d, worldPosition } from '@aethervtt/shard-transform'
 import { describe, expect, it } from 'vitest'
 import {
   Collider,
@@ -230,7 +230,7 @@ describe('physics 3d', () => {
       [Collider, { shape: 'ball', radius: 0.5 }],
       [Transform, { translation: [1, 0, 0] }],
     )
-    const { ChildOf } = await import('@shard/core')
+    const { ChildOf } = await import('@aethervtt/shard-core')
     a.world.add(left, ChildOf, { parent: body })
     a.world.add(right, ChildOf, { parent: body })
     frames(a, 120)
@@ -606,7 +606,7 @@ describe('physics 2d', () => {
       [RigidBody, { kind: 'dynamic' }],
       [Transform, { translation: [0, 3, 0] }],
     )
-    const { ChildOf } = await import('@shard/core')
+    const { ChildOf } = await import('@aethervtt/shard-core')
     for (const x of [-1, 1]) {
       const child = a.world.spawn(
         [Collider, { shape: 'cuboid', halfExtents: [0.5, 0.5, 0] }],

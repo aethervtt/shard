@@ -4,7 +4,7 @@ import {
   defineAssetPreview,
   defineAssetType,
   defineDataAsset,
-} from '@shard/assets'
+} from '@aethervtt/shard-assets'
 import {
   type AssetRef,
   defineComponent,
@@ -15,9 +15,9 @@ import {
   type Entity,
   ShardError,
   t,
-} from '@shard/core'
-import { LogResource, Time } from '@shard/runtime'
-import { readKtx2 } from '@shard/texture'
+} from '@aethervtt/shard-core'
+import { LogResource, Time } from '@aethervtt/shard-runtime'
+import { readKtx2 } from '@aethervtt/shard-texture'
 import { TextureAtlas, TextureAtlases } from './atlas'
 import { drawLabel, fitImage } from './preview'
 import { Sprite } from './sprite'
@@ -259,7 +259,7 @@ export const animateSprites = defineSystem({
 })
 
 function sendPassed(
-  world: import('@shard/core').World,
+  world: import('@aethervtt/shard-core').World,
   clip: SpriteClip,
   entity: Entity,
   previous: number | undefined,

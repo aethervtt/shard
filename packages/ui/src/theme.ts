@@ -1,4 +1,9 @@
-import { AssetStore, defineAssetType, defineDataAsset, type LoadContext } from '@shard/assets'
+import {
+  AssetStore,
+  defineAssetType,
+  defineDataAsset,
+  type LoadContext,
+} from '@aethervtt/shard-assets'
 import {
   type AnyField,
   type AssetRef,
@@ -12,7 +17,7 @@ import {
   pointer,
   ShardError,
   t,
-} from '@shard/core'
+} from '@aethervtt/shard-core'
 import { UiStyle, UiText } from './components'
 
 /** Style fields a theme may set: every UiStyle field, and UiText's look (not its text). */

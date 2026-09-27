@@ -1,6 +1,6 @@
-import { ShardError } from '@shard/core'
-import type { GpuContext } from '@shard/gpu'
-import type { FileChangeEvent, Platform } from '@shard/platform'
+import { ShardError } from '@aethervtt/shard-core'
+import type { GpuContext } from '@aethervtt/shard-gpu'
+import type { FileChangeEvent, Platform } from '@aethervtt/shard-platform'
 import { link } from 'wesl'
 import { applyHooks, findHooks } from './hooks'
 

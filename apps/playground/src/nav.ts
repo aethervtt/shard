@@ -6,8 +6,8 @@ import {
   Rng,
   Update,
   type World,
-} from '@shard/core'
-import { capsule, cube, plane, sphere } from '@shard/mesh'
+} from '@aethervtt/shard-core'
+import { capsule, cube, plane, sphere } from '@aethervtt/shard-mesh'
 import {
   describeNav,
   findPath,
@@ -23,8 +23,8 @@ import {
   nearestPoint,
   OffMeshLink,
   setNavAreas,
-} from '@shard/nav'
-import { CharacterController, Collider, RigidBody } from '@shard/physics'
+} from '@aethervtt/shard-nav'
+import { CharacterController, Collider, RigidBody } from '@aethervtt/shard-physics'
 import {
   AmbientLight,
   Camera3d,
@@ -38,9 +38,9 @@ import {
   Meshes,
   MeshMaterial,
   setOverlays,
-} from '@shard/render'
-import { definePlugin, Time } from '@shard/runtime'
-import { lookAt, Transform } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { definePlugin, Time } from '@aethervtt/shard-runtime'
+import { lookAt, Transform } from '@aethervtt/shard-transform'
 import { hudExtras } from './hud'
 
 type Vec3 = [number, number, number]

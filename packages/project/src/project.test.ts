@@ -1,8 +1,8 @@
-import { defineComponent, t } from '@shard/core'
-import { createNodeGpuContext } from '@shard/gpu/node'
-import { createMemoryStorage, type Platform } from '@shard/platform'
-import { OffscreenTarget } from '@shard/render'
-import { findEntityByPath } from '@shard/scene'
+import { defineComponent, t } from '@aethervtt/shard-core'
+import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
+import { createMemoryStorage, type Platform } from '@aethervtt/shard-platform'
+import { OffscreenTarget } from '@aethervtt/shard-render'
+import { findEntityByPath } from '@aethervtt/shard-scene'
 import { describe, expect, it } from 'vitest'
 import { defineProject } from './define'
 import {

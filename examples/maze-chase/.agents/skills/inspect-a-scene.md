@@ -20,4 +20,4 @@ g.label(position, 'target', [1, 1, 1, 1])
 ```
 
 `list_gizmos` shows what was drawn as data. `pick(world, camera, x, y)` and
-`raycast(world, origin, direction)` from `@shard/render` do the same in code.
+`raycast(world, origin, direction)` from `@aethervtt/shard-render` do the same in code.

@@ -1,7 +1,7 @@
 # 0018 — Lights and shadows (Forward+)
 
 - **Status:** implemented
-- **Packages:** `@shard/render`
+- **Packages:** `@aethervtt/shard-render`
 - **Depends on:** 0005, 0006, 0007, 0016
 
 ## Context

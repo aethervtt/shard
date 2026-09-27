@@ -1,5 +1,5 @@
 /**
- * Test helpers for GPU tests (Node only; exported as `@shard/render/testing`): render until
+ * Test helpers for GPU tests (Node only; exported as `@aethervtt/shard-render/testing`): render until
  * shaders and pipelines are ready, and compare against golden images.
  *
  * Goldens are raw RGBA8 files in `__golden__/`. `SHARD_UPDATE_GOLDEN=1` rewrites them;
@@ -8,7 +8,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { deflateSync } from 'node:zlib'
-import type { App } from '@shard/runtime'
+import type { App } from '@aethervtt/shard-runtime'
 import { Culler } from './culling'
 import type { CapturedImage } from './graph'
 import { captureView, Gpu, Shaders } from './plugin'

@@ -1,5 +1,5 @@
-import { defineResource, defineSystem, type Entity, mat4, type World } from '@shard/core'
-import { GpuBuffer, type GpuContext } from '@shard/gpu'
+import { defineResource, defineSystem, type Entity, mat4, type World } from '@aethervtt/shard-core'
+import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
 import { type AtmosphereRecord, Atmospheres, type CameraAtmosphere } from './atmosphere'
 import { MULTISCATTER_SIZE, TRANSMITTANCE_H, TRANSMITTANCE_W } from './atmosphere-model'
 import {

@@ -1,4 +1,4 @@
-import type { JsonValue } from '@shard/core'
+import type { JsonValue } from '@aethervtt/shard-core'
 
 /** A `*.scene.json` file. */
 export interface SceneFile {

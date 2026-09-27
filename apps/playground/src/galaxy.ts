@@ -9,10 +9,10 @@ import {
   t,
   Update,
   type World,
-} from '@shard/core'
-import { GpuBuffer } from '@shard/gpu'
-import { Gpu, Graph, RenderSet, VIEW_TARGET, Window } from '@shard/render'
-import { definePlugin, FixedTime, Time } from '@shard/runtime'
+} from '@aethervtt/shard-core'
+import { GpuBuffer } from '@aethervtt/shard-gpu'
+import { Gpu, Graph, RenderSet, VIEW_TARGET, Window } from '@aethervtt/shard-render'
+import { definePlugin, FixedTime, Time } from '@aethervtt/shard-runtime'
 import galaxyWgsl from './galaxy.wgsl?raw'
 
 // --- data --------------------------------------------------------------------

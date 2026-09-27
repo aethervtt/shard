@@ -1,5 +1,5 @@
-import { defineResource, frustum, mat4, type World } from '@shard/core'
-import { GpuBuffer, type GpuContext } from '@shard/gpu'
+import { defineResource, frustum, mat4, type World } from '@aethervtt/shard-core'
+import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
 import { Culler } from './culling'
 import { GpuAssetsResource } from './gpu-assets'
 import type { NodeContext } from './graph'

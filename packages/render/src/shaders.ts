@@ -1,5 +1,5 @@
-import { defineComponent, t } from '@shard/core'
-import { type ShaderLibrary, wgslLayout } from '@shard/shader'
+import { defineComponent, t } from '@aethervtt/shard-core'
+import { type ShaderLibrary, wgslLayout } from '@aethervtt/shard-shader'
 import { StandardMaterial } from './assets'
 import { ATMOSPHERE_SHADERS } from './atmosphere-shaders'
 import { CULLING_SHADERS } from './culling-shaders'

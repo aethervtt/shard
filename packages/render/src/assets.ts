@@ -1,4 +1,4 @@
-import { AssetStore, defineAssetType, defineImporter } from '@shard/assets'
+import { AssetStore, defineAssetType, defineImporter } from '@aethervtt/shard-assets'
 import {
   defineComponent,
   defineResource,
@@ -7,8 +7,8 @@ import {
   type SchemaContext,
   ShardError,
   t,
-} from '@shard/core'
-import { decodeMesh, type Mesh } from '@shard/mesh'
+} from '@aethervtt/shard-core'
+import { decodeMesh, type Mesh } from '@aethervtt/shard-mesh'
 import {
   allMaterialTypes,
   findMaterialType,

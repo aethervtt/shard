@@ -1,5 +1,5 @@
 {
-  "name": "@shard/texture",
+  "name": "@aethervtt/shard-texture",
   "version": "0.0.0",
   "license": "MIT",
   "private": true,
@@ -13,14 +13,14 @@
   },
   "dependencies": {
     "@jsquash/webp": "^1.5.0",
-    "@shard/assets": "workspace:*",
-    "@shard/core": "workspace:*",
+    "@aethervtt/shard-assets": "workspace:*",
+    "@aethervtt/shard-core": "workspace:*",
     "fzstd": "^0.1.1",
     "jpeg-js": "^0.4.4",
     "ktx-parse": "^2.0.0"
   },
   "devDependencies": {
-    "@shard/platform-node": "workspace:*",
+    "@aethervtt/shard-platform-node": "workspace:*",
     "@types/node": "^26.6.2",
     "@webgpu/types": "^0.1.74"
   }

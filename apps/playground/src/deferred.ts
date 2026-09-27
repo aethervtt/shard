@@ -1,5 +1,5 @@
-import { quat, Rng } from '@shard/core'
-import { plane } from '@shard/mesh'
+import { quat, Rng } from '@aethervtt/shard-core'
+import { plane } from '@aethervtt/shard-mesh'
 import {
   AmbientLight,
   Camera3d,
@@ -11,10 +11,10 @@ import {
   MeshMaterial,
   PointLight,
   RenderPath,
-} from '@shard/render'
-import { definePlugin } from '@shard/runtime'
-import { Texture, Textures } from '@shard/texture'
-import { lookAt, Transform } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { definePlugin } from '@aethervtt/shard-runtime'
+import { Texture, Textures } from '@aethervtt/shard-texture'
+import { lookAt, Transform } from '@aethervtt/shard-transform'
 
 /** Leaves: a mask with holes, so alpha testing (and real overdraw) happens. */
 function leaves(size = 128): Texture {

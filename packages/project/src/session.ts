@@ -1,6 +1,6 @@
-import { defineSchema, ShardError, t } from '@shard/core'
-import type { MethodDef } from '@shard/protocol'
-import { type App, AppControlResource, LogResource, type Plugin } from '@shard/runtime'
+import { defineSchema, ShardError, t } from '@aethervtt/shard-core'
+import type { MethodDef } from '@aethervtt/shard-protocol'
+import { type App, AppControlResource, LogResource, type Plugin } from '@aethervtt/shard-runtime'
 import { createProjectReloader, type ReloadReport } from './reload'
 
 type ModuleLoader = () => Promise<{ default?: unknown }>

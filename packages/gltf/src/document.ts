@@ -1,4 +1,4 @@
-import { ShardError } from '@shard/core'
+import { ShardError } from '@aethervtt/shard-core'
 
 /** The parts of the glTF 2.0 JSON the importer reads. */
 export interface GltfDocument {

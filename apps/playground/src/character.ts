@@ -7,8 +7,8 @@ import {
   Rng,
   Update,
   type World,
-} from '@shard/core'
-import { capsule, cube, cylinder, plane, sphere } from '@shard/mesh'
+} from '@aethervtt/shard-core'
+import { capsule, cube, cylinder, plane, sphere } from '@aethervtt/shard-mesh'
 import {
   CharacterController,
   CharacterIntent,
@@ -19,7 +19,7 @@ import {
   PhysicsConfig,
   RigidBody,
   Velocity,
-} from '@shard/physics'
+} from '@aethervtt/shard-physics'
 import {
   AmbientLight,
   Camera3d,
@@ -33,14 +33,14 @@ import {
   Meshes,
   MeshMaterial,
   setOverlays,
-} from '@shard/render'
-import { definePlugin, Time } from '@shard/runtime'
-import { lookAt, Transform } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { definePlugin, Time } from '@aethervtt/shard-runtime'
+import { lookAt, Transform } from '@aethervtt/shard-transform'
 import { hudExtras } from './hud'
 
 type Mode = 'course' | 'planet'
 type Vec3 = [number, number, number]
-type MeshStore = { add(mesh: import('@shard/mesh').Mesh): AssetRef<'Mesh'> }
+type MeshStore = { add(mesh: import('@aethervtt/shard-mesh').Mesh): AssetRef<'Mesh'> }
 type Mat = (value: ConstructorParameters<typeof MaterialAsset>[0]) => AssetRef<'Material'>
 
 interface Walker {

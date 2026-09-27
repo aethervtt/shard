@@ -2,10 +2,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { assetServer, findAssetPreview } from '@shard/assets'
-import type { GpuContext } from '@shard/gpu'
-import { createNodeGpuContext } from '@shard/gpu/node'
-import { createNodePlatform } from '@shard/platform-node'
+import { assetServer, findAssetPreview } from '@aethervtt/shard-assets'
+import type { GpuContext } from '@aethervtt/shard-gpu'
+import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
+import { createNodePlatform } from '@aethervtt/shard-platform-node'
 import {
   Camera3d,
   captureView,
@@ -18,11 +18,11 @@ import {
   readBuffer,
   renderPlugin,
   Tonemapping,
-} from '@shard/render'
-import { compareGolden, pngBytes, settle } from '@shard/render/testing'
-import { App, LogResource } from '@shard/runtime'
-import { Texture, Textures } from '@shard/texture'
-import { Transform, TransformPlugin } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { compareGolden, pngBytes, settle } from '@aethervtt/shard-render/testing'
+import { App, LogResource } from '@aethervtt/shard-runtime'
+import { Texture, Textures } from '@aethervtt/shard-texture'
+import { Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { TextureAtlases } from './atlas'
 import { Lighting2d, LightOccluder2d, PointLight2d, SpotLight2d, SpriteLighting } from './lighting'

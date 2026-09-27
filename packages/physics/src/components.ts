@@ -1,5 +1,5 @@
-import { defineComponent, defineEvent, defineResource, type Entity, t } from '@shard/core'
-import { Transform } from '@shard/transform'
+import { defineComponent, defineEvent, defineResource, type Entity, t } from '@aethervtt/shard-core'
+import { Transform } from '@aethervtt/shard-transform'
 
 export const BODY_KINDS = ['dynamic', 'fixed', 'kinematic-position', 'kinematic-velocity'] as const
 export type BodyKind = (typeof BODY_KINDS)[number]

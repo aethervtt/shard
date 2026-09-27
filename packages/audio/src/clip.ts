@@ -1,6 +1,6 @@
-import { AssetStore, defineAssetType, defineImporter } from '@shard/assets'
-import { defineResource, defineSchema, type JsonValue, ShardError, t } from '@shard/core'
-import type { AudioClipSource } from '@shard/platform'
+import { AssetStore, defineAssetType, defineImporter } from '@aethervtt/shard-assets'
+import { defineResource, defineSchema, type JsonValue, ShardError, t } from '@aethervtt/shard-core'
+import type { AudioClipSource } from '@aethervtt/shard-platform'
 import { type AudioCodec, probeAudio } from './formats'
 
 export const AudioImportSettings = defineSchema(

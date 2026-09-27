@@ -1,5 +1,5 @@
-import { assetServer } from '@shard/assets'
-import { playSound } from '@shard/audio'
+import { assetServer } from '@aethervtt/shard-assets'
+import { playSound } from '@aethervtt/shard-audio'
 import {
   defineResource,
   defineSchema,
@@ -8,10 +8,10 @@ import {
   t,
   Update,
   type World,
-} from '@shard/core'
-import { addActions, defineActions, rebindAction } from '@shard/input'
-import { Velocity } from '@shard/physics'
-import { definePlugin, GlobalRng, Time } from '@shard/runtime'
+} from '@aethervtt/shard-core'
+import { addActions, defineActions, rebindAction } from '@aethervtt/shard-input'
+import { Velocity } from '@aethervtt/shard-physics'
+import { definePlugin, GlobalRng, Time } from '@aethervtt/shard-runtime'
 import {
   describeSave,
   EngineSettings,
@@ -22,7 +22,7 @@ import {
   type SaveSlotInfo,
   saveGame,
   setSettings,
-} from '@shard/save'
+} from '@aethervtt/shard-save'
 import {
   findEntityByPath,
   loadPrefab,
@@ -31,10 +31,10 @@ import {
   type SceneFile,
   spawnPrefab,
   whenSceneReady,
-} from '@shard/scene'
-import { Locale, loadStringTables, setLocale, tr } from '@shard/text'
-import { Transform } from '@shard/transform'
-import { describeUi, UiChanged, UiClick, UiDefaults, UiSlider, UiText } from '@shard/ui'
+} from '@aethervtt/shard-scene'
+import { Locale, loadStringTables, setLocale, tr } from '@aethervtt/shard-text'
+import { Transform } from '@aethervtt/shard-transform'
+import { describeUi, UiChanged, UiClick, UiDefaults, UiSlider, UiText } from '@aethervtt/shard-ui'
 import interUrl from '../../../examples/star-explorer/assets/fonts/Inter-Regular.ttf?url'
 import laserUrl from '../../../examples/star-explorer/assets/sfx/laser.ogg?url'
 import { hudExtras } from './hud'

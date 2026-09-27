@@ -1,5 +1,5 @@
 {
-  "name": "@shard/platform-web",
+  "name": "@aethervtt/shard-platform-web",
   "version": "0.0.0",
   "license": "MIT",
   "private": true,
@@ -12,7 +12,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@shard/core": "workspace:*",
-    "@shard/platform": "workspace:*"
+    "@aethervtt/shard-core": "workspace:*",
+    "@aethervtt/shard-platform": "workspace:*"
   }
 }

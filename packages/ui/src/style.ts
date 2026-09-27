@@ -1,4 +1,4 @@
-import type { AssetRef } from '@shard/core'
+import type { AssetRef } from '@aethervtt/shard-core'
 import type { ThemeStyle, UiThemeAsset } from './theme'
 
 /** Interaction bits a style's state variants key on. */

@@ -1,5 +1,9 @@
-import { ShardError } from '@shard/core'
-import type { JsonRpcNotification, JsonRpcResponse, ProtocolServer } from '@shard/protocol'
+import { ShardError } from '@aethervtt/shard-core'
+import type {
+  JsonRpcNotification,
+  JsonRpcResponse,
+  ProtocolServer,
+} from '@aethervtt/shard-protocol'
 import { type WebSocket, WebSocketServer } from 'ws'
 
 /** Something that answers protocol requests: a headless app in-process, or an app attached to the hub. */

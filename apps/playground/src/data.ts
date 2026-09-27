@@ -1,4 +1,4 @@
-import { assetServer, loadAll } from '@shard/assets'
+import { assetServer, loadAll } from '@aethervtt/shard-assets'
 import {
   type AssetRef,
   defineComponent,
@@ -7,10 +7,14 @@ import {
   quat,
   t,
   Update,
-} from '@shard/core'
-import { sphere } from '@shard/mesh'
-import type { Platform } from '@shard/platform'
-import { createProjectReloader, defineProject, type ProjectReloader } from '@shard/project'
+} from '@aethervtt/shard-core'
+import { sphere } from '@aethervtt/shard-mesh'
+import type { Platform } from '@aethervtt/shard-platform'
+import {
+  createProjectReloader,
+  defineProject,
+  type ProjectReloader,
+} from '@aethervtt/shard-project'
 import {
   AmbientLight,
   Camera3d,
@@ -21,16 +25,16 @@ import {
   Mesh3d,
   Meshes,
   MeshMaterial,
-} from '@shard/render'
-import { type App, definePlugin, Time } from '@shard/runtime'
+} from '@aethervtt/shard-render'
+import { type App, definePlugin, Time } from '@aethervtt/shard-runtime'
 import {
   findEntityByPath,
   loadScene,
   type SceneEntity,
   type SceneFile,
   whenSceneReady,
-} from '@shard/scene'
-import { lookAt, Transform } from '@shard/transform'
+} from '@aethervtt/shard-scene'
+import { lookAt, Transform } from '@aethervtt/shard-transform'
 import { hudExtras } from './hud'
 import { memoryPlatform } from './memory'
 

@@ -1,5 +1,5 @@
-import { defineResource, defineSystem, type World } from '@shard/core'
-import { DisplayRate, Time } from '@shard/runtime'
+import { defineResource, defineSystem, type World } from '@aethervtt/shard-core'
+import { DisplayRate, Time } from '@aethervtt/shard-runtime'
 import { Gpu, Graph, Views } from './plugin'
 import type { CameraData } from './view'
 

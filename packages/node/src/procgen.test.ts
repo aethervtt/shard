@@ -3,11 +3,11 @@ import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:f
 import { join, resolve } from 'node:path'
 import { PerformanceObserver } from 'node:perf_hooks'
 import { fileURLToPath } from 'node:url'
-import { assetServer } from '@shard/assets'
-import { ChildOf, type Entity, type World } from '@shard/core'
-import type { GpuContext } from '@shard/gpu'
-import { createNodeGpuContext } from '@shard/gpu/node'
-import { encodeMesh } from '@shard/mesh'
+import { assetServer } from '@aethervtt/shard-assets'
+import { ChildOf, type Entity, type World } from '@aethervtt/shard-core'
+import type { GpuContext } from '@aethervtt/shard-gpu'
+import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
+import { encodeMesh } from '@aethervtt/shard-mesh'
 import {
   executeJob,
   findGenerator,
@@ -17,9 +17,9 @@ import {
   procgenMainThreadMs,
   requestOf,
   warmGeneratorWorkers,
-} from '@shard/procgen'
-import { Meshes } from '@shard/render'
-import { captureGame, loadGame } from '@shard/save'
+} from '@aethervtt/shard-procgen'
+import { Meshes } from '@aethervtt/shard-render'
+import { captureGame, loadGame } from '@aethervtt/shard-save'
 import {
   currentOverrides,
   instanceEntities,
@@ -27,8 +27,8 @@ import {
   SceneMember,
   settleInstances,
   whenSceneReady,
-} from '@shard/scene'
-import { GlobalTransform } from '@shard/transform'
+} from '@aethervtt/shard-scene'
+import { GlobalTransform } from '@aethervtt/shard-transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { type HeadlessProject, openProject } from './index'
 
@@ -92,7 +92,7 @@ function checksum(bytes: Uint8Array): string {
 
 beforeAll(async () => {
   gpu = await createNodeGpuContext()
-  // Inside the example, so `@shard/*` resolves through its node_modules.
+  // Inside the example, so `@aethervtt/shard-*` resolves through its node_modules.
   root = mkdtempSync(join(example, '.shard', 'procgen-'))
   for (const dir of [
     'scripts',

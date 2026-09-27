@@ -1,5 +1,5 @@
-import { ChildOf, defineSystem, type Entity, quat, Update, vec3 } from '@shard/core'
-import { cube, sphere } from '@shard/mesh'
+import { ChildOf, defineSystem, type Entity, quat, Update, vec3 } from '@aethervtt/shard-core'
+import { cube, sphere } from '@aethervtt/shard-mesh'
 import {
   AmbientLight,
   Camera3d,
@@ -14,8 +14,8 @@ import {
   MeshMaterial,
   overlayNames,
   setOverlays,
-} from '@shard/render'
-import { definePlugin, Time } from '@shard/runtime'
+} from '@aethervtt/shard-render'
+import { definePlugin, Time } from '@aethervtt/shard-runtime'
 import {
   distance64,
   FloatingOrigin,
@@ -26,7 +26,7 @@ import {
   lookAt,
   reparentToGrid,
   Transform,
-} from '@shard/transform'
+} from '@aethervtt/shard-transform'
 import { hudExtras } from './hud'
 
 /**
@@ -65,7 +65,7 @@ const RIGHT = [1, 0, 0] as const
 const turn = [0, 0, 0, 1] as [number, number, number, number]
 
 /** Moves `e` along `forward` by `distance` metres; recentering carries it across cells. */
-function advance(world: import('@shard/core').World, e: Entity, distance: number): void {
+function advance(world: import('@aethervtt/shard-core').World, e: Entity, distance: number): void {
   const p = world.get(e, Transform).translation
   world.set(e, Transform, {
     translation: [

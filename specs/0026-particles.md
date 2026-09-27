@@ -1,7 +1,7 @@
 # 0026 — GPU particles
 
 - **Status:** implemented
-- **Packages:** `@shard/particles` (new), `@shard/render`
+- **Packages:** `@aethervtt/shard-particles` (new), `@aethervtt/shard-render`
 - **Depends on:** 0005, 0014, 0016, 0019, 0020
 
 ## Context

@@ -1,5 +1,5 @@
-import type { Entity, World } from '@shard/core'
-import { App } from '@shard/runtime'
+import type { Entity, World } from '@aethervtt/shard-core'
+import { App } from '@aethervtt/shard-runtime'
 import {
   FloatingOrigin,
   Grid,
@@ -9,7 +9,7 @@ import {
   Transform,
   TransformPlugin,
   worldPosition64,
-} from '@shard/transform'
+} from '@aethervtt/shard-transform'
 import { describe, expect, it } from 'vitest'
 import {
   Collider,

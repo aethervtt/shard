@@ -1,20 +1,20 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { assetServer } from '@shard/assets'
-import type { GpuContext } from '@shard/gpu'
-import { createNodeGpuContext } from '@shard/gpu/node'
-import { plane } from '@shard/mesh'
+import { assetServer } from '@aethervtt/shard-assets'
+import type { GpuContext } from '@aethervtt/shard-gpu'
+import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
+import { plane } from '@aethervtt/shard-mesh'
 import {
   loadNoiseKernel,
   NoiseGraph,
   NoiseGraphs,
   sampleGrid2d,
   sampleSpherePatch,
-} from '@shard/noise'
-import { createNodePlatform } from '@shard/platform-node'
-import { App } from '@shard/runtime'
-import { lookAt, Transform, TransformPlugin } from '@shard/transform'
+} from '@aethervtt/shard-noise'
+import { createNodePlatform } from '@aethervtt/shard-platform-node'
+import { App } from '@aethervtt/shard-runtime'
+import { lookAt, Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { MaterialAsset, Materials, Meshes, RenderTargets } from './assets'
 import { Camera3d, Exposure } from './camera'
@@ -148,7 +148,7 @@ describe('noise compute', () => {
     request: Parameters<NoiseCompute['encode']>[2],
     count: number,
   ) {
-    const library = new (await import('@shard/shader')).ShaderLibrary()
+    const library = new (await import('@aethervtt/shard-shader')).ShaderLibrary()
     const device = gpu.device
     let ok = false
     for (let i = 0; i < 20 && !ok; i++) {

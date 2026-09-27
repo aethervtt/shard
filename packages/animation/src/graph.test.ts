@@ -1,12 +1,19 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { assetServer, validateDataAssets } from '@shard/assets'
-import { type AssetRef, defineComponent, type Entity, ShardError, t, type World } from '@shard/core'
-import { createNodePlatform } from '@shard/platform-node'
-import { App } from '@shard/runtime'
-import { findEntityByPath, loadScene, ScenePlugin } from '@shard/scene'
-import { Transform, TransformPlugin } from '@shard/transform'
+import { assetServer, validateDataAssets } from '@aethervtt/shard-assets'
+import {
+  type AssetRef,
+  defineComponent,
+  type Entity,
+  ShardError,
+  t,
+  type World,
+} from '@aethervtt/shard-core'
+import { createNodePlatform } from '@aethervtt/shard-platform-node'
+import { App } from '@aethervtt/shard-runtime'
+import { findEntityByPath, loadScene, ScenePlugin } from '@aethervtt/shard-scene'
+import { Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { afterAll, describe, expect, it } from 'vitest'
 import {
   Animator,

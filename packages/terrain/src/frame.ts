@@ -1,5 +1,5 @@
-import { affine64, type Entity, type World } from '@shard/core'
-import { GlobalTransform, GridFramesResource } from '@shard/transform'
+import { affine64, type Entity, type World } from '@aethervtt/shard-core'
+import { GlobalTransform, GridFramesResource } from '@aethervtt/shard-transform'
 
 /**
  * A planet's frame against the floating origin, in f64: planet coordinates are its grid's

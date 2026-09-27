@@ -1,5 +1,5 @@
-import { defineDataType } from '@shard/assets'
-import { ShardError, t } from '@shard/core'
+import { defineDataType } from '@aethervtt/shard-assets'
+import { ShardError, t } from '@aethervtt/shard-core'
 
 /** Most biomes a BiomeSet may list. */
 export const MAX_BIOMES = 32

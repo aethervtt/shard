@@ -1,4 +1,4 @@
-import { ShardError } from '@shard/core'
+import { ShardError } from '@aethervtt/shard-core'
 import type { Image } from '../image'
 
 /** Radiance RGBE (.hdr), flat or new-style run-length encoded, into linear RGBA floats. */

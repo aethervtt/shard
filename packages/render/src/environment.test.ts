@@ -1,13 +1,20 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { quat } from '@shard/core'
-import type { GpuContext } from '@shard/gpu'
-import { createNodeGpuContext } from '@shard/gpu/node'
-import { plane, sphere } from '@shard/mesh'
-import { App } from '@shard/runtime'
-import { readKtx2, Texture, Textures, textureFromKtx2, toHalf, writeKtx2 } from '@shard/texture'
-import { lookAt, Transform, TransformPlugin } from '@shard/transform'
+import { quat } from '@aethervtt/shard-core'
+import type { GpuContext } from '@aethervtt/shard-gpu'
+import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
+import { plane, sphere } from '@aethervtt/shard-mesh'
+import { App } from '@aethervtt/shard-runtime'
+import {
+  readKtx2,
+  Texture,
+  Textures,
+  textureFromKtx2,
+  toHalf,
+  writeKtx2,
+} from '@aethervtt/shard-texture'
+import { lookAt, Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { MaterialAsset, Materials, Meshes, RenderTargets } from './assets'
 import { Camera3d, Exposure } from './camera'

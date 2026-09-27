@@ -1,13 +1,13 @@
 # 0014 — Asset database
 
 - **Status:** implemented
-- **Packages:** `@shard/assets` (new), `@shard/platform`, `@shard/render`, `@shard/scene`,
-  `@shard/protocol`, `apps/cli`
+- **Packages:** `@aethervtt/shard-assets` (new), `@aethervtt/shard-platform`, `@aethervtt/shard-render`, `@aethervtt/shard-scene`,
+  `@aethervtt/shard-protocol`, `apps/cli`
 - **Depends on:** 0002, 0009, 0010, 0011, 0012
 
 ## Context
 
-Today every asset lives in memory. `AssetStore` in `@shard/render` hands out `mem:` guids, and scenes
+Today every asset lives in memory. `AssetStore` in `@aethervtt/shard-render` hands out `mem:` guids, and scenes
 can only point at `#inline` assets or `procedural:` meshes. A file path such as
 `assets/ship.glb#Mesh/Hull` parses, then fails with `scene/asset-unavailable`.
 
@@ -238,7 +238,7 @@ world.resource(MeshAssets).get(ref)                   // Mesh | undefined, hot-p
   `reload(ref)` (device loss), `artifact(ref)` (previews), and `resolve` on the load context, so
   a sub-asset can refer to a sibling as `#Label`. JSON data assets list the paths they mention as
   load dependencies.
-- **`AssetStore` moved to `@shard/assets`** and `get` accepts anything with a `guid`. Render
+- **`AssetStore` moved to `@aethervtt/shard-assets`** and `get` accepts anything with a `guid`. Render
   re-exports it.
 - **Scenes:** a missing file path reports `schema/asset-not-found` from the handle field.
   `whenSceneReady(world, id)` waits for every referenced asset (and SceneInstance children).

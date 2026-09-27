@@ -1,10 +1,15 @@
-import { type AnimationChannel, clipInfo, encodeClip, type Interpolation } from '@shard/animation'
-import { defineImporter, type ImportContext, type ImportedAsset } from '@shard/assets'
-import { defineSchema, type JsonValue, ShardError, t } from '@shard/core'
-import { encodeMesh, Mesh, type MeshData, type MorphTarget } from '@shard/mesh'
-import { MAX_JOINTS, StandardMaterial, skinArtifact } from '@shard/render'
-import type { SceneEntity, SceneFile } from '@shard/scene'
-import { importImageBytes, type TextureUsage } from '@shard/texture'
+import {
+  type AnimationChannel,
+  clipInfo,
+  encodeClip,
+  type Interpolation,
+} from '@aethervtt/shard-animation'
+import { defineImporter, type ImportContext, type ImportedAsset } from '@aethervtt/shard-assets'
+import { defineSchema, type JsonValue, ShardError, t } from '@aethervtt/shard-core'
+import { encodeMesh, Mesh, type MeshData, type MorphTarget } from '@aethervtt/shard-mesh'
+import { MAX_JOINTS, StandardMaterial, skinArtifact } from '@aethervtt/shard-render'
+import type { SceneEntity, SceneFile } from '@aethervtt/shard-scene'
+import { importImageBytes, type TextureUsage } from '@aethervtt/shard-texture'
 import { Accessors } from './accessors'
 import {
   type GltfDocument,

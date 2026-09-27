@@ -1,4 +1,9 @@
-import { AssetStore, defineAssetType, defineImporter, type ImportedAsset } from '@shard/assets'
+import {
+  AssetStore,
+  defineAssetType,
+  defineImporter,
+  type ImportedAsset,
+} from '@aethervtt/shard-assets'
 import {
   type AssetRef,
   defineResource,
@@ -6,8 +11,8 @@ import {
   type JsonValue,
   ShardError,
   t,
-} from '@shard/core'
-import { writeKtx2 } from '@shard/texture'
+} from '@aethervtt/shard-core'
+import { writeKtx2 } from '@aethervtt/shard-texture'
 import { buildFont, type FontBuild } from './build'
 import { Font, type FontMetricsJson } from './font'
 import { FontSource } from './source'

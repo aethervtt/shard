@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { ProfilerResource, quat } from '@shard/core'
-import type { GpuContext } from '@shard/gpu'
-import { createNodeGpuContext } from '@shard/gpu/node'
+import { ProfilerResource, quat } from '@aethervtt/shard-core'
+import type { GpuContext } from '@aethervtt/shard-gpu'
+import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import {
   Camera3d,
   captureView,
@@ -14,10 +14,10 @@ import {
   RenderTargets,
   renderPlugin,
   Tonemapping,
-} from '@shard/render'
-import { compareGolden, settle } from '@shard/render/testing'
-import { App, LogResource } from '@shard/runtime'
-import { lookAt, Transform, TransformPlugin } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { compareGolden, settle } from '@aethervtt/shard-render/testing'
+import { App, LogResource } from '@aethervtt/shard-runtime'
+import { lookAt, Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { fontFromBytes } from './build'
 import { ScreenText, Text } from './components'

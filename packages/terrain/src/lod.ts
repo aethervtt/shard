@@ -1,5 +1,5 @@
-import { hash32 } from '@shard/core'
-import type { NoiseGraph } from '@shard/noise'
+import { hash32 } from '@aethervtt/shard-core'
+import type { NoiseGraph } from '@aethervtt/shard-noise'
 import { buildChunk } from './chunk'
 
 /** Sample chunks per depth when measuring errors: four per face. */

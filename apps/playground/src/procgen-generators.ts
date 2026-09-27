@@ -1,6 +1,6 @@
-import { t } from '@shard/core'
-import type { NoiseGraph } from '@shard/noise'
-import { defineGenerator } from '@shard/procgen'
+import { t } from '@aethervtt/shard-core'
+import type { NoiseGraph } from '@aethervtt/shard-noise'
+import { defineGenerator } from '@aethervtt/shard-procgen'
 
 // The example's generators (examples/star-explorer/scripts/rock.ts), under the playground's
 // namespace. Imported by the page and by the worker module, so both define them.

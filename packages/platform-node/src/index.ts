@@ -1,8 +1,8 @@
 import { watch as fsWatch } from 'node:fs'
 import { access, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
-import { ShardError } from '@shard/core'
-import type { FileChangeEvent, KeyValueStorage, Platform, Workers } from '@shard/platform'
+import { ShardError } from '@aethervtt/shard-core'
+import type { FileChangeEvent, KeyValueStorage, Platform, Workers } from '@aethervtt/shard-platform'
 import { createNodeWorkers } from './workers'
 
 export { createNodeWorkers } from './workers'

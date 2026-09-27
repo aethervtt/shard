@@ -1,7 +1,13 @@
-import { defineSystem, type Entity, quat, Update, type World } from '@shard/core'
-import { loadNoiseKernel, NoiseGraph, NoiseGraphs } from '@shard/noise'
-import { AmbientLight, Camera3d, DebugOverlays, DirectionalLight, Exposure } from '@shard/render'
-import { definePlugin, type Plugin, Time } from '@shard/runtime'
+import { defineSystem, type Entity, quat, Update, type World } from '@aethervtt/shard-core'
+import { loadNoiseKernel, NoiseGraph, NoiseGraphs } from '@aethervtt/shard-noise'
+import {
+  AmbientLight,
+  Camera3d,
+  DebugOverlays,
+  DirectionalLight,
+  Exposure,
+} from '@aethervtt/shard-render'
+import { definePlugin, type Plugin, Time } from '@aethervtt/shard-runtime'
 import {
   Biome,
   BiomeSet,
@@ -10,9 +16,9 @@ import {
   planetHeightAt,
   Terrain,
   TerrainBudget,
-} from '@shard/terrain'
-import { walkChecksum } from '@shard/terrain/testing'
-import { FloatingOrigin, lookAt, placeInGrid, Transform } from '@shard/transform'
+} from '@aethervtt/shard-terrain'
+import { walkChecksum } from '@aethervtt/shard-terrain/testing'
+import { FloatingOrigin, lookAt, placeInGrid, Transform } from '@aethervtt/shard-transform'
 import { hudExtras } from './hud'
 
 /**

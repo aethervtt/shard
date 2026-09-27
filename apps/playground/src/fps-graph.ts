@@ -1,5 +1,5 @@
-import { defineSystem, Last } from '@shard/core'
-import { definePlugin } from '@shard/runtime'
+import { defineSystem, Last } from '@aethervtt/shard-core'
+import { definePlugin } from '@aethervtt/shard-runtime'
 
 /** 30 seconds of history, one column per tenth of a second. */
 const COLUMNS = 300

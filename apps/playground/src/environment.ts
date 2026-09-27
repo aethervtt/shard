@@ -1,5 +1,5 @@
-import { defineSystem, quat, Update } from '@shard/core'
-import { cube, plane, sphere } from '@shard/mesh'
+import { defineSystem, quat, Update } from '@aethervtt/shard-core'
+import { cube, plane, sphere } from '@aethervtt/shard-mesh'
 import {
   Camera3d,
   DefaultEnvironment,
@@ -12,10 +12,10 @@ import {
   Meshes,
   MeshMaterial,
   Skybox,
-} from '@shard/render'
-import { definePlugin, Time } from '@shard/runtime'
-import { Texture, Textures, toHalf } from '@shard/texture'
-import { lookAt, Transform } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { definePlugin, Time } from '@aethervtt/shard-runtime'
+import { Texture, Textures, toHalf } from '@aethervtt/shard-texture'
+import { lookAt, Transform } from '@aethervtt/shard-transform'
 
 /** A 2048×1024 studio environment made in code: sky gradient, a key light, two colored panels. */
 function studioTexture(width = 2048, height = 1024): Texture {
@@ -47,7 +47,7 @@ function studioTexture(width = 2048, height = 1024): Texture {
   })
 }
 
-function spheres(world: import('@shard/core').World) {
+function spheres(world: import('@aethervtt/shard-core').World) {
   const meshes = world.resource(Meshes)
   const materials = world.resource(Materials)
   const ball = meshes.add(sphere({ radius: 0.42, segments: 48 }))

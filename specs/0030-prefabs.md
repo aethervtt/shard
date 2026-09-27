@@ -1,7 +1,7 @@
 # 0030 — Prefabs, overrides, and variants
 
 - **Status:** implemented
-- **Packages:** `@shard/scene`, `@shard/assets`, `@shard/protocol`, `@shard/project`
+- **Packages:** `@aethervtt/shard-scene`, `@aethervtt/shard-assets`, `@aethervtt/shard-protocol`, `@aethervtt/shard-project`
 - **Depends on:** 0010, 0014, 0015
 
 ## Context

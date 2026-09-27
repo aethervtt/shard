@@ -1,4 +1,4 @@
-import { type AssetRef, type Entity, ShardError, type World } from '@shard/core'
+import { type AssetRef, type Entity, ShardError, type World } from '@aethervtt/shard-core'
 import { AnimationLayer, type AnimationLayerValue, AnimationPlayer } from './components'
 
 /**

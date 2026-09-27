@@ -1,5 +1,5 @@
-import { loadAll } from '@shard/assets'
-import { expect, test } from '@shard/testing'
+import { loadAll } from '@aethervtt/shard-assets'
+import { expect, test } from '@aethervtt/shard-testing'
 import { Weapon } from '../scripts/main'
 
 test('holding thrust flies the ship forward', async ({ game }) => {

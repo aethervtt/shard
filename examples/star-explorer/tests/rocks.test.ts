@@ -1,4 +1,4 @@
-import { expect, test } from '@shard/testing'
+import { expect, test } from '@aethervtt/shard-testing'
 
 test('the boulder prefab uses its generator file; the field spawns generated rocks', async ({
   game,

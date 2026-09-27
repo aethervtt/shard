@@ -1,4 +1,4 @@
-import { ShardError } from '@shard/core'
+import { ShardError } from '@aethervtt/shard-core'
 import { MAX_OCTAVES, type NodeDef, nodeDef, type ParamDef } from './nodes'
 
 /** Where a node input comes from: another named node, an inline node, or a number. */

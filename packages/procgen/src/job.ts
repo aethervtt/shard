@@ -1,6 +1,6 @@
-import { type Artifact, findAssetType } from '@shard/assets'
-import { type JsonValue, ShardError } from '@shard/core'
-import { useNoiseKernel } from '@shard/noise'
+import { type Artifact, findAssetType } from '@aethervtt/shard-assets'
+import { type JsonValue, ShardError } from '@aethervtt/shard-core'
+import { useNoiseKernel } from '@aethervtt/shard-noise'
 import {
   type ContextState,
   createContext,

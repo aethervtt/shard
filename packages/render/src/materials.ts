@@ -5,9 +5,9 @@ import {
   defineSchema,
   type Fields,
   ShardError,
-} from '@shard/core'
-import type { GpuContext } from '@shard/gpu'
-import { type WgslLayout, wgslLayout } from '@shard/shader'
+} from '@aethervtt/shard-core'
+import type { GpuContext } from '@aethervtt/shard-gpu'
+import { type WgslLayout, wgslLayout } from '@aethervtt/shard-shader'
 
 export const BLEND_MODES = ['opaque', 'mask', 'alpha', 'additive', 'premultiplied'] as const
 export type BlendMode = (typeof BLEND_MODES)[number]

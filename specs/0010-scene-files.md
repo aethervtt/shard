@@ -1,7 +1,7 @@
 # 0010 — Scene files
 
 - **Status:** implemented
-- **Packages:** `@shard/scene`
+- **Packages:** `@aethervtt/shard-scene`
 - **Depends on:** 0002, 0004, 0007, 0009
 
 ## Context
@@ -87,7 +87,7 @@ room for that without changing.
 ### Assets in scenes
 
 - `#name` refers to an entry in the scene's `assets` block (materials, procedural meshes).
-- `procedural:<primitive>?<params>` makes a mesh from `@shard/mesh` primitives, cached by the full
+- `procedural:<primitive>?<params>` makes a mesh from `@aethervtt/shard-mesh` primitives, cached by the full
   string. This is the seed of M7's generators-as-assets: a generator is just a richer
   `procedural:` source.
 - File paths (`assets/ship.glb#Mesh/Hull`) are accepted by the format and resolved once the asset

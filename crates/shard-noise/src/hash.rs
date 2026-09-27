@@ -1,5 +1,5 @@
 //! Integer hashing: no permutation tables, so every seed costs nothing to set up. `wgsl.ts` in
-//! `@shard/noise` mirrors these functions exactly.
+//! `@aethervtt/shard-noise` mirrors these functions exactly.
 
 use crate::lanes::{F4, I4};
 
@@ -72,7 +72,7 @@ const fn fnv(h: u32, byte: u32) -> u32 {
     (h ^ byte).wrapping_mul(0x01000193)
 }
 
-/// `hashSeed(seed, label)` from `@shard/core` for a numeric label: FNV-1a of the label's four
+/// `hashSeed(seed, label)` from `@aethervtt/shard-core` for a numeric label: FNV-1a of the label's four
 /// little-endian bytes, mixed into the seed the way `Rng.fork` does.
 pub const fn hash_seed(seed: u32, label: u32) -> u32 {
     let mut h = 0x811c9dc5;

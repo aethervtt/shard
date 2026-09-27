@@ -1,4 +1,4 @@
-import { type DataType, type DataTypeOptions, defineDataType } from '@shard/assets'
+import { type DataType, type DataTypeOptions, defineDataType } from '@aethervtt/shard-assets'
 import {
   type ComponentDef,
   type ComponentOptions,
@@ -12,16 +12,20 @@ import {
   type ResourceOptions,
   ShardError,
   type TagDef,
-} from '@shard/core'
+} from '@aethervtt/shard-core'
 import {
   defineGenerator,
   type Generator,
   type GeneratorOptions,
   type OutputSpec,
-} from '@shard/procgen'
-import { defineMaterial, type MaterialType, type MaterialTypeOptions } from '@shard/render'
-import type { App, Plugin } from '@shard/runtime'
-import { defineSettings, type SettingsDef } from '@shard/save'
+} from '@aethervtt/shard-procgen'
+import {
+  defineMaterial,
+  type MaterialType,
+  type MaterialTypeOptions,
+} from '@aethervtt/shard-render'
+import type { App, Plugin } from '@aethervtt/shard-runtime'
+import { defineSettings, type SettingsDef } from '@aethervtt/shard-save'
 
 export interface ProjectOptions {
   /** Must match `shard.json`'s name. Becomes the namespace of every project type. */

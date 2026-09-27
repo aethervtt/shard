@@ -3,9 +3,9 @@ import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { dirname, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { ShardError } from '@shard/core'
-import type { Workers } from '@shard/platform'
-import { configureProcgenHost, setGeneratorCodeHashes } from '@shard/procgen'
+import { ShardError } from '@aethervtt/shard-core'
+import type { Workers } from '@aethervtt/shard-platform'
+import { configureProcgenHost, setGeneratorCodeHashes } from '@aethervtt/shard-procgen'
 import * as esbuild from 'esbuild'
 
 /** What an esbuild metafile says about inputs: each file and what it imports. */
@@ -76,7 +76,7 @@ export async function projectModuleGraph(root: string, entry: string): Promise<M
     bundle: true,
     format: 'esm',
     platform: 'browser',
-    external: ['@shard/*', 'node:*'],
+    external: ['@aethervtt/shard-*', 'node:*'],
     write: false,
     metafile: true,
     logLevel: 'silent',
@@ -93,7 +93,7 @@ export interface GeneratorWorkerBundle {
 }
 
 /**
- * Bundles the project's code with `@shard/procgen/worker` into one self-contained module (the
+ * Bundles the project's code with `@aethervtt/shard-procgen/worker` into one self-contained module (the
  * engine inlined, so a worker thread loads it with no resolver or loader): what generator jobs run
  * on the worker pool. Written to `.shard/build/procgen-worker.<hash>.mjs`.
  */
@@ -105,7 +105,7 @@ export async function buildGeneratorWorker(options: {
   const start = performance.now()
   const root = resolve(options.root)
   const require = createRequire(import.meta.url)
-  const worker = require.resolve('@shard/procgen/worker')
+  const worker = require.resolve('@aethervtt/shard-procgen/worker')
   const entry = resolve(root, options.entry)
   let result: esbuild.BuildResult
   try {

@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { ChildOf, defineComponent, t, vec3, World } from '@shard/core'
-import { createNodeGpuContext } from '@shard/gpu/node'
+import { ChildOf, defineComponent, t, vec3, World } from '@aethervtt/shard-core'
+import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import {
   AmbientLight,
   Camera3d,
@@ -19,9 +19,9 @@ import {
   OffscreenTarget,
   renderPlugin,
   Shaders,
-} from '@shard/render'
-import { App } from '@shard/runtime'
-import { Grid, GridCell, Transform, TransformPlugin } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { App } from '@aethervtt/shard-runtime'
+import { Grid, GridCell, Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import Ajv2020 from 'ajv/dist/2020'
 import { describe, expect, it } from 'vitest'
 import type { SceneFile } from './format'

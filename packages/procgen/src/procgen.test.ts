@@ -1,12 +1,12 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { assetServer } from '@shard/assets'
-import { defineComponent, type Entity, type ShardError, t, World } from '@shard/core'
-import { decodeMesh } from '@shard/mesh'
-import { loadNoiseKernel, type NoiseGraph } from '@shard/noise'
-import { createNodePlatform } from '@shard/platform-node'
-import { Mesh3d, Meshes } from '@shard/render'
+import { assetServer } from '@aethervtt/shard-assets'
+import { defineComponent, type Entity, type ShardError, t, World } from '@aethervtt/shard-core'
+import { decodeMesh } from '@aethervtt/shard-mesh'
+import { loadNoiseKernel, type NoiseGraph } from '@aethervtt/shard-noise'
+import { createNodePlatform } from '@aethervtt/shard-platform-node'
+import { Mesh3d, Meshes } from '@aethervtt/shard-render'
 import {
   hookInstances,
   instanceEntities,
@@ -15,8 +15,8 @@ import {
   settleInstances,
   validateScene,
   whenSceneReady,
-} from '@shard/scene'
-import { Transform } from '@shard/transform'
+} from '@aethervtt/shard-scene'
+import { Transform } from '@aethervtt/shard-transform'
 import { beforeAll, describe, expect, it } from 'vitest'
 import {
   canonicalParams,

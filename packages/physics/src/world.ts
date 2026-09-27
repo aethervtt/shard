@@ -1,5 +1,4 @@
-import type RAPIER from '@dimforge/rapier3d-compat'
-import { assetServer } from '@shard/assets'
+import { assetServer } from '@aethervtt/shard-assets'
 import {
   type AssetRef,
   Children,
@@ -7,11 +6,12 @@ import {
   type Entity,
   ShardError,
   type World,
-} from '@shard/core'
-import type { Mesh } from '@shard/mesh'
-import { Meshes } from '@shard/render'
-import { LogResource } from '@shard/runtime'
-import { GlobalTransform, GridFramesResource } from '@shard/transform'
+} from '@aethervtt/shard-core'
+import type { Mesh } from '@aethervtt/shard-mesh'
+import { Meshes } from '@aethervtt/shard-render'
+import { LogResource } from '@aethervtt/shard-runtime'
+import { GlobalTransform, GridFramesResource } from '@aethervtt/shard-transform'
+import type RAPIER from '@dimforge/rapier3d-compat'
 import {
   BODY_KINDS,
   CharacterController,

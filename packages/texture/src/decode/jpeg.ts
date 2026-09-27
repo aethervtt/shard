@@ -1,4 +1,4 @@
-import { ShardError } from '@shard/core'
+import { ShardError } from '@aethervtt/shard-core'
 import jpeg from 'jpeg-js'
 import type { Image } from '../image'
 

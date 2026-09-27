@@ -3,8 +3,8 @@ import {
   defineImportDependency,
   defineImporter,
   type ImportedAsset,
-} from '@shard/assets'
-import { defineSchema, isPlainObject, type JsonValue, ShardError } from '@shard/core'
+} from '@aethervtt/shard-assets'
+import { defineSchema, isPlainObject, type JsonValue, ShardError } from '@aethervtt/shard-core'
 import { codeHashOf, findGenerator, type Generator, requestOf, requireGenerator } from './generator'
 import type { JobDependency } from './job'
 import { paramHandles, runJob } from './runtime'

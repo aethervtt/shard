@@ -6,8 +6,8 @@ import {
   type Entity,
   type Infer,
   t,
-} from '@shard/core'
-import { Transform } from '@shard/transform'
+} from '@aethervtt/shard-core'
+import { Transform } from '@aethervtt/shard-transform'
 
 export const ROLLOFF_MODELS = ['inverse', 'linear', 'exponential'] as const
 export const PANNING_MODELS = ['hrtf', 'equal-power'] as const

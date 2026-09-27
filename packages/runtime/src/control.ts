@@ -1,4 +1,4 @@
-import { defineResource } from '@shard/core'
+import { defineResource } from '@aethervtt/shard-core'
 
 /**
  * Frame control shared by every runner: pause, resume, and step exactly N frames. Stepped frames

@@ -1,7 +1,7 @@
 # 0037 — Navigation
 
 - **Status:** implemented
-- **Packages:** `@shard/nav` (new), `@shard/project`, `@shard/node`, `@shard/testing`, `@shard/cli`
+- **Packages:** `@aethervtt/shard-nav` (new), `@aethervtt/shard-project`, `@aethervtt/shard-node`, `@aethervtt/shard-testing`, `@aethervtt/shard-cli`
 - **Depends on:** 0024, 0028, 0029
 
 ## Context

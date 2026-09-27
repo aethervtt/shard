@@ -1,7 +1,7 @@
 # 0020 — Extensible materials
 
 - **Status:** implemented
-- **Packages:** `@shard/render`, `@shard/shader`, `@shard/project`
+- **Packages:** `@aethervtt/shard-render`, `@aethervtt/shard-shader`, `@aethervtt/shard-project`
 - **Depends on:** 0002, 0006, 0007, 0014, 0016
 
 ## Context
@@ -140,7 +140,7 @@ override fn pbr_input(in: VertexOutput) -> PbrInput {
 ## Implementation notes
 
 - **Defining:** `defineMaterial(name, { extends, fields, blend, shader, description })` in
-  `@shard/render`, and `project.material(name, options)` in project code, which namespaces the
+  `@aethervtt/shard-render`, and `project.material(name, options)` in project code, which namespaces the
   name. The type's schema is a normal component definition (standard fields plus the type's own
   for `extends: 'standard'`), so `schema.get`, the component catalog, validation, and JSON Schema
   all work on it. A type's own field can't reuse a standard field's name
@@ -181,7 +181,7 @@ override fn pbr_input(in: VertexOutput) -> PbrInput {
   - glTF has a `materialTypes` import setting (`{ "Lava*": "my-game/Lava" }`, glob on the
     material name) and honors `extras.shardMaterial`.
 - **Project shaders:** hosts load `shaders/**/*.wesl` as `project::…`. The headless host uses
-  `loadProjectShaders`, and watches with `watch`. `shard dev` serves `/@shard/shaders.json`,
+  `loadProjectShaders`, and watches with `watch`. `shard dev` serves `/@aethervtt/shard-shaders.json`,
   pushes edits over its socket, and the page relinks them. A broken edit keeps the last good shader.
   The error names the material type (`material my-game/Lava: …`) and points at
   `shaders/lava.wesl:line:col`, including WESL parse errors, whose location only appears in the

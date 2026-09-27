@@ -3,7 +3,7 @@ import { readdir, readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { dirname, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { type AssetServer, assetServer, type ScanReport } from '@shard/assets'
+import { type AssetServer, assetServer, type ScanReport } from '@aethervtt/shard-assets'
 import {
   type AnyField,
   ChildOf,
@@ -12,12 +12,12 @@ import {
   type Fields,
   ShardError,
   type World,
-} from '@shard/core'
-import type { GpuContext } from '@shard/gpu'
-import { createNodeGpuContext } from '@shard/gpu/node'
-import { createMemoryStorage, type Platform } from '@shard/platform'
-import { createNodePlatform } from '@shard/platform-node'
-import { configureProcgenHost, procgenHost } from '@shard/procgen'
+} from '@aethervtt/shard-core'
+import type { GpuContext } from '@aethervtt/shard-gpu'
+import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
+import { createMemoryStorage, type Platform } from '@aethervtt/shard-platform'
+import { createNodePlatform } from '@aethervtt/shard-platform-node'
+import { configureProcgenHost, procgenHost } from '@aethervtt/shard-procgen'
 import {
   buildApp,
   type ErrorCode,
@@ -28,15 +28,15 @@ import {
   locateInBundle,
   type ManifestValue,
   ProjectSession,
-} from '@shard/project'
-import { createProtocolServer, type ProtocolServer } from '@shard/protocol'
-import { OffscreenTarget } from '@shard/render'
-import { type App, LogResource, type Plugin } from '@shard/runtime'
-import { type LoadedSceneHandle, loadScene, whenSceneReady } from '@shard/scene'
+} from '@aethervtt/shard-project'
+import { createProtocolServer, type ProtocolServer } from '@aethervtt/shard-protocol'
+import { OffscreenTarget } from '@aethervtt/shard-render'
+import { type App, LogResource, type Plugin } from '@aethervtt/shard-runtime'
+import { type LoadedSceneHandle, loadScene, whenSceneReady } from '@aethervtt/shard-scene'
 import { type BuiltBundle, type Bundler, createBundler } from './bundle'
 import { prepareGenerators } from './generators'
 
-export { createNodePlatform } from '@shard/platform-node'
+export { createNodePlatform } from '@aethervtt/shard-platform-node'
 
 export interface OpenProjectOptions {
   /** Project folder (with shard.json). */
@@ -370,8 +370,8 @@ export function worldHash(world: World): string {
  */
 export async function collectErrorCodes(): Promise<ErrorCode[]> {
   const require = createRequire(import.meta.url)
-  // @shard/core resolves to packages/core/src/index.ts; the packages dir is three levels up.
-  const packagesDir = dirname(dirname(dirname(require.resolve('@shard/core'))))
+  // @aethervtt/shard-core resolves to packages/core/src/index.ts; the packages dir is three levels up.
+  const packagesDir = dirname(dirname(dirname(require.resolve('@aethervtt/shard-core'))))
   const found = new Map<string, ErrorCode>()
   const pkgs = await readdir(packagesDir).catch(() => [] as string[])
   for (const pkg of pkgs) {
@@ -391,7 +391,7 @@ export async function collectErrorCodes(): Promise<ErrorCode[]> {
         if (!found.has(code) || (!found.get(code)!.hint && hint)) {
           found.set(code, {
             code,
-            source: `@shard/${pkg}`,
+            source: `@aethervtt/shard-${pkg}`,
             ...(hint && !hint.includes('${') ? { hint } : {}),
           })
         }

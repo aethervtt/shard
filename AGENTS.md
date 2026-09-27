@@ -5,7 +5,7 @@ Read `VISION.md` before any architectural change. Features are built from specs 
 
 ## Layout
 
-- `packages/*` — engine packages (`@shard/*`). Each exports `./src/index.ts` directly; no build step.
+- `packages/*` — engine packages (`@aethervtt/shard-*`). Each exports `./src/index.ts` directly; no build step.
 - `apps/playground` — Vite browser sandbox (`pnpm playground`, port 5180).
 - `apps/studio` — Tauri 2 app (`pnpm studio`). Rust lives in `apps/studio/src-tauri`.
 - `apps/cli` — the `shard` binary: headless runs, screenshots, gameplay tests, the protocol hub,
@@ -51,7 +51,7 @@ Vendored third-party code (`**/vendor`) and test fixtures (`**/fixtures`) aren't
   If implementation forces a design change, update the spec in the same change.
 - **Dependency direction.** `core` imports nothing from the engine and has no DOM or GPU types
   (its tsconfig has `lib: ["ES2023"]` only). Only `platform-*` packages may import a host API
-  such as `@tauri-apps/*`. Engine packages get host services through `@shard/platform`.
+  such as `@tauri-apps/*`. Engine packages get host services through `@aethervtt/shard-platform`.
 - **Erasable TypeScript only.** No `enum`, `namespace`, or parameter properties
   (`erasableSyntaxOnly`). Use `as const` objects and union types.
 - **Errors are `ShardError`** with a namespaced `code` (`package/what-happened`), plus `hint` and

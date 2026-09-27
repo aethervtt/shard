@@ -1,4 +1,4 @@
-// The subset of opentype.js (which ships no types) that @shard/text uses.
+// The subset of opentype.js (which ships no types) that @aethervtt/shard-text uses.
 declare module 'opentype.js' {
   export type PathCommand =
     | { type: 'M'; x: number; y: number }

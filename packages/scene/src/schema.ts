@@ -1,5 +1,5 @@
-import { allComponents, ChildOf, type JsonSchema } from '@shard/core'
-import { StandardMaterial } from '@shard/render'
+import { allComponents, ChildOf, type JsonSchema } from '@aethervtt/shard-core'
+import { StandardMaterial } from '@aethervtt/shard-render'
 import { PREFAB_VERSION, SCENE_VERSION } from './format'
 import { PROCEDURAL_MESHES } from './procedural'
 

@@ -5,9 +5,8 @@ import { createRequire } from 'node:module'
 import { basename, dirname, join, relative, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { assetServer, validateDataAssets } from '@shard/assets'
-import { ShardError, World } from '@shard/core'
+import { assetServer, validateDataAssets } from '@aethervtt/shard-assets'
+import { ShardError, World } from '@aethervtt/shard-core'
 import {
   collectErrorCodes,
   createNodePlatform,
@@ -18,8 +17,8 @@ import {
   openProject,
   prepareGenerators,
   worldHash,
-} from '@shard/node'
-import { findNondeterminism, requireGenerator } from '@shard/procgen'
+} from '@aethervtt/shard-node'
+import { findNondeterminism, requireGenerator } from '@aethervtt/shard-procgen'
 import {
   generateDocs,
   loadProject,
@@ -27,17 +26,18 @@ import {
   projectTemplate,
   type TemplateName,
   validateManifest,
-} from '@shard/project'
-import { DEFAULT_HUB_PORT } from '@shard/protocol'
-import { Gpu, Shaders } from '@shard/render'
+} from '@aethervtt/shard-project'
+import { DEFAULT_HUB_PORT } from '@aethervtt/shard-protocol'
+import { Gpu, Shaders } from '@aethervtt/shard-render'
 import {
   loadInstanceAssets,
   loadScene,
   validatePrefab,
   validateScene,
   whenSceneReady,
-} from '@shard/scene'
-import { localizationKeysIn, validateLocalization } from '@shard/text'
+} from '@aethervtt/shard-scene'
+import { localizationKeysIn, validateLocalization } from '@aethervtt/shard-text'
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { Hub, localTarget, type ProtocolTarget } from './hub'
 import { createMcpServer } from './mcp'
 import { EXIT, errorJson, formatError, type Output } from './output'

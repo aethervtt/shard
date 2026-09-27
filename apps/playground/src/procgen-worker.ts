@@ -2,4 +2,4 @@
 // procgen job runner. Vite serves it transformed, so web workers import it as is.
 import './procgen-generators'
 
-export { runGeneratorJob, warmUp } from '@shard/procgen/worker'
+export { runGeneratorJob, warmUp } from '@aethervtt/shard-procgen/worker'

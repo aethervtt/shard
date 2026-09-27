@@ -7,8 +7,8 @@ import {
   Rng,
   Update,
   type World,
-} from '@shard/core'
-import { capsule, cube } from '@shard/mesh'
+} from '@aethervtt/shard-core'
+import { capsule, cube } from '@aethervtt/shard-mesh'
 import {
   CharacterController,
   CharacterIntent,
@@ -17,7 +17,7 @@ import {
   Mass,
   RigidBody,
   Velocity,
-} from '@shard/physics'
+} from '@aethervtt/shard-physics'
 import {
   AmbientLight,
   Camera3d,
@@ -31,9 +31,9 @@ import {
   Meshes,
   MeshMaterial,
   setOverlays,
-} from '@shard/render'
-import { definePlugin, Time } from '@shard/runtime'
-import { Transform } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { definePlugin, Time } from '@aethervtt/shard-runtime'
+import { Transform } from '@aethervtt/shard-transform'
 import { hudExtras } from './hud'
 
 type Vec2 = [number, number]

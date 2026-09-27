@@ -1,5 +1,5 @@
 {
-  "name": "@shard/audio",
+  "name": "@aethervtt/shard-audio",
   "version": "0.0.0",
   "license": "MIT",
   "private": true,
@@ -12,15 +12,15 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@shard/assets": "workspace:*",
-    "@shard/core": "workspace:*",
-    "@shard/platform": "workspace:*",
-    "@shard/runtime": "workspace:*",
-    "@shard/transform": "workspace:*"
+    "@aethervtt/shard-assets": "workspace:*",
+    "@aethervtt/shard-core": "workspace:*",
+    "@aethervtt/shard-platform": "workspace:*",
+    "@aethervtt/shard-runtime": "workspace:*",
+    "@aethervtt/shard-transform": "workspace:*"
   },
   "devDependencies": {
-    "@shard/platform-node": "workspace:*",
-    "@shard/scene": "workspace:*",
+    "@aethervtt/shard-platform-node": "workspace:*",
+    "@aethervtt/shard-scene": "workspace:*",
     "@types/node": "^26.6.2",
     "@webgpu/types": "^0.1.74"
   }

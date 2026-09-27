@@ -1,4 +1,4 @@
-import type { ShardError } from '@shard/core'
+import type { ShardError } from '@aethervtt/shard-core'
 import type { GpuContext } from './context'
 import { toShardError } from './errors'
 import { descriptorKey } from './key'

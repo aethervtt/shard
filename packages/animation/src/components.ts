@@ -1,4 +1,9 @@
-import { AssetStore, defineAssetType, defineDataAsset, type LoadContext } from '@shard/assets'
+import {
+  AssetStore,
+  defineAssetType,
+  defineDataAsset,
+  type LoadContext,
+} from '@aethervtt/shard-assets'
 import {
   defineComponent,
   defineEvent,
@@ -9,8 +14,8 @@ import {
   type JsonValue,
   ShardError,
   t,
-} from '@shard/core'
-import { Transform } from '@shard/transform'
+} from '@aethervtt/shard-core'
+import { Transform } from '@aethervtt/shard-transform'
 
 // --- masks -----------------------------------------------------------------------------------
 

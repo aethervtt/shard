@@ -1,5 +1,5 @@
-import { ShardError } from '@shard/core'
-import type { KeyValueStorage } from '@shard/platform'
+import { ShardError } from '@aethervtt/shard-core'
+import type { KeyValueStorage } from '@aethervtt/shard-platform'
 
 const STORE = 'files'
 

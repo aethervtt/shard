@@ -1,4 +1,4 @@
-import type { MouseButton } from '@shard/platform'
+import type { MouseButton } from '@aethervtt/shard-platform'
 
 /** Pressed/just-pressed/just-released bookkeeping for a set of named buttons. */
 class ButtonSet<K extends string> {

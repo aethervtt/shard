@@ -1,4 +1,4 @@
-import { ShardError } from '@shard/core'
+import { ShardError } from '@aethervtt/shard-core'
 import type { TextureUsage } from './mips'
 
 /**
@@ -120,7 +120,7 @@ function load(name: 'basis_encoder' | 'basis_transcoder'): Promise<BasisModule> 
           `Couldn't load ${name}: ${(cause as Error).message}`,
           {
             cause,
-            hint: 'Basis Universal ships in @shard/texture/vendor/basis; check the files are present.',
+            hint: 'Basis Universal ships in @aethervtt/shard-texture/vendor/basis; check the files are present.',
           },
         )
       }

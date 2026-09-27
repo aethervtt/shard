@@ -1,9 +1,9 @@
-import { ChildOf, defineSystem, FixedUpdate, ProfilerResource } from '@shard/core'
-import { addActions, defineActions, injectInput } from '@shard/input'
-import { Camera3d } from '@shard/render'
-import { LogResource } from '@shard/runtime'
-import { measureText } from '@shard/text'
-import { lookAt, Transform } from '@shard/transform'
+import { ChildOf, defineSystem, FixedUpdate, ProfilerResource } from '@aethervtt/shard-core'
+import { addActions, defineActions, injectInput } from '@aethervtt/shard-input'
+import { Camera3d } from '@aethervtt/shard-render'
+import { LogResource } from '@aethervtt/shard-runtime'
+import { measureText } from '@aethervtt/shard-text'
+import { lookAt, Transform } from '@aethervtt/shard-transform'
 import { describe, expect, it } from 'vitest'
 import {
   UiAnchor,

@@ -10,8 +10,8 @@ import {
   ShardError,
   type Table,
   type World,
-} from '@shard/core'
-import { GpuBuffer, type GpuContext } from '@shard/gpu'
+} from '@aethervtt/shard-core'
+import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
 import {
   type CameraData,
   Cameras,
@@ -23,10 +23,10 @@ import {
   RenderPhase,
   type RenderView,
   Shaders,
-} from '@shard/render'
-import { LogResource } from '@shard/runtime'
-import { Textures } from '@shard/texture'
-import { GlobalTransform } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { LogResource } from '@aethervtt/shard-runtime'
+import { Textures } from '@aethervtt/shard-texture'
+import { GlobalTransform } from '@aethervtt/shard-transform'
 import { TextureAtlases } from './atlas'
 import { Lighting2d, LightOccluder2d, PointLight2d, SpotLight2d } from './lighting'
 import {

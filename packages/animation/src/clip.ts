@@ -4,7 +4,7 @@ import {
   defineAssetType,
   defineImporter,
   type ImportedAsset,
-} from '@shard/assets'
+} from '@aethervtt/shard-assets'
 import {
   type AnyField,
   defineResource,
@@ -12,7 +12,7 @@ import {
   findComponent,
   type JsonValue,
   ShardError,
-} from '@shard/core'
+} from '@aethervtt/shard-core'
 
 export type Interpolation = 'linear' | 'step' | 'cubic'
 

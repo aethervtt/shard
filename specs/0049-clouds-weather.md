@@ -1,8 +1,8 @@
 # 0049 — Clouds and weather
 
 - **Status:** accepted
-- **Packages:** `@shard/weather` (new), `@shard/render`, `@shard/texture`, `@shard/particles`,
-  `@shard/terrain`
+- **Packages:** `@aethervtt/shard-weather` (new), `@aethervtt/shard-render`, `@aethervtt/shard-texture`, `@aethervtt/shard-particles`,
+  `@aethervtt/shard-terrain`
 - **Depends on:** 0016, 0018, 0023, 0026, 0040, 0041, 0043, 0044, 0046
 
 ## Context

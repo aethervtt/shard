@@ -1,6 +1,6 @@
-import { defineResource, defineSystem, First, ShardError, type World } from '@shard/core'
-import type { InputSource, RawInputEvent } from '@shard/platform'
-import { definePlugin, type Plugin, Time } from '@shard/runtime'
+import { defineResource, defineSystem, First, ShardError, type World } from '@aethervtt/shard-core'
+import type { InputSource, RawInputEvent } from '@aethervtt/shard-platform'
+import { definePlugin, type Plugin, Time } from '@aethervtt/shard-runtime'
 import type { ActionMapDef, ActionState, Devices } from './actions'
 import {
   GAMEPAD_AXES,

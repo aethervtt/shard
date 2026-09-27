@@ -1,5 +1,5 @@
-import { ShardError, type World } from '@shard/core'
-import type { GpuContext } from '@shard/gpu'
+import { ShardError, type World } from '@aethervtt/shard-core'
+import type { GpuContext } from '@aethervtt/shard-gpu'
 import { TexturePool } from './pool'
 import { BYTES_PER_TEXEL, toFloats } from './readback'
 import type { RenderTarget } from './target'

@@ -1,7 +1,7 @@
 # 0063 — Screen-space lens fields
 
 - **Status:** accepted
-- **Packages:** `@shard/render`
+- **Packages:** `@aethervtt/shard-render`
 - **Depends on:** 0023, 0052
 
 ## Context
@@ -33,7 +33,7 @@ A field is in the target's CSS pixels. It lives `ttlMs` after its last refresh, 
 Publishers refresh their fields while their effect runs, and clear them on dismissal, device loss
 or disposal.
 
-`lensPlugin` (`@shard/render`) adds a post pass, `post/lens`, to any view with a `Lens` component.
+`lensPlugin` (`@aethervtt/shard-render`) adds a post pass, `post/lens`, to any view with a `Lens` component.
 It displaces that view's own pixels inside each live field, and only there:
 
 - the view renders normally;

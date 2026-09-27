@@ -1,4 +1,4 @@
-import type { GpuContext } from '@shard/gpu'
+import type { GpuContext } from '@aethervtt/shard-gpu'
 
 interface Entry {
   texture: GPUTexture

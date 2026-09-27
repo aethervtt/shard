@@ -1,4 +1,4 @@
-import { ShardError } from '@shard/core'
+import { ShardError } from '@aethervtt/shard-core'
 
 export const DIAGONAL_MODES = ['no-corners', 'never', 'always'] as const
 export type DiagonalMode = (typeof DIAGONAL_MODES)[number]

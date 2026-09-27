@@ -6,9 +6,9 @@ import {
   onRemove,
   t,
   type World,
-} from '@shard/core'
-import { GpuBuffer, type GpuContext } from '@shard/gpu'
-import { GlobalTransform, Transform } from '@shard/transform'
+} from '@aethervtt/shard-core'
+import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
+import { GlobalTransform, Transform } from '@aethervtt/shard-transform'
 import { LightPresets } from './camera'
 
 /** Luminous power presets in lumens, for point and spot lights. */

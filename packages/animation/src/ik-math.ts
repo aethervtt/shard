@@ -1,5 +1,5 @@
-import { ChildOf, type Entity, type World } from '@shard/core'
-import { GlobalTransform, Transform } from '@shard/transform'
+import { ChildOf, type Entity, type World } from '@aethervtt/shard-core'
+import { GlobalTransform, Transform } from '@aethervtt/shard-transform'
 
 /**
  * Vector and quaternion helpers for the IK solvers. Everything writes into `out` (which may alias

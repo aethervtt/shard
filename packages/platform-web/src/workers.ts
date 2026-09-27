@@ -4,7 +4,7 @@ import {
   defaultWorkerCount,
   type Workers,
   workerHostSource,
-} from '@shard/platform'
+} from '@aethervtt/shard-platform'
 
 let hostUrl: string | undefined
 

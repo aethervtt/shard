@@ -1,4 +1,4 @@
-//! Shard's noise kernel (spec 0041). `@shard/noise` compiles a noise graph into a program; this
+//! Shard's noise kernel (spec 0041). `@aethervtt/shard-noise` compiles a noise graph into a program; this
 //! crate interprets it over batches of points, one instruction over a whole block at a time.
 //! Built to `wasm32-unknown-unknown` with and without `simd128`; the two builds give bitwise-equal
 //! results. It uses std only for `floor` and `sqrt`, which compile to single wasm instructions.

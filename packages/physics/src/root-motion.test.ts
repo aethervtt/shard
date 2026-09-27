@@ -1,7 +1,12 @@
-import { AnimationClips, AnimationPlayer, animationLayer, animationPlugin } from '@shard/animation'
-import { App } from '@shard/runtime'
-import { findEntityByPath, loadScene, ScenePlugin } from '@shard/scene'
-import { Transform, TransformPlugin } from '@shard/transform'
+import {
+  AnimationClips,
+  AnimationPlayer,
+  animationLayer,
+  animationPlugin,
+} from '@aethervtt/shard-animation'
+import { App } from '@aethervtt/shard-runtime'
+import { findEntityByPath, loadScene, ScenePlugin } from '@aethervtt/shard-scene'
+import { Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { expect, it } from 'vitest'
 import { CharacterController, Collider, RigidBody } from './components'
 import { physics3dPlugin } from './plugin'

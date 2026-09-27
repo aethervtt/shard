@@ -5,7 +5,7 @@ import {
   type ResourceDef,
   ShardError,
   type World,
-} from '@shard/core'
+} from '@aethervtt/shard-core'
 import type { AssetStore } from './store'
 
 /** What an importer produced for one asset: bytes, JSON, or both. */

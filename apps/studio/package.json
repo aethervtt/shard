@@ -1,5 +1,5 @@
 {
-  "name": "@shard/studio",
+  "name": "@aethervtt/shard-studio",
   "version": "0.0.0",
   "license": "MIT",
   "private": true,
@@ -11,15 +11,15 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@shard/core": "workspace:*",
-    "@shard/gpu": "workspace:*",
-    "@shard/platform-tauri": "workspace:*",
+    "@aethervtt/shard-core": "workspace:*",
+    "@aethervtt/shard-gpu": "workspace:*",
+    "@aethervtt/shard-platform-tauri": "workspace:*",
     "@tauri-apps/api": "^2.11.1",
-    "@shard/mesh": "workspace:*",
-    "@shard/render": "workspace:*",
-    "@shard/runtime": "workspace:*",
-    "@shard/transform": "workspace:*",
-    "@shard/protocol": "workspace:*"
+    "@aethervtt/shard-mesh": "workspace:*",
+    "@aethervtt/shard-render": "workspace:*",
+    "@aethervtt/shard-runtime": "workspace:*",
+    "@aethervtt/shard-transform": "workspace:*",
+    "@aethervtt/shard-protocol": "workspace:*"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.5",

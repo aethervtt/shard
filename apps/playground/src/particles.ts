@@ -1,7 +1,7 @@
-import { ParticleEffect, ParticleEffects, ParticleSystem } from '@shard/particles'
-import { Camera3d, Exposure } from '@shard/render'
-import { definePlugin } from '@shard/runtime'
-import { lookAt, Transform } from '@shard/transform'
+import { ParticleEffect, ParticleEffects, ParticleSystem } from '@aethervtt/shard-particles'
+import { Camera3d, Exposure } from '@aethervtt/shard-render'
+import { definePlugin } from '@aethervtt/shard-runtime'
+import { lookAt, Transform } from '@aethervtt/shard-transform'
 
 const HUES = ['#ff7a2a', '#4aa3ff', '#9dff6a', '#ff5ad2']
 

@@ -1,4 +1,4 @@
-import { defineComponent, type Infer, t } from '@shard/core'
+import { defineComponent, type Infer, t } from '@aethervtt/shard-core'
 
 export const GlobalTransform = defineComponent(
   'core/GlobalTransform',

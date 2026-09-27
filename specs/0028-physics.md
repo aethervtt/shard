@@ -1,8 +1,8 @@
 # 0028 — Physics 3D and 2D (Rapier)
 
 - **Status:** implemented
-- **Packages:** `@shard/physics` (new), `@shard/runtime`, `@shard/render`, `@shard/protocol`,
-  `@shard/project`, `apps/cli`
+- **Packages:** `@aethervtt/shard-physics` (new), `@aethervtt/shard-runtime`, `@aethervtt/shard-render`, `@aethervtt/shard-protocol`,
+  `@aethervtt/shard-project`, `apps/cli`
 - **Depends on:** 0003, 0004, 0014, 0015, 0027
 
 ## Context
@@ -211,9 +211,9 @@ The same API serves 2D with `vec2` arguments. Queries see the state after the la
   `overlapShape`. Results write into a caller's `RayHit`. The one object Rapier's bindings create
   per query can't be avoided without reaching past the public bindings.
 - **Extension points** added for this spec and the rest of M6:
-  - `app.addMethod(...)` and `app.methods` in `@shard/runtime`. The protocol server looks up app
+  - `app.addMethod(...)` and `app.methods` in `@aethervtt/shard-runtime`. The protocol server looks up app
     methods per request, after its built-in ones, and lists them in `methods`.
-  - `defineOverlay({ name, draw })` in `@shard/render`. `debug.overlays` and `render.capture`
+  - `defineOverlay({ name, draw })` in `@aethervtt/shard-render`. `debug.overlays` and `render.capture`
     accept registered names, and `overlayNames()` lists them all.
 - **Agent surface as built:** MCP tools `physics_raycast`, `physics_overlap`, and
   `physics_describe`. The CLI takes their schemas from `physicsMethods`. Manifest plugins are

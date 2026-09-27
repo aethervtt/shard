@@ -1,5 +1,5 @@
-import { t } from '@shard/core'
-import { defineMaterial } from '@shard/render'
+import { t } from '@aethervtt/shard-core'
+import { defineMaterial } from '@aethervtt/shard-render'
 
 /** Texture repeats line up every this many metres of planet space (layer scales divide it). */
 export const TEXTURE_PERIOD = 1024

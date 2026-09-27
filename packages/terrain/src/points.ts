@@ -1,4 +1,4 @@
-import { type NoiseGraph, sampleOffset } from '@shard/noise'
+import { type NoiseGraph, sampleOffset } from '@aethervtt/shard-noise'
 import { faceToDirection } from './cube'
 
 /**
@@ -19,7 +19,7 @@ export const SNAP = 64
  */
 export const NOISE_OFFSET = [13.71, 27.13, 41.92] as const
 
-/** Per face: normal, right, and up axes. Matches @shard/noise's cube mapping. */
+/** Per face: normal, right, and up axes. Matches @aethervtt/shard-noise's cube mapping. */
 const FACES = [
   [1, 0, 0, 0, 0, -1, 0, 1, 0],
   [-1, 0, 0, 0, 0, 1, 0, 1, 0],

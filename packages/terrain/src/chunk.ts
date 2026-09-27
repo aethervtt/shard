@@ -1,6 +1,6 @@
-import { ShardError } from '@shard/core'
-import type { MeshData } from '@shard/mesh'
-import type { NoiseGraph } from '@shard/noise'
+import { ShardError } from '@aethervtt/shard-core'
+import type { MeshData } from '@aethervtt/shard-mesh'
+import type { NoiseGraph } from '@aethervtt/shard-noise'
 import { faceToDirection, nodeExtent } from './cube'
 import {
   type ChunkPoints,

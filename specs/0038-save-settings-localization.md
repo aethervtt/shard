@@ -1,9 +1,9 @@
 # 0038 — Save/load, settings, and localization
 
 - **Status:** implemented
-- **Packages:** `@shard/save` (new), `@shard/core`, `@shard/platform` (and the `platform-*` hosts),
-  `@shard/scene`, `@shard/input`, `@shard/text` (localization), `@shard/ui`, `@shard/project`,
-  `@shard/node`, `@shard/testing`, `@shard/cli`
+- **Packages:** `@aethervtt/shard-save` (new), `@aethervtt/shard-core`, `@aethervtt/shard-platform` (and the `platform-*` hosts),
+  `@aethervtt/shard-scene`, `@aethervtt/shard-input`, `@aethervtt/shard-text` (localization), `@aethervtt/shard-ui`, `@aethervtt/shard-project`,
+  `@aethervtt/shard-node`, `@aethervtt/shard-testing`, `@aethervtt/shard-cli`
 - **Depends on:** 0002, 0010, 0030, 0031, 0036
 
 ## Context
@@ -68,7 +68,7 @@ stores only the differences from the authored scenes is small, survives scene ed
   scene entity records `core/ChildOf`. A scene-placed instance's changed children go into its
   `overrides`, as `saveScene` writes them.
 - Runtime-spawned prefab instances save as the prefab ref, the root fields that differ from the
-  prefab's root (`null` for a removed component; `prefabRootComponents` in `@shard/scene`), and
+  prefab's root (`null` for a removed component; `prefabRootComponents` in `@aethervtt/shard-scene`), and
   `currentOverrides`. Other runtime entities save their components in full. Every spawned entity
   has a save-local id (`@3`); entity fields become scene paths, save ids, or a path inside a saved
   instance (`@3/Hull`). Parents come before children.
@@ -141,7 +141,7 @@ locales/en.strings.json   { "hud.fuel": "Fuel: {amount}%", "items.count": { "one
 locales/pt-BR.strings.json
 ```
 
-- Localization lives in `@shard/text`, which UI already depends on. String tables are assets
+- Localization lives in `@aethervtt/shard-text`, which UI already depends on. String tables are assets
   (`*.strings.json`, importer `strings`, type `StringTable`) named by locale: `en.strings.json`,
   `hud.pt-BR.strings.json`. `locales` joins the default asset roots. Hosts load and pin every table
   after the scan (`loadProjectStrings`), since no scene references them.

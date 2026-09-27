@@ -1,4 +1,4 @@
-import type { GpuContext } from '@shard/gpu'
+import type { GpuContext } from '@aethervtt/shard-gpu'
 
 /** Where a view renders: the window's swapchain or an offscreen texture. */
 export interface RenderTarget {

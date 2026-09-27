@@ -1,4 +1,4 @@
-import { type AssetRef, type Fields, hashSeed, Rng, ShardError } from '@shard/core'
+import { type AssetRef, type Fields, hashSeed, Rng, ShardError } from '@aethervtt/shard-core'
 import {
   type NoiseGraph,
   sampleGrid2d,
@@ -6,7 +6,7 @@ import {
   sampleNoiseGradient,
   sampleOffset,
   sampleSpherePatch,
-} from '@shard/noise'
+} from '@aethervtt/shard-noise'
 import type { Generator, GenParams, GenRequest, OutputAsset, OutputSpec } from './generator'
 import { guidOf, identityOf, proceduralPath, requestOf } from './generator'
 import { type MeshBuilderApi, meshBuilder } from './mesh-builder'

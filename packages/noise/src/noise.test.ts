@@ -1,6 +1,6 @@
-import { hashSeed, type ShardError } from '@shard/core'
-import { createInlineWorkers } from '@shard/platform'
-import { createNodeWorkers } from '@shard/platform-node'
+import { hashSeed, type ShardError } from '@aethervtt/shard-core'
+import { createInlineWorkers } from '@aethervtt/shard-platform'
+import { createNodeWorkers } from '@aethervtt/shard-platform-node'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   directionToFace,

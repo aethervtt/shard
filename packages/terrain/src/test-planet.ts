@@ -2,11 +2,11 @@
  * Test helpers (not a test): a planet app on a GPU (Dawn in Node) or headless, a camera placed in
  * the planet's frame, and a loop that runs frames until the terrain stops generating.
  */
-import type { Entity, World } from '@shard/core'
-import { quat } from '@shard/core'
-import type { GpuContext } from '@shard/gpu'
-import { type NoiseGraph, NoiseGraphs } from '@shard/noise'
-import { GravitySource, PhysicsConfig, physics3dPlugin } from '@shard/physics'
+import type { Entity, World } from '@aethervtt/shard-core'
+import { quat } from '@aethervtt/shard-core'
+import type { GpuContext } from '@aethervtt/shard-gpu'
+import { type NoiseGraph, NoiseGraphs } from '@aethervtt/shard-noise'
+import { GravitySource, PhysicsConfig, physics3dPlugin } from '@aethervtt/shard-physics'
 import {
   Camera3d,
   captureView,
@@ -19,9 +19,15 @@ import {
   renderPlugin,
   Shaders,
   Tonemapping,
-} from '@shard/render'
-import { App, type Plugin } from '@shard/runtime'
-import { FloatingOrigin, Grid, placeInGrid, Transform, TransformPlugin } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { App, type Plugin } from '@aethervtt/shard-runtime'
+import {
+  FloatingOrigin,
+  Grid,
+  placeInGrid,
+  Transform,
+  TransformPlugin,
+} from '@aethervtt/shard-transform'
 import { Planet, TerrainBudget } from './components'
 import { Terrain } from './heights'
 import type { PlanetRuntime } from './planet'

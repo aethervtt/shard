@@ -1,5 +1,5 @@
-import { GpuBuffer, type GpuContext } from '@shard/gpu'
-import type { Mesh } from '@shard/mesh'
+import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
+import type { Mesh } from '@aethervtt/shard-mesh'
 
 /**
  * Per-slot deform record, 12 words (mirrors `Deform` in `shard::mesh` and `shard::cull`):

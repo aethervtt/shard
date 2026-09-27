@@ -1,7 +1,7 @@
-import { type Entity, mat4, ray } from '@shard/core'
-import type { GpuContext } from '@shard/gpu'
-import { createNodeGpuContext } from '@shard/gpu/node'
-import { cube } from '@shard/mesh'
+import { type Entity, mat4, ray } from '@aethervtt/shard-core'
+import type { GpuContext } from '@aethervtt/shard-gpu'
+import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
+import { cube } from '@aethervtt/shard-mesh'
 import {
   Camera3d,
   cameraOf,
@@ -16,11 +16,11 @@ import {
   RenderTargets,
   renderPlugin,
   Views,
-} from '@shard/render'
-import { settle } from '@shard/render/testing'
-import { App } from '@shard/runtime'
-import { Texture, Textures } from '@shard/texture'
-import { Transform, TransformPlugin } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { settle } from '@aethervtt/shard-render/testing'
+import { App } from '@aethervtt/shard-runtime'
+import { Texture, Textures } from '@aethervtt/shard-texture'
+import { Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { spritePlugin } from './plugin'
 import { Sprite } from './sprite'

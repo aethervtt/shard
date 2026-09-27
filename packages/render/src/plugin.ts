@@ -6,10 +6,10 @@ import {
   Last,
   ShardError,
   type World,
-} from '@shard/core'
-import { createGpuContext, type GpuContext } from '@shard/gpu'
-import { definePlugin, LogResource, type Plugin } from '@shard/runtime'
-import { ShaderLibrary } from '@shard/shader'
+} from '@aethervtt/shard-core'
+import { createGpuContext, type GpuContext } from '@aethervtt/shard-gpu'
+import { definePlugin, LogResource, type Plugin } from '@aethervtt/shard-runtime'
+import { ShaderLibrary } from '@aethervtt/shard-shader'
 import { type CapturedBuffer, type CapturedImage, RenderGraph, type RenderView } from './graph'
 import { registerEngineShaders } from './shaders'
 import { GpuMemory, RenderCounters, RenderStats } from './stats'

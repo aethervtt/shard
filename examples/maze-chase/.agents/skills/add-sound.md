@@ -22,7 +22,7 @@ the `.meta` for other long files, and `loopStart`/`loopEnd` (seconds) for loop p
 - `rolloff`: `inverse` (default, natural), `linear` (silent at `maxDistance`; past it the source
   goes virtual and holds no voice), `exponential`. `panning`: `equal-power` or `hrtf`.
 - One-shots from code: `playSound(world, weapon.sound, { position: muzzle, bus: 'sfx' })` from
-  `@shard/audio` returns a voice id for `stopSound`. A handle field
+  `@aethervtt/shard-audio` returns a voice id for `stopSound`. A handle field
   (`t.handle('AudioClip')`) on a data asset keeps sounds in data.
 - Buses are data (`audio/Buses`: master, music, sfx, ui, voice). Add one in a scene's
   `"resources": { "audio/Buses": { "engines": { "volume": 0.7, "parent": "sfx" } } }`; change them

@@ -1,4 +1,4 @@
-import { AssetStore, defineAssetType, defineDataAsset } from '@shard/assets'
+import { AssetStore, defineAssetType, defineDataAsset } from '@aethervtt/shard-assets'
 import {
   defineComponent,
   defineEvent,
@@ -7,8 +7,8 @@ import {
   type Entity,
   ShardError,
   t,
-} from '@shard/core'
-import { Transform } from '@shard/transform'
+} from '@aethervtt/shard-core'
+import { Transform } from '@aethervtt/shard-transform'
 import { DIAGONAL_MODES, NavGridData } from './grid'
 
 export const GRID_SOURCES = ['data', 'tilemap', 'colliders'] as const

@@ -1,4 +1,4 @@
-import { decodePngImage } from '@shard/texture'
+import { decodePngImage } from '@aethervtt/shard-texture'
 
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256)

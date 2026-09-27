@@ -1,5 +1,5 @@
-import type { Query } from '@shard/core'
-import { GlobalTransform } from '@shard/transform'
+import type { Query } from '@aethervtt/shard-core'
+import { GlobalTransform } from '@aethervtt/shard-transform'
 import { GravitySource } from './components'
 
 /**

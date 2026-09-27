@@ -10,8 +10,8 @@ import {
   ShardError,
   t,
   type World,
-} from '@shard/core'
-import { Time } from '@shard/runtime'
+} from '@aethervtt/shard-core'
+import { Time } from '@aethervtt/shard-runtime'
 import { animationLayer } from './api'
 import { AnimationClips } from './clip'
 import { type AnimationLayerValue, AnimationPlayer } from './components'

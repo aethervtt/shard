@@ -1,9 +1,9 @@
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { GpuContext } from '@shard/gpu'
-import { createNodeGpuContext } from '@shard/gpu/node'
-import { inputPlugin } from '@shard/input'
-import { box } from '@shard/mesh'
+import type { GpuContext } from '@aethervtt/shard-gpu'
+import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
+import { inputPlugin } from '@aethervtt/shard-input'
+import { box } from '@aethervtt/shard-mesh'
 import {
   Camera3d,
   captureView,
@@ -21,19 +21,19 @@ import {
   renderPlugin,
   setOverlays,
   Tonemapping,
-} from '@shard/render'
-import { compareGolden, pixel, settle } from '@shard/render/testing'
-import { App, LogResource } from '@shard/runtime'
+} from '@aethervtt/shard-render'
+import { compareGolden, pixel, settle } from '@aethervtt/shard-render/testing'
+import { App, LogResource } from '@aethervtt/shard-runtime'
 import {
   findEntityByPath,
   loadScene,
   registerPrefab,
   ScenePlugin,
   updateInstances,
-} from '@shard/scene'
-import { Fonts } from '@shard/text'
-import { Texture, Textures } from '@shard/texture'
-import { Transform, TransformPlugin } from '@shard/transform'
+} from '@aethervtt/shard-scene'
+import { Fonts } from '@aethervtt/shard-text'
+import { Texture, Textures } from '@aethervtt/shard-texture'
+import { Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { UiDefaults, UiImage, UiLayout } from './components'
 import { describeUi } from './methods'

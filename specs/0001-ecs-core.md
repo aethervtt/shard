@@ -1,7 +1,7 @@
 # 0001 — ECS core
 
 - **Status:** implemented
-- **Packages:** `@shard/core`
+- **Packages:** `@aethervtt/shard-core`
 - **Depends on:** 0002 (component definitions)
 
 ## Context
@@ -202,7 +202,7 @@ world.tryGet(e, Health) // undefined instead of throwing
 - [x] Observers fire for add/remove/set and custom triggers, after the command buffer applies.
 - [x] Despawning a parent despawns all descendants.
 - [x] Events are readable for exactly two frames and by multiple independent readers.
-- [x] `@shard/core` builds with `lib: ["ES2023"]` only.
+- [x] `@aethervtt/shard-core` builds with `lib: ["ES2023"]` only.
 
 ## Open questions
 

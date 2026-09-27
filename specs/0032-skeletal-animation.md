@@ -1,7 +1,7 @@
 # 0032 — Skeletal animation
 
 - **Status:** implemented
-- **Packages:** `@shard/animation` (new), `@shard/render`, `@shard/gltf`, `@shard/mesh`
+- **Packages:** `@aethervtt/shard-animation` (new), `@aethervtt/shard-render`, `@aethervtt/shard-gltf`, `@aethervtt/shard-mesh`
 - **Depends on:** 0007, 0015, 0020, 0022
 
 ## Context
@@ -84,7 +84,7 @@ layer.
 
 ### Skinning
 
-- Skinning belongs to `@shard/render`, so any posed skeleton draws (IK, code, the player): the
+- Skinning belongs to `@aethervtt/shard-render`, so any posed skeleton draws (IK, code, the player): the
   glTF importer tags skinned nodes with `render/SkinnedMesh { skin: handle('Skin'), joints:
   list(entity) }`; empty joints resolve from the skin's paths under the nearest ancestor that has
   them, once the instance spawns. Code can set `joints` to drive a mesh with other entities.

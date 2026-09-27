@@ -1,13 +1,13 @@
 # 0053 — Deterministic physics and recorded tracks
 
 - **Status:** accepted
-- **Packages:** `@shard/physics`, `apps/cli`
+- **Packages:** `@aethervtt/shard-physics`, `apps/cli`
 - **Depends on:** 0028
 
 ## Context
 
 0028 uses `@dimforge/rapier3d-compat`, which is deterministic only on one build and platform. It
-runs synchronously in `FixedUpdate`, and it imports `@shard/render` for meshes and the collider
+runs synchronously in `FixedUpdate`, and it imports `@aethervtt/shard-render` for meshes and the collider
 overlay. That's right for a game, but not for server-authored dice.
 
 Aether rolls on the server and animates on every client. Its client simulates the throw with
@@ -23,11 +23,11 @@ a throw before committing to it.
 
 - `deterministic: true` on `physics3dPlugin` / `physics2dPlugin`, backed by Rapier's
   deterministic builds (same 0.20.0 API).
-- `@shard/physics/track`: record a track from a plain scene description. No ECS, no renderer, and
+- `@aethervtt/shard-physics/track`: record a track from a plain scene description. No ECS, no renderer, and
   it runs in a Worker, in Node, or inline.
 - A versioned, binary, transferable track format, plus no-allocation sampling.
 - A worker client with cancellation, crash restart and disposal.
-- `@shard/physics`'s simulation code stops importing `@shard/render`.
+- `@aethervtt/shard-physics`'s simulation code stops importing `@aethervtt/shard-render`.
 
 ## Non-goals
 
@@ -45,8 +45,8 @@ plugin option picks the variant. Behavior and API are otherwise the same, and a 
 suite against both variants.
 
 The render-facing parts of 0028 (the collider overlay, `Mesh` handle resolution) move to
-`@shard/physics/render`, which the plugin imports. `@shard/physics/track` imports only
-`@shard/core` and Rapier.
+`@aethervtt/shard-physics/render`, which the plugin imports. `@aethervtt/shard-physics/track` imports only
+`@aethervtt/shard-core` and Rapier.
 
 ### Track scenes
 
@@ -123,12 +123,12 @@ A consumer that sees a different `engine` or `version` than it expects fails wit
 
 ### Workers
 
-The platform worker pool (`@shard/platform` `Workers`) doesn't fit, for two reasons. Its job
+The platform worker pool (`@aethervtt/shard-platform` `Workers`) doesn't fit, for two reasons. Its job
 modules are plain JavaScript loaded by URL with no bundler, so they can't import Rapier's JS glue.
 It also has no way to cancel a job. Tracks therefore get a dedicated worker, built by the host's
 bundler:
 
-- `@shard/physics/worker` exports `trackWorker()`, which is
+- `@aethervtt/shard-physics/worker` exports `trackWorker()`, which is
   `new Worker(new URL('./track-worker.ts', import.meta.url), { type: 'module' })`. Vite and
   webpack both recognize that literal pattern and bundle the entry with Rapier inside it. A host
   with another bundler passes its own `spawn`.
@@ -154,8 +154,8 @@ rejects everything pending with `physics/worker-crashed` and respawns on the nex
 
 ```ts
 physics3dPlugin({ deterministic: true })
-import { recordTrack, sampleTrack, encodeTrack, trackHash } from '@shard/physics/track'
-import { createTrackClient, serveTracks, trackWorker } from '@shard/physics/worker'
+import { recordTrack, sampleTrack, encodeTrack, trackHash } from '@aethervtt/shard-physics/track'
+import { createTrackClient, serveTracks, trackWorker } from '@aethervtt/shard-physics/worker'
 ```
 
 ### Agent surface
@@ -188,7 +188,7 @@ import { createTrackClient, serveTracks, trackWorker } from '@shard/physics/work
       worker's next recording succeeds.
 - [ ] A crashed worker rejects its pending recordings with `physics/worker-crashed`, and the next
       call respawns it.
-- [ ] `@shard/physics/track` bundles with no `@shard/render` or `@shard/gpu` code (checked by 0056's
+- [ ] `@aethervtt/shard-physics/track` bundles with no `@aethervtt/shard-render` or `@aethervtt/shard-gpu` code (checked by 0056's
       size script).
 - [ ] `sampleTrack` allocates nothing over 10k calls (heap check in the bench).
 

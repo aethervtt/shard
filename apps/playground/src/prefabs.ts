@@ -1,6 +1,14 @@
-import { defineComponent, defineSystem, type Entity, quat, Rng, t, Update } from '@shard/core'
-import { AmbientLight, Camera3d, DirectionalLight, Exposure } from '@shard/render'
-import { definePlugin, Time } from '@shard/runtime'
+import {
+  defineComponent,
+  defineSystem,
+  type Entity,
+  quat,
+  Rng,
+  t,
+  Update,
+} from '@aethervtt/shard-core'
+import { AmbientLight, Camera3d, DirectionalLight, Exposure } from '@aethervtt/shard-render'
+import { definePlugin, Time } from '@aethervtt/shard-runtime'
 import {
   applyToPrefab,
   currentOverrides,
@@ -11,8 +19,8 @@ import {
   registerPrefab,
   type SceneFile,
   spawnPrefab,
-} from '@shard/scene'
-import { lookAt, Transform } from '@shard/transform'
+} from '@aethervtt/shard-scene'
+import { lookAt, Transform } from '@aethervtt/shard-transform'
 import { hudExtras } from './hud'
 
 /** Bobs an entity up and down around `height`. */

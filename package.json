@@ -14,9 +14,9 @@
     "test": "turbo run test --concurrency=4",
     "lint": "biome check .",
     "format": "biome check --write .",
-    "playground": "pnpm --filter @shard/playground dev",
-    "studio": "pnpm --filter @shard/studio tauri dev",
-    "bench": "pnpm --filter @shard/core bench && SHARD_BENCH=1 turbo run test --concurrency=1 --force",
+    "playground": "pnpm --filter @aethervtt/shard-playground dev",
+    "studio": "pnpm --filter @aethervtt/shard-studio tauri dev",
+    "bench": "pnpm --filter @aethervtt/shard-core bench && SHARD_BENCH=1 turbo run test --concurrency=1 --force",
     "build:wasm": "sh crates/shard-noise/build-wasm.sh",
     "check:wasm": "sh crates/shard-noise/build-wasm.sh && git diff --exit-code -- packages/noise/wasm"
   },

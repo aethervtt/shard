@@ -1,4 +1,4 @@
-import { ShardError } from '@shard/core'
+import { ShardError } from '@aethervtt/shard-core'
 
 /** What an audio file's headers say, without decoding it. */
 export interface AudioInfo {

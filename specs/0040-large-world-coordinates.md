@@ -1,8 +1,8 @@
 # 0040 — Large-world coordinates
 
 - **Status:** implemented
-- **Packages:** `@shard/core`, `@shard/transform`, `@shard/render`, `@shard/particles`,
-  `@shard/physics`, `@shard/scene`, `@shard/save`
+- **Packages:** `@aethervtt/shard-core`, `@aethervtt/shard-transform`, `@aethervtt/shard-render`, `@aethervtt/shard-particles`,
+  `@aethervtt/shard-physics`, `@aethervtt/shard-scene`, `@aethervtt/shard-save`
 - **Depends on:** 0002, 0004, 0007, 0026, 0028, 0038
 
 ## Context
@@ -194,7 +194,7 @@ originMatrix64(world, e, out: Float64Array): Float64Array
 - The helpers solve grid frames fresh from `Transform` and `GridCell`, so they're right between
   propagations (right after a spawn). They're cold paths.
 
-- `affine64` in `@shard/core` math: the `affine` functions on `Float64Array`, plus `translateAt`
+- `affine64` in `@aethervtt/shard-core` math: the `affine` functions on `Float64Array`, plus `translateAt`
   and `transformVectorAt`. The transform package uses it for the grid tree; the rest of the engine
   stays f32.
 - `reparentToGrid` is how a ship moves from the system grid into a planet's grid on approach, so
@@ -219,7 +219,7 @@ originMatrix64(world, e, out: Float64Array): Float64Array
 ### API sketch
 
 ```ts
-import { Grid, GridCell, FloatingOrigin, OriginShift, worldPosition64 } from '@shard/transform'
+import { Grid, GridCell, FloatingOrigin, OriginShift, worldPosition64 } from '@aethervtt/shard-transform'
 
 const system = world.spawn([Grid, { cellSize: 2000 }])
 const planet = world.spawn(Grid, [GridCell, { cell: [75_000, 0, 0] }],

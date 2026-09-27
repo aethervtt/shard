@@ -5,10 +5,10 @@ import {
   mat4,
   ProfilerResource,
   type World,
-} from '@shard/core'
-import { GpuBuffer, type GpuContext } from '@shard/gpu'
-import { Time } from '@shard/runtime'
-import { Textures } from '@shard/texture'
+} from '@aethervtt/shard-core'
+import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
+import { Time } from '@aethervtt/shard-runtime'
+import { Textures } from '@aethervtt/shard-texture'
 import { Exposure } from './camera'
 import {
   drawMaterials,

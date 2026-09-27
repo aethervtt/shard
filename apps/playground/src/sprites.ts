@@ -1,9 +1,9 @@
-import { defineSystem, Rng, Update } from '@shard/core'
-import { Camera3d, Tonemapping } from '@shard/render'
-import { definePlugin, Time } from '@shard/runtime'
-import { Sprite, TextureAtlas, TextureAtlases } from '@shard/sprite'
-import { Texture, Textures } from '@shard/texture'
-import { Transform } from '@shard/transform'
+import { defineSystem, Rng, Update } from '@aethervtt/shard-core'
+import { Camera3d, Tonemapping } from '@aethervtt/shard-render'
+import { definePlugin, Time } from '@aethervtt/shard-runtime'
+import { Sprite, TextureAtlas, TextureAtlases } from '@aethervtt/shard-sprite'
+import { Texture, Textures } from '@aethervtt/shard-texture'
+import { Transform } from '@aethervtt/shard-transform'
 
 /** A 64×64 atlas of 16 shapes (discs, rings, diamonds) in one hue, made in code. */
 function atlasTexture(hue: number): Texture {

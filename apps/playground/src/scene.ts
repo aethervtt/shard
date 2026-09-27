@@ -1,5 +1,12 @@
-import { defineComponent, defineSystem, ProfilerResource, quat, t, Update } from '@shard/core'
-import { cube, plane, sphere, torus } from '@shard/mesh'
+import {
+  defineComponent,
+  defineSystem,
+  ProfilerResource,
+  quat,
+  t,
+  Update,
+} from '@aethervtt/shard-core'
+import { cube, plane, sphere, torus } from '@aethervtt/shard-mesh'
 import {
   AmbientLight,
   Camera3d,
@@ -11,9 +18,9 @@ import {
   Meshes,
   MeshMaterial,
   RenderStats,
-} from '@shard/render'
-import { definePlugin, Time } from '@shard/runtime'
-import { lookAt, Transform } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { definePlugin, Time } from '@aethervtt/shard-runtime'
+import { lookAt, Transform } from '@aethervtt/shard-transform'
 
 /** Marks the hero objects that spin. */
 const Spin = defineComponent('scene/Spin', { speed: t.f32({ default: 1 }) })

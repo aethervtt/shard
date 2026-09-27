@@ -1,6 +1,6 @@
-import { ChildOf, defineComponent, t } from '@shard/core'
-import type { GpuContext } from '@shard/gpu'
-import { createNodeGpuContext } from '@shard/gpu/node'
+import { ChildOf, defineComponent, t } from '@aethervtt/shard-core'
+import type { GpuContext } from '@aethervtt/shard-gpu'
+import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import {
   Camera3d,
   DirectionalLight,
@@ -9,10 +9,10 @@ import {
   RenderStats,
   renderPlugin,
   Shaders,
-} from '@shard/render'
-import { App } from '@shard/runtime'
-import { ScenePlugin } from '@shard/scene'
-import { lookAt, Transform, TransformPlugin, worldPosition } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { App } from '@aethervtt/shard-runtime'
+import { ScenePlugin } from '@aethervtt/shard-scene'
+import { lookAt, Transform, TransformPlugin, worldPosition } from '@aethervtt/shard-transform'
 import { describe, expect, it } from 'vitest'
 import { Animator, AnimatorStateEntered, describeAnimator, evaluateGraphs } from './animator'
 import { animationLayer } from './api'

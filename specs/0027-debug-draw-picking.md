@@ -1,7 +1,7 @@
 # 0027 — Debug drawing and picking
 
 - **Status:** implemented
-- **Packages:** `@shard/render`, `@shard/sprite`, `@shard/protocol`, `@shard/project`, `apps/cli`
+- **Packages:** `@aethervtt/shard-render`, `@aethervtt/shard-sprite`, `@aethervtt/shard-protocol`, `@aethervtt/shard-project`, `apps/cli`
 - **Depends on:** 0005, 0007, 0011, 0013, 0022
 
 ## Context

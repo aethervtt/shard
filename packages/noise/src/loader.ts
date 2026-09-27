@@ -1,4 +1,4 @@
-import { ShardError } from '@shard/core'
+import { ShardError } from '@aethervtt/shard-core'
 import { instantiate, type KernelState } from './kernel'
 
 export interface NoiseKernel {

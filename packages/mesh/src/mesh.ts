@@ -1,4 +1,4 @@
-import { aabb, ShardError } from '@shard/core'
+import { aabb, ShardError } from '@aethervtt/shard-core'
 
 export interface MeshData {
   /** xyz per vertex. */

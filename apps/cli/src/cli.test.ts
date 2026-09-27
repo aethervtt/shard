@@ -11,10 +11,10 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { openProject } from '@aethervtt/shard-node'
+import { connectToHub, createProtocolServer, decodePng } from '@aethervtt/shard-protocol'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import { openProject } from '@shard/node'
-import { connectToHub, createProtocolServer, decodePng } from '@shard/protocol'
 import { afterAll, beforeAll, describe, expect, it, onTestFinished } from 'vitest'
 import { Hub, localTarget } from './hub'
 import { createMcpServer } from './mcp'
@@ -316,7 +316,7 @@ describe('commands', () => {
   it('check reports Math.random in a generator module with file, line, and column', () => {
     const cleanup = temp(
       'scripts/zz-random.ts',
-      `import { t } from '@shard/core'\nimport { defineGenerator } from '@shard/procgen'\n\nexport const Noisy = defineGenerator('star-explorer/Noisy', {\n  params: { n: t.u32() },\n  output: 'data',\n  run: (_ctx, p) => p.n + Math.random(),\n})\n`,
+      `import { t } from '@aethervtt/shard-core'\nimport { defineGenerator } from '@aethervtt/shard-procgen'\n\nexport const Noisy = defineGenerator('star-explorer/Noisy', {\n  params: { n: t.u32() },\n  output: 'data',\n  run: (_ctx, p) => p.n + Math.random(),\n})\n`,
     )
     try {
       const r = shard(['check', '--json'])
@@ -340,7 +340,7 @@ describe('commands', () => {
     expect(ok.json()).toMatchObject({ passed: 12, failed: 0 })
     const cleanup = temp(
       'tests/zz-fail.test.ts',
-      `import { expect, test } from '@shard/testing'\ntest('ships can teleport', async ({ game }) => {\n  await game.step(1)\n  expect(game.get('ship', 'core/Transform').translation[1]).toBe(999)\n})\n`,
+      `import { expect, test } from '@aethervtt/shard-testing'\ntest('ships can teleport', async ({ game }) => {\n  await game.step(1)\n  expect(game.get('ship', 'core/Transform').translation[1]).toBe(999)\n})\n`,
     )
     try {
       const r = shard(['test', 'zz-fail', '--json'])
@@ -480,15 +480,21 @@ describe('commands', () => {
       })
       const html = await (await fetch(info.url)).text()
       const map = JSON.parse(/<script type="importmap">(.*?)<\/script>/s.exec(html)![1]!)
-      expect(map.imports['@shard/core']).toMatch(/^\/@fs\/.*\/packages\/core\/src\/index\.ts$/)
-      const project = await (await fetch(new URL('/@shard/project.json', info.url))).json()
+      expect(map.imports['@aethervtt/shard-core']).toMatch(
+        /^\/@fs\/.*\/packages\/core\/src\/index\.ts$/,
+      )
+      const project = await (
+        await fetch(new URL('/@aethervtt/shard-project.json', info.url))
+      ).json()
       expect(project.manifest.name).toBe('star-explorer')
       const bundle = await (await fetch(new URL(project.bundle, info.url))).text()
-      expect(bundle).toContain('from "@shard/core"')
-      const scene = await fetch(new URL('/@shard/files/scenes/main.scene.json', info.url))
+      expect(bundle).toContain('from "@aethervtt/shard-core"')
+      const scene = await fetch(new URL('/@aethervtt/shard-files/scenes/main.scene.json', info.url))
       expect(scene.status).toBe(200)
       // Encoded so it isn't normalized away: the files route must not serve outside the project.
-      const outside = await fetch(new URL('/@shard/files/%2e%2e%2f%2e%2e%2fpackage.json', info.url))
+      const outside = await fetch(
+        new URL('/@aethervtt/shard-files/%2e%2e%2f%2e%2e%2fpackage.json', info.url),
+      )
       expect(outside.status).toBe(404)
     } finally {
       child.kill('SIGINT')

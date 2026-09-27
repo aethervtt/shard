@@ -5,8 +5,8 @@ import {
   type Entity,
   type Table,
   type World,
-} from '@shard/core'
-import { GpuBuffer, type GpuContext } from '@shard/gpu'
+} from '@aethervtt/shard-core'
+import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
 import {
   type CameraData,
   ComputedVisibility,
@@ -18,9 +18,9 @@ import {
   type RenderView,
   Shaders,
   sceneColor,
-} from '@shard/render'
-import { type Texture, Textures } from '@shard/texture'
-import { GlobalTransform } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { type Texture, Textures } from '@aethervtt/shard-texture'
+import { GlobalTransform } from '@aethervtt/shard-transform'
 import { Localized, ScreenText, Text } from './components'
 import type { Font, FontPage } from './font'
 import { type FontStore, Fonts } from './importer'

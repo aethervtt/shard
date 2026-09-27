@@ -8,9 +8,9 @@ import {
   ShardError,
   t,
   type World,
-} from '@shard/core'
-import { LogResource } from '@shard/runtime'
-import { Transform } from '@shard/transform'
+} from '@aethervtt/shard-core'
+import { LogResource } from '@aethervtt/shard-runtime'
+import { Transform } from '@aethervtt/shard-transform'
 
 export const BoneSocket = defineComponent(
   'animation/BoneSocket',

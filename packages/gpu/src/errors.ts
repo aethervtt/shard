@@ -1,4 +1,4 @@
-import { ShardError } from '@shard/core'
+import { ShardError } from '@aethervtt/shard-core'
 
 export type GpuErrorListener = (error: ShardError) => void
 

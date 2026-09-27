@@ -43,55 +43,55 @@ Each package exports its TypeScript source directly (`./src/index.ts`), with no 
 
 | Package | What it does |
 |---|---|
-| `@shard/core` | ECS with archetype tables of TypedArray columns, queries, change detection, events and observers. Component schemas, from which storage, serialization, validation, JSON Schema and inspector views are derived. Scheduler with stages and system ordering. Math (vectors, quaternions, matrices, AABBs, rays), f64 helpers, seeded RNG, and structured `ShardError`s |
-| `@shard/runtime` | `App` and plugins, fixed timestep, time, animation-frame and headless runners, display refresh rate |
-| `@shard/transform` | Transform hierarchies and propagation, large-world grids with a floating origin |
-| `@shard/input` | Keyboard, mouse, touch and gamepad devices, and action maps |
-| `@shard/platform` | The host interface (files, storage, audio, workers) the engine uses instead of any host API. `platform-web`, `platform-node` and `platform-tauri` implement it |
+| `@aethervtt/shard-core` | ECS with archetype tables of TypedArray columns, queries, change detection, events and observers. Component schemas, from which storage, serialization, validation, JSON Schema and inspector views are derived. Scheduler with stages and system ordering. Math (vectors, quaternions, matrices, AABBs, rays), f64 helpers, seeded RNG, and structured `ShardError`s |
+| `@aethervtt/shard-runtime` | `App` and plugins, fixed timestep, time, animation-frame and headless runners, display refresh rate |
+| `@aethervtt/shard-transform` | Transform hierarchies and propagation, large-world grids with a floating origin |
+| `@aethervtt/shard-input` | Keyboard, mouse, touch and gamepad devices, and action maps |
+| `@aethervtt/shard-platform` | The host interface (files, storage, audio, workers) the engine uses instead of any host API. `platform-web`, `platform-node` and `platform-tauri` implement it |
 
 ### Rendering
 
 | Package | What it does |
 |---|---|
-| `@shard/gpu` | WebGPU context, buffers, pipeline and layout caches, validation errors, device-loss recovery, WebGPU support probing, and Dawn for Node |
-| `@shard/shader` | WGSL module system: imports, defines and material hooks |
-| `@shard/render` | Render graph; forward+ and deferred paths per camera; PBR in physical units with camera exposure; clustered point and spot lights with cascaded shadows; HDR, tonemapping, IBL and procedural sky; atmosphere scattering at any altitude; extensible materials; instancing, GPU culling and LOD; post-processing (bloom, auto exposure, depth of field, motion blur, TAA, FXAA, SSAO, fog, color grading); render scale and dynamic resolution; debug drawing, gizmos and picking |
-| `@shard/mesh` | Mesh data and primitives |
-| `@shard/texture` | KTX2/Basis pipeline and transcoding, PNG, JPEG, WebP and HDR decoding, texture arrays, previews |
-| `@shard/gltf` | glTF and GLB loading: PBR materials, skins, morph targets, animations, punctual lights, texture transforms |
-| `@shard/sprite` | Sprites, atlases, batching, sprite animation, tilemaps, and 2D lighting with normal maps and soft shadows |
-| `@shard/text` | MSDF text in the world and on screen, font building, and layout with kerning |
-| `@shard/particles` | GPU particles (compute simulation, instanced drawing) with a CPU backend, and effects as data assets |
-| `@shard/ui` | Flexbox UI and HUDs with themes, widgets and world-anchored elements |
+| `@aethervtt/shard-gpu` | WebGPU context, buffers, pipeline and layout caches, validation errors, device-loss recovery, WebGPU support probing, and Dawn for Node |
+| `@aethervtt/shard-shader` | WGSL module system: imports, defines and material hooks |
+| `@aethervtt/shard-render` | Render graph; forward+ and deferred paths per camera; PBR in physical units with camera exposure; clustered point and spot lights with cascaded shadows; HDR, tonemapping, IBL and procedural sky; atmosphere scattering at any altitude; extensible materials; instancing, GPU culling and LOD; post-processing (bloom, auto exposure, depth of field, motion blur, TAA, FXAA, SSAO, fog, color grading); render scale and dynamic resolution; debug drawing, gizmos and picking |
+| `@aethervtt/shard-mesh` | Mesh data and primitives |
+| `@aethervtt/shard-texture` | KTX2/Basis pipeline and transcoding, PNG, JPEG, WebP and HDR decoding, texture arrays, previews |
+| `@aethervtt/shard-gltf` | glTF and GLB loading: PBR materials, skins, morph targets, animations, punctual lights, texture transforms |
+| `@aethervtt/shard-sprite` | Sprites, atlases, batching, sprite animation, tilemaps, and 2D lighting with normal maps and soft shadows |
+| `@aethervtt/shard-text` | MSDF text in the world and on screen, font building, and layout with kerning |
+| `@aethervtt/shard-particles` | GPU particles (compute simulation, instanced drawing) with a CPU backend, and effects as data assets |
+| `@aethervtt/shard-ui` | Flexbox UI and HUDs with themes, widgets and world-anchored elements |
 
 ### Gameplay
 
 | Package | What it does |
 |---|---|
-| `@shard/physics` | 3D and 2D physics on Rapier: bodies, colliders, joints, contact events, scene queries, point gravity, and a character controller for slopes, steps and spherical gravity |
-| `@shard/animation` | Skeletal skinning, clips, blending and masks, morph targets, root motion, state machines and blend spaces, IK, bone attachments, retargeting |
-| `@shard/audio` | Web Audio with spatial sound and buses, and headless voices for tests |
-| `@shard/nav` | Grid A*, navmeshes (Recast) and agents |
-| `@shard/save` | Save and load, settings, localization |
+| `@aethervtt/shard-physics` | 3D and 2D physics on Rapier: bodies, colliders, joints, contact events, scene queries, point gravity, and a character controller for slopes, steps and spherical gravity |
+| `@aethervtt/shard-animation` | Skeletal skinning, clips, blending and masks, morph targets, root motion, state machines and blend spaces, IK, bone attachments, retargeting |
+| `@aethervtt/shard-audio` | Web Audio with spatial sound and buses, and headless voices for tests |
+| `@aethervtt/shard-nav` | Grid A*, navmeshes (Recast) and agents |
+| `@aethervtt/shard-save` | Save and load, settings, localization |
 
 ### Content and procedural generation
 
 | Package | What it does |
 |---|---|
-| `@shard/assets` | Asset database: GUIDs, `.meta` files, an import cache, invalidation, hot reload, and project-defined data assets |
-| `@shard/scene` | Scene files with validation, prefabs with overrides and variants |
-| `@shard/project` | The project format (`shard.json`), user scripts, and the generated agent docs (`AGENTS.md`, `.agents/`, schemas) |
-| `@shard/noise` | Noise graphs as data, evaluated by a Rust/WASM kernel, as generated WGSL, or on a worker pool |
-| `@shard/procgen` | Generators as seeded assets, cached by input hash, with previews |
-| `@shard/terrain` | Planet terrain: a cube-sphere with quadtree LOD, GPU-generated chunks, biomes and streaming |
+| `@aethervtt/shard-assets` | Asset database: GUIDs, `.meta` files, an import cache, invalidation, hot reload, and project-defined data assets |
+| `@aethervtt/shard-scene` | Scene files with validation, prefabs with overrides and variants |
+| `@aethervtt/shard-project` | The project format (`shard.json`), user scripts, and the generated agent docs (`AGENTS.md`, `.agents/`, schemas) |
+| `@aethervtt/shard-noise` | Noise graphs as data, evaluated by a Rust/WASM kernel, as generated WGSL, or on a worker pool |
+| `@aethervtt/shard-procgen` | Generators as seeded assets, cached by input hash, with previews |
+| `@aethervtt/shard-terrain` | Planet terrain: a cube-sphere with quadtree LOD, GPU-generated chunks, biomes and streaming |
 
 ### Tools
 
 | Package | What it does |
 |---|---|
-| `@shard/protocol` | The inspection and control protocol: query the world, patch components, step frames, capture frames |
-| `@shard/node` | Node helpers: open a project, hash a world |
-| `@shard/testing` | Helpers for gameplay tests |
+| `@aethervtt/shard-protocol` | The inspection and control protocol: query the world, patch components, step frames, capture frames |
+| `@aethervtt/shard-node` | Node helpers: open a project, hash a world |
+| `@aethervtt/shard-testing` | Helpers for gameplay tests |
 | `apps/cli` | The `shard` binary: validate, import, dev, headless runs, screenshots, tests, the protocol hub and the MCP server |
 | `apps/playground` | Browser sandbox with a demo per feature |
 | `apps/studio` | Desktop app (Tauri 2) for playing, inspecting and debugging |

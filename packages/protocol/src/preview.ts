@@ -1,4 +1,4 @@
-import { AssetServerResource, assetServer, findAssetPreview } from '@shard/assets'
+import { AssetServerResource, assetServer, findAssetPreview } from '@aethervtt/shard-assets'
 import {
   Children,
   type Entity,
@@ -7,7 +7,7 @@ import {
   ShardError,
   vec3,
   type World,
-} from '@shard/core'
+} from '@aethervtt/shard-core'
 import {
   captureView,
   forwardPlugin,
@@ -19,8 +19,8 @@ import {
   RenderStats,
   renderPlugin,
   Shaders,
-} from '@shard/render'
-import { App } from '@shard/runtime'
+} from '@aethervtt/shard-render'
+import { App } from '@aethervtt/shard-runtime'
 import {
   loadScene,
   PrefabAssets,
@@ -30,9 +30,9 @@ import {
   ScenePlugin,
   unloadScene,
   whenSceneReady,
-} from '@shard/scene'
-import { readKtx2, Textures, transcodeBasis } from '@shard/texture'
-import { GlobalTransform, TransformPlugin } from '@shard/transform'
+} from '@aethervtt/shard-scene'
+import { readKtx2, Textures, transcodeBasis } from '@aethervtt/shard-texture'
+import { GlobalTransform, TransformPlugin } from '@aethervtt/shard-transform'
 
 export interface PreviewImage {
   width: number

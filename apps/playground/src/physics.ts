@@ -1,5 +1,5 @@
-import { type AssetRef, defineSystem, type Entity, quat, Rng, Update } from '@shard/core'
-import { capsule, cube, plane, sphere } from '@shard/mesh'
+import { type AssetRef, defineSystem, type Entity, quat, Rng, Update } from '@aethervtt/shard-core'
+import { capsule, cube, plane, sphere } from '@aethervtt/shard-mesh'
 import {
   Collider,
   ExternalImpulse,
@@ -9,7 +9,7 @@ import {
   PhysicsConfig,
   RigidBody,
   Velocity,
-} from '@shard/physics'
+} from '@aethervtt/shard-physics'
 import {
   AmbientLight,
   Camera3d,
@@ -23,9 +23,9 @@ import {
   Meshes,
   MeshMaterial,
   setOverlays,
-} from '@shard/render'
-import { definePlugin, Time } from '@shard/runtime'
-import { lookAt, Transform } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { definePlugin, Time } from '@aethervtt/shard-runtime'
+import { lookAt, Transform } from '@aethervtt/shard-transform'
 import { hudExtras } from './hud'
 
 type Mode = 'ground' | 'planet' | 'flat'
@@ -288,7 +288,7 @@ function build(mode: Mode) {
   })
 }
 
-type World = import('@shard/core').World
+type World = import('@aethervtt/shard-core').World
 type Mat = (value: ConstructorParameters<typeof MaterialAsset>[0]) => AssetRef<'Material'>
 
 /**
@@ -360,7 +360,7 @@ function spawnFlatLevel(world: World, box: AssetRef<'Mesh'>, mat: Mat): void {
 
 /** A chain of capsules hanging from a fixed point by spherical joints, kicked sideways. */
 function spawnChain(
-  world: import('@shard/core').World,
+  world: import('@aethervtt/shard-core').World,
   link: AssetRef<'Mesh'>,
   mat: (value: ConstructorParameters<typeof MaterialAsset>[0]) => AssetRef<'Material'>,
 ): void {

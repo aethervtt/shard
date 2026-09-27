@@ -1,4 +1,4 @@
-// Pool jobs for @shard/noise. Plain JavaScript: workers import it with no bundler or loader.
+// Pool jobs for @aethervtt/shard-noise. Plain JavaScript: workers import it with no bundler or loader.
 import {
   computeOrigins,
   evalProgram,

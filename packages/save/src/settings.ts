@@ -1,4 +1,4 @@
-import { AudioBuses } from '@shard/audio'
+import { AudioBuses } from '@aethervtt/shard-audio'
 import {
   type ComponentDef,
   type ComponentOptions,
@@ -14,12 +14,12 @@ import {
   ShardError,
   t,
   type World,
-} from '@shard/core'
-import { type ActionState, InputQueue } from '@shard/input'
-import type { PlatformFileSystem } from '@shard/platform'
-import { LightingSettings } from '@shard/render'
-import { LogResource, Time } from '@shard/runtime'
-import { Locale, setLocale } from '@shard/text'
+} from '@aethervtt/shard-core'
+import { type ActionState, InputQueue } from '@aethervtt/shard-input'
+import type { PlatformFileSystem } from '@aethervtt/shard-platform'
+import { LightingSettings } from '@aethervtt/shard-render'
+import { LogResource, Time } from '@aethervtt/shard-runtime'
+import { Locale, setLocale } from '@aethervtt/shard-text'
 import { SaveConfig } from './save'
 
 /** A settings resource: plain data with a schema, persisted per user in `settings.json`. */

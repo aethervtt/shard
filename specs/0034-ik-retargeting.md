@@ -1,7 +1,7 @@
 # 0034 — IK, bone attachments, and retargeting
 
 - **Status:** implemented
-- **Packages:** `@shard/animation`, `@shard/transform`, `@shard/scene`
+- **Packages:** `@aethervtt/shard-animation`, `@aethervtt/shard-transform`, `@aethervtt/shard-scene`
 - **Depends on:** 0028, 0032
 
 ## Context
@@ -54,7 +54,7 @@ FootPlacement { feet: list(struct { ik: entity, footJoint: string, offset: f32 }
 - IK runs in `PostUpdate`, in `TransformSystems` right after propagation (`animation/ik`). It reads
   world poses from `GlobalTransform`, solves in world space, writes local rotations blended by
   `weight` (a slerp from the animated rotation), and re-propagates only the subtrees it changed
-  (`propagateSubtree` in `@shard/transform`). Systems ordered after `TransformSystems` see the final
+  (`propagateSubtree` in `@aethervtt/shard-transform`). Systems ordered after `TransformSystems` see the final
   pose.
 - Order: foot placement (hips and leg targets), two-bone, FABRIK, look-at.
 - IK remembers each joint's pre-IK value. A joint no clip re-animated since IK wrote it gets that

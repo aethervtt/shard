@@ -6,11 +6,11 @@ import {
   type Table,
   t,
   type World,
-} from '@shard/core'
-import { GpuBuffer, type GpuContext } from '@shard/gpu'
-import type { Mesh } from '@shard/mesh'
-import { toHalf } from '@shard/texture'
-import { GlobalTransform, Transform } from '@shard/transform'
+} from '@aethervtt/shard-core'
+import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
+import type { Mesh } from '@aethervtt/shard-mesh'
+import { toHalf } from '@aethervtt/shard-texture'
+import { GlobalTransform, Transform } from '@aethervtt/shard-transform'
 import { MaterialAsset, Materials, Meshes } from './assets'
 import { DEFORM_WORDS, DeformStore } from './deform'
 import { GpuAssetsResource } from './gpu-assets'
@@ -782,7 +782,7 @@ export class InstanceStore {
     lod: LodValue,
     material: MaterialAsset,
     materialGuid: string | undefined,
-    meshes: import('@shard/assets').AssetStore<Mesh, 'Mesh'>,
+    meshes: import('@aethervtt/shard-assets').AssetStore<Mesh, 'Mesh'>,
   ): LodSet | undefined {
     const levels = lod.levels.slice(0, MAX_LOD_LEVELS)
     const resolved: Mesh[] = []
@@ -1548,8 +1548,8 @@ export const prepareInstances = defineSystem({
 function resolveSlot(
   store: InstanceStore,
   slot: number,
-  meshes: import('@shard/assets').AssetStore<Mesh, 'Mesh'>,
-  materials: import('@shard/assets').AssetStore<MaterialAsset, 'Material'>,
+  meshes: import('@aethervtt/shard-assets').AssetStore<Mesh, 'Mesh'>,
+  materials: import('@aethervtt/shard-assets').AssetStore<MaterialAsset, 'Material'>,
 ): void {
   const meshRef = store.meshRefs[slot]
   const materialRef = store.materialRefs[slot]

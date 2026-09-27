@@ -1,7 +1,13 @@
-import { findComponent, isPlainObject, type JsonValue, pointer, ShardError } from '@shard/core'
-import { encodeMesh, Mesh, type MeshData } from '@shard/mesh'
-import { PREFAB_VERSION } from '@shard/scene'
-import { buildMips, type MipChain, writeKtx2 } from '@shard/texture'
+import {
+  findComponent,
+  isPlainObject,
+  type JsonValue,
+  pointer,
+  ShardError,
+} from '@aethervtt/shard-core'
+import { encodeMesh, Mesh, type MeshData } from '@aethervtt/shard-mesh'
+import { PREFAB_VERSION } from '@aethervtt/shard-scene'
+import { buildMips, type MipChain, writeKtx2 } from '@aethervtt/shard-texture'
 import type { Fragment, FragmentEntity, Generator, MeshResult, TextureData } from './generator'
 
 /** One asset a generator run made: the main output ('') or a sub-asset (`LOD1`). */

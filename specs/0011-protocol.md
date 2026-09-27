@@ -1,7 +1,7 @@
 # 0011 — Inspection and control protocol
 
 - **Status:** implemented
-- **Packages:** `@shard/protocol`
+- **Packages:** `@aethervtt/shard-protocol`
 - **Depends on:** 0003, 0005, 0008, 0010
 
 ## Context

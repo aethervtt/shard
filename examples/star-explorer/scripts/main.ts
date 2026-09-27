@@ -1,4 +1,4 @@
-import { playSound } from '@shard/audio'
+import { playSound } from '@aethervtt/shard-audio'
 import {
   defineSystem,
   type Entity,
@@ -8,13 +8,13 @@ import {
   Update,
   vec3,
   type World,
-} from '@shard/core'
-import { addActions, defineActions } from '@shard/input'
-import { defineProject } from '@shard/project'
-import { FixedTime } from '@shard/runtime'
-import { findEntityByPath } from '@shard/scene'
-import { Transform } from '@shard/transform'
-import { UiChanged, UiLayout, UiText, UiToggle } from '@shard/ui'
+} from '@aethervtt/shard-core'
+import { addActions, defineActions } from '@aethervtt/shard-input'
+import { defineProject } from '@aethervtt/shard-project'
+import { FixedTime } from '@aethervtt/shard-runtime'
+import { findEntityByPath } from '@aethervtt/shard-scene'
+import { Transform } from '@aethervtt/shard-transform'
+import { UiChanged, UiLayout, UiText, UiToggle } from '@aethervtt/shard-ui'
 
 export { AsteroidField, Rock } from './rock'
 

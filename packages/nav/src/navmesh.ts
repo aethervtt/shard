@@ -1,4 +1,4 @@
-import type { Entity } from '@shard/core'
+import type { Entity } from '@aethervtt/shard-core'
 import { TriangleSoup } from './geometry'
 import { areaFlags, type BakeSettings, type Recast, voxelSettings } from './recast'
 

@@ -5,14 +5,14 @@ import {
   type AnimatorStateEnteredData,
   describeAnimator,
   setAnimParam,
-} from '@shard/animation'
+} from '@aethervtt/shard-animation'
 import {
   addCreatureAssets,
   type Creature,
   creature,
   spawnCreatures,
-} from '@shard/animation/testing'
-import { assetServer } from '@shard/assets'
+} from '@aethervtt/shard-animation/testing'
+import { assetServer } from '@aethervtt/shard-assets'
 import {
   type AssetRef,
   defineComponent,
@@ -22,11 +22,11 @@ import {
   quat,
   t,
   Update,
-} from '@shard/core'
-import { AmbientLight, Camera3d, DirectionalLight, Exposure, Gizmos } from '@shard/render'
-import { type App, definePlugin, Time } from '@shard/runtime'
-import { loadScene, whenSceneReady } from '@shard/scene'
-import { lookAt, Transform } from '@shard/transform'
+} from '@aethervtt/shard-core'
+import { AmbientLight, Camera3d, DirectionalLight, Exposure, Gizmos } from '@aethervtt/shard-render'
+import { type App, definePlugin, Time } from '@aethervtt/shard-runtime'
+import { loadScene, whenSceneReady } from '@aethervtt/shard-scene'
+import { lookAt, Transform } from '@aethervtt/shard-transform'
 import { axisAngle, curl, jointClip, mul, wave } from './animation'
 import { hudExtras } from './hud'
 import { memoryPlatform } from './memory'

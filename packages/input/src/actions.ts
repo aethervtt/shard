@@ -1,4 +1,9 @@
-import { defineResource, type JsonSchema, type ResourceDef, ShardError } from '@shard/core'
+import {
+  defineResource,
+  type JsonSchema,
+  type ResourceDef,
+  ShardError,
+} from '@aethervtt/shard-core'
 import { type ParsedBinding, parseBinding } from './bindings'
 import type { GamepadsState, KeyboardState, MouseState, TouchesState } from './devices'
 

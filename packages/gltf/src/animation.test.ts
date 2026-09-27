@@ -10,13 +10,18 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { AnimationClips, AnimationPlayer, animationLayer, animationPlugin } from '@shard/animation'
-import { assetServer, findAssetPreview } from '@shard/assets'
-import { ChildOf, type Entity, quat } from '@shard/core'
-import type { GpuContext } from '@shard/gpu'
-import { createNodeGpuContext } from '@shard/gpu/node'
-import { Mesh } from '@shard/mesh'
-import { createNodePlatform } from '@shard/platform-node'
+import {
+  AnimationClips,
+  AnimationPlayer,
+  animationLayer,
+  animationPlugin,
+} from '@aethervtt/shard-animation'
+import { assetServer, findAssetPreview } from '@aethervtt/shard-assets'
+import { ChildOf, type Entity, quat } from '@aethervtt/shard-core'
+import type { GpuContext } from '@aethervtt/shard-gpu'
+import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
+import { Mesh } from '@aethervtt/shard-mesh'
+import { createNodePlatform } from '@aethervtt/shard-platform-node'
 import {
   captureView,
   DEFORM_WORDS,
@@ -32,16 +37,16 @@ import {
   Shaders,
   SkinnedMesh,
   Visibility,
-} from '@shard/render'
-import { App } from '@shard/runtime'
+} from '@aethervtt/shard-render'
+import { App } from '@aethervtt/shard-runtime'
 import {
   findEntityByPath,
   loadScene,
   type SceneEntity,
   ScenePlugin,
   whenSceneReady,
-} from '@shard/scene'
-import { GlobalTransform, Transform, TransformPlugin } from '@shard/transform'
+} from '@aethervtt/shard-scene'
+import { GlobalTransform, Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Accessors } from './accessors'
 import { parseGltf } from './document'

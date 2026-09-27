@@ -1,7 +1,7 @@
 # 0015 — glTF/GLB loader
 
 - **Status:** implemented
-- **Packages:** `@shard/gltf` (new), `@shard/mesh`, `@shard/render`, `@shard/scene`
+- **Packages:** `@aethervtt/shard-gltf` (new), `@aethervtt/shard-mesh`, `@aethervtt/shard-render`, `@aethervtt/shard-scene`
 - **Depends on:** 0004, 0007, 0010, 0014
 
 ## Context
@@ -105,7 +105,7 @@ between models imported with different settings.
 
 ### Artifacts
 
-- **Mesh** artifacts use a small binary format defined here and owned by `@shard/mesh`
+- **Mesh** artifacts use a small binary format defined here and owned by `@aethervtt/shard-mesh`
   (`encodeMesh` / `decodeMesh`): a header, an attribute table, then 4-byte-aligned attribute arrays
   and indices in little-endian order. Loading creates TypedArray views over the artifact bytes
   without copying. The primitive meshes and every later mesh importer use the same format.
@@ -209,7 +209,7 @@ between models imported with different settings.
 - **`scale` and `forward` are baked into the top-level nodes' transforms** rather than a wrapper
   entity, so instance paths stay `ship/Hull`. As built, `forward: "+z"` keeps the file as authored
   and `"-z"` turns the model 180° to face Shard's forward.
-- **SceneInstance** lives in `@shard/scene`, with a `ScenePlugin` that `buildApp` adds. Children
+- **SceneInstance** lives in `@aethervtt/shard-scene`, with a `ScenePlugin` that `buildApp` adds. Children
   spawn in `whenSceneReady` (headless) and through a PreUpdate system that only does work when an
   instance was added or changed (a dirty flag set by an observer) or its asset reloaded.
 - **Names:** unnamed nodes become `Node<index>` (Box.glb's mesh is at `box/Node0/Node1`).

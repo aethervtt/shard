@@ -1,4 +1,4 @@
-import type { PreviewImage } from '@shard/assets'
+import type { PreviewImage } from '@aethervtt/shard-assets'
 
 /** Nearest-neighbour fit of RGBA8 pixels into width × height, keeping the aspect ratio. */
 export function fitImage(

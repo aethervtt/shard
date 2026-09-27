@@ -1,5 +1,5 @@
-import { defineImporter, type ImportContext } from '@shard/assets'
-import { defineSchema, ShardError } from '@shard/core'
+import { defineImporter, type ImportContext } from '@aethervtt/shard-assets'
+import { defineSchema, ShardError } from '@aethervtt/shard-core'
 import { decodeImage } from './decode'
 import type { Image } from './image'
 import { flipGreen, usageFromName } from './importer'

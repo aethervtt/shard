@@ -1,7 +1,7 @@
-import { assetServer } from '@shard/assets'
-import { type AssetRef, type Entity, ShardError, type World } from '@shard/core'
-import { type NoiseGraph, NoiseGraphs } from '@shard/noise'
-import { LogResource } from '@shard/runtime'
+import { assetServer } from '@aethervtt/shard-assets'
+import { type AssetRef, type Entity, ShardError, type World } from '@aethervtt/shard-core'
+import { type NoiseGraph, NoiseGraphs } from '@aethervtt/shard-noise'
+import { LogResource } from '@aethervtt/shard-runtime'
 import {
   Biome,
   BiomeSet,

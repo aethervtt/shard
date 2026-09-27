@@ -5,7 +5,7 @@ import {
   type Entity,
   findComponent,
   type World,
-} from '@shard/core'
+} from '@aethervtt/shard-core'
 
 let memberDef: ComponentDef | null | undefined
 let partDef: ComponentDef | null | undefined

@@ -8,14 +8,14 @@ import {
   AnimationPlayer,
   animationLayer,
   crossfade,
-} from '@shard/animation'
+} from '@aethervtt/shard-animation'
 import {
   addCreatureAssets,
   type Creature,
   creature,
   spawnCreatures,
-} from '@shard/animation/testing'
-import { assetServer } from '@shard/assets'
+} from '@aethervtt/shard-animation/testing'
+import { assetServer } from '@aethervtt/shard-assets'
 import {
   type AssetRef,
   defineSystem,
@@ -24,8 +24,8 @@ import {
   ProfilerResource,
   quat,
   Update,
-} from '@shard/core'
-import '@shard/gltf'
+} from '@aethervtt/shard-core'
+import '@aethervtt/shard-gltf'
 import {
   AmbientLight,
   Camera3d,
@@ -34,10 +34,10 @@ import {
   Gizmos,
   Instances,
   setOverlays,
-} from '@shard/render'
-import { type App, definePlugin, Time } from '@shard/runtime'
-import { loadScene, type SceneEntity, whenSceneReady } from '@shard/scene'
-import { lookAt, Transform } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { type App, definePlugin, Time } from '@aethervtt/shard-runtime'
+import { loadScene, type SceneEntity, whenSceneReady } from '@aethervtt/shard-scene'
+import { lookAt, Transform } from '@aethervtt/shard-transform'
 import morphUrl from '../../../packages/gltf/fixtures/khronos/AnimatedMorphCube/glTF-Binary/AnimatedMorphCube.glb?url'
 import cesiumUrl from '../../../packages/gltf/fixtures/khronos/CesiumMan/glTF-Binary/CesiumMan.glb?url'
 import { hudExtras } from './hud'

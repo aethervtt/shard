@@ -1,4 +1,4 @@
-import { AssetStore, defineAssetType } from '@shard/assets'
+import { AssetStore, defineAssetType } from '@aethervtt/shard-assets'
 import {
   affine,
   ChildOf,
@@ -7,10 +7,10 @@ import {
   type Entity,
   ShardError,
   type World,
-} from '@shard/core'
-import type { Mesh } from '@shard/mesh'
-import { LogResource } from '@shard/runtime'
-import { GlobalTransform } from '@shard/transform'
+} from '@aethervtt/shard-core'
+import type { Mesh } from '@aethervtt/shard-mesh'
+import { LogResource } from '@aethervtt/shard-runtime'
+import { GlobalTransform } from '@aethervtt/shard-transform'
 import { DEFORM_WORDS, type DeformStore, type MeshDeform } from './deform'
 import { InstanceSlot, type InstanceStore, Instances, MorphWeights, SkinnedMesh } from './instances'
 import { defineOverlay } from './overlays'

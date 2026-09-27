@@ -1,4 +1,4 @@
-import { type AssetEntry, assetServer } from '@shard/assets'
+import { type AssetEntry, assetServer } from '@aethervtt/shard-assets'
 import {
   type AssetRef,
   ChildOf,
@@ -17,9 +17,9 @@ import {
   type SchemaContext,
   ShardError,
   World,
-} from '@shard/core'
-import { type Log, LogResource, type Plugin } from '@shard/runtime'
-import { Transform } from '@shard/transform'
+} from '@aethervtt/shard-core'
+import { type Log, LogResource, type Plugin } from '@aethervtt/shard-runtime'
+import { Transform } from '@aethervtt/shard-transform'
 import {
   InstancePart,
   PrefabAssets,

@@ -8,9 +8,9 @@ import {
   mat4,
   t,
   vec3,
-} from '@shard/core'
-import { Time } from '@shard/runtime'
-import { GlobalTransform } from '@shard/transform'
+} from '@aethervtt/shard-core'
+import { Time } from '@aethervtt/shard-runtime'
+import { GlobalTransform } from '@aethervtt/shard-transform'
 import { RenderTargets } from './assets'
 import { Camera3d, Exposure, exposureScale } from './camera'
 import type { RenderView } from './graph'

@@ -1,7 +1,7 @@
 # 0019 — HDR, tonemapping, image-based lighting, and sky
 
 - **Status:** implemented
-- **Packages:** `@shard/render`, `@shard/texture`
+- **Packages:** `@aethervtt/shard-render`, `@aethervtt/shard-texture`
 - **Depends on:** 0007, 0016, 0018
 
 ## Context
@@ -159,7 +159,7 @@ EnvironmentMap {
   `#ibl` playground demo takes 4.4 ms of GPU time in Chrome on the dev machine (Apple M4).
 - **IBL term:** as specified, plus Lagarde's specular occlusion from `occlusion`, and Fresnel
   with roughness for the diffuse weight. The white furnace test reflects L within 5%.
-- **Cube maps:** `@shard/texture` gained cube KTX2 support (`faces: 6`, uncompressed; Basis cube
+- **Cube maps:** `@aethervtt/shard-texture` gained cube KTX2 support (`faces: 6`, uncompressed; Basis cube
   maps come later). Fixing this also fixed a latent bug: `readKtx2` ignored the usage tag when
   ktx-parse returned it as bytes, so `.hdr` artifacts loaded as 8-bit data. An RGBA16F format now
   always means `hdr`.

@@ -1,4 +1,4 @@
-import type { PreviewImage } from '@shard/protocol'
+import type { PreviewImage } from '@aethervtt/shard-protocol'
 
 // 5×7 glyphs, one row per string, '#' set: enough for "seed 12" and param labels.
 const GLYPHS: Record<string, string[]> = {

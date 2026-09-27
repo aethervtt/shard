@@ -1,4 +1,4 @@
-import { ShardError } from '@shard/core'
+import { ShardError } from '@aethervtt/shard-core'
 
 /**
  * Hooks: WESL has no function overrides, so this pre-pass adds them.

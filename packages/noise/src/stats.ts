@@ -1,5 +1,5 @@
-import type { PreviewImage } from '@shard/assets'
-import { ShardError } from '@shard/core'
+import type { PreviewImage } from '@aethervtt/shard-assets'
+import { ShardError } from '@aethervtt/shard-core'
 import type { NoiseGraph } from './noise-graph'
 import { sampleGrid2d, sampleOffset, sampleSpherePatch } from './sample'
 

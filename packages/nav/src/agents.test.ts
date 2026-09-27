@@ -1,12 +1,12 @@
-import type { Entity } from '@shard/core'
+import type { Entity } from '@aethervtt/shard-core'
 import {
   CharacterController,
   CharacterState,
   Collider,
   physics3dPlugin,
   RigidBody,
-} from '@shard/physics'
-import { Transform } from '@shard/transform'
+} from '@aethervtt/shard-physics'
+import { Transform } from '@aethervtt/shard-transform'
 import { describe, expect, it } from 'vitest'
 import {
   NavAgent,

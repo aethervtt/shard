@@ -1,5 +1,5 @@
 {
-  "name": "@shard/gpu",
+  "name": "@aethervtt/shard-gpu",
   "version": "0.0.0",
   "license": "MIT",
   "private": true,
@@ -13,7 +13,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@shard/core": "workspace:*"
+    "@aethervtt/shard-core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^26.6.2",

@@ -1,7 +1,7 @@
-import { assetServer } from '@shard/assets'
-import type { KeyValueStorage, PlatformFileSystem } from '@shard/platform'
-import { definePlugin } from '@shard/runtime'
-import { updateInstances } from '@shard/scene'
+import { assetServer } from '@aethervtt/shard-assets'
+import type { KeyValueStorage, PlatformFileSystem } from '@aethervtt/shard-platform'
+import { definePlugin } from '@aethervtt/shard-runtime'
+import { updateInstances } from '@aethervtt/shard-scene'
 import { procgenMethods } from './methods'
 import { procgen } from './runtime'
 

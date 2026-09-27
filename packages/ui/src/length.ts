@@ -1,4 +1,9 @@
-import { type FieldOptions, type FieldType, type JsonSchema, ShardError } from '@shard/core'
+import {
+  type FieldOptions,
+  type FieldType,
+  type JsonSchema,
+  ShardError,
+} from '@aethervtt/shard-core'
 
 /** A size or offset: pixels (a number), a percent of the parent (`"50%"`), or `"auto"`. */
 export type UiLength = number | `${number}%` | 'auto'

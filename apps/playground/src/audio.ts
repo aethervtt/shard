@@ -1,4 +1,4 @@
-import { assetServer } from '@shard/assets'
+import { assetServer } from '@aethervtt/shard-assets'
 import {
   AudioBuses,
   AudioSource,
@@ -7,7 +7,7 @@ import {
   duck,
   playSound,
   setBus,
-} from '@shard/audio'
+} from '@aethervtt/shard-audio'
 import {
   defineResource,
   defineSystem,
@@ -16,10 +16,10 @@ import {
   quat,
   Update,
   type World,
-} from '@shard/core'
-import { sphere, torus } from '@shard/mesh'
-import type { Platform } from '@shard/platform'
-import { createWebAudioBackend, type WebAudioBackend } from '@shard/platform-web'
+} from '@aethervtt/shard-core'
+import { sphere, torus } from '@aethervtt/shard-mesh'
+import type { Platform } from '@aethervtt/shard-platform'
+import { createWebAudioBackend, type WebAudioBackend } from '@aethervtt/shard-platform-web'
 import {
   AmbientLight,
   Camera3d,
@@ -30,16 +30,16 @@ import {
   Mesh3d,
   Meshes,
   MeshMaterial,
-} from '@shard/render'
-import { App, definePlugin, Time } from '@shard/runtime'
+} from '@aethervtt/shard-render'
+import { App, definePlugin, Time } from '@aethervtt/shard-runtime'
 import {
   findEntityByPath,
   loadScene,
   type SceneFile,
   ScenePlugin,
   whenSceneReady,
-} from '@shard/scene'
-import { Transform, TransformPlugin } from '@shard/transform'
+} from '@aethervtt/shard-scene'
+import { Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import laserUrl from '../../../examples/star-explorer/assets/sfx/laser.ogg?url'
 import { hudExtras } from './hud'
 import { memoryPlatform } from './memory'

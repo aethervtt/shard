@@ -1,7 +1,7 @@
 # Write a gameplay test
 
 ```ts
-import { expect, test } from '@shard/testing'
+import { expect, test } from '@aethervtt/shard-testing'
 
 test('thrust moves the ship', async ({ game }) => {
   await game.load('scenes/main.scene.json')

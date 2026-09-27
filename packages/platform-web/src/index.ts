@@ -1,5 +1,5 @@
-import { ShardError } from '@shard/core'
-import type { AudioBackend, Platform, PlatformFileSystem, Workers } from '@shard/platform'
+import { ShardError } from '@aethervtt/shard-core'
+import type { AudioBackend, Platform, PlatformFileSystem, Workers } from '@aethervtt/shard-platform'
 import { createWebAudioBackend } from './audio'
 import { createIndexedDbStorage } from './storage'
 import { createWebWorkers } from './workers'

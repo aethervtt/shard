@@ -5,7 +5,7 @@ import {
   defineAssetType,
   defineImporter,
   type ImporterDef,
-} from '@shard/assets'
+} from '@aethervtt/shard-assets'
 import {
   type ComponentDef,
   defineResource,
@@ -19,8 +19,8 @@ import {
   ShardError,
   t,
   type World,
-} from '@shard/core'
-import { type App, type AppMethod, LogResource } from '@shard/runtime'
+} from '@aethervtt/shard-core'
+import { type App, type AppMethod, LogResource } from '@aethervtt/shard-runtime'
 import { Localized, ScreenText, Text } from './components'
 
 // --- string tables -------------------------------------------------------------------------------

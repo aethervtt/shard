@@ -1,7 +1,7 @@
+import { defineSystem, type Entity, type Table, type World } from '@aethervtt/shard-core'
+import { FixedTime } from '@aethervtt/shard-runtime'
+import { GlobalTransform, GridFramesResource, Transform } from '@aethervtt/shard-transform'
 import type RAPIER from '@dimforge/rapier3d-compat'
-import { defineSystem, type Entity, type Table, type World } from '@shard/core'
-import { FixedTime } from '@shard/runtime'
-import { GlobalTransform, GridFramesResource, Transform } from '@shard/transform'
 import {
   CharacterController,
   CharacterGroundEvent,

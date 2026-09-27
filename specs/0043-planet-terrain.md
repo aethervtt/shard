@@ -1,8 +1,8 @@
 # 0043 — Planet terrain
 
 - **Status:** implemented
-- **Packages:** `@shard/terrain` (new), `@shard/render`, `@shard/texture`, `@shard/physics`,
-  `@shard/nav`, `@shard/procgen`
+- **Packages:** `@aethervtt/shard-terrain` (new), `@aethervtt/shard-render`, `@aethervtt/shard-texture`, `@aethervtt/shard-physics`,
+  `@aethervtt/shard-nav`, `@aethervtt/shard-procgen`
 - **Depends on:** 0016, 0020, 0022, 0028, 0029, 0031, 0037, 0040, 0041, 0042
 
 ## Context
@@ -231,7 +231,7 @@ BiomeSet { biomes: list(handle('terrain/Biome')), albedo, normal, orm: handle('T
 
 ### Biomes and texturing
 
-- Texture arrays arrive in `@shard/texture`: `Texture.create({ …, layers: n })` and a
+- Texture arrays arrive in `@aethervtt/shard-texture`: `Texture.create({ …, layers: n })` and a
   `TextureArray` importer (`*.texarray.json` listing files, all resized to one size and format).
   0016 deferred this to M7.
 - The kernel writes climate per vertex (uv = temperature, moisture). The `terrain/PlanetSurface`

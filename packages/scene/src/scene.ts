@@ -1,4 +1,4 @@
-import { assetServer } from '@shard/assets'
+import { assetServer } from '@aethervtt/shard-assets'
 import {
   type AssetRef,
   ChildOf,
@@ -14,9 +14,9 @@ import {
   type SchemaContext,
   ShardError,
   type World,
-} from '@shard/core'
-import { Materials, Meshes, materialFromJson, validateMaterial } from '@shard/render'
-import { FloatingOrigin, Grid, GridCell, Transform } from '@shard/transform'
+} from '@aethervtt/shard-core'
+import { Materials, Meshes, materialFromJson, validateMaterial } from '@aethervtt/shard-render'
+import { FloatingOrigin, Grid, GridCell, Transform } from '@aethervtt/shard-transform'
 import {
   InstancePart,
   type LoadedScene,

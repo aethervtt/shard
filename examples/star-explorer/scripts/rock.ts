@@ -1,6 +1,6 @@
-import { t } from '@shard/core'
-import type { NoiseGraph } from '@shard/noise'
-import { defineGenerator } from '@shard/procgen'
+import { t } from '@aethervtt/shard-core'
+import type { NoiseGraph } from '@aethervtt/shard-noise'
+import { defineGenerator } from '@aethervtt/shard-procgen'
 import { displaceAlongNormals } from './displace'
 
 /**

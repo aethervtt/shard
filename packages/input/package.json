@@ -1,5 +1,5 @@
 {
-  "name": "@shard/input",
+  "name": "@aethervtt/shard-input",
   "version": "0.0.0",
   "license": "MIT",
   "private": true,
@@ -12,8 +12,8 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@shard/core": "workspace:*",
-    "@shard/platform": "workspace:*",
-    "@shard/runtime": "workspace:*"
+    "@aethervtt/shard-core": "workspace:*",
+    "@aethervtt/shard-platform": "workspace:*",
+    "@aethervtt/shard-runtime": "workspace:*"
   }
 }

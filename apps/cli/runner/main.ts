@@ -2,10 +2,10 @@
  * The page `shard dev` serves: loads the engine, fetches the project bundle, runs the project with
  * a canvas and DOM input, and dials the dev server's hub so tools (and hot reload) can reach it.
  */
-import { assetServer } from '@shard/assets'
-import { ShardError } from '@shard/core'
-import { createDomInputSource, createWebPlatform } from '@shard/platform-web'
-import { configureProcgenHost, setGeneratorCodeHashes } from '@shard/procgen'
+import { assetServer } from '@aethervtt/shard-assets'
+import { ShardError } from '@aethervtt/shard-core'
+import { createDomInputSource, createWebPlatform } from '@aethervtt/shard-platform-web'
+import { configureProcgenHost, setGeneratorCodeHashes } from '@aethervtt/shard-procgen'
 import {
   buildApp,
   inlineSourceMap,
@@ -15,11 +15,11 @@ import {
   type ManifestValue,
   ProjectSession,
   type SourceMap,
-} from '@shard/project'
-import { connectToHub, createProtocolServer } from '@shard/protocol'
-import { Shaders } from '@shard/render'
-import { animationFrameRunner, LogResource, type Plugin } from '@shard/runtime'
-import { loadScene, whenSceneReady } from '@shard/scene'
+} from '@aethervtt/shard-project'
+import { connectToHub, createProtocolServer } from '@aethervtt/shard-protocol'
+import { Shaders } from '@aethervtt/shard-render'
+import { animationFrameRunner, LogResource, type Plugin } from '@aethervtt/shard-runtime'
+import { loadScene, whenSceneReady } from '@aethervtt/shard-scene'
 
 interface DevInfo {
   manifest: ManifestValue
@@ -64,12 +64,12 @@ async function mapFor(url: string): Promise<void> {
 const toProjectPath = (s: string) => s.replace(/^(\.\.\/)+/, '')
 
 async function start() {
-  const info = (await (await fetch('/@shard/project.json')).json()) as DevInfo
+  const info = (await (await fetch('/@aethervtt/shard-project.json')).json()) as DevInfo
   const { manifest } = info
   document.title = `${manifest.name} · shard dev`
   // Saves and settings: one IndexedDB database per project.
   const platform = createWebPlatform({
-    baseUrl: `${location.origin}/@shard/files/`,
+    baseUrl: `${location.origin}/@aethervtt/shard-files/`,
     storageName: `shard:${manifest.name}`,
   })
 
@@ -101,7 +101,7 @@ async function start() {
       app.world.resource(LogResource).error(err)
     }
   }
-  for (const shader of (await (await fetch('/@shard/shaders.json')).json()) as {
+  for (const shader of (await (await fetch('/@aethervtt/shard-shaders.json')).json()) as {
     file: string
     source: string
   }[])

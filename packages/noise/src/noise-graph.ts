@@ -1,5 +1,10 @@
-import { AssetStore, defineAssetSchema, defineAssetType, defineImporter } from '@shard/assets'
-import { defineResource, defineSchema, type JsonValue, ShardError } from '@shard/core'
+import {
+  AssetStore,
+  defineAssetSchema,
+  defineAssetType,
+  defineImporter,
+} from '@aethervtt/shard-assets'
+import { defineResource, defineSchema, type JsonValue, ShardError } from '@aethervtt/shard-core'
 import { compileGraph, type NoiseProgram } from './compile'
 import { type ParsedGraph, parseGraph } from './graph'
 import { computeOrigins } from './kernel'

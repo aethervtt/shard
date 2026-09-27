@@ -1,4 +1,4 @@
-import type { DataType } from '@shard/assets'
+import type { DataType } from '@aethervtt/shard-assets'
 import {
   type AnyField,
   type AssetRef,
@@ -11,9 +11,9 @@ import {
   isPlainObject,
   type JsonValue,
   ShardError,
-} from '@shard/core'
-import type { MeshData } from '@shard/mesh'
-import type { TextureUsage } from '@shard/texture'
+} from '@aethervtt/shard-core'
+import type { MeshData } from '@aethervtt/shard-mesh'
+import type { TextureUsage } from '@aethervtt/shard-texture'
 import type { GenContext } from './context'
 
 // --- outputs -----------------------------------------------------------------------------------

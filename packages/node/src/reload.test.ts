@@ -1,11 +1,11 @@
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { AssetStore } from '@shard/assets'
-import { findComponent, findResource } from '@shard/core'
-import type { GpuContext } from '@shard/gpu'
-import { createNodeGpuContext } from '@shard/gpu/node'
-import { LogResource } from '@shard/runtime'
+import type { AssetStore } from '@aethervtt/shard-assets'
+import { findComponent, findResource } from '@aethervtt/shard-core'
+import type { GpuContext } from '@aethervtt/shard-gpu'
+import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
+import { LogResource } from '@aethervtt/shard-runtime'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { type HeadlessProject, openProject } from './index'
 
@@ -36,7 +36,7 @@ const ship = async () =>
 
 beforeAll(async () => {
   gpu = await createNodeGpuContext()
-  // Inside the example, so `@shard/*` resolves through its node_modules.
+  // Inside the example, so `@aethervtt/shard-*` resolves through its node_modules.
   root = mkdtempSync(join(example, '.shard', 'reload-'))
   for (const dir of [
     'scripts',
@@ -61,7 +61,7 @@ afterAll(() => {
 describe('project code in bundle mode', () => {
   it('shares engine module instances with the host', () => {
     const Ship = findComponent('star-explorer/Ship')!
-    // The bundle defined Ship through the same @shard/core the host uses: the world stores it.
+    // The bundle defined Ship through the same @aethervtt/shard-core the host uses: the world stores it.
     expect(project.app.world.registry.component('star-explorer/Ship')).toBe(Ship)
   })
 

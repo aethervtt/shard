@@ -1,5 +1,5 @@
-import { findPath, Nav, NavAgent, NavAgentState, navPlugin } from '@shard/nav'
-import { loadNoiseKernel, NoiseGraph, NoiseGraphs } from '@shard/noise'
+import { findPath, Nav, NavAgent, NavAgentState, navPlugin } from '@aethervtt/shard-nav'
+import { loadNoiseKernel, NoiseGraph, NoiseGraphs } from '@aethervtt/shard-noise'
 import {
   CharacterController,
   CharacterIntent,
@@ -7,8 +7,8 @@ import {
   GravitySource,
   PhysicsConfig,
   physics3dPlugin,
-} from '@shard/physics'
-import { App } from '@shard/runtime'
+} from '@aethervtt/shard-physics'
+import { App } from '@aethervtt/shard-runtime'
 import {
   FloatingOrigin,
   Grid,
@@ -16,7 +16,7 @@ import {
   Transform,
   TransformPlugin,
   worldPosition64,
-} from '@shard/transform'
+} from '@aethervtt/shard-transform'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { Planet, PlanetNav } from './components'
 import { keyString, nodeAt } from './cube'

@@ -6,7 +6,7 @@ import {
   defaultWorkerCount,
   type Workers,
   workerHostSource,
-} from '@shard/platform'
+} from '@aethervtt/shard-platform'
 
 /**
  * A pool of `worker_threads`. Idle workers are unref'd, so a CLI command exits once its jobs are

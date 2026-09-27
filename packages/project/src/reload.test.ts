@@ -1,5 +1,5 @@
-import { defineSystem, findResource, t, Update, type World } from '@shard/core'
-import { App } from '@shard/runtime'
+import { defineSystem, findResource, t, Update, type World } from '@aethervtt/shard-core'
+import { App } from '@aethervtt/shard-runtime'
 import { describe, expect, it } from 'vitest'
 import { defineProject, type ProjectDef } from './define'
 import { createProjectReloader } from './reload'

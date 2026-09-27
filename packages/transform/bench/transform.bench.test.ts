@@ -1,5 +1,5 @@
-import { ChildOf, type Entity, Rng, Update } from '@shard/core'
-import { App } from '@shard/runtime'
+import { ChildOf, type Entity, Rng, Update } from '@aethervtt/shard-core'
+import { App } from '@aethervtt/shard-runtime'
 import { describe, expect, it } from 'vitest'
 import { FloatingOrigin, Grid, GridCell, Transform, TransformPlugin } from '../src'
 

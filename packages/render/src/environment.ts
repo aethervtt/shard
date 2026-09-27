@@ -5,9 +5,9 @@ import {
   type Entity,
   t,
   type World,
-} from '@shard/core'
-import { GpuBuffer, type GpuContext } from '@shard/gpu'
-import { type Texture, Textures } from '@shard/texture'
+} from '@aethervtt/shard-core'
+import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
+import { type Texture, Textures } from '@aethervtt/shard-texture'
 import type { CameraAtmosphere } from './atmosphere'
 import { Atmospheres } from './atmosphere'
 import { GpuAssetsResource } from './gpu-assets'

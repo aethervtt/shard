@@ -4,14 +4,14 @@ import {
   defineAssetType,
   defineImporter,
   type LoadContext,
-} from '@shard/assets'
+} from '@aethervtt/shard-assets'
 import {
   type AssetRef,
   defineResource,
   defineSchema,
   type JsonValue,
   ShardError,
-} from '@shard/core'
+} from '@aethervtt/shard-core'
 import { MODULES, moduleJsonSchema, validateModule } from './modules'
 import { color, invalid, type Rgba, scalar } from './values'
 

@@ -1,7 +1,7 @@
 # 0022 — Instancing, culling, and LOD
 
 - **Status:** implemented
-- **Packages:** `@shard/render`, `@shard/core`, `@shard/gltf`, `@shard/protocol`
+- **Packages:** `@aethervtt/shard-render`, `@aethervtt/shard-core`, `@aethervtt/shard-gltf`, `@aethervtt/shard-protocol`
 - **Depends on:** 0007, 0018, 0020
 
 ## Context

@@ -1,11 +1,11 @@
-import { defineSystem, FixedUpdate, t, Update } from '@shard/core'
-import { addActions, defineActions } from '@shard/input'
-import { NavAgent } from '@shard/nav'
-import { defineProject } from '@shard/project'
-import { FixedTime } from '@shard/runtime'
-import { findEntityByPath } from '@shard/scene'
-import { tileAt } from '@shard/sprite'
-import { Transform } from '@shard/transform'
+import { defineSystem, FixedUpdate, t, Update } from '@aethervtt/shard-core'
+import { addActions, defineActions } from '@aethervtt/shard-input'
+import { NavAgent } from '@aethervtt/shard-nav'
+import { defineProject } from '@aethervtt/shard-project'
+import { FixedTime } from '@aethervtt/shard-runtime'
+import { findEntityByPath } from '@aethervtt/shard-scene'
+import { tileAt } from '@aethervtt/shard-sprite'
+import { Transform } from '@aethervtt/shard-transform'
 
 /** Arrow keys or WASD run through the maze. */
 export const Controls = defineActions('maze-chase/Controls', {

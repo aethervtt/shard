@@ -11,7 +11,7 @@ import {
   type Table,
   t,
   type World,
-} from '@shard/core'
+} from '@aethervtt/shard-core'
 import { Transform } from './components'
 
 /**

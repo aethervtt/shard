@@ -1,5 +1,5 @@
 {
-  "name": "@shard/platform-node",
+  "name": "@aethervtt/shard-platform-node",
   "version": "0.0.0",
   "license": "MIT",
   "private": true,
@@ -12,8 +12,8 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@shard/core": "workspace:*",
-    "@shard/platform": "workspace:*"
+    "@aethervtt/shard-core": "workspace:*",
+    "@aethervtt/shard-platform": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^26.6.2"

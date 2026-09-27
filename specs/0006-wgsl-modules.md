@@ -1,7 +1,7 @@
 # 0006 — WGSL module system
 
 - **Status:** implemented
-- **Packages:** `@shard/shader`
+- **Packages:** `@aethervtt/shard-shader`
 - **Depends on:** 0002, 0005
 
 ## Context

@@ -1,7 +1,7 @@
 # 0051 — Render scale and dynamic resolution
 
 - **Status:** implemented
-- **Packages:** `@shard/runtime`, `@shard/gpu`, `@shard/render`, `@shard/terrain`, `@shard/ui`, `@shard/text`, `@shard/sprite`
+- **Packages:** `@aethervtt/shard-runtime`, `@aethervtt/shard-gpu`, `@aethervtt/shard-render`, `@aethervtt/shard-terrain`, `@aethervtt/shard-ui`, `@aethervtt/shard-text`, `@aethervtt/shard-sprite`
 - **Depends on:** 0005, 0007, 0021, 0023, 0044
 
 ## Context
@@ -90,7 +90,7 @@ Extraction copies it to `CameraData.pixelRatio`.
 
 ### Display rate
 
-`DisplayRate` (`@shard/runtime`) is `{ hz, periodMs, source }`, inserted by the time plugin at an
+`DisplayRate` (`@aethervtt/shard-runtime`) is `{ hz, periodMs, source }`, inserted by the time plugin at an
 assumed 60 Hz, so headless runs see a fixed value. Before its first update, `animationFrameRunner`
 times 12 idle `requestAnimationFrame` intervals (0.1 s at 120 Hz, 0.2 s at 60), takes the median,
 and snaps it to the nearest shipping rate within 4% (60, 75, 90, 120, 144, 165, 240…).

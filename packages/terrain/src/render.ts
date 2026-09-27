@@ -7,10 +7,10 @@ import {
   ProfilerResource,
   type Query,
   type World,
-} from '@shard/core'
-import type { GpuContext } from '@shard/gpu'
-import { Mesh } from '@shard/mesh'
-import { computeOrigins } from '@shard/noise'
+} from '@aethervtt/shard-core'
+import type { GpuContext } from '@aethervtt/shard-gpu'
+import { Mesh } from '@aethervtt/shard-mesh'
+import { computeOrigins } from '@aethervtt/shard-noise'
 import {
   Camera3d,
   Cameras,
@@ -29,11 +29,16 @@ import {
   RenderPhase,
   Shaders,
   Visibility,
-} from '@shard/render'
-import type { App } from '@shard/runtime'
-import { Time } from '@shard/runtime'
-import { Texture, Textures, toHalf } from '@shard/texture'
-import { GlobalTransform, placeInGrid, propagateSubtree, Transform } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import type { App } from '@aethervtt/shard-runtime'
+import { Time } from '@aethervtt/shard-runtime'
+import { Texture, Textures, toHalf } from '@aethervtt/shard-texture'
+import {
+  GlobalTransform,
+  placeInGrid,
+  propagateSubtree,
+  Transform,
+} from '@aethervtt/shard-transform'
 import { chunkCenter, chunkIndices, chunkLayout } from './chunk'
 import { type ColliderChunk, collidersOf, skirtDepth } from './colliders'
 import { Chunk, TerrainBudget } from './components'
@@ -1532,7 +1537,7 @@ export function registerNode(app: App): void {
   const graph = app.world.tryResource(Graph)
   if (!graph) return
   for (const [path, source] of Object.entries(TERRAIN_SHADERS)) {
-    app.world.resource(Shaders).register(path, source, '@shard/terrain')
+    app.world.resource(Shaders).register(path, source, '@aethervtt/shard-terrain')
   }
   graph.addNode('terrain/generate', {
     kind: 'raw',

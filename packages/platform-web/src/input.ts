@@ -1,4 +1,4 @@
-import type { InputSource, MouseButton, RawInputEvent } from '@shard/platform'
+import type { InputSource, MouseButton, RawInputEvent } from '@aethervtt/shard-platform'
 
 const BUTTONS: MouseButton[] = ['left', 'middle', 'right', 'back', 'forward']
 

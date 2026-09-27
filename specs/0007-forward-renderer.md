@@ -1,7 +1,7 @@
 # 0007 — Cameras, meshes, and a basic forward renderer
 
 - **Status:** implemented
-- **Packages:** `@shard/render`, `@shard/mesh`
+- **Packages:** `@aethervtt/shard-render`, `@aethervtt/shard-mesh`
 - **Depends on:** 0004, 0005, 0006
 
 ## Context
@@ -117,7 +117,7 @@ mesh.bounds  // AABB, computed on creation
 
 Procedural primitives, parameterized so agents can build scenes without assets:
 `cube({ size })`, `box({ x, y, z })`, `sphere({ radius, segments })`, `plane({ size, subdivisions })`,
-`cylinder`, `capsule`, `cone`, `torus`. Each generates normals and UVs. These live in `@shard/mesh`,
+`cylinder`, `capsule`, `cone`, `torus`. Each generates normals and UVs. These live in `@aethervtt/shard-mesh`,
 the start of the procedural mesh toolkit (M7 builds furniture and rocks on top).
 
 ### In-memory assets
@@ -212,8 +212,8 @@ Depth: `depth32float`, reversed Z. MSAA 4x by default (configurable), skipped on
   sRGB ≈ 115/255 (photographic mid-gray is ~118), and all pairs land within 2 values of each other.
 - **Golden image:** `packages/render/src/__golden__/reference-scene.rgba`, rendered headless on Dawn;
   compared with a mean-difference tolerance so other GPUs pass.
-- **Where it lives:** the forward renderer is part of `@shard/render` (`forwardPlugin`, name
-  `render/forward`, options `{ msaa: 1 | 4 }`); primitives are `@shard/mesh`.
+- **Where it lives:** the forward renderer is part of `@aethervtt/shard-render` (`forwardPlugin`, name
+  `render/forward`, options `{ msaa: 1 | 4 }`); primitives are `@aethervtt/shard-mesh`.
 - **Presets in code:** `lux('direct-sun')`, `ev100('sunny')`, `LightPresets`, `ExposurePresets`,
   `exposureScale(ev)`. Accepting preset names inside scene files belongs to the scene spec (M3).
 - **Schema additions:** `Camera3d.far` (orthographic only; perspective stays infinite reversed-Z).

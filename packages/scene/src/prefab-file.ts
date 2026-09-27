@@ -1,4 +1,4 @@
-import { assetServer, defineImporter, type ImportContext } from '@shard/assets'
+import { assetServer, defineImporter, type ImportContext } from '@aethervtt/shard-assets'
 import {
   defineSchema,
   type Entity,
@@ -7,7 +7,7 @@ import {
   pointer,
   ShardError,
   World,
-} from '@shard/core'
+} from '@aethervtt/shard-core'
 import { PrefabAssets, PrefabInstance } from './components'
 import { type Overrides, PREFAB_VERSION, type PrefabFile, type SceneEntity } from './format'
 import { currentOverrides, mergeOverridesIntoPrefab, prefabOfInstance } from './instances'

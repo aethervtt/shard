@@ -1,4 +1,4 @@
-import { assetServer } from '@shard/assets'
+import { assetServer } from '@aethervtt/shard-assets'
 import {
   ChildOf,
   defineResource,
@@ -7,8 +7,8 @@ import {
   quat,
   Update,
   type World,
-} from '@shard/core'
-import { sphere } from '@shard/mesh'
+} from '@aethervtt/shard-core'
+import { sphere } from '@aethervtt/shard-mesh'
 import {
   AmbientLight,
   Camera3d,
@@ -21,8 +21,8 @@ import {
   Meshes,
   MeshMaterial,
   setOverlays,
-} from '@shard/render'
-import { definePlugin, Time } from '@shard/runtime'
+} from '@aethervtt/shard-render'
+import { definePlugin, Time } from '@aethervtt/shard-runtime'
 import {
   findEntityByPath,
   loadScene,
@@ -30,9 +30,9 @@ import {
   type SceneEntity,
   type SceneFile,
   whenSceneReady,
-} from '@shard/scene'
-import { Texture, Textures } from '@shard/texture'
-import { lookAt, Transform } from '@shard/transform'
+} from '@aethervtt/shard-scene'
+import { Texture, Textures } from '@aethervtt/shard-texture'
+import { lookAt, Transform } from '@aethervtt/shard-transform'
 import {
   describeUi,
   focusUi,
@@ -48,7 +48,7 @@ import {
   UiText,
   UiTextInput,
   UiToggle,
-} from '@shard/ui'
+} from '@aethervtt/shard-ui'
 import interUrl from '../../../examples/star-explorer/assets/fonts/Inter-Regular.ttf?url'
 import { hudExtras } from './hud'
 import { memoryPlatform } from './memory'

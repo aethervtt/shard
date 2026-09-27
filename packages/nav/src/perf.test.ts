@@ -1,5 +1,5 @@
-import type { Entity } from '@shard/core'
-import { Transform } from '@shard/transform'
+import type { Entity } from '@aethervtt/shard-core'
+import { Transform } from '@aethervtt/shard-transform'
 import { describe, expect, it } from 'vitest'
 import { NavAgent, NavGrid, NavGridDatas, NavMesh } from './components'
 import { createNavPath, findPath } from './query'

@@ -1,7 +1,7 @@
 //! Noise sources over four lanes. Every source takes the integer part of the lattice position
 //! (`i*`, from the origin split) and a small fractional position (`p*`) in the source's own lattice
 //! space: skewed for 2D and 4D simplex, rotated for 3D simplex. The sum is never formed in f32,
-//! so precision depends only on the size of `p`. The WGSL in `@shard/noise` mirrors each function
+//! so precision depends only on the size of `p`. The WGSL in `@aethervtt/shard-noise` mirrors each function
 //! operation for operation.
 
 use crate::hash::*;

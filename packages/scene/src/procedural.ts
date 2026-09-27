@@ -1,5 +1,15 @@
-import { type ResolvedAsset, ShardError, type World } from '@shard/core'
-import { box, capsule, cone, cube, cylinder, type Mesh, plane, sphere, torus } from '@shard/mesh'
+import { type ResolvedAsset, ShardError, type World } from '@aethervtt/shard-core'
+import {
+  box,
+  capsule,
+  cone,
+  cube,
+  cylinder,
+  type Mesh,
+  plane,
+  sphere,
+  torus,
+} from '@aethervtt/shard-mesh'
 
 type Factory = (params: Record<string, number>) => Mesh
 

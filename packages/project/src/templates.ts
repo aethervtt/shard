@@ -3,7 +3,7 @@ export type TemplateName = 'empty' | 'explorer'
 export interface TemplateOptions {
   name: string
   template: TemplateName
-  /** Version spec for `@shard/*` dependencies: `workspace:*` inside the Shard repo, a range otherwise. */
+  /** Version spec for `@aethervtt/shard-*` dependencies: `workspace:*` inside the Shard repo, a range otherwise. */
   engineSpec: string
 }
 
@@ -124,11 +124,11 @@ const explorerScene = (name: string) => ({
 
 const explorerMain = (
   name: string,
-) => `import { defineSystem, FixedUpdate, quat, t, vec3 } from '@shard/core'
-import { addActions, defineActions } from '@shard/input'
-import { defineProject } from '@shard/project'
-import { FixedTime } from '@shard/runtime'
-import { Transform } from '@shard/transform'
+) => `import { defineSystem, FixedUpdate, quat, t, vec3 } from '@aethervtt/shard-core'
+import { addActions, defineActions } from '@aethervtt/shard-input'
+import { defineProject } from '@aethervtt/shard-project'
+import { FixedTime } from '@aethervtt/shard-runtime'
+import { Transform } from '@aethervtt/shard-transform'
 
 /** Flight controls. Bindings are data: an agent (or player) can remap them without code changes. */
 export const Controls = defineActions('${name}/Controls', {
@@ -198,7 +198,7 @@ const fly = defineSystem({
 export default project
 `
 
-const emptyMain = (name: string) => `import { defineProject } from '@shard/project'
+const emptyMain = (name: string) => `import { defineProject } from '@aethervtt/shard-project'
 
 const project = defineProject({
   name: '${name}',
@@ -210,7 +210,7 @@ const project = defineProject({
 export default project
 `
 
-const explorerTest = (name: string) => `import { expect, test } from '@shard/testing'
+const explorerTest = (name: string) => `import { expect, test } from '@aethervtt/shard-testing'
 
 test('holding thrust flies the ship forward', async ({ game }) => {
   await game.load('scenes/main.scene.json')
@@ -229,7 +229,7 @@ test('the ship coasts to a stop without thrust', async ({ game }) => {
 })
 `
 
-const emptyTest = `import { expect, test } from '@shard/testing'
+const emptyTest = `import { expect, test } from '@aethervtt/shard-testing'
 
 test('the start scene loads', async ({ game }) => {
   await game.load('scenes/main.scene.json')
@@ -243,13 +243,13 @@ export function projectTemplate(options: TemplateOptions): Record<string, string
   const { name, template, engineSpec } = options
   const deps = Object.fromEntries(
     [
-      '@shard/cli',
-      '@shard/core',
-      '@shard/input',
-      '@shard/project',
-      '@shard/runtime',
-      '@shard/testing',
-      '@shard/transform',
+      '@aethervtt/shard-cli',
+      '@aethervtt/shard-core',
+      '@aethervtt/shard-input',
+      '@aethervtt/shard-project',
+      '@aethervtt/shard-runtime',
+      '@aethervtt/shard-testing',
+      '@aethervtt/shard-transform',
     ].map((p) => [p, engineSpec]),
   )
   return {

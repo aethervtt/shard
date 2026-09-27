@@ -1,6 +1,6 @@
-import type { AssetRef, Entity, World } from '@shard/core'
-import { ChildOf } from '@shard/core'
-import { Mesh } from '@shard/mesh'
+import type { AssetRef, Entity, World } from '@aethervtt/shard-core'
+import { ChildOf } from '@aethervtt/shard-core'
+import { Mesh } from '@aethervtt/shard-mesh'
 import {
   MaterialAsset,
   Materials,
@@ -10,8 +10,8 @@ import {
   type SkinAsset,
   SkinnedMesh,
   Skins,
-} from '@shard/render'
-import { findEntityByPath, loadScene, type SceneEntity } from '@shard/scene'
+} from '@aethervtt/shard-render'
+import { findEntityByPath, loadScene, type SceneEntity } from '@aethervtt/shard-scene'
 import { animationLayer } from './api'
 import { type AnimationChannel, type AnimationClipAsset, AnimationClips } from './clip'
 import { AnimationPlayer } from './components'

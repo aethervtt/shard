@@ -3,12 +3,12 @@ import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { assetServer } from '@shard/assets'
-import { beginRedefinition, endRedefinition, type ShardError, World } from '@shard/core'
-import { type BuiltBundle, createBundler, prepareGenerators } from '@shard/node'
-import { createNodePlatform } from '@shard/platform-node'
-import { loadProject } from '@shard/project'
-import { DEFAULT_HUB_PORT } from '@shard/protocol'
+import { assetServer } from '@aethervtt/shard-assets'
+import { beginRedefinition, endRedefinition, type ShardError, World } from '@aethervtt/shard-core'
+import { type BuiltBundle, createBundler, prepareGenerators } from '@aethervtt/shard-node'
+import { createNodePlatform } from '@aethervtt/shard-platform-node'
+import { loadProject } from '@aethervtt/shard-project'
+import { DEFAULT_HUB_PORT } from '@aethervtt/shard-protocol'
 import { createServer, type ViteDevServer, type Plugin as VitePlugin } from 'vite'
 import type { CommandContext } from './commands'
 import { EXIT } from './output'
@@ -37,16 +37,16 @@ function projectShaders(root: string): { file: string; source: string }[] {
   return out
 }
 
-/** The engine's packages folder, found through `@shard/core`'s location. */
+/** The engine's packages folder, found through `@aethervtt/shard-core`'s location. */
 function packagesDir(): string {
   const require = createRequire(import.meta.url)
-  // @shard/core resolves to packages/core/src/index.ts.
-  return dirname(dirname(dirname(require.resolve('@shard/core'))))
+  // @aethervtt/shard-core resolves to packages/core/src/index.ts.
+  return dirname(dirname(dirname(require.resolve('@aethervtt/shard-core'))))
 }
 
 /**
- * An import map pointing every `@shard/<pkg>` at the URL Vite serves that package's entry from, so
- * the project bundle (which leaves `@shard/*` external) shares the page's module instances.
+ * An import map pointing every `@aethervtt/shard-<pkg>` at the URL Vite serves that package's entry from, so
+ * the project bundle (which leaves `@aethervtt/shard-*` external) shares the page's module instances.
  */
 function engineImportMap(): Record<string, string> {
   const dir = packagesDir()
@@ -59,7 +59,7 @@ function engineImportMap(): Record<string, string> {
       exports?: Record<string, string>
     }
     const entry = pkg.exports?.['.']
-    if (!pkg.name.startsWith('@shard/') || typeof entry !== 'string') continue
+    if (!pkg.name.startsWith('@aethervtt/shard-') || typeof entry !== 'string') continue
     imports[pkg.name] = `/@fs${resolve(dir, name, entry).split(sep).join('/')}`
   }
   return imports
@@ -140,7 +140,7 @@ export async function dev(ctx: CommandContext): Promise<number> {
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
         const url = new URL(req.url ?? '/', 'http://localhost')
-        if (url.pathname === '/@shard/project.json') {
+        if (url.pathname === '/@aethervtt/shard-project.json') {
           res.setHeader('content-type', 'application/json')
           res.end(
             JSON.stringify({
@@ -177,14 +177,14 @@ export async function dev(ctx: CommandContext): Promise<number> {
           res.end(await readFile(file))
           return
         }
-        if (url.pathname === '/@shard/shaders.json') {
+        if (url.pathname === '/@aethervtt/shard-shaders.json') {
           res.setHeader('content-type', 'application/json')
           res.setHeader('cache-control', 'no-store')
           res.end(JSON.stringify(projectShaders(root)))
           return
         }
-        if (url.pathname.startsWith('/@shard/files/')) {
-          const rel = decodeURIComponent(url.pathname.slice('/@shard/files/'.length))
+        if (url.pathname.startsWith('/@aethervtt/shard-files/')) {
+          const rel = decodeURIComponent(url.pathname.slice('/@aethervtt/shard-files/'.length))
           const file = resolve(root, rel)
           if (!file.startsWith(root + sep) || !existsSync(file) || !statSync(file).isFile()) {
             res.statusCode = 404

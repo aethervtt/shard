@@ -1,5 +1,5 @@
-import { AssetStore, defineAssetType } from '@shard/assets'
-import { defineResource, ShardError } from '@shard/core'
+import { AssetStore, defineAssetType } from '@aethervtt/shard-assets'
+import { defineResource, ShardError } from '@aethervtt/shard-core'
 import { type TranscodeTarget, transcodeBasis } from './basis'
 import { readKtx2 } from './ktx2'
 import { buildMips, type TextureUsage } from './mips'

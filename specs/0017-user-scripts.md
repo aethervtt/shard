@@ -1,7 +1,7 @@
 # 0017 — User scripts: bundling and hot reload
 
 - **Status:** implemented
-- **Packages:** `@shard/project`, `@shard/core`, `@shard/runtime`, `apps/cli`
+- **Packages:** `@aethervtt/shard-project`, `@aethervtt/shard-core`, `@aethervtt/shard-runtime`, `apps/cli`
 - **Depends on:** 0002, 0003, 0009, 0011, 0012, 0014
 
 ## Context
@@ -48,9 +48,9 @@ schema changes, and falls back to the last good code when something breaks.
 Node, and bundling always happens in the process that owns the project folder: the CLI, or the
 `shard dev` server for browsers.
 
-- `@shard/*` imports are **external**. In Node they resolve to the same engine files the host
+- `@aethervtt/shard-*` imports are **external**. In Node they resolve to the same engine files the host
   loaded, so they share module instances. In browsers, `shard dev` serves the runner page with an
-  import map that points each `@shard/*` specifier at the exact module URL the runner already
+  import map that points each `@aethervtt/shard-*` specifier at the exact module URL the runner already
   imported.
 - Other npm dependencies are bundled.
 - `node:*` imports and Node built-ins fail with `project/node-builtin`. Project code has to run in
@@ -129,12 +129,12 @@ checks. A type error doesn't block a reload, but `shard check` and the MCP tool 
 ### API sketch
 
 ```ts
-// @shard/project (engine side; headless-testable)
+// @aethervtt/shard-project (engine side; headless-testable)
 const reloader = createProjectReloader(app, { namespace: manifest.name })
 const report = await reloader.reload(() => import(bundleUrl))  // steps 2–6
 // report: { ok, ms, migrated: [...], orphaned: [...], systems: { added, removed, changed }, error? }
 
-// @shard/core
+// @aethervtt/shard-core
 withRedefinition('star-explorer', () => { /* evaluate module */ })
 
 // apps/cli
@@ -163,7 +163,7 @@ const bundler = await createBundler({ root, entry, onBuild })   // esbuild conte
 - **esbuild, one path.** It's fast, incremental, and a single small native dependency. One
   bundle format serves Node, browsers, Studio, and export, so behavior can't differ by host.
 - **Engine modules are external and shared.** The component registry is global per app. Bundling
-  a second copy of `@shard/core` would create a second registry, so nothing the project defines
+  a second copy of `@aethervtt/shard-core` would create a second registry, so nothing the project defines
   would match what the engine queries.
 - **Migrate through JSON.** The serializers and validators already exist for every component. Hot
   reload reuses them, and a migration that would corrupt data fails validation instead.
@@ -186,7 +186,7 @@ const bundler = await createBundler({ root, entry, onBuild })   // esbuild conte
 - [x] `import 'node:fs'` in a script fails the bundle with `project/node-builtin`.
 - [x] `star-explorer` runs in a browser through `shard dev`. Saving a script reloads the project
       within 500 ms without reloading the page, and `shard mcp --attach` drives that page.
-- [x] The engine and the project share one module instance per `@shard/*` package in both Node and
+- [x] The engine and the project share one module instance per `@aethervtt/shard-*` package in both Node and
       the browser (asserted by identity of a registered component).
 - [x] Rebuilding and swapping `star-explorer` takes under 100 ms, not counting the debounce.
 - [x] `shard check --json` reports a deliberate type error with file, line, and column, and exits 1.
@@ -218,7 +218,7 @@ const bundler = await createBundler({ root, entry, onBuild })   // esbuild conte
   protocol hub. It doesn't host a hub, so it never competes with `shard mcp --attach` or
   `shard serve` for port 7811. The page dials the tool hub and retries with backoff. It was checked
   against `shard serve`'s hub, which is the same Hub class as `mcp --attach`.
-- **`ProjectSession`** in `@shard/project` holds the reloader and the status and serves
+- **`ProjectSession`** in `@aethervtt/shard-project` holds the reloader and the status and serves
   `project.status` and `project.reload`. `project.reload` takes `url`, or `error` for a dev server
   reporting a failed build. Hosts add methods through the new `methods` option on
   `createProtocolServer`, and publish events with `server.publish(topic, …)` on a `project` topic.
@@ -227,7 +227,7 @@ const bundler = await createBundler({ root, entry, onBuild })   // esbuild conte
   already mapped the stack. The `Log.annotate` hook adds `source`, and wrapped errors
   (`app/system-failed`) are searched through `cause`. The browser page reported
   `scripts/main.ts:50:23` for a throwing system.
-- **`openProject({ code: 'bundle' | 'source', watch })`.** `@shard/testing` uses `source`, so test
+- **`openProject({ code: 'bundle' | 'source', watch })`.** `@aethervtt/shard-testing` uses `source`, so test
   files and the game share modules.
 - **Template fix:** the template and example `tsconfig` needed `types: ['node', '@webgpu/types']`
   and matching devDependencies, because the engine ships as TypeScript source. The old template

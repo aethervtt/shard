@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 import { parseArgs } from 'node:util'
-import { ShardError } from '@shard/core'
+import { ShardError } from '@aethervtt/shard-core'
 import {
   bake,
   type CommandContext,

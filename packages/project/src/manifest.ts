@@ -1,5 +1,5 @@
-import { defineSchema, type Infer, type JsonSchema, ShardError, t } from '@shard/core'
-import type { Platform } from '@shard/platform'
+import { defineSchema, type Infer, type JsonSchema, ShardError, t } from '@aethervtt/shard-core'
+import type { Platform } from '@aethervtt/shard-platform'
 
 const NAMESPACE = /^[a-z][a-z0-9-]*$/
 

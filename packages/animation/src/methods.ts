@@ -1,5 +1,12 @@
-import { defineSchema, type Entity, findComponent, ShardError, t, type World } from '@shard/core'
-import type { AppMethod } from '@shard/runtime'
+import {
+  defineSchema,
+  type Entity,
+  findComponent,
+  ShardError,
+  t,
+  type World,
+} from '@aethervtt/shard-core'
+import type { AppMethod } from '@aethervtt/shard-runtime'
 import { describeAnimator } from './animator'
 import { AnimationClips } from './clip'
 import { AnimationPlayer, RootMotion } from './components'

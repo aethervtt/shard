@@ -1,7 +1,7 @@
 # 0005 — GPU layer and render graph
 
 - **Status:** implemented
-- **Packages:** `@shard/gpu`, `@shard/render`
+- **Packages:** `@aethervtt/shard-gpu`, `@aethervtt/shard-render`
 - **Depends on:** 0003, 0004
 
 ## Context
@@ -33,7 +33,7 @@ Those need two things:
 
 ## Design
 
-### GPU layer (`@shard/gpu`)
+### GPU layer (`@aethervtt/shard-gpu`)
 
 ```ts
 const gpu = await createGpuContext({
@@ -56,7 +56,7 @@ const gpu = await createGpuContext({
 - **Device lost**: emits a `GpuDeviceLost` event; the render plugin recreates the device and
   rebuilds cached resources from their descriptors.
 
-### Frame phases (`@shard/render`)
+### Frame phases (`@aethervtt/shard-render`)
 
 All in the `Last` schedule, as ordinary systems in sets:
 
@@ -146,7 +146,7 @@ without a browser.
 What was built, where it differs from or sharpens the design above:
 
 - **`createGpuContext({ canvas?, gpu?, features?, requiredFeatures? })`.** `gpu` is the WebGPU entry
-  point; in Node, `@shard/gpu/node` wraps Dawn (`createNodeGpuContext`, `installWebGpuGlobals`). It's
+  point; in Node, `@aethervtt/shard-gpu/node` wraps Dawn (`createNodeGpuContext`, `installWebGpuGlobals`). It's
   a separate subpath so browser bundles never load the native module. The canvas is configured with
   `COPY_SRC` so the swapchain can be captured.
 - **`GpuContext`** owns `pipelines` (`PipelineCache`) and `layouts` (`LayoutCache`), an `errors` ring,

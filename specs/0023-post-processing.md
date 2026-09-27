@@ -1,7 +1,7 @@
 # 0023 — Post-processing
 
 - **Status:** implemented
-- **Packages:** `@shard/render`, `@shard/protocol`
+- **Packages:** `@aethervtt/shard-render`, `@aethervtt/shard-protocol`
 - **Depends on:** 0005, 0007, 0019, 0021
 
 ## Context

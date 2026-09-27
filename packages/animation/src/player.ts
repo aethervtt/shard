@@ -10,10 +10,10 @@ import {
   type Table,
   type TypedArray,
   type World,
-} from '@shard/core'
-import { descendantPaths, type SkinAsset, Skins } from '@shard/render'
-import { LogResource, Time } from '@shard/runtime'
-import { Transform } from '@shard/transform'
+} from '@aethervtt/shard-core'
+import { descendantPaths, type SkinAsset, Skins } from '@aethervtt/shard-render'
+import { LogResource, Time } from '@aethervtt/shard-runtime'
+import { Transform } from '@aethervtt/shard-transform'
 import {
   type AnimationChannel,
   type AnimationClipAsset,

@@ -1,9 +1,9 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { defineComponent, type ShardError, t, World } from '@shard/core'
-import type { Platform } from '@shard/platform'
-import { createNodePlatform } from '@shard/platform-node'
+import { defineComponent, type ShardError, t, World } from '@aethervtt/shard-core'
+import type { Platform } from '@aethervtt/shard-platform'
+import { createNodePlatform } from '@aethervtt/shard-platform-node'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   AssetServer,

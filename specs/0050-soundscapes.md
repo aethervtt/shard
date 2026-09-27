@@ -1,8 +1,8 @@
 # 0050 — Soundscapes and procedural audio
 
 - **Status:** accepted
-- **Packages:** `@shard/audio`, `@shard/procgen`, `@shard/platform`, `@shard/platform-web`,
-  `@shard/weather`, `@shard/creatures`
+- **Packages:** `@aethervtt/shard-audio`, `@aethervtt/shard-procgen`, `@aethervtt/shard-platform`, `@aethervtt/shard-platform-web`,
+  `@aethervtt/shard-weather`, `@aethervtt/shard-creatures`
 - **Depends on:** 0035, 0042, 0043, 0046, 0048, 0049
 
 ## Context
@@ -108,7 +108,7 @@ SoundscapeParams (resource): { values: Record<string, number>, biome: Record<str
 
 - 0042 gains an `audio` output: `{ sampleRate, channels, data: Float32Array[] , loop?: [start,
   end] }`. It becomes an `AudioClip` (encoded as WAV in the cache).
-- `@shard/audio` ships a DSP toolkit for generator code: oscillators (sine, saw, square, and
+- `@aethervtt/shard-audio` ships a DSP toolkit for generator code: oscillators (sine, saw, square, and
   band-limited), noise (white, pink, and brown), ADSR and breakpoint envelopes, biquad filters,
   formant filter banks, FM operators, a delay, waveshaping, and a seamless-loop builder (crossfade
   the tail into the head). It's plain TypedArray code on the worker, deterministic, and seeded

@@ -4,11 +4,11 @@ import {
   allImporters,
   type DataType,
   type ImporterDef,
-} from '@shard/assets'
-import { allComponents, type ComponentDef, type JsonSchema } from '@shard/core'
-import { allGenerators, type Generator } from '@shard/procgen'
-import { saveJsonSchema } from '@shard/save'
-import { prefabJsonSchema, sceneJsonSchema } from '@shard/scene'
+} from '@aethervtt/shard-assets'
+import { allComponents, type ComponentDef, type JsonSchema } from '@aethervtt/shard-core'
+import { allGenerators, type Generator } from '@aethervtt/shard-procgen'
+import { saveJsonSchema } from '@aethervtt/shard-save'
+import { prefabJsonSchema, sceneJsonSchema } from '@aethervtt/shard-scene'
 import { BUILTIN_PLUGINS, type ManifestValue, manifestJsonSchema } from './manifest'
 
 export const GENERATED_START = '<!-- shard:generated -->'
@@ -256,7 +256,7 @@ allocate: walk \`q.tables\` and use columns.
   'write-a-gameplay-test.md': `# Write a gameplay test
 
 \`\`\`ts
-import { expect, test } from '@shard/testing'
+import { expect, test } from '@aethervtt/shard-testing'
 
 test('thrust moves the ship', async ({ game }) => {
   await game.load('scenes/main.scene.json')
@@ -696,7 +696,7 @@ data type: fields in \`scripts/\`, one JSON file per value.
    and in a scene \`"<project>/Armed": { "weapon": { "path": "data/weapons/laser.weapon.json" } }\`.
    The weapon loads with the scene.
 5. **Read it** in a system: \`world.resource(Weapon.store).get(armed.weapon)\` is one map lookup,
-   no allocation. Every weapon at once: \`await loadAll(world, Weapon)\` (from \`@shard/assets\`).
+   no allocation. Every weapon at once: \`await loadAll(world, Weapon)\` (from \`@aethervtt/shard-assets\`).
 6. **Check**: \`shard import --json\` then \`shard validate --json\`. Errors point into the file;
    a handle to the wrong type is \`schema/asset-type-mismatch\`, a loop of variants \`data/extends-cycle\`.
 
@@ -755,7 +755,7 @@ A prefab is a reusable entity tree: \`prefabs/<name>.prefab.json\`, validated ag
    bullets). In a system, pass \`ctx.commands\` to spawn when the commands apply:
 
    \`\`\`ts
-   import { loadPrefab, spawnPrefab } from '@shard/scene'
+   import { loadPrefab, spawnPrefab } from '@aethervtt/shard-scene'
    await loadPrefab(world, 'prefabs/ship.prefab.json') // e.g. in the plugin's setup
    const ship = spawnPrefab(ctx.commands, 'prefabs/ship.prefab.json', {
      transform: { translation: [0, 5, 0] },
@@ -793,7 +793,7 @@ the \`.meta\` for other long files, and \`loopStart\`/\`loopEnd\` (seconds) for 
 - \`rolloff\`: \`inverse\` (default, natural), \`linear\` (silent at \`maxDistance\`; past it the source
   goes virtual and holds no voice), \`exponential\`. \`panning\`: \`equal-power\` or \`hrtf\`.
 - One-shots from code: \`playSound(world, weapon.sound, { position: muzzle, bus: 'sfx' })\` from
-  \`@shard/audio\` returns a voice id for \`stopSound\`. A handle field
+  \`@aethervtt/shard-audio\` returns a voice id for \`stopSound\`. A handle field
   (\`t.handle('AudioClip')\`) on a data asset keeps sounds in data.
 - Buses are data (\`audio/Buses\`: master, music, sfx, ui, voice). Add one in a scene's
   \`"resources": { "audio/Buses": { "engines": { "volume": 0.7, "parent": "sfx" } } }\`; change them
@@ -870,7 +870,7 @@ RNG streams; and time. Loading reloads each scene from its current file, so scen
 a save show up, and the player's changes stay.
 
 \`\`\`ts
-import { loadGame, saveGame } from '@shard/save'
+import { loadGame, saveGame } from '@aethervtt/shard-save'
 
 await saveGame(world, 'slot1', { meta: { label: 'Crash site' } })
 await loadGame(world, 'slot1') // between frames: from a UI click handler, ready(), or a tool
@@ -972,7 +972,7 @@ it moves. \`drive: "character"\` writes \`physics/CharacterIntent\` (slopes, ste
 the body's \`physics/Velocity\`, \`"transform"\` moves it directly. \`nav/NavAgentState\` has \`status\`
 (idle, moving, arrived, unreachable) and \`remaining\`; systems read \`nav/NavArrived\` and
 \`nav/NavUnreachable\` events. From code: \`findPath(world, from, to, { out })\`, \`nearestPoint\`,
-\`navRaycast\` from \`@shard/nav\`.
+\`navRaycast\` from \`@aethervtt/shard-nav\`.
 
 Check it as data: \`nav_path\` says whether two points connect, \`nav_describe\` lists tiles, skipped
 sources, and each agent's route. In gameplay tests:
@@ -1261,7 +1261,7 @@ g.label(position, 'target', [1, 1, 1, 1])
 \`\`\`
 
 \`list_gizmos\` shows what was drawn as data. \`pick(world, camera, x, y)\` and
-\`raycast(world, origin, direction)\` from \`@shard/render\` do the same in code.
+\`raycast(world, origin, direction)\` from \`@aethervtt/shard-render\` do the same in code.
 `,
   'debug-with-screenshots.md': `# Look at the game
 

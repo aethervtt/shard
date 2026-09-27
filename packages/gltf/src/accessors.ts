@@ -1,4 +1,4 @@
-import { ShardError } from '@shard/core'
+import { ShardError } from '@aethervtt/shard-core'
 import type { GltfAccessor, GltfDocument } from './document'
 
 const COMPONENTS: Record<GltfAccessor['type'], number> = {

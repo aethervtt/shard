@@ -1,4 +1,4 @@
-import { directionToFace, faceToDirection } from '@shard/noise'
+import { directionToFace, faceToDirection } from '@aethervtt/shard-noise'
 
 export { directionToFace, faceToDirection }
 

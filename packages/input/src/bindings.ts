@@ -1,5 +1,5 @@
-import { ShardError } from '@shard/core'
-import type { MouseButton } from '@shard/platform'
+import { ShardError } from '@aethervtt/shard-core'
+import type { MouseButton } from '@aethervtt/shard-platform'
 import { GAMEPAD_AXES, GAMEPAD_BUTTONS, type GamepadAxis, type GamepadButton } from './devices'
 
 /**

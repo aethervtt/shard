@@ -1,4 +1,4 @@
-import { defineComponent, defineResource, type Entity, t, type World } from '@shard/core'
+import { defineComponent, defineResource, type Entity, t, type World } from '@aethervtt/shard-core'
 import type { NodeContext, NodeDescriptor, RenderView } from './graph'
 import { RenderPhase } from './graph'
 import { Gpu, Shaders } from './plugin'

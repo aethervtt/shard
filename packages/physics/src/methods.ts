@@ -1,5 +1,5 @@
-import { defineSchema, type Entity, findComponent, t, type World } from '@shard/core'
-import type { AppMethod } from '@shard/runtime'
+import { defineSchema, type Entity, findComponent, t, type World } from '@aethervtt/shard-core'
+import type { AppMethod } from '@aethervtt/shard-runtime'
 import { CharacterState, PhysicsRange } from './components'
 import { createRayHit, Physics, type PhysicsWorld, type QueryOptions, type RayHit } from './world'
 

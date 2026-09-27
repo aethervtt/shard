@@ -1,7 +1,7 @@
 # 0062 — Browser captures, approvals, and performance records
 
 - **Status:** accepted
-- **Packages:** `@shard/verify` (new), `@shard/runtime`, `@shard/render`, `@shard/platform-web`,
+- **Packages:** `@aethervtt/shard-verify` (new), `@aethervtt/shard-runtime`, `@aethervtt/shard-render`, `@aethervtt/shard-platform-web`,
   `apps/cli`
 - **Depends on:** 0012, 0052, 0056
 
@@ -46,7 +46,7 @@ capture tool and the record format, so both renderers report the same numbers th
 
 ### Metrics
 
-`@shard/verify/metrics`, installed by `metricsPlugin()`:
+`@aethervtt/shard-verify/metrics`, installed by `metricsPlugin()`:
 
 | Metric | How it's measured |
 |---|---|

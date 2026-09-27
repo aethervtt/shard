@@ -1,6 +1,6 @@
-import type { GpuContext } from '@shard/gpu'
-import { createNodeGpuContext } from '@shard/gpu/node'
-import { ShaderLibrary } from '@shard/shader'
+import type { GpuContext } from '@aethervtt/shard-gpu'
+import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
+import { ShaderLibrary } from '@aethervtt/shard-shader'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   loadNoiseKernel,

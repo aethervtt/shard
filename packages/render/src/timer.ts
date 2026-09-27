@@ -1,5 +1,5 @@
-import { ProfilerResource, type World } from '@shard/core'
-import type { GpuContext } from '@shard/gpu'
+import { ProfilerResource, type World } from '@aethervtt/shard-core'
+import type { GpuContext } from '@aethervtt/shard-gpu'
 
 const MAX_PASSES = 96
 /** Stamps this much older than a frame's last pass end are left over from an earlier frame. */

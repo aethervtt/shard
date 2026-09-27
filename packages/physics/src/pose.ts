@@ -1,4 +1,4 @@
-import { ChildOf, type Entity, type World } from '@shard/core'
+import { ChildOf, type Entity, type World } from '@aethervtt/shard-core'
 import {
   GlobalTransform,
   Grid,
@@ -6,7 +6,7 @@ import {
   GridFramesResource,
   originMatrix64,
   Transform,
-} from '@shard/transform'
+} from '@aethervtt/shard-transform'
 
 /**
  * A rigid pose plus scale: translation (0..2), rotation quaternion (3..6), scale (7..9). Poses are

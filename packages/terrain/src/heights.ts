@@ -1,5 +1,5 @@
-import { defineResource, type Entity, ShardError, type World } from '@shard/core'
-import type { Workers } from '@shard/platform'
+import { defineResource, type Entity, ShardError, type World } from '@aethervtt/shard-core'
+import type { Workers } from '@aethervtt/shard-platform'
 import { biomeWeights, dominantBiome, MAX_BIOMES } from './biomes'
 import type { PlanetRuntime } from './planet'
 import { samplePoint } from './points'

@@ -1,6 +1,13 @@
-import { defineComponent, defineSystem, FixedUpdate, type Rng, t, type World } from '@shard/core'
-import type { InputSource, RawInputEvent } from '@shard/platform'
-import { App, GlobalRng } from '@shard/runtime'
+import {
+  defineComponent,
+  defineSystem,
+  FixedUpdate,
+  type Rng,
+  t,
+  type World,
+} from '@aethervtt/shard-core'
+import type { InputSource, RawInputEvent } from '@aethervtt/shard-platform'
+import { App, GlobalRng } from '@aethervtt/shard-runtime'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { defineActions } from './actions'
 import { parseBinding } from './bindings'

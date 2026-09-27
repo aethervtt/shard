@@ -1,8 +1,8 @@
 # 0048 — Creatures
 
 - **Status:** accepted
-- **Packages:** `@shard/creatures` (new), `@shard/procgen`, `@shard/mesh`, `@shard/animation`,
-  `@shard/nav`, `@shard/terrain`
+- **Packages:** `@aethervtt/shard-creatures` (new), `@aethervtt/shard-procgen`, `@aethervtt/shard-mesh`, `@aethervtt/shard-animation`,
+  `@aethervtt/shard-nav`, `@aethervtt/shard-terrain`
 - **Depends on:** 0029, 0032, 0033, 0034, 0037, 0041, 0042, 0043, 0045
 
 ## Context

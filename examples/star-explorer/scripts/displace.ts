@@ -1,6 +1,6 @@
-import type { MeshData } from '@shard/mesh'
-import type { NoiseGraph } from '@shard/noise'
-import type { NoiseApi } from '@shard/procgen'
+import type { MeshData } from '@aethervtt/shard-mesh'
+import type { NoiseGraph } from '@aethervtt/shard-noise'
+import type { NoiseApi } from '@aethervtt/shard-procgen'
 
 /**
  * Pushes each vertex of a unit sphere in or out along its direction: radius × (1 + roughness ×

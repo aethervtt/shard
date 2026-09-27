@@ -1,7 +1,7 @@
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createNodeGpuContext } from '@shard/gpu/node'
-import { plane } from '@shard/mesh'
+import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
+import { plane } from '@aethervtt/shard-mesh'
 import {
   AmbientLight,
   Camera3d,
@@ -14,11 +14,11 @@ import {
   MeshMaterial,
   OffscreenTarget,
   renderPlugin,
-} from '@shard/render'
-import { compareGolden, renderView } from '@shard/render/testing'
-import { App } from '@shard/runtime'
-import { ScenePlugin } from '@shard/scene'
-import { lookAt, Transform, TransformPlugin, worldPosition } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { compareGolden, renderView } from '@aethervtt/shard-render/testing'
+import { App } from '@aethervtt/shard-runtime'
+import { ScenePlugin } from '@aethervtt/shard-scene'
+import { lookAt, Transform, TransformPlugin, worldPosition } from '@aethervtt/shard-transform'
 import { expect, it } from 'vitest'
 import { animationLayer } from './api'
 import { AnimationPlayer } from './components'

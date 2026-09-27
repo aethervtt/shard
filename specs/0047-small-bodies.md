@@ -1,8 +1,8 @@
 # 0047 — Small bodies: asteroids, belts, rings, and comets
 
 - **Status:** accepted
-- **Packages:** `@shard/space`, `@shard/procgen`, `@shard/render`, `@shard/particles`,
-  `@shard/physics`
+- **Packages:** `@aethervtt/shard-space`, `@aethervtt/shard-procgen`, `@aethervtt/shard-render`, `@aethervtt/shard-particles`,
+  `@aethervtt/shard-physics`
 - **Depends on:** 0026, 0028, 0040, 0041, 0042, 0043, 0045, 0046
 
 ## Context

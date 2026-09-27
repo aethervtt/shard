@@ -1,4 +1,4 @@
-import { packRects } from '@shard/texture'
+import { packRects } from '@aethervtt/shard-texture'
 import { type CharsetName, charsetCodepoints } from './charset'
 import {
   Font,

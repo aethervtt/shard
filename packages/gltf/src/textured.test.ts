@@ -10,10 +10,10 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { assetServer } from '@shard/assets'
-import type { GpuContext } from '@shard/gpu'
-import { createNodeGpuContext } from '@shard/gpu/node'
-import { createNodePlatform } from '@shard/platform-node'
+import { assetServer } from '@aethervtt/shard-assets'
+import type { GpuContext } from '@aethervtt/shard-gpu'
+import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
+import { createNodePlatform } from '@aethervtt/shard-platform-node'
 import {
   captureView,
   forwardPlugin,
@@ -25,11 +25,11 @@ import {
   OffscreenTarget,
   renderPlugin,
   Shaders,
-} from '@shard/render'
-import { App, LogResource } from '@shard/runtime'
-import { loadScene, type SceneFile, ScenePlugin, whenSceneReady } from '@shard/scene'
-import { Texture, Textures } from '@shard/texture'
-import { TransformPlugin } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { App, LogResource } from '@aethervtt/shard-runtime'
+import { loadScene, type SceneFile, ScenePlugin, whenSceneReady } from '@aethervtt/shard-scene'
+import { Texture, Textures } from '@aethervtt/shard-texture'
+import { TransformPlugin } from '@aethervtt/shard-transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { parseGltf } from './document'
 import './index'
@@ -423,7 +423,7 @@ describe('textures at runtime', () => {
       },
       { id: 'main' },
     )
-    app.world.add(entities.get('quad')!, (await import('@shard/render')).MeshMaterial, {
+    app.world.add(entities.get('quad')!, (await import('@aethervtt/shard-render')).MeshMaterial, {
       material: matRef,
     })
     await frames(app, 5)
@@ -493,9 +493,9 @@ describe('textures at runtime', () => {
 
   it('loads and uploads a 2048² texture in under 30 ms', async () => {
     const size = 2048
-    const { importImageBytes } = await import('@shard/texture')
+    const { importImageBytes } = await import('@aethervtt/shard-texture')
     const rgba = new Uint8Array(size * size * 4).map((_, i) => (i * 13) & 255)
-    const { buildMips, writeKtx2, textureFromKtx2 } = await import('@shard/texture')
+    const { buildMips, writeKtx2, textureFromKtx2 } = await import('@aethervtt/shard-texture')
     const ktx = writeKtx2(
       buildMips(
         { width: size, height: size, kind: 'u8', data: rgba },

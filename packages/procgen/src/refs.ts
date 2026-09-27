@@ -1,5 +1,5 @@
-import { defineAssetResolver } from '@shard/assets'
-import { defineProceduralSource } from '@shard/scene'
+import { defineAssetResolver } from '@aethervtt/shard-assets'
+import { defineProceduralSource } from '@aethervtt/shard-scene'
 import { findGenerator, parseProceduralRef } from './generator'
 import { procgen, setRefParser } from './runtime'
 

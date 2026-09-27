@@ -4,7 +4,7 @@ import {
   defineAssetType,
   defineImporter,
   type ImportedAsset,
-} from '@shard/assets'
+} from '@aethervtt/shard-assets'
 import {
   type AssetRef,
   defineResource,
@@ -14,7 +14,7 @@ import {
   type JsonValue,
   pointer,
   ShardError,
-} from '@shard/core'
+} from '@aethervtt/shard-core'
 import { LOOP_MODES } from './components'
 
 // --- the runtime asset -----------------------------------------------------------------------

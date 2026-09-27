@@ -1,5 +1,5 @@
-import { defineOverlay, type GizmoStore } from '@shard/render'
-import { GlobalTransform } from '@shard/transform'
+import { defineOverlay, type GizmoStore } from '@aethervtt/shard-render'
+import { GlobalTransform } from '@aethervtt/shard-transform'
 import type { NavMeshRuntime } from './navmesh'
 import { type GridRecord, Nav } from './state'
 

@@ -8,9 +8,9 @@ import {
   ShardError,
   t,
   type World,
-} from '@shard/core'
-import { type AppMethod, LogResource } from '@shard/runtime'
-import { GlobalTransform } from '@shard/transform'
+} from '@aethervtt/shard-core'
+import { type AppMethod, LogResource } from '@aethervtt/shard-runtime'
+import { GlobalTransform } from '@aethervtt/shard-transform'
 import {
   type AtmosphereModel,
   createModel,

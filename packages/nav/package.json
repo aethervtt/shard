@@ -1,5 +1,5 @@
 {
-  "name": "@shard/nav",
+  "name": "@aethervtt/shard-nav",
   "version": "0.0.0",
   "license": "MIT",
   "private": true,
@@ -12,20 +12,20 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@shard/assets": "workspace:*",
-    "@shard/core": "workspace:*",
-    "@shard/mesh": "workspace:*",
-    "@shard/physics": "workspace:*",
-    "@shard/platform": "workspace:*",
-    "@shard/render": "workspace:*",
-    "@shard/runtime": "workspace:*",
-    "@shard/sprite": "workspace:*",
-    "@shard/transform": "workspace:*",
+    "@aethervtt/shard-assets": "workspace:*",
+    "@aethervtt/shard-core": "workspace:*",
+    "@aethervtt/shard-mesh": "workspace:*",
+    "@aethervtt/shard-physics": "workspace:*",
+    "@aethervtt/shard-platform": "workspace:*",
+    "@aethervtt/shard-render": "workspace:*",
+    "@aethervtt/shard-runtime": "workspace:*",
+    "@aethervtt/shard-sprite": "workspace:*",
+    "@aethervtt/shard-transform": "workspace:*",
     "recast-navigation": "0.43.1"
   },
   "devDependencies": {
-    "@shard/platform-node": "workspace:*",
-    "@shard/scene": "workspace:*",
+    "@aethervtt/shard-platform-node": "workspace:*",
+    "@aethervtt/shard-scene": "workspace:*",
     "@types/node": "^26.6.2",
     "@webgpu/types": "^0.1.74"
   }

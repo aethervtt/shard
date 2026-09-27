@@ -1,7 +1,7 @@
 # 0009 — Project format
 
 - **Status:** implemented
-- **Packages:** `@shard/project`
+- **Packages:** `@aethervtt/shard-project`
 - **Depends on:** 0002, 0003
 
 ## Context
@@ -67,7 +67,7 @@ plugin comes from `entry`. Validation errors use the usual `ShardError` paths.
 
 ```ts
 // scripts/main.ts
-import { defineProject } from '@shard/project'
+import { defineProject } from '@aethervtt/shard-project'
 export default defineProject({
   name: 'star-explorer',
   build(app) { app.addSystems(Update, fly) },
@@ -121,9 +121,9 @@ host (CLI, Studio) builds the `App`: engine plugins from `plugins`, the project 
   registering a component, so the manifest gets validation, defaults, and a JSON Schema from the
   same definition as everything else. `BUILTIN_PLUGINS` resolves `plugins` names; `render/forward`
   pulls in `render` and `core/transform`.
-- **Hosts:** `buildApp(options)` plus `startProject(app, platform, manifest)` in `@shard/project`.
-  The headless host is `openProject({ root })` in the new `@shard/node` package, which also holds
-  `importProjectPlugin`, `listScenes`, `worldHash`, and `collectErrorCodes`. `@shard/platform-node`
+- **Hosts:** `buildApp(options)` plus `startProject(app, platform, manifest)` in `@aethervtt/shard-project`.
+  The headless host is `openProject({ root })` in the new `@aethervtt/shard-node` package, which also holds
+  `importProjectPlugin`, `listScenes`, `worldHash`, and `collectErrorCodes`. `@aethervtt/shard-platform-node`
   provides `createNodePlatform({ root })`.
 - **`defineProject`** returns the plugin plus `component`/`tag`/`resource`/`event` helpers that
   prefix the project name, and `build` throws `project/namespace` on any registration outside it.

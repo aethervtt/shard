@@ -1,7 +1,7 @@
 # 0031 — Data assets
 
 - **Status:** implemented
-- **Packages:** `@shard/assets`, `@shard/project`, `@shard/core`
+- **Packages:** `@aethervtt/shard-assets`, `@aethervtt/shard-project`, `@aethervtt/shard-core`
 - **Depends on:** 0002, 0009, 0014, 0017, 0030
 
 ## Context
@@ -61,7 +61,7 @@ const stats = weapons.get(armed.weapon)          // Infer<typeof Weapon> | undef
 - `dataAsset` returns a `DataType`: the schema itself (so `Infer<typeof Weapon>` works), plus
   `type` (its asset type), `store` (the resource `star-explorer/WeaponAssets`), `importer`
   (`data/weapon`), and `extension`. Engine packages use the same `defineDataType` from
-  `@shard/assets`; `defineDataAsset` (schema + importer only) gained `$extends` too.
+  `@aethervtt/shard-assets`; `defineDataAsset` (schema + importer only) gained `$extends` too.
 
 ### Files
 
@@ -94,7 +94,7 @@ const stats = weapons.get(armed.weapon)          // Infer<typeof Weapon> | undef
 - Each type's store is an `AssetStore` (0014). A reload updates the object in place and bumps its
   version, so code holding the value sees the new numbers.
 - `assets.all(type)` lists the catalog entries of a type. `loadAll(world, type, { prefix })` (from
-  `@shard/assets`, taking the `DataType` or its name) loads them and resolves to the values, sorted
+  `@aethervtt/shard-assets`, taking the `DataType` or its name) loads them and resolves to the values, sorted
   by path; files that fail to load are left out.
 - Unloading follows 0014 reachability: a data asset stays loaded while a component references it,
   something pins it, or another loaded asset depends on it.

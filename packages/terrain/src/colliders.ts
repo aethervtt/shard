@@ -1,11 +1,16 @@
-import { ChildOf, Derived, type Entity, type Query, type World } from '@shard/core'
-import { Mesh } from '@shard/mesh'
-import { NavAgent, NavSource } from '@shard/nav'
-import { sampleNoiseAsync } from '@shard/noise'
-import { CharacterController, Collider, PhysicsParked, RigidBody } from '@shard/physics'
-import type { Workers } from '@shard/platform'
-import { Meshes } from '@shard/render'
-import { GlobalTransform, placeInGrid, propagateSubtree, Transform } from '@shard/transform'
+import { ChildOf, Derived, type Entity, type Query, type World } from '@aethervtt/shard-core'
+import { Mesh } from '@aethervtt/shard-mesh'
+import { NavAgent, NavSource } from '@aethervtt/shard-nav'
+import { sampleNoiseAsync } from '@aethervtt/shard-noise'
+import { CharacterController, Collider, PhysicsParked, RigidBody } from '@aethervtt/shard-physics'
+import type { Workers } from '@aethervtt/shard-platform'
+import { Meshes } from '@aethervtt/shard-render'
+import {
+  GlobalTransform,
+  placeInGrid,
+  propagateSubtree,
+  Transform,
+} from '@aethervtt/shard-transform'
 import { assembleChunk, buildChunk, type ChunkMesh, type ChunkSpec, chunkLayout } from './chunk'
 import { Chunk, PlanetNav, TerrainAnchor } from './components'
 import { faceToDirection, keyString, nodeAt, nodeExtent } from './cube'

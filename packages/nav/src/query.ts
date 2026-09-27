@@ -1,5 +1,5 @@
-import { type Entity, ShardError, type World } from '@shard/core'
-import { GlobalTransform } from '@shard/transform'
+import { type Entity, ShardError, type World } from '@aethervtt/shard-core'
+import { GlobalTransform } from '@aethervtt/shard-transform'
 import { NavAgent } from './components'
 import { type GridHit, nearestWalkable, smoothGridPath, traceSegment } from './grid'
 import type { NavMeshRuntime } from './navmesh'

@@ -1,4 +1,4 @@
-import { assetServer } from '@shard/assets'
+import { assetServer } from '@aethervtt/shard-assets'
 import {
   type AssetRef,
   defineResource,
@@ -7,16 +7,16 @@ import {
   findComponent,
   ShardError,
   type World,
-} from '@shard/core'
+} from '@aethervtt/shard-core'
 import type {
   AudioBackend,
   AudioDistanceModel,
   AudioPanningModel,
   AudioSpatialDesc,
   AudioVoiceParams,
-} from '@shard/platform'
-import { LogResource, Time } from '@shard/runtime'
-import { GlobalTransform } from '@shard/transform'
+} from '@aethervtt/shard-platform'
+import { LogResource, Time } from '@aethervtt/shard-runtime'
+import { GlobalTransform } from '@aethervtt/shard-transform'
 import { type AudioClipAsset, AudioClips } from './clip'
 import {
   type AudioBus,

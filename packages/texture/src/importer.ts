@@ -1,5 +1,5 @@
-import { defineImporter, type ImportContext, type ImportedAsset } from '@shard/assets'
-import { defineSchema, type JsonValue, ShardError, t } from '@shard/core'
+import { defineImporter, type ImportContext, type ImportedAsset } from '@aethervtt/shard-assets'
+import { defineSchema, type JsonValue, ShardError, t } from '@aethervtt/shard-core'
 import { encodeBasis } from './basis'
 import { decodeImage, sniffImage } from './decode'
 import type { Image } from './image'

@@ -1,5 +1,5 @@
 {
-  "name": "@shard/mesh",
+  "name": "@aethervtt/shard-mesh",
   "version": "0.0.0",
   "license": "MIT",
   "private": true,
@@ -12,6 +12,6 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@shard/core": "workspace:*"
+    "@aethervtt/shard-core": "workspace:*"
   }
 }

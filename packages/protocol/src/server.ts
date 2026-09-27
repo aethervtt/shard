@@ -1,4 +1,4 @@
-import { assetServer } from '@shard/assets'
+import { assetServer } from '@aethervtt/shard-assets'
 import {
   allComponents,
   ChildOf,
@@ -15,15 +15,15 @@ import {
   ShardError,
   t,
   type World,
-} from '@shard/core'
+} from '@aethervtt/shard-core'
 import {
   describeInput,
   injectInput,
   startRecording,
   startReplay,
   stopRecording,
-} from '@shard/input'
-import type { Platform } from '@shard/platform'
+} from '@aethervtt/shard-input'
+import type { Platform } from '@aethervtt/shard-platform'
 import {
   captureBuffer,
   captureShadowMap,
@@ -45,8 +45,14 @@ import {
   setOverlays,
   Views,
   Window,
-} from '@shard/render'
-import { type App, AppControlResource, type LogEntry, LogResource, Time } from '@shard/runtime'
+} from '@aethervtt/shard-render'
+import {
+  type App,
+  AppControlResource,
+  type LogEntry,
+  LogResource,
+  Time,
+} from '@aethervtt/shard-runtime'
 import {
   applyToPrefab,
   currentOverrides,
@@ -65,8 +71,8 @@ import {
   validateScene,
   whenSceneReady,
   worldSchemaContext,
-} from '@shard/scene'
-import { Fonts, measureText } from '@shard/text'
+} from '@aethervtt/shard-scene'
+import { Fonts, measureText } from '@aethervtt/shard-text'
 import {
   createPlacement,
   FloatingOrigin,
@@ -76,7 +82,7 @@ import {
   placementOf,
   Transform,
   worldPosition64,
-} from '@shard/transform'
+} from '@aethervtt/shard-transform'
 import { encodePng, toBase64 } from './png'
 
 const CAPTURE_DEBUG_VIEWS = ['clusters', 'cascades', 'lod', 'culling', 'none']

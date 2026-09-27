@@ -1,4 +1,4 @@
-import { ShardError } from '@shard/core'
+import { ShardError } from '@aethervtt/shard-core'
 import {
   box,
   capsule,
@@ -10,7 +10,7 @@ import {
   plane,
   sphere,
   torus,
-} from '@shard/mesh'
+} from '@aethervtt/shard-mesh'
 import type { MeshResult } from './generator'
 
 /**

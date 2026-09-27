@@ -10,10 +10,10 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { assetServer } from '@shard/assets'
-import type { GpuContext } from '@shard/gpu'
-import { createNodeGpuContext } from '@shard/gpu/node'
-import { createNodePlatform } from '@shard/platform-node'
+import { assetServer } from '@aethervtt/shard-assets'
+import type { GpuContext } from '@aethervtt/shard-gpu'
+import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
+import { createNodePlatform } from '@aethervtt/shard-platform-node'
 import {
   captureView,
   forwardPlugin,
@@ -21,8 +21,8 @@ import {
   OffscreenTarget,
   renderPlugin,
   Shaders,
-} from '@shard/render'
-import { App } from '@shard/runtime'
+} from '@aethervtt/shard-render'
+import { App } from '@aethervtt/shard-runtime'
 import {
   findEntityByPath,
   loadScene,
@@ -30,8 +30,8 @@ import {
   ScenePlugin,
   saveScene,
   whenSceneReady,
-} from '@shard/scene'
-import { GlobalTransform, TransformPlugin } from '@shard/transform'
+} from '@aethervtt/shard-scene'
+import { GlobalTransform, TransformPlugin } from '@aethervtt/shard-transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Skins } from './index'
 import './index'
@@ -324,7 +324,7 @@ describe('SceneInstance', () => {
     const joint = findEntityByPath(app.world, jointPath)!
     expect(joint).toBeDefined()
     const hat = entities.get('hat')!
-    app.world.add(hat, (await import('@shard/core')).ChildOf, { parent: joint })
+    app.world.add(hat, (await import('@aethervtt/shard-core')).ChildOf, { parent: joint })
     await frames(app, 1)
     const a = app.world.get(joint, GlobalTransform).matrix
     const b = app.world.get(hat, GlobalTransform).matrix

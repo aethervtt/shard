@@ -1,7 +1,7 @@
 # 0029 — Character controller
 
 - **Status:** implemented
-- **Packages:** `@shard/physics`
+- **Packages:** `@aethervtt/shard-physics`
 - **Depends on:** 0008, 0028
 
 ## Context

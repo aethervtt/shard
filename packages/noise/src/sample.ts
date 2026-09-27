@@ -1,5 +1,5 @@
-import { ShardError } from '@shard/core'
-import type { Workers } from '@shard/platform'
+import { ShardError } from '@aethervtt/shard-core'
+import type { Workers } from '@aethervtt/shard-platform'
 import type { NoiseProgram } from './compile'
 import {
   computeOrigins,

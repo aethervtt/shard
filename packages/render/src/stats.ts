@@ -1,4 +1,4 @@
-import { defineResource } from '@shard/core'
+import { defineResource } from '@aethervtt/shard-core'
 
 export interface ViewStats {
   visible: number

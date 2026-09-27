@@ -42,7 +42,7 @@ fn fnv(h: u32, b: u32) -> u32 {
   return (h ^ b) * 0x01000193u;
 }
 
-/** hashSeed(seed, label) from @shard/core, for a numeric label. */
+/** hashSeed(seed, label) from @aethervtt/shard-core, for a numeric label. */
 fn hash_seed(seed: u32, label: u32) -> u32 {
   var h = 0x811c9dc5u;
   h = fnv(h, label & 0xffu);

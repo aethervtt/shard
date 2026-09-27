@@ -1,7 +1,7 @@
 # 0061 — Ownership and failure recovery
 
 - **Status:** accepted
-- **Packages:** `@shard/core`, `@shard/assets`, `@shard/render`, `@shard/gpu`, `@shard/runtime`
+- **Packages:** `@aethervtt/shard-core`, `@aethervtt/shard-assets`, `@aethervtt/shard-render`, `@aethervtt/shard-gpu`, `@aethervtt/shard-runtime`
 - **Depends on:** 0001, 0014, 0020, 0052
 
 ## Context
@@ -19,7 +19,7 @@ material whose shader doesn't compile should each show a marked fallback and rep
 of the scene should keep drawing. Device loss already recovers (0005). This spec makes the rest
 match, and gives the host one place to read the renderer's health.
 
-`probeWebGpu()` (`@shard/gpu`, already implemented; 0064's `probeGraphics` builds on it) is the
+`probeWebGpu()` (`@aethervtt/shard-gpu`, already implemented; 0064's `probeGraphics` builds on it) is the
 up-front half: a client without WebGPU, an adapter, the required features or a working device gets
 an honest reason before anything mounts.
 

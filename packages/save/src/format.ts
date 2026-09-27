@@ -1,5 +1,5 @@
-import type { JsonSchema, JsonValue } from '@shard/core'
-import type { Overrides } from '@shard/scene'
+import type { JsonSchema, JsonValue } from '@aethervtt/shard-core'
+import type { Overrides } from '@aethervtt/shard-scene'
 
 /** A saved game (`saves/<slot>.json` in platform storage). */
 export interface SaveFile {

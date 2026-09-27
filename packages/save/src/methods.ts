@@ -1,5 +1,5 @@
-import { defineSchema, ShardError, t } from '@shard/core'
-import type { AppMethod } from '@shard/runtime'
+import { defineSchema, ShardError, t } from '@aethervtt/shard-core'
+import type { AppMethod } from '@aethervtt/shard-runtime'
 import {
   captureGame,
   describeSave,

@@ -1,7 +1,7 @@
-import { defineSystem, defineTag, quat, ShardError, Update } from '@shard/core'
-import { cube, plane } from '@shard/mesh'
-import { createTauriPlatform } from '@shard/platform-tauri'
-import { connectToHub, createProtocolServer } from '@shard/protocol'
+import { defineSystem, defineTag, quat, ShardError, Update } from '@aethervtt/shard-core'
+import { cube, plane } from '@aethervtt/shard-mesh'
+import { createTauriPlatform } from '@aethervtt/shard-platform-tauri'
+import { connectToHub, createProtocolServer } from '@aethervtt/shard-protocol'
 import {
   AmbientLight,
   Camera3d,
@@ -16,9 +16,9 @@ import {
   Meshes,
   MeshMaterial,
   renderPlugin,
-} from '@shard/render'
-import { App, animationFrameRunner, definePlugin, Time } from '@shard/runtime'
-import { lookAt, Transform, TransformPlugin } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { App, animationFrameRunner, definePlugin, Time } from '@aethervtt/shard-runtime'
+import { lookAt, Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { appDataDir, homeDir } from '@tauri-apps/api/path'
 
 const status = document.getElementById('status') as HTMLDivElement

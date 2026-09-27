@@ -3,8 +3,8 @@ import {
   type NoiseGraph,
   type NoiseProgram,
   registerNoiseLibrary,
-} from '@shard/noise'
-import type { ShaderLibrary } from '@shard/shader'
+} from '@aethervtt/shard-noise'
+import type { ShaderLibrary } from '@aethervtt/shard-shader'
 
 /** A graph (or one node of it) as the kernel imports it: a WGSL module and its program. */
 export interface KernelGraph {

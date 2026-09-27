@@ -7,7 +7,7 @@ import {
   type ScheduleLabel,
   ShardError,
   type World,
-} from '@shard/core'
+} from '@aethervtt/shard-core'
 
 export interface StateValue<T extends string> {
   current: T

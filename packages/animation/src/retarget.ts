@@ -1,4 +1,9 @@
-import { AssetStore, defineAssetType, defineDataAsset, type LoadContext } from '@shard/assets'
+import {
+  AssetStore,
+  defineAssetType,
+  defineDataAsset,
+  type LoadContext,
+} from '@aethervtt/shard-assets'
 import {
   defineComponent,
   defineResource,
@@ -6,8 +11,8 @@ import {
   type JsonValue,
   ShardError,
   t,
-} from '@shard/core'
-import type { SkinAsset } from '@shard/render'
+} from '@aethervtt/shard-core'
+import type { SkinAsset } from '@aethervtt/shard-render'
 import type { AnimationChannel } from './clip'
 
 // --- joint maps ------------------------------------------------------------------------------

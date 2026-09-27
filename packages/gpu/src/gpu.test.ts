@@ -1,4 +1,4 @@
-import type { ShardError } from '@shard/core'
+import type { ShardError } from '@aethervtt/shard-core'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { GpuBuffer } from './buffer'
 import type { GpuContext } from './context'

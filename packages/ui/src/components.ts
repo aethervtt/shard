@@ -7,7 +7,7 @@ import {
   type Entity,
   type Infer,
   t,
-} from '@shard/core'
+} from '@aethervtt/shard-core'
 import { uiLength } from './length'
 
 export const UI_DISPLAYS = ['flex', 'none'] as const

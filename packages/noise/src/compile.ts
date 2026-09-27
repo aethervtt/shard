@@ -1,4 +1,4 @@
-import { hashSeed, ShardError } from '@shard/core'
+import { hashSeed, ShardError } from '@aethervtt/shard-core'
 import { type GraphInput, type GraphNode, type ParsedGraph, pointer } from './graph'
 import { computeOrigins, type OriginTerms } from './kernel'
 import { CELL_DISTANCES, CELL_RETURNS, SOURCE_KINDS } from './nodes'

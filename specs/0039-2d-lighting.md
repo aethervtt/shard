@@ -1,7 +1,7 @@
 # 0039 — 2D lighting and shadows
 
 - **Status:** implemented
-- **Packages:** `@shard/sprite`, `@shard/texture`, `@shard/render`
+- **Packages:** `@aethervtt/shard-sprite`, `@aethervtt/shard-texture`, `@aethervtt/shard-render`
 - **Depends on:** 0018, 0024
 
 ## Context
@@ -165,7 +165,7 @@ Per view with `Lighting2d`, in the sprite pass's prepare phase:
 ### API sketch
 
 ```ts
-import { Lighting2d, LightOccluder2d, PointLight2d, SpotLight2d } from '@shard/sprite'
+import { Lighting2d, LightOccluder2d, PointLight2d, SpotLight2d } from '@aethervtt/shard-sprite'
 
 world.add(camera, Lighting2d, { ambient: [0.05, 0.05, 0.08, 1] })
 world.spawn(

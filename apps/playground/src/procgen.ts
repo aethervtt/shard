@@ -1,6 +1,6 @@
-import { assetServer } from '@shard/assets'
-import { defineSystem, type Entity, quat, Update } from '@shard/core'
-import { createWebWorkers } from '@shard/platform-web'
+import { assetServer } from '@aethervtt/shard-assets'
+import { defineSystem, type Entity, quat, Update } from '@aethervtt/shard-core'
+import { createWebWorkers } from '@aethervtt/shard-platform-web'
 import {
   configureProcgenHost,
   GeneratorInstance,
@@ -9,7 +9,7 @@ import {
   procgenMainThreadMs,
   procgenPlugin,
   warmGeneratorWorkers,
-} from '@shard/procgen'
+} from '@aethervtt/shard-procgen'
 import {
   AmbientLight,
   Camera3d,
@@ -17,10 +17,10 @@ import {
   Exposure,
   Mesh3d,
   MeshMaterial,
-} from '@shard/render'
-import { definePlugin, Time } from '@shard/runtime'
-import { instanceEntities } from '@shard/scene'
-import { lookAt, Transform } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { definePlugin, Time } from '@aethervtt/shard-runtime'
+import { instanceEntities } from '@aethervtt/shard-scene'
+import { lookAt, Transform } from '@aethervtt/shard-transform'
 import { hudExtras } from './hud'
 import { memoryPlatform } from './memory'
 import { AsteroidField, Rock } from './procgen-generators'
@@ -97,7 +97,7 @@ const controls = defineSystem({
   },
 })
 
-async function start(world: import('@shard/core').World): Promise<void> {
+async function start(world: import('@aethervtt/shard-core').World): Promise<void> {
   const workers = createWebWorkers()
   configureProcgenHost({
     workers,

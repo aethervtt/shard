@@ -7,9 +7,9 @@ import {
   type JsonValue,
   ShardError,
   type World,
-} from '@shard/core'
-import type { Platform } from '@shard/platform'
-import { LogResource } from '@shard/runtime'
+} from '@aethervtt/shard-core'
+import type { Platform } from '@aethervtt/shard-platform'
+import { LogResource } from '@aethervtt/shard-runtime'
 import { randomGuid, sha256Hex } from './hash'
 import {
   type Artifact,

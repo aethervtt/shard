@@ -1,7 +1,7 @@
 # 0035 — Audio
 
 - **Status:** implemented
-- **Packages:** `@shard/audio` (new), `@shard/platform`, `@shard/platform-web`, `@shard/project`
+- **Packages:** `@aethervtt/shard-audio` (new), `@aethervtt/shard-platform`, `@aethervtt/shard-platform-web`, `@aethervtt/shard-project`
 - **Depends on:** 0003, 0004, 0014
 
 ## Context
@@ -85,7 +85,7 @@ AudioConfig (resource): { maxVoices = 64, maxVoicesPerClip = 8, speedOfSound = 3
 ### Backends
 
 ```ts
-interface AudioBackend {                          // in @shard/platform
+interface AudioBackend {                          // in @aethervtt/shard-platform
   readonly kind: string
   readonly state: 'running' | 'suspended' | 'closed' | 'headless'
   play(voice: AudioVoiceDesc): number             // clip, bus, loop, offset, spatial (PannerNode params)

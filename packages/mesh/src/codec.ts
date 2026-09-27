@@ -1,4 +1,4 @@
-import { ShardError } from '@shard/core'
+import { ShardError } from '@aethervtt/shard-core'
 import {
   MESH_ATTRIBUTE_WIDTH,
   MESH_ATTRIBUTES,

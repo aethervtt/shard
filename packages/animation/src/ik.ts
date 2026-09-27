@@ -11,10 +11,10 @@ import {
   type Table,
   t,
   type World,
-} from '@shard/core'
-import { defineOverlay, findModelRoot } from '@shard/render'
-import { LogResource } from '@shard/runtime'
-import { GlobalTransform, propagateSubtree, Transform } from '@shard/transform'
+} from '@aethervtt/shard-core'
+import { defineOverlay, findModelRoot } from '@aethervtt/shard-render'
+import { LogResource } from '@aethervtt/shard-runtime'
+import { GlobalTransform, propagateSubtree, Transform } from '@aethervtt/shard-transform'
 import {
   arg,
   isAncestor,
@@ -944,7 +944,7 @@ const goal = vec()
 const normal = vec()
 const qFoot = quatId()
 
-/** The physics world when @shard/physics is installed and ready (found by name: no dependency). */
+/** The physics world when @aethervtt/shard-physics is installed and ready (found by name: no dependency). */
 function raycaster(world: World): Raycaster | undefined {
   if (physicsWorld === undefined) physicsWorld = findResource('physics/World') ?? null
   if (physicsWorld === null) {

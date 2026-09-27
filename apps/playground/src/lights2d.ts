@@ -1,6 +1,12 @@
-import { defineSystem, type Entity, quat, Rng, Update, type World } from '@shard/core'
-import { Camera3d, DebugOverlays, isOverlayOn, setOverlays, Tonemapping } from '@shard/render'
-import { definePlugin, Time } from '@shard/runtime'
+import { defineSystem, type Entity, quat, Rng, Update, type World } from '@aethervtt/shard-core'
+import {
+  Camera3d,
+  DebugOverlays,
+  isOverlayOn,
+  setOverlays,
+  Tonemapping,
+} from '@aethervtt/shard-render'
+import { definePlugin, Time } from '@aethervtt/shard-runtime'
 import {
   describeLights2d,
   Lighting2d,
@@ -14,9 +20,9 @@ import {
   Tilemap,
   TilemapData,
   TilemapDatas,
-} from '@shard/sprite'
-import { Texture, Textures } from '@shard/texture'
-import { Transform } from '@shard/transform'
+} from '@aethervtt/shard-sprite'
+import { Texture, Textures } from '@aethervtt/shard-texture'
+import { Transform } from '@aethervtt/shard-transform'
 import { hudExtras } from './hud'
 
 /** The dungeon: 64 × 40 tiles of half a unit, centered on the origin. */

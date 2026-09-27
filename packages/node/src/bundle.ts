@@ -4,8 +4,8 @@ import { mkdir, readdir, rm, writeFile } from 'node:fs/promises'
 import { builtinModules } from 'node:module'
 import { dirname, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { ShardError } from '@shard/core'
-import { inlineSourceMap, type SourceMap } from '@shard/project'
+import { ShardError } from '@aethervtt/shard-core'
+import { inlineSourceMap, type SourceMap } from '@aethervtt/shard-project'
 import * as esbuild from 'esbuild'
 
 export interface BuiltBundle {
@@ -66,7 +66,7 @@ function bundleError(root: string, failure: esbuild.BuildFailure | Error): Shard
     path: file,
     hint:
       code === 'project/node-builtin'
-        ? 'Use @shard/platform services (files, storage) instead of Node APIs.'
+        ? 'Use @aethervtt/shard-platform services (files, storage) instead of Node APIs.'
         : 'Fix the error and save; the last good code keeps running.',
     cause: failure,
   })
@@ -74,7 +74,7 @@ function bundleError(root: string, failure: esbuild.BuildFailure | Error): Shard
 }
 
 /**
- * Bundles a project's entry into one ESM file with `@shard/*` left external, so the engine's module
+ * Bundles a project's entry into one ESM file with `@aethervtt/shard-*` left external, so the engine's module
  * instances are shared. Keeps an incremental esbuild context for fast rebuilds.
  */
 export async function createBundler(options: BundlerOptions) {
@@ -92,7 +92,7 @@ export async function createBundler(options: BundlerOptions) {
     target: 'es2023',
     sourcemap: 'inline',
     sourcesContent: false,
-    external: ['@shard/*'],
+    external: ['@aethervtt/shard-*'],
     write: false,
     metafile: true,
     logLevel: 'silent',

@@ -1,4 +1,4 @@
-import type { ShaderLibrary } from '@shard/shader'
+import type { ShaderLibrary } from '@aethervtt/shard-shader'
 import type { NoiseGraph } from './noise-graph'
 import { NOISE_LIBRARY } from './wgsl'
 
@@ -8,7 +8,7 @@ export const NOISE_LIBRARY_PATH = 'shard::noise'
 /** Registers `shard::noise` once. */
 export function registerNoiseLibrary(library: ShaderLibrary): void {
   if (!library.has(NOISE_LIBRARY_PATH))
-    library.register(NOISE_LIBRARY_PATH, NOISE_LIBRARY, '@shard/noise')
+    library.register(NOISE_LIBRARY_PATH, NOISE_LIBRARY, '@aethervtt/shard-noise')
 }
 
 /**

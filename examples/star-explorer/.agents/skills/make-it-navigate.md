@@ -32,7 +32,7 @@ it moves. `drive: "character"` writes `physics/CharacterIntent` (slopes, steps, 
 the body's `physics/Velocity`, `"transform"` moves it directly. `nav/NavAgentState` has `status`
 (idle, moving, arrived, unreachable) and `remaining`; systems read `nav/NavArrived` and
 `nav/NavUnreachable` events. From code: `findPath(world, from, to, { out })`, `nearestPoint`,
-`navRaycast` from `@shard/nav`.
+`navRaycast` from `@aethervtt/shard-nav`.
 
 Check it as data: `nav_path` says whether two points connect, `nav_describe` lists tiles, skipped
 sources, and each agent's route. In gameplay tests:

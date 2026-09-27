@@ -5,12 +5,17 @@ import {
   describeIk,
   FootPlacement,
   TwoBoneIk,
-} from '@shard/animation'
-import { addBipedAssets, biped, spawnBiped } from '@shard/animation/testing'
-import { ChildOf, type Entity } from '@shard/core'
-import { App } from '@shard/runtime'
-import { ScenePlugin } from '@shard/scene'
-import { GlobalTransform, Transform, TransformPlugin, worldPosition } from '@shard/transform'
+} from '@aethervtt/shard-animation'
+import { addBipedAssets, biped, spawnBiped } from '@aethervtt/shard-animation/testing'
+import { ChildOf, type Entity } from '@aethervtt/shard-core'
+import { App } from '@aethervtt/shard-runtime'
+import { ScenePlugin } from '@aethervtt/shard-scene'
+import {
+  GlobalTransform,
+  Transform,
+  TransformPlugin,
+  worldPosition,
+} from '@aethervtt/shard-transform'
 import { expect, it } from 'vitest'
 import { Collider, RigidBody } from './components'
 import { physics, physics3dPlugin } from './plugin'

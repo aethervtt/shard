@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { packRects } from '@shard/texture'
+import { packRects } from '@aethervtt/shard-texture'
 import { describe, expect, it } from 'vitest'
 import { blitMsdf, generateMsdf, msdfBox, prepareShape } from './msdf'
 import {

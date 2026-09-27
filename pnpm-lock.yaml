@@ -26,64 +26,64 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: 1.30.0
         version: 1.30.0(zod@3.25.76)
-      '@shard/animation':
+      '@aethervtt/shard-animation':
         specifier: workspace:*
         version: link:../../packages/animation
-      '@shard/assets':
+      '@aethervtt/shard-assets':
         specifier: workspace:*
         version: link:../../packages/assets
-      '@shard/audio':
+      '@aethervtt/shard-audio':
         specifier: workspace:*
         version: link:../../packages/audio
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@shard/nav':
+      '@aethervtt/shard-nav':
         specifier: workspace:*
         version: link:../../packages/nav
-      '@shard/node':
+      '@aethervtt/shard-node':
         specifier: workspace:*
         version: link:../../packages/node
-      '@shard/noise':
+      '@aethervtt/shard-noise':
         specifier: workspace:*
         version: link:../../packages/noise
-      '@shard/physics':
+      '@aethervtt/shard-physics':
         specifier: workspace:*
         version: link:../../packages/physics
-      '@shard/platform-node':
+      '@aethervtt/shard-platform-node':
         specifier: workspace:*
         version: link:../../packages/platform-node
-      '@shard/platform-web':
+      '@aethervtt/shard-platform-web':
         specifier: workspace:*
         version: link:../../packages/platform-web
-      '@shard/procgen':
+      '@aethervtt/shard-procgen':
         specifier: workspace:*
         version: link:../../packages/procgen
-      '@shard/project':
+      '@aethervtt/shard-project':
         specifier: workspace:*
         version: link:../../packages/project
-      '@shard/protocol':
+      '@aethervtt/shard-protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
-      '@shard/render':
+      '@aethervtt/shard-render':
         specifier: workspace:*
         version: link:../../packages/render
-      '@shard/runtime':
+      '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../../packages/runtime
-      '@shard/save':
+      '@aethervtt/shard-save':
         specifier: workspace:*
         version: link:../../packages/save
-      '@shard/scene':
+      '@aethervtt/shard-scene':
         specifier: workspace:*
         version: link:../../packages/scene
-      '@shard/terrain':
+      '@aethervtt/shard-terrain':
         specifier: workspace:*
         version: link:../../packages/terrain
-      '@shard/text':
+      '@aethervtt/shard-text':
         specifier: workspace:*
         version: link:../../packages/text
-      '@shard/ui':
+      '@aethervtt/shard-ui':
         specifier: workspace:*
         version: link:../../packages/ui
       tsx:
@@ -117,85 +117,85 @@ importers:
 
   apps/playground:
     dependencies:
-      '@shard/animation':
+      '@aethervtt/shard-animation':
         specifier: workspace:*
         version: link:../../packages/animation
-      '@shard/assets':
+      '@aethervtt/shard-assets':
         specifier: workspace:*
         version: link:../../packages/assets
-      '@shard/audio':
+      '@aethervtt/shard-audio':
         specifier: workspace:*
         version: link:../../packages/audio
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@shard/gltf':
+      '@aethervtt/shard-gltf':
         specifier: workspace:*
         version: link:../../packages/gltf
-      '@shard/gpu':
+      '@aethervtt/shard-gpu':
         specifier: workspace:*
         version: link:../../packages/gpu
-      '@shard/input':
+      '@aethervtt/shard-input':
         specifier: workspace:*
         version: link:../../packages/input
-      '@shard/mesh':
+      '@aethervtt/shard-mesh':
         specifier: workspace:*
         version: link:../../packages/mesh
-      '@shard/nav':
+      '@aethervtt/shard-nav':
         specifier: workspace:*
         version: link:../../packages/nav
-      '@shard/noise':
+      '@aethervtt/shard-noise':
         specifier: workspace:*
         version: link:../../packages/noise
-      '@shard/particles':
+      '@aethervtt/shard-particles':
         specifier: workspace:*
         version: link:../../packages/particles
-      '@shard/physics':
+      '@aethervtt/shard-physics':
         specifier: workspace:*
         version: link:../../packages/physics
-      '@shard/platform':
+      '@aethervtt/shard-platform':
         specifier: workspace:*
         version: link:../../packages/platform
-      '@shard/platform-web':
+      '@aethervtt/shard-platform-web':
         specifier: workspace:*
         version: link:../../packages/platform-web
-      '@shard/procgen':
+      '@aethervtt/shard-procgen':
         specifier: workspace:*
         version: link:../../packages/procgen
-      '@shard/project':
+      '@aethervtt/shard-project':
         specifier: workspace:*
         version: link:../../packages/project
-      '@shard/protocol':
+      '@aethervtt/shard-protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
-      '@shard/render':
+      '@aethervtt/shard-render':
         specifier: workspace:*
         version: link:../../packages/render
-      '@shard/runtime':
+      '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../../packages/runtime
-      '@shard/save':
+      '@aethervtt/shard-save':
         specifier: workspace:*
         version: link:../../packages/save
-      '@shard/scene':
+      '@aethervtt/shard-scene':
         specifier: workspace:*
         version: link:../../packages/scene
-      '@shard/sprite':
+      '@aethervtt/shard-sprite':
         specifier: workspace:*
         version: link:../../packages/sprite
-      '@shard/terrain':
+      '@aethervtt/shard-terrain':
         specifier: workspace:*
         version: link:../../packages/terrain
-      '@shard/text':
+      '@aethervtt/shard-text':
         specifier: workspace:*
         version: link:../../packages/text
-      '@shard/texture':
+      '@aethervtt/shard-texture':
         specifier: workspace:*
         version: link:../../packages/texture
-      '@shard/transform':
+      '@aethervtt/shard-transform':
         specifier: workspace:*
         version: link:../../packages/transform
-      '@shard/ui':
+      '@aethervtt/shard-ui':
         specifier: workspace:*
         version: link:../../packages/ui
     devDependencies:
@@ -208,28 +208,28 @@ importers:
 
   apps/studio:
     dependencies:
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@shard/gpu':
+      '@aethervtt/shard-gpu':
         specifier: workspace:*
         version: link:../../packages/gpu
-      '@shard/mesh':
+      '@aethervtt/shard-mesh':
         specifier: workspace:*
         version: link:../../packages/mesh
-      '@shard/platform-tauri':
+      '@aethervtt/shard-platform-tauri':
         specifier: workspace:*
         version: link:../../packages/platform-tauri
-      '@shard/protocol':
+      '@aethervtt/shard-protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
-      '@shard/render':
+      '@aethervtt/shard-render':
         specifier: workspace:*
         version: link:../../packages/render
-      '@shard/runtime':
+      '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../../packages/runtime
-      '@shard/transform':
+      '@aethervtt/shard-transform':
         specifier: workspace:*
         version: link:../../packages/transform
       '@tauri-apps/api':
@@ -251,34 +251,34 @@ importers:
 
   examples/maze-chase:
     dependencies:
-      '@shard/cli':
+      '@aethervtt/shard-cli':
         specifier: workspace:*
         version: link:../../apps/cli
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@shard/input':
+      '@aethervtt/shard-input':
         specifier: workspace:*
         version: link:../../packages/input
-      '@shard/nav':
+      '@aethervtt/shard-nav':
         specifier: workspace:*
         version: link:../../packages/nav
-      '@shard/project':
+      '@aethervtt/shard-project':
         specifier: workspace:*
         version: link:../../packages/project
-      '@shard/runtime':
+      '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../../packages/runtime
-      '@shard/scene':
+      '@aethervtt/shard-scene':
         specifier: workspace:*
         version: link:../../packages/scene
-      '@shard/sprite':
+      '@aethervtt/shard-sprite':
         specifier: workspace:*
         version: link:../../packages/sprite
-      '@shard/testing':
+      '@aethervtt/shard-testing':
         specifier: workspace:*
         version: link:../../packages/testing
-      '@shard/transform':
+      '@aethervtt/shard-transform':
         specifier: workspace:*
         version: link:../../packages/transform
     devDependencies:
@@ -294,46 +294,46 @@ importers:
 
   examples/star-explorer:
     dependencies:
-      '@shard/assets':
+      '@aethervtt/shard-assets':
         specifier: workspace:*
         version: link:../../packages/assets
-      '@shard/audio':
+      '@aethervtt/shard-audio':
         specifier: workspace:*
         version: link:../../packages/audio
-      '@shard/cli':
+      '@aethervtt/shard-cli':
         specifier: workspace:*
         version: link:../../apps/cli
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@shard/input':
+      '@aethervtt/shard-input':
         specifier: workspace:*
         version: link:../../packages/input
-      '@shard/mesh':
+      '@aethervtt/shard-mesh':
         specifier: workspace:*
         version: link:../../packages/mesh
-      '@shard/noise':
+      '@aethervtt/shard-noise':
         specifier: workspace:*
         version: link:../../packages/noise
-      '@shard/procgen':
+      '@aethervtt/shard-procgen':
         specifier: workspace:*
         version: link:../../packages/procgen
-      '@shard/project':
+      '@aethervtt/shard-project':
         specifier: workspace:*
         version: link:../../packages/project
-      '@shard/runtime':
+      '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../../packages/runtime
-      '@shard/scene':
+      '@aethervtt/shard-scene':
         specifier: workspace:*
         version: link:../../packages/scene
-      '@shard/testing':
+      '@aethervtt/shard-testing':
         specifier: workspace:*
         version: link:../../packages/testing
-      '@shard/transform':
+      '@aethervtt/shard-transform':
         specifier: workspace:*
         version: link:../../packages/transform
-      '@shard/ui':
+      '@aethervtt/shard-ui':
         specifier: workspace:*
         version: link:../../packages/ui
     devDependencies:
@@ -349,35 +349,35 @@ importers:
 
   packages/animation:
     dependencies:
-      '@shard/assets':
+      '@aethervtt/shard-assets':
         specifier: workspace:*
         version: link:../assets
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
-      '@shard/mesh':
+      '@aethervtt/shard-mesh':
         specifier: workspace:*
         version: link:../mesh
-      '@shard/render':
+      '@aethervtt/shard-render':
         specifier: workspace:*
         version: link:../render
-      '@shard/runtime':
+      '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../runtime
-      '@shard/scene':
+      '@aethervtt/shard-scene':
         specifier: workspace:*
         version: link:../scene
-      '@shard/texture':
+      '@aethervtt/shard-texture':
         specifier: workspace:*
         version: link:../texture
-      '@shard/transform':
+      '@aethervtt/shard-transform':
         specifier: workspace:*
         version: link:../transform
     devDependencies:
-      '@shard/gpu':
+      '@aethervtt/shard-gpu':
         specifier: workspace:*
         version: link:../gpu
-      '@shard/platform-node':
+      '@aethervtt/shard-platform-node':
         specifier: workspace:*
         version: link:../platform-node
       '@types/node':
@@ -392,17 +392,17 @@ importers:
 
   packages/assets:
     dependencies:
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
-      '@shard/platform':
+      '@aethervtt/shard-platform':
         specifier: workspace:*
         version: link:../platform
-      '@shard/runtime':
+      '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../runtime
     devDependencies:
-      '@shard/platform-node':
+      '@aethervtt/shard-platform-node':
         specifier: workspace:*
         version: link:../platform-node
       '@types/node':
@@ -411,26 +411,26 @@ importers:
 
   packages/audio:
     dependencies:
-      '@shard/assets':
+      '@aethervtt/shard-assets':
         specifier: workspace:*
         version: link:../assets
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
-      '@shard/platform':
+      '@aethervtt/shard-platform':
         specifier: workspace:*
         version: link:../platform
-      '@shard/runtime':
+      '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../runtime
-      '@shard/transform':
+      '@aethervtt/shard-transform':
         specifier: workspace:*
         version: link:../transform
     devDependencies:
-      '@shard/platform-node':
+      '@aethervtt/shard-platform-node':
         specifier: workspace:*
         version: link:../platform-node
-      '@shard/scene':
+      '@aethervtt/shard-scene':
         specifier: workspace:*
         version: link:../scene
       '@types/node':
@@ -451,41 +451,41 @@ importers:
 
   packages/gltf:
     dependencies:
-      '@shard/animation':
+      '@aethervtt/shard-animation':
         specifier: workspace:*
         version: link:../animation
-      '@shard/assets':
+      '@aethervtt/shard-assets':
         specifier: workspace:*
         version: link:../assets
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
-      '@shard/mesh':
+      '@aethervtt/shard-mesh':
         specifier: workspace:*
         version: link:../mesh
-      '@shard/render':
+      '@aethervtt/shard-render':
         specifier: workspace:*
         version: link:../render
-      '@shard/scene':
+      '@aethervtt/shard-scene':
         specifier: workspace:*
         version: link:../scene
-      '@shard/texture':
+      '@aethervtt/shard-texture':
         specifier: workspace:*
         version: link:../texture
       mikktspace:
         specifier: ^1.1.1
         version: 1.1.1
     devDependencies:
-      '@shard/gpu':
+      '@aethervtt/shard-gpu':
         specifier: workspace:*
         version: link:../gpu
-      '@shard/platform-node':
+      '@aethervtt/shard-platform-node':
         specifier: workspace:*
         version: link:../platform-node
-      '@shard/runtime':
+      '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../runtime
-      '@shard/transform':
+      '@aethervtt/shard-transform':
         specifier: workspace:*
         version: link:../transform
       '@types/node':
@@ -500,7 +500,7 @@ importers:
 
   packages/gpu:
     dependencies:
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
     devDependencies:
@@ -516,59 +516,59 @@ importers:
 
   packages/input:
     dependencies:
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
-      '@shard/platform':
+      '@aethervtt/shard-platform':
         specifier: workspace:*
         version: link:../platform
-      '@shard/runtime':
+      '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../runtime
 
   packages/mesh:
     dependencies:
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
 
   packages/nav:
     dependencies:
-      '@shard/assets':
+      '@aethervtt/shard-assets':
         specifier: workspace:*
         version: link:../assets
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
-      '@shard/mesh':
+      '@aethervtt/shard-mesh':
         specifier: workspace:*
         version: link:../mesh
-      '@shard/physics':
+      '@aethervtt/shard-physics':
         specifier: workspace:*
         version: link:../physics
-      '@shard/platform':
+      '@aethervtt/shard-platform':
         specifier: workspace:*
         version: link:../platform
-      '@shard/render':
+      '@aethervtt/shard-render':
         specifier: workspace:*
         version: link:../render
-      '@shard/runtime':
+      '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../runtime
-      '@shard/sprite':
+      '@aethervtt/shard-sprite':
         specifier: workspace:*
         version: link:../sprite
-      '@shard/transform':
+      '@aethervtt/shard-transform':
         specifier: workspace:*
         version: link:../transform
       recast-navigation:
         specifier: 0.43.1
         version: 0.43.1
     devDependencies:
-      '@shard/platform-node':
+      '@aethervtt/shard-platform-node':
         specifier: workspace:*
         version: link:../platform-node
-      '@shard/scene':
+      '@aethervtt/shard-scene':
         specifier: workspace:*
         version: link:../scene
       '@types/node':
@@ -580,37 +580,37 @@ importers:
 
   packages/node:
     dependencies:
-      '@shard/assets':
+      '@aethervtt/shard-assets':
         specifier: workspace:*
         version: link:../assets
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
-      '@shard/gpu':
+      '@aethervtt/shard-gpu':
         specifier: workspace:*
         version: link:../gpu
-      '@shard/platform':
+      '@aethervtt/shard-platform':
         specifier: workspace:*
         version: link:../platform
-      '@shard/platform-node':
+      '@aethervtt/shard-platform-node':
         specifier: workspace:*
         version: link:../platform-node
-      '@shard/procgen':
+      '@aethervtt/shard-procgen':
         specifier: workspace:*
         version: link:../procgen
-      '@shard/project':
+      '@aethervtt/shard-project':
         specifier: workspace:*
         version: link:../project
-      '@shard/protocol':
+      '@aethervtt/shard-protocol':
         specifier: workspace:*
         version: link:../protocol
-      '@shard/render':
+      '@aethervtt/shard-render':
         specifier: workspace:*
         version: link:../render
-      '@shard/runtime':
+      '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../runtime
-      '@shard/scene':
+      '@aethervtt/shard-scene':
         specifier: workspace:*
         version: link:../scene
       esbuild:
@@ -620,13 +620,13 @@ importers:
         specifier: 0.6.1
         version: 0.6.1
     devDependencies:
-      '@shard/mesh':
+      '@aethervtt/shard-mesh':
         specifier: workspace:*
         version: link:../mesh
-      '@shard/save':
+      '@aethervtt/shard-save':
         specifier: workspace:*
         version: link:../save
-      '@shard/transform':
+      '@aethervtt/shard-transform':
         specifier: workspace:*
         version: link:../transform
       '@types/node':
@@ -638,26 +638,26 @@ importers:
 
   packages/noise:
     dependencies:
-      '@shard/assets':
+      '@aethervtt/shard-assets':
         specifier: workspace:*
         version: link:../assets
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
-      '@shard/gpu':
+      '@aethervtt/shard-gpu':
         specifier: workspace:*
         version: link:../gpu
-      '@shard/platform':
+      '@aethervtt/shard-platform':
         specifier: workspace:*
         version: link:../platform
-      '@shard/runtime':
+      '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../runtime
-      '@shard/shader':
+      '@aethervtt/shard-shader':
         specifier: workspace:*
         version: link:../shader
     devDependencies:
-      '@shard/platform-node':
+      '@aethervtt/shard-platform-node':
         specifier: workspace:*
         version: link:../platform-node
       '@types/node':
@@ -672,32 +672,32 @@ importers:
 
   packages/particles:
     dependencies:
-      '@shard/assets':
+      '@aethervtt/shard-assets':
         specifier: workspace:*
         version: link:../assets
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
-      '@shard/gpu':
+      '@aethervtt/shard-gpu':
         specifier: workspace:*
         version: link:../gpu
-      '@shard/mesh':
+      '@aethervtt/shard-mesh':
         specifier: workspace:*
         version: link:../mesh
-      '@shard/render':
+      '@aethervtt/shard-render':
         specifier: workspace:*
         version: link:../render
-      '@shard/runtime':
+      '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../runtime
-      '@shard/texture':
+      '@aethervtt/shard-texture':
         specifier: workspace:*
         version: link:../texture
-      '@shard/transform':
+      '@aethervtt/shard-transform':
         specifier: workspace:*
         version: link:../transform
     devDependencies:
-      '@shard/platform-node':
+      '@aethervtt/shard-platform-node':
         specifier: workspace:*
         version: link:../platform-node
       '@types/node':
@@ -718,38 +718,38 @@ importers:
       '@dimforge/rapier3d-compat':
         specifier: 0.20.0
         version: 0.20.0
-      '@shard/assets':
+      '@aethervtt/shard-assets':
         specifier: workspace:*
         version: link:../assets
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
-      '@shard/mesh':
+      '@aethervtt/shard-mesh':
         specifier: workspace:*
         version: link:../mesh
-      '@shard/render':
+      '@aethervtt/shard-render':
         specifier: workspace:*
         version: link:../render
-      '@shard/runtime':
+      '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../runtime
-      '@shard/transform':
+      '@aethervtt/shard-transform':
         specifier: workspace:*
         version: link:../transform
     devDependencies:
-      '@shard/animation':
+      '@aethervtt/shard-animation':
         specifier: workspace:*
         version: link:../animation
-      '@shard/gpu':
+      '@aethervtt/shard-gpu':
         specifier: workspace:*
         version: link:../gpu
-      '@shard/platform-node':
+      '@aethervtt/shard-platform-node':
         specifier: workspace:*
         version: link:../platform-node
-      '@shard/protocol':
+      '@aethervtt/shard-protocol':
         specifier: workspace:*
         version: link:../protocol
-      '@shard/scene':
+      '@aethervtt/shard-scene':
         specifier: workspace:*
         version: link:../scene
       '@types/node':
@@ -764,16 +764,16 @@ importers:
 
   packages/platform:
     dependencies:
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
 
   packages/platform-node:
     dependencies:
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
-      '@shard/platform':
+      '@aethervtt/shard-platform':
         specifier: workspace:*
         version: link:../platform
     devDependencies:
@@ -783,13 +783,13 @@ importers:
 
   packages/platform-tauri:
     dependencies:
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
-      '@shard/platform':
+      '@aethervtt/shard-platform':
         specifier: workspace:*
         version: link:../platform
-      '@shard/platform-web':
+      '@aethervtt/shard-platform-web':
         specifier: workspace:*
         version: link:../platform-web
       '@tauri-apps/api':
@@ -801,53 +801,53 @@ importers:
 
   packages/platform-web:
     dependencies:
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
-      '@shard/platform':
+      '@aethervtt/shard-platform':
         specifier: workspace:*
         version: link:../platform
 
   packages/procgen:
     dependencies:
-      '@shard/assets':
+      '@aethervtt/shard-assets':
         specifier: workspace:*
         version: link:../assets
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
-      '@shard/mesh':
+      '@aethervtt/shard-mesh':
         specifier: workspace:*
         version: link:../mesh
-      '@shard/noise':
+      '@aethervtt/shard-noise':
         specifier: workspace:*
         version: link:../noise
-      '@shard/platform':
+      '@aethervtt/shard-platform':
         specifier: workspace:*
         version: link:../platform
-      '@shard/protocol':
+      '@aethervtt/shard-protocol':
         specifier: workspace:*
         version: link:../protocol
-      '@shard/render':
+      '@aethervtt/shard-render':
         specifier: workspace:*
         version: link:../render
-      '@shard/runtime':
+      '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../runtime
-      '@shard/scene':
+      '@aethervtt/shard-scene':
         specifier: workspace:*
         version: link:../scene
-      '@shard/texture':
+      '@aethervtt/shard-texture':
         specifier: workspace:*
         version: link:../texture
     devDependencies:
-      '@shard/gpu':
+      '@aethervtt/shard-gpu':
         specifier: workspace:*
         version: link:../gpu
-      '@shard/platform-node':
+      '@aethervtt/shard-platform-node':
         specifier: workspace:*
         version: link:../platform-node
-      '@shard/transform':
+      '@aethervtt/shard-transform':
         specifier: workspace:*
         version: link:../transform
       '@types/node':
@@ -862,77 +862,77 @@ importers:
 
   packages/project:
     dependencies:
-      '@shard/animation':
+      '@aethervtt/shard-animation':
         specifier: workspace:*
         version: link:../animation
-      '@shard/assets':
+      '@aethervtt/shard-assets':
         specifier: workspace:*
         version: link:../assets
-      '@shard/audio':
+      '@aethervtt/shard-audio':
         specifier: workspace:*
         version: link:../audio
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
-      '@shard/gltf':
+      '@aethervtt/shard-gltf':
         specifier: workspace:*
         version: link:../gltf
-      '@shard/gpu':
+      '@aethervtt/shard-gpu':
         specifier: workspace:*
         version: link:../gpu
-      '@shard/input':
+      '@aethervtt/shard-input':
         specifier: workspace:*
         version: link:../input
-      '@shard/nav':
+      '@aethervtt/shard-nav':
         specifier: workspace:*
         version: link:../nav
-      '@shard/noise':
+      '@aethervtt/shard-noise':
         specifier: workspace:*
         version: link:../noise
-      '@shard/particles':
+      '@aethervtt/shard-particles':
         specifier: workspace:*
         version: link:../particles
-      '@shard/physics':
+      '@aethervtt/shard-physics':
         specifier: workspace:*
         version: link:../physics
-      '@shard/platform':
+      '@aethervtt/shard-platform':
         specifier: workspace:*
         version: link:../platform
-      '@shard/procgen':
+      '@aethervtt/shard-procgen':
         specifier: workspace:*
         version: link:../procgen
-      '@shard/protocol':
+      '@aethervtt/shard-protocol':
         specifier: workspace:*
         version: link:../protocol
-      '@shard/render':
+      '@aethervtt/shard-render':
         specifier: workspace:*
         version: link:../render
-      '@shard/runtime':
+      '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../runtime
-      '@shard/save':
+      '@aethervtt/shard-save':
         specifier: workspace:*
         version: link:../save
-      '@shard/scene':
+      '@aethervtt/shard-scene':
         specifier: workspace:*
         version: link:../scene
-      '@shard/sprite':
+      '@aethervtt/shard-sprite':
         specifier: workspace:*
         version: link:../sprite
-      '@shard/terrain':
+      '@aethervtt/shard-terrain':
         specifier: workspace:*
         version: link:../terrain
-      '@shard/text':
+      '@aethervtt/shard-text':
         specifier: workspace:*
         version: link:../text
-      '@shard/transform':
+      '@aethervtt/shard-transform':
         specifier: workspace:*
         version: link:../transform
-      '@shard/ui':
+      '@aethervtt/shard-ui':
         specifier: workspace:*
         version: link:../ui
     devDependencies:
-      '@shard/platform-node':
+      '@aethervtt/shard-platform-node':
         specifier: workspace:*
         version: link:../platform-node
       '@types/node':
@@ -947,50 +947,50 @@ importers:
 
   packages/protocol:
     dependencies:
-      '@shard/assets':
+      '@aethervtt/shard-assets':
         specifier: workspace:*
         version: link:../assets
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
-      '@shard/input':
+      '@aethervtt/shard-input':
         specifier: workspace:*
         version: link:../input
-      '@shard/platform':
+      '@aethervtt/shard-platform':
         specifier: workspace:*
         version: link:../platform
-      '@shard/render':
+      '@aethervtt/shard-render':
         specifier: workspace:*
         version: link:../render
-      '@shard/runtime':
+      '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../runtime
-      '@shard/scene':
+      '@aethervtt/shard-scene':
         specifier: workspace:*
         version: link:../scene
-      '@shard/text':
+      '@aethervtt/shard-text':
         specifier: workspace:*
         version: link:../text
-      '@shard/texture':
+      '@aethervtt/shard-texture':
         specifier: workspace:*
         version: link:../texture
-      '@shard/transform':
+      '@aethervtt/shard-transform':
         specifier: workspace:*
         version: link:../transform
     devDependencies:
-      '@shard/gltf':
+      '@aethervtt/shard-gltf':
         specifier: workspace:*
         version: link:../gltf
-      '@shard/gpu':
+      '@aethervtt/shard-gpu':
         specifier: workspace:*
         version: link:../gpu
-      '@shard/mesh':
+      '@aethervtt/shard-mesh':
         specifier: workspace:*
         version: link:../mesh
-      '@shard/noise':
+      '@aethervtt/shard-noise':
         specifier: workspace:*
         version: link:../noise
-      '@shard/platform-node':
+      '@aethervtt/shard-platform-node':
         specifier: workspace:*
         version: link:../platform-node
       '@types/node':
@@ -1011,35 +1011,35 @@ importers:
 
   packages/render:
     dependencies:
-      '@shard/assets':
+      '@aethervtt/shard-assets':
         specifier: workspace:*
         version: link:../assets
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
-      '@shard/gpu':
+      '@aethervtt/shard-gpu':
         specifier: workspace:*
         version: link:../gpu
-      '@shard/mesh':
+      '@aethervtt/shard-mesh':
         specifier: workspace:*
         version: link:../mesh
-      '@shard/noise':
+      '@aethervtt/shard-noise':
         specifier: workspace:*
         version: link:../noise
-      '@shard/runtime':
+      '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../runtime
-      '@shard/shader':
+      '@aethervtt/shard-shader':
         specifier: workspace:*
         version: link:../shader
-      '@shard/texture':
+      '@aethervtt/shard-texture':
         specifier: workspace:*
         version: link:../texture
-      '@shard/transform':
+      '@aethervtt/shard-transform':
         specifier: workspace:*
         version: link:../transform
     devDependencies:
-      '@shard/platform-node':
+      '@aethervtt/shard-platform-node':
         specifier: workspace:*
         version: link:../platform-node
       '@types/node':
@@ -1054,50 +1054,50 @@ importers:
 
   packages/runtime:
     dependencies:
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
 
   packages/save:
     dependencies:
-      '@shard/assets':
+      '@aethervtt/shard-assets':
         specifier: workspace:*
         version: link:../assets
-      '@shard/audio':
+      '@aethervtt/shard-audio':
         specifier: workspace:*
         version: link:../audio
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
-      '@shard/input':
+      '@aethervtt/shard-input':
         specifier: workspace:*
         version: link:../input
-      '@shard/platform':
+      '@aethervtt/shard-platform':
         specifier: workspace:*
         version: link:../platform
-      '@shard/render':
+      '@aethervtt/shard-render':
         specifier: workspace:*
         version: link:../render
-      '@shard/runtime':
+      '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../runtime
-      '@shard/scene':
+      '@aethervtt/shard-scene':
         specifier: workspace:*
         version: link:../scene
-      '@shard/text':
+      '@aethervtt/shard-text':
         specifier: workspace:*
         version: link:../text
-      '@shard/transform':
+      '@aethervtt/shard-transform':
         specifier: workspace:*
         version: link:../transform
     devDependencies:
-      '@shard/physics':
+      '@aethervtt/shard-physics':
         specifier: workspace:*
         version: link:../physics
-      '@shard/platform-node':
+      '@aethervtt/shard-platform-node':
         specifier: workspace:*
         version: link:../platform-node
-      '@shard/ui':
+      '@aethervtt/shard-ui':
         specifier: workspace:*
         version: link:../ui
       '@types/node':
@@ -1112,29 +1112,29 @@ importers:
 
   packages/scene:
     dependencies:
-      '@shard/assets':
+      '@aethervtt/shard-assets':
         specifier: workspace:*
         version: link:../assets
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
-      '@shard/mesh':
+      '@aethervtt/shard-mesh':
         specifier: workspace:*
         version: link:../mesh
-      '@shard/render':
+      '@aethervtt/shard-render':
         specifier: workspace:*
         version: link:../render
-      '@shard/runtime':
+      '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../runtime
-      '@shard/transform':
+      '@aethervtt/shard-transform':
         specifier: workspace:*
         version: link:../transform
     devDependencies:
-      '@shard/gpu':
+      '@aethervtt/shard-gpu':
         specifier: workspace:*
         version: link:../gpu
-      '@shard/platform-node':
+      '@aethervtt/shard-platform-node':
         specifier: workspace:*
         version: link:../platform-node
       '@types/node':
@@ -1152,13 +1152,13 @@ importers:
 
   packages/shader:
     dependencies:
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
-      '@shard/gpu':
+      '@aethervtt/shard-gpu':
         specifier: workspace:*
         version: link:../gpu
-      '@shard/platform':
+      '@aethervtt/shard-platform':
         specifier: workspace:*
         version: link:../platform
       wesl:
@@ -1177,32 +1177,32 @@ importers:
 
   packages/sprite:
     dependencies:
-      '@shard/assets':
+      '@aethervtt/shard-assets':
         specifier: workspace:*
         version: link:../assets
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
-      '@shard/gpu':
+      '@aethervtt/shard-gpu':
         specifier: workspace:*
         version: link:../gpu
-      '@shard/render':
+      '@aethervtt/shard-render':
         specifier: workspace:*
         version: link:../render
-      '@shard/runtime':
+      '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../runtime
-      '@shard/texture':
+      '@aethervtt/shard-texture':
         specifier: workspace:*
         version: link:../texture
-      '@shard/transform':
+      '@aethervtt/shard-transform':
         specifier: workspace:*
         version: link:../transform
     devDependencies:
-      '@shard/mesh':
+      '@aethervtt/shard-mesh':
         specifier: workspace:*
         version: link:../mesh
-      '@shard/platform-node':
+      '@aethervtt/shard-platform-node':
         specifier: workspace:*
         version: link:../platform-node
       '@types/node':
@@ -1217,50 +1217,50 @@ importers:
 
   packages/terrain:
     dependencies:
-      '@shard/assets':
+      '@aethervtt/shard-assets':
         specifier: workspace:*
         version: link:../assets
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
-      '@shard/gpu':
+      '@aethervtt/shard-gpu':
         specifier: workspace:*
         version: link:../gpu
-      '@shard/mesh':
+      '@aethervtt/shard-mesh':
         specifier: workspace:*
         version: link:../mesh
-      '@shard/nav':
+      '@aethervtt/shard-nav':
         specifier: workspace:*
         version: link:../nav
-      '@shard/noise':
+      '@aethervtt/shard-noise':
         specifier: workspace:*
         version: link:../noise
-      '@shard/physics':
+      '@aethervtt/shard-physics':
         specifier: workspace:*
         version: link:../physics
-      '@shard/platform':
+      '@aethervtt/shard-platform':
         specifier: workspace:*
         version: link:../platform
-      '@shard/protocol':
+      '@aethervtt/shard-protocol':
         specifier: workspace:*
         version: link:../protocol
-      '@shard/render':
+      '@aethervtt/shard-render':
         specifier: workspace:*
         version: link:../render
-      '@shard/runtime':
+      '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../runtime
-      '@shard/shader':
+      '@aethervtt/shard-shader':
         specifier: workspace:*
         version: link:../shader
-      '@shard/texture':
+      '@aethervtt/shard-texture':
         specifier: workspace:*
         version: link:../texture
-      '@shard/transform':
+      '@aethervtt/shard-transform':
         specifier: workspace:*
         version: link:../transform
     devDependencies:
-      '@shard/platform-node':
+      '@aethervtt/shard-platform-node':
         specifier: workspace:*
         version: link:../platform-node
       '@types/node':
@@ -1275,22 +1275,22 @@ importers:
 
   packages/testing:
     dependencies:
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
-      '@shard/gpu':
+      '@aethervtt/shard-gpu':
         specifier: workspace:*
         version: link:../gpu
-      '@shard/node':
+      '@aethervtt/shard-node':
         specifier: workspace:*
         version: link:../node
-      '@shard/protocol':
+      '@aethervtt/shard-protocol':
         specifier: workspace:*
         version: link:../protocol
-      '@shard/runtime':
+      '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../runtime
-      '@shard/scene':
+      '@aethervtt/shard-scene':
         specifier: workspace:*
         version: link:../scene
       vitest:
@@ -1306,32 +1306,32 @@ importers:
 
   packages/text:
     dependencies:
-      '@shard/assets':
+      '@aethervtt/shard-assets':
         specifier: workspace:*
         version: link:../assets
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
-      '@shard/gpu':
+      '@aethervtt/shard-gpu':
         specifier: workspace:*
         version: link:../gpu
-      '@shard/render':
+      '@aethervtt/shard-render':
         specifier: workspace:*
         version: link:../render
-      '@shard/runtime':
+      '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../runtime
-      '@shard/texture':
+      '@aethervtt/shard-texture':
         specifier: workspace:*
         version: link:../texture
-      '@shard/transform':
+      '@aethervtt/shard-transform':
         specifier: workspace:*
         version: link:../transform
       opentype.js:
         specifier: ^2.0.0
         version: 2.0.0
     devDependencies:
-      '@shard/platform-node':
+      '@aethervtt/shard-platform-node':
         specifier: workspace:*
         version: link:../platform-node
       '@types/node':
@@ -1349,10 +1349,10 @@ importers:
       '@jsquash/webp':
         specifier: ^1.5.0
         version: 1.5.0
-      '@shard/assets':
+      '@aethervtt/shard-assets':
         specifier: workspace:*
         version: link:../assets
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
       fzstd:
@@ -1365,7 +1365,7 @@ importers:
         specifier: ^2.0.0
         version: 2.0.0
     devDependencies:
-      '@shard/platform-node':
+      '@aethervtt/shard-platform-node':
         specifier: workspace:*
         version: link:../platform-node
       '@types/node':
@@ -1377,53 +1377,53 @@ importers:
 
   packages/transform:
     dependencies:
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
-      '@shard/runtime':
+      '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../runtime
 
   packages/ui:
     dependencies:
-      '@shard/assets':
+      '@aethervtt/shard-assets':
         specifier: workspace:*
         version: link:../assets
-      '@shard/core':
+      '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
-      '@shard/gpu':
+      '@aethervtt/shard-gpu':
         specifier: workspace:*
         version: link:../gpu
-      '@shard/input':
+      '@aethervtt/shard-input':
         specifier: workspace:*
         version: link:../input
-      '@shard/render':
+      '@aethervtt/shard-render':
         specifier: workspace:*
         version: link:../render
-      '@shard/runtime':
+      '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../runtime
-      '@shard/sprite':
+      '@aethervtt/shard-sprite':
         specifier: workspace:*
         version: link:../sprite
-      '@shard/text':
+      '@aethervtt/shard-text':
         specifier: workspace:*
         version: link:../text
-      '@shard/texture':
+      '@aethervtt/shard-texture':
         specifier: workspace:*
         version: link:../texture
-      '@shard/transform':
+      '@aethervtt/shard-transform':
         specifier: workspace:*
         version: link:../transform
     devDependencies:
-      '@shard/mesh':
+      '@aethervtt/shard-mesh':
         specifier: workspace:*
         version: link:../mesh
-      '@shard/platform-node':
+      '@aethervtt/shard-platform-node':
         specifier: workspace:*
         version: link:../platform-node
-      '@shard/scene':
+      '@aethervtt/shard-scene':
         specifier: workspace:*
         version: link:../scene
       '@types/node':

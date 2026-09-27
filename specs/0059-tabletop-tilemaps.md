@@ -1,7 +1,7 @@
 # 0059 — Tilemaps on the tabletop, and diffable tile data
 
 - **Status:** accepted
-- **Packages:** `@shard/sprite`, `@shard/protocol`, `@shard/mcp`, `apps/cli`
+- **Packages:** `@aethervtt/shard-sprite`, `@aethervtt/shard-protocol`, `@aethervtt/shard-mcp`, `apps/cli`
 - **Depends on:** 0024, 0027, 0057
 
 ## Context

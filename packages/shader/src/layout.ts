@@ -4,7 +4,7 @@ import {
   type Fields,
   type InferFields,
   ShardError,
-} from '@shard/core'
+} from '@aethervtt/shard-core'
 
 interface FieldLayout {
   name: string

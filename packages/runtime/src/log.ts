@@ -1,4 +1,4 @@
-import { defineResource, ShardError } from '@shard/core'
+import { defineResource, ShardError } from '@aethervtt/shard-core'
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 

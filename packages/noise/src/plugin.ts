@@ -1,4 +1,4 @@
-import { definePlugin } from '@shard/runtime'
+import { definePlugin } from '@aethervtt/shard-runtime'
 import { loadNoiseKernel } from './loader'
 import { noiseMethods } from './methods'
 

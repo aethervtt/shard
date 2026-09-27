@@ -1,7 +1,7 @@
 # 0044 — Atmosphere scattering
 
 - **Status:** implemented
-- **Packages:** `@shard/render`, `@shard/terrain`
+- **Packages:** `@aethervtt/shard-render`, `@aethervtt/shard-terrain`
 - **Depends on:** 0019, 0021, 0023, 0040, 0043
 
 ## Context
@@ -236,7 +236,7 @@ disks draw.
       frame-to-frame mean luminance change stays under 3% at a constant sun.
 - [x] Terrain 20 km away is visibly hazier (closer to the horizon sky, bluer) than terrain 1 km
       away, identically in forward and deferred cameras (image diff < 1%). A planet seen from
-      1 500 km has bluer terrain and a glowing limb (`@shard/terrain`).
+      1 500 km has bluer terrain and a glowing limb (`@aethervtt/shard-terrain`).
 - [x] A moon with its own atmosphere, seen from the planet's surface (at night there: a thin limb
       can't beat a day sky) and from orbit, shows its limb. Four atmospheres on screen cost ≤ 1.2 ms
       total, measured as what they add over a Skybox background (every sky has a background pass;

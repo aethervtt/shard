@@ -1,7 +1,7 @@
 # 0052 — Embedding: transparent surfaces, shared devices, on-demand frames, teardown
 
 - **Status:** accepted
-- **Packages:** `@shard/gpu`, `@shard/render`, `@shard/runtime`, `@shard/core`, `@shard/particles`
+- **Packages:** `@aethervtt/shard-gpu`, `@aethervtt/shard-render`, `@aethervtt/shard-runtime`, `@aethervtt/shard-core`, `@aethervtt/shard-particles`
 - **Depends on:** 0003, 0005, 0007, 0019, 0023, 0051
 
 ## Context

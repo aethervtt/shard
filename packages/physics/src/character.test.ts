@@ -1,6 +1,6 @@
-import { type Entity, ProfilerResource, type World } from '@shard/core'
-import { App } from '@shard/runtime'
-import { Transform, TransformPlugin } from '@shard/transform'
+import { type Entity, ProfilerResource, type World } from '@aethervtt/shard-core'
+import { App } from '@aethervtt/shard-runtime'
+import { Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { describe, expect, it } from 'vitest'
 import {
   CharacterController,

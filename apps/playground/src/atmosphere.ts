@@ -1,13 +1,13 @@
-import { defineSystem, type Entity, quat, Update, type World } from '@shard/core'
+import { defineSystem, type Entity, quat, Update, type World } from '@aethervtt/shard-core'
 import {
   Atmosphere,
   type AtmospherePreset,
   AtmospherePresets,
   AtmosphereSettings,
   describeAtmospheres,
-} from '@shard/render'
-import { definePlugin, Time } from '@shard/runtime'
-import { placeInGrid, Transform } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { definePlugin, Time } from '@aethervtt/shard-runtime'
+import { placeInGrid, Transform } from '@aethervtt/shard-transform'
 import { hudExtras } from './hud'
 import { altitude, fly, planetDemo, startPlanet } from './terrain'
 

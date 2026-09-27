@@ -1,13 +1,18 @@
-import { type AssetRef, type Entity, ShardError } from '@shard/core'
-import { App, Log, LogResource } from '@shard/runtime'
+import { type AssetRef, type Entity, ShardError } from '@aethervtt/shard-core'
+import { App, Log, LogResource } from '@aethervtt/shard-runtime'
 import {
   findEntityByPath,
   loadScene,
   registerPrefab,
   type SceneEntity,
   ScenePlugin,
-} from '@shard/scene'
-import { GlobalTransform, Transform, TransformPlugin, worldPosition } from '@shard/transform'
+} from '@aethervtt/shard-scene'
+import {
+  GlobalTransform,
+  Transform,
+  TransformPlugin,
+  worldPosition,
+} from '@aethervtt/shard-transform'
 import { describe, expect, it } from 'vitest'
 import { animationLayer } from './api'
 import { AnimationClips } from './clip'

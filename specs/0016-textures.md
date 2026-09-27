@@ -1,7 +1,7 @@
 # 0016 — Textures
 
 - **Status:** implemented
-- **Packages:** `@shard/texture` (new), `@shard/render`, `@shard/gltf`, `@shard/protocol`
+- **Packages:** `@aethervtt/shard-texture` (new), `@aethervtt/shard-render`, `@aethervtt/shard-gltf`, `@aethervtt/shard-protocol`
 - **Depends on:** 0005, 0007, 0014, 0015
 
 ## Context
@@ -47,7 +47,7 @@ files with Zstandard supercompression are decoded with a small pure-JS zstd deco
 
 ### Decoding
 
-- **PNG:** in TypeScript (the decoder moves from `@shard/protocol` into `@shard/texture`),
+- **PNG:** in TypeScript (the decoder moves from `@aethervtt/shard-protocol` into `@aethervtt/shard-texture`),
   including 16-bit, palette, and grayscale. It honors `sRGB`, `gAMA`, and `iCCP` only as far as
   telling sRGB apart from linear; ICC profile conversion is out of scope.
 - **JPEG and WebP:** small WASM decoders, loaded lazily the first time an importer needs one.

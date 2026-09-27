@@ -1,6 +1,6 @@
-import { App } from '@shard/runtime'
-import { loadScene } from '@shard/scene'
-import { TransformPlugin } from '@shard/transform'
+import { App } from '@aethervtt/shard-runtime'
+import { loadScene } from '@aethervtt/shard-scene'
+import { TransformPlugin } from '@aethervtt/shard-transform'
 import { describe, expect, it } from 'vitest'
 import { createProtocolServer } from './server'
 

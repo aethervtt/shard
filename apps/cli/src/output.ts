@@ -1,4 +1,4 @@
-import { ShardError } from '@shard/core'
+import { ShardError } from '@aethervtt/shard-core'
 
 /** Exit codes: stable, documented, and what scripts and agents branch on. */
 export const EXIT = { ok: 0, failed: 1, runtime: 2, usage: 3 } as const

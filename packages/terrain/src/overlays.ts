@@ -1,4 +1,4 @@
-import { defineOverlay } from '@shard/render'
+import { defineOverlay } from '@aethervtt/shard-render'
 import { chunkLayout } from './chunk'
 import { collidersOf } from './colliders'
 import { Terrain } from './heights'

@@ -1,6 +1,6 @@
-import { assetServer } from '@shard/assets'
-import { type AssetRef, defineSystem, type Entity, quat, t, Update } from '@shard/core'
-import { sphere } from '@shard/mesh'
+import { assetServer } from '@aethervtt/shard-assets'
+import { type AssetRef, defineSystem, type Entity, quat, t, Update } from '@aethervtt/shard-core'
+import { sphere } from '@aethervtt/shard-mesh'
 import {
   loadNoiseKernel,
   NoiseGraph,
@@ -9,8 +9,8 @@ import {
   poolTiming,
   sampleNoise,
   sampleSpherePatchAsync,
-} from '@shard/noise'
-import { createWebWorkers } from '@shard/platform-web'
+} from '@aethervtt/shard-noise'
+import { createWebWorkers } from '@aethervtt/shard-platform-web'
 import {
   AmbientLight,
   Camera3d,
@@ -23,9 +23,9 @@ import {
   Meshes,
   MeshMaterial,
   Shaders,
-} from '@shard/render'
-import { definePlugin, Time } from '@shard/runtime'
-import { lookAt, Transform } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { definePlugin, Time } from '@aethervtt/shard-runtime'
+import { lookAt, Transform } from '@aethervtt/shard-transform'
 import { hudExtras } from './hud'
 import { memoryPlatform } from './memory'
 

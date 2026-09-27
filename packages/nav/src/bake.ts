@@ -1,4 +1,4 @@
-import { assetServer } from '@shard/assets'
+import { assetServer } from '@aethervtt/shard-assets'
 import {
   type AssetRef,
   affine64,
@@ -9,12 +9,12 @@ import {
   ShardError,
   type Table,
   type World,
-} from '@shard/core'
-import { BODY_KINDS, Collider, Physics } from '@shard/physics'
-import { Mesh3d, Meshes } from '@shard/render'
-import { LogResource } from '@shard/runtime'
-import { Tilemap, TilemapDatas } from '@shard/sprite'
-import { GlobalTransform } from '@shard/transform'
+} from '@aethervtt/shard-core'
+import { BODY_KINDS, Collider, Physics } from '@aethervtt/shard-physics'
+import { Mesh3d, Meshes } from '@aethervtt/shard-render'
+import { LogResource } from '@aethervtt/shard-runtime'
+import { Tilemap, TilemapDatas } from '@aethervtt/shard-sprite'
+import { GlobalTransform } from '@aethervtt/shard-transform'
 import { NavCache } from './cache'
 import { NavAreas, NavGrid, NavGridDatas, NavMesh, NavSource, OffMeshLink } from './components'
 import {

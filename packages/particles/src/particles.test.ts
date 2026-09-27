@@ -2,12 +2,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { assetServer } from '@shard/assets'
-import { ChildOf, quat } from '@shard/core'
-import type { GpuContext } from '@shard/gpu'
-import { createNodeGpuContext } from '@shard/gpu/node'
-import { plane } from '@shard/mesh'
-import { createNodePlatform } from '@shard/platform-node'
+import { assetServer } from '@aethervtt/shard-assets'
+import { ChildOf, quat } from '@aethervtt/shard-core'
+import type { GpuContext } from '@aethervtt/shard-gpu'
+import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
+import { plane } from '@aethervtt/shard-mesh'
+import { createNodePlatform } from '@aethervtt/shard-platform-node'
 import {
   Camera3d,
   captureView,
@@ -25,10 +25,10 @@ import {
   renderPlugin,
   Shaders,
   Tonemapping,
-} from '@shard/render'
-import { compareGolden, settle } from '@shard/render/testing'
-import { App, LogResource } from '@shard/runtime'
-import { Texture, Textures } from '@shard/texture'
+} from '@aethervtt/shard-render'
+import { compareGolden, settle } from '@aethervtt/shard-render/testing'
+import { App, LogResource } from '@aethervtt/shard-runtime'
+import { Texture, Textures } from '@aethervtt/shard-texture'
 import {
   FloatingOrigin,
   GlobalTransform,
@@ -38,7 +38,7 @@ import {
   OriginShift,
   Transform,
   TransformPlugin,
-} from '@shard/transform'
+} from '@aethervtt/shard-transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { ParticleEmitterOverrides, ParticleSystem } from './components'
 import { ParticleEffect, ParticleEffects, parseEffect } from './effect'

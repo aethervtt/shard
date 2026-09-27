@@ -1,7 +1,7 @@
 # 0008 — Input and action maps
 
 - **Status:** implemented
-- **Packages:** `@shard/input`
+- **Packages:** `@aethervtt/shard-input`
 - **Depends on:** 0002, 0003
 
 ## Context
@@ -141,7 +141,7 @@ The MCP layer (M3) exposes this so an agent can play the game.
 
 ## Implementation notes
 
-- **Sources:** `InputSource` and `RawInputEvent` live in `@shard/platform`. `createDomInputSource`
+- **Sources:** `InputSource` and `RawInputEvent` live in `@aethervtt/shard-platform`. `createDomInputSource`
   (in `platform-web`) serves both browsers and the Tauri webview. Headless apps omit the source.
 - **Binding grammar as built:** `Key:<code>` (allowlisted codes, so typos fail), `Mouse:<Left|Middle|
   Right|Back|Forward|WheelX|WheelY|DeltaX|DeltaY>`, `Gamepad:<button|axis|LeftStick|RightStick>`

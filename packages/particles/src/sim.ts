@@ -6,9 +6,9 @@ import {
   mat4,
   ProfilerResource,
   type World,
-} from '@shard/core'
-import { GpuBuffer, type GpuContext } from '@shard/gpu'
-import type { Mesh } from '@shard/mesh'
+} from '@aethervtt/shard-core'
+import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
+import type { Mesh } from '@aethervtt/shard-mesh'
 import {
   type CameraData,
   ComputedVisibility,
@@ -23,10 +23,10 @@ import {
   type RenderView,
   Shaders,
   Views,
-} from '@shard/render'
-import { Time } from '@shard/runtime'
-import { type Texture, Textures } from '@shard/texture'
-import { GlobalTransform } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { Time } from '@aethervtt/shard-runtime'
+import { type Texture, Textures } from '@aethervtt/shard-texture'
+import { GlobalTransform } from '@aethervtt/shard-transform'
 import { ParticleEmitterOverrides, ParticleSystem } from './components'
 import { type EmitterDef, type ParticleEffect, ParticleEffects } from './effect'
 import { type CpuParticle, MODULES } from './modules'

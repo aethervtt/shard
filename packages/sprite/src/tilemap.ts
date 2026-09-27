@@ -1,4 +1,4 @@
-import { AssetStore, defineAssetType, defineDataAsset } from '@shard/assets'
+import { AssetStore, defineAssetType, defineDataAsset } from '@aethervtt/shard-assets'
 import {
   type AssetRef,
   defineComponent,
@@ -8,9 +8,9 @@ import {
   ShardError,
   t,
   type World,
-} from '@shard/core'
-import { Visibility } from '@shard/render'
-import { Transform } from '@shard/transform'
+} from '@aethervtt/shard-core'
+import { Visibility } from '@aethervtt/shard-render'
+import { Transform } from '@aethervtt/shard-transform'
 
 /** Tile flag bits. */
 export const TileFlags = { FlipX: 1, FlipY: 2, Rotate90: 4 } as const

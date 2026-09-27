@@ -1,5 +1,5 @@
 /// <reference path="./opentype.d.ts" />
-import { ShardError } from '@shard/core'
+import { ShardError } from '@aethervtt/shard-core'
 import type { Font as OpentypeFont } from 'opentype.js'
 import * as opentype from 'opentype.js'
 

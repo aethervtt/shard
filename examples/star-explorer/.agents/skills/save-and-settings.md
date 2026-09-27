@@ -7,7 +7,7 @@ RNG streams; and time. Loading reloads each scene from its current file, so scen
 a save show up, and the player's changes stay.
 
 ```ts
-import { loadGame, saveGame } from '@shard/save'
+import { loadGame, saveGame } from '@aethervtt/shard-save'
 
 await saveGame(world, 'slot1', { meta: { label: 'Crash site' } })
 await loadGame(world, 'slot1') // between frames: from a UI click handler, ready(), or a tool

@@ -1,4 +1,4 @@
-import { ShardError } from '@shard/core'
+import { ShardError } from '@aethervtt/shard-core'
 
 export interface ProbeWebGpuOptions {
   /** The WebGPU entry point. Defaults to `navigator.gpu`; in Node pass the `webgpu` package's. */

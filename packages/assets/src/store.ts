@@ -1,4 +1,4 @@
-import { type AssetRef, ShardError } from '@shard/core'
+import { type AssetRef, ShardError } from '@aethervtt/shard-core'
 
 /**
  * Runtime objects of one asset type, by guid. File-backed assets are put here by the asset server

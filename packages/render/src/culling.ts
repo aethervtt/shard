@@ -1,5 +1,5 @@
-import { defineResource } from '@shard/core'
-import { GpuBuffer, type GpuContext } from '@shard/gpu'
+import { defineResource } from '@aethervtt/shard-core'
+import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
 import { readBuffer } from './debug-views'
 import type { NodeContext } from './graph'
 import {

@@ -1,4 +1,4 @@
-import { defineResource, type Rng } from '@shard/core'
+import { defineResource, type Rng } from '@aethervtt/shard-core'
 
 export interface TimeData {
   /** Seconds since the previous frame. */

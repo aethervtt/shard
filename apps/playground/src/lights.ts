@@ -1,5 +1,5 @@
-import { defineComponent, defineSystem, quat, Rng, t, Update } from '@shard/core'
-import { cube, plane, sphere } from '@shard/mesh'
+import { defineComponent, defineSystem, quat, Rng, t, Update } from '@aethervtt/shard-core'
+import { cube, plane, sphere } from '@aethervtt/shard-mesh'
 import {
   AmbientLight,
   Camera3d,
@@ -12,9 +12,9 @@ import {
   MeshMaterial,
   NotShadowCaster,
   PointLight,
-} from '@shard/render'
-import { definePlugin, Time } from '@shard/runtime'
-import { lookAt, Transform } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { definePlugin, Time } from '@aethervtt/shard-runtime'
+import { lookAt, Transform } from '@aethervtt/shard-transform'
 
 /** Lights that circle the hall. */
 const Orbit = defineComponent('lights-demo/Orbit', {

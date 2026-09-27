@@ -35,7 +35,7 @@ data type: fields in `scripts/`, one JSON file per value.
    and in a scene `"star-explorer/Armed": { "weapon": { "path": "data/weapons/laser.weapon.json" } }`.
    The weapon loads with the scene.
 5. **Read it** in a system: `world.resource(Weapon.store).get(armed.weapon)` is one map lookup,
-   no allocation. Every weapon at once: `await loadAll(world, Weapon)` (from `@shard/assets`).
+   no allocation. Every weapon at once: `await loadAll(world, Weapon)` (from `@aethervtt/shard-assets`).
 6. **Check**: `shard import --json` then `shard validate --json`. Errors point into the file;
    a handle to the wrong type is `schema/asset-type-mismatch`, a loop of variants `data/extends-cycle`.
 

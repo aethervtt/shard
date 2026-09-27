@@ -1,7 +1,7 @@
-import { Last } from '@shard/core'
-import { Graph, RenderDescribers, RenderSet } from '@shard/render'
-import { definePlugin } from '@shard/runtime'
-import { OriginShift } from '@shard/transform'
+import { Last } from '@aethervtt/shard-core'
+import { Graph, RenderDescribers, RenderSet } from '@aethervtt/shard-render'
+import { definePlugin } from '@aethervtt/shard-runtime'
+import { OriginShift } from '@aethervtt/shard-transform'
 import { ParticleEffects } from './effect'
 import {
   describeParticles,

@@ -1,5 +1,5 @@
-import { type AssetRef, ShardError, type World } from '@shard/core'
-import type { AudioDistanceModel, AudioPanningModel } from '@shard/platform'
+import { type AssetRef, ShardError, type World } from '@aethervtt/shard-core'
+import type { AudioDistanceModel, AudioPanningModel } from '@aethervtt/shard-platform'
 import type { AudioClipAsset } from './clip'
 import { type AudioBus, AudioBuses } from './components'
 import { audioState, busOf, endVoice, newVoice, unknownBus } from './mixer'

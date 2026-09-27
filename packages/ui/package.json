@@ -1,5 +1,5 @@
 {
-  "name": "@shard/ui",
+  "name": "@aethervtt/shard-ui",
   "version": "0.0.0",
   "license": "MIT",
   "private": true,
@@ -12,21 +12,21 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@shard/assets": "workspace:*",
-    "@shard/core": "workspace:*",
-    "@shard/gpu": "workspace:*",
-    "@shard/input": "workspace:*",
-    "@shard/render": "workspace:*",
-    "@shard/runtime": "workspace:*",
-    "@shard/sprite": "workspace:*",
-    "@shard/text": "workspace:*",
-    "@shard/texture": "workspace:*",
-    "@shard/transform": "workspace:*"
+    "@aethervtt/shard-assets": "workspace:*",
+    "@aethervtt/shard-core": "workspace:*",
+    "@aethervtt/shard-gpu": "workspace:*",
+    "@aethervtt/shard-input": "workspace:*",
+    "@aethervtt/shard-render": "workspace:*",
+    "@aethervtt/shard-runtime": "workspace:*",
+    "@aethervtt/shard-sprite": "workspace:*",
+    "@aethervtt/shard-text": "workspace:*",
+    "@aethervtt/shard-texture": "workspace:*",
+    "@aethervtt/shard-transform": "workspace:*"
   },
   "devDependencies": {
-    "@shard/mesh": "workspace:*",
-    "@shard/platform-node": "workspace:*",
-    "@shard/scene": "workspace:*",
+    "@aethervtt/shard-mesh": "workspace:*",
+    "@aethervtt/shard-platform-node": "workspace:*",
+    "@aethervtt/shard-scene": "workspace:*",
     "@types/node": "^26.6.2",
     "@webgpu/types": "^0.1.74",
     "webgpu": "0.6.1"

@@ -1,7 +1,7 @@
 //! The program interpreter. A program is a list of fixed-width instructions over registers of
 //! `BLOCK` floats each. Points are processed a block at a time, one instruction over the whole
 //! block, so dispatch costs one match per instruction rather than per point. `compile.ts` in
-//! `@shard/noise` writes programs; the opcodes and layouts here must match it.
+//! `@aethervtt/shard-noise` writes programs; the opcodes and layouts here must match it.
 
 use crate::hash::hash_seed;
 use crate::lanes::{F4, I4};

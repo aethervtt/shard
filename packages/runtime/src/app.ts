@@ -19,7 +19,7 @@ import {
   type SystemSetConfig,
   Update,
   World,
-} from '@shard/core'
+} from '@aethervtt/shard-core'
 import { AppControl, AppControlResource } from './control'
 import { Log, LogResource } from './log'
 import type { Plugin } from './plugin'

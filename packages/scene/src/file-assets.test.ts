@@ -2,10 +2,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { assetServer } from '@shard/assets'
-import type { GpuContext } from '@shard/gpu'
-import { createNodeGpuContext } from '@shard/gpu/node'
-import { createNodePlatform } from '@shard/platform-node'
+import { assetServer } from '@aethervtt/shard-assets'
+import type { GpuContext } from '@aethervtt/shard-gpu'
+import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
+import { createNodePlatform } from '@aethervtt/shard-platform-node'
 import {
   captureView,
   forwardPlugin,
@@ -13,9 +13,9 @@ import {
   OffscreenTarget,
   renderPlugin,
   Shaders,
-} from '@shard/render'
-import { App } from '@shard/runtime'
-import { TransformPlugin } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { App } from '@aethervtt/shard-runtime'
+import { TransformPlugin } from '@aethervtt/shard-transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { SceneFile } from './format'
 import { loadScene, saveScene, unloadScene, validateScene, whenSceneReady } from './scene'

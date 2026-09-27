@@ -1,4 +1,4 @@
-import { assetServer } from '@shard/assets'
+import { assetServer } from '@aethervtt/shard-assets'
 import {
   type AnyField,
   allResources,
@@ -16,9 +16,15 @@ import {
   pointer,
   ShardError,
   type World,
-} from '@shard/core'
-import { createMemoryStorage, type KeyValueStorage } from '@shard/platform'
-import { AppControlResource, FixedTime, GlobalRng, LogResource, Time } from '@shard/runtime'
+} from '@aethervtt/shard-core'
+import { createMemoryStorage, type KeyValueStorage } from '@aethervtt/shard-platform'
+import {
+  AppControlResource,
+  FixedTime,
+  GlobalRng,
+  LogResource,
+  Time,
+} from '@aethervtt/shard-runtime'
 import {
   currentOverrides,
   findEntityByPath,
@@ -37,7 +43,7 @@ import {
   updateInstances,
   whenSceneReady,
   worldSchemaContext,
-} from '@shard/scene'
+} from '@aethervtt/shard-scene'
 import { SAVE_VERSION, type SavedEntity, type SavedScene, type SaveFile } from './format'
 
 export const NoSave = defineTag('save/NoSave', {

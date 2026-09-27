@@ -5,9 +5,9 @@ import {
   type Entity,
   findComponent,
   type World,
-} from '@shard/core'
-import type { Mesh } from '@shard/mesh'
-import { GlobalTransform, GridFramesResource } from '@shard/transform'
+} from '@aethervtt/shard-core'
+import type { Mesh } from '@aethervtt/shard-mesh'
+import { GlobalTransform, GridFramesResource } from '@aethervtt/shard-transform'
 import { ForwardStateResource } from './forward'
 import { type GizmoStore, Gizmos } from './gizmos'
 import {

@@ -1,4 +1,4 @@
-import { assetServer, defineAssetPreview } from '@shard/assets'
+import { assetServer, defineAssetPreview } from '@aethervtt/shard-assets'
 import {
   Camera3d,
   captureView,
@@ -8,10 +8,10 @@ import {
   OffscreenTarget,
   RenderTargets,
   renderPlugin,
-} from '@shard/render'
-import { App } from '@shard/runtime'
-import { Textures } from '@shard/texture'
-import { lookAt, Transform, TransformPlugin } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { App } from '@aethervtt/shard-runtime'
+import { Textures } from '@aethervtt/shard-texture'
+import { lookAt, Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { ParticleSystem } from './components'
 import { ParticleEffect, ParticleEffects } from './effect'
 

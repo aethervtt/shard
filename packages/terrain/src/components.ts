@@ -1,6 +1,6 @@
-import { defineComponent, defineResource, t } from '@shard/core'
-import { Visibility } from '@shard/render'
-import { Grid, Transform } from '@shard/transform'
+import { defineComponent, defineResource, t } from '@aethervtt/shard-core'
+import { Visibility } from '@aethervtt/shard-render'
+import { Grid, Transform } from '@aethervtt/shard-transform'
 
 export const Planet = defineComponent(
   'terrain/Planet',

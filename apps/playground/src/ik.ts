@@ -10,7 +10,7 @@ import {
   LookAtIk,
   Retarget,
   TwoBoneIk,
-} from '@shard/animation'
+} from '@aethervtt/shard-animation'
 import {
   addBipedAssets,
   addCreatureAssets,
@@ -20,7 +20,7 @@ import {
   creature,
   spawnBiped,
   spawnCreatures,
-} from '@shard/animation/testing'
+} from '@aethervtt/shard-animation/testing'
 import {
   type AssetRef,
   ChildOf,
@@ -32,9 +32,9 @@ import {
   t,
   Update,
   type World,
-} from '@shard/core'
-import { box, plane, sphere } from '@shard/mesh'
-import { Collider, createRayHit, Physics, RigidBody } from '@shard/physics'
+} from '@aethervtt/shard-core'
+import { box, plane, sphere } from '@aethervtt/shard-mesh'
+import { Collider, createRayHit, Physics, RigidBody } from '@aethervtt/shard-physics'
 import {
   AmbientLight,
   Camera3d,
@@ -46,9 +46,9 @@ import {
   Meshes,
   MeshMaterial,
   setOverlays,
-} from '@shard/render'
-import { type App, definePlugin, Time } from '@shard/runtime'
-import { lookAt, Transform, worldPosition } from '@shard/transform'
+} from '@aethervtt/shard-render'
+import { type App, definePlugin, Time } from '@aethervtt/shard-runtime'
+import { lookAt, Transform, worldPosition } from '@aethervtt/shard-transform'
 import { hudExtras } from './hud'
 
 const still = new URLSearchParams(location.search).has('still')

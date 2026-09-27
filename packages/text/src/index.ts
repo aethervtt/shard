@@ -1,4 +1,4 @@
-export { type PackItem, type PackResult, packRects, SkylinePacker } from '@shard/texture'
+export { type PackItem, type PackResult, packRects, SkylinePacker } from '@aethervtt/shard-texture'
 export { buildFont, type FontBuild, type FontBuildOptions, fontFromBytes } from './build'
 export { type CharsetName, charsetCodepoints } from './charset'
 export { Localized, SCREEN_CORNERS, ScreenText, TEXT_ALIGNS, Text } from './components'

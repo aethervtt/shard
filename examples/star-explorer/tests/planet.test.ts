@@ -1,4 +1,4 @@
-import { expect, test } from '@shard/testing'
+import { expect, test } from '@aethervtt/shard-testing'
 
 interface Described {
   planets: {

@@ -11,9 +11,9 @@ import {
   ShardError,
   type Table,
   type World,
-} from '@shard/core'
-import { defineOverlay } from '@shard/render'
-import { type App, FixedTime, type Plugin } from '@shard/runtime'
+} from '@aethervtt/shard-core'
+import { defineOverlay } from '@aethervtt/shard-render'
+import { type App, FixedTime, type Plugin } from '@aethervtt/shard-runtime'
 import {
   GlobalTransform,
   GridCell,
@@ -21,7 +21,7 @@ import {
   OriginShift,
   Transform,
   TransformSystems,
-} from '@shard/transform'
+} from '@aethervtt/shard-transform'
 import { characterSystem } from './character'
 import {
   CharacterController,
@@ -313,7 +313,7 @@ function restorePoses(world: World, p: PhysicsWorld): void {
 }
 
 function writePose(
-  table: import('@shard/core').Table,
+  table: import('@aethervtt/shard-core').Table,
   row: number,
   pose: ArrayLike<number>,
   o: number,
@@ -791,7 +791,7 @@ defineOverlay({
   },
 })
 
-type Gz = import('@shard/render').GizmoStore
+type Gz = import('@aethervtt/shard-render').GizmoStore
 type RCollider = InstanceType<PhysicsWorld['R']['Collider']>
 
 const MAX_CONTACT_PAIRS = 1000

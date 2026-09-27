@@ -1,6 +1,6 @@
-import { Last } from '@shard/core'
-import { Gpu, Graph, RenderDescribers, RenderSet, Shaders } from '@shard/render'
-import { definePlugin } from '@shard/runtime'
+import { Last } from '@aethervtt/shard-core'
+import { Gpu, Graph, RenderDescribers, RenderSet, Shaders } from '@aethervtt/shard-render'
+import { definePlugin } from '@aethervtt/shard-runtime'
 import { Fonts } from './importer'
 import { installLocalization } from './locale'
 import {
