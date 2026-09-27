@@ -1,6 +1,6 @@
 # 0058 — Projected fog
 
-- **Status:** draft
+- **Status:** accepted
 - **Packages:** `@shard/fog` (new), `@shard/vector`, `@shard/render`
 - **Depends on:** 0023, 0057
 
@@ -99,6 +99,11 @@ const manual = world.resource(FogRegionsStore).add({ rev: 1, regions: [...] })
 world.spawn([FogLayer, { base: 'revealed', extent, regions: manual }])
 world.patchResource(FogSettings, { viewerOpacity: isGm ? 0.45 : 1 })   // wakes an idle app (0052)
 ```
+
+### Baseline tier (0064)
+
+Masks are drawn by render passes and composited by a fragment pass, so fog runs on the baseline tier
+unchanged. The composite reads layer masks as textures, not storage.
 
 ### Agent surface
 

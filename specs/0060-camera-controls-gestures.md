@@ -1,6 +1,6 @@
 # 0060 — Camera controls, gestures, and object drag
 
-- **Status:** draft
+- **Status:** accepted
 - **Packages:** `@shard/controls` (new), `@shard/input`, `@shard/platform-web`
 - **Depends on:** 0008, 0027, 0057
 

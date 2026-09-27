@@ -1,6 +1,6 @@
 # 0062 — Browser captures, approvals, and performance records
 
-- **Status:** draft
+- **Status:** accepted
 - **Packages:** `@shard/verify` (new), `@shard/runtime`, `@shard/render`, `@shard/platform-web`,
   `apps/cli`
 - **Depends on:** 0012, 0052, 0056

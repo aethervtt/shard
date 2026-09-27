@@ -117,21 +117,24 @@ Web build, desktop bundles, profiler in Studio. Mobile via Tauri, untested and n
 
 Shard as a guest inside a host application: Aether (a VTT) moves its dice, and then its table,
 off three.js. This runs alongside M8. Order: 0052, 0053 and 0061 first (the embedding
-foundations), then 0054 dice with 0063. The table follows: 0055, 0057, 0060, 0058, 0059. 0056 and 0062
-measure the result throughout. The Aether adapter that maps its documents onto these lives in
-Aether. Already done outside a spec: `Camera3d.active` (0007) and `probeWebGpu` (0061).
+foundations), then 0054 dice with 0063. The table follows: 0055, 0057, 0060, 0058, 0059. 0056 and
+0062 measure the result throughout. The Aether adapter that maps its documents onto these lives in
+Aether. Already done outside a spec: `Camera3d.active` (0007) and `probeWebGpu` (0061). The WebGL2
+fallback (0064) runs in parallel, in three stages, and doesn't block the WebGPU replacement. New
+tabletop shaders use its `shard::data` accessors once stage 1 lands.
 
 | Spec | Title | Status |
 |---|---|---|
-| [0052](0052-embedding.md) | Embedding (transparent surfaces, shared devices, on-demand frames, teardown) | draft |
-| [0053](0053-deterministic-physics-tracks.md) | Deterministic physics and recorded tracks (worker, cancellation) | draft |
-| [0054](0054-dice.md) | Dice (definitions, layouts, skins, tracks, landing on a supplied result) | draft |
-| [0055](0055-host-scenes-structure.md) | Host-driven scenes and incremental structure (mirror, chunks, upload accounting) | draft |
-| [0056](0056-modular-builds-size.md) | Modular builds and size budgets (no import side effects, feature plugins, three baseline) | draft |
-| [0057](0057-tabletop-layers.md) | Tabletop layers (ground bands, render layers, grids, vector shapes, outlines) | draft |
-| [0058](0058-projected-fog.md) | Projected fog (ordered regions, feathered masks, world-space composite) | draft |
-| [0059](0059-tabletop-tilemaps.md) | Tilemaps on the tabletop, and diffable tile data | draft |
-| [0060](0060-camera-controls-gestures.md) | Camera controls, gestures, and object drag | draft |
-| [0061](0061-ownership-recovery.md) | Ownership and failure recovery (owners, fallbacks, health) | draft |
-| [0062](0062-browser-verification.md) | Browser captures, approvals, and performance records | draft |
-| [0063](0063-lens-fields.md) | Screen-space lens fields (bounded post displacement from published fields) | draft |
+| [0052](0052-embedding.md) | Embedding (transparent surfaces, shared devices, on-demand frames, teardown) | accepted |
+| [0053](0053-deterministic-physics-tracks.md) | Deterministic physics and recorded tracks (worker, cancellation) | accepted |
+| [0054](0054-dice.md) | Dice (definitions, layouts, skins, tracks, landing on a supplied result) | accepted |
+| [0055](0055-host-scenes-structure.md) | Host-driven scenes and incremental structure (mirror, chunks, upload accounting) | accepted |
+| [0056](0056-modular-builds-size.md) | Modular builds and size budgets (no import side effects, feature plugins, three baseline) | accepted |
+| [0057](0057-tabletop-layers.md) | Tabletop layers (ground bands, render layers, grids, vector shapes, outlines) | accepted |
+| [0058](0058-projected-fog.md) | Projected fog (ordered regions, feathered masks, world-space composite) | accepted |
+| [0059](0059-tabletop-tilemaps.md) | Tilemaps on the tabletop, and diffable tile data | accepted |
+| [0060](0060-camera-controls-gestures.md) | Camera controls, gestures, and object drag | accepted |
+| [0061](0061-ownership-recovery.md) | Ownership and failure recovery (owners, fallbacks, health) | accepted |
+| [0062](0062-browser-verification.md) | Browser captures, approvals, and performance records | accepted |
+| [0063](0063-lens-fields.md) | Screen-space lens fields (bounded post displacement from published fields) | accepted |
+| [0064](0064-webgl2-fallback.md) | WebGL2 fallback and the baseline tier (one API, backend chosen at startup; staged, off the critical path) | accepted |

@@ -1,6 +1,6 @@
 # 0055 — Host-driven scenes and incremental structure
 
-- **Status:** draft
+- **Status:** accepted
 - **Packages:** `@shard/mirror` (new), `@shard/structure` (new), `@shard/render`, `@shard/gpu`
 - **Depends on:** 0001, 0007, 0018, 0022, 0052
 

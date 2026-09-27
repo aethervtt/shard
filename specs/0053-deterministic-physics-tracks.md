@@ -1,6 +1,6 @@
 # 0053 — Deterministic physics and recorded tracks
 
-- **Status:** draft
+- **Status:** accepted
 - **Packages:** `@shard/physics`, `apps/cli`
 - **Depends on:** 0028
 

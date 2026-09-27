@@ -1,6 +1,6 @@
 # 0057 — Tabletop layers: grids, drawings, tokens, outlines, and ground order
 
-- **Status:** draft
+- **Status:** accepted
 - **Packages:** `@shard/render`, `@shard/grid` (new), `@shard/vector` (new)
 - **Depends on:** 0007, 0018, 0022, 0024, 0027, 0055
 
@@ -135,6 +135,14 @@ world.events(CameraMoved)                                        // after extrac
 ```
 
 A host repositions its DOM handles on `CameraMoved` and on its own edits, not every frame.
+
+### Baseline tier (0064)
+
+Every shader here reads per-draw and per-scene data through `shard::data` accessors, never raw
+`var<storage>`, and every pass is a render pass. The ground phase, render layers, the grid, vector
+shapes, outlines and tabletop falloff all run on the baseline tier unchanged. Outlines' jump flood
+is a chain of fragment passes on both tiers. Tabletop lights count toward
+`LightBudget.baselineMax` on baseline.
 
 ### Agent surface
 

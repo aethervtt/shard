@@ -1,6 +1,6 @@
 # 0056 — Modular builds and size budgets
 
-- **Status:** draft
+- **Status:** accepted
 - **Packages:** every `@shard/*` package, `apps/playground`, `bench/size` (new)
 - **Depends on:** 0005, 0007, 0017, 0052
 

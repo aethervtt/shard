@@ -238,7 +238,7 @@ my-game/
 | Monorepo | Turborepo + pnpm; Cargo workspace for Rust |
 | Lint/format | Biome |
 | Tests | Vitest |
-| GPU API | WebGPU only. No WebGL2 fallback. |
+| GPU API | WebGPU first; WebGL2 fallback at the baseline tier (0064) |
 | Rendering paths | Forward+ and deferred, per camera, sharing one material system |
 | Light units | Physical (lux, lumens, cd/m²) with camera exposure |
 | Shaders | WGSL + our module system (imports, defines, material hooks) |
@@ -260,9 +260,11 @@ my-game/
 ## Non-goals
 
 - A drag-and-drop editor. The SDK allows one; we don't build it.
-- WebGL2.
-- Cross-machine bit-exact determinism. (Generation is deterministic per platform: same seed, same
-  planet on the same build.)
+- A second renderer for WebGL2. The fallback (0064) is a backend under the same engine API, at a
+  reduced baseline tier.
+- Cross-machine bit-exact determinism in general. (Generation is deterministic per platform: same
+  seed, same planet on the same build. Recorded physics tracks on Rapier's deterministic build,
+  0053, are the exception.)
 - Visual scripting.
 
 ## Roadmap

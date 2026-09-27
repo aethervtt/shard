@@ -1,6 +1,6 @@
 # 0059 — Tilemaps on the tabletop, and diffable tile data
 
-- **Status:** draft
+- **Status:** accepted
 - **Packages:** `@shard/sprite`, `@shard/protocol`, `@shard/mcp`, `apps/cli`
 - **Depends on:** 0024, 0027, 0057
 
@@ -97,6 +97,12 @@ Protocol methods, exposed as MCP tools:
 Edits go through `TileLayer.set`, so they use the existing edit log and dirty-chunk upload. They
 apply to the live world and, with `save: true`, to the asset file, preserving its encoding.
 `shard tiles read|edit` are the CLI forms.
+
+### Baseline tier (0064)
+
+Tile cells reach the shader through `shard::data` accessors: storage on the full tier, a
+`rgba32uint` data texture on baseline, updated by the same dirty-chunk uploads. Picking's detail
+channel is a render target on both tiers.
 
 ### Agent surface
 

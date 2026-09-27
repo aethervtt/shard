@@ -1,6 +1,6 @@
 # 0061 — Ownership and failure recovery
 
-- **Status:** draft
+- **Status:** accepted
 - **Packages:** `@shard/core`, `@shard/assets`, `@shard/render`, `@shard/gpu`, `@shard/runtime`
 - **Depends on:** 0001, 0014, 0020, 0052
 
@@ -19,9 +19,9 @@ material whose shader doesn't compile should each show a marked fallback and rep
 of the scene should keep drawing. Device loss already recovers (0005). This spec makes the rest
 match, and gives the host one place to read the renderer's health.
 
-`probeWebGpu()` (`@shard/gpu`, already implemented) is the up-front half: a client without
-WebGPU, an adapter, the required features or a working device gets an honest reason before
-anything mounts.
+`probeWebGpu()` (`@shard/gpu`, already implemented; 0064's `probeGraphics` builds on it) is the
+up-front half: a client without WebGPU, an adapter, the required features or a working device gets
+an honest reason before anything mounts.
 
 ## Goals
 
@@ -39,7 +39,8 @@ anything mounts.
   Shard enforces the limits the host gives it and nothing more.
 - Retrying the network. The host's asset source decides retries; `assets.retry` re-runs a load.
 - Recovery UI. The host shows it from `RenderHealth`.
-- WebGL fallback. WebGPU only, and probed honestly.
+- The WebGL2 fallback itself. That's 0064, whose `probeGraphics` extends `probeWebGpu` to choose a
+  backend and tier.
 
 ## Design
 
