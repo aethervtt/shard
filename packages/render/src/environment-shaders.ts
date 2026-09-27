@@ -1,58 +1,5 @@
 /** WGSL for environments: prefiltering (compute), IBL, and the environment-map background. */
 export const ENVIRONMENT_SHADERS: Record<string, string> = {
-  'shard::env::common': `
-const PI: f32 = 3.14159265359;
-
-/** The direction through texel uv (0..1, top-left origin) of cube face +X, -X, +Y, -Y, +Z, -Z. */
-fn cube_dir(face: u32, uv: vec2f) -> vec3f {
-  let s = uv.x * 2.0 - 1.0;
-  let t = uv.y * 2.0 - 1.0;
-  switch face {
-    case 0u: { return normalize(vec3f(1.0, -t, -s)); }
-    case 1u: { return normalize(vec3f(-1.0, -t, s)); }
-    case 2u: { return normalize(vec3f(s, 1.0, t)); }
-    case 3u: { return normalize(vec3f(s, -1.0, -t)); }
-    case 4u: { return normalize(vec3f(s, -t, 1.0)); }
-    default: { return normalize(vec3f(-s, -t, -1.0)); }
-  }
-}
-
-/** Equirectangular uv of a direction: u = 0.5 looks along +X, v = 0 is straight up. */
-fn equirect_uv(d: vec3f) -> vec2f {
-  return vec2f(atan2(d.z, d.x) / (2.0 * PI) + 0.5, acos(clamp(d.y, -1.0, 1.0)) / PI);
-}
-
-fn hammersley(i: u32, n: u32) -> vec2f {
-  return vec2f(f32(i) / f32(n), f32(reverseBits(i)) * 2.3283064365386963e-10);
-}
-
-/** A GGX-distributed half vector around n (alpha = roughness²). */
-fn importance_ggx(xi: vec2f, n: vec3f, a: f32) -> vec3f {
-  let phi = 2.0 * PI * xi.x;
-  let cos_theta = sqrt((1.0 - xi.y) / (1.0 + (a * a - 1.0) * xi.y));
-  let sin_theta = sqrt(max(0.0, 1.0 - cos_theta * cos_theta));
-  let h = vec3f(cos(phi) * sin_theta, sin(phi) * sin_theta, cos_theta);
-  let up = select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 0.0, 1.0), abs(n.z) < 0.999);
-  let tx = normalize(cross(up, n));
-  let ty = cross(n, tx);
-  return normalize(tx * h.x + ty * h.y + n * h.z);
-}
-
-/** The nine real spherical harmonics basis functions (bands 0-2) at a unit direction. */
-fn sh_basis(d: vec3f) -> array<f32, 9> {
-  return array<f32, 9>(
-    0.282095,
-    0.488603 * d.y,
-    0.488603 * d.z,
-    0.488603 * d.x,
-    1.092548 * d.x * d.y,
-    1.092548 * d.y * d.z,
-    0.315392 * (3.0 * d.z * d.z - 1.0),
-    1.092548 * d.x * d.z,
-    0.546274 * (d.x * d.x - d.y * d.y),
-  );
-}`,
-
   'shard::env::from_equirect': `
 import shard::env::common::{ cube_dir, equirect_uv };
 
@@ -227,67 +174,6 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     bias += fc * g_vis;
   }
   textureStore(lut, id.xy, vec4f(scale / f32(SAMPLES), bias / f32(SAMPLES), 0.0, 1.0));
-}`,
-
-  'shard::pbr::environment': `
-import shard::view::view;
-import shard::pbr::types::PbrInput;
-
-@group(0) @binding(9) var env_specular: texture_cube<f32>;
-@group(0) @binding(10) var env_lut: texture_2d<f32>;
-@group(0) @binding(11) var env_sampler: sampler;
-/** SH9, convolved with the cosine lobe and divided by π: dot with the basis = irradiance / π. */
-@group(0) @binding(12) var<storage, read> env_sh: array<vec4f, 9>;
-@group(0) @binding(13) var env_source: texture_cube<f32>;
-
-const ENV_SPECULAR_MIPS: f32 = 5.0;
-
-/** A direction in the environment's frame: rotated by -rotation about +Y. */
-fn env_rotate(d: vec3f) -> vec3f {
-  let c = view.envParams.y;
-  let s = view.envParams.z;
-  return vec3f(c * d.x - s * d.z, d.y, s * d.x + c * d.z);
-}
-
-/** Irradiance / π from SH9 (a luminance, in the environment's units). */
-fn env_irradiance(n: vec3f) -> vec3f {
-  let d = env_rotate(n);
-  var e = env_sh[0].rgb * 0.282095;
-  e += env_sh[1].rgb * 0.488603 * d.y;
-  e += env_sh[2].rgb * 0.488603 * d.z;
-  e += env_sh[3].rgb * 0.488603 * d.x;
-  e += env_sh[4].rgb * 1.092548 * d.x * d.y;
-  e += env_sh[5].rgb * 1.092548 * d.y * d.z;
-  e += env_sh[6].rgb * 0.315392 * (3.0 * d.z * d.z - 1.0);
-  e += env_sh[7].rgb * 1.092548 * d.x * d.z;
-  e += env_sh[8].rgb * 0.546274 * (d.x * d.x - d.y * d.y);
-  return max(e, vec3f(0.0));
-}
-
-/**
- * Split-sum image-based lighting: irradiance(n) · diffuse · (1 − F) · occlusion
- * + prefiltered(r, roughness) · (F₀·A + B), in cd/m².
- */
-fn environment_light(p: PbrInput, n: vec3f, v: vec3f) -> vec3f {
-  let n_dot_v = clamp(dot(n, v), 1e-4, 1.0);
-  let f0 = mix(vec3f(0.04), p.base_color, p.metallic);
-  let diffuse_color = p.base_color * (1.0 - p.metallic);
-  // Fresnel with roughness (Lagarde): rough surfaces don't reach full grazing reflectance.
-  let f = f0 + (max(vec3f(1.0 - p.roughness), f0) - f0) * pow(1.0 - n_dot_v, 5.0);
-  let r = reflect(-v, n);
-  let prefiltered = textureSampleLevel(env_specular, env_sampler, env_rotate(r), p.roughness * ENV_SPECULAR_MIPS).rgb;
-  let ab = textureSampleLevel(env_lut, env_sampler, vec2f(n_dot_v, p.roughness), 0.0).rg;
-  // Specular occlusion from ambient occlusion (Lagarde & de Rousiers).
-  let ao = p.occlusion;
-  let spec_ao = clamp(pow(n_dot_v + ao, exp2(-16.0 * p.roughness - 1.0)) - 1.0 + ao, 0.0, 1.0);
-  let diffuse = env_irradiance(n) * diffuse_color * (vec3f(1.0) - f) * ao;
-  let specular = prefiltered * (f0 * ab.x + ab.y) * spec_ao;
-  return (diffuse + specular) * view.envParams.x;
-}
-
-/** The environment's own radiance toward d (the background), in cd/m². */
-fn environment_background(d: vec3f) -> vec3f {
-  return textureSampleLevel(env_source, env_sampler, env_rotate(d), 0.0).rgb * view.envParams.x;
 }`,
 
   'shard::sky::background': `

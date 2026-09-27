@@ -12,7 +12,7 @@ import { MaterialAsset, Materials, Meshes, RenderTargets } from './assets'
 import { Camera3d } from './camera'
 import { Culler, readVisibleSlots, visibleSlots } from './culling'
 import { setDebugView } from './debug-views'
-import { ForwardStateResource, forwardPlugin } from './forward'
+import { ForwardStateResource } from './forward'
 import {
   type CullParams,
   createDrawList,
@@ -31,6 +31,7 @@ import {
 import { DirectionalLight, SpotLight } from './lights'
 import { describeRender, Gpu, renderPlugin, Views } from './plugin'
 import { ShadowsResource } from './shadows'
+import { forwardPlugin } from './standard'
 import { OffscreenTarget } from './target'
 import { compareGolden, renderView, settle } from './testing'
 import { cameraOf } from './view'

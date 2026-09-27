@@ -4,7 +4,6 @@ import {
   First,
   Last,
   PostUpdate,
-  ProfilerResource,
   type World,
 } from '@aethervtt/shard-core'
 import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
@@ -21,15 +20,7 @@ import {
   STANDARD_TYPE,
   StandardMaterial,
 } from './assets'
-import {
-  Atmosphere,
-  AtmosphereSettings,
-  Atmospheres,
-  atmosphereMethods,
-  describeAtmospheres,
-  selectAtmospheres,
-} from './atmosphere'
-import { AtmosphereGpuResource, addAtmosphereNodes, uploadAtmospheres } from './atmosphere-nodes'
+import { Atmospheres } from './atmosphere-state'
 import { applyPhysicalCameras, Camera3d, Exposure, PhysicalCamera } from './camera'
 import {
   CLUSTER_COUNT,
@@ -1294,11 +1285,12 @@ function ensureLayouts(
 }
 
 /**
- * Cameras, meshes, the standard material, lights, shadows, and ambient light, drawn into HDR with
- * instancing, frustum culling, and clustered light culling, then tonemapped. Needs the render and
- * transform plugins.
+ * The core of the 3D renderer: cameras, meshes, the standard material, lights, shadows, and ambient
+ * light, drawn into HDR with instancing, frustum culling, and clustered light culling, then
+ * tonemapped. Needs the render and transform plugins. Features (atmosphere, post, ...) are plugins
+ * of their own; `forwardPlugin` adds all of them.
  */
-export function forwardPlugin(options: ForwardPluginOptions = {}): Plugin {
+export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
   return definePlugin({
     name: 'render/forward',
     provides: [
@@ -1357,11 +1349,6 @@ export function forwardPlugin(options: ForwardPluginOptions = {}): Plugin {
       Environments,
       ProceduralSky,
       Skybox,
-      // atmosphere
-      Atmosphere,
-      AtmosphereSettings,
-      Atmospheres,
-      AtmosphereGpuResource,
       // post
       Antialiasing,
       AutoExposure,
@@ -1399,7 +1386,6 @@ export function forwardPlugin(options: ForwardPluginOptions = {}): Plugin {
       w.initResource(LightingSettings)
       w.initResource(DefaultEnvironment)
       w.initResource(Environments)
-      w.initResource(Atmospheres)
       w.initResource(ViewSettings).msaa = options.msaa ?? 4
       Object.assign(w.initResource(RenderScale), options.renderScale)
       w.initResource(Gizmos)
@@ -1420,19 +1406,16 @@ export function forwardPlugin(options: ForwardPluginOptions = {}): Plugin {
           updateRenderScale.inSet(RenderSet.Extract).before(extractCameras),
           extractCameras.inSet(RenderSet.Extract),
           extractLights.inSet(RenderSet.Extract),
-          selectAtmospheres.inSet(RenderSet.Extract).after(extractCameras).after(extractLights),
           prepareInstances.inSet(RenderSet.Prepare),
           prepareDeforms.inSet(RenderSet.Prepare).after(prepareInstances),
           prepareLights.inSet(RenderSet.Prepare),
           prepareEnvironments.inSet(RenderSet.Prepare),
           queue.inSet(RenderSet.Queue),
           upload.inSet(RenderSet.Upload),
-          uploadAtmospheres.inSet(RenderSet.Upload),
           drawOverlays.inSet(RenderSet.Upload).after(upload),
           uploadGizmos.inSet(RenderSet.Upload).after(drawOverlays),
         )
         .addSystems(First, beginGizmos)
-      app.addMethod(...atmosphereMethods)
     },
     ready(app) {
       const gpu = app.world.resource(Gpu)
@@ -1491,11 +1474,6 @@ export function forwardPlugin(options: ForwardPluginOptions = {}): Plugin {
       describers.set('culling', (world) => describeCulling(world))
       describers.set('post', (world) => describePost(world))
       describers.set('renderScale', (world) => describeRenderScale(world))
-      describers.set('atmosphere', (world) =>
-        describeAtmospheres(world, world.tryResource(ProfilerResource)?.all()),
-      )
-      // Atmosphere LUTs first: the environment prefilter bakes atmospheres from them.
-      addAtmosphereNodes(app.world)
       graph.addNode('environment', environmentNode)
       graph.addNode('instance-cull', cullNode(state))
       graph.addNode('light-clusters', clusterNode(state))

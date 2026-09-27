@@ -27,7 +27,8 @@ const PLUGINS: Record<string, (m: Mod) => PluginLike[]> = {
   procgen: (m) => [(m.procgenPlugin as () => PluginLike)()],
   render: (m) => [
     (m.renderPlugin as (o: object) => PluginLike)({}),
-    (m.forwardPlugin as () => PluginLike)(),
+    (m.forwardCorePlugin as () => PluginLike)(),
+    m.atmospherePlugin as PluginLike,
   ],
   save: (m) => [(m.savePlugin as () => PluginLike)()],
   scene: (m) => [m.ScenePlugin as PluginLike],

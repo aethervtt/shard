@@ -43,6 +43,7 @@ export {
   transmittanceToTop,
 } from './atmosphere-model'
 export { AtmosphereGpu, AtmosphereGpuResource, LUT_LAYERS } from './atmosphere-nodes'
+export { atmospherePlugin } from './atmosphere-plugin'
 export {
   applyPhysicalCameras,
   Camera3d,
@@ -113,7 +114,7 @@ export {
   type ForwardPluginOptions,
   type ForwardState,
   ForwardStateResource,
-  forwardPlugin,
+  forwardCorePlugin,
   PICK_TARGETS,
   sceneColor,
   type ViewGpu,
@@ -295,6 +296,7 @@ export {
   ENGINE_SHADERS,
   materialLayout,
   registerEngineShaders,
+  registerShaders,
   ViewUniform,
   viewLayout,
 } from './shaders'
@@ -313,6 +315,7 @@ export {
   Skins,
   skinArtifact,
 } from './skinning'
+export { forwardPlugin } from './standard'
 export {
   GpuMemory,
   type GpuMemoryData,

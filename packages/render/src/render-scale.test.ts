@@ -7,7 +7,6 @@ import { lookAt, Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { MaterialAsset, Materials, Meshes, RenderTargets } from './assets'
 import { Camera3d, Exposure } from './camera'
-import { forwardPlugin } from './forward'
 import { Mesh3d, MeshMaterial } from './instances'
 import { AmbientLight, DirectionalLight } from './lights'
 import { pick } from './picking'
@@ -20,6 +19,7 @@ import {
   type RenderScaleValue,
   scaledSize,
 } from './render-scale'
+import { forwardPlugin } from './standard'
 import { OffscreenTarget } from './target'
 import { renderView, settle } from './testing'
 import { Cameras, RenderPath, ViewSettings } from './view'

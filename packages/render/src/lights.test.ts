@@ -11,7 +11,7 @@ import { MaterialAsset, Materials, Meshes, RenderTargets } from './assets'
 import { Camera3d, Exposure } from './camera'
 import { CLUSTER_COUNT, clusterLightsCpu, MAX_LIGHTS_PER_CLUSTER } from './clusters'
 import { captureShadowMap, readBuffer, setDebugView } from './debug-views'
-import { ForwardStateResource, forwardPlugin } from './forward'
+import { ForwardStateResource } from './forward'
 import { Mesh3d, MeshMaterial, NotShadowCaster, NotShadowReceiver } from './instances'
 import {
   AmbientLight,
@@ -22,6 +22,7 @@ import {
   SpotLight,
 } from './lights'
 import { captureBuffer, describeRender, renderPlugin } from './plugin'
+import { forwardPlugin } from './standard'
 import { OffscreenTarget } from './target'
 import { compareGolden, pixel, renderView, settle } from './testing'
 import { Cameras, Tonemapping } from './view'

@@ -5,7 +5,7 @@ import { cube } from '@aethervtt/shard-mesh'
 import {
   Camera3d,
   DirectionalLight,
-  forwardPlugin,
+  forwardCorePlugin,
   MaterialAsset,
   Materials,
   Mesh3d,
@@ -42,7 +42,7 @@ const scene = definePlugin({
   },
 })
 
-const app = new App().addPlugin(renderPlugin({ canvas }), TransformPlugin, forwardPlugin(), scene)
+const app = new App().addPlugin(renderPlugin({ canvas }), TransformPlugin, forwardCorePlugin(), scene)
 app.setRunner(animationFrameRunner())
 await app.init()
 await app.run()

@@ -115,39 +115,6 @@ import shard::prepass::common::{ PrepassVertex, PrepassOutput, prepass_vertex, p
   return prepass_output(in, normalize(in.world_normal));
 }`,
 
-  'shard::post::common': `
-import shard::view::view;
-
-/** A pixel's uv from its fragment coordinate. */
-fn uv_of(frag: vec2f) -> vec2f {
-  return frag * view.viewport.zw;
-}
-
-/** World position of a uv at a (reversed-Z) depth. Depth 0 is infinitely far: pass a floor. */
-fn world_at(uv: vec2f, depth: f32) -> vec3f {
-  let ndc = vec2f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
-  let w = view.invViewProj * vec4f(ndc, depth, 1.0);
-  return w.xyz / w.w;
-}
-
-/** Distance along the view axis, in meters. */
-fn view_depth(world: vec3f) -> f32 {
-  return -(view.view * vec4f(world, 1.0)).z;
-}
-
-/**
- * Screen motion of a pixel in uv units: the prepass's value for geometry, the camera's own
- * rotation for the background (depth 0), which the prepass leaves empty.
- */
-fn motion(uv: vec2f, depth: f32, stored: vec2f) -> vec2f {
-  if (depth > 0.0) { return stored; }
-  let ndc = vec2f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
-  let dir = (view.invViewProj * vec4f(ndc, 0.0, 1.0)).xyz;
-  let now = view.viewProjNoJitter * vec4f(dir, 0.0);
-  let before = view.prevViewProj * vec4f(dir, 0.0);
-  return (now.xy / now.w - before.xy / before.w) * vec2f(0.5, -0.5);
-}`,
-
   'shard::post::fog': `
 import shard::view::view;
 import shard::pbr::lights::directional;
@@ -644,89 +611,6 @@ fn view_position(px: vec2i) -> vec3f {
   return vec4f(sum / max(weight, 1e-6), 0.0, 0.0, 1.0);
 }`,
 
-  'shard::post::tonemap': `
-import shard::color::{ linear_to_srgb, srgb_to_linear, ign, luminance };
-import shard::tonemap::tonemap;
-
-struct TonemapParams {
-  /** curve, dither, flags (1 grading, 2 vignette, 4 LUT, 8 sRGB LUT), 0. */
-  mode: vec4u,
-  /** White balance as LMS scale (xyz), 0. */
-  balance: vec4f,
-  /** saturation, contrast, 0, 0. */
-  grade: vec4f,
-  lift: vec4f,
-  gamma: vec4f,
-  gain: vec4f,
-  /** Vignette intensity, smoothness, aspect, 0. */
-  vignette: vec4f,
-  /** 1 / width, 1 / height of the view. */
-  texel: vec4f,
-}
-
-@group(0) @binding(0) var hdr: texture_2d<f32>;
-@group(0) @binding(1) var<uniform> params: TonemapParams;
-@group(0) @binding(2) var lut: texture_2d<f32>;
-@group(0) @binding(3) var lut_sampler: sampler;
-
-const LIN_TO_LMS = mat3x3f(
-  vec3f(3.90405e-1, 7.08416e-2, 2.31082e-2),
-  vec3f(5.49941e-1, 9.63172e-1, 1.28021e-1),
-  vec3f(8.92632e-3, 1.35775e-3, 9.36245e-1),
-);
-const LMS_TO_LIN = mat3x3f(
-  vec3f(2.85847, -2.10182e-1, -4.18120e-2),
-  vec3f(-1.62879, 1.15820, -1.18169e-1),
-  vec3f(-2.48910e-2, 3.24281e-4, 1.06867),
-);
-
-/** White balance, contrast around mid gray, saturation, then lift/gamma/gain, in scene-linear HDR. */
-fn grade(c0: vec3f) -> vec3f {
-  var c = LMS_TO_LIN * ((LIN_TO_LMS * c0) * params.balance.xyz);
-  c = 0.18 * pow(max(c, vec3f(0.0)) / 0.18, vec3f(params.grade.y));
-  let l = luminance(c);
-  c = max(mix(vec3f(l), c, params.grade.x), vec3f(0.0));
-  c = pow(max(c * params.gain.xyz + params.lift.xyz, vec3f(0.0)), 1.0 / params.gamma.xyz);
-  return c;
-}
-
-/** A 32³ LUT stored as a 1024×32 strip: slices of red (x) by green (y), one per blue step. */
-fn apply_lut(c: vec3f) -> vec3f {
-  let x = clamp(c, vec3f(0.0), vec3f(1.0)) * 31.0;
-  let slice = floor(x.b);
-  let f = x.b - slice;
-  let uv0 = vec2f((slice * 32.0 + x.r + 0.5) / 1024.0, (x.g + 0.5) / 32.0);
-  let uv1 = uv0 + vec2f(select(32.0, 0.0, slice >= 31.0) / 1024.0, 0.0);
-  var a = textureSampleLevel(lut, lut_sampler, uv0, 0.0).rgb;
-  var b = textureSampleLevel(lut, lut_sampler, uv1, 0.0).rgb;
-  // An sRGB-format texture decoded the stored values: encode them back.
-  if ((params.mode.z & 8u) != 0u) { a = linear_to_srgb(a); b = linear_to_srgb(b); }
-  return mix(a, b, f);
-}
-
-@fragment fn fs(@builtin(position) p: vec4f) -> @location(0) vec4f {
-  let texel = textureLoad(hdr, vec2i(p.xy), 0);
-  var hdr_color = max(texel.rgb, vec3f(0.0));
-  let flags = params.mode.z;
-  if ((flags & 1u) != 0u) { hdr_color = grade(hdr_color); }
-  if ((flags & 2u) != 0u) {
-    let uv = p.xy * params.texel.xy - 0.5;
-    let d = length(uv * vec2f(params.vignette.z, 1.0)) / length(vec2f(params.vignette.z, 1.0) * 0.5);
-    let fall = smoothstep(1.0 - params.vignette.y, 1.0 + params.vignette.y * 0.5, d);
-    hdr_color *= 1.0 - params.vignette.x * fall;
-  }
-  var c = linear_to_srgb(tonemap(hdr_color, params.mode.x));
-  if ((flags & 4u) != 0u) { c = apply_lut(c); }
-  if (params.mode.y != 0u) {
-    // Triangular noise of ±1 LSB, in display space: breaks up banding in gradients.
-    let n = ign(p.xy) + ign(p.xy + vec2f(71.0, 13.0)) - 1.0;
-    c = c + vec3f(n / 255.0);
-  }
-  // sRGB targets encode in hardware: hand them linear values.
-  @if(SRGB_TARGET) c = srgb_to_linear(clamp(c, vec3f(0.0), vec3f(1.0)));
-  return vec4f(c, 1.0);
-}`,
-
   'shard::post::fxaa': `
 import shard::color::{ linear_to_srgb, srgb_to_linear };
 
@@ -819,39 +703,5 @@ fn at(uv: vec2f, o: vec2f, texel: vec2f) -> vec3f {
   var final_uv = uv;
   if (horizontal) { final_uv.y += blend * step_len; } else { final_uv.x += blend * step_len; }
   return vec4f(textureSampleLevel(input, input_sampler, final_uv, 0.0).rgb, 1.0);
-}`,
-
-  'shard::post::upscale': `
-struct Upscale {
-  /** 1 / output size (xy), sharpening (z), 0. */
-  params: vec4f,
-}
-
-@group(0) @binding(0) var input: texture_2d<f32>;
-@group(0) @binding(1) var input_sampler: sampler;
-@group(0) @binding(2) var<uniform> upscale: Upscale;
-
-fn at(uv: vec2f) -> vec3f {
-  return textureSampleLevel(input, input_sampler, uv, 0.0).rgb;
-}
-
-/**
- * The render-resolution image onto the display (0051): bilinear, then an unsharp mask over the
- * four neighbors one source texel away, clamped to their range so edges can't ring.
- */
-@fragment fn fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
-  let uv = frag.xy * upscale.params.xy;
-  let c = at(uv);
-  let k = upscale.params.z;
-  if (k <= 0.0) { return vec4f(c, 1.0); }
-  let texel = 1.0 / vec2f(textureDimensions(input));
-  let n = at(uv + vec2f(0.0, -texel.y));
-  let s = at(uv + vec2f(0.0, texel.y));
-  let e = at(uv + vec2f(texel.x, 0.0));
-  let w = at(uv + vec2f(-texel.x, 0.0));
-  let lo = min(c, min(min(n, s), min(e, w)));
-  let hi = max(c, max(max(n, s), max(e, w)));
-  let sharp = c + (4.0 * c - (n + s + e + w)) * (0.25 * k);
-  return vec4f(clamp(sharp, lo, hi), 1.0);
 }`,
 }
