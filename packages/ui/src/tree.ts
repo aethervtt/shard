@@ -334,7 +334,9 @@ function cameraFor(world: World, wanted: Entity | null, cameras: Table[]): Entit
   let bestOrder = Number.POSITIVE_INFINITY
   for (const table of cameras) {
     const order = table.column(Camera3d, 'order')
+    const active = table.column(Camera3d, 'active')
     for (let i = 0; i < table.count; i++) {
+      if (active[i] === 0) continue
       if (order[i]! < bestOrder) {
         bestOrder = order[i]!
         best = table.entities[i]!

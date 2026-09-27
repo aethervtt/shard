@@ -97,6 +97,11 @@ export const Camera3d = defineComponent(
       description: 'Background (linear).',
     }),
     target: t.handle('RenderTarget', { description: 'Offscreen target, or null for the window.' }),
+    active: t.bool({
+      default: true,
+      description:
+        'Renders when true. An inactive camera keeps its settings and transform but draws nothing.',
+    }),
   },
   {
     description: 'Renders the scene from this entity, looking down its -Z axis.',

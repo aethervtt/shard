@@ -470,6 +470,8 @@ function taaNode(): NodeDescriptor {
         h = { textures: [make(0), make(1)], index: 0, valid: false, generation: gpu.generation }
         histories.set(ctx.view.name, h)
       }
+      // A camera's first frame (new, or active again) has no history worth keeping.
+      if (v.cam.frames === 1) h.valid = false
       const read = h.textures[h.index]!
       const write = h.textures[1 - h.index]!
       scratch[0] = 0.1

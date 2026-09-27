@@ -48,6 +48,7 @@ Camera3d {
   order: i32 = 0,            // lower renders first
   clearColor: color = '#101218',
   target: handle('RenderTarget') | null,  // null = the window
+  active: bool = true,       // false: keeps its settings, draws nothing
 }                                          requires Transform, Exposure
 
 Exposure { ev100: f32 = 12 }               // how bright the scene is allowed to be; see below

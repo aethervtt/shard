@@ -8,3 +8,9 @@ export {
 } from './context'
 export { type GpuErrorListener, toShardError } from './errors'
 export { descriptorKey } from './key'
+export {
+  type ProbeWebGpuOptions,
+  probeWebGpu,
+  type WebGpuSupport,
+  type WebGpuUnsupportedReason,
+} from './probe'

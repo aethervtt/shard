@@ -590,6 +590,7 @@ Brings along: `core/Transform`, `render/Exposure`.
 | `order` | integer | `0` | ≥ -2147483648, ≤ 2147483647 | Lower renders first. |
 | `clearColor` | string or number[4] | `[0.0056,0.0065,0.0091,1]` |  | Background (linear). |
 | `target` | null or RenderTarget ref | `null` |  | Offscreen target, or null for the window. |
+| `active` | boolean | `true` |  | Renders when true. An inactive camera keeps its settings and transform but draws nothing. |
 
 ## `render/ColorGrading`
 

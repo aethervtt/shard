@@ -209,6 +209,7 @@ export const extractCameras = defineSystem({
       const order = table.column(Camera3d, 'order')
       const clear = table.column(Camera3d, 'clearColor')
       const target = table.column(Camera3d, 'target')
+      const active = table.column(Camera3d, 'active')
       const g = table.column(GlobalTransform, 'matrix')
       const ev = table.column(Exposure, 'ev100')
       const path = table.has(RenderPath) ? table.column(RenderPath, 'mode') : undefined
@@ -219,6 +220,12 @@ export const extractCameras = defineSystem({
       const ppu = pixel ? table.column(PixelPerfect, 'pixelsPerUnit') : undefined
       const snap = pixel ? table.column(PixelPerfect, 'snap') : undefined
       for (let i = 0; i < table.count; i++) {
+        if (active[i] === 0) {
+          // Back from inactive, it starts over: no motion vectors or TAA history from before.
+          const idle = cameras.get(table.entities[i]!)
+          if (idle) idle.frames = 0
+          continue
+        }
         const shown = target[i] ? targets.get(target[i]) : window
         if (!shown) continue // e.g. headless with no target
         let rt: RenderTarget = shown

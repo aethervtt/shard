@@ -224,14 +224,16 @@ function normalize3(v: Float64Array): void {
   v[2] = v[2]! / l
 }
 
-/** The camera that drives selection: the lowest `order`, then the lowest entity. */
+/** The camera that drives selection: the active one with the lowest `order`, then the lowest entity. */
 function pickCamera(q: Query): { entity: Entity; table: number; row: number } | undefined {
   let best: { entity: Entity; table: number; row: number } | undefined
   let bestOrder = Infinity
   for (let t = 0; t < q.tables.length; t++) {
     const table = q.tables[t]!
     const order = table.column(Camera3d, 'order')
+    const active = table.column(Camera3d, 'active')
     for (let row = 0; row < table.count; row++) {
+      if (active[row] === 0) continue
       const o = order[row]!
       const e = table.entities[row]!
       if (o < bestOrder || (o === bestOrder && best && e < best.entity)) {
