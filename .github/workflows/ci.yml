@@ -37,4 +37,5 @@ jobs:
 
       - run: pnpm typecheck
 
-      - run: pnpm test
+      # --continue: report every failing package, not just the first.
+      - run: pnpm test --continue
