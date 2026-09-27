@@ -6,197 +6,25 @@ import {
   ProfilerResource,
   type World,
 } from '@aethervtt/shard-core'
-import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
 import { Time } from '@aethervtt/shard-runtime'
-import { Textures } from '@aethervtt/shard-texture'
 import { Exposure } from './camera'
-import {
-  drawMaterials,
-  ForwardStateResource,
-  PASS_PREPASS,
-  type ViewGpu,
-  viewBindGroup,
-} from './forward'
-import { GpuAssetsResource } from './gpu-assets'
-import { type NodeContext, type NodeDescriptor, RenderPhase, type RenderView } from './graph'
-import { Graph, Shaders, Views } from './plugin'
+import { drawMaterials, ForwardStateResource, PASS_PREPASS, viewBindGroup } from './forward'
+import { type NodeDescriptor, RenderPhase, type RenderView } from './graph'
+import { Graph, Views } from './plugin'
 import { AutoExposure, cocParams, hasEffect, needsPrepass, PostEffect } from './post'
-import { RenderScale } from './render-scale'
+import {
+  beginPass,
+  forwardView,
+  HDR,
+  idOf,
+  PostCache,
+  sampler,
+  scratch,
+  tex,
+  uniform,
+} from './post-common'
 import { RenderCounters } from './stats'
 import { type CameraData, cameraOf } from './view'
-
-// --- shared plumbing ---------------------------------------------------------------------------
-
-const textureIds = new WeakMap<object, number>()
-let nextId = 1
-function idOf(o: object): number {
-  let id = textureIds.get(o)
-  if (id === undefined) {
-    id = nextId++
-    textureIds.set(o, id)
-  }
-  return id
-}
-
-const F = () => GPUShaderStage.FRAGMENT
-const tex = (binding: number, sampleType: GPUTextureSampleType = 'float') => ({
-  binding,
-  visibility: F(),
-  texture: { sampleType },
-})
-const uniform = (binding: number, visibility = F()) => ({
-  binding,
-  visibility,
-  buffer: { type: 'uniform' as const },
-})
-const sampler = (binding: number) => ({
-  binding,
-  visibility: F(),
-  sampler: { type: 'filtering' as const },
-})
-
-/** Per-node caches: pipelines by key, bind groups by slot, uniform buffers by view. */
-class PostCache {
-  private generation = -1
-  private readonly pipelines = new Map<string, GPURenderPipeline | GPUComputePipeline>()
-  private readonly groups = new Map<string, { key: string; group: GPUBindGroup }>()
-  private readonly buffers = new Map<string, GpuBuffer>()
-  private linear: GPUSampler | undefined
-
-  check(gpu: GpuContext): void {
-    if (this.generation === gpu.generation) return
-    this.generation = gpu.generation
-    this.pipelines.clear()
-    this.groups.clear()
-    this.buffers.clear()
-    this.linear = undefined
-  }
-
-  /** A fullscreen render pipeline: `shard::fullscreen` vertex stage and `root`'s `entry`. */
-  render(
-    ctx: NodeContext,
-    key: string,
-    root: string,
-    entry: string,
-    layouts: GPUBindGroupLayout[],
-    targets: GPUColorTargetState[],
-    defines?: Record<string, boolean>,
-  ): GPURenderPipeline | undefined {
-    const gpu = ctx.gpu
-    this.check(gpu)
-    const cached = this.pipelines.get(key) as GPURenderPipeline | undefined
-    if (cached) return cached
-    const shaders = ctx.world.resource(Shaders)
-    const fs = shaders.module(gpu, { root, defines })
-    const vs = shaders.module(gpu, { root: 'shard::fullscreen' })
-    if (!fs || !vs) {
-      gpu.pipelines.skipped++
-      return undefined
-    }
-    const pipeline = gpu.pipelines.render({
-      label: key,
-      layout: gpu.layouts.pipelineLayout({ label: key, bindGroupLayouts: layouts }),
-      vertex: { module: vs, entryPoint: 'vs' },
-      fragment: { module: fs, entryPoint: entry, targets },
-    })
-    if (pipeline) this.pipelines.set(key, pipeline)
-    return pipeline
-  }
-
-  compute(
-    ctx: NodeContext,
-    key: string,
-    root: string,
-    entry: string,
-    layouts: GPUBindGroupLayout[],
-  ): GPUComputePipeline | undefined {
-    const gpu = ctx.gpu
-    this.check(gpu)
-    const cached = this.pipelines.get(key) as GPUComputePipeline | undefined
-    if (cached) return cached
-    const module = ctx.world.resource(Shaders).module(gpu, { root })
-    if (!module) {
-      gpu.pipelines.skipped++
-      return undefined
-    }
-    const pipeline = gpu.pipelines.compute({
-      label: key,
-      layout: gpu.layouts.pipelineLayout({ label: key, bindGroupLayouts: layouts }),
-      compute: { module, entryPoint: entry },
-    })
-    if (pipeline) this.pipelines.set(key, pipeline)
-    return pipeline
-  }
-
-  /** A bind group, rebuilt when `key` (the ids of what it binds) changes. */
-  group(
-    gpu: GpuContext,
-    slot: string,
-    key: string,
-    layout: GPUBindGroupLayout,
-    entries: () => GPUBindGroupEntry[],
-  ): GPUBindGroup {
-    this.check(gpu)
-    let g = this.groups.get(slot)
-    if (!g || g.key !== key) {
-      g = { key, group: gpu.device.createBindGroup({ label: slot, layout, entries: entries() }) }
-      this.groups.set(slot, g)
-    }
-    return g.group
-  }
-
-  buffer(gpu: GpuContext, name: string, size: number): GpuBuffer {
-    this.check(gpu)
-    let b = this.buffers.get(name)
-    if (!b) {
-      b = new GpuBuffer(gpu, { label: name, usage: GPUBufferUsage.UNIFORM, size })
-      this.buffers.set(name, b)
-    }
-    return b
-  }
-
-  sampler(gpu: GpuContext): GPUSampler {
-    this.check(gpu)
-    this.linear ??= gpu.device.createSampler({
-      label: 'post/linear',
-      magFilter: 'linear',
-      minFilter: 'linear',
-      addressModeU: 'clamp-to-edge',
-      addressModeV: 'clamp-to-edge',
-    })
-    return this.linear
-  }
-}
-
-function forwardView(ctx: NodeContext): { cam: CameraData; pv: ViewGpu } | undefined {
-  const cam = cameraOf(ctx.view)
-  const pv = ctx.world.resource(ForwardStateResource).views.get(ctx.view.name)
-  return cam && pv ? { cam, pv } : undefined
-}
-
-/** A fullscreen pass the node begins itself (raw nodes with several passes). */
-function beginPass(
-  ctx: NodeContext,
-  name: string,
-  view: GPUTextureView,
-  load = false,
-): GPURenderPassEncoder {
-  return ctx.encoder.beginRenderPass({
-    label: `${ctx.view.name}/${name}`,
-    colorAttachments: [
-      {
-        view,
-        loadOp: load ? 'load' : 'clear',
-        clearValue: { r: 0, g: 0, b: 0, a: 0 },
-        storeOp: 'store',
-      },
-    ],
-    timestampWrites: ctx.timestamps(name),
-  })
-}
-
-const HDR: GPUColorTargetState[] = [{ format: 'rgba16float' }]
-const scratch = new Float32Array(64)
 
 // --- prepass -----------------------------------------------------------------------------------
 
@@ -1010,233 +838,6 @@ export const adaptExposure = defineSystem({
   },
 })
 
-// --- tonemap -----------------------------------------------------------------------------------
-
-/** White balance as LMS channel gains (Unity's method, from temperature and tint in −1..1). */
-export function whiteBalance(temperature: number, tint: number, out: Float32Array): Float32Array {
-  const t1 = (temperature * 100) / 60
-  const t2 = (tint * 100) / 60
-  const x = 0.31271 - t1 * (t1 < 0 ? 0.1 : 0.05)
-  const y = 2.87 * x - 3 * x * x - 0.27509507 + t2 * 0.05
-  const X = x / y
-  const Z = (1 - x - y) / y
-  const L = 0.7328 * X + 0.4296 - 0.1624 * Z
-  const M = -0.7036 * X + 1.6975 + 0.0061 * Z
-  const S = 0.003 * X + 0.0136 + 0.9834 * Z
-  out[0] = 0.949237 / L
-  out[1] = 1.03542 / M
-  out[2] = 1.08728 / S
-  return out
-}
-
-/** HDR → display: grading, vignette, the tonemap curve, an optional LUT, dithering. */
-function tonemapNode(): NodeDescriptor {
-  const cache = new PostCache()
-  let layout: GPUBindGroupLayout | undefined
-  let layoutGen = -1
-  let white: GPUTexture | undefined
-  const u = new Uint32Array(scratch.buffer)
-  const balance = new Float32Array(3)
-  return {
-    kind: 'render',
-    phase: RenderPhase.Tonemap,
-    enabled: (view) => cameraOf(view) !== undefined,
-    reads: ['post-hdr'],
-    writes: ['ldr'],
-    color: [{ resource: 'ldr', clear: { r: 0, g: 0, b: 0, a: 1 } }],
-    run: (ctx) => {
-      const gpu = ctx.gpu
-      const cam = cameraOf(ctx.view)!
-      if (!layout || layoutGen !== gpu.generation) {
-        layoutGen = gpu.generation
-        layout = gpu.layouts.bindGroupLayout({
-          label: 'tonemap',
-          entries: [tex(0, 'unfilterable-float'), uniform(1), tex(2), sampler(3)],
-        })
-        white = gpu.device.createTexture({
-          label: 'tonemap/no-lut',
-          size: [1, 1],
-          format: 'rgba8unorm',
-          usage: GPUTextureUsage.TEXTURE_BINDING,
-        })
-      }
-      const format = ctx.texture('ldr').format
-      const srgb = format.endsWith('-srgb')
-      const pipeline = cache.render(
-        ctx,
-        `tonemap/${format}`,
-        'shard::post::tonemap',
-        'fs',
-        [layout],
-        [{ format }],
-        {
-          SRGB_TARGET: srgb,
-        },
-      )
-      if (!pipeline) return
-      const post = cam.post
-      const g = post.grading
-      let flags = 0
-      if (post.effects & PostEffect.Grading) flags |= 1
-      if (post.effects & PostEffect.Vignette) flags |= 2
-      let lut: GPUTextureView | undefined
-      if (post.effects & PostEffect.Grading && g.lut) {
-        const texture = ctx.world.resource(Textures).get(g.lut as never)
-        const gt = texture ? ctx.world.resource(GpuAssetsResource).texture(texture) : undefined
-        if (gt) {
-          lut = gt.linear
-          flags |= 4
-        }
-      }
-      scratch.fill(0, 0, 32)
-      u[0] = cam.curve
-      u[1] = cam.dither ? 1 : 0
-      u[2] = flags
-      whiteBalance(g.temperature, g.tint, balance)
-      scratch[4] = balance[0]!
-      scratch[5] = balance[1]!
-      scratch[6] = balance[2]!
-      scratch[8] = g.saturation
-      scratch[9] = g.contrast
-      scratch.set(g.lift, 12)
-      scratch.set(g.gamma, 16)
-      scratch.set(g.gain, 20)
-      scratch[24] = post.vignette.intensity
-      scratch[25] = post.vignette.smoothness
-      scratch[26] = cam.width / Math.max(1, cam.height)
-      scratch[28] = 1 / cam.width
-      scratch[29] = 1 / cam.height
-      const params = cache.buffer(gpu, `${ctx.view.name}/tonemap`, 128)
-      params.write(scratch, 0, 0, 32)
-      const hdr = ctx.texture('post-hdr')
-      const lutView = lut ?? white!.createView()
-      const group = cache.group(
-        gpu,
-        `${ctx.view.name}/tonemap`,
-        `${idOf(hdr)}/${params.version}/${lut ? idOf(lut) : 0}`,
-        layout,
-        () => [
-          { binding: 0, resource: hdr.createView() },
-          { binding: 1, resource: { buffer: params.buffer } },
-          { binding: 2, resource: lutView },
-          { binding: 3, resource: cache.sampler(gpu) },
-        ],
-      )
-      const pass = ctx.renderPass!
-      pass.setPipeline(pipeline)
-      pass.setBindGroup(0, group)
-      pass.draw(3)
-    },
-  }
-}
-
-// --- FXAA --------------------------------------------------------------------------------------
-
-function fxaaNode(): NodeDescriptor {
-  const cache = new PostCache()
-  let layout: GPUBindGroupLayout | undefined
-  let layoutGen = -1
-  return {
-    kind: 'render',
-    phase: RenderPhase.Display,
-    enabled: hasEffect(PostEffect.Fxaa),
-    reads: ['ldr'],
-    writes: ['display'],
-    color: [{ resource: 'display', clear: { r: 0, g: 0, b: 0, a: 1 } }],
-    run: (ctx) => {
-      const gpu = ctx.gpu
-      if (!layout || layoutGen !== gpu.generation) {
-        layoutGen = gpu.generation
-        layout = gpu.layouts.bindGroupLayout({ label: 'fxaa', entries: [tex(0), sampler(1)] })
-      }
-      const input = ctx.texture('ldr')
-      const format = ctx.texture('display').format
-      const pipeline = cache.render(
-        ctx,
-        `fxaa/${format}`,
-        'shard::post::fxaa',
-        'fs',
-        [layout],
-        [{ format }],
-        {
-          SRGB_TARGET: format.endsWith('-srgb'),
-        },
-      )
-      if (!pipeline) return
-      const group = cache.group(gpu, `${ctx.view.name}/fxaa`, `${idOf(input)}`, layout, () => [
-        { binding: 0, resource: input.createView() },
-        { binding: 1, resource: cache.sampler(gpu) },
-      ])
-      const pass = ctx.renderPass!
-      pass.setPipeline(pipeline)
-      pass.setBindGroup(0, group)
-      pass.draw(3)
-    },
-  }
-}
-
-// --- render-scale upscale (0051) ---------------------------------------------------------------
-
-const upscaleScratch = new Float32Array(4)
-
-/** Scaled views: the render-resolution `display` image onto the target, sharpened. */
-function upscaleNode(): NodeDescriptor {
-  const cache = new PostCache()
-  let layout: GPUBindGroupLayout | undefined
-  let layoutGen = -1
-  return {
-    kind: 'render',
-    phase: RenderPhase.Display + 10,
-    enabled: (view) => view.width !== undefined && cameraOf(view) !== undefined,
-    reads: ['display'],
-    writes: ['view-target'],
-    color: [{ resource: 'view-target', clear: { r: 0, g: 0, b: 0, a: 1 } }],
-    run: (ctx) => {
-      const gpu = ctx.gpu
-      if (!layout || layoutGen !== gpu.generation) {
-        layoutGen = gpu.generation
-        layout = gpu.layouts.bindGroupLayout({
-          label: 'upscale',
-          entries: [tex(0), sampler(1), uniform(2)],
-        })
-      }
-      const input = ctx.texture('display')
-      const target = ctx.texture('view-target')
-      const format = target.format
-      const pipeline = cache.render(
-        ctx,
-        `upscale/${format}`,
-        'shard::post::upscale',
-        'fs',
-        [layout],
-        [{ format }],
-      )
-      if (!pipeline) return
-      const settings = ctx.world.tryResource(RenderScale)
-      upscaleScratch[0] = 1 / target.width
-      upscaleScratch[1] = 1 / target.height
-      upscaleScratch[2] = Math.min(1, Math.max(0, settings?.sharpen ?? 0))
-      const params = cache.buffer(gpu, `${ctx.view.name}/upscale`, 16)
-      params.write(upscaleScratch, 0, 0, 4)
-      const group = cache.group(
-        gpu,
-        `${ctx.view.name}/upscale`,
-        `${idOf(input)}/${params.version}`,
-        layout,
-        () => [
-          { binding: 0, resource: input.createView() },
-          { binding: 1, resource: cache.sampler(gpu) },
-          { binding: 2, resource: { buffer: params.buffer } },
-        ],
-      )
-      const pass = ctx.renderPass!
-      pass.setPipeline(pipeline)
-      pass.setBindGroup(0, group)
-      pass.draw(3)
-    },
-  }
-}
-
 // --- install -----------------------------------------------------------------------------------
 
 /** Graph node names of the post chain, in order (for describe and tests). */
@@ -1252,7 +853,7 @@ export const POST_NODES = [
 
 const halfSize = { divide: 2 }
 
-/** Adds the prepass, SSAO, the post chain, the tonemap, and FXAA to the graph. */
+/** Adds the prepass, SSAO, and the post chain to the graph. */
 export function addPostNodes(world: World): void {
   const graph = world.resource(Graph)
   world.initResource(ExposureMeters)
@@ -1274,8 +875,6 @@ export function addPostNodes(world: World): void {
       return cam ? bloomLevels(cam) : 1
     },
   })
-  graph.declare({ name: 'fxaa-in', format: 'view' })
-  graph.declare({ name: 'display', format: 'view' })
   graph.addNode('prepass', prepassNode)
   graph.addNode('ssao', ssaoNode(RenderPhase.Prepass + 50, false))
   graph.addNode('ssao-deferred', ssaoNode(RenderPhase.Opaque + 20, true))
@@ -1285,9 +884,6 @@ export function addPostNodes(world: World): void {
   graph.addNode('post/dof', dofNode())
   graph.addNode('post/bloom', bloomNode())
   graph.addNode('post/exposure', autoExposureNode())
-  graph.addNode('tonemap', tonemapNode())
-  graph.addNode('post/fxaa', fxaaNode())
-  graph.addNode('post/upscale', upscaleNode())
 }
 
 // --- describe ----------------------------------------------------------------------------------

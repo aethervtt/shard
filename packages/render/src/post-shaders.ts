@@ -610,7 +610,10 @@ fn view_position(px: vec2i) -> vec3f {
   }
   return vec4f(sum / max(weight, 1e-6), 0.0, 0.0, 1.0);
 }`,
+}
 
+/** FXAA, registered by fxaaPlugin. */
+export const FXAA_SHADERS: Record<string, string> = {
   'shard::post::fxaa': `
 import shard::color::{ linear_to_srgb, srgb_to_linear };
 

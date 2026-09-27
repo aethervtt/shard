@@ -8,8 +8,9 @@ import {
   mat4,
   t,
   vec3,
+  type World,
 } from '@aethervtt/shard-core'
-import { Time } from '@aethervtt/shard-runtime'
+import { LogResource, Time } from '@aethervtt/shard-runtime'
 import { GlobalTransform } from '@aethervtt/shard-transform'
 import { RenderTargets } from './assets'
 import { Camera3d, Exposure, exposureScale } from './camera'
@@ -19,9 +20,11 @@ import { PixelPerfect, type PixelPerfectLayout, pixelPerfectLayout } from './pix
 import { Views, Window } from './plugin'
 import {
   antialiasingOf,
+  CORE_EFFECTS,
   createPostSettings,
   extractPost,
   PostEffect,
+  PostFeatures,
   type PostSettings,
   postAliases,
 } from './post'
@@ -187,6 +190,31 @@ export function viewAliases(cam: CameraData): Readonly<Record<string, string>> {
   return cam.msaa > 1 ? MSAA_ALIASES : NO_MSAA_ALIASES
 }
 
+/** Effects already reported as missing, per world, so each shows once. */
+const reportedEffects = new WeakMap<World, number>()
+
+/** Logs render/feature-missing once per effect a camera asked for whose plugin isn't installed. */
+function warnMissingEffects(world: World, missing: number): void {
+  const reported = reportedEffects.get(world) ?? 0
+  const fresh = missing & ~reported
+  if (fresh === 0) return
+  reportedEffects.set(world, reported | fresh)
+  const names = Object.entries(PostEffect)
+    .filter(([, bit]) => (fresh & bit) !== 0)
+    .map(([name]) => name)
+  const plugin = fresh & PostEffect.Fxaa && fresh === PostEffect.Fxaa ? 'fxaaPlugin' : 'postPlugin'
+  world
+    .tryResource(LogResource)
+    ?.log(
+      'warn',
+      `A camera asks for ${names.join(', ')}, but ${plugin} isn't installed; it renders without them`,
+      {
+        code: 'render/feature-missing',
+        hint: `Add ${plugin} from '@aethervtt/shard-render' (forwardPlugin includes it).`,
+      },
+    )
+}
+
 export const extractCameras = defineSystem({
   name: 'render/extract-cameras',
   description: 'Turns Camera3d entities into render views with matrices, frustums, and exposure.',
@@ -200,6 +228,7 @@ export const extractCameras = defineSystem({
     const scale = world.tryResource(RenderScale)
     if (scale) scale.windowViews = 0
     const delta = world.resource(Time).delta
+    const installed = world.tryResource(PostFeatures)?.effects ?? CORE_EFFECTS
     for (const table of q.tables) {
       const projection = table.column(Camera3d, 'projection')
       const fovY = table.column(Camera3d, 'fovY')
@@ -311,7 +340,8 @@ export const extractCameras = defineSystem({
           cam.far = far[i]!
         }
         cam.deferred = path ? path[i] === 1 : false
-        extractPost(table, i, cam, delta, true)
+        const missing = extractPost(table, i, cam, delta, true, installed)
+        if (missing !== 0) warnMissingEffects(world, missing)
         const world_ = g.subarray(i * 12, i * 12 + 12)
         if (cam.pixelPerfect?.snap) {
           // The camera moves in whole texels, so the picture doesn't shimmer as it scrolls.

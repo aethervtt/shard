@@ -1,4 +1,4 @@
-import { defineComponent, type Table, t } from '@aethervtt/shard-core'
+import { defineComponent, defineResource, type Table, t } from '@aethervtt/shard-core'
 import { Camera3d, PhysicalCamera } from './camera'
 import type { RenderView } from './graph'
 import { type CameraData, cameraOf, isScaled } from './view'
@@ -275,6 +275,18 @@ export const PostEffect = {
   Atmosphere: 1024,
 } as const
 
+/** Effects that are part of the tonemap pass, so every 3D view has them. */
+export const CORE_EFFECTS = PostEffect.Grading | PostEffect.Vignette
+
+/**
+ * The effects whose passes are installed: the tonemap's always, then what postPlugin and fxaaPlugin
+ * add. A camera asking for one that isn't installed renders without it (render/feature-missing).
+ */
+export const PostFeatures = defineResource<{ effects: number }>('render/PostFeatures', {
+  description: 'Post effects whose passes are installed (bits of PostEffect).',
+  init: () => ({ effects: CORE_EFFECTS }),
+})
+
 /** The HDR effects that each read the previous one's output, in the fixed order. */
 export const HDR_CHAIN = [
   ['atmosphere', PostEffect.Atmosphere],
@@ -376,7 +388,8 @@ export function antialiasingOf(table: Table, row: number): number {
 
 /**
  * Reads a camera's effect components into its post settings. Frame time comes in for motion blur
- * (the shutter covers a fraction of a frame).
+ * (the shutter covers a fraction of a frame). Only `installed` effects turn on; returns the ones the
+ * camera asked for that aren't.
  */
 export function extractPost(
   table: Table,
@@ -384,7 +397,8 @@ export function extractPost(
   cam: CameraData,
   delta: number,
   taaAllowed: boolean,
-): void {
+  installed: number = CORE_EFFECTS,
+): number {
   const post = cam.post
   let effects = 0
   if (table.has(Bloom)) {
@@ -462,7 +476,8 @@ export function extractPost(
   const aa = antialiasingOf(table, row)
   if (aa === 1) effects |= PostEffect.Fxaa
   if (aa === 2 && taaAllowed) effects |= PostEffect.Taa
-  post.effects = effects
+  post.effects = effects & installed
+  return effects & ~installed
 }
 
 /**

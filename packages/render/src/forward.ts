@@ -33,6 +33,7 @@ import {
 import { Culler, cullTransparent, GpuCuller } from './culling'
 import { describeCulling, describeLighting } from './debug-views'
 import { addDeferredNodes } from './deferred'
+import { addDisplayNodes } from './display-nodes'
 import {
   DefaultEnvironment,
   describeEnvironment,
@@ -101,10 +102,10 @@ import {
   DepthOfField,
   Fog,
   MotionBlur,
+  PostFeatures,
   Ssao,
   Vignette,
 } from './post'
-import { adaptExposure, addPostNodes, describePost, ExposureMeters } from './post-nodes'
 import {
   describeRenderScale,
   RenderScale,
@@ -1295,6 +1296,7 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
     name: 'render/forward',
     provides: [
       // core
+      PostFeatures,
       MaterialNoise,
       MaterialAssetType,
       MaterialImporter,
@@ -1359,7 +1361,6 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       MotionBlur,
       Ssao,
       Vignette,
-      ExposureMeters,
       // pixel-perfect
       PixelPerfect,
       PixelTargets,
@@ -1395,12 +1396,7 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       observeLightRemovals(w)
       observeOriginShifts(w)
       app
-        .addSystems(
-          PostUpdate,
-          computeVisibility.after(TransformSystems),
-          applyPhysicalCameras,
-          adaptExposure.after(applyPhysicalCameras),
-        )
+        .addSystems(PostUpdate, computeVisibility.after(TransformSystems), applyPhysicalCameras)
         .addSystems(
           Last,
           updateRenderScale.inSet(RenderSet.Extract).before(extractCameras),
@@ -1472,7 +1468,6 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       describers.set('lighting', (world) => describeLighting(world))
       describers.set('environment', (world) => describeEnvironment(world))
       describers.set('culling', (world) => describeCulling(world))
-      describers.set('post', (world) => describePost(world))
       describers.set('renderScale', (world) => describeRenderScale(world))
       graph.addNode('environment', environmentNode)
       graph.addNode('instance-cull', cullNode(state))
@@ -1484,7 +1479,7 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       graph.addNode('forward-transparent', transparentNode(state))
       addDeferredNodes(app)
       graph.addNode('depth-resolve', depthResolveNode())
-      addPostNodes(app.world)
+      addDisplayNodes(app.world)
       graph.addNode('pixel-upscale', pixelUpscaleNode())
       graph.addNode('gizmos', gizmoNode(app.world))
       addPickNodes(app.world)

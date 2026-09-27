@@ -93,6 +93,7 @@ export {
   type GBufferChannel,
 } from './deferred'
 export { DEFORM_WORDS, DeformStore, type MeshDeform } from './deform'
+export { whiteBalance } from './display-nodes'
 export {
   type CameraEnvironment,
   DefaultEnvironment,
@@ -120,6 +121,7 @@ export {
   type ViewGpu,
   viewBindGroup,
 } from './forward'
+export { fxaaPlugin } from './fxaa'
 export { LABEL_FONT, labelWidth } from './gizmo-font'
 export {
   GIZMO_LINE_FLOATS,
@@ -280,8 +282,8 @@ export {
   histogramEv,
   METER_READBACKS,
   POST_NODES,
-  whiteBalance,
 } from './post-nodes'
+export { postPlugin } from './post-plugin'
 export {
   describeRenderScale,
   type FrameTimings,

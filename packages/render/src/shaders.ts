@@ -6,7 +6,6 @@ import { GIZMO_SHADERS, PICK_SHADERS } from './debug-shaders'
 import { DEFERRED_SHADERS } from './deferred-shaders'
 import { ENVIRONMENT_SHADERS } from './environment-shaders'
 import { PIXEL_PERFECT_SHADERS } from './pixel-perfect'
-import { POST_SHADERS } from './post-shaders'
 
 /** Per-view uniforms. A schema, so the WGSL struct and the CPU packing come from one place. */
 export const ViewUniform = defineComponent('render/ViewUniform', {
@@ -1309,7 +1308,6 @@ export function registerEngineShaders(library: ShaderLibrary): void {
   registerShaders(library, CULLING_SHADERS)
   registerShaders(library, ENVIRONMENT_SHADERS)
   registerShaders(library, DEFERRED_SHADERS)
-  registerShaders(library, POST_SHADERS)
   registerShaders(library, PIXEL_PERFECT_SHADERS)
   registerShaders(library, GIZMO_SHADERS)
   registerShaders(library, PICK_SHADERS)
