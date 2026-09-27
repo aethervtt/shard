@@ -1,5 +1,5 @@
 import { hashSeed, type ShardError } from '@aethervtt/shard-core'
-import { gcWindow } from '@aethervtt/shard-core/test-env'
+import { allocationChecks, gcWindow } from '@aethervtt/shard-core/test-env'
 import { createInlineWorkers } from '@aethervtt/shard-platform'
 import { createNodeWorkers } from '@aethervtt/shard-platform-node'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -598,7 +598,7 @@ describe('allocation', () => {
     const gcs = gcWindow()
     run()
     const collections = await gcs.end()
-    expect(collections).toBe(0)
+    if (allocationChecks) expect(collections).toBe(0)
     expect(noiseKernel().simd).toBe(true)
   })
 })

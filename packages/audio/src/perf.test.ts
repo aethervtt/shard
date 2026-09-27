@@ -1,5 +1,5 @@
 import type { AssetRef } from '@aethervtt/shard-core'
-import { budget, gcWindow } from '@aethervtt/shard-core/test-env'
+import { allocationChecks, budget, gcWindow } from '@aethervtt/shard-core/test-env'
 import { App } from '@aethervtt/shard-runtime'
 import { GlobalTransform, Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { describe, expect, it } from 'vitest'
@@ -72,7 +72,7 @@ describe('performance', () => {
     console.log(
       `audio/update, 48 sources: ${median(list).toFixed(4)} ms median; GC events: ${collections}`,
     )
-    expect(collections).toBe(0)
+    if (allocationChecks) expect(collections).toBe(0)
     expect(median(list)).toBeLessThan(budget(0.1))
   })
 

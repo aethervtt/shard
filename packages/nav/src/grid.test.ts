@@ -1,4 +1,4 @@
-import { budget, gcWindow } from '@aethervtt/shard-core/test-env'
+import { allocationChecks, budget, gcWindow } from '@aethervtt/shard-core/test-env'
 import { describe, expect, it } from 'vitest'
 import {
   DIAGONAL_ALWAYS,
@@ -163,7 +163,7 @@ describe('grid A*', () => {
       }
     }
     const collections = await gcs.end()
-    expect(collections).toBe(0)
+    if (allocationChecks) expect(collections).toBe(0)
     expect(median([...times])).toBeLessThan(budget(2))
     // The corner-to-corner query explores most of the maze: hold it to the budget too.
     expect(

@@ -9,7 +9,7 @@ import {
   Update,
   type World,
 } from '@aethervtt/shard-core'
-import { budget, gcWindow } from '@aethervtt/shard-core/test-env'
+import { allocationChecks, budget, gcWindow } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { cube, plane, sphere } from '@aethervtt/shard-mesh'
@@ -161,7 +161,7 @@ describe('gizmos', () => {
     console.log(
       `100k gizmo lines: draw ${best.toFixed(3)} ms best, ${median(drawTimes).toFixed(3)} ms median; upload ${median(uploadTimes).toFixed(3)} ms median; GC events: ${collections}`,
     )
-    expect(collections).toBe(0)
+    if (allocationChecks) expect(collections).toBe(0)
     expect(best).toBeLessThan(budget(1))
   })
 })

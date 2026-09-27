@@ -1,5 +1,5 @@
 import { ChildOf, defineComponent, t } from '@aethervtt/shard-core'
-import { budget, gcWindow, timeout } from '@aethervtt/shard-core/test-env'
+import { allocationChecks, budget, gcWindow, timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import {
@@ -87,7 +87,7 @@ describe('performance', () => {
     console.log(
       `sampling 200 × 60 joints: ${Math.min(...list).toFixed(3)} ms best, ${median(list).toFixed(3)} ms median; GC events: ${collections}`,
     )
-    expect(collections).toBe(0)
+    if (allocationChecks) expect(collections).toBe(0)
     expect(median(list)).toBeLessThan(budget(2))
   })
 
@@ -188,7 +188,7 @@ describe('performance', () => {
     console.log(
       `200 animators: ${Math.min(...list).toFixed(3)} ms best, ${median(list).toFixed(3)} ms median; GC events: ${collections}`,
     )
-    expect(collections).toBe(0)
+    if (allocationChecks) expect(collections).toBe(0)
     expect(median(list)).toBeLessThan(budget(0.5))
   })
 
@@ -267,7 +267,7 @@ describe('performance', () => {
     console.log(
       `two-bone IK, 100 characters × 2 legs: ${Math.min(...list).toFixed(3)} ms best, ${median(list).toFixed(3)} ms median; GC events: ${collections}`,
     )
-    expect(collections).toBe(0)
+    if (allocationChecks) expect(collections).toBe(0)
     expect(median(list)).toBeLessThan(budget(1))
   })
 

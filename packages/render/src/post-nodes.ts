@@ -798,14 +798,15 @@ export interface ExposureState {
   metered: number | undefined
   /** Histogram readings landed so far. Each lands a few frames after its own, when the GPU gets to it. */
   readings: number
+  /** Readbacks issued for this camera, one per metered frame (numbered from 1). */
+  submitted: number
+  /** Which readback `metered` came from. Older readings that land late are ignored. */
+  reading: number
   ev: number
   started: boolean
 }
 
-/**
- * Histogram readbacks in flight per camera. A frame whose readbacks are all still mapping isn't
- * metered, so a change in the scene shows up within this many readings plus one.
- */
+/** Histogram readbacks in flight per camera. A frame whose readbacks are all still mapping isn't metered. */
 export const METER_READBACKS = 3
 
 export const ExposureMeters = defineResource<Map<Entity, ExposureState>>('render/ExposureMeters', {
@@ -939,6 +940,8 @@ function autoExposureNode(): NodeDescriptor {
       const busy = state.busy
       const meters = ctx.world.resource(ExposureMeters)
       const entity = v.cam.entity
+      const meter = meters.get(entity)
+      const index = meter ? ++meter.submitted : 0
       ctx.afterSubmit(() => {
         readback.mapAsync(GPUMapMode.READ).then(
           () => {
@@ -946,8 +949,9 @@ function autoExposureNode(): NodeDescriptor {
             readback.unmap()
             busy[k] = false
             const m = meters.get(entity)
-            if (m && ev !== undefined) {
+            if (m && ev !== undefined && index > m.reading) {
               m.metered = ev
+              m.reading = index
               m.readings++
             }
           },
@@ -982,7 +986,14 @@ export const adaptExposure = defineSystem({
         const entity = table.entities[i]!
         let m = meters.get(entity)
         if (!m) {
-          m = { metered: undefined, readings: 0, ev: ev[i]!, started: true }
+          m = {
+            metered: undefined,
+            readings: 0,
+            submitted: 0,
+            reading: 0,
+            ev: ev[i]!,
+            started: true,
+          }
           meters.set(entity, m)
         }
         if (m.metered !== undefined) {

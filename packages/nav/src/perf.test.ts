@@ -1,5 +1,5 @@
 import type { Entity } from '@aethervtt/shard-core'
-import { budget, gcWindow } from '@aethervtt/shard-core/test-env'
+import { allocationChecks, budget, gcWindow } from '@aethervtt/shard-core/test-env'
 import { Transform } from '@aethervtt/shard-transform'
 import { describe, expect, it } from 'vitest'
 import { NavAgent, NavGrid, NavGridDatas, NavMesh } from './components'
@@ -51,7 +51,7 @@ describe('navigation per frame', () => {
       }
     })
     expect(out.status).toBe('complete')
-    expect(gc).toBe(0)
+    if (allocationChecks) expect(gc).toBe(0)
     expect(median([...times])).toBeLessThan(budget(2))
   })
 
@@ -84,7 +84,7 @@ describe('navigation per frame', () => {
         times.push(performance.now() - t0)
       }
     })
-    expect(gc).toBe(0)
+    if (allocationChecks) expect(gc).toBe(0)
     expect(median(times)).toBeLessThan(budget(1))
   })
 

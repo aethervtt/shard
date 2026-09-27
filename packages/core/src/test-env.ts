@@ -65,3 +65,10 @@ export function gcWindow(): { end(): Promise<number> } {
     },
   }
 }
+
+/**
+ * Whether "allocates nothing" checks run. They hold under `pnpm bench` and `pnpm test`; CI turns them
+ * off with the time budgets, since when V8 optimizes (and so whether a call boxes its result) depends
+ * on the runner's CPU and timing.
+ */
+export const allocationChecks = timingMode !== 'ci'

@@ -26,7 +26,7 @@ import {
   Ssao,
   Vignette,
 } from './post'
-import { ExposureMeters, METER_READBACKS } from './post-nodes'
+import { ExposureMeters } from './post-nodes'
 import { OffscreenTarget } from './target'
 import { compareGolden, renderView, settle } from './testing'
 import { cameraOf, RenderPath, Tonemapping } from './view'
@@ -259,17 +259,18 @@ describe('post-processing', () => {
     const luminance = (10_000 * 0.18) / Math.PI
     const expected = Math.log2((luminance * 100) / 12.5)
     const meter = () => world.resource(ExposureMeters).get(cam)!
-    // The meter sees the change when a reading of a frame drawn after it lands. How many frames
-    // that takes depends on how fast the GPU maps readbacks (a frame or two in a browser, dozens on
-    // a software GPU), so the test counts readings: the ones already in flight, then this one.
-    const before = meter().readings
+    // Every readback issued so far metered a frame drawn before the change; the first reading of a
+    // frame drawn after it must show it. How many frames that takes depends on how fast the GPU maps
+    // readbacks (a frame or two in a browser, dozens on a software GPU), so the test waits for that
+    // reading rather than counting frames.
+    const before = meter().submitted
     let frames = 0
-    while (meter().metered! < interior + 1 && frames < 600) {
+    while (meter().reading <= before && frames < 600) {
       await step()
       frames++
     }
+    expect(meter().reading).toBeGreaterThan(before)
     expect(meter().metered!).toBeGreaterThanOrEqual(interior + 1)
-    expect(meter().readings - before).toBeLessThanOrEqual(METER_READBACKS + 1)
     frames = 0
     const target = meter().metered!
     expect(Math.abs(target - expected)).toBeLessThan(0.25)

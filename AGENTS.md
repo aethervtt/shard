@@ -43,7 +43,8 @@ shard serve / shard mcp [--attach]    # protocol hub / MCP server
 Run `pnpm typecheck && pnpm test && pnpm lint` before calling work done. Run `pnpm bench` too
 when touching ECS storage, queries, anything on a per-frame path, or code a timing test covers:
 `pnpm test` runs in parallel and gives time budgets 3x slack; `pnpm bench` holds the real ones.
-CI sets `SHARD_CI=1`: its runners render on a software GPU, so budgets are off and timeouts are 5x.
+CI sets `SHARD_CI=1`: its runners render on a software GPU, so time budgets and "allocates nothing"
+checks are off (`allocationChecks`) and timeouts are 5x.
 Write budgets and timeouts with `budget()` and `timeout()` from `@aethervtt/shard-core/test-env`.
 Vendored third-party code (`**/vendor`) and test fixtures (`**/fixtures`) aren't linted or edited.
 
