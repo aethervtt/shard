@@ -25,6 +25,7 @@ import {
   type PostSettings,
   postAliases,
 } from './post'
+import { RenderScale, scaledSize } from './render-scale'
 import type { RenderTarget } from './target'
 
 export const TONEMAP_CURVES = ['aces', 'agx', 'pbr-neutral', 'reinhard', 'none'] as const
@@ -86,8 +87,18 @@ export interface CameraData {
   fovY: number
   orthoHeight: number
   aspect: number
+  /** Render resolution (0051): the size of the view's scene textures. */
   width: number
   height: number
+  /** Display resolution: the target's size, which screen overlays (UI, screen text) draw at. */
+  displayWidth: number
+  displayHeight: number
+  /**
+   * The target's pixels per CSS pixel (devicePixelRatio on the window, else 1). Pixel thresholds
+   * meant for the eye (terrain LOD) use `displayHeight / pixelRatio`: the same on every display
+   * and at every render scale.
+   */
+  pixelRatio: number
   /** Scene luminance → pre-exposed HDR. */
   exposure: number
   ev100: number
@@ -128,9 +139,21 @@ export const Cameras = defineResource<Map<Entity, CameraData>>('render/Cameras',
 })
 
 /** Global render settings the camera extraction applies to every view. */
-export const ViewSettings = defineResource<{ msaa: number }>('render/ViewSettings', {
-  description: 'Render settings shared by all views: MSAA sample count.',
-  init: () => ({ msaa: 4 }),
+export interface ViewSettingsValue {
+  /** MSAA samples for forward cameras without an Antialiasing component. */
+  msaa: number
+  /**
+   * Displays this dense or denser (pixels per CSS pixel) skip that default MSAA: their pixels are
+   * too small for stair-stepping to show, and 4 samples of a Retina frame cost about a third of
+   * it. 0: always use `msaa`. An Antialiasing component still wins.
+   */
+  msaaMaxPixelRatio: number
+}
+
+export const ViewSettings = defineResource<ViewSettingsValue>('render/ViewSettings', {
+  description:
+    'Render settings shared by all views: the default MSAA sample count, and the display density past which it is skipped.',
+  init: () => ({ msaa: 4, msaaMaxPixelRatio: 1.5 }),
 })
 
 const scratchProj = mat4.create()
@@ -142,11 +165,25 @@ const NO_MSAA_ALIASES = Object.freeze({
   'scene-color': 'hdr',
   'scene-depth': 'depth',
   ldr: 'view-target',
+  display: 'view-target',
 })
-const MSAA_ALIASES = Object.freeze({ ldr: 'view-target' })
+const MSAA_ALIASES = Object.freeze({ ldr: 'view-target', display: 'view-target' })
+/** A scaled view (0051) keeps `display` at render resolution; the upscale writes the target. */
+const SCALED_NO_MSAA_ALIASES = Object.freeze({
+  'scene-color': 'hdr',
+  'scene-depth': 'depth',
+  ldr: 'display',
+})
+const SCALED_MSAA_ALIASES = Object.freeze({ ldr: 'display' })
+
+/** Whether a camera renders below (or above) its target's resolution and needs the upscale. */
+export function isScaled(cam: CameraData): boolean {
+  return cam.width !== cam.displayWidth || cam.height !== cam.displayHeight
+}
 
 /** Picks the aliases for a view from its camera data. Other plugins (FXAA) replace this. */
 export function viewAliases(cam: CameraData): Readonly<Record<string, string>> {
+  if (isScaled(cam)) return cam.msaa > 1 ? SCALED_MSAA_ALIASES : SCALED_NO_MSAA_ALIASES
   return cam.msaa > 1 ? MSAA_ALIASES : NO_MSAA_ALIASES
 }
 
@@ -160,6 +197,8 @@ export const extractCameras = defineSystem({
     const window = world.tryResource(Window)
     const targets = world.resource(RenderTargets)
     const settings = world.resource(ViewSettings)
+    const scale = world.tryResource(RenderScale)
+    if (scale) scale.windowViews = 0
     const delta = world.resource(Time).delta
     for (const table of q.tables) {
       const projection = table.column(Camera3d, 'projection')
@@ -205,6 +244,9 @@ export const extractCameras = defineSystem({
             aspect: 1,
             width: 1,
             height: 1,
+            displayWidth: 1,
+            displayHeight: 1,
+            pixelRatio: 1,
             exposure: 1,
             ev100: 0,
             clear: { r: 0, g: 0, b: 0, a: 1 },
@@ -237,9 +279,18 @@ export const extractCameras = defineSystem({
           height = p.height / p.pixelsPerUnit
           cam.pixelPerfect = p
         }
+        cam.displayWidth = rt.width
+        cam.displayHeight = rt.height
+        cam.pixelRatio = rt.pixelRatio ?? 1
         cam.width = rt.width
         cam.height = rt.height
-        const aspect = rt.width / Math.max(1, rt.height)
+        // Window cameras render at the render scale and are upscaled at Display (0051).
+        if (scale && !cam.pixelPerfect && rt.renderScale) {
+          cam.width = scaledSize(rt.width, scale.scale)
+          cam.height = scaledSize(rt.height, scale.scale)
+          scale.windowViews++
+        }
+        const aspect = cam.width / Math.max(1, cam.height)
         cam.aspect = aspect
         cam.near = near[i]!
         cam.fovY = (fovY[i]! * Math.PI) / 180
@@ -275,8 +326,8 @@ export const extractCameras = defineSystem({
           const k = (cam.frames % 8) + 1
           jitter[0] = halton(k, 2) - 0.5
           jitter[1] = halton(k, 3) - 0.5
-          const jx = (2 * jitter[0]) / rt.width
-          const jy = (-2 * jitter[1]) / rt.height
+          const jx = (2 * jitter[0]) / cam.width
+          const jy = (-2 * jitter[1]) / cam.height
           // Offsets clip x/y by w: the projection's third column (perspective) or translation (ortho).
           if (cam.orthographic) {
             scratchProj[12] = scratchProj[12]! + jx
@@ -309,7 +360,9 @@ export const extractCameras = defineSystem({
         cam.clear = { r: clear[c]!, g: clear[c + 1]!, b: clear[c + 2]!, a: clear[c + 3]! }
         // The G-buffer is single-sampled; deferred views anti-alias in post (FXAA, TAA).
         const aa = antialiasingOf(table, i)
-        cam.msaa = cam.deferred ? 1 : aa < 0 ? settings.msaa : aa === 3 ? 4 : 1
+        // The default follows the display, not the render scale, so the scale can't flip it.
+        const dense = settings.msaaMaxPixelRatio > 0 && cam.pixelRatio >= settings.msaaMaxPixelRatio
+        cam.msaa = cam.deferred ? 1 : aa < 0 ? (dense ? 1 : settings.msaa) : aa === 3 ? 4 : 1
         cam.curve = curve ? curve[i]! : TONEMAP_CURVES.indexOf(DEFAULT_CURVE)
         cam.dither = dither ? dither[i] !== 0 : true
         cam.frames++
@@ -318,6 +371,10 @@ export const extractCameras = defineSystem({
           target: rt,
           order: order[i]!,
           data: { camera: cam },
+        }
+        if (isScaled(cam)) {
+          view.width = cam.width
+          view.height = cam.height
         }
         view.aliases = postAliases(cam, viewAliases(cam))
         views.push(view)

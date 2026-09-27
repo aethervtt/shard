@@ -1183,10 +1183,11 @@ function viewGroup(ctx: NodeContext, cam: CameraData): GPUBindGroup {
     c.views.set(ctx.view.name, v)
   }
   viewScratch.set(cam.viewProj, 0)
-  viewScratch[16] = cam.width
-  viewScratch[17] = cam.height
-  viewScratch[18] = 1 / cam.width
-  viewScratch[19] = 1 / cam.height
+  // Only screen space reads the viewport, and it draws after the upscale: display size (0051).
+  viewScratch[16] = cam.displayWidth
+  viewScratch[17] = cam.displayHeight
+  viewScratch[18] = 1 / cam.displayWidth
+  viewScratch[19] = 1 / cam.displayHeight
   viewScratch[20] = cam.pixelPerfect?.snap ? cam.pixelPerfect.pixelsPerUnit : 0
   viewScratch[21] = viewScratch[22] = viewScratch[23] = 0
   v.uniform.write(viewScratch)

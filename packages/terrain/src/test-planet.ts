@@ -45,6 +45,8 @@ export interface PlanetOptions {
   minSpacing?: number
   width?: number
   heightPx?: number
+  /** The target's pixels per CSS pixel (a Retina display is 2). Default 1. */
+  pixelRatio?: number
   fovY?: number
   clearColor?: [number, number, number, number]
   physics?: boolean
@@ -105,6 +107,7 @@ export async function planetApp(gpu: GpuContext | undefined, o: PlanetOptions): 
       label: 'terrain-test',
       width: o.width ?? 96,
       height: o.heightPx ?? 64,
+      pixelRatio: o.pixelRatio ?? 1,
     })
     const targetRef = world.resource(RenderTargets).add(target, 'terrain-test')
     camera = world.spawn(

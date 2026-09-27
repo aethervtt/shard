@@ -820,4 +820,38 @@ fn at(uv: vec2f, o: vec2f, texel: vec2f) -> vec3f {
   if (horizontal) { final_uv.y += blend * step_len; } else { final_uv.x += blend * step_len; }
   return vec4f(textureSampleLevel(input, input_sampler, final_uv, 0.0).rgb, 1.0);
 }`,
+
+  'shard::post::upscale': `
+struct Upscale {
+  /** 1 / output size (xy), sharpening (z), 0. */
+  params: vec4f,
+}
+
+@group(0) @binding(0) var input: texture_2d<f32>;
+@group(0) @binding(1) var input_sampler: sampler;
+@group(0) @binding(2) var<uniform> upscale: Upscale;
+
+fn at(uv: vec2f) -> vec3f {
+  return textureSampleLevel(input, input_sampler, uv, 0.0).rgb;
+}
+
+/**
+ * The render-resolution image onto the display (0051): bilinear, then an unsharp mask over the
+ * four neighbors one source texel away, clamped to their range so edges can't ring.
+ */
+@fragment fn fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
+  let uv = frag.xy * upscale.params.xy;
+  let c = at(uv);
+  let k = upscale.params.z;
+  if (k <= 0.0) { return vec4f(c, 1.0); }
+  let texel = 1.0 / vec2f(textureDimensions(input));
+  let n = at(uv + vec2f(0.0, -texel.y));
+  let s = at(uv + vec2f(0.0, texel.y));
+  let e = at(uv + vec2f(texel.x, 0.0));
+  let w = at(uv + vec2f(-texel.x, 0.0));
+  let lo = min(c, min(min(n, s), min(e, w)));
+  let hi = max(c, max(max(n, s), max(e, w)));
+  let sharp = c + (4.0 * c - (n + s + e + w)) * (0.25 * k);
+  return vec4f(clamp(sharp, lo, hi), 1.0);
+}`,
 }

@@ -25,6 +25,10 @@ interface Readback {
  */
 export class GpuTimer {
   readonly enabled: boolean
+  /** The latest frame's GPU span in ms (first pass start to last pass end), once one landed. */
+  frameMs = 0
+  /** Frames measured so far: changes when `frameMs` does. */
+  frameSamples = 0
   private querySet: GPUQuerySet | undefined
   private resolveBuffer: GPUBuffer | undefined
   private readonly readbacks: Readback[] = []
@@ -143,7 +147,11 @@ export class GpuTimer {
         }
         // The whole frame, first pass start to last pass end: reliable even where passes overlap
         // (tile-based GPUs), which makes per-pass times add up to more than the frame.
-        if (last > first) profiler?.record('gpu:frame', Number(last - first) / 1e6)
+        if (last > first) {
+          this.frameMs = Number(last - first) / 1e6
+          this.frameSamples++
+          profiler?.record('gpu:frame', this.frameMs)
+        }
         target.buffer.unmap()
         target.busy = false
       },

@@ -1,7 +1,7 @@
 import { defineComponent, type Table, t } from '@shard/core'
 import { Camera3d, PhysicalCamera } from './camera'
 import type { RenderView } from './graph'
-import { type CameraData, cameraOf } from './view'
+import { type CameraData, cameraOf, isScaled } from './view'
 
 // --- components ------------------------------------------------------------------------------
 
@@ -511,7 +511,7 @@ export function postAliases(
 ): Readonly<Record<string, string>> {
   const effects = cam.post.effects
   const chain = (effects & 0xff) | (effects & PostEffect.Atmosphere ? 0x100 : 0)
-  const key = chain * 4 + (cam.msaa > 1 ? 1 : 0) + (cam.deferred ? 2 : 0)
+  const key = chain * 8 + (cam.msaa > 1 ? 1 : 0) + (cam.deferred ? 2 : 0) + (isScaled(cam) ? 4 : 0)
   let aliases = aliasCache.get(key)
   if (!aliases) {
     const out: Record<string, string> = { ...base }

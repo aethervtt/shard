@@ -287,6 +287,16 @@ export {
   whiteBalance,
 } from './post-nodes'
 export {
+  describeRenderScale,
+  type FrameTimings,
+  RenderScale,
+  RenderScaleController,
+  type RenderScaleValue,
+  SCALE_STEP,
+  scaledSize,
+  updateRenderScale,
+} from './render-scale'
+export {
   ENGINE_SHADERS,
   materialLayout,
   registerEngineShaders,
@@ -328,12 +338,14 @@ export {
   Cameras,
   cameraOf,
   DEFAULT_CURVE,
+  isScaled,
   RenderPath,
   shiftCameraHistory,
   TONEMAP_CURVES,
   type TonemapCurve,
   Tonemapping,
   ViewSettings,
+  type ViewSettingsValue,
   viewAliases,
 } from './view'
 export { ComputedVisibility, computeVisibility, Visibility } from './visibility'

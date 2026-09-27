@@ -203,6 +203,7 @@ export function describeRender(world: World) {
       name: v.name,
       target: v.target.label,
       size: [v.target.width, v.target.height],
+      renderSize: [v.width ?? v.target.width, v.height ?? v.target.height],
       order: v.order,
     })),
     pipelinesCompiling: gpu.pipelines.pending,

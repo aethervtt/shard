@@ -1,14 +1,29 @@
 import { defineSystem, ProfilerResource, Update, type World } from '@shard/core'
-import { RenderStats } from '@shard/render'
-import { definePlugin, Time } from '@shard/runtime'
+import { RenderScale, RenderStats } from '@shard/render'
+import { DisplayRate, definePlugin, Time } from '@shard/runtime'
 
 /** Extra HUD lines a demo adds (e.g. physics body counts), read each refresh. */
 export const hudExtras: ((world: World) => string[])[] = []
 
+/** `?scale=0.75` pins the render scale; `?scale=auto` (the default) lets it follow the GPU. */
+function applyRenderScale(world: World): void {
+  const param = new URLSearchParams(location.search).get('scale')
+  const scale = world.tryResource(RenderScale)
+  if (!param || !scale) return
+  if (param === 'auto') scale.mode = 'auto'
+  else if (Number(param) > 0) {
+    scale.mode = 'fixed'
+    scale.scale = Number(param)
+  }
+}
+
 /** FPS, draw stats, and the slowest systems and GPU passes, four times a second. */
 const hud = defineSystem({
   name: 'playground/hud',
-  setup: () => ({ el: document.getElementById('hud') as HTMLElement, last: 0, frames: 0 }),
+  setup: (world) => {
+    applyRenderScale(world)
+    return { el: document.getElementById('hud') as HTMLElement, last: 0, frames: 0 }
+  },
   run: (state, world) => {
     state.frames++
     const time = world.resource(Time).elapsed
@@ -25,9 +40,14 @@ const hud = defineSystem({
       .map(([name, t]) => `${name.padEnd(28)} ${t.avg.toFixed(2).padStart(6)} ms`)
     const gpuFrame = timings['gpu:frame']?.avg ?? 0
     const canvas = document.getElementById('viewport') as HTMLCanvasElement
+    const scale = world.tryResource(RenderScale)
+    const k = scale?.windowViews ? scale.scale : 1
+    const display = world.tryResource(DisplayRate)
     state.el.textContent = [
       `entities  ${world.entityCount.toLocaleString()}`,
       `fps       ${fps.toFixed(0)}   ${canvas.width}x${canvas.height}`,
+      `render    ${Math.round(canvas.width * k)}x${Math.round(canvas.height * k)}   ${k.toFixed(2)} ${scale?.mode ?? ''}${scale?.signal && scale.signal !== 'none' ? ` (${scale.signal})` : ''}`,
+      `display   ${display ? `${display.hz} Hz (${display.source})` : '?'}   budget ${scale ? scale.budgetMs.toFixed(1) : '?'} ms`,
       `gpu frame ${gpuFrame.toFixed(2)} ms`,
       stats
         ? `${view}: ${stats.visible} visible, ${stats.culled} culled, ${stats.drawCalls} draws`

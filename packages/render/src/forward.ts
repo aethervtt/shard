@@ -77,6 +77,12 @@ import { addPickNodes, Picking } from './picking'
 import { pixelUpscaleNode } from './pixel-perfect'
 import { Gpu, Graph, RenderDescribers, RenderSet, Shaders, Views } from './plugin'
 import { adaptExposure, addPostNodes, describePost } from './post-nodes'
+import {
+  describeRenderScale,
+  RenderScale,
+  type RenderScaleValue,
+  updateRenderScale,
+} from './render-scale'
 import { viewLayout } from './shaders'
 import {
   assignLocalShadows,
@@ -1156,6 +1162,10 @@ function depthResolveNode() {
 export interface ForwardPluginOptions {
   /** MSAA sample count: 1 or 4. Default 4. */
   msaa?: 1 | 4
+  /** Render scale of window cameras (0051). Default: auto, 0.5–1. */
+  renderScale?: Partial<
+    Pick<RenderScaleValue, 'mode' | 'scale' | 'min' | 'max' | 'targetMs' | 'maxHz' | 'sharpen'>
+  >
 }
 
 /** Bind group and pipeline layouts, created per device (after a device loss they're rebuilt). */
@@ -1262,6 +1272,7 @@ export function forwardPlugin(options: ForwardPluginOptions = {}): Plugin {
       w.initResource(Environments)
       w.initResource(Atmospheres)
       w.initResource(ViewSettings).msaa = options.msaa ?? 4
+      Object.assign(w.initResource(RenderScale), options.renderScale)
       w.initResource(Gizmos)
       w.initResource(DebugOverlays)
       w.initResource(Picking)
@@ -1277,6 +1288,7 @@ export function forwardPlugin(options: ForwardPluginOptions = {}): Plugin {
         )
         .addSystems(
           Last,
+          updateRenderScale.inSet(RenderSet.Extract).before(extractCameras),
           extractCameras.inSet(RenderSet.Extract),
           extractLights.inSet(RenderSet.Extract),
           selectAtmospheres.inSet(RenderSet.Extract).after(extractCameras).after(extractLights),
@@ -1349,6 +1361,7 @@ export function forwardPlugin(options: ForwardPluginOptions = {}): Plugin {
       describers.set('environment', (world) => describeEnvironment(world))
       describers.set('culling', (world) => describeCulling(world))
       describers.set('post', (world) => describePost(world))
+      describers.set('renderScale', (world) => describeRenderScale(world))
       describers.set('atmosphere', (world) =>
         describeAtmospheres(world, world.tryResource(ProfilerResource)?.all()),
       )

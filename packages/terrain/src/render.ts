@@ -247,7 +247,9 @@ function updateView(world: World, rt: PlanetRuntime, pr: PlanetRender, camera: E
   const m = world.get(camera, GlobalTransform).matrix
   const cam = world.get(camera, Camera3d)
   const data = world.tryResource(Cameras)?.get(camera)
-  const height = data && data.height > 1 ? data.height : 720
+  // In CSS pixels (0051): errorPixels means the same on a Retina display as on any other, and
+  // doesn't move with the render scale (which would feed back into the scale's own controller).
+  const height = data && data.height > 1 ? data.displayHeight / data.pixelRatio : 720
   const aspect = data && data.height > 1 ? data.width / data.height : 16 / 9
   const fovY = (cam.fovY * Math.PI) / 180
   rt.frame.pointToPlanet(m[3]!, m[7]!, m[11]!, camPos)

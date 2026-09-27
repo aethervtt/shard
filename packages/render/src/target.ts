@@ -6,6 +6,13 @@ export interface RenderTarget {
   readonly format: GPUTextureFormat
   readonly width: number
   readonly height: number
+  /** Cameras showing on it render at the RenderScale and are upscaled (0051). The window does. */
+  readonly renderScale?: boolean
+  /**
+   * Its pixels per CSS pixel (the display's devicePixelRatio for the window; default 1). Screen
+   * densities in "pixels" (terrain LOD, the MSAA default) are measured in CSS pixels (0051).
+   */
+  readonly pixelRatio?: number
   /** The texture to render into this frame. */
   texture(): GPUTexture
 }
@@ -13,6 +20,7 @@ export interface RenderTarget {
 /** The canvas swapchain. Resizes with the canvas. */
 export class WindowTarget implements RenderTarget {
   readonly label = 'window'
+  readonly renderScale = true
   private readonly gpu: GpuContext
 
   constructor(gpu: GpuContext) {
@@ -25,6 +33,10 @@ export class WindowTarget implements RenderTarget {
 
   get width(): number {
     return this.gpu.canvas?.width ?? 1
+  }
+
+  get pixelRatio(): number {
+    return this.gpu.pixelRatio
   }
 
   get height(): number {
@@ -42,12 +54,18 @@ export interface OffscreenTargetOptions {
   width: number
   height: number
   format?: GPUTextureFormat
+  /** Follow the RenderScale like the window (0051). Default false. */
+  renderScale?: boolean
+  /** Pixels per CSS pixel, for a target standing in for a high-density display. Default 1. */
+  pixelRatio?: number
 }
 
 /** A texture render target: headless runs, screenshots, render-to-texture, second cameras. */
 export class OffscreenTarget implements RenderTarget {
   readonly label: string
   readonly format: GPUTextureFormat
+  readonly renderScale: boolean
+  readonly pixelRatio: number
   width: number
   height: number
   private current: GPUTexture | undefined
@@ -60,6 +78,8 @@ export class OffscreenTarget implements RenderTarget {
     this.width = options.width
     this.height = options.height
     this.format = options.format ?? 'rgba8unorm'
+    this.renderScale = options.renderScale ?? false
+    this.pixelRatio = options.pixelRatio ?? 1
   }
 
   resize(width: number, height: number): void {

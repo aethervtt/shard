@@ -155,7 +155,9 @@ describe('render graph on the GPU', () => {
     const d = describeRender(app.world)
     expect(d.order.map((n) => n.name)).toEqual(['main'])
     expect(d.culled).toEqual(['unused'])
-    expect(d.views).toEqual([{ name: 'main', target: 'desc', size: [4, 4], order: 0 }])
+    expect(d.views).toEqual([
+      { name: 'main', target: 'desc', size: [4, 4], renderSize: [4, 4], order: 0 },
+    ])
   })
 
   it('reports a missing resource with render/missing-resource', async () => {

@@ -21,6 +21,7 @@ import { GpuAssetsResource } from './gpu-assets'
 import { type NodeContext, type NodeDescriptor, RenderPhase, type RenderView } from './graph'
 import { Graph, Shaders, Views } from './plugin'
 import { AutoExposure, cocParams, hasEffect, needsPrepass, PostEffect } from './post'
+import { RenderScale } from './render-scale'
 import { RenderCounters } from './stats'
 import { type CameraData, cameraOf } from './view'
 
@@ -1116,8 +1117,8 @@ function fxaaNode(): NodeDescriptor {
     phase: RenderPhase.Display,
     enabled: hasEffect(PostEffect.Fxaa),
     reads: ['ldr'],
-    writes: ['view-target'],
-    color: [{ resource: 'view-target', clear: { r: 0, g: 0, b: 0, a: 1 } }],
+    writes: ['display'],
+    color: [{ resource: 'display', clear: { r: 0, g: 0, b: 0, a: 1 } }],
     run: (ctx) => {
       const gpu = ctx.gpu
       if (!layout || layoutGen !== gpu.generation) {
@@ -1125,7 +1126,7 @@ function fxaaNode(): NodeDescriptor {
         layout = gpu.layouts.bindGroupLayout({ label: 'fxaa', entries: [tex(0), sampler(1)] })
       }
       const input = ctx.texture('ldr')
-      const format = ctx.texture('view-target').format
+      const format = ctx.texture('display').format
       const pipeline = cache.render(
         ctx,
         `fxaa/${format}`,
@@ -1142,6 +1143,68 @@ function fxaaNode(): NodeDescriptor {
         { binding: 0, resource: input.createView() },
         { binding: 1, resource: cache.sampler(gpu) },
       ])
+      const pass = ctx.renderPass!
+      pass.setPipeline(pipeline)
+      pass.setBindGroup(0, group)
+      pass.draw(3)
+    },
+  }
+}
+
+// --- render-scale upscale (0051) ---------------------------------------------------------------
+
+const upscaleScratch = new Float32Array(4)
+
+/** Scaled views: the render-resolution `display` image onto the target, sharpened. */
+function upscaleNode(): NodeDescriptor {
+  const cache = new PostCache()
+  let layout: GPUBindGroupLayout | undefined
+  let layoutGen = -1
+  return {
+    kind: 'render',
+    phase: RenderPhase.Display + 10,
+    enabled: (view) => view.width !== undefined && cameraOf(view) !== undefined,
+    reads: ['display'],
+    writes: ['view-target'],
+    color: [{ resource: 'view-target', clear: { r: 0, g: 0, b: 0, a: 1 } }],
+    run: (ctx) => {
+      const gpu = ctx.gpu
+      if (!layout || layoutGen !== gpu.generation) {
+        layoutGen = gpu.generation
+        layout = gpu.layouts.bindGroupLayout({
+          label: 'upscale',
+          entries: [tex(0), sampler(1), uniform(2)],
+        })
+      }
+      const input = ctx.texture('display')
+      const target = ctx.texture('view-target')
+      const format = target.format
+      const pipeline = cache.render(
+        ctx,
+        `upscale/${format}`,
+        'shard::post::upscale',
+        'fs',
+        [layout],
+        [{ format }],
+      )
+      if (!pipeline) return
+      const settings = ctx.world.tryResource(RenderScale)
+      upscaleScratch[0] = 1 / target.width
+      upscaleScratch[1] = 1 / target.height
+      upscaleScratch[2] = Math.min(1, Math.max(0, settings?.sharpen ?? 0))
+      const params = cache.buffer(gpu, `${ctx.view.name}/upscale`, 16)
+      params.write(upscaleScratch, 0, 0, 4)
+      const group = cache.group(
+        gpu,
+        `${ctx.view.name}/upscale`,
+        `${idOf(input)}/${params.version}`,
+        layout,
+        () => [
+          { binding: 0, resource: input.createView() },
+          { binding: 1, resource: cache.sampler(gpu) },
+          { binding: 2, resource: { buffer: params.buffer } },
+        ],
+      )
       const pass = ctx.renderPass!
       pass.setPipeline(pipeline)
       pass.setBindGroup(0, group)
@@ -1188,6 +1251,7 @@ export function addPostNodes(world: World): void {
     },
   })
   graph.declare({ name: 'fxaa-in', format: 'view' })
+  graph.declare({ name: 'display', format: 'view' })
   graph.addNode('prepass', prepassNode)
   graph.addNode('ssao', ssaoNode(RenderPhase.Prepass + 50, false))
   graph.addNode('ssao-deferred', ssaoNode(RenderPhase.Opaque + 20, true))
@@ -1199,6 +1263,7 @@ export function addPostNodes(world: World): void {
   graph.addNode('post/exposure', autoExposureNode())
   graph.addNode('tonemap', tonemapNode())
   graph.addNode('post/fxaa', fxaaNode())
+  graph.addNode('post/upscale', upscaleNode())
 }
 
 // --- describe ----------------------------------------------------------------------------------

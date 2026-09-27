@@ -1,5 +1,6 @@
 export { App, type AppDescription, type AppMethod, type AppOptions } from './app'
 export { AppControl, AppControlResource } from './control'
+export { COMMON_RATES, RefreshMeter, rateFromIntervals, snapRate } from './display'
 export { Log, type LogEntry, type LogLevel, LogResource } from './log'
 export { definePlugin, type Plugin } from './plugin'
 export {
@@ -18,4 +19,12 @@ export {
   type StateValue,
   setState,
 } from './state'
-export { FixedTime, type FixedTimeData, GlobalRng, Time, type TimeData } from './time'
+export {
+  DisplayRate,
+  type DisplayRateData,
+  FixedTime,
+  type FixedTimeData,
+  GlobalRng,
+  Time,
+  type TimeData,
+} from './time'

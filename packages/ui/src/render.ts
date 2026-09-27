@@ -767,10 +767,11 @@ function drawUi(ctx: NodeContext): void {
     })
     c.views.set(ctx.view.name, uniform)
   }
-  viewScratch[0] = cam.width
-  viewScratch[1] = cam.height
-  viewScratch[2] = 1 / cam.width
-  viewScratch[3] = 1 / cam.height
+  // UI draws over the upscaled image, at display resolution (0051).
+  viewScratch[0] = cam.displayWidth
+  viewScratch[1] = cam.displayHeight
+  viewScratch[2] = 1 / cam.displayWidth
+  viewScratch[3] = 1 / cam.displayHeight
   uniform.write(viewScratch)
   const u = uniform
   const pass = ctx.renderPass!

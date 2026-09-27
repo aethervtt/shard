@@ -155,7 +155,7 @@ simple tonemap (ACES fit) and sRGB output. Uniforms come from the schema through
 4. **Queue/draw**: one instanced draw per group in `Opaque3d`, sorted by pipeline, then material,
    then front-to-back.
 
-Depth: `depth32float`, reversed Z. MSAA 4x by default (configurable).
+Depth: `depth32float`, reversed Z. MSAA 4x by default (configurable), skipped on displays of 1.5 pixels per CSS pixel or more (0051).
 
 ### Agent surface
 

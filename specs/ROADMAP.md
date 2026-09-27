@@ -102,6 +102,7 @@ UI, navigation, and saves. Each one exposes its state to agents as data.
 | [0048](0048-creatures.md) | Creatures (body plans, procedural locomotion, behavior, fauna) | accepted |
 | [0049](0049-clouds-weather.md) | Clouds and weather (volumetric clouds, timeline weather, precipitation) | accepted |
 | [0050](0050-soundscapes.md) | Soundscapes and procedural audio | accepted |
+| [0051](0051-render-scale.md) | Render scale and dynamic resolution (high-DPI displays) | implemented |
 
 ## M8 — Proof project: No Man's Sky-style explorer
 

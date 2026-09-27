@@ -25,7 +25,7 @@ import { Log, LogResource } from './log'
 import type { Plugin } from './plugin'
 import type { Runner } from './runners'
 import { OnEnter, OnExit, type StateDef } from './state'
-import { FixedTime, type FixedTimeData, GlobalRng, Time, type TimeData } from './time'
+import { DisplayRate, FixedTime, type FixedTimeData, GlobalRng, Time, type TimeData } from './time'
 
 export interface AppOptions {
   /** FixedUpdate rate. Default 60. */
@@ -70,6 +70,7 @@ const TimePlugin: Plugin = {
   build(app) {
     app.insertResource(Time, { delta: 0, elapsed: 0, frame: 0 })
     app.insertResource(FixedTime, { step: 1 / app.fixedHz, elapsed: 0, alpha: 0, steps: 0 })
+    app.insertResource(DisplayRate, { hz: 60, periodMs: 1000 / 60, source: 'assumed' })
   },
 }
 

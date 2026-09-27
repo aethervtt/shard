@@ -106,7 +106,9 @@ BiomeSet { biomes: list(handle('terrain/Biome')), albedo, normal, orm: handle('T
   deviation from its parent's surface, recorded at generation) and its distance to the camera's
   frustum. It splits above `errorPixels`, merges below half of it, and culls nodes beyond the
   horizon (a sphere-horizon test) or outside the frustum. The walk uses scratch arrays with no
-  allocation, and the tree is kept as flat TypedArrays indexed by node slot.
+  allocation, and the tree is kept as flat TypedArrays indexed by node slot. Pixels are CSS
+  pixels (0051): the view's height is `displayHeight / pixelRatio`, so a Retina display selects
+  the same chunks as a standard one.
 - **Screen-space detail limit.** `vertexPixels` (default 4) caps each depth's error at
   `errorPixels / vertexPixels` times its vertex spacing, so rough terrain stops splitting once
   vertices are that many pixels apart. Without it, cost followed the roughness of the noise graph:

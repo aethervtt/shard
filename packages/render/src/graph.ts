@@ -47,6 +47,12 @@ export interface RenderView {
   /** Unique per frame, e.g. the camera entity or 'window'. */
   name: string
   target: RenderTarget
+  /**
+   * Render resolution (0051): the size of 'view'-sized textures when it differs from the target's.
+   * `view-target` is always the target itself.
+   */
+  width?: number
+  height?: number
   /** Lower renders first. */
   order: number
   /** Per-view data for nodes (camera matrices, etc.). */
@@ -453,15 +459,14 @@ export class RenderGraph {
           )
         }
         const size = perView(desc.size ?? 'view', view)
+        const vw = view.width ?? view.target.width
+        const vh = view.height ?? view.target.height
         const px: [number, number] =
           size === 'view'
-            ? [view.target.width, view.target.height]
+            ? [vw, vh]
             : Array.isArray(size)
               ? size
-              : [
-                  Math.max(1, Math.ceil(view.target.width / size.divide)),
-                  Math.max(1, Math.ceil(view.target.height / size.divide)),
-                ]
+              : [Math.max(1, Math.ceil(vw / size.divide)), Math.max(1, Math.ceil(vh / size.divide))]
         const format = perView(desc.format, view)
         t = this.pool.acquire({
           label: `${view.name}/${canonical}`,

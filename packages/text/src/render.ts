@@ -605,10 +605,11 @@ function writeView(cam: CameraData): void {
   viewScratch[21] = v[5]!
   viewScratch[22] = v[9]!
   viewScratch[23] = 0
-  viewScratch[24] = cam.width
-  viewScratch[25] = cam.height
-  viewScratch[26] = 1 / cam.width
-  viewScratch[27] = 1 / cam.height
+  // Only screen text reads the viewport, and it draws after the upscale: display size (0051).
+  viewScratch[24] = cam.displayWidth
+  viewScratch[25] = cam.displayHeight
+  viewScratch[26] = 1 / cam.displayWidth
+  viewScratch[27] = 1 / cam.displayHeight
 }
 
 function hasSpace(world: World, space: number): boolean {

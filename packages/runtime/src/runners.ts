@@ -1,6 +1,8 @@
 import type { App } from './app'
 import { AppControlResource } from './control'
+import { RefreshMeter, rateFromIntervals } from './display'
 import { LogResource } from './log'
+import { DisplayRate } from './time'
 
 /** Drives an initialized app. The app doesn't know which runner it has. */
 export type Runner = (app: App) => void | Promise<void>
@@ -24,13 +26,49 @@ export interface AnimationFrameOptions {
   maxDelta?: number
   /** Stops the loop when aborted. */
   signal?: AbortSignal
+  /**
+   * Time a few idle frames before the first update to measure the display's refresh rate into
+   * DisplayRate (about 12 refreshes: 0.1 s at 120 Hz). Default true.
+   */
+  measureRefresh?: boolean
+}
+
+/** Idle frame intervals the startup probe times. */
+const PROBE_INTERVALS = 12
+
+/** Resolves with the display's rate from idle rAF intervals, or 0 if the page is hidden. */
+function probeRefresh(): Promise<number> {
+  return new Promise((resolve) => {
+    if (document.hidden) return resolve(0)
+    const intervals = new Float64Array(PROBE_INTERVALS)
+    let last = -1
+    let n = 0
+    const tick = (t: number) => {
+      if (document.hidden) return resolve(0)
+      if (last >= 0) intervals[n++] = t - last
+      last = t
+      if (n < PROBE_INTERVALS) requestAnimationFrame(tick)
+      else resolve(rateFromIntervals(intervals))
+    }
+    requestAnimationFrame(tick)
+  })
 }
 
 /** Runs a frame per `requestAnimationFrame`. For the browser and Studio. */
 export function animationFrameRunner(options: AnimationFrameOptions = {}): Runner {
   const maxDelta = options.maxDelta ?? 0.25
-  return (app) =>
-    new Promise<void>((resolve) => {
+  return async (app) => {
+    const display = app.world.tryResource(DisplayRate)
+    if (display && options.measureRefresh !== false) {
+      const hz = await probeRefresh()
+      if (hz > 0) {
+        display.hz = hz
+        display.periodMs = 1000 / hz
+        display.source = 'measured'
+      }
+    }
+    const meter = new RefreshMeter(display?.periodMs ?? 1000 / 60)
+    return new Promise<void>((resolve) => {
       let last: number | undefined
       let handle = 0
       const onVisibility = () => {
@@ -39,6 +77,14 @@ export function animationFrameRunner(options: AnimationFrameOptions = {}): Runne
       }
       const frame = (timestamp: number) => {
         const delta = last === undefined ? 0 : Math.min((timestamp - last) / 1000, maxDelta)
+        if (display && last !== undefined) {
+          const hz = meter.sample(timestamp - last)
+          if (hz > 0) {
+            display.hz = hz
+            display.periodMs = 1000 / hz
+            display.source = 'measured'
+          }
+        }
         last = timestamp
         const control = app.world.resource(AppControlResource)
         try {
@@ -65,4 +111,5 @@ export function animationFrameRunner(options: AnimationFrameOptions = {}): Runne
       })
       handle = requestAnimationFrame(frame)
     })
+  }
 }

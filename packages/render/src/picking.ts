@@ -168,9 +168,12 @@ export function pickReadbackNode(world: World): NodeDescriptor {
       })
       const width = id.width
       const height = id.height
+      // Requests are in target pixels; the pick targets are at render resolution (0051).
+      const sx = width / ctx.view.target.width
+      const sy = height / ctx.view.target.height
       requests.forEach((r, i) => {
-        const x = Math.min(width - 1, Math.max(0, Math.floor(r.x)))
-        const y = Math.min(height - 1, Math.max(0, Math.floor(r.y)))
+        const x = Math.min(width - 1, Math.max(0, Math.floor(r.x * sx)))
+        const y = Math.min(height - 1, Math.max(0, Math.floor(r.y * sy)))
         const origin = { x, y }
         ctx.encoder.copyTextureToBuffer(
           { texture: id, origin },
@@ -200,8 +203,8 @@ export function pickReadbackNode(world: World): NodeDescriptor {
                 r.resolve(undefined)
                 return
               }
-              const px = Math.min(width - 1, Math.max(0, Math.floor(r.x))) + 0.5
-              const py = Math.min(height - 1, Math.max(0, Math.floor(r.y))) + 0.5
+              const px = Math.min(width - 1, Math.max(0, Math.floor(r.x * sx))) + 0.5
+              const py = Math.min(height - 1, Math.max(0, Math.floor(r.y * sy))) + 0.5
               const nx = (px / width) * 2 - 1
               const ny = 1 - (py / height) * 2
               const m = unproject

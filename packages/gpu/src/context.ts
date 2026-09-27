@@ -59,6 +59,8 @@ export class GpuContext {
   readonly layouts: LayoutCache
   /** Increments when the device is replaced. */
   generation = 0
+  /** Canvas pixels per CSS pixel (devicePixelRatio) at the last resize; 1 without a canvas. */
+  pixelRatio = 1
   /** Most recent GPU errors, newest last. */
   readonly errors: ShardError[] = []
   private readonly options: CreateGpuContextOptions
@@ -89,6 +91,7 @@ export class GpuContext {
     const canvas = this.canvas
     if (!canvas || !('clientWidth' in canvas)) return false
     const dpr = globalThis.devicePixelRatio ?? 1
+    this.pixelRatio = dpr
     const width = Math.max(1, Math.floor(canvas.clientWidth * dpr))
     const height = Math.max(1, Math.floor(canvas.clientHeight * dpr))
     if (canvas.width === width && canvas.height === height) return false
