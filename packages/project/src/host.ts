@@ -13,6 +13,7 @@ import { physics2dPlugin, physics3dPlugin } from '@aethervtt/shard-physics'
 import type { AudioBackend, InputSource, Platform } from '@aethervtt/shard-platform'
 import { procgenPlugin } from '@aethervtt/shard-procgen'
 import { forwardPlugin, type RenderTarget, renderPlugin, Shaders } from '@aethervtt/shard-render'
+import { materialNoisePlugin } from '@aethervtt/shard-render/noise'
 import { App, LogResource, type Plugin } from '@aethervtt/shard-runtime'
 import { savePlugin } from '@aethervtt/shard-save'
 import { type LoadedSceneHandle, loadScene, ScenePlugin } from '@aethervtt/shard-scene'
@@ -72,8 +73,11 @@ export function buildApp(options: BuildAppOptions): App {
       renderPlugin({ gpu: options.gpu, canvas: options.canvas, target: options.target }),
     )
   }
-  if (names.has('render/forward'))
+  if (names.has('render/forward')) {
     app.addPlugin(forwardPlugin({ msaa: manifest.window.msaa === 1 ? 1 : 4 }))
+    // Project materials may declare noise slots (project.material({ noise })).
+    app.addPlugin(materialNoisePlugin)
+  }
   if (names.has('sprite')) app.addPlugin(spritePlugin)
   if (names.has('text')) app.addPlugin(textPlugin)
   if (names.has('particles')) app.addPlugin(particlesPlugin)

@@ -9,6 +9,7 @@ import { physics2dPlugin, physics3dPlugin } from '@aethervtt/shard-physics'
 import { createDomInputSource, createIndexedDbStorage } from '@aethervtt/shard-platform-web'
 import { connectToHub, createProtocolServer, DEFAULT_HUB_PORT } from '@aethervtt/shard-protocol'
 import { describeRender, forwardPlugin, renderPlugin } from '@aethervtt/shard-render'
+import { materialNoisePlugin } from '@aethervtt/shard-render/noise'
 import { App, animationFrameRunner } from '@aethervtt/shard-runtime'
 import { savePlugin } from '@aethervtt/shard-save'
 import { ScenePlugin } from '@aethervtt/shard-scene'
@@ -217,7 +218,7 @@ if (demo === 'galaxy') {
 } else if (demo === 'grids') {
   app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, gridsDemoPlugin)
 } else if (demo === 'noise') {
-  app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, noiseDemoPlugin)
+  app.addPlugin(TransformPlugin, forwardPlugin(), materialNoisePlugin, hudPlugin, noiseDemoPlugin)
 } else if (demo === 'procgen') {
   app.addPlugin(TransformPlugin, forwardPlugin(), ScenePlugin, hudPlugin, procgenDemoPlugin)
 } else if (demo === 'terrain') {

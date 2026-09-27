@@ -88,6 +88,7 @@ import {
   PointLight,
   SpotLight,
 } from './lights'
+import { MaterialNoise } from './material-noise'
 import {
   blendState,
   MaterialPipelines,
@@ -1302,6 +1303,7 @@ export function forwardPlugin(options: ForwardPluginOptions = {}): Plugin {
     name: 'render/forward',
     provides: [
       // core
+      MaterialNoise,
       MaterialAssetType,
       MaterialImporter,
       Materials,

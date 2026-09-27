@@ -13,9 +13,10 @@ import {
   registerNoiseGraph,
   type SpherePatch,
 } from '@aethervtt/shard-noise'
-import { LogResource, Time } from '@aethervtt/shard-runtime'
+import { definePlugin, LogResource, Time } from '@aethervtt/shard-runtime'
 import type { ShaderLibrary } from '@aethervtt/shard-shader'
 import type { NodeDescriptor } from './graph'
+import { MaterialNoise } from './material-noise'
 import type { MaterialType } from './materials'
 import { Shaders } from './plugin'
 
@@ -354,3 +355,17 @@ export function noiseComputeNode(options: NoiseComputeNodeOptions): NodeDescript
     },
   }
 }
+
+/**
+ * Noise slots in materials: `noise: { detail: 'assets/noise/rock.noise.json' }` makes
+ * `noise_detail(p, seed)` callable from the material's shader (spec 0041). Separate from core render
+ * so apps without such materials carry no noise code.
+ */
+export const materialNoisePlugin = definePlugin({
+  name: 'render/noise',
+  dependencies: ['render'],
+  provides: [MaterialNoise],
+  build(app) {
+    app.insertResource(MaterialNoise, { wrappers: materialNoise })
+  },
+})

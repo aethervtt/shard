@@ -1,10 +1,11 @@
 import { assetServer } from '@aethervtt/shard-assets'
-import type { World } from '@aethervtt/shard-core'
+import { ShardError, type World } from '@aethervtt/shard-core'
 import type { GpuContext } from '@aethervtt/shard-gpu'
+import { LogResource } from '@aethervtt/shard-runtime'
 import type { ShaderLibrary } from '@aethervtt/shard-shader'
 import type { MaterialAsset } from './assets'
+import { MaterialNoise } from './material-noise'
 import { allMaterialTypes, BLEND_MODES, type BlendMode, type MaterialType } from './materials'
-import { materialNoise } from './noise'
 import { Shaders } from './plugin'
 
 const ordinals = new WeakMap<MaterialType, number>()
@@ -102,13 +103,18 @@ function watchNoiseGraphs(world: World, library: ShaderLibrary): void {
   watching.add(world)
   assetServer(world).onEvent((event) => {
     if (event.kind !== 'modified' && event.kind !== 'loaded') return
+    const support = world.tryResource(MaterialNoise)
+    if (!support) return
     for (const type of allMaterialTypes()) {
       if (!type.noise.some((slot) => slot.path === event.path)) continue
-      const noise = materialNoise(world, library, type)
+      const noise = support.wrappers(world, library, type)
       if (noise) registerMaterialModule(library, type, noise)
     }
   })
 }
+
+/** Material types reported once for noise slots without materialNoisePlugin. */
+const missingNoise = new WeakSet<MaterialType>()
 
 /**
  * Shader modules and pipelines per material type, looked up per draw without allocating: modules
@@ -143,9 +149,26 @@ export class MaterialPipelines {
     const library = world.resource(Shaders)
     let noise: { source: string; key: string } | undefined
     if (type.noise.length > 0) {
+      const support = world.tryResource(MaterialNoise)
+      if (!support) {
+        if (!missingNoise.has(type)) {
+          missingNoise.add(type)
+          world
+            .tryResource(LogResource)
+            ?.error(
+              new ShardError(
+                'render/feature-missing',
+                `Material ${type.name} has noise slots, but materialNoisePlugin isn't installed`,
+                { hint: "Add materialNoisePlugin from '@aethervtt/shard-render/noise'." },
+              ),
+            )
+        }
+        this.modules.set(key, undefined)
+        return undefined
+      }
       // Draws wait until the type's noise graphs load.
       watchNoiseGraphs(world, library)
-      noise = materialNoise(world, library, type)
+      noise = support.wrappers(world, library, type)
       if (!noise) {
         this.modules.set(key, undefined)
         return undefined

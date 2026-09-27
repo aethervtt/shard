@@ -174,6 +174,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `render/bad-vector` | @aethervtt/shard-render |  |
 | `render/capture-format` | @aethervtt/shard-render |  |
 | `render/duplicate-node` | @aethervtt/shard-render |  |
+| `render/feature-missing` | @aethervtt/shard-render | Add materialNoisePlugin from '@aethervtt/shard-render/noise'. |
 | `render/graph-cycle` | @aethervtt/shard-render | Check reads/writes and `after` on these nodes. |
 | `render/material-field-clash` | @aethervtt/shard-render | Give the field another name, or use extends: "none". |
 | `render/material-noise-name` | @aethervtt/shard-render | Use lowercase letters, digits, and underscores: { detail: "assets/noise/rock.noise.json" }. |

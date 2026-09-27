@@ -192,6 +192,7 @@ export {
   PointLight,
   SpotLight,
 } from './lights'
+export { MaterialNoise, type MaterialNoiseSupport } from './material-noise'
 export { registerMaterialModule, typeOrdinal } from './material-pipelines'
 export {
   allMaterialTypes,
@@ -206,14 +207,6 @@ export {
   materialModulePath,
   onMaterialTypeChange,
 } from './materials'
-export {
-  materialNoise,
-  NoiseCompute,
-  type NoiseComputeDomain,
-  type NoiseComputeNodeOptions,
-  type NoiseComputeRequest,
-  noiseComputeNode,
-} from './noise'
 export {
   allOverlays,
   DebugOverlays,

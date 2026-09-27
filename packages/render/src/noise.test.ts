@@ -13,7 +13,7 @@ import {
   sampleSpherePatch,
 } from '@aethervtt/shard-noise'
 import { createNodePlatform } from '@aethervtt/shard-platform-node'
-import { App } from '@aethervtt/shard-runtime'
+import { App, LogResource } from '@aethervtt/shard-runtime'
 import { lookAt, Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { MaterialAsset, Materials, Meshes, RenderTargets } from './assets'
@@ -21,7 +21,7 @@ import { Camera3d, Exposure } from './camera'
 import { forwardPlugin } from './forward'
 import { Mesh3d, MeshMaterial } from './instances'
 import { defineMaterial } from './materials'
-import { NoiseCompute, noiseComputeNode } from './noise'
+import { materialNoisePlugin, NoiseCompute, noiseComputeNode } from './noise'
 import { captureView, Gpu, Graph, renderPlugin, Shaders } from './plugin'
 import { OffscreenTarget } from './target'
 import { pixel, renderView } from './testing'
@@ -75,6 +75,7 @@ describe('materials call noise graphs', () => {
       TransformPlugin,
       renderPlugin({ gpu, windowView: false }),
       forwardPlugin({ msaa: 1 }),
+      materialNoisePlugin,
     )
     await app.init()
     const world = app.world
@@ -124,6 +125,40 @@ describe('materials call noise graphs', () => {
     // other packages compile shaders on the same GPU, so only the reload itself is checked.
     if (process.env.SHARD_BENCH) expect(frames).toBeLessThanOrEqual(2)
     expect(world.resource(Gpu).errors).toEqual([])
+  })
+  it('logs render/feature-missing, naming the plugin, when materialNoisePlugin is absent', async () => {
+    const Bare = defineMaterial('test/NoisyWithoutPlugin', {
+      shader: 'project::noisy',
+      noise: { detail: 'assets/noise/glow.noise.json' },
+    })
+    const app = new App().addPlugin(
+      TransformPlugin,
+      renderPlugin({ gpu, windowView: false }),
+      forwardPlugin({ msaa: 1 }),
+    )
+    await app.init()
+    const world = app.world
+    world.resource(Shaders).register('project::noisy', NOISY_WESL, 'shaders/noisy.wesl')
+    const target = new OffscreenTarget(gpu, { label: 'noise-missing', width: 8, height: 8 })
+    const targetRef = world.resource(RenderTargets).add(target, 'noise-missing')
+    const material = world.resource(Materials).add(new MaterialAsset({}, Bare))
+    world.spawn(
+      [Mesh3d, { mesh: world.resource(Meshes).add(plane({ size: 4 })) }],
+      [MeshMaterial, { material }],
+      [Transform, {}],
+    )
+    world.spawn(
+      [Camera3d, { target: targetRef, fovY: 40 }],
+      [Exposure, { ev100: 12 }],
+      [Transform, { translation: [0, 3, 0.01], rotation: lookAt([0, 3, 0.01], [0, 0, 0]) }],
+    )
+    for (let i = 0; i < 3; i++) app.update(1 / 60)
+    const errors = world.resource(LogResource).errors()
+    const missing = errors.filter((e) => e.code === 'render/feature-missing')
+    expect(missing).toHaveLength(1)
+    expect(missing[0]!.message).toContain('test/NoisyWithoutPlugin')
+    expect(missing[0]!.hint).toContain('materialNoisePlugin')
+    target.destroy()
   })
 })
 
