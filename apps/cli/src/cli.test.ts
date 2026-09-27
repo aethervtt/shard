@@ -15,7 +15,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { openProject } from '@shard/node'
 import { connectToHub, createProtocolServer, decodePng } from '@shard/protocol'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, onTestFinished } from 'vitest'
 import { Hub, localTarget } from './hub'
 import { createMcpServer } from './mcp'
 
@@ -459,6 +459,13 @@ describe('commands', () => {
     const { spawn } = await import('node:child_process')
     const child = spawn(process.execPath, [bin, 'dev', '--port', '5199', '--json'], {
       cwd: example,
+    })
+    // Stops the server even when the test times out (a `finally` after a hung await never runs,
+    // and the orphan outlives the worker).
+    onTestFinished(() => {
+      if (child.exitCode !== null) return
+      child.kill('SIGINT')
+      setTimeout(() => child.exitCode === null && child.kill('SIGKILL'), 1000).unref()
     })
     try {
       const info = await new Promise<{ url: string }>((resolveInfo, reject) => {
