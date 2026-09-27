@@ -1,6 +1,7 @@
 {
   "name": "@shard/texture",
   "version": "0.0.0",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "exports": {

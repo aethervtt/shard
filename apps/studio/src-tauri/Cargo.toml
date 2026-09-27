@@ -3,6 +3,7 @@ name = "shard-studio"
 version = "0.0.0"
 description = "Shard Studio: play, inspect and debug Shard projects"
 edition = "2024"
+license = "MIT"
 
 [lib]
 # Unique lib name avoids a bin/lib name clash on Windows (cargo#8519).
