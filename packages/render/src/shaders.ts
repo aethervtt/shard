@@ -1,6 +1,7 @@
 import { defineComponent, t } from '@shard/core'
 import { type ShaderLibrary, wgslLayout } from '@shard/shader'
 import { StandardMaterial } from './assets'
+import { ATMOSPHERE_SHADERS } from './atmosphere-shaders'
 import { CULLING_SHADERS } from './culling-shaders'
 import { GIZMO_SHADERS, PICK_SHADERS } from './debug-shaders'
 import { DEFERRED_SHADERS } from './deferred-shaders'
@@ -29,6 +30,11 @@ export const ViewUniform = defineComponent('render/ViewUniform', {
   prevViewProj: t.mat4,
   /** TAA jitter in pixels (xy), frames rendered (z). */
   jitter: t.vec4,
+  /**
+   * Per directional light (column i): the atmosphere's transmittance (rgb) between the camera and
+   * that sun, applied to its light (spec 0044). All ones without an atmosphere.
+   */
+  sunTransmittance: t.mat4,
 })
 
 export const viewLayout = wgslLayout(ViewUniform)
@@ -57,6 +63,8 @@ struct VertexOutput {
   @location(4) world_tangent: vec4f,
   /** Instance flags (shard::mesh::FLAG_*). */
   @location(5) @interpolate(flat) flags: u32,
+  /** Material-defined, from the vertex_extra hook (zero unless a material overrides it). */
+  @location(6) extra: vec4f,
 }
 
 /** What a material produces; all lighting works from this. */
@@ -151,6 +159,15 @@ fn vertex_world(p: vec3f) -> vec3f {
  */
 @hook fn vertex_position(position: vec3f, normal: vec3f, uv: vec2f) -> vec3f {
   return position;
+}
+
+/**
+ * Anything a material's surface stage needs from its vertices beyond the standard outputs, handed
+ * to it as VertexOutput.extra (interpolated). Override it next to vertex_position; it can read the
+ * same accessors (vertex_uv1(), vertex_tangent(), vertex_instance_data()).
+ */
+@hook fn vertex_extra(position: vec3f, normal: vec3f, uv: vec2f) -> vec4f {
+  return vec4f(0.0);
 }
 
 /**
@@ -254,6 +271,7 @@ fn mesh_vertex(inst: Instance, position: vec3f, normal: vec3f, uv: vec2f, uv1: v
   let wt = c0 * tangent.x + c1 * tangent.y + c2 * tangent.z;
   out.world_tangent = vec4f(select(vec3f(0.0), normalize(wt), dot(wt, wt) > 1e-12), tangent.w);
   out.flags = inst.flags;
+  out.extra = vertex_extra(position, normal, uv);
   return out;
 }
 
@@ -432,9 +450,10 @@ struct DirectionalLight {
   /** Toward the light. */
   direction: vec3f,
   shadowed: u32,
-  /** Color times illuminance (lux). */
+  /** Color times illuminance (lux), at the top of any atmosphere. */
   color: vec3f,
-  _pad: f32,
+  /** Sun disk angular radius (rad). */
+  angular_radius: f32,
 }
 
 struct DirectionalLights {
@@ -645,7 +664,7 @@ fn apply_lighting(p: PbrInput, world_position: vec3f, frag_coord: vec4f, flags: 
     if (receives && light.shadowed != 0u) {
       shadow = directional_shadow(world_position, n, view_depth, frag_coord.xy);
     }
-    color += brdf(n, v, l, a, diffuse_color, f0, 1.0) * light.color * shadow;
+    color += brdf(n, v, l, a, diffuse_color, f0, 1.0) * light.color * view.sunTransmittance[i].rgb * shadow;
   }
 
   // Point and spot lights from this fragment's cluster: intensity (cd) / d² × window.
@@ -963,6 +982,7 @@ export function registerEngineShaders(library: ShaderLibrary): void {
   for (const [path, source] of Object.entries({
     ...ENGINE_SHADERS,
     ...ENVIRONMENT_SHADERS,
+    ...ATMOSPHERE_SHADERS,
     ...DEFERRED_SHADERS,
     ...CULLING_SHADERS,
     ...POST_SHADERS,

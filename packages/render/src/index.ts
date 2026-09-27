@@ -17,6 +17,33 @@ export {
   validateMaterial,
 } from './assets'
 export {
+  Atmosphere,
+  type AtmospherePreset,
+  AtmospherePresets,
+  type AtmosphereRecord,
+  type AtmosphereSampleResult,
+  AtmosphereSettings,
+  AtmosphereStore,
+  Atmospheres,
+  type AtmosphereValue,
+  atmosphereMethods,
+  atmosphereModel,
+  type CameraAtmosphere,
+  describeAtmospheres,
+  sampleAtmosphere,
+  selectAtmospheres,
+  sunTransmittanceAt,
+} from './atmosphere'
+export {
+  type AtmosphereModel,
+  createSkySample,
+  integrateSky,
+  multiscatterLut,
+  transmittanceLut,
+  transmittanceToTop,
+} from './atmosphere-model'
+export { AtmosphereGpu, AtmosphereGpuResource, LUT_LAYERS } from './atmosphere-nodes'
+export {
   applyPhysicalCameras,
   Camera3d,
   type Camera3dValue,
@@ -71,11 +98,13 @@ export {
   type DefaultEnvironmentValue,
   describeEnvironment,
   Environment,
+  type EnvironmentBaker,
   EnvironmentMap,
   type EnvironmentMapValue,
   EnvironmentPresets,
   EnvironmentStore,
   Environments,
+  environmentBakers,
   ProceduralSky,
   type ProceduralSkyValue,
   Skybox,

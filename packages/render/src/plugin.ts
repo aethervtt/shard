@@ -162,7 +162,8 @@ export function captureView(world: World, view = WINDOW_VIEW): Promise<CapturedI
 
 /**
  * Any texture of a view after the next frame renders it, as floats: `hdr` (in cd/m²: the
- * pre-exposure is divided out), `depth`, G-buffer channels, effect buffers.
+ * pre-exposure is divided out), `post-hdr` (the same after the HDR post effects: aerial
+ * perspective, fog, bloom…), `depth`, G-buffer channels, effect buffers.
  */
 export async function captureBuffer(
   world: World,
@@ -176,7 +177,7 @@ export async function captureBuffer(
     for (let i = 0; i < data.length; i++) data[i] = result.data[i]! / 255
     return { width: result.width, height: result.height, format: 'rgba8unorm', data }
   }
-  if (buffer === 'hdr' || buffer === 'scene-color') {
+  if (buffer === 'hdr' || buffer === 'scene-color' || buffer === 'post-hdr') {
     const exposure = (graph.lastViewData(view)?.camera as { exposure?: number } | undefined)
       ?.exposure
     if (exposure) {

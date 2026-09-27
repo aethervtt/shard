@@ -69,7 +69,8 @@ struct GenParams {
   ring: u32,
   seed: u32,
   flags: u32,
-  _pad: u32,
+  /** The chunk's slot: its normal tile, packed into uv1.x (see packGrid). */
+  tile: u32,
   /** Ellipsoid axis ratios (xyz), metres per height unit (w). */
   shape: vec4f,
   /** x: surface offset (m, the ocean's sea level), y: morph error, z: skirt depth. */
@@ -130,6 +131,8 @@ ${body.join('\n')}
  * center plus its direction times its height), central-difference normal from the bordered grid,
  * climate, morph delta to the parent level, and the skirt copy of ring vertices. Heights, water
  * depth, and morph error go into the stats for the readback. Same layout and math as `buildChunk`.
+ * uv1 is (grid point i + j·n + n²·tile, morph error): the vertex stage derives lock codes from the
+ * grid point, the surface stage finds its normal tile (`packGrid`).
  */
 export const VERTEX_KERNEL = `${PARAMS}
 @group(0) @binding(2) var<storage, read> values: array<f32>;
@@ -210,13 +213,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   if ((params.flags & ${GEN_OCEAN}u) != 0u) { w = params.misc.x - h; }
   let climate = vec2f(values[k * 3u + 1u], values[k * 3u + 2u]);
   let vi = vertex_index(i, j, n);
-  // Lock codes (see chunk.ts lockCode): ring edge 0-3, center-line halves 4-7, center 8.
-  var lock = vec2f(-1.0, params.misc.y);
-  let half = (n - 1u) / 2u;
-  if (vi < params.ring) { lock.x = f32(vi / (n - 1u)); }
-  else if (i == half && j == half) { lock.x = 8.0; }
-  else if (i == half) { lock.x = select(5.0, 4.0, j < half); }
-  else if (j == half) { lock.x = select(7.0, 6.0, i < half); }
+  let lock = vec2f(f32(i + j * n + n * n * params.tile), params.misc.y);
   let tangent = vec4f(delta, w);
   write_vertex(vi, p, normal, climate, lock, tangent);
   if (vi < params.ring) {
@@ -229,6 +226,42 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 }
 `
 
+/**
+ * The normal-tile pass (spec 0044 follow-up to 0043): over a chunk's grid at twice the vertex
+ * density (sampled like any chunk grid, bordered), one planet-space normal per texel into the
+ * chunk's tile of the planet's tile array. The same central differences as the vertex pass, so a
+ * tile texel on a vertex has that vertex's normal (to 8 bits).
+ */
+export const NORMAL_KERNEL = `${PARAMS}
+@group(0) @binding(2) var<storage, read> values: array<f32>;
+@group(0) @binding(3) var tile_out: texture_storage_2d<rgba8unorm, write>;
+
+fn point_position(k: u32) -> vec3f {
+  let p = k * ${POINT_FLOATS}u;
+  let q = vec3f(pts[p + 3u], pts[p + 4u], pts[p + 5u]);
+  let d = vec3f(pts[p + 6u], pts[p + 7u], pts[p + 8u]);
+  return q + params.shape.xyz * d * (values[k * 3u] * params.shape.w);
+}
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let t = params.n;
+  if (id.x >= t * t) { return; }
+  let b = params.side;
+  let i = id.x % t;
+  let j = id.x / t;
+  let k = (i + 1u) + (j + 1u) * b;
+  let normal = normalize(cross(point_position(k + 1u) - point_position(k - 1u), point_position(k + b) - point_position(k - b)));
+  // The tile's corner in its layer: surface (texel x) and ring (texel y) carry it.
+  textureStore(tile_out, vec2u(params.surface + i, params.ring + j), vec4f(normal * 0.5 + 0.5, 1.0));
+}
+`
+
+/** uv1.x of grid point (i, j) in a chunk of resolution n drawn from normal tile `tile`. */
+export function packGrid(i: number, j: number, n: number, tile: number): number {
+  return i + j * n + n * n * tile
+}
+
 /** Registers a kernel's graph modules and its two roots; returns the root module paths. */
 export function registerKernel(
   library: ShaderLibrary,
@@ -236,13 +269,15 @@ export function registerKernel(
   height: KernelGraph | undefined,
   temperature: KernelGraph | undefined,
   moisture: KernelGraph | undefined,
-): { sample: string; vertices: string } {
+): { sample: string; vertices: string; normals: string } {
   registerNoiseLibrary(library)
   for (const g of [height, temperature, moisture])
     if (g) library.register(g.module, g.wgsl, g.module)
   const sample = `terrain::gen::k${key}::sample`
   const vertices = 'terrain::gen::vertices'
+  const normals = 'terrain::gen::normals'
   library.register(sample, sampleKernel(height, temperature, moisture), 'terrain chunk sampling')
   if (!library.has(vertices)) library.register(vertices, VERTEX_KERNEL, 'terrain chunk vertices')
-  return { sample, vertices }
+  if (!library.has(normals)) library.register(normals, NORMAL_KERNEL, 'terrain normal tiles')
+  return { sample, vertices, normals }
 }

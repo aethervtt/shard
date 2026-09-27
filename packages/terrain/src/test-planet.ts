@@ -38,6 +38,10 @@ export interface PlanetOptions {
   seaLevel?: number
   skirts?: boolean
   errorPixels?: number
+  /** MSAA samples (default 1). */
+  msaa?: 1 | 4
+  /** Planet.vertexPixels (default: the component's). */
+  vertexPixels?: number
   minSpacing?: number
   width?: number
   heightPx?: number
@@ -62,7 +66,8 @@ export interface PlanetApp {
 
 export async function planetApp(gpu: GpuContext | undefined, o: PlanetOptions): Promise<PlanetApp> {
   const app = new App().addPlugin(TransformPlugin)
-  if (gpu) app.addPlugin(renderPlugin({ gpu, windowView: false }), forwardPlugin({ msaa: 1 }))
+  if (gpu)
+    app.addPlugin(renderPlugin({ gpu, windowView: false }), forwardPlugin({ msaa: o.msaa ?? 1 }))
   if (o.physics) app.addPlugin(physics3dPlugin)
   app.addPlugin(terrainPlugin(), ...(o.extra ?? []))
   await app.init()
@@ -85,6 +90,7 @@ export async function planetApp(gpu: GpuContext | undefined, o: PlanetOptions): 
         seaLevel: o.seaLevel ?? 0,
         skirts: o.skirts ?? true,
         errorPixels: o.errorPixels ?? 2,
+        ...(o.vertexPixels !== undefined ? { vertexPixels: o.vertexPixels } : {}),
         minSpacing: o.minSpacing ?? 0.4,
       },
     ],

@@ -3,6 +3,7 @@ import { createNodeGpuContext } from '@shard/gpu/node'
 import { loadNoiseKernel, NoiseGraph } from '@shard/noise'
 import { captureView, Gpu } from '@shard/render'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { Planet } from './components'
 import { heightAt } from './heights'
 import { holes, type PlanetApp, placeCamera, planetApp, settleTerrain } from './test-planet'
 
@@ -238,6 +239,8 @@ describe('descent without holes (spec 0043)', () => {
       expect(p.world.resource(Gpu).errors).toEqual([])
       expect(result.holes).toBe(0)
       expect(result.frames).toBeGreaterThan(7000)
+      // LOD structure across planet sizes: uncapped (vertexPixels cuts small planets' detail more).
+      p.world.set(p.planet, Planet, { vertexPixels: 0 })
       counts.push(await standingView(p, radius))
     }
     // The same view, and the same terrain, 2 m over a 4 km planet.
@@ -248,6 +251,7 @@ describe('descent without holes (spec 0043)', () => {
       width: W,
       heightPx: H,
       fovY: FOV,
+      vertexPixels: 0,
     })
     const reference = await standingView(small, 4000)
     for (const c of counts) {

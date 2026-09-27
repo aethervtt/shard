@@ -1,7 +1,7 @@
 import { defineSystem, type Entity, quat, Update, type World } from '@shard/core'
 import { loadNoiseKernel, NoiseGraph, NoiseGraphs } from '@shard/noise'
 import { AmbientLight, Camera3d, DebugOverlays, DirectionalLight, Exposure } from '@shard/render'
-import { definePlugin, Time } from '@shard/runtime'
+import { definePlugin, type Plugin, Time } from '@shard/runtime'
 import {
   Biome,
   BiomeSet,
@@ -24,7 +24,7 @@ import { hudExtras } from './hud'
  */
 
 const R = 6_371_000
-const NODE_CHECKSUM = '0da23929'
+const NODE_CHECKSUM = 'fb8127a0'
 const SPEEDS = [0, 10, 100, 1_000, 10_000, 100_000, 1_000_000, 3_000_000]
 
 const planetGraph = (ridges: number) => ({
@@ -51,9 +51,10 @@ const CLIMATE = {
   },
 }
 
-interface Demo {
+export interface Demo {
   planet: Entity
   camera: Entity
+  sun: Entity
   height: NoiseGraph
   ridges: number
   /** Planet-frame position (f64), heading and pitch in the local tangent frame (radians). */
@@ -66,6 +67,9 @@ interface Demo {
 }
 
 let demo: Demo | undefined
+
+/** The running planet demo (#terrain or #atmosphere). */
+export const planetDemo = (): Demo | undefined => demo
 
 const up = new Float64Array(3)
 const east = new Float64Array(3)
@@ -102,12 +106,12 @@ function ground(world: World, d: Demo, p: ArrayLike<number>): number {
   return Math.max(0, planetHeightAt(world, d.planet, p))
 }
 
-function altitude(world: World, d: Demo): number {
+export function altitude(world: World, d: Demo): number {
   const l = Math.hypot(d.position[0]!, d.position[1]!, d.position[2]!)
   return l - R - ground(world, d, d.position)
 }
 
-const fly = defineSystem({
+export const fly = defineSystem({
   name: 'terrain-demo/fly',
   run: (_, world) => {
     const d = demo
@@ -184,104 +188,7 @@ export const terrainDemoPlugin = definePlugin({
     })
   },
   async ready(app) {
-    const world = app.world
-    await loadNoiseKernel()
-    const graphs = world.initResource(NoiseGraphs)
-    const height = NoiseGraph.fromJson(planetGraph(0.3), { name: 'planet' })
-    const climate = NoiseGraph.fromJson(CLIMATE, { name: 'climate' })
-    const biomes = world.initResource(Biome.store)
-    const make = (name: string, v: Partial<ReturnType<typeof Biome.defaults>>) =>
-      biomes.add({ ...Biome.defaults(), ...v }, name)
-    const warm = [-0.35, 3] as [number, number]
-    const flat = [0, 28] as [number, number]
-    const set = world.initResource(BiomeSet.store).add(
-      {
-        ...BiomeSet.defaults(),
-        biomes: [
-          make('grass', {
-            temperature: warm,
-            moisture: [-2, 0.1],
-            slope: flat,
-            tint: [0.25, 0.5, 0.15, 1],
-          }),
-          make('beach', {
-            temperature: warm,
-            height: [-400, 30],
-            slope: flat,
-            tint: [0.8, 0.72, 0.5, 1],
-          }),
-          make('forest', {
-            temperature: warm,
-            moisture: [0.1, 2],
-            slope: flat,
-            tint: [0.08, 0.3, 0.08, 1],
-          }),
-          make('rock', { temperature: warm, slope: [28, 90], tint: [0.35, 0.33, 0.3, 1] }),
-          make('snow', { temperature: [-3, -0.35], tint: [0.95, 0.95, 1, 1], blend: 0.05 }),
-        ],
-        latitudeBias: 1.2,
-        snowLine: 9000,
-      },
-      'planet',
-    )
-    const planet = world.spawn(
-      [
-        Planet,
-        {
-          radius: R,
-          heightScale: 6000,
-          height: graphs.add(height, 'planet'),
-          climate: graphs.add(climate, 'climate'),
-          biomes: set,
-          ocean: true,
-          seaLevel: 0,
-        },
-      ],
-      Transform,
-    )
-    world.resource(AmbientLight).brightness = 800
-    world.spawn(
-      [DirectionalLight, { illuminance: 100_000 }],
-      [Transform, { rotation: lookAt([0, 0, 0], [-0.5, -0.4, -0.75]) }],
-    )
-    const camera = world.spawn(
-      [Camera3d, { fovY: 60, near: 0.1, clearColor: [0.01, 0.015, 0.03, 1] }],
-      [Exposure, { ev100: 14.5 }],
-      Transform,
-      FloatingOrigin,
-    )
-    // Start in orbit over the day side, looking down at the horizon.
-    const start = [-0.45, 0.35, 0.82].map(
-      (v, _, a) => (v / Math.hypot(a[0]!, a[1]!, a[2]!)) * R * 3,
-    )
-    demo = {
-      planet,
-      camera,
-      height,
-      ridges: 0.3,
-      position: new Float64Array(start),
-      heading: 0,
-      pitch: -1.2,
-      gear: 6,
-      keys: new Set(),
-      checksum: '',
-    }
-    placeInGrid(world, camera, planet, demo.position)
-    window.addEventListener('keydown', (e) => {
-      const d = demo
-      if (!d) return
-      d.keys.add(e.code)
-      if (e.code === 'KeyW') d.gear = Math.min(SPEEDS.length - 1, d.gear + 1)
-      if (e.code === 'KeyS') d.gear = Math.max(0, d.gear - 1)
-      if (e.code === 'KeyL') toggle(world, 'terrain-lod')
-      if (e.code === 'KeyB') toggle(world, 'terrain-biomes')
-      if (e.code === 'KeyE') {
-        // What the asset server does when a .noise.json changes: the graph updates in place.
-        d.ridges = d.ridges === 0.3 ? 0.6 : 0.3
-        d.height.copyFrom(NoiseGraph.fromJson(planetGraph(d.ridges), { name: 'planet' }))
-      }
-    })
-    window.addEventListener('keyup', (e) => demo?.keys.delete(e.code))
+    await startPlanet(app, false)
     // The headless walk (its own app, no GPU): Chrome must print the checksum Node pins.
     setTimeout(() => {
       walkChecksum().then(
@@ -296,3 +203,110 @@ export const terrainDemoPlugin = definePlugin({
     }, 500)
   },
 })
+
+/**
+ * The Earth-sized planet, sun, and flying camera (in orbit over the day side) both planet demos
+ * start from. `sky: true` leaves the sky to an Atmosphere instead of a flat AmbientLight.
+ */
+export async function startPlanet(app: Parameters<NonNullable<Plugin['ready']>>[0], sky: boolean) {
+  const world = app.world
+  await loadNoiseKernel()
+  const graphs = world.initResource(NoiseGraphs)
+  const height = NoiseGraph.fromJson(planetGraph(0.3), { name: 'planet' })
+  const climate = NoiseGraph.fromJson(CLIMATE, { name: 'climate' })
+  const biomes = world.initResource(Biome.store)
+  const make = (name: string, v: Partial<ReturnType<typeof Biome.defaults>>) =>
+    biomes.add({ ...Biome.defaults(), ...v }, name)
+  const warm = [-0.35, 3] as [number, number]
+  const flat = [0, 28] as [number, number]
+  const set = world.initResource(BiomeSet.store).add(
+    {
+      ...BiomeSet.defaults(),
+      biomes: [
+        make('grass', {
+          temperature: warm,
+          moisture: [-2, 0.1],
+          slope: flat,
+          tint: [0.25, 0.5, 0.15, 1],
+        }),
+        make('beach', {
+          temperature: warm,
+          height: [-400, 30],
+          slope: flat,
+          tint: [0.8, 0.72, 0.5, 1],
+        }),
+        make('forest', {
+          temperature: warm,
+          moisture: [0.1, 2],
+          slope: flat,
+          tint: [0.08, 0.3, 0.08, 1],
+        }),
+        make('rock', { temperature: warm, slope: [28, 90], tint: [0.35, 0.33, 0.3, 1] }),
+        make('snow', { temperature: [-3, -0.35], tint: [0.95, 0.95, 1, 1], blend: 0.05 }),
+      ],
+      latitudeBias: 1.2,
+      snowLine: 9000,
+    },
+    'planet',
+  )
+  const planet = world.spawn(
+    [
+      Planet,
+      {
+        radius: R,
+        heightScale: 6000,
+        height: graphs.add(height, 'planet'),
+        climate: graphs.add(climate, 'climate'),
+        biomes: set,
+        ocean: true,
+        seaLevel: 0,
+      },
+    ],
+    Transform,
+  )
+  if (!sky) world.resource(AmbientLight).brightness = 800
+  const sun = world.spawn(
+    [DirectionalLight, { illuminance: 100_000 }],
+    [Transform, { rotation: lookAt([0, 0, 0], [-0.5, -0.4, -0.75]) }],
+  )
+  const camera = world.spawn(
+    [Camera3d, { fovY: 60, near: 0.1, clearColor: [0.01, 0.015, 0.03, 1] }],
+    [Exposure, { ev100: 14.5 }],
+    Transform,
+    FloatingOrigin,
+  )
+  // Start in orbit over the day side, looking down at the horizon.
+  const start = [-0.45, 0.35, 0.82].map((v, _, a) => (v / Math.hypot(a[0]!, a[1]!, a[2]!)) * R * 3)
+  demo = {
+    planet,
+    camera,
+    sun,
+    height,
+    ridges: 0.3,
+    position: new Float64Array(start),
+    heading: 0,
+    pitch: -1.2,
+    gear: 6,
+    keys: new Set(),
+    checksum: '',
+  }
+  placeInGrid(world, camera, planet, demo.position)
+  // For poking at from the devtools console: the flight state (position, gear, heading, pitch).
+  Object.assign(globalThis, { planet: demo })
+  window.addEventListener('keydown', (e) => {
+    const d = demo
+    if (!d) return
+    d.keys.add(e.code)
+    if (e.code === 'KeyW') d.gear = Math.min(SPEEDS.length - 1, d.gear + 1)
+    if (e.code === 'KeyS') d.gear = Math.max(0, d.gear - 1)
+    if (e.code === 'KeyL') toggle(world, 'terrain-lod')
+    if (e.code === 'KeyB') toggle(world, 'terrain-biomes')
+    if (e.code === 'KeyE') {
+      // What the asset server does when a .noise.json changes: the graph updates in place.
+      d.ridges = d.ridges === 0.3 ? 0.6 : 0.3
+      d.height.copyFrom(NoiseGraph.fromJson(planetGraph(d.ridges), { name: 'planet' }))
+    }
+  })
+  window.addEventListener('keyup', (e) => demo?.keys.delete(e.code))
+  return demo
+}

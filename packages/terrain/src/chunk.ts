@@ -382,7 +382,8 @@ export function assembleChunk(
       if (h > maxH) maxH = h
       uvs[vi * 2] = temps[k]!
       uvs[vi * 2 + 1] = moist[k]!
-      uvs1[vi * 2] = lockCode(i, j, n, vi, layout.ring)
+      // The grid point (packGrid; tile 0: a render slot adds its own when it shows this).
+      uvs1[vi * 2] = i + j * n
       uvs1[vi * 2 + 1] = spec.morphError
       // Where the parent level puts this vertex: the midpoint of the parent edge (or diagonal)
       // it sits on. Even-even vertices are parent vertices.

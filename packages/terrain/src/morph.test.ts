@@ -4,6 +4,7 @@ import { loadNoiseKernel, NoiseGraph } from '@shard/noise'
 import { Gpu } from '@shard/render'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildChunk, type ChunkMesh, chunkLayout, lockCode } from './chunk'
+import { TerrainBudget } from './components'
 import { directionToFace, keyString } from './cube'
 import { heightAt } from './heights'
 import type { PlanetRuntime } from './planet'
@@ -65,7 +66,15 @@ function snapshot(rt: PlanetRuntime, pr: PlanetRender): Frame {
 }
 
 describe('geomorphing (spec 0043)', () => {
-  it('never moves the surface more than a pixel between frames during a descent', async () => {
+  /**
+   * The worst screen motion (px) of surface points between frames during a descent from 3 km to
+   * 20 m (at most 500 m/s, `slow` times slower), with the planet's vertexPixels.
+   */
+  async function descentMotion(
+    vertexPixels: number,
+    slow: number,
+    triangles?: number,
+  ): Promise<number> {
     const radius = 4000
     const heightScale = 300
     const W = 160
@@ -78,7 +87,9 @@ describe('geomorphing (spec 0043)', () => {
       width: W,
       heightPx: H,
       fovY: FOV,
+      vertexPixels,
     })
+    if (triangles !== undefined) p.world.resource(TerrainBudget).triangles = triangles
     const rt = p.runtime()
     const pr = () => rt.parts.get('render') as PlanetRender
     const s = rt.settings!
@@ -188,7 +199,7 @@ describe('geomorphing (spec 0043)', () => {
       n0[0]! * e[1]! - n0[1]! * e[0]!,
     ]
     const down = Math.tan((35 * Math.PI) / 180)
-    const frames = 480
+    const frames = 480 * slow
     let altitude = 3000
     const ratio = (20 / 3000) ** (1 / frames)
     const eyeAt = (a: number) => n0.map((v) => v * (radius + ground + a))
@@ -203,7 +214,7 @@ describe('geomorphing (spec 0043)', () => {
     const a = [0, 0, 0]
     const b = [0, 0, 0]
     for (let f = 0; f < frames; f++) {
-      altitude = Math.max(altitude * ratio, altitude - 500 / 60)
+      altitude = Math.max(altitude * ratio, altitude - 500 / slow / 60)
       const eye = eyeAt(altitude)
       const target = aim(eye)
       placeCamera(p, eye, target)
@@ -261,6 +272,22 @@ describe('geomorphing (spec 0043)', () => {
     }
     expect(p.world.resource(Gpu).errors).toEqual([])
     expect(compared).toBeGreaterThan(frames * 50)
-    expect(worst).toBeLessThanOrEqual(1)
+    return worst
+  }
+
+  it('never moves the surface more than a pixel between frames during a descent, uncapped', async () => {
+    // The LOD machinery alone: no vertex cap, and no triangle budget steering the detail.
+    expect(await descentMotion(0, 1, 0)).toBeLessThanOrEqual(1)
   }, 240_000)
+
+  it('with vertexPixels, morphs continuously: a few px a frame at any speed, never a pop', async () => {
+    // Capped detail splits closer, so each split's parent-to-child displacement is larger and the
+    // new chunk's 0.5 s fade paces it: at most 1/30 of it a frame. A pop would move the whole
+    // displacement at once, tens of pixels here. Slower descents don't move faster.
+    const fast = await descentMotion(4, 1)
+    const slow = await descentMotion(4, 2)
+    expect(fast).toBeLessThan(6)
+    expect(slow).toBeLessThan(6)
+    expect(slow).toBeLessThan(fast * 1.25)
+  }, 480_000)
 })

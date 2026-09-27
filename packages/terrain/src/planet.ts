@@ -31,6 +31,7 @@ export interface PlanetSettings {
   resolution: number
   minSpacing: number
   errorPixels: number
+  vertexPixels: number
   colliderRadius: number
   skirts: boolean
   height: AssetRef | null
@@ -63,9 +64,20 @@ export class PlanetRuntime {
   /** Bumps when the biome table changes. */
   biomeVersion = 0
   private biomeKey = ''
-  /** Geometric error per depth (terrain), and for the flat ocean surface. */
+  /**
+   * Geometric error per depth (terrain), and for the flat ocean surface, as selection and morphing
+   * use them: measured, then capped by vertex spacing (`vertexPixels`).
+   */
   errors: Float32Array = new Float32Array(2)
   oceanErrors: Float32Array = new Float32Array(2)
+  /**
+   * Multiplies errorPixels for selection and morphing: above 1 while the planet is over
+   * TerrainBudget.triangles (adjusted about 1% a frame, so morphs stay smooth).
+   */
+  lodBias = 1
+  /** The measured errors, uncapped: how far skirts must hang. */
+  rawErrors: Float32Array = new Float32Array(2)
+  rawOceanErrors: Float32Array = new Float32Array(2)
   maxDepth = 0
   colliderDepth = 0
   readonly tree = new NodeTree()
@@ -203,13 +215,16 @@ export class PlanetRuntime {
       s.ocean,
       s.seaLevel,
     ])
-    if (contentKey === this.contentKey) return
+    if (contentKey === this.contentKey) {
+      this.capErrors()
+      return
+    }
     this.maxDepth = maxDepth
     this.colliderDepth = Math.min(
       maxDepth,
       maxDepthFor(s.radius, s.resolution, Math.max(COLLIDER_SPACING, s.minSpacing)),
     )
-    this.errors = measureErrors({
+    this.rawErrors = measureErrors({
       radius: s.radius,
       shape: s.shape,
       heightScale: s.heightScale,
@@ -218,7 +233,7 @@ export class PlanetRuntime {
       maxDepth,
       height,
     })
-    this.oceanErrors = measureErrors({
+    this.rawOceanErrors = measureErrors({
       radius: s.radius,
       shape: s.shape,
       heightScale: 0,
@@ -228,6 +243,7 @@ export class PlanetRuntime {
       height: undefined,
       heightOffset: s.seaLevel,
     })
+    this.capErrors(false)
     if (structureKey !== this.structureKey) {
       this.tree.reset(s.radius, s.shape, this.lowest, this.highest)
       this.ocean.reset(s.radius, s.shape, s.seaLevel, s.seaLevel)
@@ -251,6 +267,36 @@ export class PlanetRuntime {
   private report(world: World, err: ShardError): void {
     this.problem = err
     world.tryResource(LogResource)?.error(err)
+  }
+
+  /**
+   * Caps each depth's error at the spacing that projects to `vertexPixels` wherever it projects to
+   * `errorPixels`: a node then splits only while its children's vertices stay that far apart on
+   * screen. Rough terrain otherwise keeps splitting into sub-pixel triangles. Selection and
+   * morphing read the same capped table, so morph bands still end where splits happen.
+   */
+  private capErrors(bump = true): void {
+    const s = this.settings
+    if (!s) return
+    const k = s.vertexPixels > 0 ? s.errorPixels / s.vertexPixels : Number.POSITIVE_INFINITY
+    const cap = (raw: Float32Array, out: Float32Array): Float32Array => {
+      const o = out.length === raw.length ? out : new Float32Array(raw.length)
+      for (let d = 0; d < raw.length; d++) o[d] = Math.min(raw[d]!, k * this.spacing(d))
+      // Never growing with depth, like the measured errors: split distances shrink with depth.
+      for (let d = raw.length - 2; d >= 0; d--) o[d] = Math.max(o[d]!, o[d + 1]!)
+      return o
+    }
+    const before = this.errors
+    const same = (a: Float32Array, b: Float32Array) =>
+      a.length === b.length && a.every((v, i) => v === b[i])
+    const errors = cap(this.rawErrors, new Float32Array(this.rawErrors.length))
+    const ocean = cap(this.rawOceanErrors, new Float32Array(this.rawOceanErrors.length))
+    if (same(errors, before) && same(ocean, this.oceanErrors)) return
+    this.errors = errors
+    this.oceanErrors = ocean
+    // Chunks carry their depth's morph error in their vertices: new errors make them stale (a
+    // re-measure bumps the version itself).
+    if (bump) this.version++
   }
 
   /** Vertex spacing at a depth (m). */
@@ -279,6 +325,7 @@ function readSettings(v: ReturnType<typeof Planet.defaults>): PlanetSettings {
     resolution: v.resolution,
     minSpacing: v.minSpacing,
     errorPixels: v.errorPixels,
+    vertexPixels: v.vertexPixels,
     colliderRadius: v.colliderRadius,
     skirts: v.skirts,
     height: v.height,

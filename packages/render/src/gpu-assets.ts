@@ -264,23 +264,29 @@ export class GpuAssets {
     ) {
       return existing
     }
-    if (!texture.levels) return undefined // released after upload and the device was lost: reloading
+    if (!texture.levels && !texture.gpuOnly) return undefined // released after upload and the device was lost: reloading
     if (existing) {
       this.memory.textures--
       this.memory.textureBytes -= existing.bytes
     }
     existing?.texture.destroy()
     const info = FORMAT_INFO[texture.format]
+    // Storage-bindable (GPU-written) textures can't also offer an sRGB view.
+    const srgbView = texture.gpuOnly ? undefined : info.srgbView
     const layers = texture.faces * texture.layers
     const handle = gpu.device.createTexture({
       label: `texture/${texture.format}`,
       size: { width: texture.width, height: texture.height, depthOrArrayLayers: layers },
       format: texture.format as GPUTextureFormat,
       mipLevelCount: texture.mipCount,
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-      viewFormats: info.srgbView ? [info.srgbView as GPUTextureFormat] : [],
+      usage:
+        GPUTextureUsage.TEXTURE_BINDING |
+        GPUTextureUsage.COPY_DST |
+        (texture.gpuOnly ? GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_SRC : 0),
+      viewFormats: srgbView ? [srgbView as GPUTextureFormat] : [],
     })
-    for (let level = 0; level < texture.mipCount; level++) {
+    // GPU-only textures start empty; a compute pass fills them.
+    for (let level = 0; texture.levels && level < texture.mipCount; level++) {
       const w = Math.max(1, texture.width >> level)
       const h = Math.max(1, texture.height >> level)
       const blocksWide = Math.ceil(w / info.block)
@@ -299,8 +305,8 @@ export class GpuAssets {
     const dimension: GPUTextureViewDimension =
       texture.faces === 6 ? 'cube' : texture.layers > 1 ? '2d-array' : '2d'
     const linear = handle.createView({ dimension })
-    const srgb = info.srgbView
-      ? handle.createView({ format: info.srgbView as GPUTextureFormat, dimension })
+    const srgb = srgbView
+      ? handle.createView({ format: srgbView as GPUTextureFormat, dimension })
       : linear
     const plain = texture.faces === 1
     const out: GpuTexture = {
@@ -316,9 +322,9 @@ export class GpuAssets {
         ? undefined
         : dimension === '2d-array'
           ? srgb
-          : info.srgbView
+          : srgbView
             ? handle.createView({
-                format: info.srgbView as GPUTextureFormat,
+                format: srgbView as GPUTextureFormat,
                 dimension: '2d-array',
               })
             : undefined,
@@ -417,7 +423,7 @@ export class GpuAssets {
       if (!texture || !this.available(world, texture, ref)) return false
       this.ownTextures[i] = texture
     }
-    if (!type.standard) return true
+    if (!type.standard || !type.standardTextures) return true
     const value = material.value as unknown as Record<string, SlotValue>
     for (let i = 0; i < 5; i++) {
       const ref = value[TEXTURE_SLOTS[i]!]!.texture
@@ -493,7 +499,7 @@ export class GpuAssets {
     }
     const defaults = this.defaultTextures()
     let rebuild = gm.bindGroup === undefined
-    if (type.standard) {
+    if (type.standard && type.standardTextures) {
       for (let i = 0; i < 5; i++) {
         const texture = this.slotTextures[i]
         const g = texture ? this.texture(texture) : undefined
@@ -555,7 +561,7 @@ export class GpuAssets {
           { binding: 0, resource: { buffer: gm.buffer } },
           { binding: 1, resource: { buffer: gm.textureBuffer } },
         )
-        for (let i = 0; i < 5; i++) {
+        for (let i = 0; type.standardTextures && i < 5; i++) {
           const g = gm.bound[i] ?? (i === 2 ? defaults.normal : defaults.white)
           entries.push({ binding: 2 + i, resource: SRGB_SLOT[i] ? g.srgb : g.linear })
           const slot = value[TEXTURE_SLOTS[i]!]!

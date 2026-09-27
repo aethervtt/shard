@@ -15,6 +15,7 @@ import { ForwardStateResource, forwardPlugin } from './forward'
 import {
   type CullParams,
   createDrawList,
+  INSTANCE_FLOATS,
   InstanceFlags,
   InstanceSlot,
   Instances,
@@ -422,5 +423,35 @@ describe('GPU culling', () => {
     await settle(app, 2)
     expect(await readVisibleSlots(gpu, world.resource(Culler), list())).toEqual(new Set())
     expect(store.live).toBe(8)
+  })
+})
+
+describe('draw lists', () => {
+  it('skips batches whose instances are all hidden, and draws opaque batches nearest first', async () => {
+    const { app, world, material, cameraAt } = await scene()
+    // Eight single-instance batches (one mesh each) straight ahead, in shuffled distances.
+    const distances = [30, 10, 50, 20, 70, 40, 80, 60]
+    const entities = distances.map((z) =>
+      world.spawn(
+        [Mesh3d, { mesh: world.resource(Meshes).add(cube({ size: 1 })) }],
+        [MeshMaterial, { material }],
+        [Transform, { translation: [0, 0, -z] }],
+      ),
+    )
+    // Hidden ones (a planet's pooled chunks) get no draw at all, not an empty one.
+    for (const i of [2, 4]) world.set(entities[i]!, Visibility, { mode: 'hidden' })
+    const cam = cameraAt([0, 0, 0], [0, 0, -1])
+    await settle(app)
+    expect(world.resource(Culler).active).toBe(true)
+    const view = world.resource(Views).list.find((v) => cameraOf(v)?.entity === cam)!
+    const draws = cameraOf(view)!.draws
+    expect(draws.length).toBe(6)
+    const store = world.resource(Instances)
+    const depthOf = (i: number) => {
+      const batch = draws.items[i]!.batch
+      return -store.f32[batch.members[0]! * INSTANCE_FLOATS + 11]!
+    }
+    const order = Array.from({ length: draws.length }, (_, i) => depthOf(i))
+    expect(order).toEqual([10, 20, 30, 40, 60, 80])
   })
 })

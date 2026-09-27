@@ -98,6 +98,12 @@ function describePlanet(world: World, rt: PlanetRuntime) {
     },
     version: rt.version,
     biomes: rt.table.count,
+    detail: {
+      vertexPixels: s?.vertexPixels ?? null,
+      // Over TerrainBudget.triangles the LOD bias rises above 1 (coarser), and falls back after.
+      lodBias: round(rt.lodBias),
+      triangles: rt.selection.renderedCount * 2 * ((s?.resolution ?? 33) - 1) ** 2,
+    },
     selected: {
       chunks: rt.selection.renderedCount,
       byDepth: Object.fromEntries(byDepth.flatMap((c, d) => (c ? [[d, c]] : []))),

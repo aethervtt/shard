@@ -77,6 +77,8 @@ EnvironmentMap {
   `DefaultEnvironment`. It evaluates single-scattering Rayleigh and Mie for view rays, draws the
   sun disk from the brightest DirectionalLight, and outputs luminance in cd/m² consistent with
   that light's illuminance.
+  - Since 0044, `ProceduralSky` is an Earth `Atmosphere` pinned 10 m under the camera (multiple
+    scattering, up to two suns); the single-scattering shader is gone.
 - When the sun direction or any sky setting changes by more than a threshold, the sky is baked
   into a 256² environment cube and prefiltered (a few milliseconds, spread over two frames), so
   IBL follows the time of day. The baked cube is available as a normal `EnvironmentMap` source.

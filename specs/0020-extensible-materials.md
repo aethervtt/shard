@@ -195,6 +195,13 @@ override fn pbr_input(in: VertexOutput) -> PbrInput {
   `vertex_world(p)`, `vertex_instance_data()` for `render/InstanceData`), rather than new hook
   arguments, so existing overrides keep compiling; and `arrays: [...]` on a material type binds
   those texture fields as `texture_2d_array`.
+- Planet normal tiles (0043, with 0044) added three more: a `vertex_extra(position, normal, uv) ->
+  vec4f` hook whose result reaches the surface stage as `VertexOutput.extra` (location 6; the
+  prepass carries it too), zero unless overridden; `standardTextures: false` on a standard
+  extension, which leaves the five standard texture slots and their samplers out of the layout for
+  types that build their own surface (a stage holds 16 sampled textures; the shader must not call
+  `standard_input`); and `Texture.gpu(...)`, a texture a compute pass fills through a storage
+  binding (no CPU pixels, no sRGB view), bindable as a material field like any other.
 
 ## Open questions
 

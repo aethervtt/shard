@@ -67,6 +67,11 @@ export class Texture {
   /** Layers of a texture array (1 for a plain texture). */
   layers: number
   version = 0
+  /**
+   * Made and written on the GPU (`Texture.gpu`): no CPU pixels, and the GPU copy can be bound as
+   * a storage texture so compute passes fill it.
+   */
+  gpuOnly = false
 
   /** Color is already multiplied by alpha. */
   premultiplied: boolean
@@ -118,6 +123,32 @@ export class Texture {
       layers: init.layers ?? 1,
       premultiplied: init.premultiplied ?? false,
     })
+  }
+
+  /**
+   * A texture the GPU writes (a compute pass through a storage binding), with no CPU pixels: one
+   * level, `layers` array layers. Its GPU copy is made on first use and kept (see GpuAssets.texture).
+   */
+  static gpu(init: {
+    width: number
+    height: number
+    layers?: number
+    format?: TextureFormat
+    usage?: TextureUsage
+  }): Texture {
+    const t = new Texture({
+      width: init.width,
+      height: init.height,
+      format: init.format ?? 'rgba8unorm',
+      usage: init.usage ?? 'data',
+      mips: [],
+      cpu: false,
+      layers: init.layers ?? 1,
+    })
+    t.levels = undefined
+    t.mipCount = 1
+    t.gpuOnly = true
+    return t
   }
 
   /** Replaces the pixels; bumps the version so the GPU copy re-uploads. */

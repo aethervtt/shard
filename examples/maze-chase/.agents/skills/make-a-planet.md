@@ -34,3 +34,9 @@ orbit down to 0.4 m vertex spacing on the ground. Put the camera in the planet's
   `terrain-biomes`, and `terrain-colliders` show them in a screenshot.
 - Edit the height graph while `shard dev` runs: visible chunks regenerate together, colliders too.
   `terrain/Budget` caps chunks per frame and GPU time.
+- Frame time: `vertexPixels` (4) stops chunks splitting once vertices are that many pixels apart
+  (normal tiles keep the finer relief in the shading), and `terrain/Budget.triangles` (2M) coarsens
+  a planet a little at a time when it draws more, so frame time holds at any resolution.
+  `describe_terrain` shows `detail.lodBias` above 1 while it's coarsening.
+- Give it air: `"render/Atmosphere": {}` on the planet entity takes the planet's radius, draws
+  the sky from the ground to orbit, and hazes distant terrain (tune-an-atmosphere.md).

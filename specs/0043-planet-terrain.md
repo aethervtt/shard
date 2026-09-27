@@ -69,11 +69,12 @@ Planet {
   resolution: u16 = 33                      // vertices per chunk edge (2^n + 1)
   minSpacing: f32 = 0.4                     // finest vertex spacing, metres; sets the max depth
   errorPixels: f32 = 2                      // split when projected error exceeds this
+  vertexPixels: f32 = 4                     // stop splitting at this screen vertex spacing (0: off)
   colliderRadius: f32 = 96                  // CPU colliders for chunks within this of an anchor
   skirts: bool = true                       // off only for the seam test
 }
 TerrainAnchor { enabled, radius }           // extra collider anchors (bodies and characters are anchors anyway)
-TerrainBudget { chunksPerFrame: 8, msPerFrame: 1.5, pool: 2048, colliderCache: 256 }
+TerrainBudget { chunksPerFrame: 8, triangles: 2_000_000, msPerFrame: 1.5, pool: 2048, colliderCache: 256 }
 
 // Data types (0031): *.biome.json and *.biomes.json
 Biome { layers: list(struct { layer: u16, scale: f32 }),   // layers of the set's texture arrays
@@ -106,6 +107,46 @@ BiomeSet { biomes: list(handle('terrain/Biome')), albedo, normal, orm: handle('T
   frustum. It splits above `errorPixels`, merges below half of it, and culls nodes beyond the
   horizon (a sphere-horizon test) or outside the frustum. The walk uses scratch arrays with no
   allocation, and the tree is kept as flat TypedArrays indexed by node slot.
+- **Screen-space detail limit.** `vertexPixels` (default 4) caps each depth's error at
+  `errorPixels / vertexPixels` times its vertex spacing, so rough terrain stops splitting once
+  vertices are that many pixels apart. Without it, cost followed the roughness of the noise graph:
+  the playground's Earth drew ~2.7M triangles for 2.45M pixels near the ground (18.5 ms of GPU at
+  2.5 MP, 1 330 chunks, 5 km up), and 800–1 000 chunks even in a 160×120 view. Selection and morph
+  bands read the capped table, so morphing still ends where splits happen; skirts keep the
+  measured errors. Changing either setting at runtime regenerates every chunk (they carry their
+  morph error). Price: each split's parent-to-child displacement is larger, so the new chunk's
+  0.5 s fade paces it and vertices move up to ~4 px a frame in a 500 m/s descent, continuously
+  (at most 1/30 of the displacement a frame), never a pop.
+- **Normal tiles.** Shading detail finer than the geometry comes from a normal tile per chunk:
+  its grid at twice the vertex density (65² texels for 33² vertices), sampled from the height graph
+  on the GPU in the chunk's job and written by a normals kernel with the vertex pass's central
+  differences (a normals-only job for chunks drawn from collider meshes). Tiles live in an
+  `rgba8unorm` array of 2048² layers (961 tiles each, grown as the pool grows; 16 MB a layer). The
+  fragment finds its tile and position through `uv1.x = i + j·n + n²·tile` (the vertex stage
+  derives lock codes from `(i, j)`) and render's new `vertex_extra` hook. The tile grid's points
+  are grouped by a lattice a quarter of the chunk (not 64 m), so a coarse chunk's tile costs ~25
+  noise setups, not 4 489; tiles don't need bit-identical edges. Off above 33 vertices per edge. To
+  fit in 16 sampled textures a stage, the planet material uses the new `standardTextures: false`
+  (it never used the standard slots). At 2.5 MP near the ground: 11.7 ms and 462 chunks with the
+  cap and tiles, against 21.3 ms and 979 uncapped, with the fine relief still in the shading.
+- **Triangle budget.** `TerrainBudget.triangles` (2M per planet; 0 off) steers a LOD bias that
+  multiplies `errorPixels` for selection and morphing: up 1% a frame while the planet draws more,
+  down 0.5% a frame once under 85% of it, 1 to 16. Frame time then holds at any resolution and on
+  any GPU, trading detail gradually. Slow on purpose: the bias moves split distances, so morphs
+  shift with it. `terrain.describe` shows `detail { vertexPixels, lodBias, triangles }`.
+- **Point lattice by level.** Sample points are grouped by lattice origins so noise inputs stay
+  small in f32. With a fixed 64 m lattice every point of a coarse chunk was its own group, and each
+  group carries per-octave origins for each graph: flying low in the browser uploaded 7.7 MB of
+  origins a frame (12.9 ms of `terrain/encode` in Chrome). A point's lattice now follows its level
+  (the coarsest depth it's a vertex at, from its grid index's trailing zeros): 64 m for points only
+  fine chunks have, up to a quarter chunk at that level, at most 4 096 m (inputs within 2 km, a
+  quarter millimetre in f32). Every chunk sampling a point picks the same lattice, so shared
+  vertices stay bit-identical; the same flight uploads 0.58 MB and encodes in 1.2 ms. Heights move
+  by fractions of a millimetre, so the walk checksum changed (Node and Chrome still match).
+- **A full pool doesn't thrash.** Only a request needed this frame (on screen, or blocking a
+  split) may evict a recently used chunk; a speculative one (prefetch, out of view) takes a free
+  slot or one idle for 60 frames, or waits. Before, prefetches evicted each other once the pool
+  filled: at 2460×1790 a still camera regenerated 8 chunks every frame indefinitely.
 - A split never shows a hole. While some children aren't ready, the parent draws only the
   quadrants they would cover (a *partial parent*: an index set per quadrant mask) and the ready
   children draw the rest. Children that replace a parent fade in from the parent's shape over
@@ -260,14 +301,20 @@ BiomeSet { biomes: list(handle('terrain/Biome')), albedo, normal, orm: handle('T
       sky color in a test render).
 - [x] The same holds for an Earth-radius planet (6 371 km) descending from 40 000 km to the surface
       in 120 s, and for a 16 000 km super-Earth. The visible chunk count at 2 m altitude is within
-      2× of the 4 km planet's.
+      2× of the 4 km planet's (uncapped: the LOD structure; `vertexPixels` thins small planets
+      more, 2.1×).
 - [x] On the Earth-radius planet, standing still on the surface, vertices show no jitter (screen
       position stable to 0.01 px over 600 frames), and a 0.5 m noise octave renders as smooth
       bumps, not steps (golden).
 - [x] No cracks: a render with skirts disabled and a debug seam shader shows zero seam pixels at
       2:1 boundaries in five golden views.
-- [x] Geomorphing: during a descent, no vertex's screen position jumps by more than 1 px between
-      frames beyond camera motion.
+- [x] Geomorphing: during a descent no vertex pops. ~~No vertex's screen position moves more than
+      1 px between frames beyond camera motion~~, restated: that holds uncapped (`vertexPixels:
+      0`, no triangle budget); with the default cap vertices morph continuously, under 6 px a frame
+      at 500 m/s and no more at half speed, where a pop would move tens of px at once.
+- [x] With `vertexPixels`, rough terrain draws well under two thirds of the uncapped chunks
+      without holes, and normal tiles keep its relief in the shading. Over
+      `TerrainBudget.triangles` the planet coarsens until it fits, and refines back after.
 - [x] CPU `planetHeightAt` and the GPU chunk heights agree within 0041's tolerance times
       `heightScale` at 10 000 random points. Collider chunks render exactly the collider's vertices,
       so a character's feet are within 1 cm of the visible ground on the Earth-radius planet.
@@ -288,7 +335,8 @@ BiomeSet { biomes: list(handle('terrain/Biome')), albedo, normal, orm: handle('T
   seams use the debug shader with skirts off in five golden views; geomorphing replays the vertex
   stage on the CPU (worst step under 1 px); CPU/GPU heights match at 10 000 points and feet are
   within 1 cm of the drawn collider triangles; 20 characters walk 100 m; the walk checksum is pinned
-  (`0da23929`) and the playground's `#terrain` page shows Chrome's next to it; the bench holds a
+  (`fb8127a0` since the level-based point lattice below; `0da23929` before) and the
+  playground's `#terrain` page shows Chrome's next to it; the bench holds a
   960×540 descent to p95 frame time under 16.6 ms (CPU p95 8.5 ms, GPU p95 9.3 ms) at no more than
   8 jobs a frame; hot reload regenerates every visible chunk in 4 frames with no hole pixels.
 - Deferred: scatter per biome (0045), a custom planet material (needs material type inheritance),

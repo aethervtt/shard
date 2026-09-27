@@ -8,9 +8,10 @@ import {
 } from '@shard/core'
 import { GpuBuffer, type GpuContext } from '@shard/gpu'
 import { type Texture, Textures } from '@shard/texture'
+import type { CameraAtmosphere } from './atmosphere'
+import { Atmospheres } from './atmosphere'
 import { GpuAssetsResource } from './gpu-assets'
 import type { NodeContext } from './graph'
-import { Lights } from './lights'
 import { Gpu, Shaders, Views } from './plugin'
 import { type CameraData, cameraOf } from './view'
 
@@ -78,12 +79,13 @@ export const ProceduralSky = defineComponent(
     sunDiskSize: t.f32({
       default: 1,
       min: 0,
-      description: "Sun disk radius, as a multiple of the real sun's (0.27°). 0 hides the disk.",
+      description:
+        "Sun disk size, as a multiple of the DirectionalLight's angularDiameter (the Sun's 0.53°). 0 hides the disk.",
     }),
   },
   {
     description:
-      'A single-scattering atmosphere lit by the brightest DirectionalLight, in cd/m² consistent with its illuminance. Drawn as the background, and baked into the environment so image-based lighting follows the time of day.',
+      'An Earth sky seen from 10 m above the ground wherever the camera is: an Atmosphere (spec 0044) lit by the two brightest DirectionalLights, in cd/m² consistent with their illuminance. Drawn as the background, and baked into the environment so image-based lighting follows the time of day. For skies you can fly out of, put an Atmosphere on the planet instead.',
   },
 )
 
@@ -119,14 +121,8 @@ export const DefaultEnvironment = defineResource<DefaultEnvironmentValue>(
   },
 )
 
-const SKY_DEFAULTS: ProceduralSkyValue = {
-  turbidity: 2,
-  rayleigh: 1,
-  mie: 1,
-  groundAlbedo: [0.3, 0.3, 0.3, 1],
-  sunDiskSize: 1,
-}
-
+/** Frames between rebakes of a moving camera's atmosphere environment. */
+export const REBAKE_FRAMES = 8
 export const SOURCE_SIZE = 512
 export const SKY_SIZE = 256
 export const SPECULAR_SIZE = 256
@@ -136,7 +132,8 @@ const LUT_SIZE = 128
 /** A prefiltered environment: source cube (with mips), specular cube, and SH9 irradiance. */
 export class Environment {
   key = ''
-  kind: 'map' | 'sky'
+  /** map: from a texture; atmosphere: baked from a camera's atmosphere (and ProceduralSky). */
+  kind: 'map' | 'atmosphere'
   size: number
   source: GPUTexture
   specular: GPUTexture
@@ -149,16 +146,15 @@ export class Environment {
   bakes = 0
   lastUsed = 0
   generation: number
-  /** What to prefilter from: a texture (maps) or sky parameters. */
+  /** What to prefilter from: a texture (maps) or a camera's atmospheres. */
   input: Texture | undefined
-  sky: ProceduralSkyValue | undefined
-  sun = new Float32Array(4)
-  /** The sun luminance (cd/m²) of the disk as last baked, for describe. */
-  sunLuminance = 0
+  atmosphere: CameraAtmosphere | undefined
+  /** The frame a rebake was last queued (atmospheres rebake at most every REBAKE_FRAMES). */
+  queuedFrame = -1_000_000
 
-  constructor(gpu: GpuContext, kind: 'map' | 'sky') {
+  constructor(gpu: GpuContext, kind: 'map' | 'atmosphere') {
     this.kind = kind
-    this.size = kind === 'sky' ? SKY_SIZE : SOURCE_SIZE
+    this.size = kind === 'atmosphere' ? SKY_SIZE : SOURCE_SIZE
     this.generation = gpu.generation
     const mips = Math.log2(this.size) + 1
     this.source = gpu.device.createTexture({
@@ -204,7 +200,10 @@ export interface CameraEnvironment {
   rotation: number
   /** Background: -1 none, otherwise the skybox brightness. */
   background: number
+  /** Lit by an atmosphere (a planet's, or ProceduralSky's): its sky pass draws the background. */
   sky: boolean
+  /** Atmosphere cameras: the environment map behind the sky (a star field), with its settings. */
+  backdrop: { environment: Environment; intensity: number; rotation: number } | undefined
 }
 
 /** Environments by key, the BRDF lookup table, and the prefilter work for this frame. */
@@ -265,40 +264,6 @@ export const Environments = defineResource<EnvironmentStore>('render/Environment
   init: () => new EnvironmentStore(),
 })
 
-/** The brightest directional light: direction toward it (xyz) and illuminance (w). */
-function sunOf(world: World, out: Float32Array): boolean {
-  const lights = world.tryResource(Lights)
-  out[0] = 0
-  out[1] = 1
-  out[2] = 0
-  out[3] = 0
-  if (!lights) return false
-  const d = lights.directionalData
-  let best = -1
-  for (let i = 0; i < lights.directionalCount; i++) {
-    const o = 4 + i * 8
-    const lum = 0.2126 * d[o + 4]! + 0.7152 * d[o + 5]! + 0.0722 * d[o + 6]!
-    if (lum > best) {
-      best = lum
-      out[0] = d[o]!
-      out[1] = d[o + 1]!
-      out[2] = d[o + 2]!
-      out[3] = lum
-    }
-  }
-  return best >= 0
-}
-
-const scratchSun = new Float32Array(4)
-
-function skyKey(sky: ProceduralSkyValue, sun: Float32Array): string {
-  // Rebake when the sun moves by more than ~0.25° or its illuminance changes by more than 1%.
-  const q = (v: number) => Math.round(v * 229)
-  const lux = sun[3]! > 0 ? Math.round(Math.log(sun[3]!) / Math.log(1.01)) : -1
-  const g = sky.groundAlbedo
-  return `sky:${q(sun[0]!)},${q(sun[1]!)},${q(sun[2]!)},${lux}|${sky.turbidity}|${sky.rayleigh}|${sky.mie}|${g[0]},${g[1]},${g[2]}`
-}
-
 /**
  * Resolves each camera's environment (its own map or sky, else the default environment) and
  * queues prefiltering for environments whose source changed.
@@ -315,14 +280,13 @@ export const prepareEnvironments = defineSystem({
     const defaults = world.resource(DefaultEnvironment)
     const textures = world.tryResource(Textures)
     const assets = world.resource(GpuAssetsResource)
-    sunOf(world, scratchSun)
+    const atmospheres = world.tryResource(Atmospheres)
     for (const view of world.resource(Views).list) {
       const cam = cameraOf(view)
       if (!cam) continue
       const e = cam.entity
       const own = world.isAlive(e)
       const map = own && world.has(e, EnvironmentMap) ? world.get(e, EnvironmentMap) : undefined
-      const sky = own && world.has(e, ProceduralSky) ? world.get(e, ProceduralSky) : undefined
       const skybox = own && world.has(e, Skybox) ? world.get(e, Skybox).brightness : -1
       let entry: CameraEnvironment = {
         environment: undefined,
@@ -330,10 +294,11 @@ export const prepareEnvironments = defineSystem({
         rotation: 0,
         background: -1,
         sky: false,
+        backdrop: undefined,
       }
-      const useMap = (value: EnvironmentMapValue, background: number) => {
+      const mapEnvironment = (value: EnvironmentMapValue): Environment | undefined => {
         const texture = textures?.get(value.texture as never)
-        if (!texture) return
+        if (!texture) return undefined
         const key = `map:${idOf(texture)}:${texture.version}`
         let env = store.environments.get(key)
         if (!env) {
@@ -353,39 +318,68 @@ export const prepareEnvironments = defineSystem({
         env.lastUsed = store.frame
         // Make sure the texture is on the GPU (it's the prefilter input).
         assets.texture(texture)
+        return env
+      }
+      const useMap = (value: EnvironmentMapValue, background: number) => {
+        const env = mapEnvironment(value)
+        if (!env) return
         entry = {
           environment: env,
           intensity: value.intensity,
           rotation: (value.rotation * Math.PI) / 180,
           background,
           sky: false,
+          backdrop: undefined,
         }
       }
-      const useSky = (value: Partial<ProceduralSkyValue>, background: number) => {
-        const full = { ...SKY_DEFAULTS, ...value } as ProceduralSkyValue
-        const key = skyKey(full, scratchSun)
-        // One sky environment per camera config; rebake in place when the key changes.
-        const id = `sky@${own && sky ? e : 'default'}`
+      const ca = atmospheres?.cameras.get(e)
+      if (ca?.primary) {
+        // Lit by the atmosphere it's in (or looking at): baked from the camera, rebaked as it moves.
+        const id = `atmosphere@${e}`
         let env = store.environments.get(id)
         if (!env) {
-          env = new Environment(gpu, 'sky')
+          env = new Environment(gpu, 'atmosphere')
           store.environments.set(id, env)
         }
-        env.sky = full
-        env.sun.set(scratchSun)
-        if (env.key !== key) {
-          env.key = key
+        env.atmosphere = ca
+        // Flying rebakes as altitude and the local up change, at most every REBAKE_FRAMES (a bake
+        // is ~1.5 ms of GPU); a new atmosphere or new settings rebake at once.
+        const same =
+          env.key.slice(0, env.key.indexOf('|')) === ca.bakeKey.slice(0, ca.bakeKey.indexOf('|'))
+        if (env.key !== ca.bakeKey && (!same || store.frame - env.queuedFrame >= REBAKE_FRAMES)) {
+          env.key = ca.bakeKey
+          env.queuedFrame = store.frame
           env.state = 'pending'
           if (!store.pending.includes(env)) store.pending.push(env)
         }
         env.lastUsed = store.frame
-        entry = { environment: env, intensity: 1, rotation: 0, background, sky: true }
-      }
-      if (map?.texture) useMap(map as EnvironmentMapValue, skybox)
-      else if (sky) useSky(sky, 1)
+        // Behind the sky: the camera's environment map with a Skybox, or the default map.
+        let backdrop: CameraEnvironment['backdrop']
+        const behind =
+          map?.texture && skybox >= 0
+            ? (map as EnvironmentMapValue)
+            : !map?.texture && defaults.map?.texture && defaults.background
+              ? defaults.map
+              : undefined
+        const backdropEnv = behind ? mapEnvironment(behind) : undefined
+        if (behind && backdropEnv) {
+          backdrop = {
+            environment: backdropEnv,
+            intensity: behind.intensity * (skybox >= 0 ? skybox : 1),
+            rotation: (behind.rotation * Math.PI) / 180,
+          }
+        }
+        entry = {
+          environment: env,
+          intensity: 1,
+          rotation: 0,
+          background: ca.background,
+          sky: true,
+          backdrop,
+        }
+      } else if (map?.texture) useMap(map as EnvironmentMapValue, skybox)
       else if (defaults.map?.texture)
         useMap(defaults.map, defaults.background ? Math.max(skybox, 1) : skybox)
-      else if (defaults.sky) useSky(defaults.sky, defaults.background ? 1 : -1)
       store.cameras.set(e, entry)
       view.data.environment = entry
     }
@@ -468,10 +462,6 @@ function environmentPipelines(gpu: GpuContext, world: World): Pipelines | undefi
         storage2dArray(2),
       ],
     }),
-    sky: gpu.layouts.bindGroupLayout({
-      label: 'env/sky',
-      entries: [{ binding: 0, visibility: C, buffer: { type: 'uniform' } }, storage2dArray(1)],
-    }),
     downsample: gpu.layouts.bindGroupLayout({
       label: 'env/downsample',
       entries: [
@@ -510,7 +500,6 @@ function environmentPipelines(gpu: GpuContext, world: World): Pipelines | undefi
   const modules: Record<string, string> = {
     equirect: 'shard::env::from_equirect',
     cube: 'shard::env::from_cube',
-    sky: 'shard::env::sky',
     downsample: 'shard::env::downsample',
     sh: 'shard::env::sh',
     specular: 'shard::env::specular',
@@ -537,26 +526,21 @@ function environmentPipelines(gpu: GpuContext, world: World): Pipelines | undefi
   return missing ? undefined : { layouts, pipelines }
 }
 
-/** Sky uniform: sun (xyz toward the sun, illuminance w), params, ground albedo. */
-const skyData = new Float32Array(16)
 const specData = new Float32Array(4)
 
-function packSky(env: Environment, out: Float32Array): Float32Array {
-  const s = env.sky ?? SKY_DEFAULTS
-  out[0] = env.sun[0]!
-  out[1] = env.sun[1]!
-  out[2] = env.sun[2]!
-  out[3] = env.sun[3]!
-  out[4] = s.turbidity
-  out[5] = s.rayleigh
-  out[6] = s.mie
-  out[7] = s.sunDiskSize
-  out[8] = s.groundAlbedo[0]
-  out[9] = s.groundAlbedo[1]
-  out[10] = s.groundAlbedo[2]
-  out[11] = 0
-  return out
-}
+/**
+ * Fills level 0 of an environment's source cube (all six faces, `SKY_SIZE`²) for kinds other than
+ * maps, in the prefilter pass. Returns false when it can't yet (its inputs aren't ready): the
+ * environment stays pending. The atmosphere plugin registers `atmosphere`.
+ */
+export type EnvironmentBaker = (
+  ctx: NodeContext,
+  pass: GPUComputePassEncoder,
+  env: Environment,
+  level0: GPUTextureView,
+) => boolean
+
+export const environmentBakers = new Map<Environment['kind'], EnvironmentBaker>()
 
 /**
  * Prefilters every pending environment (and the BRDF LUT, once): source cube, mips, SH9, and
@@ -628,28 +612,11 @@ export function runEnvironmentWork(ctx: NodeContext): void {
           ],
         }),
       )
+      pass.dispatchWorkgroups(size / 8, size / 8, 6)
     } else {
-      const buffer = new GpuBuffer(gpu, {
-        label: 'env/sky-params',
-        usage: GPUBufferUsage.UNIFORM,
-        size: 64,
-      })
-      buffer.write(packSky(env, skyData))
-      ctx.afterSubmit(() => buffer.destroy())
-      pass.setPipeline(p.pipelines.sky!)
-      pass.setBindGroup(
-        0,
-        device.createBindGroup({
-          layout: p.layouts.sky!,
-          entries: [
-            { binding: 0, resource: { buffer: buffer.buffer } },
-            { binding: 1, resource: level0 },
-          ],
-        }),
-      )
-      env.sunLuminance = sunDiskLuminance(env)
+      const bake = environmentBakers.get(env.kind)
+      if (!bake?.(ctx, pass, env, level0)) continue
     }
-    pass.dispatchWorkgroups(size / 8, size / 8, 6)
     // Mips: box downsample, level by level.
     const mips = Math.log2(size) + 1
     pass.setPipeline(p.pipelines.downsample!)
@@ -746,11 +713,20 @@ export function runEnvironmentWork(ctx: NodeContext): void {
   for (const env of done) store.pending.splice(store.pending.indexOf(env), 1)
 }
 
-/** The sun disk's luminance (cd/m²) before atmospheric extinction: E / solid angle. */
-export function sunDiskLuminance(env: Environment): number {
-  const size = env.sky?.sunDiskSize ?? 1
-  const radius = ((0.2667 * Math.PI) / 180) * Math.max(size, 1e-3)
-  return env.sun[3]! / (Math.PI * radius * radius)
+/** The sky a camera's atmosphere environment was baked from, and its sun disk, for describe. */
+function atmosphereDescription(world: World, camera: Entity, ca: CameraAtmosphere) {
+  const s = ca.suns
+  if (s.count === 0) return { sunIlluminance: 0 }
+  const lux = 0.2126 * s.data[4]! + 0.7152 * s.data[5]! + 0.0722 * s.data[6]!
+  const radius = s.data[3]!
+  const sky = world.isAlive(camera) ? world.tryGet(camera, ProceduralSky) : undefined
+  return {
+    ...(sky ? { sky } : {}),
+    sunDirection: [s.data[0], s.data[1], s.data[2]],
+    sunIlluminance: lux,
+    // E / solid angle, before the atmosphere dims it.
+    sunDiskLuminance: radius > 0 ? lux / (Math.PI * radius * radius) : 0,
+  }
 }
 
 /** The environment section of `render.describe`. */
@@ -767,19 +743,19 @@ export function describeEnvironment(world: World) {
       tonemapping: ['aces', 'agx', 'pbr-neutral', 'reinhard', 'none'][cam.curve],
       environment: env
         ? {
-            source: env.kind === 'sky' ? 'procedural-sky' : 'environment-map',
+            source:
+              env.kind === 'map'
+                ? 'environment-map'
+                : env.atmosphere?.primary?.wrapper
+                  ? 'procedural-sky'
+                  : 'atmosphere',
             intensity: entry!.intensity,
             rotation: (entry!.rotation * 180) / Math.PI,
             prefilter: env.state,
             bakes: env.bakes,
             background: entry!.background >= 0,
-            ...(env.kind === 'sky'
-              ? {
-                  sky: env.sky,
-                  sunDirection: [env.sun[0], env.sun[1], env.sun[2]],
-                  sunIlluminance: env.sun[3],
-                  sunDiskLuminance: env.sunLuminance,
-                }
+            ...(env.kind === 'atmosphere' && env.atmosphere
+              ? atmosphereDescription(world, cam.entity, env.atmosphere)
               : {}),
           }
         : { source: 'ambient-light' },

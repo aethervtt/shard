@@ -37,3 +37,30 @@ test('the planet loads its graphs and biomes, keeps colliders under the lander, 
   expect(snowy(polar)).toBeGreaterThan(polar.length / 3)
   expect(snowy(samples.filter((_, i) => i % 2 === 0))).toBe(0)
 })
+
+interface Sky {
+  luminance: number
+  transmittance: number[]
+  inside: boolean
+  altitude: number
+}
+
+test('the planet has an atmosphere: a blue sky over the lander that thins to space above it', async ({
+  game,
+}) => {
+  await game.load('scenes/planet.scene.json')
+  await game.step(2)
+  const up = [0, 1, 0]
+  const low = await game.call<Sky>('atmosphere.sample', { direction: up })
+  expect(low.inside).toBe(true)
+  // 600 km radius (the Planet's), 40 km of air.
+  const high = await game.call<Sky>('atmosphere.sample', {
+    position: [0, 300 * 2000 + 45_000 - 600_000, 0],
+    direction: up,
+  })
+  expect(high.inside).toBe(false)
+  expect(high.luminance).toBe(0)
+  // A 10 000 lux 'daylight' sun 30° up: tens of cd/m² overhead.
+  expect(low.luminance).toBeGreaterThan(30)
+  expect(low.transmittance[2]).toBeLessThan(low.transmittance[0]!)
+})

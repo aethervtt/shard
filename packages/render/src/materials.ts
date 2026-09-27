@@ -39,6 +39,12 @@ export interface MaterialTypeOptions<F extends Fields> {
    * layer). Arrays of color textures sample through the sRGB view.
    */
   arrays?: readonly string[]
+  /**
+   * Standard extensions only: false leaves the standard material's five texture slots (and their
+   * samplers) out of the layout, for types that build their own surface and need the room (a stage
+   * holds 16 sampled textures). Its shader must then not call `standard_input`.
+   */
+  standardTextures?: boolean
   description?: string
 }
 
@@ -70,6 +76,8 @@ export function materialModulePath(name: string): string {
 export class MaterialType {
   readonly name: string
   extends: 'standard' | 'none'
+  /** Binds the standard texture slots (standard extensions; see MaterialTypeOptions). */
+  standardTextures = true
   /** Every field of the material asset (standard fields too, for standard extensions). */
   schema: ComponentDef
   /** The type's own numeric fields, packed into its uniform. Undefined if it has none. */
@@ -116,6 +124,7 @@ export class MaterialType {
       else if (field.storage !== 'object') numeric[key] = field
     }
     this.extends = options.extends ?? 'standard'
+    this.standardTextures = options.standardTextures ?? true
     this.schema = schema
     this.textures = textures
     this.arrays = new Set(options.arrays ?? [])
@@ -198,7 +207,11 @@ export class MaterialType {
     const cached = this.layouts.get(gpu)
     if (cached && cached.generation === gpu.generation) return cached.layout
     const visibility = GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT
-    const entries: GPUBindGroupLayoutEntry[] = this.standard ? [...standard] : []
+    const entries: GPUBindGroupLayoutEntry[] = !this.standard
+      ? []
+      : this.standardTextures
+        ? [...standard]
+        : standard.filter((e) => e.binding < 2)
     let binding = this.bindingBase
     if (this.layout) entries.push({ binding, visibility, buffer: { type: 'uniform' } })
     binding++

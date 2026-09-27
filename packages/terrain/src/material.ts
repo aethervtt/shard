@@ -21,6 +21,11 @@ const frame = {
     description:
       'Set by the terrain: the selecting camera (xyz) and pixels per radian / errorPixels (w).',
   }),
+  tiles: t.vec4({
+    hidden: true,
+    description:
+      'Set by the terrain: vertices per chunk edge, normal-tile edge (0: no tiles), tiles per layer row, layer size.',
+  }),
 }
 
 /**
@@ -33,12 +38,19 @@ const frame = {
  */
 export const PlanetMaterial = defineMaterial('terrain/PlanetSurface', {
   shader: 'terrain::planet',
-  arrays: ['albedoArray', 'normalArray', 'ormArray'],
+  arrays: ['albedoArray', 'normalArray', 'ormArray', 'normalTiles'],
+  // Its surface is its own (no standard_input): room for the normal tiles in 16 textures a stage.
+  standardTextures: false,
   fields: {
     albedoArray: t.handle('Texture', { description: 'The BiomeSet’s albedo array.' }),
     normalArray: t.handle('Texture', { description: 'The BiomeSet’s normal map array.' }),
     ormArray: t.handle('Texture', {
       description: 'The BiomeSet’s occlusion/roughness/metallic array.',
+    }),
+    normalTiles: t.handle('Texture', {
+      hidden: true,
+      description:
+        'Set by the terrain: every chunk’s normals at twice its vertex density, one tile per slot.',
     }),
     biomeTable: t.handle('Texture', {
       hidden: true,
@@ -84,8 +96,34 @@ const MORPH = (u: string) => `
  * InstanceData.x) meets a child's quadrant (this level, which the child's edge matches). Never less
  * than the chunk's fade (the rest of InstanceData.x), 1 as it replaces its parent, easing to 0.
  */
+/** The grid point (i, j) and normal tile of a vertex, from uv1.x (kernel.ts packGrid). */
+fn terrain_grid() -> vec3u {
+  let n = u32(${u}.tiles.x + 0.5);
+  let p = u32(vertex_uv1().x + 0.5);
+  let ij = p % (n * n);
+  return vec3u(ij % n, ij / n, p / (n * n));
+}
+
+/**
+ * A grid point's lock code (chunk.ts lockCode): its edge on the border ring (0 bottom, 1 right,
+ * 2 top, 3 left, each edge owning its first corner), the center lines (4-7), the center (8), else -1.
+ */
+fn terrain_lock(i: u32, j: u32) -> i32 {
+  let s = u32(${u}.tiles.x + 0.5) - 1u;
+  let h = s / 2u;
+  if (j == 0u && i < s) { return 0; }
+  if (i == s && j < s) { return 1; }
+  if (j == s && i > 0u) { return 2; }
+  if (i == 0u && j > 0u) { return 3; }
+  if (i == h && j == h) { return 8; }
+  if (i == h) { return select(5, 4, j < h); }
+  if (j == h) { return select(7, 6, i < h); }
+  return -1;
+}
+
 fn terrain_morph(position: vec3f) -> f32 {
   let lock = vertex_uv1();
+  let grid = terrain_grid();
   let data = vertex_instance_data();
   let mask = u32(floor(data.x * 0.5 + 0.001));
   let fade = clamp(data.x - f32(mask) * 2.0, 0.0, 1.0);
@@ -95,7 +133,7 @@ fn terrain_morph(position: vec3f) -> f32 {
     let d = distance(vertex_world(position), ${u}.camera.xyz);
     t = clamp((d - 0.5 * split) / (0.45 * split), 0.0, 1.0);
   }
-  let code = i32(round(lock.x));
+  let code = terrain_lock(grid.x, grid.y);
   if (code >= 0 && code < 4) {
     // Edges never fade: the neighbor across may not be fading.
     let bits = (u32(data.y + 0.5) >> (u32(code) * 2u)) & 3u;
@@ -115,15 +153,21 @@ fn terrain_morph(position: vec3f) -> f32 {
 override fn vertex_position(position: vec3f, normal: vec3f, uv: vec2f) -> vec3f {
   return position + vertex_tangent().xyz * terrain_morph(position);
 }
+
+/** To the surface stage: the grid point as uv across the chunk (xy), its normal tile (z), tiles on (w). */
+override fn vertex_extra(position: vec3f, normal: vec3f, uv: vec2f) -> vec4f {
+  let grid = terrain_grid();
+  let s = ${u}.tiles.x - 1.0;
+  return vec4f(f32(grid.x) / s, f32(grid.y) / s, f32(grid.z), select(0.0, 1.0, ${u}.tiles.y > 0.0));
+}
 `
 
 export const TERRAIN_SHADERS: Record<string, string> = {
   'terrain::planet': `
 import shard::pbr::types::{ VertexOutput, PbrInput };
-import shard::pbr::standard::standard_input;
 import shard::view::view;
 import shard::mesh::{ vertex_uv1, vertex_tangent, vertex_world, vertex_instance_data };
-import material::planet_surface::{ PlanetSurface, PlanetSurface_albedoArray, PlanetSurface_albedoArray_sampler, PlanetSurface_normalArray, PlanetSurface_normalArray_sampler, PlanetSurface_ormArray, PlanetSurface_ormArray_sampler, PlanetSurface_biomeTable };
+import material::planet_surface::{ PlanetSurface, PlanetSurface_albedoArray, PlanetSurface_albedoArray_sampler, PlanetSurface_normalArray, PlanetSurface_normalArray_sampler, PlanetSurface_ormArray, PlanetSurface_ormArray_sampler, PlanetSurface_biomeTable, PlanetSurface_normalTiles, PlanetSurface_normalTiles_sampler };
 ${MORPH('PlanetSurface')}
 fn biome_window(x: f32, lo: f32, hi: f32, blend: f32) -> f32 {
   if (!(lo < hi)) { return 1.0; }
@@ -206,10 +250,37 @@ fn sample_layer(layer: f32, scale: f32, q: vec3f, g: Grads, n: vec3f, bw: vec3f,
   return out;
 }
 
+/**
+ * The surface normal from the chunk's normal tile (twice the vertex density, so relief finer than
+ * the geometry still shades), or the vertex normal without tiles.
+ */
+fn surface_normal(in: VertexOutput) -> vec3f {
+  if (in.extra.w < 0.5) { return normalize(in.world_normal); }
+  let t = PlanetSurface.tiles;
+  let per_row = u32(t.z + 0.5);
+  let tile = u32(round(in.extra.z));
+  let cell = tile % (per_row * per_row);
+  let layer = i32(tile / (per_row * per_row));
+  let corner = vec2f(f32(cell % per_row), f32(cell / per_row)) * t.y;
+  let texel = corner + 0.5 + clamp(in.extra.xy, vec2f(0.0), vec2f(1.0)) * (t.y - 1.0);
+  let c = textureSampleLevel(PlanetSurface_normalTiles, PlanetSurface_normalTiles_sampler, texel / t.w, layer, 0.0).xyz;
+  let np = normalize(c * 2.0 - 1.0);
+  // Planet space to world: the rotation rows transposed.
+  return normalize(PlanetSurface.rot0.xyz * np.x + PlanetSurface.rot1.xyz * np.y + PlanetSurface.rot2.xyz * np.z);
+}
+
 override fn pbr_input(in: VertexOutput) -> PbrInput {
-  var p = standard_input(in);
+  // Everything below sets the surface; the standard texture slots aren't bound (standardTextures: false).
+  var p: PbrInput;
+  p.base_color = vec3f(1.0);
+  p.alpha = 1.0;
+  p.normal = normalize(in.world_normal);
+  p.metallic = 0.0;
+  p.roughness = 0.9;
+  p.emissive = vec3f(0.0);
+  p.occlusion = 1.0;
   let up = normalize(in.world_position - PlanetSurface.center.xyz);
-  let n = normalize(in.world_normal);
+  let n = surface_normal(in);
   let slope = degrees(acos(clamp(dot(n, up), -1.0, 1.0)));
   let latitude = dot(up, PlanetSurface.rot1.xyz);
   let height = in.world_tangent.w;
@@ -264,7 +335,7 @@ override fn pbr_input(in: VertexOutput) -> PbrInput {
     return p;
   }
   if (debug == 4u) {
-    p.base_color = normalize(in.world_normal) * 0.5 + 0.5;
+    p.base_color = n * 0.5 + 0.5;
     p.emissive = p.base_color * 3000.0;
     return p;
   }

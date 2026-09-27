@@ -1,4 +1,4 @@
-/** WGSL for environments: prefiltering (compute), the atmosphere, IBL, and the sky background. */
+/** WGSL for environments: prefiltering (compute), IBL, and the environment-map background. */
 export const ENVIRONMENT_SHADERS: Record<string, string> = {
   'shard::env::common': `
 const PI: f32 = 3.14159265359;
@@ -229,136 +229,6 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   textureStore(lut, id.xy, vec4f(scale / f32(SAMPLES), bias / f32(SAMPLES), 0.0, 1.0));
 }`,
 
-  'shard::sky::atmosphere': `
-const SKY_PI: f32 = 3.14159265359;
-const R_GROUND: f32 = 6360000.0;
-const R_TOP: f32 = 6420000.0;
-const H_RAYLEIGH: f32 = 8000.0;
-const H_MIE: f32 = 1200.0;
-const BETA_RAYLEIGH: vec3f = vec3f(5.802e-6, 13.558e-6, 33.1e-6);
-const BETA_MIE: f32 = 3.996e-6;
-const MIE_G: f32 = 0.8;
-/** The viewer's height above the ground (m). */
-const VIEW_HEIGHT: f32 = 10.0;
-
-struct SkyParams {
-  /** Toward the sun (xyz), illuminance in lux (w). */
-  sun: vec4f,
-  /** turbidity, rayleigh, mie, sun disk size. */
-  params: vec4f,
-  ground: vec4f,
-  _pad: vec4f,
-}
-
-/** Near and far distances along d from o to the sphere of radius r (negative: no hit). */
-fn ray_sphere(o: vec3f, d: vec3f, r: f32) -> vec2f {
-  let b = dot(o, d);
-  let c = dot(o, o) - r * r;
-  let disc = b * b - c;
-  if (disc < 0.0) { return vec2f(-1.0, -1.0); }
-  let s = sqrt(disc);
-  return vec2f(-b - s, -b + s);
-}
-
-/** Rayleigh and Mie optical depth from p to the top of the atmosphere along l; x < 0 if the ground is in the way. */
-fn optical_depth(p: vec3f, l: vec3f) -> vec2f {
-  let ground = ray_sphere(p, l, R_GROUND);
-  if (ground.x > 0.0) { return vec2f(-1.0, -1.0); }
-  let t_top = ray_sphere(p, l, R_TOP).y;
-  let steps = 8;
-  let dt = t_top / f32(steps);
-  var depth = vec2f(0.0);
-  for (var i = 0; i < steps; i++) {
-    let q = p + l * (dt * (f32(i) + 0.5));
-    let h = length(q) - R_GROUND;
-    depth += vec2f(exp(-h / H_RAYLEIGH), exp(-h / H_MIE)) * dt;
-  }
-  return depth;
-}
-
-fn mie_phase(mu: f32) -> f32 {
-  // Cornette-Shanks.
-  let g2 = MIE_G * MIE_G;
-  return 3.0 / (8.0 * SKY_PI) * ((1.0 - g2) * (1.0 + mu * mu)) / ((2.0 + g2) * pow(1.0 + g2 - 2.0 * MIE_G * mu, 1.5));
-}
-
-/**
- * Single-scattered sky luminance (cd/m²) toward d: Rayleigh and Mie in-scattering of the sun along
- * the view ray, plus the lit ground below the horizon. Scales with the sun's illuminance.
- */
-fn sky_luminance(d: vec3f, sky: SkyParams) -> vec3f {
-  let sun = normalize(sky.sun.xyz);
-  let o = vec3f(0.0, R_GROUND + VIEW_HEIGHT, 0.0);
-  let beta_r = BETA_RAYLEIGH * sky.params.y;
-  let beta_m = BETA_MIE * sky.params.z * sky.params.x;
-  let beta_m_ext = beta_m * 1.11;
-  let ground = ray_sphere(o, d, R_GROUND);
-  let hits_ground = ground.x > 0.0;
-  let t_max = select(ray_sphere(o, d, R_TOP).y, ground.x, hits_ground);
-  let mu = dot(d, sun);
-  let phase_r = 3.0 / (16.0 * SKY_PI) * (1.0 + mu * mu);
-  let phase_m = mie_phase(mu);
-  let steps = 16;
-  var view_depth = vec2f(0.0);
-  var inscatter = vec3f(0.0);
-  var t_prev = 0.0;
-  for (var i = 0; i < steps; i++) {
-    // Samples bunch up near the viewer, where the air is densest.
-    let f = (f32(i) + 1.0) / f32(steps);
-    let t = t_max * f * f;
-    let dt = t - t_prev;
-    let p = o + d * (t_prev + dt * 0.5);
-    t_prev = t;
-    let h = length(p) - R_GROUND;
-    let density = vec2f(exp(-h / H_RAYLEIGH), exp(-h / H_MIE));
-    view_depth += density * dt * 0.5;
-    let sun_depth = optical_depth(p, sun);
-    if (sun_depth.x >= 0.0) {
-      let tau = beta_r * (view_depth.x + sun_depth.x) + beta_m_ext * (view_depth.y + sun_depth.y);
-      inscatter += exp(-tau) * (beta_r * density.x * phase_r + vec3f(beta_m * density.y * phase_m)) * dt;
-    }
-    view_depth += density * dt * 0.5;
-  }
-  var color = inscatter * sky.sun.w;
-  if (hits_ground) {
-    let pg = o + d * t_max;
-    let up = normalize(pg);
-    let view_t = exp(-(beta_r * view_depth.x + beta_m_ext * view_depth.y));
-    let sun_depth = optical_depth(pg + up, sun);
-    if (sun_depth.x >= 0.0) {
-      let sun_t = exp(-(beta_r * sun_depth.x + beta_m_ext * sun_depth.y));
-      color += view_t * sky.ground.rgb / SKY_PI * sky.sun.w * max(dot(up, sun), 0.0) * sun_t;
-    }
-  }
-  return color;
-}
-
-/** Transmittance from the viewer to space along d (for the sun disk). */
-fn sky_transmittance(d: vec3f, sky: SkyParams) -> vec3f {
-  let o = vec3f(0.0, R_GROUND + VIEW_HEIGHT, 0.0);
-  let depth = optical_depth(o, d);
-  if (depth.x < 0.0) { return vec3f(0.0); }
-  let beta_r = BETA_RAYLEIGH * sky.params.y;
-  let beta_m_ext = BETA_MIE * sky.params.z * sky.params.x * 1.11;
-  return exp(-(beta_r * depth.x + beta_m_ext * depth.y));
-}`,
-
-  'shard::env::sky': `
-import shard::env::common::cube_dir;
-import shard::sky::atmosphere::{ SkyParams, sky_luminance };
-
-@group(0) @binding(0) var<uniform> sky: SkyParams;
-@group(0) @binding(1) var dst: texture_storage_2d_array<rgba16float, write>;
-
-/** Bakes the sky (without the sun disk: the DirectionalLight is the sun) into a cube face. */
-@compute @workgroup_size(8, 8, 1)
-fn main(@builtin(global_invocation_id) id: vec3u) {
-  let size = textureDimensions(dst).x;
-  if (id.x >= size || id.y >= size) { return; }
-  let d = cube_dir(id.z, (vec2f(id.xy) + 0.5) / f32(size));
-  textureStore(dst, id.xy, id.z, vec4f(min(sky_luminance(d, sky), vec3f(6.0e7)), 1.0));
-}`,
-
   'shard::pbr::environment': `
 import shard::view::view;
 import shard::pbr::types::PbrInput;
@@ -423,12 +293,10 @@ fn environment_background(d: vec3f) -> vec3f {
   'shard::sky::background': `
 import shard::view::view;
 import shard::pbr::environment::environment_background;
-import shard::sky::atmosphere::{ SkyParams, sky_transmittance };
 
 struct Background {
-  /** brightness, 1 when a procedural sky draws its sun disk, sun disk angular radius, disk luminance. */
+  /** brightness, unused ×3. */
   params: vec4f,
-  sky: SkyParams,
 }
 
 @group(1) @binding(0) var<uniform> background: Background;
@@ -451,19 +319,7 @@ struct BackgroundOutput {
   let near = view.invViewProj * vec4f(in.ndc, 1.0, 1.0);
   let far = view.invViewProj * vec4f(in.ndc, 0.5, 1.0);
   let d = normalize(far.xyz / far.w - near.xyz / near.w);
-  var color = environment_background(d) * background.params.x;
-  if (background.params.y > 0.5) {
-    let sun = normalize(background.sky.sun.xyz);
-    let angle = acos(clamp(dot(d, sun), -1.0, 1.0));
-    let radius = background.params.z;
-    if (angle < radius * 1.2) {
-      // A soft edge and a little limb darkening.
-      let x = clamp(angle / radius, 0.0, 1.0);
-      let edge = 1.0 - smoothstep(0.9, 1.2, angle / radius);
-      let limb = 1.0 - 0.6 * (1.0 - sqrt(max(0.0, 1.0 - x * x)));
-      color += background.params.w * sky_transmittance(d, background.sky) * edge * limb;
-    }
-  }
+  let color = environment_background(d) * background.params.x;
   // Pre-exposed, and kept inside what rgba16float holds.
   return vec4f(min(color * view.exposure, vec3f(60000.0)), 1.0);
 }`,

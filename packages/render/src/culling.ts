@@ -180,7 +180,7 @@ export class GpuCuller {
     let n = 0
     let m = 0
     for (const batch of store.sorted) {
-      if (batch.count === 0 || batch.transparent) continue
+      if (batch.count === 0 || batch.transparent || !store.anyVisible(batch)) continue
       // Waiting on its material's GPU resources: its members count as pending, so readiness
       // checks (settle, asset previews) wait for them.
       if (!batch.ready) {

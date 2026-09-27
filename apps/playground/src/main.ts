@@ -17,6 +17,7 @@ import { TransformPlugin } from '@shard/transform'
 import { uiPlugin } from '@shard/ui'
 import { animationDemoPlugin } from './animation'
 import { animgraphDemoPlugin } from './animgraph'
+import { atmosphereDemoPlugin } from './atmosphere'
 import { audioDemoPlugin, webAudio } from './audio'
 import { characterDemoPlugin, characterPlanetDemoPlugin } from './character'
 import { character2dDemoPlugin } from './character2d'
@@ -78,6 +79,7 @@ const DEMOS = [
   'noise',
   'procgen',
   'terrain',
+  'atmosphere',
 ] as const
 const demo = DEMOS.find((d) => location.hash === `#${d}`) ?? 'scene'
 document.body.dataset.demo = demo
@@ -218,6 +220,8 @@ if (demo === 'galaxy') {
   app.addPlugin(TransformPlugin, forwardPlugin(), ScenePlugin, hudPlugin, procgenDemoPlugin)
 } else if (demo === 'terrain') {
   app.addPlugin(TransformPlugin, forwardPlugin(), terrainPlugin(), hudPlugin, terrainDemoPlugin)
+} else if (demo === 'atmosphere') {
+  app.addPlugin(TransformPlugin, forwardPlugin(), terrainPlugin(), hudPlugin, atmosphereDemoPlugin)
 } else if (demo === 'sky') {
   app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, skyPlugin)
 } else {

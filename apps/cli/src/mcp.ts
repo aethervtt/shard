@@ -18,6 +18,7 @@ import { physicsMethods } from '@shard/physics'
 import { procgenMethods } from '@shard/procgen'
 import { ProjectMethodParams } from '@shard/project'
 import { METHODS } from '@shard/protocol'
+import { atmosphereMethods } from '@shard/render'
 import { saveMethods } from '@shard/save'
 import { terrainMethods } from '@shard/terrain'
 import { localeMethods } from '@shard/text'
@@ -65,6 +66,7 @@ const PLUGIN_METHODS = [
   ...noiseMethods,
   ...procgenMethods,
   ...terrainMethods,
+  ...atmosphereMethods,
 ]
 
 /** The protocol method's parameter schema, as an MCP input schema. */
@@ -366,6 +368,11 @@ export const TOOLS: Tool[] = [
     'sample_terrain',
     'terrain.sample',
     'The surface of a planet at up to 4096 points, from the same CPU noise colliders use: height above the radius, underwater and water depth, slope, temperature, moisture, and biome weights. Points are directions from the center or [lat, lon] in degrees. Example: { "latlon": [[0, 0], [80, 20]] } to compare the equator with the arctic.',
+  ),
+  forward(
+    'sample_atmosphere',
+    'atmosphere.sample',
+    'Sky radiance (cd/m²) and transmittance through a planet’s atmosphere toward a direction, from the renderer’s model on the CPU: is the sky still blue at 40 km, how dark is it at dusk, how much of the star field shows through. Defaults to the first camera’s position and its primary atmosphere. Example: { "direction": [0, 1, 0] }, or { "position": [0, 40000, 0], "direction": [0, 1, 0] }.',
   ),
   {
     name: 'terrain_map',

@@ -25,7 +25,7 @@ import { terrainPlugin } from './plugin'
 import { walkChecksum } from './testing'
 
 /** What walkChecksum() prints; the playground's #terrain page checks Chrome against it. */
-const WALK_CHECKSUM = '0da23929'
+const WALK_CHECKSUM = 'fb8127a0'
 
 const DT = 1 / 60
 const R = 6.371e6

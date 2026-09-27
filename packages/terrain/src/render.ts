@@ -52,7 +52,7 @@ import {
 } from './kernel'
 import { OceanMaterial, PlanetMaterial, TERRAIN_SHADERS, TEXTURE_PERIOD } from './material'
 import type { PlanetRuntime } from './planet'
-import { createChunkPoints, prepareChunkPoints } from './points'
+import { createChunkPoints, prepareChunkPoints, SNAP } from './points'
 import { NODE_READY, type NodeTree, type SelectionParams, selectNodes } from './quadtree'
 import { createView, perspectiveView } from './view'
 
@@ -95,24 +95,30 @@ interface Slot {
   center: Float64Array
 }
 
-interface Job {
-  slot: Slot
-  id: number
-  tree: NodeTree
-  node: number
-  kind: number
-  version: number
+/** A grid a job samples: its points, their origins per graph, and the kernel's uniform. */
+interface JobGrid {
   count: number
   points: Float32Array
-  pointsU32: Uint32Array
-  groups: number
   originsH: Int32Array
   originsT: Int32Array
   originsM: Int32Array
   params: ArrayBuffer
 }
 
-interface GpuJobResources {
+interface Job extends JobGrid {
+  slot: Slot
+  id: number
+  tree: NodeTree
+  node: number
+  kind: number
+  version: number
+  /** Only the normal tile (the slot shows a collider chunk's own vertices). */
+  normalsOnly: boolean
+  /** The normal tile's grid (twice the vertex density), with tiles on. */
+  fine: JobGrid | undefined
+}
+
+interface GridResources {
   params: GPUBuffer
   points: GPUBuffer
   pointsSize: number
@@ -120,7 +126,11 @@ interface GpuJobResources {
   valuesSize: number
   origins: (GPUBuffer | undefined)[]
   originSizes: number[]
+}
+
+interface GpuJobResources extends GridResources {
   stats: GPUBuffer
+  fine: GridResources
 }
 
 /** GPU state of one planet's generation: kernels and per-job buffers (one set per job per frame). */
@@ -143,6 +153,9 @@ export class PlanetRender {
   biomeTexture: Texture | undefined
   biomeRef: AssetRef | undefined
   biomeVersion = -1
+  /** Every slot's normal tile (TILE_LAYER² layers of `tileGeometry` tiles), grown with the pool. */
+  tiles: Texture | undefined
+  tilesRef: AssetRef | undefined
   jobs: Job[] = []
   /** Each tree's walk stamp last frame (what was on screen then). */
   lastStamp = [0, 0]
@@ -248,7 +261,7 @@ function updateView(world: World, rt: PlanetRuntime, pr: PlanetRender, camera: E
   pr.camera[0] = m[3]!
   pr.camera[1] = m[7]!
   pr.camera[2] = m[11]!
-  pr.camera[3] = pr.view.pixelsPerRadian / rt.settings!.errorPixels
+  pr.camera[3] = pr.view.pixelsPerRadian / (rt.settings!.errorPixels * rt.lodBias)
 }
 
 function selectionParams(rt: PlanetRuntime, kind: number): SelectionParams {
@@ -258,13 +271,27 @@ function selectionParams(rt: PlanetRuntime, kind: number): SelectionParams {
   return {
     maxDepth: rt.maxDepth,
     errors: kind === TERRAIN ? rt.errors : rt.oceanErrors,
-    errorPixels: s.errorPixels,
+    errorPixels: s.errorPixels * rt.lodBias,
     occluder: Math.max(0, s.radius * minShape + Math.min(lowest, rt.lowest)),
     colliderDepth: kind === TERRAIN ? rt.colliderDepth : rt.maxDepth,
     anchorPos: rt.anchorPos,
     anchorRadius: rt.anchorRadius,
     anchors: kind === TERRAIN ? rt.anchors : 0,
   }
+}
+
+/** Triangles one terrain chunk draws (its surface; skirts are thin). */
+const chunkTriangles = (n: number) => 2 * (n - 1) * (n - 1)
+
+/**
+ * Steers the planet's LOD bias toward TerrainBudget.triangles: up 1% a frame while over it, back
+ * down 0.5% a frame once under 85% of it, never below 1 (the planet's own settings) or above 16.
+ * Slow on purpose: the bias moves split distances, so morphs shift with it (2× in about a second).
+ */
+function adaptDetail(rt: PlanetRuntime, triangles: number): void {
+  const drawn = rt.selection.renderedCount * chunkTriangles(rt.settings!.resolution)
+  if (triangles > 0 && drawn > triangles) rt.lodBias = Math.min(16, rt.lodBias * 1.01)
+  else if (triangles <= 0 || drawn < triangles * 0.85) rt.lodBias = Math.max(1, rt.lodBias / 1.005)
 }
 
 /**
@@ -315,6 +342,7 @@ export const selectChunks = defineSystem({
       pr.hasCamera = true
       updateView(world, rt, pr, picked.entity)
       selectNodes(rt.tree, pr.view, selectionParams(rt, TERRAIN), frame, rt.selection)
+      adaptDetail(rt, budget.triangles)
       const ocean = rt.settings!.ocean
       if (ocean)
         selectNodes(rt.ocean, pr.view, selectionParams(rt, OCEAN), frame, rt.oceanSelection)
@@ -413,6 +441,9 @@ function setShown(world: World, slot: Slot, shown: boolean, frame: number): void
 }
 
 /** A free slot, a new one while under the pool size, or the least recently shown idle one. */
+/** Frames a chunk must go unused before a speculative request (prefetch) may evict it. */
+const IDLE_FRAMES = 60
+
 function acquireSlot(
   world: World,
   rt: PlanetRuntime,
@@ -420,13 +451,16 @@ function acquireSlot(
   kind: number,
   frame: number,
   pool: number,
+  needed: boolean,
 ): Slot | undefined {
   for (const slot of pr.slots)
     if (slot.node === NONE && slot.kind === kind && !slot.pending) return slot
   if (pr.slots.length < pool) return makeSlot(world, rt, pr, kind)
   const tree = kind === TERRAIN ? rt.tree : rt.ocean
   // Never what's on screen or blocking a split this frame; idle nodes before prefetched ones
-  // (generated ahead, or out of view), least recently shown first.
+  // (generated ahead, or out of view), least recently shown first. A speculative request (prefetch,
+  // out of view) only takes a chunk idle for IDLE_FRAMES: with a full pool, prefetches evicting
+  // each other would regenerate the same chunks every frame.
   let best: Slot | undefined
   let bestRank = 0
   for (const slot of pr.slots) {
@@ -434,6 +468,7 @@ function acquireSlot(
     let rank = 0
     if (slot.node !== NONE) {
       if (tree.neededAt[slot.node]! >= frame) continue
+      if (!needed && tree.used[slot.node]! > frame - IDLE_FRAMES) continue
       rank = tree.used[slot.node]! >= frame ? 1 : 0
     }
     if (!best || rank < bestRank || (rank === bestRank && slot.used < best.used)) {
@@ -454,6 +489,20 @@ function acquireSlot(
 
 /** Slots per shared vertex arena. */
 const ARENA_SLOTS = 256
+
+/** Side of a normal-tile layer (texels). */
+const TILE_LAYER = 2048
+
+/**
+ * A chunk's normal tile: its grid at twice the vertex density (2(n − 1) + 1 texels a side), and how
+ * many fit a layer. Off above 33 vertices per edge: those chunks are dense already, and uv1.x
+ * (grid point + n² × tile) must stay exact in f32.
+ */
+export function tileGeometry(n: number): { size: number; perRow: number; perLayer: number } {
+  const size = n <= 33 ? 2 * (n - 1) + 1 : 0
+  const perRow = size > 0 ? Math.floor(TILE_LAYER / size) : 1
+  return { size, perRow, perLayer: perRow * perRow }
+}
 
 /**
  * Vertices a slot takes in its arena: its vertex count rounded up to 64, so every attribute's
@@ -556,7 +605,15 @@ function setIndices(rt: PlanetRuntime, slot: Slot, mask: number, stitch: number)
  * Shows a collider chunk's own vertices in a slot (what the character stands on is what you see):
  * copies them into the slot's range of its arena, replacing any job queued for it.
  */
-function useCollider(world: World, pr: PlanetRender, slot: Slot, chunk: ColliderChunk): void {
+function useCollider(
+  world: World,
+  rt: PlanetRuntime,
+  pr: PlanetRender,
+  slot: Slot,
+  tree: NodeTree,
+  n: number,
+  chunk: ColliderChunk,
+): void {
   if (slot.cpu === chunk && slot.source === 1) return
   const assets = world.resource(GpuAssetsResource)
   const gm = assets.mesh(slot.mesh)
@@ -566,7 +623,7 @@ function useCollider(world: World, pr: PlanetRender, slot: Slot, chunk: Collider
   queue.writeBuffer(gm.positions, base * 12, data.positions)
   queue.writeBuffer(gm.normals, base * 12, data.normals!)
   queue.writeBuffer(gm.uvs, base * 8, data.uvs!)
-  queue.writeBuffer(gm.uvs1, base * 8, data.uvs1!)
+  queue.writeBuffer(gm.uvs1, base * 8, withTile(data.uvs1!, rt.settings!.resolution, slot.id))
   queue.writeBuffer(gm.tangents, base * 16, data.tangents!)
   slot.cpu = chunk
   slot.source = 1
@@ -575,6 +632,22 @@ function useCollider(world: World, pr: PlanetRender, slot: Slot, chunk: Collider
   // A queued job would overwrite it: drop it (encodePlanet skips jobs whose id moved on).
   slot.jobId = pr.nextJobId()
   slot.pending = false
+  // Its normal tile still comes from the GPU (the collider chunk has vertex normals only).
+  if (tileGeometry(rt.settings!.resolution).size > 0) queueJob(rt, pr, slot, tree, TERRAIN, n, true)
+}
+
+let tileScratch = new Float32Array(0)
+
+/** A CPU chunk's uv1 (grid points, tile 0) drawn from a slot's tile: n² × tile added to x. */
+function withTile(uvs1: Float32Array, resolution: number, tile: number): Float32Array {
+  if (tileScratch.length < uvs1.length) tileScratch = new Float32Array(uvs1.length)
+  const out = tileScratch.subarray(0, uvs1.length)
+  const add = resolution * resolution * tile
+  for (let i = 0; i < uvs1.length; i += 2) {
+    out[i] = uvs1[i]! + add
+    out[i + 1] = uvs1[i + 1]!
+  }
+  return out
 }
 
 /** The current collider chunk for a node, if it's at collider depth and one is built. */
@@ -641,12 +714,17 @@ function queueJobs(
     const n = i < chunks ? order[i]! : best[i - chunks]!
     const existing = tree.slot[n]!
     const chunk = i < chunks ? colliderFor(rt, tree, kind, n) : undefined
+    const needed = tree.neededAt[n]! >= frame
     const slot =
-      existing !== NONE ? pr.slots[existing]! : acquireSlot(world, rt, pr, kind, frame, pool)
+      existing !== NONE
+        ? pr.slots[existing]!
+        : acquireSlot(world, rt, pr, kind, frame, pool, needed)
+    // No room for a prefetch: later (lower-priority) prefetches wouldn't find any either.
+    if (!slot && !needed) continue
     if (!slot) break
     if (existing === NONE) assign(world, rt, slot, tree, n)
     if (chunk) {
-      useCollider(world, pr, slot, chunk)
+      useCollider(world, rt, pr, slot, tree, n, chunk)
       tree.flags[n]! |= NODE_READY
       tree.gen[n] = rt.version
       tree.setHeights(n, chunk.mesh.minHeight, chunk.mesh.maxHeight)
@@ -668,7 +746,7 @@ function queueJobs(
     if (!hold) {
       const chunk = colliderFor(rt, tree, kind, n)
       if (chunk) {
-        useCollider(world, pr, slot, chunk)
+        useCollider(world, rt, pr, slot, tree, n, chunk)
         tree.gen[n] = rt.version
         continue
       }
@@ -686,21 +764,33 @@ function queueJobs(
 
 const jobPoints = createChunkPoints()
 
-/** Prepares a job's CPU data: sample points, their origins per graph, and the kernel's uniform. */
-function queueJob(
+type Program = { terms: Parameters<typeof computeOrigins>[0]; zeroOrigins: Int32Array }
+
+/**
+ * A grid of a node for the kernels: the bordered points at `resolution` (the vertex grid, or the
+ * normal tile's at twice the density), their origins for each graph, and the uniform.
+ */
+function jobGrid(
   rt: PlanetRuntime,
-  pr: PlanetRender,
   slot: Slot,
   tree: NodeTree,
-  kind: number,
   n: number,
-): void {
+  resolution: number,
+  programs: (Program | undefined)[],
+  params: (pts: ReturnType<typeof prepareChunkPoints>, pu: Uint32Array, pf: Float32Array) => void,
+  snap?: number,
+): JobGrid {
   const s = rt.settings!
-  const face = tree.face[n]!
-  const depth = tree.depth[n]!
-  const x = tree.x[n]!
-  const y = tree.y[n]!
-  const pts = prepareChunkPoints(face, depth, x, y, s.resolution, s.radius, jobPoints)
+  const pts = prepareChunkPoints(
+    tree.face[n]!,
+    tree.depth[n]!,
+    tree.x[n]!,
+    tree.y[n]!,
+    resolution,
+    s.radius,
+    jobPoints,
+    snap,
+  )
   const count = pts.count
   const points = new Float32Array(count * POINT_FLOATS)
   const u32 = new Uint32Array(points.buffer)
@@ -726,9 +816,7 @@ function queueJob(
     u32[o + 9] = pts.group[k]!
   }
   const groups = pts.groups
-  const origins = (
-    program: { terms: Parameters<typeof computeOrigins>[0]; zeroOrigins: Int32Array } | undefined,
-  ) => {
+  const origins = (program: Program | undefined) => {
     if (!program) return new Int32Array(0)
     const len = Math.max(8, program.zeroOrigins.length)
     const out = new Int32Array(groups * len)
@@ -741,33 +829,101 @@ function queueJob(
     }
     return out
   }
-  const height = rt.height?.program
-  const temperature =
-    kind === TERRAIN && rt.climate ? rt.climate.programFor('temperature') : undefined
-  const moisture = kind === TERRAIN && rt.climate ? rt.climate.programFor('moisture') : undefined
-  const params = new ArrayBuffer(PARAMS_BYTES)
-  const pu = new Uint32Array(params)
-  const pf = new Float32Array(params)
+  const buffer = new ArrayBuffer(PARAMS_BYTES)
+  const pu = new Uint32Array(buffer)
+  const pf = new Float32Array(buffer)
   pu[0] = count
   pu[1] = pts.side
-  pu[2] = s.resolution
-  pu[3] = s.resolution * s.resolution
-  pu[4] = 4 * (s.resolution - 1)
   pu[5] = s.seed
-  pu[6] =
-    (height ? GEN_HEIGHT : 0) |
-    (temperature ? GEN_CLIMATE : 0) |
-    (depth === 0 ? GEN_ROOT : 0) |
-    (kind === OCEAN ? GEN_OCEAN : 0)
   pf[8] = sx
   pf[9] = sy
   pf[10] = sz
   pf[11] = s.heightScale
-  pf[12] = kind === OCEAN ? s.seaLevel : 0
-  pf[13] = depth === 0 ? 0 : (kind === TERRAIN ? rt.errors : rt.oceanErrors)[depth]!
-  pf[14] = skirtDepth(rt, depth)
+  params(pts, pu, pf)
+  return {
+    count,
+    points,
+    originsH: origins(programs[0]),
+    originsT: origins(programs[1]),
+    originsM: origins(programs[2]),
+    params: buffer,
+  }
+}
+
+/**
+ * The lattice a normal tile's points are grouped by: a quarter of the chunk (a power of two times
+ * the vertex grid's SNAP), so a coarse chunk's tile is ~25 groups, not one per point. Its inputs
+ * stay within a few km of their origins (~1 mm in f32); tiles don't need the vertex grid's
+ * bit-identical edges.
+ */
+function tileSnap(rt: PlanetRuntime, depth: number): number {
+  const size = rt.spacing(depth) * (rt.settings!.resolution - 1)
+  let snap = SNAP
+  while (snap * 4 < size) snap *= 2
+  return snap
+}
+
+/**
+ * Prepares a job's CPU data: the vertex grid (unless `normalsOnly`) and, with tiles on, the normal
+ * tile's grid. Normal tiles need only the height graph.
+ */
+function queueJob(
+  rt: PlanetRuntime,
+  pr: PlanetRender,
+  slot: Slot,
+  tree: NodeTree,
+  kind: number,
+  n: number,
+  normalsOnly = false,
+): void {
+  const s = rt.settings!
+  const depth = tree.depth[n]!
+  const height = rt.height?.program
+  const temperature =
+    kind === TERRAIN && rt.climate ? rt.climate.programFor('temperature') : undefined
+  const moisture = kind === TERRAIN && rt.climate ? rt.climate.programFor('moisture') : undefined
+  const vertexGrid = normalsOnly
+    ? undefined
+    : jobGrid(rt, slot, tree, n, s.resolution, [height, temperature, moisture], (_, pu, pf) => {
+        pu[2] = s.resolution
+        pu[3] = s.resolution * s.resolution
+        pu[4] = 4 * (s.resolution - 1)
+        pu[6] =
+          (height ? GEN_HEIGHT : 0) |
+          (temperature ? GEN_CLIMATE : 0) |
+          (depth === 0 ? GEN_ROOT : 0) |
+          (kind === OCEAN ? GEN_OCEAN : 0)
+        pu[7] = slot.id
+        pf[12] = kind === OCEAN ? s.seaLevel : 0
+        pf[13] = depth === 0 ? 0 : (kind === TERRAIN ? rt.errors : rt.oceanErrors)[depth]!
+        pf[14] = skirtDepth(rt, depth)
+      })
+  const tile = tileGeometry(s.resolution)
+  const fine =
+    kind === TERRAIN && tile.size > 0
+      ? jobGrid(
+          rt,
+          slot,
+          tree,
+          n,
+          tile.size,
+          [height],
+          (_, pu) => {
+            // The tile's corner in its layer rides in surface (x) and ring (y); its layer in tile.
+            const cell = slot.id % tile.perLayer
+            pu[2] = tile.size
+            pu[3] = (cell % tile.perRow) * tile.size
+            pu[4] = Math.floor(cell / tile.perRow) * tile.size
+            pu[6] = height ? GEN_HEIGHT : 0
+            pu[7] = Math.floor(slot.id / tile.perLayer)
+          },
+          tileSnap(rt, depth),
+        )
+      : undefined
+  if (normalsOnly && !fine) return
   slot.pending = true
   slot.jobId = pr.nextJobId()
+  const empty = new Int32Array(0)
   pr.jobs.push({
     slot,
     id: slot.jobId,
@@ -775,14 +931,14 @@ function queueJob(
     node: n,
     kind,
     version: rt.version,
-    count,
-    points,
-    pointsU32: u32,
-    groups,
-    originsH: origins(height),
-    originsT: origins(temperature),
-    originsM: origins(moisture),
-    params,
+    normalsOnly,
+    count: vertexGrid?.count ?? 0,
+    points: vertexGrid?.points ?? new Float32Array(0),
+    originsH: vertexGrid?.originsH ?? empty,
+    originsT: vertexGrid?.originsT ?? empty,
+    originsM: vertexGrid?.originsM ?? empty,
+    params: vertexGrid?.params ?? new ArrayBuffer(PARAMS_BYTES),
+    fine,
   })
 }
 
@@ -812,7 +968,7 @@ function showSelected(world: World, rt: PlanetRuntime, pr: PlanetRender, frame: 
       // its copy, which is still this node's surface.)
       if (kind === TERRAIN && pr.shownVersion === rt.version) {
         const chunk = colliderFor(rt, tree, TERRAIN, n)
-        if (chunk) useCollider(world, pr, slot, chunk)
+        if (chunk) useCollider(world, rt, pr, slot, tree, n, chunk)
       }
       let fade = slot.fade
       if (!slot.shown) {
@@ -914,6 +1070,10 @@ function updateMaterials(world: World, rt: PlanetRuntime, pr: PlanetRender): voi
     v.rot1 = [toPlanet[4]!, toPlanet[5]!, toPlanet[6]!, wrap(toPlanet[7]!)]
     v.rot2 = [toPlanet[8]!, toPlanet[9]!, toPlanet[10]!, wrap(toPlanet[11]!)]
     v.camera = [pr.camera[0]!, pr.camera[1]!, pr.camera[2]!, pr.camera[3]!]
+    // Normal tiles once the array exists (the ocean reads the resolution for its lock codes).
+    const tile = tileGeometry(s.resolution)
+    const on = pr.tiles !== undefined && material === pr.material && TerrainDebug.normalTiles
+    v.tiles = [s.resolution, on ? tile.size : 0, tile.perRow, TILE_LAYER]
   }
   const debug = debugMode(world)
   const dp = (pr.material.value as Record<string, number[]>).debugParams!
@@ -927,7 +1087,11 @@ function updateMaterials(world: World, rt: PlanetRuntime, pr: PlanetRender): voi
  * Debug shading (0 off, 1 biomes, 2 seams, 3 levels, 4 normals), for tests and tools. The
  * terrain-biomes and terrain-lod overlays turn modes 1 and 3 on too.
  */
-export const TerrainDebug = { mode: 0 }
+export const TerrainDebug = {
+  mode: 0,
+  /** False shades from vertex normals even where normal tiles exist (comparisons, tests). */
+  normalTiles: true,
+}
 
 function debugMode(world: World): number {
   const o = world.tryResource(DebugOverlays)
@@ -945,35 +1109,127 @@ function planetGpu(pr: PlanetRender, gpu: GpuContext): PlanetGpu {
   return pr.gpu
 }
 
+function gridResources(d: GPUDevice, label: string): GridResources {
+  return {
+    params: d.createBuffer({
+      label: `${label}/params`,
+      size: PARAMS_BYTES,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    }),
+    points: d.createBuffer({
+      label: `${label}/points`,
+      size: 16,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    }),
+    pointsSize: 16,
+    values: d.createBuffer({ label: `${label}/values`, size: 16, usage: GPUBufferUsage.STORAGE }),
+    valuesSize: 16,
+    origins: [undefined, undefined, undefined],
+    originSizes: [0, 0, 0],
+  }
+}
+
 function jobResources(pg: PlanetGpu, index: number): GpuJobResources {
   let r = pg.resources[index]
   if (!r) {
     const d = pg.gpu.device
     r = {
-      params: d.createBuffer({
-        label: 'terrain/params',
-        size: PARAMS_BYTES,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      }),
-      points: d.createBuffer({
-        label: 'terrain/points',
-        size: 16,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-      }),
-      pointsSize: 16,
-      values: d.createBuffer({ label: 'terrain/values', size: 16, usage: GPUBufferUsage.STORAGE }),
-      valuesSize: 16,
-      origins: [undefined, undefined, undefined],
-      originSizes: [0, 0, 0],
+      ...gridResources(d, 'terrain'),
       stats: d.createBuffer({
         label: 'terrain/stats',
         size: 16,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
       }),
+      fine: gridResources(d, 'terrain/tile'),
     }
     pg.resources[index] = r
   }
   return r
+}
+
+/** Uploads a grid's uniform, points, and origins into its resources; returns the sample bind group entries. */
+function uploadGrid(pg: PlanetGpu, r: GridResources, grid: JobGrid): GPUBindGroupEntry[] {
+  const device = pg.gpu.device
+  const storage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+  const p = sized(pg, r.points, grid.points.byteLength, r.pointsSize, storage, 'terrain/points')
+  r.points = p.buffer
+  r.pointsSize = p.size
+  const v = sized(
+    pg,
+    r.values,
+    grid.count * 12,
+    r.valuesSize,
+    GPUBufferUsage.STORAGE,
+    'terrain/values',
+  )
+  r.values = v.buffer
+  r.valuesSize = v.size
+  device.queue.writeBuffer(r.params, 0, grid.params)
+  device.queue.writeBuffer(r.points, 0, grid.points)
+  const entries: GPUBindGroupEntry[] = [
+    { binding: 0, resource: { buffer: r.params } },
+    { binding: 1, resource: { buffer: r.points } },
+    { binding: 2, resource: { buffer: r.values } },
+  ]
+  const origins = [grid.originsH, grid.originsT, grid.originsM]
+  for (let i = 0; i < 3; i++) {
+    const data = origins[i]!
+    if (data.length === 0) continue
+    const o = sized(
+      pg,
+      r.origins[i],
+      data.byteLength,
+      r.originSizes[i]!,
+      storage,
+      'terrain/origins',
+    )
+    r.origins[i] = o.buffer
+    r.originSizes[i] = o.size
+    device.queue.writeBuffer(o.buffer, 0, data)
+    entries.push({ binding: 3 + i, resource: { buffer: o.buffer } })
+  }
+  return entries
+}
+
+/**
+ * Makes sure the tile array has a tile for every slot: a new array with more layers when the pool
+ * grows, the old layers copied in, and the material pointed at it.
+ */
+function ensureTiles(
+  world: World,
+  rt: PlanetRuntime,
+  pr: PlanetRender,
+  encoder: GPUCommandEncoder,
+  after: (fn: () => void) => void,
+): GPUTexture | undefined {
+  const tile = tileGeometry(rt.settings!.resolution)
+  if (tile.size === 0) return undefined
+  const layers = Math.max(1, Math.ceil(pr.slots.length / tile.perLayer))
+  const assets = world.resource(GpuAssetsResource)
+  if (pr.tiles && pr.tiles.layers >= layers) return assets.texture(pr.tiles)?.texture
+  const next = Texture.gpu({ width: TILE_LAYER, height: TILE_LAYER, layers, format: 'rgba8unorm' })
+  const handle = assets.texture(next)!.texture
+  const textures = world.initResource(Textures)
+  const old = pr.tiles
+  if (old) {
+    const from = assets.texture(old)?.texture
+    if (from) {
+      encoder.copyTextureToTexture(
+        { texture: from },
+        { texture: handle },
+        { width: TILE_LAYER, height: TILE_LAYER, depthOrArrayLayers: old.layers },
+      )
+    }
+    const ref = pr.tilesRef
+    after(() => {
+      if (ref?.guid) textures.delete(ref.guid)
+    })
+  }
+  pr.tiles = next
+  pr.tilesRef = textures.add(next, 'terrain/normal-tiles')
+  ;(pr.material.value as Record<string, unknown>).normalTiles = pr.tilesRef
+  pr.material.version++
+  return handle
 }
 
 function sized(
@@ -1027,6 +1283,7 @@ function encodePlanet(
   const pg = planetGpu(pr, gpu)
   const k = kernelsOf(rt, pr)
   const pipelines: (GPUComputePipeline | undefined)[][] = []
+  let tilePipelines: (GPUComputePipeline | undefined)[] = [undefined, undefined]
   for (const kind of [TERRAIN, OCEAN]) {
     const graphs = kind === TERRAIN ? k.terrain : k.ocean
     const height = rt.height ? graphs[0] : undefined
@@ -1039,6 +1296,32 @@ function encodePlanet(
     const roots = registerKernel(library, key, height, temperature, moisture)
     const sampleModule = library.module(gpu, { root: roots.sample, label: 'terrain sample' })
     const vertexModule = library.module(gpu, { root: roots.vertices, label: 'terrain vertices' })
+    if (kind === TERRAIN) {
+      // Normal tiles sample the height graph alone.
+      const hKey = (height?.hash ?? '-').replace(/[^a-z0-9_]/gi, '')
+      const tileRoots = registerKernel(library, `${hKey}_h`, height, undefined, undefined)
+      const tileSample = library.module(gpu, {
+        root: tileRoots.sample,
+        label: 'terrain tile sample',
+      })
+      const normals = library.module(gpu, { root: tileRoots.normals, label: 'terrain normals' })
+      tilePipelines = [
+        tileSample
+          ? gpu.pipelines.compute({
+              label: `terrain/tile-sample/${hKey}`,
+              layout: 'auto',
+              compute: { module: tileSample, entryPoint: 'main' },
+            })
+          : undefined,
+        normals
+          ? gpu.pipelines.compute({
+              label: 'terrain/normals',
+              layout: 'auto',
+              compute: { module: normals, entryPoint: 'main' },
+            })
+          : undefined,
+      ]
+    }
     pipelines[kind] = [
       sampleModule
         ? gpu.pipelines.compute({
@@ -1057,12 +1340,16 @@ function encodePlanet(
     ]
   }
   const ocean = rt.settings!.ocean
+  const tilesOn = tileGeometry(rt.settings!.resolution).size > 0
   if (
     pipelines[TERRAIN]![0] &&
     pipelines[TERRAIN]![1] &&
+    (!tilesOn || (tilePipelines[0] && tilePipelines[1])) &&
     (!ocean || (pipelines[OCEAN]![0] && pipelines[OCEAN]![1]))
   )
     pr.kernelsReady = rt.version
+  const tiles = tilesOn ? ensureTiles(world, rt, pr, encoder, after) : undefined
+  const tile = tileGeometry(rt.settings!.resolution)
   const stride = slotStride(chunkLayout(rt.settings!.resolution).vertexCount)
   const device = gpu.device
   let index = 0
@@ -1078,65 +1365,76 @@ function encodePlanet(
       if (job.slot.jobId === job.id) job.slot.pending = false
       continue
     }
+    const [tileSample, normals] = tilePipelines
+    const needsTile = job.fine !== undefined && tiles !== undefined
     // A new version's jobs wait until the switch (syncVersion), then all run in one frame.
-    if (!sample || !vertices || job.version !== pr.shownVersion) {
+    if (
+      (!job.normalsOnly && (!sample || !vertices)) ||
+      (needsTile && (!tileSample || !normals)) ||
+      job.version !== pr.shownVersion
+    ) {
       remaining.push(job)
       continue
     }
     const r = jobResources(pg, index++)
-    const storage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-    const p = sized(pg, r.points, job.points.byteLength, r.pointsSize, storage, 'terrain/points')
-    r.points = p.buffer
-    r.pointsSize = p.size
-    const v = sized(
-      pg,
-      r.values,
-      job.count * 12,
-      r.valuesSize,
-      GPUBufferUsage.STORAGE,
-      'terrain/values',
-    )
-    r.values = v.buffer
-    r.valuesSize = v.size
-    device.queue.writeBuffer(r.params, 0, job.params)
-    device.queue.writeBuffer(r.points, 0, job.points)
-    device.queue.writeBuffer(r.stats, 0, statsInit)
-    const origins = [job.originsH, job.originsT, job.originsM]
-    for (let i = 0; i < 3; i++) {
-      const data = origins[i]!
-      if (data.length === 0) continue
-      const o = sized(
-        pg,
-        r.origins[i],
-        data.byteLength,
-        r.originSizes[i]!,
-        storage,
-        'terrain/origins',
+    pass ??= encoder.beginComputePass({
+      label: 'terrain/generate',
+      timestampWrites: timestamps('terrain/generate'),
+    })
+    if (needsTile) {
+      const fine = job.fine!
+      const entries = uploadGrid(pg, r.fine, fine)
+      pass.setPipeline(tileSample!)
+      pass.setBindGroup(
+        0,
+        device.createBindGroup({
+          label: 'terrain/tile-sample',
+          layout: tileSample!.getBindGroupLayout(0),
+          entries,
+        }),
       )
-      r.origins[i] = o.buffer
-      r.originSizes[i] = o.size
-      device.queue.writeBuffer(o.buffer, 0, data)
+      pass.dispatchWorkgroups(Math.ceil(fine.count / 64))
+      const layer = Math.floor(job.slot.id / tile.perLayer)
+      pass.setPipeline(normals!)
+      pass.setBindGroup(
+        0,
+        device.createBindGroup({
+          label: 'terrain/normals',
+          layout: normals!.getBindGroupLayout(0),
+          entries: [
+            entries[0]!,
+            entries[1]!,
+            entries[2]!,
+            {
+              binding: 3,
+              resource: tiles!.createView({
+                dimension: '2d',
+                baseArrayLayer: layer,
+                arrayLayerCount: 1,
+              }),
+            },
+          ],
+        }),
+      )
+      pass.dispatchWorkgroups(Math.ceil((tile.size * tile.size) / 64))
     }
+    if (job.normalsOnly) {
+      job.slot.pending = false
+      continue
+    }
+    device.queue.writeBuffer(r.stats, 0, statsInit)
+    const sampleEntries = uploadGrid(pg, r, job)
     const gm = assets.mesh(job.slot.mesh)
     // The slot's range of its arena's buffers.
     const base = gm.baseVertex
-    const sampleEntries: GPUBindGroupEntry[] = [
-      { binding: 0, resource: { buffer: r.params } },
-      { binding: 1, resource: { buffer: r.points } },
-      { binding: 2, resource: { buffer: r.values } },
-    ]
-    for (let i = 0; i < 3; i++) {
-      if (origins[i]!.length > 0)
-        sampleEntries.push({ binding: 3 + i, resource: { buffer: r.origins[i]! } })
-    }
     const sampleGroup = device.createBindGroup({
       label: 'terrain/sample',
-      layout: sample.getBindGroupLayout(0),
+      layout: sample!.getBindGroupLayout(0),
       entries: sampleEntries,
     })
     const vertexGroup = device.createBindGroup({
       label: 'terrain/vertices',
-      layout: vertices.getBindGroupLayout(0),
+      layout: vertices!.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: r.params } },
         { binding: 1, resource: { buffer: r.points } },
@@ -1149,14 +1447,10 @@ function encodePlanet(
         { binding: 8, resource: { buffer: r.stats } },
       ],
     })
-    pass ??= encoder.beginComputePass({
-      label: 'terrain/generate',
-      timestampWrites: timestamps('terrain/generate'),
-    })
-    pass.setPipeline(sample)
+    pass.setPipeline(sample!)
     pass.setBindGroup(0, sampleGroup)
     pass.dispatchWorkgroups(Math.ceil(job.count / 64))
-    pass.setPipeline(vertices)
+    pass.setPipeline(vertices!)
     pass.setBindGroup(0, vertexGroup)
     const n = rt.settings!.resolution
     pass.dispatchWorkgroups(Math.ceil((n * n) / 64))

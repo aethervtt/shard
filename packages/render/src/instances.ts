@@ -1204,6 +1204,78 @@ export class InstanceStore {
     return item
   }
 
+  /**
+   * False only when every instance of a small batch is hidden (Visibility), so views skip its
+   * draw. The GPU culler otherwise issues one indirect draw per batch, empty or not: a planet's
+   * pooled chunks are mostly hidden, and empty draws still cost their binds and calls.
+   */
+  anyVisible(batch: Batch): boolean {
+    const n = batch.memberCount
+    // LOD-set slots aren't members; big batches aren't worth the walk.
+    if (n === 0 || n !== batch.count || n > 8) return true
+    for (let i = 0; i < n; i++) {
+      if (this.u32[batch.members[i]! * INSTANCE_FLOATS + 13]! & InstanceFlags.Visible) return true
+    }
+    return false
+  }
+
+  private nearKeys = new Float64Array(0)
+  private nearItems: DrawItem[] = []
+
+  /**
+   * Reorders a camera's opaque draws nearest first within each run that shares a pipeline and
+   * material, so the depth test rejects hidden fragments before they're shaded (overdraw on heavy
+   * shaders, like terrain, costs the most). Pipeline and material switches stay as few as before.
+   * A batch's distance is its first member's origin: exact for single-instance draws (terrain
+   * chunks), a fair guess for instanced ones. No allocation after warm-up: one typed-array sort of
+   * packed keys (run, log distance, index).
+   */
+  orderNearFirst(list: DrawList, eye: ArrayLike<number>): void {
+    const n = list.length
+    if (n < 2 || n >= 1 << 16) return
+    if (this.nearKeys.length < n) this.nearKeys = new Float64Array(n * 2)
+    const keys = this.nearKeys.subarray(0, n)
+    const items = list.items
+    const f = this.f32
+    let run = 0
+    for (let i = 0; i < n; i++) {
+      const batch = items[i]!.batch
+      if (i > 0) {
+        const prev = items[i - 1]!.batch
+        // Runs also break between shared vertex buffers (GPU mesh arenas, like terrain chunks'):
+        // near first within each, so reordering never costs more buffer binds. Meshes with their
+        // own buffers bind per draw in any order.
+        const a = prev.mesh.gpu?.share
+        const b = batch.mesh.gpu?.share
+        if (
+          prev.material !== batch.material ||
+          this.batchKey(prev) !== this.batchKey(batch) ||
+          ((a !== undefined || b !== undefined) && a !== b)
+        )
+          run++
+      }
+      let q = 0
+      if (batch.memberCount > 0) {
+        const o = batch.members[0]! * INSTANCE_FLOATS
+        const dx = f[o + 3]! - eye[0]!
+        const dy = f[o + 7]! - eye[1]!
+        const dz = f[o + 11]! - eye[2]!
+        // log2(1 + d) · 2^19 fits 24 bits up to 10^8 m.
+        q = Math.min(
+          0xffffff,
+          Math.floor(Math.log2(1 + Math.sqrt(dx * dx + dy * dy + dz * dz)) * 524288),
+        )
+      }
+      // run (13 bits) · 2^40 + distance (24 bits) · 2^16 + index (16 bits): exact in a float64.
+      keys[i] = Math.min(run, 8191) * 1099511627776 + q * 65536 + i
+    }
+    if (run === n - 1) return // every run is one draw: nothing to reorder
+    keys.sort()
+    const copy = this.nearItems
+    for (let i = 0; i < n; i++) copy[i] = items[i]!
+    for (let i = 0; i < n; i++) items[i] = copy[keys[i]! % 65536]!
+  }
+
   /** Copies each batch's scratch into the shared visible array, in draw order. */
   pack(list: DrawList): void {
     list.length = 0

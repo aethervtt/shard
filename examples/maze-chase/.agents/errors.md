@@ -170,6 +170,8 @@ Every engine error is a `ShardError` with one of these codes.
 | `protocol/unknown-overlay` | @shard/protocol |  |
 | `protocol/unknown-resource` | @shard/protocol |  |
 | `protocol/unsettable-resource` | @shard/protocol | Only resources that are plain JSON objects can be set. |
+| `render/atmosphere-inside-ground` | @shard/render | Give it a positive thickness (Earth 60 000 m). |
+| `render/bad-vector` | @shard/render |  |
 | `render/capture-format` | @shard/render |  |
 | `render/duplicate-node` | @shard/render |  |
 | `render/graph-cycle` | @shard/render | Check reads/writes and `after` on these nodes. |
@@ -180,11 +182,13 @@ Every engine error is a `ShardError` with one of these codes.
 | `render/no-shadow-map` | @shard/render | Set shadows: true on the light, and check render.describe for the shadow budget. |
 | `render/no-view` | @shard/render | Spawn an entity with Camera3d, or pass the camera to pick from. |
 | `render/noise-graph-missing` | @shard/render | noise paths name *.noise.json assets, e.g. { detail: "assets/noise/rock.noise.json" }. |
+| `render/not-an-atmosphere` | @shard/render | Pass the entity that has render/Atmosphere (render.describe lists each camera’s). |
 | `render/not-ready` | @shard/render | Await app.init() so the render plugin can create the GPU device. |
 | `render/too-many-joints` | @shard/gltf | Split the mesh, or remove helper bones before exporting. |
 | `render/unknown-buffer` | @shard/render |  |
 | `render/unknown-camera` | @shard/render | Pass a Camera3d entity that has rendered at least one frame. |
 | `render/unknown-material-type` | @shard/render |  |
+| `render/which-atmosphere` | @shard/render | Pass entity: an entity with render/Atmosphere. |
 | `retarget/unmapped-root` | @shard/animation | Add it to the joint map (*.jointmap.json): { "joints": { "<source>": "<target>" } }. |
 | `save/bad-slot` | @shard/save | Slots are letters, digits, "-", and "_" (e.g. "slot1", "autosave"). |
 | `save/invalid` | @shard/save |  |

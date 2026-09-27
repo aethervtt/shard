@@ -1,9 +1,24 @@
-import { defineResource, defineSystem, First, Last, PostUpdate, type World } from '@shard/core'
+import {
+  defineResource,
+  defineSystem,
+  First,
+  Last,
+  PostUpdate,
+  ProfilerResource,
+  type World,
+} from '@shard/core'
 import { GpuBuffer, type GpuContext } from '@shard/gpu'
 import { definePlugin, LogResource, type Plugin, Time } from '@shard/runtime'
 import { setTextureCapabilities, Textures } from '@shard/texture'
 import { TransformSystems } from '@shard/transform'
 import { Materials, Meshes, RenderTargets } from './assets'
+import {
+  Atmospheres,
+  atmosphereMethods,
+  describeAtmospheres,
+  selectAtmospheres,
+} from './atmosphere'
+import { addAtmosphereNodes, uploadAtmospheres } from './atmosphere-nodes'
 import { applyPhysicalCameras } from './camera'
 import {
   CLUSTER_COUNT,
@@ -23,7 +38,6 @@ import {
   environmentParams,
   prepareEnvironments,
   runEnvironmentWork,
-  sunDiskLuminance,
 } from './environment'
 import { beginGizmos, Gizmos, gizmoNode, uploadGizmos } from './gizmos'
 import { GpuAssets, GpuAssetsResource } from './gpu-assets'
@@ -261,6 +275,8 @@ const queue = defineSystem({
       } else {
         store.cullCpu(cam.draws, params, undefined, cam.transparent, cam.forward, forwardOnly)
       }
+      // Nearest first within each pipeline and material: the depth test culls overdraw.
+      store.orderNearFirst(cam.draws, cam.position)
       if (view.order < mainOrder) {
         main = cam
         mainOrder = view.order
@@ -401,6 +417,7 @@ const ambientScratch = new Float32Array(3)
 const envScratch = new Float32Array(4)
 
 const jitterScratch = new Float32Array(4)
+const noTransmittance = new Float32Array(16).fill(1)
 
 function writeViewUniform(
   world: World,
@@ -439,6 +456,8 @@ function writeViewUniform(
     viewProjNoJitter: cam.viewProjNoJitter as never,
     prevViewProj: cam.prevViewProj as never,
     jitter: jitterScratch as never,
+    sunTransmittance: (world.tryResource(Atmospheres)?.cameras.get(cam.entity)?.sunTransmittance ??
+      noTransmittance) as never,
   })
   pv.uniform.write(new Float32Array(state.viewBytes.buffer, 0, viewLayout.size / 4))
 }
@@ -970,13 +989,15 @@ const environmentNode = {
   kind: 'raw' as const,
   phase: RenderPhase.Setup,
   enabled: isCamera,
+  // Atmosphere environments bake from the atmosphere LUTs.
+  reads: ['atmosphere-luts'],
   writes: ['environment'],
   run: runEnvironmentWork,
 }
 
-/** Draws the environment (skybox or procedural sky) wherever no geometry was drawn. */
+/** Draws the environment map (Skybox) wherever no geometry was drawn. Atmospheres draw their own. */
 function skyNode(state: ForwardState) {
-  const data = new Float32Array(20)
+  const data = new Float32Array(4)
   const buffers = new Map<
     string,
     { buffer: GpuBuffer; bindGroup: GPUBindGroup | undefined; bound: string }
@@ -987,8 +1008,8 @@ function skyNode(state: ForwardState) {
     enabled: (view: RenderView) => {
       const cam = cameraOf(view)
       if (!cam) return false
-      const entry = view.data.environment as { background: number } | undefined
-      return (entry?.background ?? -1) >= 0
+      const entry = view.data.environment as { background: number; sky: boolean } | undefined
+      return (entry?.background ?? -1) >= 0 && !entry?.sky
     },
     reads: ['environment'],
     writes: ['scene-color', 'hdr'],
@@ -1042,16 +1063,7 @@ function skyNode(state: ForwardState) {
         }
         buffers.set(ctx.view.name, b)
       }
-      const sky = env.kind === 'sky' ? env.sky : undefined
       data[0] = entry.background
-      data[1] = sky && sky.sunDiskSize > 0 ? 1 : 0
-      data[2] = ((0.2667 * Math.PI) / 180) * (sky?.sunDiskSize ?? 1)
-      data[3] = sky ? sunDiskLuminance(env) : 0
-      data.set(env.sun, 4)
-      data[8] = sky?.turbidity ?? 2
-      data[9] = sky?.rayleigh ?? 1
-      data[10] = sky?.mie ?? 1
-      data[11] = sky?.sunDiskSize ?? 1
       b.buffer.write(data)
       const key = `${gpu.generation}/${b.buffer.version}`
       if (!b.bindGroup || b.bound !== key) {
@@ -1248,6 +1260,7 @@ export function forwardPlugin(options: ForwardPluginOptions = {}): Plugin {
       w.initResource(LightingSettings)
       w.initResource(DefaultEnvironment)
       w.initResource(Environments)
+      w.initResource(Atmospheres)
       w.initResource(ViewSettings).msaa = options.msaa ?? 4
       w.initResource(Gizmos)
       w.initResource(DebugOverlays)
@@ -1266,16 +1279,19 @@ export function forwardPlugin(options: ForwardPluginOptions = {}): Plugin {
           Last,
           extractCameras.inSet(RenderSet.Extract),
           extractLights.inSet(RenderSet.Extract),
+          selectAtmospheres.inSet(RenderSet.Extract).after(extractCameras).after(extractLights),
           prepareInstances.inSet(RenderSet.Prepare),
           prepareDeforms.inSet(RenderSet.Prepare).after(prepareInstances),
           prepareLights.inSet(RenderSet.Prepare),
           prepareEnvironments.inSet(RenderSet.Prepare),
           queue.inSet(RenderSet.Queue),
           upload.inSet(RenderSet.Upload),
+          uploadAtmospheres.inSet(RenderSet.Upload),
           drawOverlays.inSet(RenderSet.Upload).after(upload),
           uploadGizmos.inSet(RenderSet.Upload).after(drawOverlays),
         )
         .addSystems(First, beginGizmos)
+      app.addMethod(...atmosphereMethods)
     },
     ready(app) {
       const gpu = app.world.resource(Gpu)
@@ -1333,6 +1349,11 @@ export function forwardPlugin(options: ForwardPluginOptions = {}): Plugin {
       describers.set('environment', (world) => describeEnvironment(world))
       describers.set('culling', (world) => describeCulling(world))
       describers.set('post', (world) => describePost(world))
+      describers.set('atmosphere', (world) =>
+        describeAtmospheres(world, world.tryResource(ProfilerResource)?.all()),
+      )
+      // Atmosphere LUTs first: the environment prefilter bakes atmospheres from them.
+      addAtmosphereNodes(app.world)
       graph.addNode('environment', environmentNode)
       graph.addNode('instance-cull', cullNode(state))
       graph.addNode('light-clusters', clusterNode(state))

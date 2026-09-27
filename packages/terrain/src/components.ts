@@ -53,6 +53,12 @@ export const Planet = defineComponent(
       min: 0.1,
       description: 'A chunk splits when its geometric error covers more pixels than this.',
     }),
+    vertexPixels: t.f32({
+      default: 4,
+      min: 0,
+      description:
+        'Finest on-screen vertex spacing: however rough the terrain, chunks stop splitting once their vertices are this many pixels apart (smaller triangles cost GPU time and show nothing; normal tiles keep the finer relief in the shading). Vertices then morph a few px per frame in fast descents instead of under one. 0: no limit.',
+    }),
     colliderRadius: t.f32({
       default: 96,
       min: 0,
@@ -127,6 +133,12 @@ export const Chunk = defineComponent(
 export interface TerrainBudgetValue {
   /** Chunks generated per frame, at most. */
   chunksPerFrame: number
+  /**
+   * Terrain triangles on screen per planet, at most (0: no limit). Past it the planet's detail
+   * coarsens a little each frame (a bias on errorPixels) until it fits, and refines back when
+   * there's room: frame time holds at any resolution and on any GPU.
+   */
+  triangles: number
   /** GPU milliseconds per frame for generation (timestamp queries where available). */
   msPerFrame: number
   /** Render chunk slots per planet (meshes kept, evicted least recently used). */
@@ -138,5 +150,11 @@ export interface TerrainBudgetValue {
 export const TerrainBudget = defineResource<TerrainBudgetValue>('terrain/Budget', {
   description:
     'How much terrain work a frame may do: chunk generations, GPU milliseconds, and how many chunks stay cached.',
-  init: () => ({ chunksPerFrame: 8, msPerFrame: 1.5, pool: 2048, colliderCache: 256 }),
+  init: () => ({
+    chunksPerFrame: 8,
+    triangles: 2_000_000,
+    msPerFrame: 1.5,
+    pool: 2048,
+    colliderCache: 256,
+  }),
 })

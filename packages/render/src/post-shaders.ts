@@ -20,6 +20,7 @@ struct PrepassVertex {
   @location(5) @interpolate(flat) flags: u32,
   @location(6) current: vec4f,
   @location(7) previous: vec4f,
+  @location(8) extra: vec4f,
 }
 
 struct PrepassOutput {
@@ -41,6 +42,7 @@ fn prepass_vertex(instance_index: u32, vertex_index: u32, position: vec3f, norma
   out.uv1 = m.uv1;
   out.world_tangent = m.world_tangent;
   out.flags = m.flags;
+  out.extra = m.extra;
   out.current = view.viewProjNoJitter * vec4f(m.world_position, 1.0);
   let before = previous_world(instance_index, vertex_position(d.position, d.normal, uv));
   out.previous = view.prevViewProj * vec4f(before, 1.0);
@@ -56,6 +58,7 @@ fn surface_of(in: PrepassVertex) -> VertexOutput {
   v.uv1 = in.uv1;
   v.world_tangent = in.world_tangent;
   v.flags = in.flags;
+  v.extra = in.extra;
   return v;
 }
 
@@ -194,7 +197,7 @@ fn optical_depth(y0: f32, dir_y: f32, t0: f32, t1: f32) -> f32 {
     let mu = dot(dir, normalize(light.direction));
     let g = 0.76;
     let hg = (1.0 - g * g) / (4.0 * PI * pow(1.0 + g * g - 2.0 * g * mu, 1.5));
-    sun = light.color * mix(1.0 / (4.0 * PI), hg, fog.sun);
+    sun = light.color * view.sunTransmittance[0].rgb * mix(1.0 / (4.0 * PI), hg, fog.sun);
   }
   let inscatter = fog.color.rgb * (sky + sun) * view.exposure;
   return vec4f(c.rgb * transmittance + inscatter * (1.0 - transmittance), c.a);

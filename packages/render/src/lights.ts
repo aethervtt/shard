@@ -78,10 +78,18 @@ export const DirectionalLight = defineComponent(
     }),
     ...shadowFields({ bias: 0.02, normalBias: 1.5 }),
     cascades: CascadeSettings,
+    angularDiameter: t.f32({
+      default: 0.53,
+      min: 0,
+      max: 30,
+      unit: 'deg',
+      description:
+        "The sun disk's size in an atmosphere's sky (the Sun 0.53°). 0: no disk. Illuminance is at the top of the atmosphere.",
+    }),
   },
   {
     description:
-      'Sun-like light shining along its -Z axis. Up to 4 are lit; the first with shadows gets cascaded shadow maps.',
+      'Sun-like light shining along its -Z axis. Up to 4 are lit; the first with shadows gets cascaded shadow maps. Inside an Atmosphere its light is dimmed and reddened by the air toward it, and the brightest two draw sun disks.',
     requires: [Transform],
   },
 )
@@ -227,7 +235,7 @@ export class LightStore {
   uploadedLights = 0
   uploadedBytes = 0
   readonly buffer: GpuBuffer
-  /** Directional lights: count + up to 4 × (direction, shadow cascade flag, color × lux). */
+  /** Directional lights: count + up to 4 × (direction, shadow cascade flag, color × lux, disk radius). */
   readonly directional: GpuBuffer
   readonly directionalData = new Float32Array(4 + MAX_DIRECTIONAL * 8)
   readonly directionalU32 = new Uint32Array(this.directionalData.buffer)
@@ -511,6 +519,7 @@ export const extractLights = defineSystem({
       const lux = table.column(DirectionalLight, 'illuminance')
       const shadows = table.column(DirectionalLight, 'shadows')
       const cascades = table.column(DirectionalLight, 'cascades')
+      const angular = table.column(DirectionalLight, 'angularDiameter')
       for (let i = 0; i < table.count && count < MAX_DIRECTIONAL; i++) {
         const o = 4 + count * 8
         // Toward the light: the +Z column of the light's world matrix.
@@ -526,7 +535,8 @@ export const extractLights = defineSystem({
         d[o + 4] = color[i * 4]! * lux[i]!
         d[o + 5] = color[i * 4 + 1]! * lux[i]!
         d[o + 6] = color[i * 4 + 2]! * lux[i]!
-        d[o + 7] = 0
+        // Angular radius (rad), for sun disks.
+        d[o + 7] = (angular[i]! * Math.PI) / 360
         if (shadowed) {
           const c = cascades[i] as { count: number; maxDistance: number; splitLambda: number }
           store.shadowSun = {

@@ -195,6 +195,14 @@ applied in the cull pass.
     uploaded dirty slots, so everything uploaded before the 257th instance vanished. Growing the
     instance or previous-transform buffer now marks every live slot dirty. Tested in
     `instances.test.ts`.
+- Found by planet terrain at 2460×1790 (with 0044):
+  - GPU culling issued one indirect draw per live batch, visible or not. A planet keeps ~2 000
+    pooled chunks, mostly hidden, so ~1 200 empty draws a frame each paid their binds and calls.
+    Views now skip small batches (up to 8 members) whose instances are all hidden.
+  - Opaque draws went in batch order, so far terrain was shaded before near terrain covered it.
+    Camera views now order opaque draws nearest first within each run sharing a pipeline, a
+    material, and (for GPU mesh arenas) vertex buffers, so reordering never adds binds: one
+    typed-array sort of packed keys, no allocation. GPU frame at 2460×1790, MSAA 4×: 12.1 → 10.1 ms.
 
 ## Open questions
 

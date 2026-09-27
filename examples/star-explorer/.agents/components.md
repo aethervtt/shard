@@ -511,6 +511,41 @@ Brings along: `render/Camera3d`.
 |---|---|---|---|---|
 | `mode` | `"none"` \| `"fxaa"` \| `"taa"` \| `"msaa"` | `"msaa"` |  | msaa: 4 samples, forward views only; fxaa: cheap edge smoothing after tonemapping; taa: jittered frames blended over time (smoothest, also cleans shading); none. |
 
+## `render/Atmosphere`
+
+A planet's atmosphere (Hillaire 2020): the sky from the surface, flight, and orbit, haze over distant terrain, and sunlight dimmed and reddened on its way down. Centered on the entity's origin. Presets (AtmospherePresets): earth, mars, thin, thick-haze, alien-violet, gas-giant.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `bottomRadius` | number | `0` | ≥ 0, m | Where the atmosphere starts: the visible surface, or a gas giant's cloud top. 0: the entity's terrain/Planet radius, else 6 360 km (Earth 6 360 000, Mars 3 389 500). |
+| `thickness` | number | `60000` | m | Top radius = bottomRadius + thickness. Earth 60 000–100 000, Mars 80 000. |
+| `rayleighScattering` | number[3] | `[0.000005802,0.000013558,0.0000331]` | 1/m | Molecular scattering at the bottom, red/green/blue. Blue above red makes a blue sky and orange sunsets; swap them for a red sky with blue sunsets. Earth [5.8e-6, 13.6e-6, 33.1e-6], Mars about 2% of that. |
+| `rayleighScale` | number | `8000` | ≥ 1, m | Rayleigh scale height: the air thins by e every this many metres. Earth 8 000, Mars 11 100. |
+| `mieScattering` | number | `0.000003996` | ≥ 0, 1/m | Aerosol (dust, haze) scattering at the bottom: the white glow around the sun and hazy horizons. Earth 4e-6 (very clear) to 1e-4 (hazy), Mars dust 3e-5. |
+| `mieAbsorption` | number | `0.0000044` | ≥ 0, 1/m | Aerosol absorption: darker, dirtier haze. Earth 4.4e-6. |
+| `mieScale` | number | `1200` | ≥ 1, m | Aerosol scale height. Earth 1 200, Mars dust 11 000. |
+| `mieG` | number | `0.8` | ≥ -0.99, ≤ 0.99 | Aerosol forward scattering: 0 even, 0.8 a tight bright halo around the sun. |
+| `mieGOffset` | number[3] | `[0,0,0]` |  | Added to mieG per channel (red, green, blue). Fine dust that scatters blue more forward, like Mars' [-0.15, 0, 0.2], gives a blue glow around a setting sun. |
+| `absorption` | number[3] | `[6.5e-7,0.000001881,8.5e-8]` | 1/m | Ozone-like absorption in a tent-shaped layer, red/green/blue: Earth's ozone absorbs green and red, keeping twilight skies blue. Methane-like [3e-6, 0.3e-6, 0] gives Neptune blues. |
+| `absorptionCenter` | number | `25000` | m | Altitude of the absorbing layer. Earth 25 000; 0 with a wide layer for dust near the ground. |
+| `absorptionWidth` | number | `30000` | ≥ 1, m | Full width of the absorbing layer. Earth 30 000. |
+| `groundAlbedo` | string or number[4] | `[0.3,0.3,0.3,1]` |  | Surface color below the horizon and for light bounced into the sky. Earth 0.3, Mars [0.45, 0.25, 0.15]. |
+| `intensity` | number | `1` | ≥ 0 | Artistic multiplier on the sky and haze brightness. 1 is physical. |
+| `deckDepth` | number | `0` | ≥ 0, m | Gas giants: the depth below bottomRadius over which haze thickens to opaque cloud. 0 (default): a solid surface at bottomRadius. |
+
+## `render/AtmosphereSettings`
+
+A camera's atmosphere quality settings.
+
+Brings along: `render/Camera3d`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `aerialPerspective` | boolean | `true` |  | Haze over geometry (distant terrain turns blue). False: only the sky. |
+| `skyViewSize` | number[2] | `[192,108]` |  | Sky-view LUT size (azimuth × elevation). |
+| `froxels` | number[3] | `[32,32,32]` |  | Aerial-perspective volume size (x, y, depth slices). |
+| `maxDistance` | number | `32000` | ≥ 100, m | The froxel volume reaches at least this far, and from altitude on to the horizon and the peaks past it; beyond it the haze is raymarched per pixel. |
+
 ## `render/AutoExposure`
 
 Adapts Exposure.ev100 to the scene's measured brightness each frame, starting from the camera's exposure (PhysicalCamera included).
@@ -597,7 +632,7 @@ Brings along: `render/Camera3d`.
 
 ## `render/DirectionalLight`
 
-Sun-like light shining along its -Z axis. Up to 4 are lit; the first with shadows gets cascaded shadow maps.
+Sun-like light shining along its -Z axis. Up to 4 are lit; the first with shadows gets cascaded shadow maps. Inside an Atmosphere its light is dimmed and reddened by the air toward it, and the brightest two draw sun disks.
 
 Brings along: `core/Transform`.
 
@@ -610,6 +645,7 @@ Brings along: `core/Transform`.
 | `shadowNormalBias` | number | `1.5` | ≥ 0 | Moves receivers along their normal, in shadow-map texels. Fixes acne at grazing angles. |
 | `shadowSoftness` | number | `0` | ≥ 0 | PCF filter radius in texels beyond the base 3x3 (0 = 3x3). Softer edges. |
 | `cascades` | object | `{"count":4,"maxDistance":150,"splitLambda":0.8}` |  | How cascaded shadow maps divide the view. |
+| `angularDiameter` | number | `0.53` | ≥ 0, ≤ 30, deg | The sun disk's size in an atmosphere's sky (the Sun 0.53°). 0: no disk. Illuminance is at the top of the atmosphere. |
 
 ## `render/EnvironmentMap`
 
@@ -631,7 +667,7 @@ Camera exposure in EV100. Presets: sunny 15.3, daylight 12, overcast 8.6, indoor
 
 ## `render/Fog`
 
-Exponential height fog, lit by the environment (or ambient light) and the sun. Applied to everything, sky included.
+Exponential height fog along world Y, lit by the environment (or ambient light) and the sun. Applied to everything, sky included. On planets, Atmosphere hazes distance instead.
 
 Brings along: `render/Camera3d`.
 
@@ -642,6 +678,7 @@ Brings along: `render/Camera3d`.
 | `heightFalloff` | number | `0.1` | ≥ 0, 1/m | How fast fog thins with height (0: uniform). |
 | `start` | number | `0` | ≥ 0, m | Clear distance from the camera. |
 | `sunScattering` | number | `0.5` | ≥ 0, ≤ 1 | Glow toward the sun (forward scattering). |
+| `mode` | `"default"` \| `"add"` | `"default"` |  | default: fog for flat scenes, ignored inside a planet's Atmosphere (render/fog-with-atmosphere); add: extra ground fog on top of the atmosphere's haze. |
 
 ## `render/InstanceData`
 
@@ -769,7 +806,7 @@ Brings along: `core/Transform`.
 
 ## `render/ProceduralSky`
 
-A single-scattering atmosphere lit by the brightest DirectionalLight, in cd/m² consistent with its illuminance. Drawn as the background, and baked into the environment so image-based lighting follows the time of day.
+An Earth sky seen from 10 m above the ground wherever the camera is: an Atmosphere (spec 0044) lit by the two brightest DirectionalLights, in cd/m² consistent with their illuminance. Drawn as the background, and baked into the environment so image-based lighting follows the time of day. For skies you can fly out of, put an Atmosphere on the planet instead.
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
@@ -777,7 +814,7 @@ A single-scattering atmosphere lit by the brightest DirectionalLight, in cd/m² 
 | `rayleigh` | number | `1` | ≥ 0 | Multiplies molecular (blue) scattering. |
 | `mie` | number | `1` | ≥ 0 | Multiplies aerosol (white haze) scattering. |
 | `groundAlbedo` | string or number[4] | `[0.3,0.3,0.3,1]` |  | Ground below the horizon. |
-| `sunDiskSize` | number | `1` | ≥ 0 | Sun disk radius, as a multiple of the real sun's (0.27°). 0 hides the disk. |
+| `sunDiskSize` | number | `1` | ≥ 0 | Sun disk size, as a multiple of the DirectionalLight's angularDiameter (the Sun's 0.53°). 0 hides the disk. |
 
 ## `render/RenderPath`
 
@@ -884,6 +921,7 @@ Tonemapping for a camera. Without it, cameras use the default curve with ditheri
 | `viewProjNoJitter` | number[16] | `[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]` |  |  |
 | `prevViewProj` | number[16] | `[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]` |  |  |
 | `jitter` | number[4] | `[0,0,0,0]` |  |  |
+| `sunTransmittance` | number[16] | `[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]` |  |  |
 
 ## `render/Vignette`
 
@@ -1145,6 +1183,7 @@ Planet ocean: a lit transparent surface with scrolling wave normals.
 | `rot1` | number[4] | `[0,0,0,0]` |  |  |
 | `rot2` | number[4] | `[0,0,0,0]` |  |  |
 | `camera` | number[4] | `[0,0,0,0]` |  | Set by the terrain: the selecting camera (xyz) and pixels per radian / errorPixels (w). |
+| `tiles` | number[4] | `[0,0,0,0]` |  | Set by the terrain: vertices per chunk edge, normal-tile edge (0: no tiles), tiles per layer row, layer size. |
 | `shallow` | string or number[4] | `[0.05,0.35,0.4,1]` |  | Color over shallow ground. |
 | `deep` | string or number[4] | `[0.005,0.03,0.08,1]` |  | Color over deep water. |
 | `water` | number[4] | `[0.08,0.25,0.35,0.04]` |  | x: color depth falloff (1/m), y: opacity falloff (1/m), z: minimum opacity, w: roughness. |
@@ -1169,6 +1208,7 @@ Brings along: `transform/Grid`, `core/Transform`, `render/Visibility`.
 | `resolution` | integer | `33` | ≥ 5, ≤ 129 | Vertices per chunk edge, 2^n + 1. |
 | `minSpacing` | number | `0.4` | ≥ 0.01, m | Finest vertex spacing: sets the deepest quadtree level. |
 | `errorPixels` | number | `2` | ≥ 0.1 | A chunk splits when its geometric error covers more pixels than this. |
+| `vertexPixels` | number | `4` | ≥ 0 | Finest on-screen vertex spacing: however rough the terrain, chunks stop splitting once their vertices are this many pixels apart (smaller triangles cost GPU time and show nothing; normal tiles keep the finer relief in the shading). Vertices then morph a few px per frame in fast descents instead of under one. 0: no limit. |
 | `colliderRadius` | number | `96` | ≥ 0, m | Collider chunks (and full-detail rendering) within this distance of every TerrainAnchor, character, and dynamic body. |
 | `skirts` | boolean | `true` |  | Walls under chunk edges that hide cracks while neighbors change level. |
 
@@ -1209,12 +1249,14 @@ Planet terrain: biome blending and triplanar texture-array layers, with geomorph
 | `albedoArray` | null or Texture ref | `null` |  | The BiomeSet’s albedo array. |
 | `normalArray` | null or Texture ref | `null` |  | The BiomeSet’s normal map array. |
 | `ormArray` | null or Texture ref | `null` |  | The BiomeSet’s occlusion/roughness/metallic array. |
+| `normalTiles` | null or Texture ref | `null` |  | Set by the terrain: every chunk’s normals at twice its vertex density, one tile per slot. |
 | `biomeTable` | null or Texture ref | `null` |  | Set by the terrain: biome ranges, tints, and layers as a small float texture. |
 | `center` | number[4] | `[0,0,0,0]` |  | Set by the terrain every frame: the planet center (origin frame) and radius. |
 | `rot0` | number[4] | `[0,0,0,0]` |  | Set by the terrain: origin → planet rotation rows (xyz), planet-space texture origin (w). |
 | `rot1` | number[4] | `[0,0,0,0]` |  |  |
 | `rot2` | number[4] | `[0,0,0,0]` |  |  |
 | `camera` | number[4] | `[0,0,0,0]` |  | Set by the terrain: the selecting camera (xyz) and pixels per radian / errorPixels (w). |
+| `tiles` | number[4] | `[0,0,0,0]` |  | Set by the terrain: vertices per chunk edge, normal-tile edge (0: no tiles), tiles per layer row, layer size. |
 | `biomeParams` | number[4] | `[0,0,0,0]` |  | Set by the terrain: biome count, latitude bias, snow line, texture period. |
 | `debugParams` | number[4] | `[0,0,0,0]` |  | Set by the terrain: debug mode (0 off, 1 dominant biome, 2 seams, 3 levels), far-texturing distance, has ORM, 0. |
 

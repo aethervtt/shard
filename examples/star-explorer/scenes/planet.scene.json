@@ -1,9 +1,6 @@
 {
   "$schema": "../.shard/schemas/scene.schema.json",
   "version": 1,
-  "resources": {
-    "render/AmbientLight": { "color": [0.6, 0.7, 1], "brightness": 600 }
-  },
   "entities": [
     {
       "name": "sun",
@@ -26,7 +23,8 @@
           "ocean": true,
           "seaLevel": 0
         },
-        "physics/GravitySource": { "strength": 9.81, "radius": 600000 }
+        "physics/GravitySource": { "strength": 9.81, "radius": 600000 },
+        "render/Atmosphere": { "thickness": 40000 }
       },
       "children": [
         {

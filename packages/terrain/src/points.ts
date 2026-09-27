@@ -108,7 +108,35 @@ export function createChunkPoints(): ChunkPoints {
 let tableCell = new Int32Array(0)
 let tableGroup = new Int32Array(0)
 
-/** Fills `out` with a node's sample points (origins `snap` metres apart, default `SNAP`). */
+/** A face-edge's worth of metres at a depth (a quarter circle over 2^depth chunks). */
+const chunkMetres = (radius: number, depth: number) => (radius * Math.PI) / 2 / 2 ** depth
+
+/**
+ * Trailing zero bits of a grid index (0 counts as `cap`): how many levels up it's still a vertex.
+ */
+function trailingZeros(i: number, cap: number): number {
+  if (i === 0) return cap
+  let v = i < 0 ? -i : i
+  let z = 0
+  while ((v & 1) === 0 && z < cap) {
+    v >>>= 1
+    z++
+  }
+  return z
+}
+
+const levelSnaps = new Float64Array(32)
+/** The coarsest point lattice (m). */
+const MAX_SNAP = 4096
+
+/**
+ * Fills `out` with a node's sample points, grouped by lattice origins `snap` metres apart. Without
+ * `snap`, each point's lattice follows its level (the coarsest depth it's a vertex at, from its
+ * grid index): SNAP for points only fine chunks have, up to a quarter of a chunk at that level (at
+ * most 4 096 m) for coarser vertices. Every chunk sampling a point picks the same lattice, so shared vertices stay
+ * bit-identical across chunks and depths, while a coarse chunk's points fall into a few groups
+ * instead of one each (their per-octave origins were most of a job's upload).
+ */
 export function prepareChunkPoints(
   face: number,
   depth: number,
@@ -117,7 +145,7 @@ export function prepareChunkPoints(
   resolution: number,
   radius: number,
   out: ChunkPoints,
-  snap = SNAP,
+  snap?: number,
 ): ChunkPoints {
   const side = resolution + 2
   const count = side * side
@@ -136,9 +164,21 @@ export function prepareChunkPoints(
   const gj0 = y * (resolution - 1) - 1
   const slots = highBit(count * 4)
   if (tableGroup.length < slots) {
-    tableCell = new Int32Array(slots * 3)
+    tableCell = new Int32Array(slots * 4)
     tableGroup = new Int32Array(slots)
   }
+  // Lattice per level: the smallest power-of-two multiple of SNAP at least a quarter chunk there,
+  // at most MAX_SNAP (offsets within 2 km keep f32 inputs to a quarter millimetre).
+  const levels = Math.min(depth, 31)
+  for (let L = 0; L <= levels; L++) {
+    let sn = SNAP
+    const size = chunkMetres(radius, L)
+    while (sn * 4 < size && sn < MAX_SNAP) sn *= 2
+    levelSnaps[L] = snap ?? sn
+  }
+  // Grid indices at this depth have `resolution − 1` segments per node; level-0 vertices every
+  // 2^depth of them.
+  const segBits = Math.round(Math.log2(resolution - 1))
   const mask = slots - 1
   tableGroup.fill(-1, 0, slots)
   let groups = 0
@@ -146,36 +186,46 @@ export function prepareChunkPoints(
   for (let J = 0; J < side; J++) {
     for (let I = 0; I < side; I++) {
       const k = I + J * side
-      gridDirection(face, gi0 + I, gj0 + J, size, d, k * 3)
+      const gi = gi0 + I
+      const gj = gj0 + J
+      gridDirection(face, gi, gj, size, d, k * 3)
+      // The point's level: a vertex at depth − (common trailing zeros past the node segments).
+      const tz = Math.min(trailingZeros(gi, depth + segBits), trailingZeros(gj, depth + segBits))
+      const level = Math.max(0, depth - Math.max(0, tz))
+      const sn = levelSnaps[Math.min(level, levels)]!
       const px = d[k * 3]! * radius + NOISE_OFFSET[0]
       const py = d[k * 3 + 1]! * radius + NOISE_OFFSET[1]
       const pz = d[k * 3 + 2]! * radius + NOISE_OFFSET[2]
-      const cx = Math.round(px / snap)
-      const cy = Math.round(py / snap)
-      const cz = Math.round(pz / snap)
-      let h = hashCell(cx, cy, cz) & mask
+      const cx = Math.round(px / sn)
+      const cy = Math.round(py / sn)
+      const cz = Math.round(pz / sn)
+      let h = (hashCell(cx, cy, cz) ^ Math.imul(sn, 0x27d4eb2d)) & mask
       while (
         tableGroup[h] !== -1 &&
-        (tableCell[h * 3] !== cx || tableCell[h * 3 + 1] !== cy || tableCell[h * 3 + 2] !== cz)
+        (tableCell[h * 4] !== cx ||
+          tableCell[h * 4 + 1] !== cy ||
+          tableCell[h * 4 + 2] !== cz ||
+          tableCell[h * 4 + 3] !== sn)
       )
         h = (h + 1) & mask
       let g: number
       if (tableGroup[h] !== -1) g = tableGroup[h]!
       else {
-        tableCell[h * 3] = cx
-        tableCell[h * 3 + 1] = cy
-        tableCell[h * 3 + 2] = cz
+        tableCell[h * 4] = cx
+        tableCell[h * 4 + 1] = cy
+        tableCell[h * 4 + 2] = cz
+        tableCell[h * 4 + 3] = sn
         g = groups++
         tableGroup[h] = g
-        out.origins[g * 4] = cx * snap
-        out.origins[g * 4 + 1] = cy * snap
-        out.origins[g * 4 + 2] = cz * snap
+        out.origins[g * 4] = cx * sn
+        out.origins[g * 4 + 1] = cy * sn
+        out.origins[g * 4 + 2] = cz * sn
         out.origins[g * 4 + 3] = 0
       }
       out.group[k] = g
-      out.local[k * 3] = px - cx * snap
-      out.local[k * 3 + 1] = py - cy * snap
-      out.local[k * 3 + 2] = pz - cz * snap
+      out.local[k * 3] = px - cx * sn
+      out.local[k * 3 + 1] = py - cy * sn
+      out.local[k * 3 + 2] = pz - cz * sn
     }
   }
   out.groups = groups

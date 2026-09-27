@@ -1,4 +1,5 @@
-import { dirname } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { quat } from '@shard/core'
 import type { GpuContext } from '@shard/gpu'
@@ -211,6 +212,29 @@ describe('image-based lighting', () => {
   })
 })
 
+/** Mean CIE76 ΔE between two sRGB RGBA8 images (D65). */
+function meanDeltaE(a: Uint8Array, b: Uint8Array): number {
+  const lab = (d: Uint8Array, o: number) => {
+    const lin = [0, 1, 2].map((c) => {
+      const v = d[o + c]! / 255
+      return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4
+    })
+    const [r, g, b] = lin as [number, number, number]
+    const x = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047
+    const y = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    const z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883
+    const f = (t: number) => (t > 216 / 24389 ? Math.cbrt(t) : ((24389 / 27) * t + 16) / 116)
+    return [116 * f(y) - 16, 500 * (f(x) - f(y)), 200 * (f(y) - f(z))]
+  }
+  let sum = 0
+  for (let o = 0; o < a.length; o += 4) {
+    const p = lab(a, o)
+    const q = lab(b, o)
+    sum += Math.hypot(p[0]! - q[0]!, p[1]! - q[1]!, p[2]! - q[2]!)
+  }
+  return sum / (a.length / 4)
+}
+
 describe('procedural sky', () => {
   const rad = (deg: number) => (deg * Math.PI) / 180
 
@@ -251,9 +275,13 @@ describe('procedural sky', () => {
     for (const elevation of [60, 10, -2]) {
       const { app, world, cam } = await skyScene(elevation)
       const image = await renderView(app, `camera:${cam}`)
-      expect(
-        compareGolden(here, `sky-${elevation < 0 ? 'm' : ''}${Math.abs(elevation)}`, image).mean,
-      ).toBeLessThan(1.5)
+      const name = `${elevation < 0 ? 'm' : ''}${Math.abs(elevation)}`
+      expect(compareGolden(here, `sky-${name}`, image).mean).toBeLessThan(1.5)
+      // Against 0019's single-scattering sky: ProceduralSky is now an Earth Atmosphere (spec 0044),
+      // lighter with multiple scattering (mean ΔE 7.6 at 60°, 7.0 at 10°). After sunset 0019 went
+      // black; the twilight sky now stays lit (ΔE 24).
+      const before = new Uint8Array(readFileSync(join(here, '__golden__', `sky-0019-${name}.rgba`)))
+      expect(meanDeltaE(before, image.data)).toBeLessThan(elevation < 0 ? 26 : 8.5)
       // The sky high above the horizon, in HDR (cd/m²).
       const shot = captureBuffer(world, `camera:${cam}`, 'hdr')
       app.update(1 / 60)

@@ -235,9 +235,9 @@ function specFor(
   }
 }
 
-/** How far skirts hang: past any morph mismatch between neighbors at this depth. */
+/** How far skirts hang: past any morph mismatch between neighbors at this depth (true errors). */
 export function skirtDepth(planet: PlanetRuntime, depth: number): number {
-  return 2 * (planet.errors[Math.max(0, depth - 1)] ?? 0) + planet.spacing(depth)
+  return 2 * (planet.rawErrors[Math.max(0, depth - 1)] ?? 0) + planet.spacing(depth)
 }
 
 /**

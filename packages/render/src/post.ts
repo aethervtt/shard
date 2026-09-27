@@ -196,10 +196,14 @@ export const Fog = defineComponent(
       max: 1,
       description: 'Glow toward the sun (forward scattering).',
     }),
+    mode: t.enum(['default', 'add'], {
+      description:
+        "default: fog for flat scenes, ignored inside a planet's Atmosphere (render/fog-with-atmosphere); add: extra ground fog on top of the atmosphere's haze.",
+    }),
   },
   {
     description:
-      'Exponential height fog, lit by the environment (or ambient light) and the sun. Applied to everything, sky included.',
+      'Exponential height fog along world Y, lit by the environment (or ambient light) and the sun. Applied to everything, sky included. On planets, Atmosphere hazes distance instead.',
     requires: [Camera3d],
   },
 )
@@ -267,10 +271,13 @@ export const PostEffect = {
   Ssao: 128,
   Grading: 256,
   Vignette: 512,
+  /** Aerial perspective of the camera's atmospheres (spec 0044). */
+  Atmosphere: 1024,
 } as const
 
 /** The HDR effects that each read the previous one's output, in the fixed order. */
 export const HDR_CHAIN = [
+  ['atmosphere', PostEffect.Atmosphere],
   ['fog', PostEffect.Fog],
   ['taa', PostEffect.Taa],
   ['motion-blur', PostEffect.MotionBlur],
@@ -309,6 +316,8 @@ export interface PostSettings {
     heightFalloff: number
     start: number
     sunScattering: number
+    /** 0 default, 1 add. */
+    mode: number
   }
   grading: {
     temperature: number
@@ -339,6 +348,7 @@ export function createPostSettings(): PostSettings {
       heightFalloff: 0,
       start: 0,
       sunScattering: 0,
+      mode: 0,
     },
     grading: {
       temperature: 0,
@@ -430,6 +440,7 @@ export function extractPost(
     f.heightFalloff = table.column(Fog, 'heightFalloff')[row]!
     f.start = table.column(Fog, 'start')[row]!
     f.sunScattering = table.column(Fog, 'sunScattering')[row]!
+    f.mode = table.column(Fog, 'mode')[row]!
   }
   if (table.has(ColorGrading)) {
     effects |= PostEffect.Grading
@@ -499,7 +510,8 @@ export function postAliases(
   base: Readonly<Record<string, string>>,
 ): Readonly<Record<string, string>> {
   const effects = cam.post.effects
-  const key = (effects & 0xff) * 4 + (cam.msaa > 1 ? 1 : 0) + (cam.deferred ? 2 : 0)
+  const chain = (effects & 0xff) | (effects & PostEffect.Atmosphere ? 0x100 : 0)
+  const key = chain * 4 + (cam.msaa > 1 ? 1 : 0) + (cam.deferred ? 2 : 0)
   let aliases = aliasCache.get(key)
   if (!aliases) {
     const out: Record<string, string> = { ...base }
