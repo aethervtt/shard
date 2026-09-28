@@ -4,7 +4,8 @@
 //   pnpm size            print the table and write report.json
 //   pnpm size --json     print the report as JSON
 //   pnpm size --check    fail if a fixture's brotli size is over budgets.json by more than 2%
-//                        (--budgets <file> checks against another file)
+//                        (--budgets <file> checks against another file), or if it bundles a
+//                        package its budget forbids
 
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
@@ -19,6 +20,7 @@ const args = new Set(process.argv.slice(2))
 const FIXTURES = {
   'renderer-min': join(here, 'fixtures/renderer-min'),
   'three-min': join(here, 'fixtures/three-min'),
+  'physics-track': join(here, 'fixtures/physics-track'),
   full: join(repo, 'apps/playground'),
 }
 
@@ -133,10 +135,13 @@ if (args.has('--check')) {
   for (const [name, budget] of Object.entries(budgets.fixtures)) {
     const got = report.fixtures[name]?.brotli
     if (!got) continue
-    for (const [key, limit] of Object.entries(budget)) {
+    const { forbid = [], ...limits } = budget
+    for (const [key, limit] of Object.entries(limits)) {
       if (got[key] > limit * 1.02)
         over.push(`${name} ${key}: ${kb(got[key])} over its budget of ${kb(limit)}`)
     }
+    const bundled = new Set(report.fixtures[name].chunks.flatMap((c) => Object.keys(c.packages)))
+    for (const pkg of forbid) if (bundled.has(pkg)) over.push(`${name} bundles ${pkg}`)
   }
   if (over.length > 0) {
     console.error(`\nOver budget:\n  ${over.join('\n  ')}`)

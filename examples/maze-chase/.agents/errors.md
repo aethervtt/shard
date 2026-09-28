@@ -47,6 +47,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `assets/not-loaded` | @aethervtt/shard-assets |  |
 | `assets/outside-roots` | @aethervtt/shard-assets |  |
 | `assets/read-only` | @aethervtt/shard-assets | Use the CLI or Studio, which can write to the project folder. |
+| `assets/registry-conflict` | @aethervtt/shard-assets | Two definitions (two apps or bundles) share the name. Rename one, or share the definition. |
 | `assets/unknown-importer` | @aethervtt/shard-assets | Remove "importer" from the .meta to pick one by file extension. |
 | `assets/unknown-type` | @aethervtt/shard-assets | Define it (project.dataAsset) before loading its files. |
 | `audio/decode-failed` | @aethervtt/shard-audio | Re-import the file (shard import --json). |
@@ -66,6 +67,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `gltf/invalid` | @aethervtt/shard-gltf | Only glTF 2.0 files are supported. |
 | `gltf/tangents-unavailable` | @aethervtt/shard-gltf |  |
 | `gltf/unsupported-extension` | @aethervtt/shard-gltf |  |
+| `gpu/duplicate-surface` | @aethervtt/shard-gpu | Share the Surface itself (renderPlugin({ gpu, surface })), or remove it first. |
 | `gpu/missing-feature` | @aethervtt/shard-gpu |  |
 | `gpu/no-adapter` | @aethervtt/shard-gpu |  |
 | `gpu/no-context` | @aethervtt/shard-gpu |  |
@@ -109,7 +111,16 @@ Every engine error is a `ShardError` with one of these codes.
 | `physics/character-has-body` | @aethervtt/shard-physics | The controller makes its own kinematic body and capsule. Remove RigidBody and Collider, or put extra colliders on a child. |
 | `physics/invalid-shape` | @aethervtt/shard-physics | Check radius, halfExtents, halfHeight, points, or the mesh. |
 | `physics/not-ready` | @aethervtt/shard-physics | Add the physics3d or physics2d plugin and await app.init() before querying. |
+| `physics/track-body` | @aethervtt/shard-physics |  |
+| `physics/track-cancelled` | @aethervtt/shard-physics | Its signal was aborted or its client disposed: nothing to fix, record again when needed. |
+| `physics/track-client-disposed` | @aethervtt/shard-physics | Create another with createTrackClient. |
+| `physics/track-diverged` | @aethervtt/shard-physics | Check its speed, mass and colliders; a smaller step or ccd can help. |
+| `physics/track-invalid` | @aethervtt/shard-physics | Pass the ArrayBuffer encodeTrack made, whole. |
+| `physics/track-scene` | @aethervtt/shard-physics | See TrackScene in @aethervtt/shard-physics/track. |
+| `physics/track-version` | @aethervtt/shard-physics | Record it again with this build, or play it with the build that recorded it. |
+| `physics/unknown-settle-rule` | @aethervtt/shard-physics |  |
 | `physics/unsupported-shape` | @aethervtt/shard-physics | 2D shapes: ball, cuboid, capsule, convex, trimesh, heightfield, segment, polyline. |
+| `physics/worker-crashed` | @aethervtt/shard-physics | The next recording starts a new worker. |
 | `platform/bad-storage-key` | @aethervtt/shard-platform-node | Keys are relative paths like "saves/slot1.json". |
 | `platform/fs-not-found` | @aethervtt/shard-platform-node |  |
 | `platform/fs-read-only` | @aethervtt/shard-platform-web | Writes need a writable host such as Studio or the CLI. |
@@ -173,7 +184,9 @@ Every engine error is a `ShardError` with one of these codes.
 | `render/atmosphere-inside-ground` | @aethervtt/shard-render | Give it a positive thickness (Earth 60 000 m). |
 | `render/bad-vector` | @aethervtt/shard-render |  |
 | `render/capture-format` | @aethervtt/shard-render |  |
+| `render/disposed` | @aethervtt/shard-render |  |
 | `render/duplicate-node` | @aethervtt/shard-render |  |
+| `render/feature-missing` | @aethervtt/shard-render | Add materialNoisePlugin from '@aethervtt/shard-render/noise'. |
 | `render/graph-cycle` | @aethervtt/shard-render | Check reads/writes and `after` on these nodes. |
 | `render/material-field-clash` | @aethervtt/shard-render | Give the field another name, or use extends: "none". |
 | `render/material-noise-name` | @aethervtt/shard-render | Use lowercase letters, digits, and underscores: { detail: "assets/noise/rock.noise.json" }. |
@@ -183,12 +196,15 @@ Every engine error is a `ShardError` with one of these codes.
 | `render/noise-graph-missing` | @aethervtt/shard-render | noise paths name *.noise.json assets, e.g. { detail: "assets/noise/rock.noise.json" }. |
 | `render/not-an-atmosphere` | @aethervtt/shard-render | Pass the entity that has render/Atmosphere (render.describe lists each camera’s). |
 | `render/not-ready` | @aethervtt/shard-render | Await app.init() so the render plugin can create the GPU device. |
+| `render/registry-conflict` | @aethervtt/shard-render | Two definitions (two apps or bundles) share the name. Rename one, or share the definition. |
+| `render/surface-device` | @aethervtt/shard-render | Pass the GpuContext the surface was added to (surface.gpu), or omit gpu. |
 | `render/too-many-joints` | @aethervtt/shard-gltf | Split the mesh, or remove helper bones before exporting. |
 | `render/unknown-buffer` | @aethervtt/shard-render |  |
 | `render/unknown-camera` | @aethervtt/shard-render | Pass a Camera3d entity that has rendered at least one frame. |
 | `render/unknown-material-type` | @aethervtt/shard-render |  |
 | `render/which-atmosphere` | @aethervtt/shard-render | Pass entity: an entity with render/Atmosphere. |
 | `retarget/unmapped-root` | @aethervtt/shard-animation | Add it to the joint map (*.jointmap.json): { "joints": { "<source>": "<target>" } }. |
+| `runtime/disposed` | @aethervtt/shard-runtime | Create a new App; a disposed one has released its GPU objects and listeners. |
 | `save/bad-slot` | @aethervtt/shard-save | Slots are letters, digits, "-", and "_" (e.g. "slot1", "autosave"). |
 | `save/invalid` | @aethervtt/shard-save |  |
 | `save/invalid-settings` | @aethervtt/shard-save |  |
@@ -235,6 +251,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `schema/unknown-field` | @aethervtt/shard-ui |  |
 | `schema/unknown-preset` | @aethervtt/shard-core |  |
 | `schema/unresolved-entity` | @aethervtt/shard-core | Entity paths are resolved by the scene loader; check the path exists. |
+| `shader/bake-version` | @aethervtt/shard-shader | Bake again with this version of Shard. |
 | `shader/compile` | @aethervtt/shard-shader |  |
 | `shader/hook-signature-mismatch` | @aethervtt/shard-shader |  |
 | `shader/invalid-path` | @aethervtt/shard-shader | Use lowercase `package::dir::name`, e.g. `project::water`. |

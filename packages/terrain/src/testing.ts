@@ -51,7 +51,7 @@ export async function walkChecksum(characters = 4, seconds = 3): Promise<WalkRes
   const t0 = performance.now()
   await loadNoiseKernel()
   const graph = NoiseGraph.fromJson(WALK_PLANET)
-  const app = new App().addPlugin(TransformPlugin, physics3dPlugin, terrainPlugin())
+  const app = new App().addPlugin(TransformPlugin, physics3dPlugin(), terrainPlugin())
   await app.init()
   const w = app.world
   const R = 6.371e6

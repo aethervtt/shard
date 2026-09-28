@@ -12,6 +12,7 @@
     "@aethervtt/shard-core": "workspace:*",
     "@aethervtt/shard-gpu": "workspace:*",
     "@aethervtt/shard-mesh": "workspace:*",
+    "@aethervtt/shard-physics": "workspace:*",
     "@aethervtt/shard-render": "workspace:*",
     "@aethervtt/shard-runtime": "workspace:*",
     "@aethervtt/shard-shader": "workspace:*",

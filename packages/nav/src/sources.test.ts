@@ -78,7 +78,7 @@ describe('grid sources', () => {
   })
 
   it('rasterizes fixed 2D colliders, not dynamic ones', async () => {
-    const a = await navApp(physics2dPlugin)
+    const a = await navApp(physics2dPlugin())
     const w = a.world
     // A wall filling column 5 (x 5..6) from y 0 to 6.
     w.spawn(

@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Shard Playground: embedding (0052)</title>
+    <title>Shard Playground: embedding (0052, 0053)</title>
     <style>
       html, body { margin: 0; height: 100%; background: #111318; color: #d8dce6; font: 13px system-ui, sans-serif; overflow: hidden; }
       /* A stand-in for a VTT: a top bar, the table, a chat column, and a card over the table. */
@@ -27,8 +27,10 @@
   <body>
     <div id="layout">
       <div id="bar">
-        <strong>Embedding demo (0052)</strong>
+        <strong>Embedding demo (0052, 0053)</strong>
         <button type="button" data-action="roll">roll dice</button>
+        <button type="button" data-action="live">live roll</button>
+        <button type="button" data-action="cancel">cancel a roll</button>
         <button type="button" data-action="sparks">sparks</button>
         <button type="button" data-action="mount">unmount dice</button>
         <button type="button" data-action="cycle">20 mount/unmount cycles</button>
@@ -43,6 +45,7 @@
         <p><b>Brom:</b> Shadows should land on this text, and the glow should brighten it without hiding it.</p>
         <p><b>GM:</b> Nothing renders while the dice rest: watch rAF calls/s in the corner.</p>
         <p><b>Ayla:</b> Hovering the table wakes it; hovering here doesn't.</p>
+        <p><b>Brom:</b> Rolls are recorded in a worker and replayed: the same throw lands the same on every machine.</p>
       </div>
     </div>
     <div id="card">

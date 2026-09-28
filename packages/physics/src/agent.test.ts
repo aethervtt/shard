@@ -77,7 +77,7 @@ async function start(): Promise<{ app: App; server: ProtocolServer }> {
     renderPlugin({ gpu, windowView: false }),
     forwardPlugin({ msaa: 1 }),
     ScenePlugin,
-    physics3dPlugin,
+    physics3dPlugin(),
   )
   await app.init()
   loadScene(app.world, scene)
@@ -239,7 +239,7 @@ describe('physics through scenes and the protocol', () => {
       TransformPlugin,
       renderPlugin({ gpu, windowView: false }),
       forwardPlugin({ msaa: 1 }),
-      physics2dPlugin,
+      physics2dPlugin(),
     )
     await app.init()
     const w = app.world

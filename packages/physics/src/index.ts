@@ -29,13 +29,21 @@ export {
   Velocity,
 } from './components'
 export { physicsMethods } from './methods'
-export { Physics, PhysicsSystems, physics, physics2dPlugin, physics3dPlugin } from './plugin'
+export {
+  Physics,
+  type PhysicsPluginOptions,
+  PhysicsSystems,
+  physics,
+  physics2dPlugin,
+  physics3dPlugin,
+} from './plugin'
+export { type LoadRapierOptions, loadRapier, type Rapier, type RapierVariant } from './rapier'
 export {
   type BodyRecord,
   CHARACTER_OFFSET,
   type CharacterRecord,
   createRayHit,
-  loadRapier,
+  type MeshLookup,
   type PhysicsStats,
   PhysicsWorld,
   type QueryOptions,

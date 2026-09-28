@@ -844,6 +844,14 @@ How a camera shades opaque geometry. Materials work in both; custom-lit and tran
 |---|---|---|---|---|
 | `mode` | `"forward"` \| `"deferred"` | `"forward"` |  | forward: simpler, supports MSAA, fine up to a few hundred lights. deferred: lights each pixel once (heavy overdraw, many lights) and gives G-buffer effects; anti-alias with FXAA or TAA. |
 
+## `render/ShadowCatcher`
+
+Invisible except for the shadows it receives: under a camera clearing to alpha 0 they fall on the page (a dice tray floor). Give its mesh NotShadowCaster.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `opacity` | number | `0.6` | ≥ 0, ≤ 1 | Alpha of full shadow. Partial shadow (penumbra, one of two lights) is less. |
+
 ## `render/SkinnedMesh`
 
 Deforms the mesh by its joints' transforms (linear blend skinning, 4 influences), in every pass that draws it. Culling bounds follow the pose.

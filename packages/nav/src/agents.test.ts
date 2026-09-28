@@ -69,7 +69,7 @@ describe('navmesh agents', () => {
   })
 
   it('walks a character up a ramp by CharacterIntent, grounded all the way', async () => {
-    const a = await navApp(physics3dPlugin)
+    const a = await navApp(physics3dPlugin())
     const w = a.world
     // Solid ground for physics and the bake: fixed bodies tagged as nav sources.
     const floor = slab(w, 0, 0, 10, 10, 0)
@@ -102,7 +102,7 @@ describe('navmesh agents', () => {
   })
 
   it('jumps a character across an off-mesh link without sinking into the ground', async () => {
-    const a = await navApp(physics3dPlugin)
+    const a = await navApp(physics3dPlugin())
     const w = a.world
     // Ground (top 0) up to x = 10, then a ledge (top 1.2) too tall to step onto.
     const ground = slab(w, 0, 0, 10, 6, 0)

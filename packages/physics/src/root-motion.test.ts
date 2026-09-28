@@ -12,7 +12,7 @@ import { CharacterController, Collider, RigidBody } from './components'
 import { physics3dPlugin } from './plugin'
 
 it("root motion 'character' walks a character controller the clip's distance", async () => {
-  const a = new App().addPlugin(TransformPlugin, ScenePlugin, animationPlugin, physics3dPlugin)
+  const a = new App().addPlugin(TransformPlugin, ScenePlugin, animationPlugin, physics3dPlugin())
   await a.init()
   const w = a.world
   w.spawn(

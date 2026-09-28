@@ -24,7 +24,7 @@ import { createRayHit } from './world'
 const SLOPE = (20 * Math.PI) / 180
 
 it('on a 20° slope, foot placement puts both feet on the ground, lowers the hips, and aligns the feet to the normal', async () => {
-  const app = new App().addPlugin(TransformPlugin, ScenePlugin, animationPlugin, physics3dPlugin)
+  const app = new App().addPlugin(TransformPlugin, ScenePlugin, animationPlugin, physics3dPlugin())
   await app.init()
   const w = app.world
   // Ground rising toward +X, its top surface through the origin.

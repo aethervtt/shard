@@ -43,7 +43,7 @@ describe('navigation on a planet (spec 0043)', () => {
   it('walks a NavAgent 120 m across several chunks and navmesh tiles', {
     timeout: timeout(240_000),
   }, async () => {
-    const app = new App().addPlugin(TransformPlugin, physics3dPlugin, navPlugin, terrainPlugin())
+    const app = new App().addPlugin(TransformPlugin, physics3dPlugin(), navPlugin, terrainPlugin())
     await app.init()
     const w = app.world
     w.resource(PhysicsConfig).gravity = [0, 0, 0]

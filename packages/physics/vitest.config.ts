@@ -6,6 +6,8 @@ const slow = process.env.SHARD_CI ? 5 : 1
 
 export default defineConfig({
   test: {
+    // --expose-gc: allocation checks force a collection before counting GC events.
+    execArgv: ['--expose-gc'],
     hookTimeout: 10_000 * slow,
     ...testFiles(),
     testTimeout: 20_000 * slow,

@@ -5,7 +5,7 @@ import { Meshes } from '@aethervtt/shard-render'
 import { App, animationFrameRunner, FixedTime, FrameDemand, Time } from '@aethervtt/shard-runtime'
 import { fakeAnimationFrames } from '@aethervtt/shard-runtime/testing'
 import { Transform, TransformPlugin, transform2d, worldPosition } from '@aethervtt/shard-transform'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import {
   Collider,
   CollisionEvent,
@@ -24,8 +24,20 @@ import { createRayHit } from './world'
 
 const DT = 1 / 60
 
+// Every suite runs on both Rapier builds (0053): the deterministic one must behave the same.
+const VARIANTS = ['regular', 'deterministic'] as const
+let variant: (typeof VARIANTS)[number] = 'regular'
+const useVariant = (v: typeof variant) =>
+  beforeEach(() => {
+    variant = v
+  })
+
 async function app(dim: 2 | 3 = 3, setup?: (app: App) => void): Promise<App> {
-  const a = new App().addPlugin(TransformPlugin, dim === 3 ? physics3dPlugin : physics2dPlugin)
+  const options = { deterministic: variant === 'deterministic' }
+  const a = new App().addPlugin(
+    TransformPlugin,
+    dim === 3 ? physics3dPlugin(options) : physics2dPlugin(options),
+  )
   await a.init()
   setup?.(a)
   return a
@@ -65,7 +77,18 @@ function landingStep(a: App, e: Entity, max = 200): number {
   return -1
 }
 
-describe('physics 3d', () => {
+describe.each(VARIANTS)('physics 3d (%s)', (v) => {
+  useVariant(v)
+
+  it('runs on the requested Rapier build, and physics.describe says which', async () => {
+    const a = await app()
+    const p = a.world.resource(Physics)
+    expect(p.variant).toBe(v)
+    expect(p.R.version()).toBe('0.20.0')
+    const method = a.methods.find((m) => m.name === 'physics.describe')!
+    expect(method.handler({ app: a, world: a.world }, {})).toMatchObject({ variant: v })
+  })
+
   it('lands a dropped body when free fall predicts, within one step', async () => {
     const a = await app()
     ground(a.world)
@@ -390,12 +413,14 @@ describe('physics 3d', () => {
   })
 
   it('refuses both dimensions in one app', async () => {
-    const a = new App().addPlugin(TransformPlugin, physics3dPlugin, physics2dPlugin)
+    const a = new App().addPlugin(TransformPlugin, physics3dPlugin(), physics2dPlugin())
     await expect(a.init()).rejects.toMatchObject({ code: 'physics/both-dimensions' })
   })
 })
 
-describe('physics 2d', () => {
+describe.each(VARIANTS)('physics 2d (%s)', (v) => {
+  useVariant(v)
+
   it('drops a body under free fall onto a polyline and keeps z', async () => {
     const a = await app(2)
     a.world.spawn(
@@ -676,7 +701,9 @@ describe('physics 2d', () => {
   })
 })
 
-describe('on-demand frames (0052)', () => {
+describe.each(VARIANTS)('on-demand frames (0052, %s)', (v) => {
+  useVariant(v)
+
   it('keeps frames running while a body falls, and stops once it sleeps', async () => {
     const fake = fakeAnimationFrames()
     try {

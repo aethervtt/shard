@@ -16,6 +16,7 @@ import {
   screenshot,
   serve,
   testCommand,
+  track,
   validate,
 } from './commands'
 import { dev } from './dev'
@@ -55,6 +56,10 @@ const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; 
   bake: {
     run: bake,
     help: 'bake nav [--scene p] [--force]  bake navmeshes into .shard/cache/nav',
+  },
+  track: {
+    run: track,
+    help: 'track <scene.json> [--out f]     record a physics track; prints its hash',
   },
   test: { run: testCommand, help: 'test [pattern]                  gameplay tests in tests/' },
   describe: {

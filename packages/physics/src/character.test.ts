@@ -22,7 +22,7 @@ const DT = 1 / 60
 const HALF = 0.9
 
 async function app(dim: 2 | 3 = 3): Promise<App> {
-  const a = new App().addPlugin(TransformPlugin, dim === 3 ? physics3dPlugin : physics2dPlugin)
+  const a = new App().addPlugin(TransformPlugin, dim === 3 ? physics3dPlugin() : physics2dPlugin())
   await a.init()
   return a
 }

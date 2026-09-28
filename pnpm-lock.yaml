@@ -260,6 +260,9 @@ importers:
       '@aethervtt/shard-mesh':
         specifier: workspace:*
         version: link:../../packages/mesh
+      '@aethervtt/shard-physics':
+        specifier: workspace:*
+        version: link:../../packages/physics
       '@aethervtt/shard-render':
         specifier: workspace:*
         version: link:../../packages/render
@@ -773,7 +776,13 @@ importers:
       '@dimforge/rapier2d-compat':
         specifier: 0.20.0
         version: 0.20.0
+      '@dimforge/rapier2d-deterministic-compat':
+        specifier: 0.20.0
+        version: 0.20.0
       '@dimforge/rapier3d-compat':
+        specifier: 0.20.0
+        version: 0.20.0
+      '@dimforge/rapier3d-deterministic-compat':
         specifier: 0.20.0
         version: 0.20.0
     devDependencies:
@@ -798,6 +807,9 @@ importers:
       '@webgpu/types':
         specifier: ^0.1.74
         version: 0.1.74
+      tsx:
+        specifier: ^4.23.15
+        version: 4.23.15
       webgpu:
         specifier: 0.6.1
         version: 0.6.1
@@ -1534,8 +1546,14 @@ packages:
   '@dimforge/rapier2d-compat@0.20.0':
     resolution: {integrity: sha512-FFYwGrfJov7d5kn4fxblG/ip5C+sYQL+Jl/hqLvDvu4BcMD/Mhrz7cTvnZTtuIRDXY8CLuraObqB/prip4wdWQ==}
 
+  '@dimforge/rapier2d-deterministic-compat@0.20.0':
+    resolution: {integrity: sha512-xeGwfjhOSrolAtf4Ov7GJ0f0IzVd+bmyyFPlVcv6m5AZtruFYA521ToF2xr3ZXMEIopYrGI46UCO6r0zb29KLg==}
+
   '@dimforge/rapier3d-compat@0.20.0':
     resolution: {integrity: sha512-X4W9pJBdGRX5CO3c/gUNjBFEFG2fn4nYxp9k8STdBDaLa0/w5XTW2ArpayS+9jGFojTi3uFSOWAElCd4rkpekA==}
+
+  '@dimforge/rapier3d-deterministic-compat@0.20.0':
+    resolution: {integrity: sha512-kODprI9mdSm6idjbCuyRmwyVbSqFL3wvY7wOvu//eJqbqRjYc9pUMI0bSLBZt/IV+Vwzkh/Xi9nGVBJLnJgWOg==}
 
   '@esbuild/aix-ppc64@0.28.2':
     resolution: {integrity: sha512-XExcO+dvLKvVtNTibSTBej1NCAbaGhWn9Ww1ZPx80qsahhPFe/8jgWP0IchNe0F3HwkU7n8ejhH8bjonqht8mQ==}
@@ -2795,7 +2813,11 @@ snapshots:
 
   '@dimforge/rapier2d-compat@0.20.0': {}
 
+  '@dimforge/rapier2d-deterministic-compat@0.20.0': {}
+
   '@dimforge/rapier3d-compat@0.20.0': {}
+
+  '@dimforge/rapier3d-deterministic-compat@0.20.0': {}
 
   '@esbuild/aix-ppc64@0.28.2':
     optional: true

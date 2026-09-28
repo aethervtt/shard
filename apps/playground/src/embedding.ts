@@ -1,8 +1,19 @@
 // Embedding (0052): a fake VTT page with two apps on one GPU device. The table renders opaque into
 // its canvas; the dice render into a transparent canvas over the whole page, HTML included. Both
 // run on demand: with nothing moving, the page requests no animation frames at all.
+//
+// Tracks (0053): a roll is recorded in a worker on Rapier's deterministic build, then played back
+// on the dice. The live roll runs the ECS physics on the regular build: two builds, one page.
 
-import { type Entity, quat, Rng } from '@aethervtt/shard-core'
+import {
+  defineSystem,
+  type Entity,
+  quat,
+  Rng,
+  type ShardError,
+  Update,
+  type World,
+} from '@aethervtt/shard-core'
 import { createGpuContext, type GpuContext, type GpuStats } from '@aethervtt/shard-gpu'
 import { inputPlugin } from '@aethervtt/shard-input'
 import { cube, cylinder, plane } from '@aethervtt/shard-mesh'
@@ -12,7 +23,17 @@ import {
   ParticleSystem,
   particlesPlugin,
 } from '@aethervtt/shard-particles'
-import { Collider, physics3dPlugin, RigidBody, Velocity } from '@aethervtt/shard-physics'
+import { Collider, Physics, physics3dPlugin, RigidBody, Velocity } from '@aethervtt/shard-physics'
+import {
+  sampleTrack,
+  TRACK_ENGINE,
+  type Track,
+  type TrackCollider,
+  type TrackScene,
+  trackHash,
+  trackSceneFromJson,
+} from '@aethervtt/shard-physics/track'
+import { createTrackClient, type TrackClient, trackWorker } from '@aethervtt/shard-physics/worker'
 import { createDomInputSource } from '@aethervtt/shard-platform-web'
 import {
   AmbientLight,
@@ -31,8 +52,17 @@ import {
   renderPlugin,
   ShadowCatcher,
 } from '@aethervtt/shard-render'
-import { App, animationFrameRunner, FrameDemand, LogResource, Time } from '@aethervtt/shard-runtime'
+import {
+  App,
+  animationFrameRunner,
+  FrameDemand,
+  LogResource,
+  type Plugin,
+  Time,
+} from '@aethervtt/shard-runtime'
 import { lookAt, Transform, TransformPlugin } from '@aethervtt/shard-transform'
+// The 0053 golden track: Node records it in the physics tests; this page records it in Chromium.
+import golden from '../../../packages/physics/src/track/golden.json'
 
 const tableCanvas = document.getElementById('table') as HTMLCanvasElement
 const diceCanvas = document.getElementById('dice') as HTMLCanvasElement
@@ -162,6 +192,65 @@ interface Dice {
   app: App
   dice: Entity[]
   sparks: Entity | undefined
+  /** Records tracks in a worker; disposed with the app. */
+  tracks: TrackClient
+  /** The roll still recording, which a new roll cancels. */
+  recording: AbortController | undefined
+}
+
+/** What the HUD shows about tracks. */
+const trackNotes = {
+  golden: 'recording…',
+  last: '—',
+  cancel: '—',
+}
+
+// --- track playback: sampled every frame, holding the dice app awake until it ends -------------
+
+interface Playback {
+  track: Track
+  dice: Entity[]
+  time: number
+}
+
+const playbacks = new WeakMap<World, Playback>()
+const pose = { pos: new Float64Array(3), rot: new Float64Array(4) }
+
+const playTracks = defineSystem({
+  name: 'embedding/play-tracks',
+  run: (_, world) => {
+    const p = playbacks.get(world)
+    if (!p) return
+    // A frame after a long idle gap doesn't skip the throw.
+    p.time += Math.min(world.resource(Time).delta, 1 / 20)
+    const { pos, rot } = pose
+    for (let i = 0; i < p.dice.length; i++) {
+      if (!world.isAlive(p.dice[i]!)) continue
+      sampleTrack(p.track, p.time, i, pos, rot)
+      world.set(p.dice[i]!, Transform, {
+        translation: [pos[0]!, pos[1]!, pos[2]!],
+        rotation: [rot[0]!, rot[1]!, rot[2]!, rot[3]!],
+      })
+    }
+    const done = p.time >= p.track.steps * p.track.step
+    world.resource(FrameDemand).set('dice-track', !done)
+    if (done) playbacks.delete(world)
+  },
+})
+
+/** Stops a playback mid-way, letting go of the frames it held. */
+function stopPlayback(world: World): void {
+  playbacks.delete(world)
+  world.resource(FrameDemand).set('dice-track', false)
+}
+
+function trackPlugin(tracks: TrackClient): Plugin {
+  return {
+    name: 'embedding/dice-tracks',
+    build: (app) => void app.addSystems(Update, playTracks),
+    // The worker goes with the app (0052 teardown): 20 mount cycles leave no workers behind.
+    dispose: () => tracks.dispose(),
+  }
 }
 
 const rng = new Rng(7)
@@ -193,12 +282,15 @@ const SPARKS = ParticleEffect.fromJson({
 
 async function mountDice(): Promise<Dice> {
   const surface = gpu.addSurface(diceCanvas, { alpha: 'premultiplied', label: 'dice' })
+  const tracks = createTrackClient({ spawn: trackWorker })
   const app = new App().addPlugin(
     TransformPlugin,
     renderPlugin({ gpu, surface, owner: 'dice' }),
     forwardPlugin(),
-    physics3dPlugin,
+    // The live roll: ECS physics on the main thread, on the regular build.
+    physics3dPlugin(),
     particlesPlugin,
+    trackPlugin(tracks),
   )
   await app.init()
   const w = app.world
@@ -248,13 +340,118 @@ async function mountDice(): Promise<Dice> {
   meterFrames(app)
   app.setRunner(runner())
   void app.run()
-  return { app, dice: [], sparks: undefined }
+  // Load the worker's WASM now, so the first roll doesn't wait for it.
+  void tracks.ready().catch(() => {})
+  return { app, dice: [], sparks: undefined, tracks, recording: undefined }
+}
+
+// --- rolling -------------------------------------------------------------------------------------
+
+/** The tray as track colliders: the same floor and walls as the dice app's ECS colliders. */
+const TRAY: TrackCollider[] = [
+  { shape: 'cuboid', halfExtents: [8, 0.5, 8], translation: [0, -0.5, 0], ...surface(0.6, 0.3) },
+  ...(
+    [
+      [0, -4, 6, 0.2],
+      [0, 3, 6, 0.2],
+      [-5.5, 0, 0.2, 5],
+      [5.5, 0, 0.2, 5],
+    ] as const
+  ).map(
+    ([x, z, hx, hz]): TrackCollider => ({
+      shape: 'cuboid',
+      halfExtents: [hx, 2, hz],
+      translation: [x, 2, z],
+      ...surface(0.3, 0.4),
+    }),
+  ),
+]
+
+function surface(friction: number, restitution: number) {
+  return { friction, restitution, density: 1 }
+}
+
+/** A throw of `count` dice from the tray's right side. The page computes every number. */
+function throwScene(count: number, maxSteps = 600): TrackScene {
+  return {
+    version: 1,
+    dim: 3,
+    step: 1 / 60,
+    maxSteps,
+    gravity: [0, -9.81, 0],
+    fixed: TRAY,
+    bodies: Array.from({ length: count }, (_, i) => ({
+      id: `d6-${i}`,
+      translation: [
+        4 + (i % 3) * 0.3,
+        2 + (i % 3) * 0.7 + Math.floor(i / 3) * 0.8,
+        rng.range(-1, 1),
+      ],
+      rotation: q(rng.range(0, 360), rng.range(0, 360), 0),
+      linear: [rng.range(-7, -4), rng.range(1, 3), rng.range(-2, 2)],
+      angular: [rng.range(-15, 15), rng.range(-15, 15), rng.range(-15, 15)],
+      colliders: [{ shape: 'cuboid', halfExtents: [0.3, 0.3, 0.3], ...surface(0.6, 0.3) }],
+      ccd: true,
+    })),
+  }
+}
+
+const hex = (h: number) => h.toString(16).padStart(8, '0')
+const isCancel = (err: unknown) => (err as ShardError).code === 'physics/track-cancelled'
+
+/** Host code throwing dice: records a track in the worker, then plays it on the dice. */
+async function roll(d: Dice, count = 3): Promise<void> {
+  d.recording?.abort()
+  const recording = new AbortController()
+  d.recording = recording
+  const started = performance.now()
+  let track: Track
+  try {
+    track = await d.tracks.record(throwScene(count), {
+      signal: recording.signal,
+      contacts: { minForce: 0.5, dedupeSteps: 3, max: 256 },
+    })
+  } catch (err) {
+    if (!isCancel(err)) trackNotes.last = `failed: ${(err as ShardError).code ?? String(err)}`
+    return
+  } finally {
+    if (d.recording === recording) d.recording = undefined
+  }
+  const ms = performance.now() - started
+  trackNotes.last = `${hex(trackHash(track))}, ${track.steps} steps, ${track.settled ? 'settled' : 'max steps'}, ${track.contacts.steps.length} contacts, ${track.simulationMs.toFixed(1)} ms simulated, ${ms.toFixed(1)} ms round trip, ${((track.positions.byteLength + track.rotations.byteLength) / 1024).toFixed(0)} KB`
+  if (d.app.disposed) return
+  const dice = spawnDice(d, count, false)
+  playbacks.set(d.app.world, { track, dice, time: 0 })
+}
+
+/** The old roll: bodies in the dice app's own ECS physics (regular build, main thread). */
+function liveRoll(d: Dice): void {
+  d.recording?.abort()
+  stopPlayback(d.app.world)
+  spawnDice(d, 3, true)
+}
+
+/** Cancels a long recording mid-way, then rolls: the worker is free again at once. */
+async function cancelRoll(d: Dice): Promise<void> {
+  const abort = new AbortController()
+  const long = d.tracks.record(throwScene(24, 6000), { signal: abort.signal })
+  await new Promise((r) => setTimeout(r, 15))
+  const abortedAt = performance.now()
+  abort.abort()
+  const rejected = await long.then(
+    () => 'finished before the abort',
+    (err: ShardError) =>
+      `${err.code} ${(performance.now() - abortedAt).toFixed(2)} ms after abort()`,
+  )
+  const next = performance.now()
+  await roll(d)
+  trackNotes.cancel = `${rejected}; next roll recorded ${(performance.now() - next).toFixed(1)} ms later`
 }
 
 const dieMesh = new WeakMap<App, [unknown, unknown[]]>()
 
-/** Host code throwing dice: plain world writes, which wake the on-demand runner. */
-function roll(d: Dice): void {
+/** Spawns the dice: plain world writes, which wake the on-demand runner. */
+function spawnDice(d: Dice, count: number, live: boolean): Entity[] {
   const w = d.app.world
   for (const e of d.dice) if (w.isAlive(e)) w.despawn(e)
   d.dice.length = 0
@@ -271,11 +468,19 @@ function roll(d: Dice): void {
     ]
     dieMesh.set(d.app, parts)
   }
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < count; i++) {
+    const look = [
+      [Mesh3d, { mesh: parts[0] as never }],
+      [MeshMaterial, { material: parts[1][i % parts[1].length] as never }],
+    ] as const
+    if (!live) {
+      // Played from a track: the playback system poses it this frame, before it renders.
+      d.dice.push(w.spawn(...look, Transform))
+      continue
+    }
     d.dice.push(
       w.spawn(
-        [Mesh3d, { mesh: parts[0] as never }],
-        [MeshMaterial, { material: parts[1][i] as never }],
+        ...look,
         [RigidBody, { kind: 'dynamic' }],
         [Collider, { shape: 'cuboid', halfExtents: [0.3, 0.3, 0.3] }],
         [
@@ -294,6 +499,23 @@ function roll(d: Dice): void {
         ],
       ),
     )
+  }
+  return d.dice
+}
+
+/**
+ * The golden track (0053), recorded here in Chromium's worker: its hash must be the one Node
+ * recorded, or tracks wouldn't replay the same for every viewer.
+ */
+async function checkGolden(d: Dice): Promise<void> {
+  try {
+    const track = await d.tracks.record(trackSceneFromJson(golden.scene), {
+      contacts: golden.contacts,
+    })
+    const got = hex(trackHash(track))
+    trackNotes.golden = `${got} ${got === golden.hash ? '= Node ✓' : `≠ Node's ${golden.hash} ✗`} (${track.steps} steps, ${track.engine})`
+  } catch (err) {
+    if (!isCancel(err)) trackNotes.golden = `failed: ${(err as ShardError).code ?? String(err)}`
   }
 }
 
@@ -316,11 +538,14 @@ function sparks(d: Dice): void {
 const table = await mountTable()
 let dice: Dice | undefined = await mountDice()
 let note = ''
+void checkGolden(dice)
 
 const button = (action: string) =>
   document.querySelector<HTMLButtonElement>(`[data-action="${action}"]`)!
 
-button('roll').onclick = () => dice && roll(dice)
+button('roll').onclick = () => dice && void roll(dice)
+button('live').onclick = () => dice && liveRoll(dice)
+button('cancel').onclick = () => dice && void cancelRoll(dice)
 button('sparks').onclick = () => dice && sparks(dice)
 button('mount').onclick = async () => {
   if (dice) {
@@ -341,7 +566,8 @@ button('cycle').onclick = async () => {
   const before = gpu.stats()
   for (let i = 0; i < 20; i++) {
     const d = await mountDice()
-    roll(d)
+    // Disposed while the worker may still be recording: the roll rejects, nothing leaks.
+    void roll(d)
     await new Promise((r) => setTimeout(r, 30))
     await d.app.dispose()
   }
@@ -381,6 +607,17 @@ function line(name: string, app: App | undefined): string {
   return `${name.padEnd(6)} ${fps(app)}   frame ${String(w.resource(Time).frame).padStart(6)}   ${demand.mode}   holding: ${held.length ? held.join(', ') : '—'}\n       gpu: ${fmt(gpu.stats(renderOwner(w)))}`
 }
 
+/** Tracks (0053): which build does what, the golden check, the last roll, the last cancel. */
+function tracksLines(): string {
+  const physics = dice && !dice.app.disposed ? dice.app.world.tryResource(Physics) : undefined
+  return [
+    `tracks: ${TRACK_ENGINE} in a worker (spawned ${dice?.tracks.spawns ?? 0})   live roll: ${physics ? `${physics.variant} build, main thread` : '—'}`,
+    `  golden: ${trackNotes.golden}`,
+    `  last roll: ${trackNotes.last}`,
+    `  cancel: ${trackNotes.cancel}`,
+  ].join('\n')
+}
+
 function warning(): string {
   for (const app of [table, dice?.app]) {
     if (!app || app.disposed) continue
@@ -404,6 +641,7 @@ setInterval(() => {
     `rAF calls/s: ${perSecond.toFixed(0)}`,
     line('table', table),
     line('dice', dice?.app),
+    tracksLines(),
     `device: ${fmt(gpu.stats())}   owners: ${gpu.owners().join(', ')}   surfaces: ${gpu.surfaces.map((s) => `${s.label} (${s.alpha}, ${s.width}×${s.height})`).join(', ')}`,
     warning(),
     note,
