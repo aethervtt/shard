@@ -21,6 +21,8 @@ pnpm typecheck     # tsc (TypeScript 7) in every package
 pnpm test          # vitest
 pnpm lint          # biome; `pnpm format` to auto-fix
 pnpm bench         # ECS benchmarks, then every test serially at exact spec time budgets
+pnpm size          # bundle sizes of the bench/size fixtures (--check against budgets.json)
+pnpm release       # build and pack every package into dist-release/ (--check: install and use them)
 pnpm playground    # browser sandbox
 pnpm studio        # desktop app
 ```

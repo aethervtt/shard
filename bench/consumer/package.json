@@ -1,0 +1,13 @@
+{
+  "name": "shard-consumer-check",
+  "private": true,
+  "type": "module",
+  "description": "An app outside the workspace that installs the release tarballs (spec 0056). `pnpm release --check` fills in the @aethervtt/shard-* dependencies.",
+  "dependencies": {
+    "webgpu": "0.6.1"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0"
+  }
+}

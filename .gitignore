@@ -8,3 +8,4 @@ target/
 apps/studio/src-tauri/gen/
 .playwright-mcp/
 bench/size/report.json
+dist-release/

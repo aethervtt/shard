@@ -1,5 +1,6 @@
 {
   "name": "shard",
+  "version": "0.0.1",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -19,7 +20,8 @@
     "bench": "pnpm --filter @aethervtt/shard-core bench && SHARD_BENCH=1 turbo run test --concurrency=1 --force",
     "build:wasm": "sh crates/shard-noise/build-wasm.sh",
     "check:wasm": "sh crates/shard-noise/build-wasm.sh && git diff --exit-code -- packages/noise/wasm",
-    "size": "pnpm --filter @aethervtt/shard-bench-size size"
+    "size": "pnpm --filter @aethervtt/shard-bench-size size",
+    "release": "node scripts/release.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",

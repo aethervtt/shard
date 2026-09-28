@@ -1,0 +1,65 @@
+name: Release
+
+# Publishes every @aethervtt/shard-* package to npm when a version tag is pushed (spec 0056).
+# The tag must match the root package.json version: `git tag v0.0.1 && git push origin v0.0.1`.
+# Needs an npm automation token for the @aethervtt org in the NPM_TOKEN repository secret.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  # npm provenance: each package links to the commit and run that built it.
+  id-token: write
+
+jobs:
+  publish:
+    name: Check, pack, publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install a software Vulkan driver
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: The tag matches the version
+        run: |
+          version="v$(node -p "require('./package.json').version")"
+          if [ "$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME doesn't match package.json version $version" >&2
+            exit 1
+          fi
+
+      - run: pnpm lint
+
+      - run: pnpm typecheck
+
+      - run: pnpm test --continue
+        env:
+          SHARD_CI: '1'
+
+      # Builds every package, then installs the tarballs in bench/consumer outside the workspace,
+      # typechecks, builds with Vite and Bun, and runs a headless frame.
+      - run: pnpm release --check
+
+      - name: Publish
+        run: |
+          for tarball in dist-release/tarballs/*.tgz; do
+            npm publish "$tarball" --access public --provenance
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

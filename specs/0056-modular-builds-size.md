@@ -175,9 +175,10 @@ Budgets are lowered by hand when a change shrinks a build, so they ratchet.
 Inside the monorepo, packages keep exporting `./src/index.ts`, with no build step (AGENTS.md).
 `pnpm release` produces what another repository installs:
 
-- **JS.** Each file's types are stripped one by one, with no bundling, so the module graph,
+- **JS.** Each file's types are stripped one by one (esbuild's transform), with no bundling, so the module graph,
   `import.meta.url` and every `new URL('./x.ts', import.meta.url)` worker pattern survive with
-  `.ts` rewritten to `.js`. The host's bundler then builds workers as it would its own, and the
+  `.ts` rewritten to `.js`. Extensionless relative imports gain `.js` (or `/index.js`), so Node's ESM
+  loader resolves them as bundlers do. The host's bundler then builds workers as it would its own, and the
   pool's plain-JS job modules (the noise worker) ship as files next to the code that loads them.
 - **Types.** `.d.ts` files from `tsc --declaration --emitDeclarationOnly`.
 - **Exports.** `package.json` `exports` rewritten to `dist/`, with `types` conditions and
@@ -237,10 +238,10 @@ against the `.d.ts` only. `pnpm release --check` runs it.
       The biggest remaining piece is wesl, the runtime WGSL linker (139 KB minified), which material
       hooks and defines need. Linking an app's shaders at build time for apps that register no
       materials at runtime would remove it; that's tracked in TODO.md.
-- [ ] `bench/consumer` installs the release tarballs, builds with Vite and with `bun build`,
+- [x] `bench/consumer` installs the release tarballs, builds with Vite and with `bun build`,
       typechecks against the shipped `.d.ts` with no Shard source present, renders a headless
       frame, and samples noise on the worker pool.
-- [ ] Every released package's `exports` resolve to `dist/` files that exist, and no released
+- [x] Every released package's `exports` resolve to `dist/` files that exist, and no released
       file imports a `.ts` path or `workspace:` specifier.
 - [ ] `pnpm size --check` fails when a fixture grows 2% over budget (test with an injected import).
 

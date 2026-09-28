@@ -103,6 +103,8 @@ pnpm typecheck   # tsc in every package
 pnpm test        # vitest; GPU tests run on Dawn in Node
 pnpm lint        # Biome
 pnpm bench       # benchmarks, then every test serially at exact time budgets
+pnpm size        # bundle sizes, with a three.js baseline
+pnpm release     # build and pack the packages as npm installs them
 ```
 
 [AGENTS.md](AGENTS.md) has the working rules for people and agents: work from a spec, keep hot
