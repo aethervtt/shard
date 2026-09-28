@@ -1,48 +1,20 @@
-// The smallest useful Shard scene: a camera, a directional light with shadows, and 100 cubes of one
-// standard material. `three-min` is the same scene in three.js.
-import { quat } from '@aethervtt/shard-core'
-import { cube } from '@aethervtt/shard-mesh'
-import {
-  Camera3d,
-  DirectionalLight,
-  forwardCorePlugin,
-  MaterialAsset,
-  Materials,
-  Mesh3d,
-  Meshes,
-  MeshMaterial,
-  renderPlugin,
-} from '@aethervtt/shard-render'
-import { App, animationFrameRunner, definePlugin } from '@aethervtt/shard-runtime'
-import { lookAt, Transform, TransformPlugin } from '@aethervtt/shard-transform'
+// renderer-min: the scene in scene.ts on forwardCorePlugin, with its shaders baked
+// (shaders.bake.json, from bake.test.ts), so WESL never loads.
+import { forwardCorePlugin, renderPlugin } from '@aethervtt/shard-render'
+import type { ShaderBake } from '@aethervtt/shard-shader'
+import { App, animationFrameRunner } from '@aethervtt/shard-runtime'
+import { TransformPlugin } from '@aethervtt/shard-transform'
+import { scene } from './scene'
+import shaderBake from './shaders.bake.json'
 
 const canvas = document.getElementById('c') as HTMLCanvasElement
 
-const scene = definePlugin({
-  name: 'size/scene',
-  build() {},
-  ready(app) {
-    const world = app.world
-    const mesh = world.resource(Meshes).add(cube({ size: 0.8 }))
-    const material = world
-      .resource(Materials)
-      .add(new MaterialAsset({ baseColor: [0.8, 0.3, 0.2, 1], roughness: 0.5 }))
-    world.spawn(
-      [DirectionalLight, { illuminance: 10_000, shadows: true }],
-      [Transform, { rotation: quat.fromEuler([0, 0, 0, 1], -0.9, 0.6, 0) as [number, number, number, number] }],
-    )
-    world.spawn(Camera3d, [Transform, { translation: [0, 12, 16], rotation: lookAt([0, 12, 16], [0, 0, 0]) }])
-    for (let i = 0; i < 100; i++) {
-      world.spawn(
-        [Mesh3d, { mesh }],
-        [MeshMaterial, { material }],
-        [Transform, { translation: [(i % 10) - 4.5, 0, Math.floor(i / 10) - 4.5] }],
-      )
-    }
-  },
-})
-
-const app = new App().addPlugin(renderPlugin({ canvas }), TransformPlugin, forwardCorePlugin(), scene)
+const app = new App().addPlugin(
+  renderPlugin({ canvas, shaderBake: shaderBake as ShaderBake }),
+  TransformPlugin,
+  forwardCorePlugin(),
+  scene,
+)
 app.setRunner(animationFrameRunner())
 await app.init()
 await app.run()

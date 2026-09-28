@@ -9,6 +9,7 @@ import {
 } from '@aethervtt/shard-core'
 import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
 import type { Mesh } from '@aethervtt/shard-mesh'
+import { LogResource } from '@aethervtt/shard-runtime'
 import { toHalf } from '@aethervtt/shard-texture'
 import { GlobalTransform, Transform } from '@aethervtt/shard-transform'
 import { MaterialAsset, Materials, Meshes } from './assets'
@@ -1406,6 +1407,29 @@ function zeroTicks(n: number): Uint32Array {
   return zeros
 }
 
+/** Present when skinningPlugin is installed: SkinnedMesh and MorphWeights deform what they draw. */
+export const DeformPath = defineResource<{ installed: true }>('render/DeformPath', {
+  description: 'Present when skinning and morph targets (skinningPlugin) are installed.',
+})
+
+const warnedDeforms = new WeakSet<World>()
+
+/** Without skinningPlugin, skinned and morphed meshes draw in their rest pose; says so once. */
+function warnNoDeforms(world: World): void {
+  if (warnedDeforms.has(world)) return
+  warnedDeforms.add(world)
+  world
+    .tryResource(LogResource)
+    ?.log(
+      'warn',
+      "An entity has SkinnedMesh or MorphWeights, but skinningPlugin isn't installed; it draws in its rest pose",
+      {
+        code: 'render/feature-missing',
+        hint: "Add skinningPlugin from '@aethervtt/shard-render' (forwardPlugin includes it).",
+      },
+    )
+}
+
 export const prepareInstances = defineSystem({
   name: 'render/prepare-instances',
   description:
@@ -1420,6 +1444,7 @@ export const prepareInstances = defineSystem({
     const assets = world.resource(GpuAssetsResource)
     assets.beginFrame()
     store.beginFrame()
+    const deforms = world.hasResource(DeformPath)
     const since = ctx.lastRunTick
     let hidden = 0
     let rows = 0
@@ -1455,9 +1480,11 @@ export const prepareInstances = defineSystem({
       const dataY = hasData ? table.column(InstanceData, 'y') : undefined
       const dataChanged = hasData ? table.changedTicks(InstanceData) : zeroTicks(n)
       const vis = table.column(ComputedVisibility, 'visible')
+      const deformed = table.has(SkinnedMesh) || table.has(MorphWeights)
+      if (deformed && !deforms) warnNoDeforms(world)
       const tableFlags =
-        (table.has(SkinnedMesh) ? InstanceFlags.Skinned : 0) |
-        (table.has(MorphWeights) ? InstanceFlags.Morph : 0) |
+        (deforms && table.has(SkinnedMesh) ? InstanceFlags.Skinned : 0) |
+        (deforms && table.has(MorphWeights) ? InstanceFlags.Morph : 0) |
         (table.has(NotShadowCaster) ? 0 : InstanceFlags.Caster) |
         (table.has(NotShadowReceiver) ? 0 : InstanceFlags.Receiver) |
         (hasRange ? InstanceFlags.Range : 0) |

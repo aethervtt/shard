@@ -254,6 +254,9 @@ importers:
       '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@aethervtt/shard-gpu':
+        specifier: workspace:*
+        version: link:../../packages/gpu
       '@aethervtt/shard-mesh':
         specifier: workspace:*
         version: link:../../packages/mesh
@@ -263,6 +266,9 @@ importers:
       '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../../packages/runtime
+      '@aethervtt/shard-shader':
+        specifier: workspace:*
+        version: link:../../packages/shader
       '@aethervtt/shard-transform':
         specifier: workspace:*
         version: link:../../packages/transform
@@ -270,12 +276,18 @@ importers:
         specifier: 0.160.1
         version: 0.160.1
     devDependencies:
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
       '@webgpu/types':
         specifier: ^0.1.74
         version: 0.1.74
       vite:
         specifier: ^8.3.0
         version: 8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15)
+      webgpu:
+        specifier: 0.6.1
+        version: 0.6.1
 
   examples/maze-chase:
     dependencies:

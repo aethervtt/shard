@@ -61,6 +61,11 @@ Vendored third-party code (`**/vendor`) and test fixtures (`**/fixtures`) aren't
   (`erasableSyntaxOnly`). Use `as const` objects and union types.
 - **Errors are `ShardError`** with a namespaced `code` (`package/what-happened`), plus `hint` and
   `path` when useful. Never throw bare strings.
+- **Keep the core renderer small** (spec 0056, "What belongs in core"). A render feature the smallest
+  lit scene doesn't run each frame is a plugin that depends on `render/forward`, registers its own
+  WGSL, and is added to `forwardPlugin()`. Its scene components stay in core, which logs
+  `render/feature-missing` when the plugin is absent. Nothing registers on import. Heavy
+  dependencies load with `import()`. `pnpm size --check` guards `renderer-min`.
 - **Hot paths don't allocate.** In per-frame code (systems, render, ECS iteration): no closures,
   no array/object literals, no `for…of` over iterators that allocate. Use TypedArrays and reuse
   scratch objects. Add a benchmark when you touch a hot path.

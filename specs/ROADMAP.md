@@ -129,7 +129,7 @@ tabletop shaders use its `shard::data` accessors once stage 1 lands.
 | [0053](0053-deterministic-physics-tracks.md) | Deterministic physics and recorded tracks (worker, cancellation) | accepted |
 | [0054](0054-dice.md) | Dice (definitions, layouts, skins, tracks, landing on a supplied result) | accepted |
 | [0055](0055-host-scenes-structure.md) | Host-driven scenes and incremental structure (mirror, chunks, upload accounting) | accepted |
-| [0056](0056-modular-builds-size.md) | Modular builds and size budgets (no import side effects, feature plugins, three baseline) | accepted |
+| [0056](0056-modular-builds-size.md) | Modular builds and size budgets (no import side effects, feature plugins, three baseline) | implemented |
 | [0057](0057-tabletop-layers.md) | Tabletop layers (ground bands, render layers, grids, vector shapes, outlines) | accepted |
 | [0058](0058-projected-fog.md) | Projected fog (ordered regions, feathered masks, world-space composite) | accepted |
 | [0059](0059-tabletop-tilemaps.md) | Tilemaps on the tabletop, and diffable tile data | accepted |

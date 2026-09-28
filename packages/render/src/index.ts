@@ -94,7 +94,14 @@ export {
 } from './deferred'
 export { deferredPlugin } from './deferred-plugin'
 export { DEFORM_WORDS, DeformStore, type MeshDeform } from './deform'
+export { renderDescribePlugin } from './describe-plugin'
 export { whiteBalance } from './display-nodes'
+export {
+  dynamicResolutionPlugin,
+  type FrameTimings,
+  RenderScaleController,
+  updateRenderScale,
+} from './dynamic-resolution'
 export {
   type CameraEnvironment,
   DefaultEnvironment,
@@ -159,6 +166,7 @@ export {
 export {
   type Batch,
   createDrawList,
+  DeformPath,
   type DrawItem,
   type DrawList,
   INSTANCE_BYTES,
@@ -242,9 +250,11 @@ export { pickingPlugin } from './picking-plugin'
 export {
   PixelPerfect,
   type PixelPerfectLayout,
+  PixelPerfectPath,
   PixelTargets,
   pixelPerfectLayout,
 } from './pixel-perfect'
+export { pixelPerfectPlugin } from './pixel-perfect-plugin'
 export {
   captureBuffer,
   captureView,
@@ -290,13 +300,10 @@ export {
 export { postPlugin } from './post-plugin'
 export {
   describeRenderScale,
-  type FrameTimings,
   RenderScale,
-  RenderScaleController,
   type RenderScaleValue,
   SCALE_STEP,
   scaledSize,
-  updateRenderScale,
 } from './render-scale'
 export {
   ENGINE_SHADERS,
@@ -313,14 +320,9 @@ export {
   ShadowsResource,
   sliceSphere,
 } from './shadows'
-export {
-  MAX_JOINTS,
-  prepareDeforms,
-  type SkinAsset,
-  SkinAssetType,
-  Skins,
-  skinArtifact,
-} from './skinning'
+export { MAX_JOINTS, type SkinAsset, SkinAssetType, Skins, skinArtifact } from './skin-asset'
+export { prepareDeforms } from './skinning'
+export { skinningPlugin } from './skinning-plugin'
 export { forwardPlugin } from './standard'
 export {
   GpuMemory,

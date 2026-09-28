@@ -1,8 +1,18 @@
 import { ShardError } from '@aethervtt/shard-core'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import type { FileChangeEvent, Platform } from '@aethervtt/shard-platform'
-import { link } from 'wesl'
 import { applyHooks, findHooks } from './hooks'
+
+/**
+ * WESL, the linker, loads on the first variant a bake doesn't cover. An app whose variants are all
+ * baked never downloads it.
+ */
+type Wesl = typeof import('wesl')
+let wesl: Promise<Wesl> | undefined
+const loadWesl = (): Promise<Wesl> => {
+  wesl ??= import('wesl')
+  return wesl
+}
 
 export interface LinkRequest {
   /** Module with the entry points, e.g. `shard::pbr::main` or `project::water`. */
@@ -26,6 +36,21 @@ export interface LinkedShader {
   code: string
   /** Maps a character offset in `code` back to the module that produced it. */
   locate(offset: number): SourceLocation | undefined
+}
+
+/** One linked variant, for `ShaderLibrary.preload`. */
+export interface BakedShader {
+  /** The variant: root module, defines, overrides. */
+  key: string
+  /** Of every module the variant links; a changed module makes the entry stale. */
+  hash: string
+  code: string
+}
+
+/** Linked variants saved from a run (`ShaderLibrary.bake()`), loaded with `preload`. */
+export interface ShaderBake {
+  version: 1
+  shaders: BakedShader[]
 }
 
 interface ModuleVariant {
@@ -80,6 +105,34 @@ export class ShaderLibrary {
   private readonly variants = new Map<string, VariantState>()
   private readonly listeners = new Set<(paths: readonly string[]) => void>()
   private version = 0
+  private readonly preloaded = new Map<string, BakedShader>()
+  /** Every variant linked or served from the bake, for `bake()`. */
+  private readonly used = new Map<string, BakedShader>()
+  /** How many variants the bake didn't cover and WESL linked. */
+  linked = 0
+
+  /**
+   * Serves these variants without linking, as long as the modules they came from haven't changed.
+   * A stale or missing variant is linked as usual (loading WESL if it hasn't loaded yet).
+   */
+  preload(bake: ShaderBake): void {
+    if (bake.version !== 1) {
+      throw new ShardError('shader/bake-version', `Unknown shader bake version ${bake.version}`, {
+        hint: 'Bake again with this version of Shard.',
+      })
+    }
+    for (const entry of bake.shaders) this.preloaded.set(entry.key, entry)
+    this.linkCache.clear()
+  }
+
+  /**
+   * The variants this library has used so far, to save and `preload` next time. Bake after a run
+   * that draws everything the app draws: a variant that wasn't used isn't in it.
+   */
+  bake(): ShaderBake {
+    const shaders = [...this.used.values()].sort((a, b) => (a.key < b.key ? -1 : 1))
+    return { version: 1, shaders }
+  }
 
   /** Adds or replaces a module. `origin` is shown in errors (e.g. `shaders/toon.wesl`). */
   register(path: string, source: string, origin?: string): void {
@@ -270,6 +323,25 @@ export class ShaderLibrary {
     }
   }
 
+  /** Of the source of every module a variant links: its root's imports, and the overrides'. */
+  private hashOf(request: LinkRequest): string {
+    const imports = (p: string) => importsOf(this.sources.get(p) ?? '')
+    const paths = new Set<string>()
+    for (const root of [request.root, ...(request.overrides ?? [])])
+      for (const p of closure(root, imports)) paths.add(p)
+    let a = 0x811c9dc5
+    let b = 0x9747b28c
+    for (const path of [...paths].sort()) {
+      const text = `${path}\n${this.sources.get(path) ?? ''}\n`
+      for (let i = 0; i < text.length; i++) {
+        const c = text.charCodeAt(i)
+        a = Math.imul(a ^ c, 0x01000193)
+        b = Math.imul(b ^ c, 0x5bd1e995)
+      }
+    }
+    return `${(a >>> 0).toString(16).padStart(8, '0')}${(b >>> 0).toString(16).padStart(8, '0')}`
+  }
+
   private async doLink(request: LinkRequest, key: string): Promise<LinkedShader> {
     const overrides = request.overrides ?? []
     for (const path of [request.root, ...overrides]) {
@@ -294,6 +366,15 @@ export class ShaderLibrary {
       }
     }
 
+    const hash = this.hashOf(request)
+    const baked = this.preloaded.get(key)
+    if (baked && baked.hash === hash) {
+      this.used.set(key, baked)
+      return { key, code: baked.code, locate: () => undefined }
+    }
+
+    const { link } = await loadWesl()
+    this.linked++
     const hooked = applyHooks(this.sources, overrides)
     const root = splitPath(request.root)
     const packages = new Map<string, Record<string, string>>()
@@ -308,7 +389,7 @@ export class ShaderLibrary {
       .filter(([pkg]) => pkg !== root.pkg)
       .map(([pkg, modules]) => ({ name: pkg, edition: 'unstable_2025', modules }))
 
-    let linked: Awaited<ReturnType<typeof link>>
+    let linked: Awaited<ReturnType<Wesl['link']>>
     try {
       linked = await link({
         weslSrc: packages.get(root.pkg)!,
@@ -333,6 +414,7 @@ export class ShaderLibrary {
     }
 
     const code = linked.dest
+    this.used.set(key, { key, hash, code })
     const origins = this.origins
     return {
       key,

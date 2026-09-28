@@ -49,14 +49,6 @@ tests dominate (terrain alone is several minutes).
 - Split the job: lint and typecheck in one, tests sharded across several runners by package.
 - Run only affected packages on pull requests (`turbo run test --affected`), and everything on main.
 
-## renderer-min is 115 KB against three.js's 92 KB (brotli)
-
-0056 took it from 186 KB. The biggest remaining piece is wesl, the runtime WGSL linker (139 KB
-minified), which material hooks and defines need at runtime. For apps that register no materials at
-runtime, their shaders could be linked at build time (`shard shaders bake`, as in 0064) and wesl left
-out. Then look at `@aethervtt/shard-core` (77 KB minified) and `@aethervtt/shard-assets` (41 KB), which
-the report shows next.
-
 ## Headless runs have no frames-in-flight limit
 
 `app.update()` on an offscreen target submits GPU work without waiting, so a loop on a slow GPU

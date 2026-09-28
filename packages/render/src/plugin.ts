@@ -9,7 +9,7 @@ import {
 } from '@aethervtt/shard-core'
 import { createGpuContext, type GpuContext } from '@aethervtt/shard-gpu'
 import { definePlugin, LogResource, type Plugin } from '@aethervtt/shard-runtime'
-import { ShaderLibrary } from '@aethervtt/shard-shader'
+import { type ShaderBake, ShaderLibrary } from '@aethervtt/shard-shader'
 import { type CapturedBuffer, type CapturedImage, RenderGraph, type RenderView } from './graph'
 import { registerEngineShaders } from './shaders'
 import { GpuMemory, RenderCounters, RenderStats } from './stats'
@@ -70,6 +70,11 @@ export interface RenderPluginOptions {
   features?: GPUFeatureName[]
   /** An existing shader library to share (e.g. a preview rendering the game's own shaders). */
   shaders?: ShaderLibrary
+  /**
+   * Shader variants linked ahead of time (`Shaders.bake()` after a run, saved as JSON). With every
+   * variant baked, WESL never loads (spec 0056).
+   */
+  shaderBake?: ShaderBake
   /**
    * Adds a 'window' view each frame when there's a canvas and no extract system added a view.
    * Default true. Camera plugins turn this off by adding their own views.
@@ -154,6 +159,7 @@ export function renderPlugin(options: RenderPluginOptions = {}): Plugin {
       app.insertResource(Graph, new RenderGraph(gpu))
       const shaders = options.shaders ?? new ShaderLibrary()
       if (!options.shaders) registerEngineShaders(shaders)
+      if (options.shaderBake) shaders.preload(options.shaderBake)
       app.insertResource(Shaders, shaders)
       if (gpu.context) app.insertResource(Window, new WindowTarget(gpu))
       else if (options.target) app.insertResource(Window, options.target)

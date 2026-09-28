@@ -1,5 +1,57 @@
 /** WGSL for environments: prefiltering (compute), IBL, and the environment-map background. */
 export const ENVIRONMENT_SHADERS: Record<string, string> = {
+  'shard::env::common': `
+const PI: f32 = 3.14159265359;
+
+/** The direction through texel uv (0..1, top-left origin) of cube face +X, -X, +Y, -Y, +Z, -Z. */
+fn cube_dir(face: u32, uv: vec2f) -> vec3f {
+  let s = uv.x * 2.0 - 1.0;
+  let t = uv.y * 2.0 - 1.0;
+  switch face {
+    case 0u: { return normalize(vec3f(1.0, -t, -s)); }
+    case 1u: { return normalize(vec3f(-1.0, -t, s)); }
+    case 2u: { return normalize(vec3f(s, 1.0, t)); }
+    case 3u: { return normalize(vec3f(s, -1.0, -t)); }
+    case 4u: { return normalize(vec3f(s, -t, 1.0)); }
+    default: { return normalize(vec3f(-s, -t, -1.0)); }
+  }
+}
+
+/** Equirectangular uv of a direction: u = 0.5 looks along +X, v = 0 is straight up. */
+fn equirect_uv(d: vec3f) -> vec2f {
+  return vec2f(atan2(d.z, d.x) / (2.0 * PI) + 0.5, acos(clamp(d.y, -1.0, 1.0)) / PI);
+}
+
+fn hammersley(i: u32, n: u32) -> vec2f {
+  return vec2f(f32(i) / f32(n), f32(reverseBits(i)) * 2.3283064365386963e-10);
+}
+
+/** A GGX-distributed half vector around n (alpha = roughness²). */
+fn importance_ggx(xi: vec2f, n: vec3f, a: f32) -> vec3f {
+  let phi = 2.0 * PI * xi.x;
+  let cos_theta = sqrt((1.0 - xi.y) / (1.0 + (a * a - 1.0) * xi.y));
+  let sin_theta = sqrt(max(0.0, 1.0 - cos_theta * cos_theta));
+  let h = vec3f(cos(phi) * sin_theta, sin(phi) * sin_theta, cos_theta);
+  let up = select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 0.0, 1.0), abs(n.z) < 0.999);
+  let tx = normalize(cross(up, n));
+  let ty = cross(n, tx);
+  return normalize(tx * h.x + ty * h.y + n * h.z);
+}
+
+/** The nine real spherical harmonics basis functions (bands 0-2) at a unit direction. */
+fn sh_basis(d: vec3f) -> array<f32, 9> {
+  return array<f32, 9>(
+    0.282095,
+    0.488603 * d.y,
+    0.488603 * d.z,
+    0.488603 * d.x,
+    1.092548 * d.x * d.y,
+    1.092548 * d.y * d.z,
+    0.315392 * (3.0 * d.z * d.z - 1.0),
+    1.092548 * d.x * d.z,
+    0.546274 * (d.x * d.x - d.y * d.y),
+  );
+}`,
   'shard::env::from_equirect': `
 import shard::env::common::{ cube_dir, equirect_uv };
 

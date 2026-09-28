@@ -1,8 +1,6 @@
-import { AssetStore, defineAssetType } from '@aethervtt/shard-assets'
 import {
   affine,
   ChildOf,
-  defineResource,
   defineSystem,
   type Entity,
   ShardError,
@@ -15,46 +13,8 @@ import { DEFORM_WORDS, type DeformStore, type MeshDeform } from './deform'
 import { InstanceSlot, type InstanceStore, Instances, MorphWeights, SkinnedMesh } from './instances'
 import { defineOverlay } from './overlay-registry'
 import { findModelRoot } from './paths'
+import { MAX_JOINTS, type SkinAsset, Skins } from './skin-asset'
 import { ComputedVisibility } from './visibility'
-
-/** Joints one skin can have: the vertex stage indexes joints with 16 bits, budgets assume 256. */
-export const MAX_JOINTS = 256
-
-export interface SkinAsset {
-  name: string
-  /** Joint entity paths, relative to the model root (e.g. "Armature/Hips/Spine"). */
-  joints: string[]
-  skeleton?: string
-  /** Each joint's rest pose (local TRS), for retargeting. */
-  restPose: { translation: number[]; rotation: number[]; scale: number[] }[]
-  /** 16 floats per joint, column-major. */
-  inverseBindMatrices: Float32Array
-}
-
-export const Skins = defineResource<AssetStore<SkinAsset, 'Skin'>>('render/Skins', {
-  description: 'Skins (joint paths, inverse bind matrices, rest pose) by guid.',
-  init: () => new AssetStore('Skin'),
-})
-
-interface SkinHeader extends Omit<SkinAsset, 'inverseBindMatrices'> {
-  matrices: number
-}
-
-/** Skin artifacts: the header as JSON, the inverse bind matrices as bytes. */
-export const SkinAssetType = defineAssetType<SkinAsset>('Skin', {
-  store: Skins,
-  load: (artifact) => {
-    const header = artifact.json as unknown as SkinHeader
-    const bytes = artifact.bytes!.slice()
-    const { matrices, ...rest } = header
-    return { ...rest, inverseBindMatrices: new Float32Array(bytes.buffer, 0, matrices * 16) }
-  },
-})
-
-/** A skin's artifact JSON (with `bytes` holding the inverse bind matrices), for importers. */
-export function skinArtifact(skin: Omit<SkinAsset, 'inverseBindMatrices'>): SkinHeader {
-  return { ...skin, matrices: skin.joints.length }
-}
 
 /** The mesh a slot draws (the first level of a LOD set), or undefined. */
 function meshOfSlot(store: InstanceStore, slot: number): Mesh | undefined {

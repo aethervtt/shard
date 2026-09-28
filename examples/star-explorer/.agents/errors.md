@@ -236,6 +236,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `schema/unknown-field` | @aethervtt/shard-ui |  |
 | `schema/unknown-preset` | @aethervtt/shard-core |  |
 | `schema/unresolved-entity` | @aethervtt/shard-core | Entity paths are resolved by the scene loader; check the path exists. |
+| `shader/bake-version` | @aethervtt/shard-shader | Bake again with this version of Shard. |
 | `shader/compile` | @aethervtt/shard-shader |  |
 | `shader/hook-signature-mismatch` | @aethervtt/shard-shader |  |
 | `shader/invalid-path` | @aethervtt/shard-shader | Use lowercase `package::dir::name`, e.g. `project::water`. |

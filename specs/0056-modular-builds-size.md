@@ -1,6 +1,6 @@
 # 0056 — Modular builds and size budgets
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** every `@aethervtt/shard-*` package, `apps/playground`, `bench/size` (new)
 - **Depends on:** 0005, 0007, 0017
 
@@ -106,8 +106,8 @@ other plugins depend on. It holds what every lit 3D view needs:
   keeps shadows in its core too, and `renderer-min` uses them);
 - opaque and transparent phases and the depth resolve;
 - the display stage (`display-nodes.ts`): tonemap with color grading and vignette, then the
-  render-scale upscale (0051);
-- pixel-perfect cameras, whose layout the view extraction computes.
+  render-scale upscale at a fixed `RenderScale` (0051);
+- the skin asset type, so models with skins import and load without the skinning plugin.
 
 Each feature is a plugin that depends on it and registers its own WGSL:
 
@@ -121,6 +121,10 @@ Each feature is a plugin that depends on it and registers its own WGSL:
 | `gizmosPlugin` | `Gizmos`, `DebugOverlays`, overlays | nothing draws gizmos |
 | `pickingPlugin` | `pick`, raycasts | picking is unavailable |
 | `materialNoisePlugin` (`@aethervtt/shard-render/noise`) | noise slots in materials (0041) | such materials skip their draws |
+| `skinningPlugin` | joint and morph deformation, the skeleton overlay (0032) | `SkinnedMesh` and `MorphWeights` meshes draw in their rest pose |
+| `pixelPerfectPlugin` | the low-resolution target and whole-number upscale (0024) | `PixelPerfect` cameras render at full resolution |
+| `dynamicResolutionPlugin` | the controller that moves `RenderScale` in auto mode (0051) | the scale stays where it's set |
+| `renderDescribePlugin` | the lighting, culling and renderScale sections of `render.describe` | those sections are absent |
 
 `forwardPlugin()`, in `standard.ts`, adds `forwardCorePlugin` and every feature, so the 75 call
 sites that relied on it (tests, apps, examples, the CLI) didn't change. That inverts the naming
@@ -131,19 +135,70 @@ result without touching them.
 `atmosphere-state.ts` (the `Atmospheres` store), `environment-state.ts` (each camera's prefiltered
 environment, or placeholder textures), `PostFeatures` (the installed effect bits), `DeferredPath`
 (a marker), `MaterialNoise` (a hook), and `overlay-registry.ts` (`defineOverlay` without the gizmo
-renderer). A camera asking for an effect, the deferred path or noise slots that aren't installed
-renders without them and logs `render/feature-missing` once, naming the plugin to add. Components of
+renderer), `DeformPath` and `PixelPerfectPath` (markers). A camera, mesh or material asking for a
+feature that isn't installed renders without it and logs `render/feature-missing` once, naming the
+plugin to add. Components of
 an absent feature (a `Skybox` with no `environmentPlugin`) aren't in a tree-shaken bundle at all,
 so a scene naming one fails with `scene/unknown-component`; in Node, where nothing is tree-shaken,
 they're simply ignored.
 
-**WGSL.** The core forward shader imported one feature module, `shard::pbr::environment`. That and
-a few modules several features share (`env::common`, `post::common`, `post::tonemap`,
-`post::upscale`, `pbr::gbuffer`) moved into core's `ENGINE_SHADERS`. `registerEngineShaders`
-registers core's; each feature calls `registerShaders` with its own group.
+**WGSL.** The core forward shader imports one feature module, `shard::pbr::environment`, so that
+module and the ones several features share (`post::common`, `post::tonemap`, `post::upscale`) are in
+core's `ENGINE_SHADERS`. Modules only one feature uses live with it (`env::common` in the
+environment's group, `pbr::gbuffer` in the deferred one). `registerEngineShaders` registers core's;
+each feature calls `registerShaders` with its own group.
 
 **Previews** (animation, particles) render in an app of their own with the full renderer. Their
 registration stays in the provided module; the rendering moved behind a dynamic import.
+
+### Baked shaders
+
+WESL, the WGSL linker, was the largest dependency in `renderer-min` (139 KB minified). It links a
+variant from its modules, defines and hook overrides, and apps that edit or add shaders at runtime
+need it. An app whose variants are known ahead of time doesn't:
+
+- `ShaderLibrary` imports WESL dynamically, on the first variant it has to link.
+- `library.bake()` returns every variant used so far: its key (root, defines, overrides), a hash of
+  the source of every module it links, and the linked WGSL. An app saves it after a run that draws
+  what it draws.
+- `renderPlugin({ shaderBake })` (or `library.preload(bake)`) serves those variants without linking
+  while their hash matches. A changed module, a new define or a new override links as before, so a
+  stale bake costs a WESL download, never a wrong shader.
+- `renderer-min` ships `shaders.bake.json`. `bench/size/src/bake.test.ts` renders the scene headless
+  with it and fails if any variant had to be linked; `SHARD_UPDATE_BAKE=1` rebakes after a shader
+  change.
+
+The linked code isn't compacted: brotli matches it against the module sources already in the bundle,
+and stripping comments and indentation made the entry 0.8 KB larger.
+
+### What belongs in core
+
+`forwardCorePlugin`, `renderPlugin`, and the packages they import are what every Shard app pays
+for. Something goes in core only if the smallest lit 3D scene (`renderer-min`) runs it every frame,
+or if a feature's off state needs it. Everything else is a plugin:
+
+- **A feature is a plugin** that depends on `render/forward`, registers its own WGSL, and is added
+  to `forwardPlugin()` in `standard.ts`, so apps that don't choose keep getting everything.
+- **Its components stay in core when a camera or mesh carries them in scenes** (`Bloom`, `SkinnedMesh`,
+  `PixelPerfect`), so a scene still loads and the extraction can see what's asked for. Core
+  reads a marker resource or a feature bit to know whether the plugin is there, and logs
+  `render/feature-missing` once when it isn't. The feature's systems, nodes, shaders and stores move
+  out.
+- **Agent and editor surfaces are plugins too** (`render.describe` sections, gizmos, previews).
+  The editor and `shard dev` install `forwardPlugin`; a shipped app doesn't pay for them.
+- **Nothing is registered by importing a module.** Registrations stay at module level (see
+  Decisions), reachable through a plugin's `provides`, which `project/src/provides.test.ts` checks
+  for every package.
+- **Heavy dependencies load lazily** when a real app can go without them: WESL (above), KTX2
+  readers, preview rendering, Rapier, Basis, Recast.
+- **A change that grows `renderer-min` needs a reason.** `pnpm size --check` fails 2% over budget.
+  Lower the budget in the same change that shrinks a build.
+
+Still in core that a later release could move: the large-world grid in `TransformPlugin` (13 KB
+minified, part of the transform propagation hot path), the asset server's import and hot-reload
+machinery (39 KB), and the schema `description` strings agents read (about 7 KB brotli of
+`renderer-min`; a production build could drop them, if agents attaching to shipped apps can do
+without them).
 
 ### WASM
 
@@ -232,12 +287,10 @@ against the `.d.ts` only. `pnpm release --check` runs it.
       slots and no `materialNoisePlugin`, logs `render/feature-missing` once, naming the plugin.
 - [x] `renderer-min` contains no atmosphere, deferred, post, noise, physics, text, particle or
       terrain code (from the report's module list).
-- [ ] `renderer-min`'s brotli JS size is at or below `three-min`'s. If the first measurement misses,
-      this spec records both numbers and the gap, and the budget becomes the plan to close it.
-      Measured (Vite 8, brotli 11): `renderer-min` went from 186 KB to 115 KB; `three-min` is 92 KB.
-      The biggest remaining piece is wesl, the runtime WGSL linker (139 KB minified), which material
-      hooks and defines need. Linking an app's shaders at build time for apps that register no
-      materials at runtime would remove it; that's tracked in TODO.md.
+- [x] `renderer-min`'s brotli JS size is at or below `three-min`'s. Measured (Vite 8, brotli 11):
+      `renderer-min`'s entry went from 186 KB to 91.5 KB; `three-min` is 91.6 KB. Getting there took
+      the feature plugins, lazy KTX2 readers and previews, and baked shaders with a lazy WESL
+      (a 34 KB brotli chunk that loads only on a variant the bake lacks).
 - [x] `bench/consumer` installs the release tarballs, builds with Vite and with `bun build`,
       typechecks against the shipped `.d.ts` with no Shard source present, renders a headless
       frame, and samples noise on the worker pool.

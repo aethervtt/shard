@@ -2,7 +2,6 @@ import { defineComponent, t } from '@aethervtt/shard-core'
 import { type ShaderLibrary, wgslLayout } from '@aethervtt/shard-shader'
 import { StandardMaterial } from './assets'
 import { CULLING_SHADERS } from './culling-shaders'
-import { PIXEL_PERFECT_SHADERS } from './pixel-perfect'
 
 /** Per-view uniforms. A schema, so the WGSL struct and the CPU packing come from one place. */
 export const ViewUniform = defineComponent('render/ViewUniform', {
@@ -1032,58 +1031,6 @@ fn environment_light(p: PbrInput, n: vec3f, v: vec3f) -> vec3f {
 fn environment_background(d: vec3f) -> vec3f {
   return textureSampleLevel(env_source, env_sampler, env_rotate(d), 0.0).rgb * view.envParams.x;
 }`,
-  'shard::env::common': `
-const PI: f32 = 3.14159265359;
-
-/** The direction through texel uv (0..1, top-left origin) of cube face +X, -X, +Y, -Y, +Z, -Z. */
-fn cube_dir(face: u32, uv: vec2f) -> vec3f {
-  let s = uv.x * 2.0 - 1.0;
-  let t = uv.y * 2.0 - 1.0;
-  switch face {
-    case 0u: { return normalize(vec3f(1.0, -t, -s)); }
-    case 1u: { return normalize(vec3f(-1.0, -t, s)); }
-    case 2u: { return normalize(vec3f(s, 1.0, t)); }
-    case 3u: { return normalize(vec3f(s, -1.0, -t)); }
-    case 4u: { return normalize(vec3f(s, -t, 1.0)); }
-    default: { return normalize(vec3f(-s, -t, -1.0)); }
-  }
-}
-
-/** Equirectangular uv of a direction: u = 0.5 looks along +X, v = 0 is straight up. */
-fn equirect_uv(d: vec3f) -> vec2f {
-  return vec2f(atan2(d.z, d.x) / (2.0 * PI) + 0.5, acos(clamp(d.y, -1.0, 1.0)) / PI);
-}
-
-fn hammersley(i: u32, n: u32) -> vec2f {
-  return vec2f(f32(i) / f32(n), f32(reverseBits(i)) * 2.3283064365386963e-10);
-}
-
-/** A GGX-distributed half vector around n (alpha = roughness²). */
-fn importance_ggx(xi: vec2f, n: vec3f, a: f32) -> vec3f {
-  let phi = 2.0 * PI * xi.x;
-  let cos_theta = sqrt((1.0 - xi.y) / (1.0 + (a * a - 1.0) * xi.y));
-  let sin_theta = sqrt(max(0.0, 1.0 - cos_theta * cos_theta));
-  let h = vec3f(cos(phi) * sin_theta, sin(phi) * sin_theta, cos_theta);
-  let up = select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 0.0, 1.0), abs(n.z) < 0.999);
-  let tx = normalize(cross(up, n));
-  let ty = cross(n, tx);
-  return normalize(tx * h.x + ty * h.y + n * h.z);
-}
-
-/** The nine real spherical harmonics basis functions (bands 0-2) at a unit direction. */
-fn sh_basis(d: vec3f) -> array<f32, 9> {
-  return array<f32, 9>(
-    0.282095,
-    0.488603 * d.y,
-    0.488603 * d.z,
-    0.488603 * d.x,
-    1.092548 * d.x * d.y,
-    1.092548 * d.y * d.z,
-    0.315392 * (3.0 * d.z * d.z - 1.0),
-    1.092548 * d.x * d.z,
-    0.546274 * (d.x * d.x - d.y * d.y),
-  );
-}`,
   'shard::post::tonemap': `
 import shard::color::{ linear_to_srgb, srgb_to_linear, ign, luminance };
 import shard::tonemap::tonemap;
@@ -1231,66 +1178,6 @@ fn motion(uv: vec2f, depth: f32, stored: vec2f) -> vec2f {
   let before = view.prevViewProj * vec4f(dir, 0.0);
   return (now.xy / now.w - before.xy / before.w) * vec2f(0.5, -0.5);
 }`,
-  'shard::pbr::gbuffer': `
-import shard::pbr::types::PbrInput;
-
-/**
- * The G-buffer layout, in one place:
- *   gbuffer0 (rgba8unorm-srgb): base color, occlusion
- *   gbuffer1 (rgba16float): octahedral normal (xy), roughness, metallic (+2 when shadows are off)
- *   gbuffer2 (rg11b10ufloat): emissive, pre-exposed
- */
-struct GBufferOutput {
-  @location(0) albedo: vec4f,
-  @location(1) normal: vec4f,
-  @location(2) emissive: vec4f,
-}
-
-fn oct_wrap(v: vec2f) -> vec2f {
-  return (1.0 - abs(v.yx)) * select(vec2f(-1.0), vec2f(1.0), v >= vec2f(0.0));
-}
-
-fn oct_encode(n: vec3f) -> vec2f {
-  let p = n.xy / (abs(n.x) + abs(n.y) + abs(n.z));
-  return select(p, oct_wrap(p), n.z < 0.0);
-}
-
-fn oct_decode(e: vec2f) -> vec3f {
-  var n = vec3f(e, 1.0 - abs(e.x) - abs(e.y));
-  let t = max(-n.z, 0.0);
-  n.x += select(t, -t, n.x >= 0.0);
-  n.y += select(t, -t, n.y >= 0.0);
-  return normalize(n);
-}
-
-fn pack_gbuffer(p: PbrInput, receives_shadows: bool, exposure: f32) -> GBufferOutput {
-  var out: GBufferOutput;
-  out.albedo = vec4f(p.base_color, p.occlusion);
-  out.normal = vec4f(oct_encode(p.normal), p.roughness, p.metallic + select(2.0, 0.0, receives_shadows));
-  out.emissive = vec4f(p.emissive * exposure, 1.0);
-  return out;
-}
-
-struct GBufferSample {
-  p: PbrInput,
-  receives_shadows: bool,
-  /** Pre-exposed emissive. */
-  emissive: vec3f,
-}
-
-fn unpack_gbuffer(albedo: vec4f, normal: vec4f, emissive: vec4f) -> GBufferSample {
-  var s: GBufferSample;
-  s.p.base_color = albedo.rgb;
-  s.p.alpha = 1.0;
-  s.p.occlusion = albedo.a;
-  s.p.normal = oct_decode(normal.xy);
-  s.p.roughness = normal.z;
-  s.receives_shadows = normal.w < 1.5;
-  s.p.metallic = select(normal.w - 2.0, normal.w, s.receives_shadows);
-  s.p.emissive = vec3f(0.0);
-  s.emissive = emissive.rgb;
-  return s;
-}`,
 }
 
 /** Registers a group of engine WGSL modules. Each render feature registers its own. */
@@ -1303,5 +1190,4 @@ export function registerShaders(library: ShaderLibrary, modules: Record<string, 
 export function registerEngineShaders(library: ShaderLibrary): void {
   registerShaders(library, ENGINE_SHADERS)
   registerShaders(library, CULLING_SHADERS)
-  registerShaders(library, PIXEL_PERFECT_SHADERS)
 }

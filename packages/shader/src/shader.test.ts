@@ -140,6 +140,52 @@ ${helpers}
   })
 })
 
+describe('baking', () => {
+  it('serves baked variants without linking, and links the ones the bake misses', async () => {
+    const first = engineLibrary()
+    const normal = await first.link({ root: 'shard::pbr::main', defines: { NORMAL_MAP: true } })
+    const bake = JSON.parse(JSON.stringify(first.bake()))
+    expect(bake.shaders).toHaveLength(1)
+
+    const next = engineLibrary()
+    next.preload(bake)
+    expect(
+      (await next.link({ root: 'shard::pbr::main', defines: { NORMAL_MAP: true } })).code,
+    ).toBe(normal.code)
+    expect(next.linked).toBe(0)
+    await next.link({ root: 'shard::pbr::main' })
+    expect(next.linked).toBe(1)
+    // What the second library used, baked or linked, is what it bakes.
+    expect(next.bake().shaders).toHaveLength(2)
+  })
+
+  it('links again when a module the variant uses changed', async () => {
+    const first = engineLibrary()
+    await first.link({ root: 'shard::pbr::main' })
+    const next = engineLibrary()
+    next.preload(first.bake())
+    next.register(
+      'shard::pbr::brdf',
+      'fn ggx(ndotl: f32, roughness: f32) -> f32 { return ndotl * roughness; }',
+    )
+    const linked = await next.link({ root: 'shard::pbr::main' })
+    expect(next.linked).toBe(1)
+    expect(linked.code).toContain('ndotl * roughness')
+    // A module the variant doesn't import can change without making the bake stale.
+    const other = engineLibrary()
+    other.preload(first.bake())
+    other.register('project::unrelated', 'fn f() {}')
+    await other.link({ root: 'shard::pbr::main' })
+    expect(other.linked).toBe(0)
+  })
+
+  it('rejects a bake from another format version', () => {
+    expect(() => engineLibrary().preload({ version: 2 as 1, shaders: [] })).toThrow(
+      expect.objectContaining({ code: 'shader/bake-version' }),
+    )
+  })
+})
+
 describe('hooks', () => {
   const toon = `import shard::pbr::material::{ PbrInput, pbr_input as base_pbr_input };
 override fn shard::pbr::material::pbr_input(uv: vec2f) -> PbrInput {

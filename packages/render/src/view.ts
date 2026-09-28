@@ -16,7 +16,12 @@ import { RenderTargets } from './assets'
 import { Camera3d, Exposure, exposureScale } from './camera'
 import type { RenderView } from './graph'
 import { createDrawList, type DrawList } from './instances'
-import { PixelPerfect, type PixelPerfectLayout, pixelPerfectLayout } from './pixel-perfect'
+import {
+  PixelPerfect,
+  type PixelPerfectLayout,
+  PixelPerfectPath,
+  pixelPerfectLayout,
+} from './pixel-perfect'
 import { Views, Window } from './plugin'
 import {
   antialiasingOf,
@@ -216,6 +221,23 @@ function warnMissingDeferred(world: World): void {
     )
 }
 
+const reportedPixel = new WeakSet<World>()
+
+function warnMissingPixelPerfect(world: World): void {
+  if (reportedPixel.has(world)) return
+  reportedPixel.add(world)
+  world
+    .tryResource(LogResource)
+    ?.log(
+      'warn',
+      "A camera has PixelPerfect, but pixelPerfectPlugin isn't installed; it renders at full resolution",
+      {
+        code: 'render/feature-missing',
+        hint: "Add pixelPerfectPlugin from '@aethervtt/shard-render' (forwardPlugin includes it).",
+      },
+    )
+}
+
 /** Logs render/feature-missing once per effect a camera asked for whose plugin isn't installed. */
 function warnMissingEffects(world: World, missing: number): void {
   const reported = reportedEffects.get(world) ?? 0
@@ -253,6 +275,7 @@ export const extractCameras = defineSystem({
     const delta = world.resource(Time).delta
     const installed = world.tryResource(PostFeatures)?.effects ?? CORE_EFFECTS
     const deferredInstalled = world.hasResource(DeferredPath)
+    const pixelInstalled = world.hasResource(PixelPerfectPath)
     for (const table of q.tables) {
       const projection = table.column(Camera3d, 'projection')
       const fovY = table.column(Camera3d, 'fovY')
@@ -269,7 +292,8 @@ export const extractCameras = defineSystem({
       const hasTonemap = table.has(Tonemapping)
       const curve = hasTonemap ? table.column(Tonemapping, 'curve') : undefined
       const dither = hasTonemap ? table.column(Tonemapping, 'dither') : undefined
-      const pixel = table.has(PixelPerfect)
+      if (table.has(PixelPerfect) && !pixelInstalled) warnMissingPixelPerfect(world)
+      const pixel = pixelInstalled && table.has(PixelPerfect)
       const ppu = pixel ? table.column(PixelPerfect, 'pixelsPerUnit') : undefined
       const snap = pixel ? table.column(PixelPerfect, 'snap') : undefined
       for (let i = 0; i < table.count; i++) {

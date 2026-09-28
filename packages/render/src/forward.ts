@@ -24,13 +24,13 @@ import {
   ViewLightList,
 } from './clusters'
 import { Culler, cullTransparent, GpuCuller } from './culling'
-import { describeCulling, describeLighting } from './debug-views'
 import { addDisplayNodes } from './display-nodes'
 import { Environments, environmentParams } from './environment-state'
 import { GpuAssets, GpuAssetsResource } from './gpu-assets'
 import { type ColorAttachment, type NodeContext, RenderPhase, type RenderView } from './graph'
 import {
   type CullParams,
+  DeformPath,
   type DrawList,
   InstanceData,
   InstanceFlags,
@@ -71,8 +71,8 @@ import {
   variantCull,
 } from './material-pipelines'
 import { isTransparent, type MaterialType } from './materials'
-import { PixelPerfect, PixelTargets, pixelUpscaleNode } from './pixel-perfect'
-import { Gpu, Graph, RenderDescribers, RenderSet, Shaders, Views } from './plugin'
+import { PixelPerfect, PixelPerfectPath, PixelTargets } from './pixel-perfect'
+import { Gpu, Graph, RenderSet, Shaders, Views } from './plugin'
 import {
   Antialiasing,
   AutoExposure,
@@ -85,12 +85,7 @@ import {
   Ssao,
   Vignette,
 } from './post'
-import {
-  describeRenderScale,
-  RenderScale,
-  type RenderScaleValue,
-  updateRenderScale,
-} from './render-scale'
+import { RenderScale, type RenderScaleValue } from './render-scale'
 import { ViewUniform, viewLayout } from './shaders'
 import {
   assignLocalShadows,
@@ -105,7 +100,7 @@ import {
   ShadowsResource,
   shadowViewLayout,
 } from './shadows'
-import { prepareDeforms, SkinAssetType, Skins, skeletonOverlay } from './skinning'
+import { SkinAssetType, Skins } from './skin-asset'
 import { GpuMemory, RenderCounters, RenderStats } from './stats'
 import {
   type CameraData,
@@ -1268,6 +1263,7 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       // core
       Environments,
       DeferredPath,
+      DeformPath,
       PostFeatures,
       MaterialNoise,
       MaterialAssetType,
@@ -1313,7 +1309,6 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       RenderStats,
       SkinAssetType,
       Skins,
-      skeletonOverlay,
       RenderScale,
       // shadows
       ShadowsResource,
@@ -1329,6 +1324,7 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       Vignette,
       // pixel-perfect
       PixelPerfect,
+      PixelPerfectPath,
       PixelTargets,
     ],
     dependencies: ['render', 'core/transform'],
@@ -1353,11 +1349,9 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
         .addSystems(PostUpdate, computeVisibility.after(TransformSystems), applyPhysicalCameras)
         .addSystems(
           Last,
-          updateRenderScale.inSet(RenderSet.Extract).before(extractCameras),
           extractCameras.inSet(RenderSet.Extract),
           extractLights.inSet(RenderSet.Extract),
           prepareInstances.inSet(RenderSet.Prepare),
-          prepareDeforms.inSet(RenderSet.Prepare).after(prepareInstances),
           prepareLights.inSet(RenderSet.Prepare),
           queue.inSet(RenderSet.Queue),
           upload.inSet(RenderSet.Upload),
@@ -1414,10 +1408,6 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       graph.declare({ name: 'hdr', format: 'rgba16float' })
       graph.declare({ name: 'depth', format: 'depth32float' })
       graph.declare({ name: 'ldr', format: 'view' })
-      const describers = app.world.initResource(RenderDescribers)
-      describers.set('lighting', (world) => describeLighting(world))
-      describers.set('culling', (world) => describeCulling(world))
-      describers.set('renderScale', (world) => describeRenderScale(world))
       graph.addNode('instance-cull', cullNode(state))
       graph.addNode('light-clusters', clusterNode(state))
       graph.addNode('shadows/cascades', cascadeNode(state))
@@ -1426,7 +1416,6 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       graph.addNode('forward-transparent', transparentNode(state))
       graph.addNode('depth-resolve', depthResolveNode())
       addDisplayNodes(app.world)
-      graph.addNode('pixel-upscale', pixelUpscaleNode())
     },
   })
 }

@@ -1,5 +1,65 @@
 /** WGSL for the deferred path: G-buffer packing, the G-buffer pass, and the lighting pass. */
 export const DEFERRED_SHADERS: Record<string, string> = {
+  'shard::pbr::gbuffer': `
+import shard::pbr::types::PbrInput;
+
+/**
+ * The G-buffer layout, in one place:
+ *   gbuffer0 (rgba8unorm-srgb): base color, occlusion
+ *   gbuffer1 (rgba16float): octahedral normal (xy), roughness, metallic (+2 when shadows are off)
+ *   gbuffer2 (rg11b10ufloat): emissive, pre-exposed
+ */
+struct GBufferOutput {
+  @location(0) albedo: vec4f,
+  @location(1) normal: vec4f,
+  @location(2) emissive: vec4f,
+}
+
+fn oct_wrap(v: vec2f) -> vec2f {
+  return (1.0 - abs(v.yx)) * select(vec2f(-1.0), vec2f(1.0), v >= vec2f(0.0));
+}
+
+fn oct_encode(n: vec3f) -> vec2f {
+  let p = n.xy / (abs(n.x) + abs(n.y) + abs(n.z));
+  return select(p, oct_wrap(p), n.z < 0.0);
+}
+
+fn oct_decode(e: vec2f) -> vec3f {
+  var n = vec3f(e, 1.0 - abs(e.x) - abs(e.y));
+  let t = max(-n.z, 0.0);
+  n.x += select(t, -t, n.x >= 0.0);
+  n.y += select(t, -t, n.y >= 0.0);
+  return normalize(n);
+}
+
+fn pack_gbuffer(p: PbrInput, receives_shadows: bool, exposure: f32) -> GBufferOutput {
+  var out: GBufferOutput;
+  out.albedo = vec4f(p.base_color, p.occlusion);
+  out.normal = vec4f(oct_encode(p.normal), p.roughness, p.metallic + select(2.0, 0.0, receives_shadows));
+  out.emissive = vec4f(p.emissive * exposure, 1.0);
+  return out;
+}
+
+struct GBufferSample {
+  p: PbrInput,
+  receives_shadows: bool,
+  /** Pre-exposed emissive. */
+  emissive: vec3f,
+}
+
+fn unpack_gbuffer(albedo: vec4f, normal: vec4f, emissive: vec4f) -> GBufferSample {
+  var s: GBufferSample;
+  s.p.base_color = albedo.rgb;
+  s.p.alpha = 1.0;
+  s.p.occlusion = albedo.a;
+  s.p.normal = oct_decode(normal.xy);
+  s.p.roughness = normal.z;
+  s.receives_shadows = normal.w < 1.5;
+  s.p.metallic = select(normal.w - 2.0, normal.w, s.receives_shadows);
+  s.p.emissive = vec3f(0.0);
+  s.emissive = emissive.rgb;
+  return s;
+}`,
   'shard::pbr::gbuffer_pass': `
 import shard::view::view;
 import shard::pbr::types::VertexOutput;
