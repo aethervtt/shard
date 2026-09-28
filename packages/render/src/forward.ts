@@ -1,11 +1,4 @@
-import {
-  defineResource,
-  defineSystem,
-  First,
-  Last,
-  PostUpdate,
-  type World,
-} from '@aethervtt/shard-core'
+import { defineResource, defineSystem, Last, PostUpdate, type World } from '@aethervtt/shard-core'
 import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
 import { definePlugin, LogResource, type Plugin, Time } from '@aethervtt/shard-runtime'
 import { setTextureCapabilities, Textures } from '@aethervtt/shard-texture'
@@ -45,7 +38,6 @@ import {
   runEnvironmentWork,
   Skybox,
 } from './environment'
-import { beginGizmos, GizmoGpuResource, Gizmos, gizmoNode, uploadGizmos } from './gizmos'
 import { GpuAssets, GpuAssetsResource } from './gpu-assets'
 import { type ColorAttachment, type NodeContext, RenderPhase, type RenderView } from './graph'
 import {
@@ -90,8 +82,6 @@ import {
   variantCull,
 } from './material-pipelines'
 import { isTransparent, type MaterialType } from './materials'
-import { DebugOverlays, drawOverlays, gridsOverlay } from './overlays'
-import { addPickNodes, BvhResource, Picking } from './picking'
 import { PixelPerfect, PixelTargets, pixelUpscaleNode } from './pixel-perfect'
 import { Gpu, Graph, RenderDescribers, RenderSet, Shaders, Views } from './plugin'
 import {
@@ -505,7 +495,7 @@ function writeViewUniform(
   pv.uniform.write(new Float32Array(state.viewBytes.buffer, 0, viewLayout.size / 4))
 }
 
-const upload = defineSystem({
+export const upload = defineSystem({
   name: 'render/upload-visible',
   description: "Uploads every view's visible instance lists and shadow view matrices.",
   run: (_, world) => {
@@ -1364,14 +1354,6 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       // pixel-perfect
       PixelPerfect,
       PixelTargets,
-      // gizmos and overlays
-      GizmoGpuResource,
-      Gizmos,
-      DebugOverlays,
-      gridsOverlay,
-      // picking
-      BvhResource,
-      Picking,
     ],
     dependencies: ['render', 'core/transform'],
     build(app) {
@@ -1389,9 +1371,6 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       w.initResource(Environments)
       w.initResource(ViewSettings).msaa = options.msaa ?? 4
       Object.assign(w.initResource(RenderScale), options.renderScale)
-      w.initResource(Gizmos)
-      w.initResource(DebugOverlays)
-      w.initResource(Picking)
       observeInstanceRemovals(w)
       observeLightRemovals(w)
       observeOriginShifts(w)
@@ -1408,10 +1387,7 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
           prepareEnvironments.inSet(RenderSet.Prepare),
           queue.inSet(RenderSet.Queue),
           upload.inSet(RenderSet.Upload),
-          drawOverlays.inSet(RenderSet.Upload).after(upload),
-          uploadGizmos.inSet(RenderSet.Upload).after(drawOverlays),
         )
-        .addSystems(First, beginGizmos)
     },
     ready(app) {
       const gpu = app.world.resource(Gpu)
@@ -1481,8 +1457,6 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       graph.addNode('depth-resolve', depthResolveNode())
       addDisplayNodes(app.world)
       graph.addNode('pixel-upscale', pixelUpscaleNode())
-      graph.addNode('gizmos', gizmoNode(app.world))
-      addPickNodes(app.world)
     },
   })
 }

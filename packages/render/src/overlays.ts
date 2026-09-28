@@ -18,44 +18,21 @@ import {
   Instances,
 } from './instances'
 import { DirectionalLight, Lights } from './lights'
+import { defineOverlay, OVERLAYS, type Overlay, registeredOverlays } from './overlay-registry'
+
+const extraOverlays = registeredOverlays()
+
 import { Views } from './plugin'
 import { Cameras, cameraOf } from './view'
 
-export const OVERLAYS = [
-  'bounds',
-  'lights',
-  'cameras',
-  'cascades',
-  'normals',
-  'axes',
-  'labels',
-] as const
-export type Overlay = (typeof OVERLAYS)[number]
-
-/** An overlay another package draws (physics colliders, the navmesh, UI rects). */
-export interface OverlayDef {
-  name: string
-  description: string
-  /** Draws into gizmos. `passes(entity)` applies the overlay filter (components and path). */
-  draw(world: World, g: GizmoStore, passes: (entity: Entity) => boolean): void
-}
-
-const extraOverlays = new Map<string, OverlayDef>()
-
-/** Registers an overlay, so `debug.overlays` and `render.capture` can turn it on by name. */
-export function defineOverlay(def: OverlayDef): OverlayDef {
-  extraOverlays.set(def.name, def)
-  return def
-}
-
-export function allOverlays(): OverlayDef[] {
-  return [...extraOverlays.values()]
-}
-
-/** Every overlay name: the built-in ones, then registered ones. */
-export function overlayNames(): string[] {
-  return [...OVERLAYS, ...extraOverlays.keys()]
-}
+export {
+  allOverlays,
+  defineOverlay,
+  OVERLAYS,
+  type Overlay,
+  type OverlayDef,
+  overlayNames,
+} from './overlay-registry'
 
 export function isOverlayOn(o: DebugOverlaysValue, name: string): boolean {
   return (OVERLAYS as readonly string[]).includes(name)

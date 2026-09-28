@@ -1,6 +1,5 @@
 import type { World } from '@aethervtt/shard-core'
 import { OriginShift } from '@aethervtt/shard-transform'
-import { Gizmos } from './gizmos'
 import { Instances } from './instances'
 import { RenderCounters } from './stats'
 import { Cameras, shiftCameraHistory } from './view'
@@ -17,7 +16,6 @@ export function shiftRenderHistory(world: World, x: number, y: number, z: number
   world.tryResource(Instances)?.shiftOrigin(x, y, z)
   const cameras = world.tryResource(Cameras)
   if (cameras) for (const cam of cameras.values()) shiftCameraHistory(cam, x, y, z)
-  world.tryResource(Gizmos)?.shiftOrigin(x, y, z)
 }
 
 /**

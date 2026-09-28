@@ -130,6 +130,7 @@ export {
   Gizmos,
   packGizmoColor,
 } from './gizmos'
+export { gizmosPlugin } from './gizmos-plugin'
 export {
   GpuAssets,
   GpuAssetsResource,
@@ -235,6 +236,7 @@ export {
   type RaycastOptions,
   raycast,
 } from './picking'
+export { pickingPlugin } from './picking-plugin'
 export {
   PixelPerfect,
   type PixelPerfectLayout,

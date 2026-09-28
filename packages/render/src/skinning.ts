@@ -13,7 +13,7 @@ import { LogResource } from '@aethervtt/shard-runtime'
 import { GlobalTransform } from '@aethervtt/shard-transform'
 import { DEFORM_WORDS, type DeformStore, type MeshDeform } from './deform'
 import { InstanceSlot, type InstanceStore, Instances, MorphWeights, SkinnedMesh } from './instances'
-import { defineOverlay } from './overlays'
+import { defineOverlay } from './overlay-registry'
 import { findModelRoot } from './paths'
 import { ComputedVisibility } from './visibility'
 
