@@ -243,7 +243,8 @@ against the `.d.ts` only. `pnpm release --check` runs it.
       frame, and samples noise on the worker pool.
 - [x] Every released package's `exports` resolve to `dist/` files that exist, and no released
       file imports a `.ts` path or `workspace:` specifier.
-- [ ] `pnpm size --check` fails when a fixture grows 2% over budget (test with an injected import).
+- [x] `pnpm size --check` fails when a fixture grows 2% over budget: checked against budgets 5% below
+      the measured sizes (`--budgets <file>`), it names each fixture over and exits 1.
 
 ## Open questions
 

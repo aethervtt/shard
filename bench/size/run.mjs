@@ -4,9 +4,10 @@
 //   pnpm size            print the table and write report.json
 //   pnpm size --json     print the report as JSON
 //   pnpm size --check    fail if a fixture's brotli size is over budgets.json by more than 2%
+//                        (--budgets <file> checks against another file)
 
 import { readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join, relative } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { brotliCompressSync, constants, gzipSync } from 'node:zlib'
 import { build } from 'vite'
@@ -124,7 +125,10 @@ if (args.has('--json')) {
 }
 
 if (args.has('--check')) {
-  const budgets = JSON.parse(readFileSync(join(here, 'budgets.json'), 'utf8'))
+  const argv = process.argv.slice(2)
+  const custom = argv.indexOf('--budgets')
+  const budgetsFile = custom === -1 ? join(here, 'budgets.json') : resolve(argv[custom + 1])
+  const budgets = JSON.parse(readFileSync(budgetsFile, 'utf8'))
   const over = []
   for (const [name, budget] of Object.entries(budgets.fixtures)) {
     const got = report.fixtures[name]?.brotli
