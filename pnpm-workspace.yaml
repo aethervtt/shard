@@ -1,6 +1,10 @@
 packages:
-  - "packages/*"
-  - "apps/*"
-  - "examples/*"
-  - "bench/*"
-  - "!bench/consumer"
+  - packages/*
+  - apps/*
+  - examples/*
+  - bench/*
+  - '!bench/consumer'
+
+onlyBuiltDependencies:
+  - esbuild
+  - webgpu
