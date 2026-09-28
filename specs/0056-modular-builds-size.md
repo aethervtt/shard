@@ -38,7 +38,7 @@ worker, and doesn't measure either.
 
 ## Non-goals
 
-- Checks for specs that don't exist yet. 0052 adds `shadow-catcher` to `shadowsPlugin`; 0053 and
+- Checks for specs that don't exist yet. 0052 adds `shadow-catcher` to core, next to the shadows; 0053 and
   0054 add the `dice` fixture and the "no Rapier on the main thread" and track-bundle checks; 0055
   adds the `vtt` fixture. Each lands its own fixture and budget with its spec.
 - Minifying WGSL beyond comment and whitespace stripping.
@@ -98,58 +98,52 @@ keep `@aethervtt/shard-*` external, so they share the host's module instances an
 
 ### Render features as plugins
 
-The core forward shader (`shard::pbr::lighting`) imports clustered lights, shadows, the
-environment and SSAO, and the view bind group has fixed slots for them. So features can't just be
-left out: each has an **off state** that core provides. That's a define that compiles the
-feature's WGSL out, and a placeholder resource in its slot (an empty cluster list, a 1×1 shadow
-array, a black environment cube, a white AO texture). A feature plugin replaces the off state with
-the real passes, resources and WGSL modules.
+`forwardCorePlugin` is the core 3D renderer, and keeps the plugin name `render/forward` that
+other plugins depend on. It holds what every lit 3D view needs:
 
-`forwardPlugin` keeps what every 3D view needs:
+- cameras, meshes, standard materials, instancing and GPU culling;
+- clustered point and spot lights, directional lights, and cascaded and spot **shadows** (three.js
+  keeps shadows in its core too, and `renderer-min` uses them);
+- opaque and transparent phases and the depth resolve;
+- the display stage (`display-nodes.ts`): tonemap with color grading and vignette, then the
+  render-scale upscale (0051);
+- pixel-perfect cameras, whose layout the view extraction computes.
 
-- cameras, meshes, standard materials, instancing and culling;
-- clustered point and spot lights plus directional lights: they're the lighting model, and a
-  VTT needs dozens of lights;
-- opaque and transparent phases, the depth resolve;
-- the display stage: tonemap, the render-scale upscale and the fullscreen pass, which move out of
-  post into core (0051).
+Each feature is a plugin that depends on it and registers its own WGSL:
 
-Everything else is a plugin that depends on it:
-
-| Plugin | Contents | Off state in core |
+| Plugin | Contents | Without it |
 |---|---|---|
-| `shadowsPlugin` | cascaded and spot shadows, `shadow-catcher` (0052) | no shadow passes; lights unshadowed |
-| `environmentPlugin` | IBL prefilter, skybox, `DefaultEnvironment`, `ProceduralSky` | flat ambient from `AmbientLight` |
-| `atmospherePlugin` | 0044 | no atmosphere nodes or baker |
-| `deferredPlugin` | G-buffer path (0021) | forward only |
-| `postPlugin` | prepass, SSAO, bloom, auto exposure, DoF, motion blur, TAA, fog, grading (each a flag) | white AO, fixed exposure |
-| `fxaaPlugin` | FXAA | none |
-| `pixelArtPlugin` | pixel-perfect upscale | none |
-| `gizmosPlugin`, `pickingPlugin` | 0027 | none |
-| `materialNoisePlugin` (`@aethervtt/shard-render/noise`) | noise slots in materials (0041 graphs in WGSL) | materials without noise slots |
+| `environmentPlugin` | `DefaultEnvironment`, `EnvironmentMap`, `Skybox`, `ProceduralSky`, IBL prefilter, sky node | lit by `AmbientLight` alone |
+| `atmospherePlugin` | 0044; depends on `environmentPlugin` | no atmospheres |
+| `postPlugin` | prepass, SSAO, fog, TAA, motion blur, DoF, bloom, auto exposure | the effect is skipped |
+| `fxaaPlugin` | FXAA | skipped |
+| `deferredPlugin` | the G-buffer path (0021) | `RenderPath deferred` cameras render forward |
+| `gizmosPlugin` | `Gizmos`, `DebugOverlays`, overlays | nothing draws gizmos |
+| `pickingPlugin` | `pick`, raycasts | picking is unavailable |
+| `materialNoisePlugin` (`@aethervtt/shard-render/noise`) | noise slots in materials (0041) | such materials skip their draws |
 
-Material noise slots are the only reason `@aethervtt/shard-render` imports `@aethervtt/shard-noise`
-today. They move to the `@aethervtt/shard-render/noise` subpath, so the render index no longer
-reaches noise, and a material type that declares noise slots without `materialNoisePlugin` fails
-with `render/feature-missing`. The unused `NoiseCompute` node goes away.
+`forwardPlugin()`, in `standard.ts`, adds `forwardCorePlugin` and every feature, so the 75 call
+sites that relied on it (tests, apps, examples, the CLI) didn't change. That inverts the naming
+this spec first proposed (a minimal `forwardPlugin` plus `standardRenderPlugins()`) for the same
+result without touching them.
 
-`standardRenderPlugins(options)` returns today's full set, so the playground, `shard dev`, the
-examples and the CLI keep working unchanged. (The playground's local demo plugins named
-`deferredPlugin`, `postPlugin` and `iblPlugin` are renamed.) A component of an absent feature (an
-`Atmosphere` with no `atmospherePlugin`) fails validation with `render/feature-missing`, naming the
-plugin to add; it doesn't silently do nothing.
+**Off states.** Core owns the data its passes bind and features fill it:
+`atmosphere-state.ts` (the `Atmospheres` store), `environment-state.ts` (each camera's prefiltered
+environment, or placeholder textures), `PostFeatures` (the installed effect bits), `DeferredPath`
+(a marker), `MaterialNoise` (a hook), and `overlay-registry.ts` (`defineOverlay` without the gizmo
+renderer). A camera asking for an effect, the deferred path or noise slots that aren't installed
+renders without them and logs `render/feature-missing` once, naming the plugin to add. Components of
+an absent feature (a `Skybox` with no `environmentPlugin`) aren't in a tree-shaken bundle at all,
+so a scene naming one fails with `scene/unknown-component`; in Node, where nothing is tree-shaken,
+they're simply ignored.
 
-`renderPlugin` registers only core WGSL; each feature registers its own. `plugin.ts` stops
-importing every `*-shaders` module, so an app without atmosphere carries none of its shader source.
+**WGSL.** The core forward shader imported one feature module, `shard::pbr::environment`. That and
+a few modules several features share (`env::common`, `post::common`, `post::tonemap`,
+`post::upscale`, `pbr::gbuffer`) moved into core's `ENGINE_SHADERS`. `registerEngineShaders`
+registers core's; each feature calls `registerShaders` with its own group.
 
-**Imports that drag render in.** Several packages import all of render for one small thing:
-physics and nav for `Meshes` and `defineOverlay`, sprite, text, terrain and particles for
-`Visibility`, save for `LightingSettings`. Once render's modules have no import-time work, a named
-import keeps only what it uses. Two cycles need breaking: `overlays.ts` imports
-`ForwardStateResource` from `forward.ts` (so `defineOverlay` reaches the whole forward graph), and
-`animation` and `particles` load their previews, which import `renderPlugin` and `forwardPlugin`,
-from their plugins. The previews' render code moves behind a dynamic import, so it loads only when
-a preview is asked for.
+**Previews** (animation, particles) render in an app of their own with the full renderer. Their
+registration stays in the provided module; the rendering moved behind a dynamic import.
 
 ### WASM
 
@@ -168,9 +162,9 @@ per fixture and per chunk, the min, gzip and brotli sizes, and which packages ea
 
 | Fixture | What it contains |
 |---|---|
-| `renderer-min` | `renderPlugin`, `forwardPlugin`, `shadowsPlugin`: a camera, a directional light with shadows, 100 standard-material cubes |
+| `renderer-min` | `renderPlugin` and `forwardCorePlugin`: a camera, a directional light with shadows, 100 standard-material cubes |
 | `three-min` | the same scene in three.js 0.160 (`WebGLRenderer`, `MeshStandardMaterial`, `DirectionalLight`, PCF shadows), imported as Aether does |
-| `full` | `standardRenderPlugins` and every plugin, like the playground |
+| `full` | the playground: `forwardPlugin` and every other plugin |
 
 `bench/size/budgets.json` holds a brotli budget per fixture and per chunk kind (entry, worker,
 lazy). `pnpm size --check` fails if any grows more than 2% over budget, and `pnpm bench` runs it.
@@ -230,16 +224,19 @@ against the `.d.ts` only. `pnpm release --check` runs it.
 - [x] Registering a resolver or procedural source twice leaves one entry; the other registries were
       already keyed by name.
 - [x] Every package declares `"sideEffects": false`, and the playground, examples, CLI and
-      `pnpm test` pass unchanged. (`standardRenderPlugins` arrives with the render split.)
-- [ ] Each feature plugin's off state renders: `renderer-min` without `environmentPlugin`,
-      `postPlugin` or `atmospherePlugin` matches its golden, and the full set matches today's
-      goldens.
-- [ ] An `Atmosphere` without `atmospherePlugin`, or a material with noise slots without
-      `materialNoisePlugin`, fails validation with `render/feature-missing` naming the plugin.
-- [ ] `renderer-min` contains no atmosphere, deferred, post, noise, physics, text, particle or
-      terrain code, and no WGSL of those features (from the report's module list).
+      `pnpm test` pass unchanged.
+- [x] `forwardCorePlugin` alone renders a lit, shadowed scene that matches its golden
+      (`core.test.ts`), and the full set matches every existing golden.
+- [x] A camera asking for an uninstalled effect or the deferred path, or a material with noise
+      slots and no `materialNoisePlugin`, logs `render/feature-missing` once, naming the plugin.
+- [x] `renderer-min` contains no atmosphere, deferred, post, noise, physics, text, particle or
+      terrain code (from the report's module list).
 - [ ] `renderer-min`'s brotli JS size is at or below `three-min`'s. If the first measurement misses,
       this spec records both numbers and the gap, and the budget becomes the plan to close it.
+      Measured (Vite 8, brotli 11): `renderer-min` went from 186 KB to 115 KB; `three-min` is 92 KB.
+      The biggest remaining piece is wesl, the runtime WGSL linker (139 KB minified), which material
+      hooks and defines need. Linking an app's shaders at build time for apps that register no
+      materials at runtime would remove it; that's tracked in TODO.md.
 - [ ] `bench/consumer` installs the release tarballs, builds with Vite and with `bun build`,
       typechecks against the shipped `.d.ts` with no Shard source present, renders a headless
       frame, and samples noise on the worker pool.
