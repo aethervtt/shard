@@ -76,7 +76,7 @@ export async function planetApp(gpu: GpuContext | undefined, o: PlanetOptions): 
   const app = new App().addPlugin(TransformPlugin)
   if (gpu)
     app.addPlugin(renderPlugin({ gpu, windowView: false }), forwardPlugin({ msaa: o.msaa ?? 1 }))
-  if (o.physics) app.addPlugin(physics3dPlugin)
+  if (o.physics) app.addPlugin(physics3dPlugin())
   app.addPlugin(terrainPlugin(), ...(o.extra ?? []))
   await app.init()
   const world = app.world

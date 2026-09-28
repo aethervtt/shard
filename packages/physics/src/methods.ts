@@ -109,12 +109,13 @@ export const physicsMethods: AppMethod[] = [
   {
     name: 'physics.describe',
     description:
-      'Physics state: dimension, gravity, bodies by kind and how many sleep, colliders by shape, joints, contact pairs, colliders waiting for a mesh, bodies parked out of range (large worlds) and the range, the last step time, and every character controller with its state (grounded, ground, velocity, up).',
+      'Physics state: dimension, Rapier variant (regular or deterministic), gravity, bodies by kind and how many sleep, colliders by shape, joints, contact pairs, colliders waiting for a mesh, bodies parked out of range (large worlds) and the range, the last step time, and every character controller with its state (grounded, ground, velocity, up).',
     params: defineSchema('physics/DescribeParams', {}),
     handler: ({ world }) => {
       const physics = ready(world)
       return {
         dimension: physics.dim,
+        variant: physics.variant,
         gravity: physics.config.gravity,
         interpolate: physics.config.interpolate,
         paused: physics.config.paused,

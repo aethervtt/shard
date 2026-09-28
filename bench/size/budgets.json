@@ -1,13 +1,18 @@
 {
   "version": 1,
-  "note": "Brotli bytes. Lower these by hand when a change shrinks a build; --check fails 2% over.",
+  "note": "Brotli bytes. Lower these by hand when a change shrinks a build; --check fails 2% over, or when a fixture bundles a package its budget forbids.",
   "fixtures": {
     "renderer-min": {
       "entry": 97032,
       "js": 138403
     },
+    "physics-track": {
+      "entry": 4930,
+      "js": 809647,
+      "forbid": ["@aethervtt/shard-render", "@aethervtt/shard-gpu"]
+    },
     "full": {
-      "js": 2145521
+      "js": 3557437
     }
   }
 }

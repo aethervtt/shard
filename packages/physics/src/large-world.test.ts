@@ -26,7 +26,7 @@ const DT = 1 / 60
 const FAR = 1e8
 
 async function app(): Promise<App> {
-  const a = new App().addPlugin(TransformPlugin, physics3dPlugin)
+  const a = new App().addPlugin(TransformPlugin, physics3dPlugin())
   await a.init()
   return a
 }

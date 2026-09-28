@@ -38,6 +38,7 @@ shard dev                             # play it in a browser; saves hot reload i
 shard run --frames 600                # headless run, prints a deterministic world hash
 shard screenshot scenes/main.scene.json --out shot.png
 shard test                            # gameplay tests in tests/*.test.ts
+shard track scene.json --out t.bin    # record a physics track (0053) headless; prints its hash
 shard docs                            # regenerate AGENTS.md block, .agents/, .shard/schemas
 shard serve / shard mcp [--attach]    # protocol hub / MCP server
 ```

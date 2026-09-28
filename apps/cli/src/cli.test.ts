@@ -698,3 +698,37 @@ describe('MCP server', () => {
     live.close()
   })
 })
+
+describe('shard track (0053)', () => {
+  const recording = resolve(here, '../../../packages/physics/src/track/golden.json')
+
+  it('records the golden track headless and prints its hash, steps and settle state', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'shard-track-'))
+    const out = join(dir, 'golden.bin')
+    const r = shard(['track', recording, '--out', out, '--json'], dir)
+    expect(r.code).toBe(0)
+    const golden = JSON.parse(readFileSync(recording, 'utf8'))
+    expect(r.json()).toMatchObject({
+      hash: golden.hash,
+      engine: 'rapier3d-deterministic@0.20.0',
+      steps: golden.steps,
+      settled: true,
+      maxStepsHit: false,
+      bodies: 6,
+    })
+    expect(readFileSync(out).length).toBeGreaterThan(1000)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('names what is wrong with an invalid scene (exit 2)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'shard-track-'))
+    writeFileSync(
+      join(dir, 'bad.json'),
+      JSON.stringify({ version: 1, dim: 3, step: 0, bodies: [] }),
+    )
+    const r = shard(['track', 'bad.json', '--json'], dir)
+    expect(r.code).toBe(2)
+    expect(r.json().error).toMatchObject({ code: 'physics/track-scene', path: 'step' })
+    rmSync(dir, { recursive: true, force: true })
+  })
+})

@@ -6,21 +6,26 @@
   "type": "module",
   "sideEffects": false,
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./render": "./src/render.ts",
+    "./track": "./src/track/index.ts",
+    "./worker": "./src/worker/index.ts"
   },
   "scripts": {
     "typecheck": "tsc -p .",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@dimforge/rapier2d-compat": "0.20.0",
-    "@dimforge/rapier3d-compat": "0.20.0",
     "@aethervtt/shard-assets": "workspace:*",
     "@aethervtt/shard-core": "workspace:*",
     "@aethervtt/shard-mesh": "workspace:*",
     "@aethervtt/shard-render": "workspace:*",
     "@aethervtt/shard-runtime": "workspace:*",
-    "@aethervtt/shard-transform": "workspace:*"
+    "@aethervtt/shard-transform": "workspace:*",
+    "@dimforge/rapier2d-compat": "0.20.0",
+    "@dimforge/rapier2d-deterministic-compat": "0.20.0",
+    "@dimforge/rapier3d-compat": "0.20.0",
+    "@dimforge/rapier3d-deterministic-compat": "0.20.0"
   },
   "devDependencies": {
     "@aethervtt/shard-animation": "workspace:*",
@@ -30,6 +35,7 @@
     "@aethervtt/shard-scene": "workspace:*",
     "@types/node": "^26.6.2",
     "@webgpu/types": "^0.1.74",
+    "tsx": "^4.23.15",
     "webgpu": "0.6.1"
   }
 }

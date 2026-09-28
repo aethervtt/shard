@@ -111,7 +111,16 @@ Every engine error is a `ShardError` with one of these codes.
 | `physics/character-has-body` | @aethervtt/shard-physics | The controller makes its own kinematic body and capsule. Remove RigidBody and Collider, or put extra colliders on a child. |
 | `physics/invalid-shape` | @aethervtt/shard-physics | Check radius, halfExtents, halfHeight, points, or the mesh. |
 | `physics/not-ready` | @aethervtt/shard-physics | Add the physics3d or physics2d plugin and await app.init() before querying. |
+| `physics/track-body` | @aethervtt/shard-physics |  |
+| `physics/track-cancelled` | @aethervtt/shard-physics | Its signal was aborted or its client disposed: nothing to fix, record again when needed. |
+| `physics/track-client-disposed` | @aethervtt/shard-physics | Create another with createTrackClient. |
+| `physics/track-diverged` | @aethervtt/shard-physics | Check its speed, mass and colliders; a smaller step or ccd can help. |
+| `physics/track-invalid` | @aethervtt/shard-physics | Pass the ArrayBuffer encodeTrack made, whole. |
+| `physics/track-scene` | @aethervtt/shard-physics | See TrackScene in @aethervtt/shard-physics/track. |
+| `physics/track-version` | @aethervtt/shard-physics | Record it again with this build, or play it with the build that recorded it. |
+| `physics/unknown-settle-rule` | @aethervtt/shard-physics |  |
 | `physics/unsupported-shape` | @aethervtt/shard-physics | 2D shapes: ball, cuboid, capsule, convex, trimesh, heightfield, segment, polyline. |
+| `physics/worker-crashed` | @aethervtt/shard-physics | The next recording starts a new worker. |
 | `platform/bad-storage-key` | @aethervtt/shard-platform-node | Keys are relative paths like "saves/slot1.json". |
 | `platform/fs-not-found` | @aethervtt/shard-platform-node |  |
 | `platform/fs-read-only` | @aethervtt/shard-platform-web | Writes need a writable host such as Studio or the CLI. |

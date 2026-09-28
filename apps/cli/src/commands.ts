@@ -18,6 +18,13 @@ import {
   prepareGenerators,
   worldHash,
 } from '@aethervtt/shard-node'
+import {
+  encodeTrack,
+  recordTrack,
+  type TrackContactOptions,
+  trackHash,
+  trackSceneFromJson,
+} from '@aethervtt/shard-physics/track'
 import { findNondeterminism, requireGenerator } from '@aethervtt/shard-procgen'
 import {
   generateDocs,
@@ -550,6 +557,49 @@ export async function screenshot(ctx: CommandContext): Promise<number> {
       return EXIT.ok
     },
   )
+}
+
+// --- track -----------------------------------------------------------------------
+
+/**
+ * Records a physics track (0053) headless from a TrackScene JSON file, or from a recording file
+ * `{ scene, contacts }`, and prints its hash: two machines that print the same hash recorded the
+ * same track. Needs no project.
+ */
+export async function track(ctx: CommandContext): Promise<number> {
+  const file = ctx.args[0]
+  if (!file) throw new ShardError('cli/usage', 'Usage: shard track <scene.json> [--out track.bin]')
+  const json = JSON.parse(await readFile(resolve(file), 'utf8')) as {
+    scene?: unknown
+    contacts?: TrackContactOptions
+  }
+  const scene = trackSceneFromJson(json.scene ?? json)
+  const recorded = await recordTrack(scene, { contacts: json.scene ? json.contacts : undefined })
+  const outFile = ctx.flags.out as string | undefined
+  let out: string | undefined
+  if (outFile) {
+    out = resolve(outFile)
+    await mkdir(dirname(out), { recursive: true })
+    await writeFile(out, new Uint8Array(encodeTrack(recorded)))
+  }
+  const hex = (h: number) => h.toString(16).padStart(8, '0')
+  const result = {
+    hash: hex(trackHash(recorded)),
+    sceneHash: hex(recorded.sceneHash),
+    engine: recorded.engine,
+    steps: recorded.steps,
+    settled: recorded.settled,
+    maxStepsHit: recorded.maxStepsHit,
+    bodies: recorded.bodyCount,
+    contacts: recorded.contacts.steps.length,
+    simulationMs: Math.round(recorded.simulationMs * 10) / 10,
+    out: out ?? null,
+  }
+  ctx.out.result(
+    result,
+    `Track ${result.hash}: ${result.steps} steps, ${result.settled ? 'settled' : 'hit maxSteps'}, ${result.bodies} bodies, ${result.contacts} contacts (${result.simulationMs} ms)${out ? `\nWrote ${outFile}.` : ''}`,
+  )
+  return EXIT.ok
 }
 
 // --- gen -------------------------------------------------------------------------

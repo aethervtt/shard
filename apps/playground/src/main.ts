@@ -114,22 +114,28 @@ if (demo === 'galaxy') {
   app.addPlugin(
     TransformPlugin,
     forwardPlugin(),
-    physics3dPlugin,
+    physics3dPlugin(),
     hudPlugin,
     demo === 'physics' ? physicsDemoPlugin : planetDemoPlugin,
   )
 } else if (demo === 'physics2d') {
-  app.addPlugin(TransformPlugin, forwardPlugin(), physics2dPlugin, hudPlugin, physics2dDemoPlugin)
+  app.addPlugin(TransformPlugin, forwardPlugin(), physics2dPlugin(), hudPlugin, physics2dDemoPlugin)
 } else if (demo === 'character' || demo === 'character-planet') {
   app.addPlugin(
     TransformPlugin,
     forwardPlugin(),
-    physics3dPlugin,
+    physics3dPlugin(),
     hudPlugin,
     demo === 'character' ? characterDemoPlugin : characterPlanetDemoPlugin,
   )
 } else if (demo === 'character2d') {
-  app.addPlugin(TransformPlugin, forwardPlugin(), physics2dPlugin, hudPlugin, character2dDemoPlugin)
+  app.addPlugin(
+    TransformPlugin,
+    forwardPlugin(),
+    physics2dPlugin(),
+    hudPlugin,
+    character2dDemoPlugin,
+  )
 } else if (demo === 'prefabs') {
   app.addPlugin(TransformPlugin, forwardPlugin(), ScenePlugin, hudPlugin, prefabsDemoPlugin)
 } else if (demo === 'data') {
@@ -158,7 +164,7 @@ if (demo === 'galaxy') {
     TransformPlugin,
     forwardPlugin(),
     ScenePlugin,
-    physics3dPlugin,
+    physics3dPlugin(),
     animationPlugin,
     hudPlugin,
     ikDemoPlugin,
@@ -186,7 +192,7 @@ if (demo === 'galaxy') {
   app.addPlugin(
     TransformPlugin,
     forwardPlugin(),
-    physics3dPlugin,
+    physics3dPlugin(),
     navPlugin,
     hudPlugin,
     navDemoPlugin,
@@ -196,7 +202,7 @@ if (demo === 'galaxy') {
     TransformPlugin,
     forwardPlugin(),
     ScenePlugin,
-    physics3dPlugin,
+    physics3dPlugin(),
     inputPlugin({ source: createDomInputSource(canvas) }),
     audioPlugin({ backend: webAudio() }),
     uiPlugin,

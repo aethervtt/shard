@@ -197,7 +197,7 @@ async function mountDice(): Promise<Dice> {
     TransformPlugin,
     renderPlugin({ gpu, surface, owner: 'dice' }),
     forwardPlugin(),
-    physics3dPlugin,
+    physics3dPlugin(),
     particlesPlugin,
   )
   await app.init()

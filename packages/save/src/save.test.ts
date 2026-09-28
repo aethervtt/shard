@@ -121,7 +121,7 @@ async function game(
   options: { physics?: boolean; files?: Map<string, unknown>; thrust?: boolean } = {},
 ): Promise<Setup> {
   const app = new App({ seed: 7 }).addPlugin(TransformPlugin, ScenePlugin)
-  if (options.physics) app.addPlugin(physics3dPlugin)
+  if (options.physics) app.addPlugin(physics3dPlugin())
   if (options.thrust) app.addSystems(Update, thrustSystem)
   const storage = createMemoryStorage()
   app.addPlugin(savePlugin({ storage }))

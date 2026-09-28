@@ -23,7 +23,10 @@ const PLUGINS: Record<string, (m: Mod) => PluginLike[]> = {
   nav: (m) => [m.navPlugin as PluginLike, m.navGridPlugin as PluginLike],
   noise: (m) => [m.noisePlugin as PluginLike],
   particles: (m) => [m.particlesPlugin as PluginLike],
-  physics: (m) => [m.physics3dPlugin as PluginLike, m.physics2dPlugin as PluginLike],
+  physics: (m) => [
+    (m.physics3dPlugin as () => PluginLike)(),
+    (m.physics2dPlugin as () => PluginLike)(),
+  ],
   procgen: (m) => [(m.procgenPlugin as () => PluginLike)()],
   render: (m) => [
     (m.renderPlugin as (o: object) => PluginLike)({}),
@@ -125,7 +128,10 @@ function describeEntry(value: unknown): string {
   )
 }
 
-/** Every source module of a package (not tests), by path. */
+/**
+ * Every source module of a package, by path. Not tests, and not worker entries (`*-worker.ts`):
+ * those start serving a worker when imported, and export nothing.
+ */
 function modulesOf(name: string): string[] {
   const root = join(packages, name, 'src')
   const out: string[] = []
@@ -133,7 +139,8 @@ function modulesOf(name: string): string[] {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const path = join(dir, entry.name)
       if (entry.isDirectory()) walk(path)
-      else if (/\.ts$/.test(entry.name) && !/\.(test|d)\.ts$/.test(entry.name)) out.push(path)
+      else if (/\.ts$/.test(entry.name) && !/(\.test|\.d|-worker)\.ts$/.test(entry.name))
+        out.push(path)
     }
   }
   walk(root)

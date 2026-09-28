@@ -46,7 +46,7 @@ beforeAll(async () => {
 })
 
 async function planetApp() {
-  const app = new App().addPlugin(TransformPlugin, physics3dPlugin, terrainPlugin())
+  const app = new App().addPlugin(TransformPlugin, physics3dPlugin(), terrainPlugin())
   await app.init()
   const w = app.world
   w.resource(PhysicsConfig).gravity = [0, 0, 0]

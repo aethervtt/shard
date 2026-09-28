@@ -8,7 +8,6 @@ import {
   type World,
 } from '@aethervtt/shard-core'
 import type { Mesh } from '@aethervtt/shard-mesh'
-import { Meshes } from '@aethervtt/shard-render'
 import { LogResource } from '@aethervtt/shard-runtime'
 import { GlobalTransform, GridFramesResource } from '@aethervtt/shard-transform'
 import type RAPIER from '@dimforge/rapier3d-compat'
@@ -26,8 +25,10 @@ import {
   Velocity,
 } from './components'
 import { createPose, mulQuat, parentOf, poseOf, rotate } from './pose'
+import type { Rapier, RapierVariant } from './rapier'
 
-export type Rapier = typeof RAPIER
+export { loadRapier, type Rapier, type RapierVariant } from './rapier'
+
 type RWorld = InstanceType<Rapier['World']>
 type RBody = InstanceType<Rapier['RigidBody']>
 type RCollider = InstanceType<Rapier['Collider']>
@@ -41,21 +42,11 @@ export const Physics = defineResource<PhysicsWorld>('physics/World', {
     'The Rapier world: raycast, shapeCast, overlapPoint, overlapShape, describe. Present after the physics plugin is ready.',
 })
 
-const modules: Partial<Record<2 | 3, Promise<Rapier>>> = {}
-
-/** Loads and initializes Rapier's WASM for a dimension, once per process. */
-export function loadRapier(dim: 2 | 3): Promise<Rapier> {
-  modules[dim] ??= (async () => {
-    const mod =
-      dim === 3
-        ? await import('@dimforge/rapier3d-compat')
-        : await import('@dimforge/rapier2d-compat')
-    const R = ((mod as { default?: unknown }).default ?? mod) as Rapier
-    await R.init()
-    return R
-  })()
-  return modules[dim]!
-}
+/**
+ * A loaded mesh by reference, or undefined while it isn't loaded. The plugin passes the renderer's
+ * mesh store (`@aethervtt/shard-physics/render`), so the simulation doesn't import the renderer.
+ */
+export type MeshLookup = (world: World, ref: AssetRef) => Mesh | undefined
 
 /** A body the physics world owns, by entity. */
 export interface BodyRecord {
@@ -155,6 +146,10 @@ const KIND_KINEMATIC_POSITION = 2
 export class PhysicsWorld {
   readonly R: Rapier
   readonly dim: 2 | 3
+  /** The Rapier build this world runs on. */
+  readonly variant: RapierVariant
+  /** Finds collider meshes; without it, mesh colliders wait for one. */
+  meshes: MeshLookup | undefined
   readonly raw: RWorld
   readonly events: InstanceType<Rapier['EventQueue']>
   readonly bodies = new Map<Entity, BodyRecord>()
@@ -201,9 +196,17 @@ export class PhysicsWorld {
   private readonly ray: InstanceType<Rapier['Ray']>
   private logged = new Set<string>()
 
-  constructor(R: Rapier, dim: 2 | 3, config: PhysicsConfigValue) {
+  constructor(
+    R: Rapier,
+    dim: 2 | 3,
+    config: PhysicsConfigValue,
+    variant: RapierVariant = 'regular',
+    meshes?: MeshLookup,
+  ) {
     this.R = R
     this.dim = dim
+    this.variant = variant
+    this.meshes = meshes
     this.config = config
     this.raw = new R.World(this.gravityVector())
     this.events = new R.EventQueue(true)
@@ -803,7 +806,7 @@ export class PhysicsWorld {
   }
 
   private meshFor(world: World, entity: Entity, ref: AssetRef): Mesh | undefined {
-    const mesh = world.tryResource(Meshes)?.get(ref)
+    const mesh = this.meshes?.(world, ref)
     if (mesh) return mesh
     const server = assetServer(world)
     const entry = server.entry(ref)
