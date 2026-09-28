@@ -1,6 +1,11 @@
 {
   "$schema": "https://turborepo.com/schema.json",
   "ui": "stream",
+  "globalDependencies": [
+    "scripts/test-shard.mjs",
+    "scripts/test-weights.json",
+    "tsconfig.base.json"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
@@ -11,7 +16,7 @@
     },
     "test": {
       "dependsOn": ["^typecheck"],
-      "env": ["SHARD_BENCH", "SHARD_CI"]
+      "env": ["SHARD_BENCH", "SHARD_CI", "SHARD_TEST_SHARD"]
     },
     "dev": {
       "cache": false,

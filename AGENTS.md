@@ -48,6 +48,8 @@ when touching ECS storage, queries, anything on a per-frame path, or code a timi
 CI sets `SHARD_CI=1`: its runners render on a software GPU, so time budgets and "allocates nothing"
 checks are off (`allocationChecks`) and timeouts are 5x.
 Write budgets and timeouts with `budget()` and `timeout()` from `@aethervtt/shard-core/test-env`.
+CI splits test files across four runners (`SHARD_TEST_SHARD`, `scripts/test-shard.mjs`); a new test
+file that takes minutes there belongs in `scripts/test-weights.json` so the split stays even.
 Vendored third-party code (`**/vendor`) and test fixtures (`**/fixtures`) aren't linted or edited.
 
 ## Rules

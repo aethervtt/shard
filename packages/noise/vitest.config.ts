@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config'
+import { testFiles } from '../../scripts/test-shard.mjs'
 
 // CI renders the GPU tests on a software driver: every timeout is 5× longer there.
 const slow = process.env.SHARD_CI ? 5 : 1
@@ -6,7 +7,7 @@ const slow = process.env.SHARD_CI ? 5 : 1
 export default defineConfig({
   test: {
     hookTimeout: 10_000 * slow,
-    include: ['src/**/*.test.ts'],
+    ...testFiles(),
     testTimeout: 30_000 * slow,
     // --expose-gc: allocation checks force a collection before counting GC events.
     execArgv: ['--expose-gc'],

@@ -14,9 +14,40 @@ permissions:
 
 jobs:
   check:
-    name: Lint, typecheck, test
+    name: Lint, typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm lint
+
+      # Turbo's cache: packages whose inputs didn't change replay their last result.
+      - uses: actions/cache@v4
+        with:
+          path: .turbo/cache
+          key: turbo-check-${{ github.sha }}
+          restore-keys: turbo-check-
+
+      - run: pnpm typecheck
+
+  test:
+    name: Test ${{ matrix.shard }}/4
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
 
@@ -33,13 +64,25 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm lint
-
-      - run: pnpm typecheck
+      # One cache per runner: each holds the results of the files that runner ran.
+      - uses: actions/cache@v4
+        with:
+          path: .turbo/cache
+          key: turbo-test-${{ matrix.shard }}-${{ github.sha }}
+          restore-keys: turbo-test-${{ matrix.shard }}-
 
       # SHARD_CI: correctness only. Shared runners render on a software GPU, so time budgets are off
       # there and timeouts are 5x (see packages/core/src/test-env.ts); `pnpm bench` holds the budgets.
+      # SHARD_TEST_SHARD: this runner's share of the test files (scripts/test-shard.mjs). The
+      # examples run through `shard test`, which doesn't split, so they run on runner 1 only.
       # --continue: report every failing package, not just the first.
-      - run: pnpm test --continue
+      - name: Run this runner's tests
+        run: |
+          if [ "${{ matrix.shard }}" = 1 ]; then
+            pnpm test --continue
+          else
+            pnpm test --continue --filter='!./examples/*'
+          fi
         env:
           SHARD_CI: '1'
+          SHARD_TEST_SHARD: ${{ matrix.shard }}/4

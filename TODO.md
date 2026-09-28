@@ -39,14 +39,14 @@ costs a rerun.
 Options: run perf tests in their own serial turbo task, or make `pnpm test` skip time budgets and
 leave them to `pnpm bench` alone, as CI already does.
 
-## CI takes about 22 minutes
+## CI speed
 
-One job runs lint, typecheck and every test on a 4-core runner rendering on a software GPU. The GPU
-tests dominate (terrain alone is several minutes).
+CI splits the tests across four runners (`scripts/test-shard.mjs`, balanced by
+`scripts/test-weights.json`) and caches turbo's results, so an unchanged package replays its last
+run. What's left:
 
-- Cache turbo's task outputs between runs (`actions/cache` on `.turbo`), so packages that didn't
-  change don't rerun.
-- Split the job: lint and typecheck in one, tests sharded across several runners by package.
+- One file sets the floor: terrain's `detail.test.ts` took 10 minutes on a loaded runner. Splitting
+  it (or shrinking what it renders on the software GPU) is the next win.
 - Run only affected packages on pull requests (`turbo run test --affected`), and everything on main.
 
 ## Headless runs have no frames-in-flight limit
