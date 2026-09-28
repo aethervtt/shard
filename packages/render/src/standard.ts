@@ -1,6 +1,7 @@
 import { definePlugin, type Plugin } from '@aethervtt/shard-runtime'
 import { atmospherePlugin } from './atmosphere-plugin'
 import { deferredPlugin } from './deferred-plugin'
+import { environmentPlugin } from './environment-plugin'
 import { type ForwardPluginOptions, forwardCorePlugin } from './forward'
 import { fxaaPlugin } from './fxaa'
 import { gizmosPlugin } from './gizmos-plugin'
@@ -17,6 +18,7 @@ export function forwardPlugin(options: ForwardPluginOptions = {}): Plugin {
     build(app) {
       app.addPlugin(
         forwardCorePlugin(options),
+        environmentPlugin,
         atmospherePlugin,
         postPlugin,
         fxaaPlugin,

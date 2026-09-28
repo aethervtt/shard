@@ -3,8 +3,8 @@
   "note": "Brotli bytes. Lower these by hand when a change shrinks a build; --check fails 2% over.",
   "fixtures": {
     "renderer-min": {
-      "entry": 126461,
-      "js": 126882
+      "entry": 121975,
+      "js": 122396
     },
     "full": {
       "js": 2107129

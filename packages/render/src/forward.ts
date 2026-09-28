@@ -26,17 +26,7 @@ import {
 import { Culler, cullTransparent, GpuCuller } from './culling'
 import { describeCulling, describeLighting } from './debug-views'
 import { addDisplayNodes } from './display-nodes'
-import {
-  DefaultEnvironment,
-  describeEnvironment,
-  EnvironmentMap,
-  Environments,
-  environmentParams,
-  ProceduralSky,
-  prepareEnvironments,
-  runEnvironmentWork,
-  Skybox,
-} from './environment'
+import { Environments, environmentParams } from './environment-state'
 import { GpuAssets, GpuAssetsResource } from './gpu-assets'
 import { type ColorAttachment, type NodeContext, RenderPhase, type RenderView } from './graph'
 import {
@@ -703,7 +693,7 @@ function recordSwitches(ctx: NodeContext, switches: number): void {
   if (stats) stats.pipelineSwitches = Math.max(stats.pipelineSwitches ?? 0, switches)
 }
 
-const isCamera = (view: RenderView) => cameraOf(view) !== undefined
+export const isCamera = (view: RenderView) => cameraOf(view) !== undefined
 const msaaOf = (view: RenderView) => cameraOf(view)?.msaa ?? 1
 
 /** A 1×1 white texture: "no occlusion" where a pass samples SSAO. */
@@ -1018,18 +1008,8 @@ function cullNode(state: ForwardState) {
 }
 
 /** Prefilters environments whose source changed (once per frame, before any view draws). */
-const environmentNode = {
-  kind: 'raw' as const,
-  phase: RenderPhase.Setup,
-  enabled: isCamera,
-  // Atmosphere environments bake from the atmosphere LUTs.
-  reads: ['atmosphere-luts'],
-  writes: ['environment'],
-  run: runEnvironmentWork,
-}
-
 /** Draws the environment map (Skybox) wherever no geometry was drawn. Atmospheres draw their own. */
-function skyNode(state: ForwardState) {
+export function skyNode(state: ForwardState) {
   const data = new Float32Array(4)
   const buffers = new Map<
     string,
@@ -1286,6 +1266,7 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
     name: 'render/forward',
     provides: [
       // core
+      Environments,
       DeferredPath,
       PostFeatures,
       MaterialNoise,
@@ -1336,12 +1317,6 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       RenderScale,
       // shadows
       ShadowsResource,
-      // environment
-      DefaultEnvironment,
-      EnvironmentMap,
-      Environments,
-      ProceduralSky,
-      Skybox,
       // post
       Antialiasing,
       AutoExposure,
@@ -1368,7 +1343,6 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       w.initResource(RenderStats)
       w.initResource(Cameras)
       w.initResource(LightingSettings)
-      w.initResource(DefaultEnvironment)
       w.initResource(Environments)
       w.initResource(ViewSettings).msaa = options.msaa ?? 4
       Object.assign(w.initResource(RenderScale), options.renderScale)
@@ -1385,7 +1359,6 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
           prepareInstances.inSet(RenderSet.Prepare),
           prepareDeforms.inSet(RenderSet.Prepare).after(prepareInstances),
           prepareLights.inSet(RenderSet.Prepare),
-          prepareEnvironments.inSet(RenderSet.Prepare),
           queue.inSet(RenderSet.Queue),
           upload.inSet(RenderSet.Upload),
         )
@@ -1443,16 +1416,13 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       graph.declare({ name: 'ldr', format: 'view' })
       const describers = app.world.initResource(RenderDescribers)
       describers.set('lighting', (world) => describeLighting(world))
-      describers.set('environment', (world) => describeEnvironment(world))
       describers.set('culling', (world) => describeCulling(world))
       describers.set('renderScale', (world) => describeRenderScale(world))
-      graph.addNode('environment', environmentNode)
       graph.addNode('instance-cull', cullNode(state))
       graph.addNode('light-clusters', clusterNode(state))
       graph.addNode('shadows/cascades', cascadeNode(state))
       graph.addNode('shadows/local', localShadowNode(state))
       graph.addNode('forward-opaque', forwardNode(state))
-      graph.addNode('sky', skyNode(state))
       graph.addNode('forward-transparent', transparentNode(state))
       graph.addNode('depth-resolve', depthResolveNode())
       addDisplayNodes(app.world)

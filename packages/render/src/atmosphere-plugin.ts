@@ -21,7 +21,8 @@ import { extractCameras } from './view'
  */
 export const atmospherePlugin = definePlugin({
   name: 'render/atmosphere',
-  dependencies: ['render/forward'],
+  // Skies bake into the environment, and ProceduralSky and DefaultEnvironment are its components.
+  dependencies: ['render/forward', 'render/environment'],
   provides: [Atmosphere, AtmosphereSettings, Atmospheres, AtmosphereGpuResource],
   build(app) {
     app.world.initResource(Atmospheres)

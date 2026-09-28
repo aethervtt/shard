@@ -112,6 +112,7 @@ export {
   type ProceduralSkyValue,
   Skybox,
 } from './environment'
+export { environmentPlugin } from './environment-plugin'
 export {
   type ForwardPluginOptions,
   type ForwardState,
