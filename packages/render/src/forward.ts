@@ -25,7 +25,6 @@ import {
 } from './clusters'
 import { Culler, cullTransparent, GpuCuller } from './culling'
 import { describeCulling, describeLighting } from './debug-views'
-import { addDeferredNodes } from './deferred'
 import { addDisplayNodes } from './display-nodes'
 import {
   DefaultEnvironment,
@@ -122,6 +121,7 @@ import {
   type CameraData,
   Cameras,
   cameraOf,
+  DeferredPath,
   extractCameras,
   RenderPath,
   Tonemapping,
@@ -1286,6 +1286,7 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
     name: 'render/forward',
     provides: [
       // core
+      DeferredPath,
       PostFeatures,
       MaterialNoise,
       MaterialAssetType,
@@ -1453,7 +1454,6 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       graph.addNode('forward-opaque', forwardNode(state))
       graph.addNode('sky', skyNode(state))
       graph.addNode('forward-transparent', transparentNode(state))
-      addDeferredNodes(app)
       graph.addNode('depth-resolve', depthResolveNode())
       addDisplayNodes(app.world)
       graph.addNode('pixel-upscale', pixelUpscaleNode())

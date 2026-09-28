@@ -2,7 +2,6 @@ import { defineComponent, t } from '@aethervtt/shard-core'
 import { type ShaderLibrary, wgslLayout } from '@aethervtt/shard-shader'
 import { StandardMaterial } from './assets'
 import { CULLING_SHADERS } from './culling-shaders'
-import { DEFERRED_SHADERS } from './deferred-shaders'
 import { ENVIRONMENT_SHADERS } from './environment-shaders'
 import { PIXEL_PERFECT_SHADERS } from './pixel-perfect'
 
@@ -1306,6 +1305,5 @@ export function registerEngineShaders(library: ShaderLibrary): void {
   registerShaders(library, ENGINE_SHADERS)
   registerShaders(library, CULLING_SHADERS)
   registerShaders(library, ENVIRONMENT_SHADERS)
-  registerShaders(library, DEFERRED_SHADERS)
   registerShaders(library, PIXEL_PERFECT_SHADERS)
 }

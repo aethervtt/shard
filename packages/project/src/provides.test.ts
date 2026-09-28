@@ -33,6 +33,7 @@ const PLUGINS: Record<string, (m: Mod) => PluginLike[]> = {
     m.fxaaPlugin as PluginLike,
     m.gizmosPlugin as PluginLike,
     m.pickingPlugin as PluginLike,
+    m.deferredPlugin as PluginLike,
   ],
   save: (m) => [(m.savePlugin as () => PluginLike)()],
   scene: (m) => [m.ScenePlugin as PluginLike],

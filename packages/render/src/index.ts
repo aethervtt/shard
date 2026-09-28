@@ -92,6 +92,7 @@ export {
   GBUFFER_CHANNELS,
   type GBufferChannel,
 } from './deferred'
+export { deferredPlugin } from './deferred-plugin'
 export { DEFORM_WORDS, DeformStore, type MeshDeform } from './deform'
 export { whiteBalance } from './display-nodes'
 export {

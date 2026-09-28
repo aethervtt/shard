@@ -67,6 +67,11 @@ export const RenderPath = defineComponent(
   },
 )
 
+/** Present when deferredPlugin is installed: cameras with RenderPath deferred use the G-buffer. */
+export const DeferredPath = defineResource<{ installed: true }>('render/DeferredPath', {
+  description: 'Present when the deferred path (deferredPlugin) is installed.',
+})
+
 /** Camera data a view carries for the passes that draw it. */
 export interface CameraData {
   entity: Entity
@@ -193,6 +198,24 @@ export function viewAliases(cam: CameraData): Readonly<Record<string, string>> {
 /** Effects already reported as missing, per world, so each shows once. */
 const reportedEffects = new WeakMap<World, number>()
 
+/** Worlds already told that deferred cameras render forward without deferredPlugin. */
+const reportedDeferred = new WeakSet<World>()
+
+function warnMissingDeferred(world: World): void {
+  if (reportedDeferred.has(world)) return
+  reportedDeferred.add(world)
+  world
+    .tryResource(LogResource)
+    ?.log(
+      'warn',
+      "A camera asks for RenderPath deferred, but deferredPlugin isn't installed; it renders forward",
+      {
+        code: 'render/feature-missing',
+        hint: "Add deferredPlugin from '@aethervtt/shard-render' (forwardPlugin includes it).",
+      },
+    )
+}
+
 /** Logs render/feature-missing once per effect a camera asked for whose plugin isn't installed. */
 function warnMissingEffects(world: World, missing: number): void {
   const reported = reportedEffects.get(world) ?? 0
@@ -229,6 +252,7 @@ export const extractCameras = defineSystem({
     if (scale) scale.windowViews = 0
     const delta = world.resource(Time).delta
     const installed = world.tryResource(PostFeatures)?.effects ?? CORE_EFFECTS
+    const deferredInstalled = world.hasResource(DeferredPath)
     for (const table of q.tables) {
       const projection = table.column(Camera3d, 'projection')
       const fovY = table.column(Camera3d, 'fovY')
@@ -339,7 +363,9 @@ export const extractCameras = defineSystem({
           mat4.orthographicReversedZ(scratchProj, -h * aspect, h * aspect, -h, h, near[i]!, far[i]!)
           cam.far = far[i]!
         }
-        cam.deferred = path ? path[i] === 1 : false
+        const wantsDeferred = path ? path[i] === 1 : false
+        cam.deferred = wantsDeferred && deferredInstalled
+        if (wantsDeferred && !deferredInstalled) warnMissingDeferred(world)
         const missing = extractPost(table, i, cam, delta, true, installed)
         if (missing !== 0) warnMissingEffects(world, missing)
         const world_ = g.subarray(i * 12, i * 12 + 12)
