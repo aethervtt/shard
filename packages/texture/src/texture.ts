@@ -1,7 +1,6 @@
 import { AssetStore, defineAssetType } from '@aethervtt/shard-assets'
 import { defineResource, ShardError } from '@aethervtt/shard-core'
 import { type TranscodeTarget, transcodeBasis } from './basis'
-import { readKtx2 } from './ktx2'
 import { buildMips, type TextureUsage } from './mips'
 
 /** GPU formats a Texture can hold. */
@@ -254,6 +253,8 @@ export async function textureFromKtx2(
   bytes: Uint8Array,
   options: { cpu?: boolean } = {},
 ): Promise<Texture> {
+  // Loaded on first use: an app that never loads a texture doesn't download the KTX2 reader.
+  const { readKtx2 } = await import('./ktx2')
   const ktx = readKtx2(bytes)
   if (ktx.basis) {
     const out = await transcodeBasis(bytes, transcodeTarget(ktx.usage))
