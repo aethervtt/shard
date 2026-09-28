@@ -1,6 +1,6 @@
 import type { GpuContext } from '@aethervtt/shard-gpu'
 
-/** Where a view renders: the window's swapchain or an offscreen texture. */
+/** Where a view renders: a surface (a canvas, 0052) or an offscreen texture. */
 export interface RenderTarget {
   readonly label: string
   readonly format: GPUTextureFormat
@@ -15,38 +15,6 @@ export interface RenderTarget {
   readonly pixelRatio?: number
   /** The texture to render into this frame. */
   texture(): GPUTexture
-}
-
-/** The canvas swapchain. Resizes with the canvas. */
-export class WindowTarget implements RenderTarget {
-  readonly label = 'window'
-  readonly renderScale = true
-  private readonly gpu: GpuContext
-
-  constructor(gpu: GpuContext) {
-    this.gpu = gpu
-  }
-
-  get format(): GPUTextureFormat {
-    return this.gpu.format
-  }
-
-  get width(): number {
-    return this.gpu.canvas?.width ?? 1
-  }
-
-  get pixelRatio(): number {
-    return this.gpu.pixelRatio
-  }
-
-  get height(): number {
-    return this.gpu.canvas?.height ?? 1
-  }
-
-  texture(): GPUTexture {
-    this.gpu.resize()
-    return this.gpu.context!.getCurrentTexture()
-  }
 }
 
 export interface OffscreenTargetOptions {

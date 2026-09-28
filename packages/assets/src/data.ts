@@ -31,6 +31,7 @@ import {
   type ImportResult,
   type ImportSource,
   type LoadContext,
+  registryConflict,
 } from './types'
 
 const NoSettings = defineSchema('assets/NoSettings', {}, { description: 'No import settings.' })
@@ -310,6 +311,8 @@ export interface DataTypeOptions extends Pick<ComponentOptions, 'version' | 'mig
 }
 
 const dataTypes = new Map<string, DataType>()
+/** Each data type's definition as a string: an equal one defined again is the same type (0052). */
+const dataSignatures = new Map<string, string>()
 
 /** Fills in the guid of every handle in a loaded value, so store lookups work without a path. */
 function resolveHandles(fields: Fields, value: Record<string, unknown>, ctx: LoadContext): void {
@@ -342,6 +345,18 @@ export function defineDataType<const N extends string, const F extends Fields>(
   fields: F,
   options: DataTypeOptions,
 ): DataType<F, N> {
+  const signature = JSON.stringify({
+    extension: options.extension,
+    version: options.version ?? null,
+    description: options.description ?? null,
+    fields: Object.entries(fields).map(([key, field]) => [key, field.jsonSchema()]),
+  })
+  const existing = dataTypes.get(name)
+  if (existing && !isRedefinable(name)) {
+    // Two apps loading the same project define its data types twice: that's one type.
+    if (dataSignatures.get(name) === signature) return existing as unknown as DataType<F, N>
+    throw registryConflict('Data type', name)
+  }
   const schema = defineSchema(name, fields, {
     description: options.description,
     version: options.version,
@@ -374,6 +389,7 @@ export function defineDataType<const N extends string, const F extends Fields>(
     importer,
   }
   dataTypes.set(name, def as unknown as DataType)
+  dataSignatures.set(name, signature)
   return def
 }
 

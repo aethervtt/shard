@@ -47,6 +47,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `assets/not-loaded` | @aethervtt/shard-assets |  |
 | `assets/outside-roots` | @aethervtt/shard-assets |  |
 | `assets/read-only` | @aethervtt/shard-assets | Use the CLI or Studio, which can write to the project folder. |
+| `assets/registry-conflict` | @aethervtt/shard-assets | Two definitions (two apps or bundles) share the name. Rename one, or share the definition. |
 | `assets/unknown-importer` | @aethervtt/shard-assets | Remove "importer" from the .meta to pick one by file extension. |
 | `assets/unknown-type` | @aethervtt/shard-assets | Define it (project.dataAsset) before loading its files. |
 | `audio/decode-failed` | @aethervtt/shard-audio | Re-import the file (shard import --json). |
@@ -66,6 +67,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `gltf/invalid` | @aethervtt/shard-gltf | Only glTF 2.0 files are supported. |
 | `gltf/tangents-unavailable` | @aethervtt/shard-gltf |  |
 | `gltf/unsupported-extension` | @aethervtt/shard-gltf |  |
+| `gpu/duplicate-surface` | @aethervtt/shard-gpu | Share the Surface itself (renderPlugin({ gpu, surface })), or remove it first. |
 | `gpu/missing-feature` | @aethervtt/shard-gpu |  |
 | `gpu/no-adapter` | @aethervtt/shard-gpu |  |
 | `gpu/no-context` | @aethervtt/shard-gpu |  |
@@ -173,6 +175,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `render/atmosphere-inside-ground` | @aethervtt/shard-render | Give it a positive thickness (Earth 60 000 m). |
 | `render/bad-vector` | @aethervtt/shard-render |  |
 | `render/capture-format` | @aethervtt/shard-render |  |
+| `render/disposed` | @aethervtt/shard-render |  |
 | `render/duplicate-node` | @aethervtt/shard-render |  |
 | `render/feature-missing` | @aethervtt/shard-render | Add materialNoisePlugin from '@aethervtt/shard-render/noise'. |
 | `render/graph-cycle` | @aethervtt/shard-render | Check reads/writes and `after` on these nodes. |
@@ -184,12 +187,15 @@ Every engine error is a `ShardError` with one of these codes.
 | `render/noise-graph-missing` | @aethervtt/shard-render | noise paths name *.noise.json assets, e.g. { detail: "assets/noise/rock.noise.json" }. |
 | `render/not-an-atmosphere` | @aethervtt/shard-render | Pass the entity that has render/Atmosphere (render.describe lists each camera’s). |
 | `render/not-ready` | @aethervtt/shard-render | Await app.init() so the render plugin can create the GPU device. |
+| `render/registry-conflict` | @aethervtt/shard-render | Two definitions (two apps or bundles) share the name. Rename one, or share the definition. |
+| `render/surface-device` | @aethervtt/shard-render | Pass the GpuContext the surface was added to (surface.gpu), or omit gpu. |
 | `render/too-many-joints` | @aethervtt/shard-gltf | Split the mesh, or remove helper bones before exporting. |
 | `render/unknown-buffer` | @aethervtt/shard-render |  |
 | `render/unknown-camera` | @aethervtt/shard-render | Pass a Camera3d entity that has rendered at least one frame. |
 | `render/unknown-material-type` | @aethervtt/shard-render |  |
 | `render/which-atmosphere` | @aethervtt/shard-render | Pass entity: an entity with render/Atmosphere. |
 | `retarget/unmapped-root` | @aethervtt/shard-animation | Add it to the joint map (*.jointmap.json): { "joints": { "<source>": "<target>" } }. |
+| `runtime/disposed` | @aethervtt/shard-runtime | Create a new App; a disposed one has released its GPU objects and listeners. |
 | `save/bad-slot` | @aethervtt/shard-save | Slots are letters, digits, "-", and "_" (e.g. "slot1", "autosave"). |
 | `save/invalid` | @aethervtt/shard-save |  |
 | `save/invalid-settings` | @aethervtt/shard-save |  |

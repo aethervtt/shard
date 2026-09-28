@@ -69,6 +69,7 @@ export async function renderEffectPreview(
     const image = await shot
     return { width: image.width, height: image.height, data: image.data }
   } finally {
+    await app.dispose()
     target.destroy()
   }
 }

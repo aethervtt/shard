@@ -9,6 +9,7 @@ import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { plane } from '@aethervtt/shard-mesh'
 import { createNodePlatform } from '@aethervtt/shard-platform-node'
 import {
+  Bloom,
   Camera3d,
   captureView,
   DirectionalLight,
@@ -27,7 +28,7 @@ import {
   Tonemapping,
 } from '@aethervtt/shard-render'
 import { compareGolden, settle } from '@aethervtt/shard-render/testing'
-import { App, LogResource } from '@aethervtt/shard-runtime'
+import { App, FrameDemand, LogResource } from '@aethervtt/shard-runtime'
 import { Texture, Textures } from '@aethervtt/shard-texture'
 import {
   FloatingOrigin,
@@ -486,5 +487,64 @@ describe('particles', () => {
     let diff = 0
     for (let i = 0; i < images[0]!.length; i++) diff += Math.abs(images[0]![i]! - images[1]![i]!)
     expect(diff / images[0]!.length).toBeLessThan(1)
+  })
+})
+
+describe('embedding (0052)', () => {
+  it('keeps every channel at or below alpha in a transparent view with additive sparks and bloom', async () => {
+    const { app, world, step, targetRef } = await scene(64, 64)
+    const eye: [number, number, number] = [0, 1.5, 5]
+    const cam = world.spawn(
+      [Camera3d, { target: targetRef as never, fovY: 50, clearColor: [0, 0, 0, 0] }],
+      [Exposure, { ev100: 10 }],
+      Bloom,
+      [Transform, { translation: eye, rotation: lookAt(eye, [0, 1.2, 0]) }],
+    )
+    world.spawn([ParticleSystem, { effect: effect(world, fountain()), seed: 3 }], Transform)
+    await settle(app)
+    await step(30)
+    const shot = captureView(world, `camera:${cam}`)
+    app.update(1 / 60)
+    const image = await shot
+    let lit = 0
+    for (let i = 0; i < image.data.length; i += 4) {
+      const [r, g, b, a] = [
+        image.data[i]!,
+        image.data[i + 1]!,
+        image.data[i + 2]!,
+        image.data[i + 3]!,
+      ]
+      if (r > a || g > a || b > a)
+        throw new Error(`pixel ${i / 4}: rgb above alpha (${[r, g, b, a]})`)
+      if (a > 16) lit++
+    }
+    // Light where nothing covers the page raises alpha: the sparks show.
+    expect(lit).toBeGreaterThan(40)
+    expect(image.data[3]).toBe(0) // a corner, far from the fountain
+    await app.dispose()
+  })
+
+  it('holds a frame demand while particles are live, and releases it once they are gone', async () => {
+    const { app, world, step, camera } = await scene(16, 16)
+    camera([0, 1, 5]) // particles simulate for views
+    const demand = world.resource(FrameDemand)
+    const system = world.spawn(
+      [ParticleSystem, { effect: effect(world, fountain()), seed: 1 }],
+      Transform,
+    )
+    await step(3)
+    expect(demand.held()).toContain('particles')
+    world.set(system, ParticleSystem, { playing: false }) // frozen: a still picture needs no frames
+    await step(1)
+    expect(demand.isHeld('particles')).toBe(false)
+    // A single burst: live until its particles' lifetime is over.
+    world.despawn(system)
+    const burst = fountain({ spawn: { rate: 0, bursts: [{ time: 0, count: 50 }] } })
+    world.spawn([ParticleSystem, { effect: effect(world, burst), seed: 2 }], Transform)
+    await step(30) // 0.5 s
+    expect(demand.isHeld('particles')).toBe(true)
+    await step(70) // past the 1.5 s lifetime
+    expect(demand.isHeld('particles')).toBe(false)
+    await app.dispose()
   })
 })

@@ -506,11 +506,19 @@ const VERTEX_BUFFERS: GPUVertexBufferLayout[] = [
   { arrayStride: 16, attributes: [{ shaderLocation: 4, offset: 0, format: 'float32x4' }] },
 ]
 
+/**
+ * Material module defines, indexed 1 premultiply | 2 mask | 4 opaque. Opaque and masked materials
+ * write alpha 1 in the forward pass, so views clearing to alpha 0 see them (0052).
+ */
 const FORWARD_DEFINES = [
-  { PREMULTIPLY: false, MASK: false },
-  { PREMULTIPLY: true, MASK: false },
-  { PREMULTIPLY: false, MASK: true },
-  { PREMULTIPLY: true, MASK: true },
+  { PREMULTIPLY: false, MASK: false, OPAQUE: false },
+  { PREMULTIPLY: true, MASK: false, OPAQUE: false },
+  { PREMULTIPLY: false, MASK: true, OPAQUE: false },
+  { PREMULTIPLY: true, MASK: true, OPAQUE: false },
+  { PREMULTIPLY: false, MASK: false, OPAQUE: true },
+  { PREMULTIPLY: true, MASK: false, OPAQUE: true },
+  { PREMULTIPLY: false, MASK: true, OPAQUE: true },
+  { PREMULTIPLY: true, MASK: true, OPAQUE: true },
 ] as const
 
 /** The pipeline layout of a pass drawing a material type: view, material, instances. */
@@ -591,11 +599,16 @@ export function drawMaterials(
     if (!pipeline) {
       const premultiply = blend === 'premultiplied'
       const mask = blend === 'mask'
+      // Module slots: forward 0–7 (opaque 48–55), shadows 8, G-buffer 16–23, prepass 32–38, pick 40.
+      const opaque = !gbuffer && !prepass && !pick && !isTransparent(blend)
       const slot = pick
         ? 40
         : prepass
           ? 32 + (type.standard ? 0 : 4) + (mask ? 2 : 0)
-          : (gbuffer ? 16 : type.standard ? 0 : 4) + (premultiply ? 1 : 0) + (mask ? 2 : 0)
+          : (gbuffer ? 16 : opaque ? 48 : 0) +
+            (type.standard ? 0 : 4) +
+            (premultiply ? 1 : 0) +
+            (mask ? 2 : 0)
       const module = state.pipelines.module(
         ctx.world,
         gpu,
@@ -612,7 +625,16 @@ export function drawMaterials(
               : type.standard
                 ? 'shard::pbr::forward'
                 : 'shard::unlit::forward',
-        FORWARD_DEFINES[slot & 3],
+        // Only what the slot tells apart: the prepass and picking don't premultiply.
+        FORWARD_DEFINES[
+          pick
+            ? 0
+            : prepass
+              ? mask
+                ? 2
+                : 0
+              : (premultiply ? 1 : 0) | (mask ? 2 : 0) | (opaque ? 4 : 0)
+        ],
       )
       if (!module) {
         gpu.pipelines.skipped++ // a draw waiting on its shader is a skipped draw too

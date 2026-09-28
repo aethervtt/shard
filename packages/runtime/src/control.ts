@@ -8,6 +8,8 @@ export class AppControl {
   paused = false
   /** Set when a failing frame paused the app, so a fix (e.g. a hot reload) can resume it. */
   pausedByError = false
+  /** Called when steps are queued, so an idle on-demand runner wakes to run them (0052). */
+  onRequest: (() => void) | undefined = undefined
   /** Stepped frames ever requested / ever run. Both only grow; the difference is what's pending. */
   private requested = 0
   private completed = 0
@@ -23,7 +25,11 @@ export class AppControl {
     if (frames <= 0) return Promise.resolve()
     this.requested += frames
     const target = this.requested
-    return new Promise((resolve, reject) => this.waiters.push({ target, resolve, reject }))
+    const done = new Promise<void>((resolve, reject) =>
+      this.waiters.push({ target, resolve, reject }),
+    )
+    this.onRequest?.()
+    return done
   }
 
   /** A stepped frame threw: drops the pending steps and rejects everyone waiting on them. */

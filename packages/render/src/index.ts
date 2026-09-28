@@ -263,8 +263,11 @@ export {
   GpuDeviceLost,
   Graph,
   RenderDescribers,
+  RenderOptions,
+  type RenderOptionsValue,
   type RenderPluginOptions,
   RenderSet,
+  renderOwner,
   renderPlugin,
   Shaders,
   Views,
@@ -313,6 +316,7 @@ export {
   ViewUniform,
   viewLayout,
 } from './shaders'
+export { SHADOW_CATCHER_SHADERS, ShadowCatcher, shadowCatcherPlugin } from './shadow-catcher'
 export {
   Cascades,
   cascadeSplits,
@@ -336,7 +340,6 @@ export {
   OffscreenTarget,
   type OffscreenTargetOptions,
   type RenderTarget,
-  WindowTarget,
 } from './target'
 export { GpuTimer } from './timer'
 export {

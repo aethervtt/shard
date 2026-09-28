@@ -10,6 +10,7 @@ import { gizmosPlugin } from './gizmos-plugin'
 import { pickingPlugin } from './picking-plugin'
 import { pixelPerfectPlugin } from './pixel-perfect-plugin'
 import { postPlugin } from './post-plugin'
+import { shadowCatcherPlugin } from './shadow-catcher'
 import { skinningPlugin } from './skinning-plugin'
 
 /**
@@ -31,6 +32,7 @@ export function forwardPlugin(options: ForwardPluginOptions = {}): Plugin {
         deferredPlugin,
         skinningPlugin,
         pixelPerfectPlugin,
+        shadowCatcherPlugin,
         dynamicResolutionPlugin,
         renderDescribePlugin,
       )

@@ -41,6 +41,13 @@ export class GpuTimer {
     this.enabled = gpu.features.has('timestamp-query')
   }
 
+  /** Destroys the query set; buffers are released with the rest of the app's (0052). */
+  destroy(): void {
+    this.querySet?.destroy()
+    this.querySet = undefined
+    this.generation = this.gpu.generation
+  }
+
   beginFrame(): void {
     this.names = []
     if (!this.enabled || this.generation === this.gpu.generation) return

@@ -167,7 +167,10 @@ fn optical_depth(y0: f32, dir_y: f32, t0: f32, t1: f32) -> f32 {
     sun = light.color * view.sunTransmittance[0].rgb * mix(1.0 / (4.0 * PI), hg, fog.sun);
   }
   let inscatter = fog.color.rgb * (sky + sun) * view.exposure;
-  return vec4f(c.rgb * transmittance + inscatter * (1.0 - transmittance), c.a);
+  let color = c.rgb * transmittance + inscatter * (1.0 - transmittance);
+  @if(!TRANSPARENT) return vec4f(color, c.a);
+  // Premultiplied (0052): the fog is a layer of its own opacity over what's behind it.
+  @if(TRANSPARENT) return vec4f(color, c.a * transmittance + (1.0 - transmittance));
 }`,
 
   'shard::post::bloom': `
@@ -474,12 +477,19 @@ fn sample_history(uv: vec2f) -> vec3f {
   var hi = vec3f(-1e20);
   var nearest = 0.0;
   var nearest_px = px;
+  @if(TRANSPARENT) var alpha_lo = 1.0;
+  @if(TRANSPARENT) var alpha_hi = 0.0;
   for (var y = -1; y <= 1; y++) {
     for (var x = -1; x <= 1; x++) {
       let q = clamp(px + vec2i(x, y), vec2i(0), size - 1);
-      let c = rgb_to_ycocg(compress(textureLoad(input, q, 0).rgb));
+      let texel = textureLoad(input, q, 0);
+      let c = rgb_to_ycocg(compress(texel.rgb));
       lo = min(lo, c);
       hi = max(hi, c);
+      @if(TRANSPARENT) {
+        alpha_lo = min(alpha_lo, texel.a);
+        alpha_hi = max(alpha_hi, texel.a);
+      }
       let d = textureLoad(depth_texture, q, 0);
       if (d > nearest) { nearest = d; nearest_px = q; }
     }
@@ -500,8 +510,17 @@ fn sample_history(uv: vec2f) -> vec3f {
   let blended = mix(ycocg_to_rgb(h), current, alpha);
   let color = expand(max(blended, vec3f(0.0)));
   var out: TaaOutput;
-  out.color = vec4f(color, 1.0);
-  out.history = vec4f(color, 1.0);
+  @if(!TRANSPARENT) {
+    out.color = vec4f(color, 1.0);
+    out.history = vec4f(color, 1.0);
+  }
+  @if(TRANSPARENT) {
+    // Coverage resolves like color: history clamped to the neighborhood, blended at the same rate.
+    let past = clamp(textureSampleLevel(history, linear_sampler, prev_uv, 0.0).a, alpha_lo, alpha_hi);
+    let coverage = mix(past, textureLoad(input, px, 0).a, alpha);
+    out.color = vec4f(color, coverage);
+    out.history = vec4f(color, coverage);
+  }
   return out;
 }`,
 
@@ -630,6 +649,13 @@ fn at(uv: vec2f, o: vec2f, texel: vec2f) -> vec3f {
   return textureSampleLevel(input, input_sampler, uv + o * texel, 0.0).rgb;
 }
 
+/** The output at uv: opaque views write alpha 1; premultiplied ones carry it, rgb <= alpha (0052). */
+fn result(uv: vec2f) -> vec4f {
+  let c = textureSampleLevel(input, input_sampler, uv, 0.0);
+  @if(!TRANSPARENT) return vec4f(c.rgb, 1.0);
+  @if(TRANSPARENT) return vec4f(c.rgb, max(c.a, max(c.r, max(c.g, c.b))));
+}
+
 /** FXAA 3.11 (Lottes), quality preset 12: local contrast, edge direction, end search, blend. */
 @fragment fn fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
   let size = vec2f(textureDimensions(input));
@@ -644,7 +670,10 @@ fn at(uv: vec2f, o: vec2f, texel: vec2f) -> vec3f {
   let lo = min(m, min(min(n, s), min(e, w)));
   let hi = max(m, max(max(n, s), max(e, w)));
   let range = hi - lo;
-  if (range < max(0.0312, hi * 0.125)) { return vec4f(center, 1.0); }
+  if (range < max(0.0312, hi * 0.125)) {
+    @if(!TRANSPARENT) return vec4f(center, 1.0);
+    @if(TRANSPARENT) return result(uv);
+  }
   let nw = luma(at(uv, vec2f(-1.0, -1.0), texel));
   let ne = luma(at(uv, vec2f(1.0, -1.0), texel));
   let sw = luma(at(uv, vec2f(-1.0, 1.0), texel));
@@ -705,6 +734,7 @@ fn at(uv: vec2f, o: vec2f, texel: vec2f) -> vec3f {
   let blend = max(edge_blend, sub_blend);
   var final_uv = uv;
   if (horizontal) { final_uv.y += blend * step_len; } else { final_uv.x += blend * step_len; }
-  return vec4f(textureSampleLevel(input, input_sampler, final_uv, 0.0).rgb, 1.0);
+  @if(!TRANSPARENT) return vec4f(textureSampleLevel(input, input_sampler, final_uv, 0.0).rgb, 1.0);
+  @if(TRANSPARENT) return result(final_uv);
 }`,
 }

@@ -24,7 +24,7 @@ import {
   Shaders,
   Views,
 } from '@aethervtt/shard-render'
-import { Time } from '@aethervtt/shard-runtime'
+import { FrameDemand, Time } from '@aethervtt/shard-runtime'
 import { type Texture, Textures } from '@aethervtt/shard-texture'
 import { GlobalTransform } from '@aethervtt/shard-transform'
 import { ParticleEmitterOverrides, ParticleSystem } from './components'
@@ -67,6 +67,8 @@ export interface EmitterState {
   backlog: number
   /** Alive particles from the last readback (a frame or two late). */
   alive: number
+  /** System time of the last spawn: its particles live until lifetime max after it. */
+  lastSpawn: number
   /** Sorting (alpha, small enough): keys, order, and per-step uniforms. */
   sort:
     | { keys: GPUBuffer; order: GPUBuffer; steps: GPUBuffer; count: number; n: number }
@@ -329,6 +331,7 @@ function createEmitter(
     spawnCount: 0,
     backlog: 0,
     alive: keep ? previous.alive : 0,
+    lastSpawn: keep ? previous.lastSpawn : Number.NEGATIVE_INFINITY,
     sort: sortable
       ? {
           keys: gpu.device.createBuffer({
@@ -422,6 +425,8 @@ export const prepareParticles = defineSystem({
     store.primary = primary?.name
     store.primaryCamera = primary ? cameraOf(primary) : undefined
     const cam = store.primaryCamera
+    /** Systems with particles in the air or still to come: on-demand apps keep rendering (0052). */
+    let live = false
     for (const table of q.tables) {
       const effectRefs = table.column(ParticleSystem, 'effect')
       const playing = table.column(ParticleSystem, 'playing')
@@ -517,6 +522,12 @@ export const prepareParticles = defineSystem({
             e.backlog + (e.dt > 0 ? spawnCount(e, sys.time, e.dt, rate) : 0),
           )
           e.backlog = e.spawnCount
+          if (e.spawnCount > 0) e.lastSpawn = sys.time
+          if (
+            dt > 0 &&
+            (rate > 0 || burstPending(e) || sys.time - e.lastSpawn <= e.def.init.lifetime[1])
+          )
+            live = true
           writeUniforms(e, sys, cam)
           if (sys.cpu && e.cpu) {
             simulateCpu(e, sys, e.dt)
@@ -530,8 +541,21 @@ export const prepareParticles = defineSystem({
     for (const [entity, sys] of store.systems) {
       if (sys.seen !== store.frame) store.systems.delete(entity)
     }
+    world.tryResource(FrameDemand)?.set('particles', live)
   },
 })
+
+/** Whether a burst will still fire: one with cycles left, or repeating forever. */
+function burstPending(e: EmitterState): boolean {
+  const bursts = e.def.spawn.bursts
+  for (let i = 0; i < bursts.length; i++) {
+    const b = bursts[i]!
+    const fired = e.fired[i] ?? 0
+    // As spawnCount fires them: the first time, then again only with an interval.
+    if ((fired === 0 || b.interval > 0) && (b.cycles === 0 || fired < b.cycles)) return true
+  }
+  return false
+}
 
 function sphereVisible(planes: Float32Array, c: Float32Array, r: number): boolean {
   for (let p = 0; p < 6; p++) {
@@ -913,18 +937,17 @@ function sortEmitter(
   }
 }
 
-let identityBuf: { buffer: GPUBuffer; generation: number } | undefined
+/** One per device, shared by every app on it (0052); made again after a device loss. */
 function identityBuffer(gpu: GpuContext, _c: Caches): GPUBuffer {
-  if (!identityBuf || identityBuf.generation !== gpu.generation) {
-    const buffer = gpu.device.createBuffer({
+  return gpu.shared('particles/identity', (device) => {
+    const buffer = device.createBuffer({
       label: 'particles/identity',
       size: 64,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     })
-    gpu.device.queue.writeBuffer(buffer, 0, identity as Float32Array<ArrayBuffer>)
-    identityBuf = { buffer, generation: gpu.generation }
-  }
-  return identityBuf.buffer
+    device.queue.writeBuffer(buffer, 0, identity as Float32Array<ArrayBuffer>)
+    return buffer
+  })
 }
 
 const ADDITIVE: GPUBlendState = {

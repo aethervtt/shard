@@ -31,6 +31,7 @@ export interface RenderScaleValue {
 }
 
 export const RenderScale = defineResource<RenderScaleValue>('render/RenderScale', {
+  hostWritable: true,
   description:
     'Render resolution of window cameras (0051): the scene renders at scale × the window size and is upscaled, UI stays native. auto moves the scale between min and max to hold the frame budget: targetMs, or one display refresh (DisplayRate) when it is 0.',
   init: () => ({

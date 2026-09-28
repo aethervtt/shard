@@ -7,16 +7,21 @@ import {
   ShardError,
   type World,
 } from '@aethervtt/shard-core'
-import { createGpuContext, type GpuContext } from '@aethervtt/shard-gpu'
-import { definePlugin, LogResource, type Plugin } from '@aethervtt/shard-runtime'
+import {
+  createGpuContext,
+  type GpuContext,
+  type Surface,
+  type SurfaceAlpha,
+} from '@aethervtt/shard-gpu'
+import { definePlugin, FrameDemand, LogResource, type Plugin } from '@aethervtt/shard-runtime'
 import { type ShaderBake, ShaderLibrary } from '@aethervtt/shard-shader'
 import { type CapturedBuffer, type CapturedImage, RenderGraph, type RenderView } from './graph'
 import { registerEngineShaders } from './shaders'
 import { GpuMemory, RenderCounters, RenderStats } from './stats'
-import { type RenderTarget, WindowTarget } from './target'
+import type { RenderTarget } from './target'
 
 export const Gpu = defineResource<GpuContext>('render/Gpu', {
-  description: 'The GPU device, caches, and canvas.',
+  description: 'The GPU device, its surfaces (canvases), and caches. Apps can share one.',
 })
 
 export const Graph = defineResource<RenderGraph>('render/Graph', {
@@ -33,7 +38,7 @@ export const Views = defineResource<{ list: RenderView[] }>('render/Views', {
 
 export const Window = defineResource<RenderTarget>('render/Window', {
   description:
-    'Where cameras without a target render: the canvas swapchain, or an offscreen target when headless.',
+    "Where cameras without a target render: the app's surface (canvas), or an offscreen target when headless.",
 })
 
 export const GpuDeviceLost = defineEvent<{ reason: string; message: string }>(
@@ -58,13 +63,28 @@ export const RenderSet = {
 } as const
 
 export interface RenderPluginOptions {
-  /** Render into this canvas. Omit for headless (views use offscreen targets). */
+  /**
+   * Render into this canvas: the plugin adds it as a surface of `gpu` (or of a device it makes).
+   * Omit for headless (views use offscreen targets).
+   */
   canvas?: HTMLCanvasElement | OffscreenCanvas
-  /** An existing GPU context (e.g. Dawn in Node). Otherwise one is created in `ready`. */
+  /**
+   * With `canvas`: 'premultiplied' composites the canvas over the page, where cameras clearing to
+   * alpha 0 show what's under it (0052). Default 'opaque'.
+   */
+  alpha?: SurfaceAlpha
+  /** Render into a surface already on `gpu` (`gpu.addSurface`). Disposing the app removes it. */
+  surface?: Surface
+  /**
+   * An existing GPU context (e.g. Dawn in Node, or one shared with other apps). Otherwise one is
+   * created in `ready` and destroyed with the app.
+   */
   gpu?: GpuContext
+  /** The name this app's GPU objects count under in `gpu.stats(owner)`. Default `render:<n>`. */
+  owner?: string
   /**
    * Headless stand-in for the window: cameras without a target render here. Used by the CLI for
-   * screenshots. Ignored when there's a canvas.
+   * screenshots. Ignored when there's a canvas or surface.
    */
   target?: RenderTarget
   features?: GPUFeatureName[]
@@ -107,8 +127,20 @@ const execute = defineSystem({
     }
     if (views.length === 0) return
     world.resource(Graph).execute(world, views)
+    // A frame that couldn't draw everything (pipelines compiling, meshes or materials still
+    // loading) is followed by another, so an on-demand app doesn't stop on a half-drawn frame.
+    const gpu = world.resource(Gpu)
+    anyPending = gpu.pipelines.skipped > 0 || gpu.pipelines.pending > 0
+    if (!anyPending) world.tryResource(RenderStats)?.forEach(notePending)
+    world.tryResource(FrameDemand)?.set('render/loading', anyPending)
   },
 })
+
+/** Scratch for execute: Map.forEach with a module function allocates nothing per frame. */
+let anyPending = false
+function notePending(stats: { pending: number }): void {
+  if (stats.pending > 0) anyPending = true
+}
 
 /**
  * Extra sections for `describeRender`, keyed by name. Plugins add theirs (lighting, post effects),
@@ -119,8 +151,30 @@ export const RenderDescribers = defineResource<Map<string, (world: World) => unk
   { description: 'Sections plugins add to render.describe.', init: () => new Map() },
 )
 
-export const RenderOptions =
-  defineResource<Required<Pick<RenderPluginOptions, 'windowView'>>>('render/Options')
+export interface RenderOptionsValue {
+  windowView: boolean
+  /** What this app's GPU objects count under in `gpu.stats` (0052). */
+  owner: string
+}
+
+export const RenderOptions = defineResource<RenderOptionsValue>('render/Options', {
+  description: "The render plugin's settings: the fallback window view, and the app's GPU owner.",
+})
+
+/** What one app's render plugin set up, and releases on dispose. */
+interface RenderAppState {
+  owner: string
+  gpu: GpuContext | undefined
+  /** The plugin made the device, so it destroys it too. */
+  ownsDevice: boolean
+  surface: Surface | undefined
+  /** Owners the scope replaced, innermost last (apps nest: a preview renders inside a frame). */
+  readonly saved: (string | undefined)[]
+  readonly unsubscribe: (() => void)[]
+}
+
+const renderApps = new WeakMap<object, RenderAppState>()
+let nextOwner = 1
 
 export function renderPlugin(options: RenderPluginOptions = {}): Plugin {
   return definePlugin({
@@ -138,9 +192,33 @@ export function renderPlugin(options: RenderPluginOptions = {}): Plugin {
     ],
     dependencies: ['core/time'],
     build(app) {
+      const state: RenderAppState = {
+        owner: options.owner ?? `render:${nextOwner++}`,
+        gpu: undefined,
+        ownsDevice: false,
+        surface: undefined,
+        saved: [],
+        unsubscribe: [],
+      }
+      renderApps.set(app, state)
+      // Everything the app runs counts its buffers and textures against its owner (0052).
+      app.addScope({
+        enter() {
+          const gpu = state.gpu
+          state.saved.push(gpu?.owner)
+          if (gpu) gpu.owner = state.owner
+        },
+        exit() {
+          const previous = state.saved.pop()
+          if (state.gpu && previous !== undefined) state.gpu.owner = previous
+        },
+      })
       app
         .insertResource(Views, { list: [] })
-        .insertResource(RenderOptions, { windowView: options.windowView ?? true })
+        .insertResource(RenderOptions, {
+          windowView: options.windowView ?? true,
+          owner: state.owner,
+        })
         .configureSets(
           Last,
           RenderSet.Extract.after(RenderSet.Begin),
@@ -152,30 +230,69 @@ export function renderPlugin(options: RenderPluginOptions = {}): Plugin {
         .addSystems(Last, begin.inSet(RenderSet.Begin), execute.inSet(RenderSet.Graph))
     },
     async ready(app) {
-      const gpu =
-        options.gpu ??
-        (await createGpuContext({ canvas: options.canvas, features: options.features }))
-      app.insertResource(Gpu, gpu)
-      app.insertResource(Graph, new RenderGraph(gpu))
+      const state = renderApps.get(app)!
+      const given = options.gpu ?? options.surface?.gpu
+      if (options.surface && options.gpu && options.surface.gpu !== options.gpu) {
+        throw new ShardError('render/surface-device', 'The surface belongs to another GpuContext', {
+          hint: 'Pass the GpuContext the surface was added to (surface.gpu), or omit gpu.',
+        })
+      }
+      const gpu = given ?? (await createGpuContext({ features: options.features }))
+      state.gpu = gpu
+      state.ownsDevice = !given
+      // After the await, so outside the app's scope: count what's made here against it explicitly.
+      gpu.withOwner(state.owner, () => {
+        app.insertResource(Gpu, gpu)
+        app.insertResource(Graph, new RenderGraph(gpu))
+      })
       const shaders = options.shaders ?? new ShaderLibrary()
       if (!options.shaders) registerEngineShaders(shaders)
       if (options.shaderBake) shaders.preload(options.shaderBake)
       app.insertResource(Shaders, shaders)
-      if (gpu.context) app.insertResource(Window, new WindowTarget(gpu))
-      else if (options.target) app.insertResource(Window, options.target)
+      const surface =
+        options.surface ??
+        (options.canvas ? gpu.addSurface(options.canvas, { alpha: options.alpha }) : undefined)
+      state.surface = surface
+      if (surface) {
+        app.insertResource(Window, surface)
+        // A resize changes what's on screen: an on-demand app renders it.
+        state.unsubscribe.push(surface.onResize(() => app.disposed || app.requestFrame()))
+      } else if (options.target) app.insertResource(Window, options.target)
       const log = app.world.tryResource(LogResource)
-      if (log) gpu.onError((error) => log.error(error))
-      gpu.onDeviceLost((info) => {
-        app.world.send(GpuDeviceLost, info)
-        void gpu.recreate()
-      })
+      if (log) state.unsubscribe.push(gpu.onError((error) => log.error(error)))
+      state.unsubscribe.push(
+        gpu.onDeviceLost((info) => {
+          app.world.send(GpuDeviceLost, info)
+          void gpu.recreate()
+        }),
+      )
+    },
+    dispose(app) {
+      const state = renderApps.get(app)
+      if (!state) return
+      renderApps.delete(app)
+      for (const off of state.unsubscribe.splice(0)) off()
+      app.world.tryResource(Graph)?.dispose()
+      state.surface?.remove()
+      const gpu = state.gpu
+      if (!gpu) return
+      // The app's buffers and textures, wherever they were made: nodes, pools, uploads, targets.
+      gpu.release(state.owner)
+      if (state.ownsDevice) gpu.destroy()
     },
   })
 }
 
+/** The name this app's GPU objects count under in `gpu.stats` (0052). */
+export function renderOwner(world: World): string {
+  return world.resource(RenderOptions).owner
+}
+
 /** A screenshot of a view (default: the window) after the next frame renders it. */
 export function captureView(world: World, view = WINDOW_VIEW): Promise<CapturedImage> {
-  return world.resource(Graph).capture(view)
+  const shot = world.resource(Graph).capture(view)
+  world.wake() // an idle on-demand app renders the frame the capture waits for
+  return shot
 }
 
 /**
@@ -189,7 +306,9 @@ export async function captureBuffer(
   buffer: string,
 ): Promise<CapturedBuffer> {
   const graph = world.resource(Graph)
-  const result = await graph.capture(view, buffer)
+  const pending = graph.capture(view, buffer)
+  world.wake()
+  const result = await pending
   if (!('format' in result)) {
     const data = new Float32Array(result.data.length)
     for (let i = 0; i < data.length; i++) data[i] = result.data[i]! / 255

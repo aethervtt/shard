@@ -21,6 +21,7 @@ import {
   World,
 } from '@aethervtt/shard-core'
 import { AppControl, AppControlResource } from './control'
+import { FrameDemand, FrameDemandState } from './demand'
 import { Log, LogResource } from './log'
 import type { Plugin } from './plugin'
 import type { Runner } from './runners'
@@ -59,6 +60,23 @@ export interface AppMethod {
   handler(ctx: { app: App; world: World }, params: Record<string, unknown>): unknown
 }
 
+/**
+ * Code the app runs happens inside its scopes: plugin builds and ready hooks, frames, pumps, and
+ * disposal. The render plugin uses one to count GPU objects against the app (0052).
+ */
+export interface AppScope {
+  enter(): void
+  exit(): void
+}
+
+/** What a loop runner gives the app while it drives it (0052). */
+export interface FrameDriver {
+  /** Schedules a frame if none is coming (on-demand); a no-op for runners that run every frame. */
+  requestFrame(): void
+  /** Stops the loop for good. */
+  stop(): void
+}
+
 /** Order the built-in schedules run in, for `describe()`. */
 const FRAME_SCHEDULES = [Startup, First, PreUpdate, FixedUpdate, Update, PostUpdate, Last]
 
@@ -90,6 +108,11 @@ export class App {
   private readonly now: () => number
   private readonly plugins = new Map<string, Plugin>()
   private readonly pending: Plugin[] = []
+  /** Plugins in the order they were built; disposal runs it backwards. */
+  private readonly built: Plugin[] = []
+  private readonly scopes: AppScope[] = []
+  private driver: FrameDriver | undefined
+  private disposing: Promise<void> | undefined
   private readonly schedules = new Map<ScheduleLabel, Schedule>()
   private readonly systemNames = new Set<string>()
   private readonly states: StateDriver[] = []
@@ -119,7 +142,10 @@ export class App {
     const log = new Log()
     log.now = () => this.world.tryResource(Time)?.elapsed ?? 0
     this.world.insertResource(LogResource, log)
-    this.world.insertResource(AppControlResource, new AppControl())
+    const control = new AppControl()
+    control.onRequest = () => this.driver?.requestFrame()
+    this.world.insertResource(AppControlResource, control)
+    this.world.insertResource(FrameDemand, new FrameDemandState(this.now))
     this.addPlugin(TimePlugin)
   }
 
@@ -127,6 +153,7 @@ export class App {
 
   /** Adds plugins. They build in dependency order during `init()`. */
   addPlugin(...plugins: Plugin[]): this {
+    this.assertLive()
     for (const plugin of plugins) {
       if (this.plugins.has(plugin.name)) {
         throw new ShardError('app/duplicate-plugin', `Plugin "${plugin.name}" was added twice`)
@@ -139,6 +166,7 @@ export class App {
 
   /** Adds protocol methods (see `AppMethod`). A second method with a taken name throws. */
   addMethod(...methods: AppMethod[]): this {
+    this.assertLive()
     for (const method of methods) {
       if (this.appMethods.has(method.name)) {
         throw new ShardError('app/duplicate-method', `Method "${method.name}" was added twice`)
@@ -154,6 +182,7 @@ export class App {
   }
 
   addSystems(schedule: ScheduleLabel, ...systems: SystemInput[]): this {
+    this.assertLive()
     const target = this.schedule(schedule)
     for (const system of systems) {
       const name = 'system' in system ? system.system.name : system.name
@@ -170,6 +199,7 @@ export class App {
   }
 
   configureSets(schedule: ScheduleLabel, ...sets: SystemSetConfig[]): this {
+    this.assertLive()
     const target = this.schedule(schedule)
     for (const set of sets) {
       target.configureSet(set)
@@ -208,7 +238,11 @@ export class App {
    * itself. Resources and entities stay. For hot reload; returns the removed system names.
    */
   unloadPlugin(name: string): string[] {
+    this.assertLive()
     const owned = this.owned.get(name)
+    const plugin = this.plugins.get(name)
+    const at = plugin ? this.built.indexOf(plugin) : -1
+    if (at !== -1) this.built.splice(at, 1)
     this.plugins.delete(name)
     this.owned.delete(name)
     if (!owned) return []
@@ -236,40 +270,40 @@ export class App {
    * first run. Startup systems it adds don't run: startup already happened.
    */
   async loadPlugin(plugin: Plugin): Promise<void> {
+    this.assertLive()
     if (this.plugins.has(plugin.name)) {
       throw new ShardError('app/duplicate-plugin', `Plugin "${plugin.name}" is already loaded`, {
         hint: 'Unload it first (unloadPlugin).',
       })
     }
     this.plugins.set(plugin.name, plugin)
-    this.building = plugin.name
-    try {
-      plugin.build(this)
-    } finally {
-      this.building = undefined
-    }
-    await plugin.ready?.(this)
+    this.buildPlugin(plugin)
+    await this.readyPlugin(plugin)
   }
 
   insertResource<T>(def: ResourceDef<T>, value: T): this {
+    this.assertLive()
     this.world.insertResource(def, value)
     return this
   }
 
   /** Registers a state machine. `OnEnter(initial)` runs at the start of the first frame. */
   initState<T extends string>(state: StateDef<T>, initial: NoInfer<T> = state.values[0]!): this {
+    this.assertLive()
     this.world.insertResource(state.resource, { current: initial, next: undefined })
     this.states.push({ state: state as StateDef<string>, entered: false })
     return this
   }
 
   setRunner(runner: Runner): this {
+    this.assertLive()
     this.runner = runner
     return this
   }
 
   /** Builds plugins in dependency order, then awaits their `ready` hooks. */
   async init(): Promise<void> {
+    this.assertLive()
     if (this.initialized) return
     const built: Plugin[] = []
     const builtNames = new Set<string>()
@@ -279,16 +313,11 @@ export class App {
       )
       if (index === -1) throw this.dependencyError(builtNames)
       const [plugin] = this.pending.splice(index, 1)
-      this.building = plugin!.name
-      try {
-        plugin!.build(this) // may add more plugins
-      } finally {
-        this.building = undefined
-      }
+      this.buildPlugin(plugin!) // may add more plugins
       built.push(plugin!)
       builtNames.add(plugin!.name)
     }
-    for (const plugin of built) await plugin.ready?.(this)
+    for (const plugin of built) await this.readyPlugin(plugin)
     this.initialized = true
   }
 
@@ -298,15 +327,79 @@ export class App {
     await this.runner?.(this)
   }
 
+  /**
+   * Stops the runner, then disposes plugins in reverse build order, so each releases what it
+   * created: GPU objects, surfaces, listeners, workers (0052). Idempotent; afterwards any other
+   * call throws `runtime/disposed`. A plugin whose dispose throws is logged and the rest still run.
+   */
+  dispose(): Promise<void> {
+    this.disposing ??= this.disposeAll()
+    return this.disposing
+  }
+
+  /** True once `dispose()` was called. */
+  get disposed(): boolean {
+    return this.disposing !== undefined
+  }
+
+  /**
+   * Adds a scope around everything the app runs (see `AppScope`). Returns a function that removes
+   * it; don't call that from inside the app's own code (a frame, a plugin's dispose): disposal
+   * drops every scope once plugins are done. Scopes enter in the order added and exit in reverse.
+   */
+  addScope(scope: AppScope): () => void {
+    this.assertLive()
+    this.scopes.push(scope)
+    return () => {
+      const i = this.scopes.indexOf(scope)
+      if (i !== -1) this.scopes.splice(i, 1)
+    }
+  }
+
+  /**
+   * Called by a loop runner as it starts. `requestFrame` and `dispose` reach the loop through it.
+   */
+  attachDriver(driver: FrameDriver): void {
+    this.assertLive()
+    this.driver = driver
+  }
+
+  /**
+   * Asks for a frame: an on-demand runner schedules one if none is coming (0052). Host code that
+   * changes what's on screen without writing the world (a canvas style, a DOM overlay) calls it.
+   */
+  requestFrame(): void {
+    this.assertLive()
+    this.driver?.requestFrame()
+  }
+
+  /**
+   * Drops accumulated fixed-step time, so the next frame runs FixedUpdate for its own delta only.
+   * On-demand runners call it on waking, so a scene idle for a minute doesn't simulate the minute.
+   */
+  resetFixedTime(): void {
+    this.accumulator = 0
+  }
+
   // --- running ---------------------------------------------------------------
 
   /** Runs one frame. `delta` is in seconds. */
   update(delta: number): void {
+    this.assertLive()
     if (!this.initialized) {
       throw new ShardError('app/not-initialized', 'App.update() was called before init()', {
         hint: 'Await app.init() (or app.run()) first.',
       })
     }
+    const scoped = this.enter()
+    try {
+      this.frame(delta)
+    } finally {
+      this.exit(scoped)
+    }
+  }
+
+  private frame(delta: number): void {
     const world = this.world
     if (!this.startupDone) {
       this.runSchedule(Startup)
@@ -345,6 +438,7 @@ export class App {
 
   /** Called after every frame with the number of frames completed. Returns an unsubscribe function. */
   onFrame(listener: (frame: number) => void): () => void {
+    this.assertLive()
     this.frameListeners.add(listener)
     return () => this.frameListeners.delete(listener)
   }
@@ -354,6 +448,7 @@ export class App {
    * without a frame loop (headless servers); loop-driven runners step one frame per tick instead.
    */
   pump(): void {
+    this.assertLive()
     const control = this.world.resource(AppControlResource)
     while (control.pendingSteps > 0) {
       try {
@@ -397,6 +492,85 @@ export class App {
   }
 
   // --- internals -------------------------------------------------------------
+
+  private assertLive(): void {
+    if (this.disposing === undefined) return
+    throw new ShardError('runtime/disposed', 'This app was disposed', {
+      hint: 'Create a new App; a disposed one has released its GPU objects and listeners.',
+    })
+  }
+
+  /** Enters every scope; returns how many, for the matching `exit`. */
+  private enter(): number {
+    const n = this.scopes.length
+    for (let i = 0; i < n; i++) this.scopes[i]!.enter()
+    return n
+  }
+
+  /** Exits the first `n` scopes, so one added inside the section never sees an unmatched exit. */
+  private exit(n: number): void {
+    for (let i = Math.min(n, this.scopes.length) - 1; i >= 0; i--) this.scopes[i]!.exit()
+  }
+
+  private buildPlugin(plugin: Plugin): void {
+    this.building = plugin.name
+    const scoped = this.enter()
+    try {
+      plugin.build(this)
+    } finally {
+      this.exit(scoped)
+      this.building = undefined
+    }
+    this.built.push(plugin)
+  }
+
+  /** Awaits a ready hook; the part that runs before its first await is inside the app's scopes. */
+  private async readyPlugin(plugin: Plugin): Promise<void> {
+    if (!plugin.ready) return
+    const scoped = this.enter()
+    let result: Promise<void> | void
+    try {
+      result = plugin.ready(this)
+    } finally {
+      this.exit(scoped)
+    }
+    await result
+  }
+
+  private async disposeAll(): Promise<void> {
+    const driver = this.driver
+    this.driver = undefined
+    driver?.stop()
+    this.frameListeners.clear()
+    this.world.onWake = undefined
+    this.world.asleep = false
+    const log = this.world.tryResource(LogResource)
+    let first: unknown
+    for (let i = this.built.length - 1; i >= 0; i--) {
+      const plugin = this.built[i]!
+      if (!plugin.dispose) continue
+      const scoped = this.enter()
+      let result: Promise<void> | void
+      try {
+        result = plugin.dispose(this)
+      } catch (err) {
+        first ??= err
+        log?.error(err)
+        continue
+      } finally {
+        this.exit(scoped)
+      }
+      try {
+        await result
+      } catch (err) {
+        first ??= err
+        log?.error(err)
+      }
+    }
+    this.built.length = 0
+    this.scopes.length = 0
+    if (first !== undefined) throw first
+  }
 
   private schedule(label: ScheduleLabel): Schedule {
     let schedule = this.schedules.get(label)

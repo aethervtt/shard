@@ -12,7 +12,7 @@ import {
   type World,
 } from '@aethervtt/shard-core'
 import { descendantPaths, type SkinAsset, Skins } from '@aethervtt/shard-render'
-import { LogResource, Time } from '@aethervtt/shard-runtime'
+import { FrameDemand, LogResource, Time } from '@aethervtt/shard-runtime'
 import { Transform } from '@aethervtt/shard-transform'
 import {
   type AnimationChannel,
@@ -1081,6 +1081,8 @@ export const sampleAnimations = defineSystem({
     dtArg[0] = dt
     const tick = world.tick
     const tables = q.tables
+    /** A layer still moving: playing (short of a once clip's end) or fading (0052). */
+    let moving = false
     for (let ti = 0; ti < tables.length; ti++) {
       const table = tables[ti]!
       const n = table.count
@@ -1118,6 +1120,13 @@ export const sampleAnimations = defineSystem({
           prevTimes[li] = layer.time
           const clip = clips.get(layer.clip)
           if (clip) advance(world, entity, li, layer, clip)
+          if (layer.fadeSpeed > 0) moving = true
+          else if (clip && layer.playing && layer.speed !== 0) {
+            const ended =
+              layer.loop === 'once' &&
+              (layer.speed > 0 ? layer.time >= clip.duration : layer.time <= 0)
+            if (!ended) moving = true
+          }
         }
         // Bind every layer's clip first: root motion picks its joint among the bound slots.
         for (let li = 0; li < layers.length; li++) {
@@ -1232,6 +1241,8 @@ export const sampleAnimations = defineSystem({
         if (removals.length > 0) table.markChanged(AnimationPlayer, i)
       }
     }
+    // Playing animations keep an on-demand runner going.
+    world.tryResource(FrameDemand)?.set('animation', moving)
   },
 })
 

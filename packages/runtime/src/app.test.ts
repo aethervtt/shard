@@ -16,6 +16,7 @@ import {
 } from '@aethervtt/shard-core'
 import { describe, expect, it } from 'vitest'
 import { App } from './app'
+import { LogResource } from './log'
 import { definePlugin } from './plugin'
 import { headlessRunner } from './runners'
 import { defineState, inState, OnEnter, OnExit, setState } from './state'
@@ -480,5 +481,86 @@ describe('frame control and log', () => {
       expect.objectContaining({ level: 'error', code: 'test/bad', path: 'a/b', hint: 'Fix it' }),
     ])
     expect(log.tail(10).map((e) => e.message)).toEqual(['hello', 'Broken'])
+  })
+})
+
+describe('dispose (0052)', () => {
+  it('disposes plugins in reverse build order, once, then refuses every call', async () => {
+    const log: string[] = []
+    const plugin = (name: string, dependencies: string[] = []) =>
+      definePlugin({
+        name,
+        dependencies,
+        build() {},
+        dispose: async () => {
+          await Promise.resolve()
+          log.push(name)
+        },
+      })
+    const app = new App().addPlugin(
+      plugin('test/c', ['test/b']),
+      plugin('test/a'),
+      plugin('test/b', ['test/a']),
+    )
+    await app.init()
+    app.update(1 / 60)
+    await Promise.all([app.dispose(), app.dispose()])
+    await app.dispose()
+    expect(log).toEqual(['test/c', 'test/b', 'test/a'])
+    expect(app.disposed).toBe(true)
+    for (const call of [
+      () => app.update(1 / 60),
+      () => app.requestFrame(),
+      () => app.addPlugin(plugin('test/d')),
+      () => app.insertResource(defineResource<number>('test/AfterDispose'), 1),
+      () => app.pump(),
+    ]) {
+      expect(call).toThrow(expect.objectContaining({ code: 'runtime/disposed' }))
+    }
+    await expect(app.init()).rejects.toMatchObject({ code: 'runtime/disposed' })
+  })
+
+  it('keeps disposing past a plugin that throws, logs it, and rethrows the first error', async () => {
+    const log: string[] = []
+    const app = new App().addPlugin(
+      definePlugin({ name: 'test/fine', build() {}, dispose: () => void log.push('fine') }),
+      definePlugin({
+        name: 'test/broken',
+        build() {},
+        dispose: () => {
+          throw new Error('nope')
+        },
+      }),
+    )
+    await app.init()
+    const logged = app.world.resource(LogResource)
+    await expect(app.dispose()).rejects.toThrow('nope')
+    expect(log).toEqual(['fine'])
+    expect(logged.errors(5).map((e) => e.message)).toContain('nope')
+  })
+
+  it('runs frames, builds, readies, and disposals inside the scopes plugins add', async () => {
+    const depth: number[] = []
+    let inside = 0
+    const app = new App().addPlugin(
+      definePlugin({
+        name: 'test/scoped',
+        build(app) {
+          app.addScope({ enter: () => void inside++, exit: () => void inside-- })
+          app.addSystems(
+            Update,
+            defineSystem({ name: 'test/depth', run: () => void depth.push(inside) }),
+          )
+        },
+        ready: () => void depth.push(inside),
+        dispose: () => void depth.push(inside),
+      }),
+    )
+    await app.init()
+    app.update(1 / 60)
+    expect(inside).toBe(0)
+    await app.dispose()
+    expect(depth).toEqual([1, 1, 1])
+    expect(inside).toBe(0)
   })
 })

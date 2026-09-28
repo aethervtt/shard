@@ -290,7 +290,9 @@ against the `.d.ts` only. `pnpm release --check` runs it.
 - [x] `renderer-min`'s brotli JS size is at or below `three-min`'s. Measured (Vite 8, brotli 11):
       `renderer-min`'s entry went from 186 KB to 91.5 KB; `three-min` is 91.6 KB. Getting there took
       the feature plugins, lazy KTX2 readers and previews, and baked shaders with a lazy WESL
-      (a 34 KB brotli chunk that loads only on a variant the bake lacks).
+      (a 34 KB brotli chunk that loads only on a variant the bake lacks). Since 0052 the entry is
+      97.0 KB: surfaces, GPU accounting, teardown and on-demand frames are in every app, and
+      `budgets.json` holds the new size (0052, Decisions).
 - [x] `bench/consumer` installs the release tarballs, builds with Vite and with `bun build`,
       typechecks against the shipped `.d.ts` with no Shard source present, renders a headless
       frame, and samples noise on the worker pool.

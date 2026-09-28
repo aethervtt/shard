@@ -49,6 +49,14 @@ run. What's left:
   it (or shrinking what it renders on the software GPU) is the next win.
 - Run only affected packages on pull requests (`turbo run test --affected`), and everything on main.
 
+## Gamepads don't wake an on-demand app (0052)
+
+Gamepads are polled when the input plugin drains its source, and the Gamepad API has no event for
+button or stick changes, so an idle `mode: 'on-demand'` runner never sees them. Keyboard, mouse,
+touch and wheel wake it through `InputSource.onInput`. A game that plays with a gamepad holds a
+frame demand while one is connected, or the input plugin could hold one itself (poll at a low rate
+with `FrameDemand.after` while any pad is connected, full rate while one moved recently).
+
 ## Headless runs have no frames-in-flight limit
 
 `app.update()` on an offscreen target submits GPU work without waiting, so a loop on a slow GPU

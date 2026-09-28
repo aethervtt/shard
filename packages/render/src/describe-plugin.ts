@@ -1,20 +1,60 @@
-import { definePlugin } from '@aethervtt/shard-runtime'
+import { defineSchema, t, type World } from '@aethervtt/shard-core'
+import { type AppMethod, definePlugin, FrameDemand } from '@aethervtt/shard-runtime'
 import { describeCulling, describeLighting } from './debug-views'
-import { RenderDescribers } from './plugin'
+import { Gpu, RenderDescribers, RenderOptions, Window } from './plugin'
 import { describeRenderScale } from './render-scale'
 
+/** Every surface on the app's device (size, alpha mode), and which one this app renders to (0052). */
+function describeSurfaces(world: World) {
+  const window = world.tryResource(Window)
+  return world.resource(Gpu).surfaces.map((s) => ({
+    label: s.label,
+    size: [s.width, s.height],
+    alpha: s.alpha,
+    pixelRatio: s.pixelRatio,
+    thisApp: s === window,
+  }))
+}
+
+const gpuStats: AppMethod = {
+  name: 'gpu.stats',
+  description:
+    "Live GPU buffers and textures, by owner: each app's render plugin is one, and 'gpu' holds what apps on the device share.",
+  params: defineSchema('render/GpuStatsParams', {
+    owner: t.string({ description: 'One owner. Empty: this app, every owner, and the total.' }),
+  }),
+  handler: ({ world }, p) => {
+    const gpu = world.resource(Gpu)
+    if (p.owner) return { owner: p.owner, ...gpu.stats(p.owner as string) }
+    return {
+      owner: world.resource(RenderOptions).owner,
+      total: gpu.stats(),
+      owners: Object.fromEntries(gpu.owners().map((o) => [o, gpu.stats(o)])),
+    }
+  },
+}
+
 /**
- * The lighting, culling, and renderScale sections of `render.describe`, for agents and the editor.
- * Only introspection: an app that ships without it renders the same.
+ * The lighting, culling, renderScale, surfaces, and frames sections of `render.describe`, and the
+ * `gpu.stats` method, for agents and the editor. Only introspection: an app that ships without it
+ * renders the same.
  */
 export const renderDescribePlugin = definePlugin({
   name: 'render/describe',
   dependencies: ['render/forward'],
-  build() {},
+  build(app) {
+    app.addMethod(gpuStats)
+  },
   ready(app) {
     const describers = app.world.initResource(RenderDescribers)
     describers.set('lighting', (world) => describeLighting(world))
     describers.set('culling', (world) => describeCulling(world))
     describers.set('renderScale', (world) => describeRenderScale(world))
+    describers.set('surfaces', describeSurfaces)
+    // What drives frames, and who holds an on-demand runner awake (0052).
+    describers.set('frames', (world) => world.resource(FrameDemand).describe())
+    describers.set('gpuObjects', (world) =>
+      world.resource(Gpu).stats(world.resource(RenderOptions).owner),
+    )
   },
 })

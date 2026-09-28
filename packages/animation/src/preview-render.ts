@@ -146,6 +146,7 @@ export async function renderClipPreview(
     return { width: frameWidth * FRAMES, height, data: out }
   } finally {
     releaseSceneHooks(app.world)
+    await app.dispose()
     target.destroy()
   }
 }

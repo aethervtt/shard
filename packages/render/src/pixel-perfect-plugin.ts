@@ -8,7 +8,7 @@ import { registerShaders } from './shaders'
 export const PIXEL_PERFECT_SHADERS: Record<string, string> = {
   'shard::post::pixel_upscale': `
 struct Upscale {
-  /** offset (xy), scale, 0. */
+  /** offset (xy), scale, the bars' alpha (0 for a camera clearing to alpha, 0052). */
   params: vec4f,
 }
 
@@ -19,7 +19,7 @@ struct Upscale {
 @fragment fn fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
   let p = (frag.xy - upscale.params.xy) / upscale.params.z;
   let size = vec2f(textureDimensions(source));
-  if (any(p < vec2f(0.0)) || any(p >= size)) { return vec4f(0.0, 0.0, 0.0, 1.0); }
+  if (any(p < vec2f(0.0)) || any(p >= size)) { return vec4f(0.0, 0.0, 0.0, upscale.params.w); }
   return textureLoad(source, vec2i(floor(p)), 0);
 }`,
 }
@@ -97,6 +97,7 @@ export function pixelUpscaleNode(): NodeDescriptor {
       params[0] = layout.offsetX
       params[1] = layout.offsetY
       params[2] = layout.scale
+      params[3] = ctx.view.data.alphaOutput === true ? 0 : 1
       gpu.device.queue.writeBuffer(buffer, 0, params)
       const source = layout.target.texture()
       let cached = groups.get(ctx.view.name)
