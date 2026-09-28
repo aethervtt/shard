@@ -37,6 +37,7 @@ const PLUGINS: Record<string, (m: Mod) => PluginLike[]> = {
     m.deferredPlugin as PluginLike,
     m.skinningPlugin as PluginLike,
     m.pixelPerfectPlugin as PluginLike,
+    m.shadowCatcherPlugin as PluginLike,
     m.dynamicResolutionPlugin as PluginLike,
   ],
   save: (m) => [(m.savePlugin as () => PluginLike)()],

@@ -61,15 +61,17 @@ function tonemapNode(): NodeDescriptor {
       }
       const format = ctx.texture('ldr').format
       const srgb = format.endsWith('-srgb')
+      const alpha = cam.alphaOutput
       const pipeline = cache.render(
         ctx,
-        `tonemap/${format}`,
+        `tonemap/${format}${alpha ? '/alpha' : ''}`,
         'shard::post::tonemap',
         'fs',
         [layout],
         [{ format }],
         {
           SRGB_TARGET: srgb,
+          TRANSPARENT: alpha,
         },
       )
       if (!pipeline) return
@@ -157,13 +159,15 @@ function upscaleNode(): NodeDescriptor {
       const input = ctx.texture('display')
       const target = ctx.texture('view-target')
       const format = target.format
+      const alpha = cameraOf(ctx.view)!.alphaOutput
       const pipeline = cache.render(
         ctx,
-        `upscale/${format}`,
+        `upscale/${format}${alpha ? '/alpha' : ''}`,
         'shard::post::upscale',
         'fs',
         [layout],
         [{ format }],
+        { TRANSPARENT: alpha },
       )
       if (!pipeline) return
       const settings = ctx.world.tryResource(RenderScale)

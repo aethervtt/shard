@@ -7,7 +7,15 @@ const BUTTONS: MouseButton[] = ['left', 'middle', 'right', 'back', 'forward']
  * focus on the window, gamepads polled on drain. Works in browsers and Tauri webviews alike.
  */
 export function createDomInputSource(element: HTMLElement): InputSource {
-  const queue: RawInputEvent[] = []
+  const events: RawInputEvent[] = []
+  const listeners = new Set<() => void>()
+  // Every event goes through here, so on-demand apps hear about it (0052).
+  const queue = {
+    push(e: RawInputEvent) {
+      events.push(e)
+      for (const listener of listeners) listener()
+    },
+  }
   const target = globalThis.window
   const toPixels = (e: PointerEvent | WheelEvent) => {
     const rect = element.getBoundingClientRect()
@@ -67,8 +75,8 @@ export function createDomInputSource(element: HTMLElement): InputSource {
 
   return {
     drain(out) {
-      for (const e of queue) out.push(e)
-      queue.length = 0
+      for (const e of events) out.push(e)
+      events.length = 0
       const pads = globalThis.navigator?.getGamepads?.() ?? []
       for (let i = 0; i < pads.length; i++) {
         const pad = pads[i]
@@ -87,7 +95,12 @@ export function createDomInputSource(element: HTMLElement): InputSource {
         }
       }
     },
+    onInput(listener) {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
     dispose() {
+      listeners.clear()
       target.removeEventListener('keydown', onKeyDown)
       target.removeEventListener('keyup', onKeyUp)
       target.removeEventListener('blur', onBlur)

@@ -5,6 +5,7 @@ import { hasEffect, PostEffect, PostFeatures } from './post'
 import { idOf, PostCache, sampler, tex } from './post-common'
 import { FXAA_SHADERS } from './post-shaders'
 import { registerShaders } from './shaders'
+import { cameraOf } from './view'
 
 // --- FXAA --------------------------------------------------------------------------------------
 
@@ -27,15 +28,17 @@ function fxaaNode(): NodeDescriptor {
       }
       const input = ctx.texture('ldr')
       const format = ctx.texture('display').format
+      const alpha = cameraOf(ctx.view)?.alphaOutput === true
       const pipeline = cache.render(
         ctx,
-        `fxaa/${format}`,
+        `fxaa/${format}${alpha ? '/alpha' : ''}`,
         'shard::post::fxaa',
         'fs',
         [layout],
         [{ format }],
         {
           SRGB_TARGET: format.endsWith('-srgb'),
+          TRANSPARENT: alpha,
         },
       )
       if (!pipeline) return

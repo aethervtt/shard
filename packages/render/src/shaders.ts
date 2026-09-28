@@ -396,7 +396,8 @@ import shard::unlit::shading::shade;
 @fragment fn fs(in: VertexOutput) -> @location(0) vec4f {
   let c = shade(in);
   @if(MASK) if (c.a < 0.5) { discard; }
-  return vec4f(c.rgb * view.exposure, c.a);
+  @if(OPAQUE) return vec4f(c.rgb * view.exposure, 1.0);
+  @if(!OPAQUE) return vec4f(c.rgb * view.exposure, c.a);
 }`,
 
   'shard::pbr::brdf': `
@@ -961,7 +962,9 @@ import shard::pbr::lighting::apply_lighting;
   let color = (apply_lighting(p, in.world_position, in.clip, in.flags) + p.emissive) * view.exposure;
   // Premultiplied blending expects color × alpha; additive and alpha blend multiply in hardware.
   @if(PREMULTIPLY) return fragment_output(vec4f(color * p.alpha, p.alpha));
-  @if(!PREMULTIPLY) return fragment_output(vec4f(color, p.alpha));
+  // Opaque and masked surfaces cover their pixel, whatever their base color's alpha (0052).
+  @if(OPAQUE) return vec4f(fragment_output(vec4f(color, p.alpha)).rgb, 1.0);
+  @if(!PREMULTIPLY && !OPAQUE) return fragment_output(vec4f(color, p.alpha));
 }`,
 
   'shard::post::depth_resolve': `
@@ -1094,6 +1097,13 @@ fn apply_lut(c: vec3f) -> vec3f {
 @fragment fn fs(@builtin(position) p: vec4f) -> @location(0) vec4f {
   let texel = textureLoad(hdr, vec2i(p.xy), 0);
   var hdr_color = max(texel.rgb, vec3f(0.0));
+  @if(TRANSPARENT) var alpha = 1.0;
+  @if(TRANSPARENT) {
+    // Premultiplied (0052): light over less coverage raises alpha, so a glow shows over the page;
+    // then the color is un-premultiplied for grading and the curve, and premultiplied again below.
+    alpha = clamp(max(texel.a, max(hdr_color.r, max(hdr_color.g, hdr_color.b))), 0.0, 1.0);
+    hdr_color = hdr_color / max(alpha, 1e-6);
+  }
   let flags = params.mode.z;
   if ((flags & 1u) != 0u) { hdr_color = grade(hdr_color); }
   if ((flags & 2u) != 0u) {
@@ -1109,9 +1119,12 @@ fn apply_lut(c: vec3f) -> vec3f {
     let n = ign(p.xy) + ign(p.xy + vec2f(71.0, 13.0)) - 1.0;
     c = c + vec3f(n / 255.0);
   }
+  // The page composites in display space, so premultiply there; it keeps rgb <= alpha.
+  @if(TRANSPARENT) c = clamp(c, vec3f(0.0), vec3f(1.0)) * alpha;
   // sRGB targets encode in hardware: hand them linear values.
   @if(SRGB_TARGET) c = srgb_to_linear(clamp(c, vec3f(0.0), vec3f(1.0)));
-  return vec4f(c, 1.0);
+  @if(TRANSPARENT) return vec4f(c, max(alpha, max(c.r, max(c.g, c.b))));
+  @if(!TRANSPARENT) return vec4f(c, 1.0);
 }`,
   'shard::post::upscale': `
 struct Upscale {
@@ -1123,8 +1136,18 @@ struct Upscale {
 @group(0) @binding(1) var input_sampler: sampler;
 @group(0) @binding(2) var<uniform> upscale: Upscale;
 
-fn at(uv: vec2f) -> vec3f {
-  return textureSampleLevel(input, input_sampler, uv, 0.0).rgb;
+@if(!TRANSPARENT) alias Texel = vec3f;
+@if(TRANSPARENT) alias Texel = vec4f;
+
+fn at(uv: vec2f) -> Texel {
+  @if(!TRANSPARENT) return textureSampleLevel(input, input_sampler, uv, 0.0).rgb;
+  @if(TRANSPARENT) return textureSampleLevel(input, input_sampler, uv, 0.0);
+}
+
+/** Opaque views write alpha 1; premultiplied ones keep rgb <= alpha after sharpening (0052). */
+fn out(c: Texel) -> vec4f {
+  @if(!TRANSPARENT) return vec4f(c, 1.0);
+  @if(TRANSPARENT) return vec4f(c.rgb, max(c.a, max(c.r, max(c.g, c.b))));
 }
 
 /**
@@ -1135,7 +1158,7 @@ fn at(uv: vec2f) -> vec3f {
   let uv = frag.xy * upscale.params.xy;
   let c = at(uv);
   let k = upscale.params.z;
-  if (k <= 0.0) { return vec4f(c, 1.0); }
+  if (k <= 0.0) { return out(c); }
   let texel = 1.0 / vec2f(textureDimensions(input));
   let n = at(uv + vec2f(0.0, -texel.y));
   let s = at(uv + vec2f(0.0, texel.y));
@@ -1144,7 +1167,7 @@ fn at(uv: vec2f) -> vec3f {
   let lo = min(c, min(min(n, s), min(e, w)));
   let hi = max(c, max(max(n, s), max(e, w)));
   let sharp = c + (4.0 * c - (n + s + e + w)) * (0.25 * k);
-  return vec4f(clamp(sharp, lo, hi), 1.0);
+  return out(clamp(sharp, lo, hi));
 }`,
   'shard::post::common': `
 import shard::view::view;

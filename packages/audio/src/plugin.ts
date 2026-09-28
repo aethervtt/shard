@@ -8,7 +8,14 @@ import * as componentsModule from './components'
 import { AudioBuses } from './components'
 import { audioMethods } from './methods'
 import * as mixerModule from './mixer'
-import { AudioConfig, AudioState, createAudioState, defaultBackend, updateAudio } from './mixer'
+import {
+  AudioConfig,
+  AudioState,
+  createAudioState,
+  defaultBackend,
+  endVoice,
+  updateAudio,
+} from './mixer'
 
 export interface AudioPluginOptions {
   /** Where sound goes (`platform.audio`). Default: the headless backend, which records voices. */
@@ -38,6 +45,14 @@ export function audioPlugin(options: AudioPluginOptions = {}): Plugin {
       w.insertResource(AudioState, createAudioState(backend))
       app.addSystems(PostUpdate, updateAudio.after(TransformSystems))
       app.addMethod(...audioMethods)
+    },
+    dispose(app) {
+      // Silence this app's voices; a host's backend may be another app's too, so it stays (0052).
+      const state = app.world.tryResource(AudioState)
+      if (!state) return
+      for (const voice of state.voices) endVoice(app.world, state, voice, 'removed')
+      state.voices.length = 0
+      if (!options.backend) state.backend.dispose?.()
     },
   })
 }

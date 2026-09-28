@@ -465,3 +465,61 @@ describe('required components', () => {
     expect(mesh?.requires).toEqual(['test/Local', 'test/Visible'])
   })
 })
+
+describe('waking and resource changes (0052)', () => {
+  const Settings = defineResource<{ opacity: number; tint: number[] }>('test/WakeSettings')
+  const Ping = defineEvent('test/WakePing')
+
+  it('calls onWake once, on the first write after the world went to sleep', () => {
+    const world = new World()
+    const e = world.spawn([Position, { value: [0, 0, 0] }])
+    let wakes = 0
+    world.onWake = () => wakes++
+    world.set(e, Position, { value: [1, 0, 0] })
+    expect(wakes).toBe(0) // awake: writes are part of a frame
+    world.asleep = true
+    world.set(e, Position, { value: [2, 0, 0] })
+    world.spawn(Velocity)
+    expect(wakes).toBe(1)
+    expect(world.asleep).toBe(false)
+    const writes: [string, () => void][] = [
+      ['spawn', () => world.spawn(Frozen)],
+      ['despawn', () => world.despawn(world.spawn(Frozen))],
+      ['add', () => world.add(e, Frozen)],
+      ['remove', () => world.remove(e, Frozen)],
+      ['insertResource', () => world.insertResource(Settings, { opacity: 1, tint: [1] })],
+      ['send', () => world.send(Ping)],
+      ['patchResource', () => world.patchResource(Settings, { opacity: 0.5 })],
+      ['touchResource', () => world.touchResource(Settings)],
+    ]
+    for (const [name, write] of writes) {
+      // The despawn case spawns first, which is itself the waking write.
+      world.asleep = true
+      const before = wakes
+      write()
+      expect(wakes - before, name).toBe(1)
+    }
+  })
+
+  it('patches resources with a change tick; a bare field assignment leaves no trace', () => {
+    const world = new World()
+    world.insertResource(Settings, { opacity: 1, tint: [1, 1, 1] })
+    const since = world.incrementTick()
+    expect(world.resourceChanged(Settings, since)).toBe(false)
+    world.resource(Settings).opacity = 0.2
+    expect(world.resourceChanged(Settings, since)).toBe(false)
+    world.incrementTick()
+    const value = world.patchResource(Settings, { opacity: 0.45 })
+    expect(value).toBe(world.resource(Settings))
+    expect(value).toEqual({ opacity: 0.45, tint: [1, 1, 1] })
+    expect(world.resourceChanged(Settings, since)).toBe(true)
+    const later = world.incrementTick()
+    world.resource(Settings).tint[0] = 0
+    world.incrementTick()
+    world.touchResource(Settings)
+    expect(world.resourceChanged(Settings, later)).toBe(true)
+    expect(() => world.touchResource(defineResource('test/WakeMissing'))).toThrow(
+      expect.objectContaining({ code: 'ecs/missing-resource' }),
+    )
+  })
+})

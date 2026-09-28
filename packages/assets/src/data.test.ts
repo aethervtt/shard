@@ -326,3 +326,13 @@ describe('handles', () => {
     ).toEqual([])
   })
 })
+
+describe('the data type registry (0052)', () => {
+  it('treats the same definition twice as one type, and a different one as a conflict', () => {
+    const define = (max: number) =>
+      defineDataType('test/SharedLoot', { weight: t.f32({ max }) }, { extension: 'shared-loot' })
+    const first = define(10)
+    expect(define(10)).toBe(first)
+    expect(() => define(20)).toThrow(expect.objectContaining({ code: 'assets/registry-conflict' }))
+  })
+})

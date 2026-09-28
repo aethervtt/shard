@@ -190,13 +190,15 @@ function fogNode(): NodeDescriptor {
           entries: [tex(0, 'unfilterable-float'), tex(1, 'depth'), uniform(2)],
         })
       }
+      const alpha = v.cam.alphaOutput
       const pipeline = cache.render(
         ctx,
-        'post/fog',
+        alpha ? 'post/fog/alpha' : 'post/fog',
         'shard::post::fog',
         'fs',
         [state.layouts.view, layout],
         HDR,
+        { TRANSPARENT: alpha },
       )
       if (!pipeline) return
       const f = v.cam.post.fog
@@ -269,13 +271,15 @@ function taaNode(): NodeDescriptor {
         })
         histories.clear()
       }
+      const alpha = cameraOf(ctx.view)?.alphaOutput === true
       const pipeline = cache.render(
         ctx,
-        'post/taa',
+        alpha ? 'post/taa/alpha' : 'post/taa',
         'shard::post::taa',
         'fs',
         [layout],
         [{ format: 'rgba16float' }, { format: 'rgba16float' }],
+        { TRANSPARENT: alpha },
       )
       if (!pipeline) return
       const input = ctx.texture('taa-in')

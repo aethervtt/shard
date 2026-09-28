@@ -2,7 +2,8 @@ import { type Entity, ProfilerResource, Rng, type World } from '@aethervtt/shard
 import { budget, timeout } from '@aethervtt/shard-core/test-env'
 import { Mesh, plane, sphere } from '@aethervtt/shard-mesh'
 import { Meshes } from '@aethervtt/shard-render'
-import { App, FixedTime } from '@aethervtt/shard-runtime'
+import { App, animationFrameRunner, FixedTime, FrameDemand, Time } from '@aethervtt/shard-runtime'
+import { fakeAnimationFrames } from '@aethervtt/shard-runtime/testing'
 import { Transform, TransformPlugin, transform2d, worldPosition } from '@aethervtt/shard-transform'
 import { describe, expect, it } from 'vitest'
 import {
@@ -672,5 +673,33 @@ describe('physics 2d', () => {
       ys.push(pos(a.world, b)[1]!)
     }
     for (let i = 1; i < ys.length; i++) expect(ys[i]!).toBeLessThan(ys[i - 1]!)
+  })
+})
+
+describe('on-demand frames (0052)', () => {
+  it('keeps frames running while a body falls, and stops once it sleeps', async () => {
+    const fake = fakeAnimationFrames()
+    try {
+      const a = await app(3, (a) => ground(a.world))
+      a.setRunner(animationFrameRunner({ mode: 'on-demand', measureRefresh: false }))
+      const running = a.run()
+      for (let i = 0; i < 100 && fake.pending === 0; i++) await Promise.resolve()
+      fake.runUntilIdle()
+      expect(fake.pending).toBe(0) // only fixed ground: nothing to simulate
+      const body = ball(a.world, [0, 3, 0]) // the host's write wakes the app
+      const before = a.world.resource(Time).frame
+      const ran = fake.runUntilIdle(5000)
+      expect(ran).toBeGreaterThan(30)
+      expect(a.world.resource(Time).frame - before).toBe(ran)
+      expect(fake.pending).toBe(0)
+      expect(a.world.resource(FrameDemand).isHeld('physics')).toBe(false)
+      expect(a.world.resource(Physics).describe().sleeping).toBe(1)
+      expect(pos(a.world, body)[1]).toBeCloseTo(0.5, 1)
+      expect(fake.tick()).toBe(0)
+      await a.dispose()
+      await running
+    } finally {
+      fake.restore()
+    }
   })
 })

@@ -67,6 +67,7 @@ function scenePath(world: World, entity: Entity): string | undefined {
 }
 
 export const DebugOverlays = defineResource<DebugOverlaysValue>('render/DebugOverlays', {
+  hostWritable: true,
   description:
     'Built-in debug drawings, each drawn through Gizmos: bounds, light volumes, camera frustums, shadow cascades, normals, transform axes, and entity labels.',
   init: () => ({

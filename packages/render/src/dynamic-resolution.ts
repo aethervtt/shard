@@ -1,5 +1,5 @@
 import { defineSystem, Last } from '@aethervtt/shard-core'
-import { DisplayRate, definePlugin, Time } from '@aethervtt/shard-runtime'
+import { DisplayRate, definePlugin, FrameDemand, Time } from '@aethervtt/shard-runtime'
 import { Gpu, Graph, RenderSet } from './plugin'
 import {
   HIGHEST,
@@ -49,6 +49,11 @@ export class RenderScaleController {
   private probeAge = 0
   private probeWait = 3
   private hold = 0
+
+  /** Verifying an upward probe: it needs frames to measure, so on-demand apps keep rendering. */
+  get probing(): boolean {
+    return this.probeFrom > 0
+  }
 
   /**
    * One frame. `skip`: pipelines are compiling, so the frame says nothing about steady cost.
@@ -214,6 +219,7 @@ export const updateRenderScale = defineSystem({
       gpu.pipelines.pending > 0,
       display,
     )
+    world.tryResource(FrameDemand)?.set('render/render-scale', controller.probing)
   },
 })
 

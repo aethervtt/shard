@@ -163,6 +163,7 @@ export interface AmbientLightValue {
 export const AmbientLight = defineResource<AmbientLightValue>('render/AmbientLight', {
   description: 'Uniform fill light, in cd/m². Used when no environment map lights the view.',
   init: () => ({ color: [1, 1, 1], brightness: 0 }),
+  hostWritable: true,
 })
 
 export interface LightingSettingsValue {
@@ -179,6 +180,7 @@ export interface LightingSettingsValue {
 
 export const LightingSettings = defineResource<LightingSettingsValue>('render/LightingSettings', {
   description: 'Light and shadow budgets: light buffer size, cluster range, shadow map sizes.',
+  hostWritable: true,
   init: () => ({
     maxLights: 1024,
     clusterFar: 0,

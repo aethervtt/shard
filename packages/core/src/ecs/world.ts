@@ -46,6 +46,14 @@ export class World implements TickSource {
   /** Change-detection clock. The scheduler advances it once per system run. */
   tick = 1
   readonly registry = new Registry()
+  /**
+   * While true, the next write (`set`, `add`, `remove`, `spawn`, `despawn`, `insertResource`,
+   * `removeResource`, `send`, `patchResource`, `touchResource`) clears it and calls `onWake`. The
+   * on-demand runner sets it when a frame ends and nothing asks for another (0052).
+   */
+  asleep = false
+  /** Called by the first write while `asleep`. Set by the on-demand runner. */
+  onWake: (() => void) | undefined = undefined
 
   private generations = new Uint32Array(1024)
   private tableOf = new Uint32Array(1024).fill(FREE)
@@ -59,6 +67,8 @@ export class World implements TickSource {
   private readonly emptyTable: Table
   private readonly queries = new Map<string, Query>()
   private readonly resources = new Map<number, unknown>()
+  /** Change tick per resource id: set by insertResource, patchResource, and touchResource. */
+  private readonly resourceTicks: number[] = []
   private readonly eventQueues = new Map<number, EventQueue<unknown>>()
   private readonly observers = new ObserverTable()
   private readonly registered: boolean[] = []
@@ -72,11 +82,19 @@ export class World implements TickSource {
     return ++this.tick
   }
 
+  /** Wakes the world as a write would: if it's asleep, clears `asleep` and calls `onWake`. */
+  wake(): void {
+    if (!this.asleep) return
+    this.asleep = false
+    this.onWake?.()
+  }
+
   // --- entities --------------------------------------------------------------
 
   spawn<const T extends readonly Fields[]>(
     ...inits: { [K in keyof T]: ComponentInit<T[K]> }
   ): Entity {
+    if (this.asleep) this.wake()
     const entity = this.allocate()
     this.insert(entity, inits as readonly ComponentInit[])
     return entity
@@ -96,6 +114,7 @@ export class World implements TickSource {
     ) {
       throw new ShardError('ecs/dead-entity', `Entity ${formatEntity(entity)} is not reserved`)
     }
+    if (this.asleep) this.wake()
     this.insert(entity, inits)
   }
 
@@ -113,6 +132,7 @@ export class World implements TickSource {
   /** Despawns the entity and, if it has children, all of its descendants. */
   despawn(entity: Entity): void {
     this.locate(entity)
+    if (this.asleep) this.wake()
     const children = this.tryGet(entity, Children)
     if (children) {
       for (const child of children.entities) {
@@ -125,6 +145,7 @@ export class World implements TickSource {
   /** Despawns only this entity. Its children lose their `ChildOf` and become roots. */
   despawnSingle(entity: Entity): void {
     this.locate(entity)
+    if (this.asleep) this.wake()
     const children = this.tryGet(entity, Children)
     if (children) {
       for (const child of children.entities) {
@@ -155,6 +176,7 @@ export class World implements TickSource {
   add<F extends Fields>(entity: Entity, component: ComponentDef<F>, value?: InitFields<F>): void {
     const def = component as ComponentDef
     const index = this.locate(entity)
+    if (this.asleep) this.wake()
     this.ensureRegistered(def)
     const table = this.tables[this.tableOf[index]!]!
     const row = this.rowOf[index]!
@@ -189,6 +211,7 @@ export class World implements TickSource {
   remove(entity: Entity, component: ComponentDef): boolean {
     let index = this.locate(entity)
     if (!this.tables[this.tableOf[index]!]!.has(component)) return false
+    if (this.asleep) this.wake()
     this.fire('remove', entity, component, undefined)
 
     index = this.locate(entity)
@@ -223,6 +246,7 @@ export class World implements TickSource {
     const index = this.locate(entity)
     const table = this.tables[this.tableOf[index]!]!
     if (!table.has(def)) throw missingComponent(entity, def.name)
+    if (this.asleep) this.wake()
     const row = this.rowOf[index]!
     const previous = this.hasObservers('set', def) ? table.readComponent(def, row) : undefined
     table.writeComponent(def, row, values as Record<string, unknown>)
@@ -274,7 +298,35 @@ export class World implements TickSource {
 
   insertResource<T>(def: ResourceDef<T>, value: T): void {
     this.registry.register(def as ResourceDef<unknown>)
+    if (this.asleep) this.wake()
     this.resources.set(def.id, value)
+    this.resourceTicks[def.id] = this.tick
+  }
+
+  /**
+   * Assigns `partial`'s fields onto the resource, marks it changed, and wakes the world. How code
+   * outside a frame writes a resource; a bare field assignment is invisible to both (0052).
+   */
+  patchResource<T extends object>(def: ResourceDef<T>, partial: Partial<T>): T {
+    const value = this.resource(def)
+    Object.assign(value, partial)
+    this.touchResource(def)
+    return value
+  }
+
+  /** Marks the resource changed and wakes the world, after editing it in place. */
+  touchResource(def: ResourceDef<unknown>): void {
+    if (!this.resources.has(def.id)) this.resource(def) // throws ecs/missing-resource
+    this.resourceTicks[def.id] = this.tick
+    if (this.asleep) this.wake()
+  }
+
+  /**
+   * Whether the resource was inserted, patched, or touched after tick `since` (a system passes
+   * `ctx.lastRunTick`), like component change detection.
+   */
+  resourceChanged(def: ResourceDef<unknown>, since: number): boolean {
+    return (this.resourceTicks[def.id] ?? 0) > since
   }
 
   /** Inserts the resource from its `init` if it isn't present yet, and returns it. */
@@ -312,12 +364,16 @@ export class World implements TickSource {
   }
 
   removeResource(def: ResourceDef<unknown>): boolean {
+    if (!this.resources.has(def.id)) return false
+    if (this.asleep) this.wake()
+    this.resourceTicks[def.id] = this.tick
     return this.resources.delete(def.id)
   }
 
   // --- events ----------------------------------------------------------------
 
   send<T>(def: EventDef<T>, ...data: T extends undefined ? [data?: T] : [data: T]): void {
+    if (this.asleep) this.wake()
     this.eventQueue(def).send(data[0] as T)
   }
 

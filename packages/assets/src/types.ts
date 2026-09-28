@@ -1,6 +1,7 @@
 import {
   type AssetRef,
   type ComponentDef,
+  isRedefinable,
   type JsonValue,
   type ResourceDef,
   ShardError,
@@ -40,14 +41,34 @@ export interface AssetTypeDef<T = unknown> {
 
 const assetTypes = new Map<string, AssetTypeDef>()
 
-/** Registers an asset type: its store and how to load its artifacts. */
+/**
+ * Registers an asset type: its store and how to load its artifacts. The registry is global, so two
+ * apps on a page share it (0052): a name defined again with a different store or loader throws
+ * `assets/registry-conflict`, except during hot reload.
+ */
 export function defineAssetType<T>(
   name: string,
   spec: Omit<AssetTypeDef<T>, 'name'>,
 ): AssetTypeDef<T> {
+  const existing = assetTypes.get(name)
+  if (existing && !isRedefinable(name)) {
+    if (existing.store === spec.store && existing.load === spec.load)
+      return existing as AssetTypeDef<T>
+    throw registryConflict('Asset type', name)
+  }
   const def: AssetTypeDef<T> = { name, ...spec }
   assetTypes.set(name, def as AssetTypeDef)
   return def
+}
+
+export function registryConflict(kind: string, name: string): ShardError {
+  return new ShardError(
+    'assets/registry-conflict',
+    `${kind} ${name} is already defined, differently`,
+    {
+      hint: 'Two definitions (two apps or bundles) share the name. Rename one, or share the definition.',
+    },
+  )
 }
 
 export function findAssetType(name: string): AssetTypeDef | undefined {

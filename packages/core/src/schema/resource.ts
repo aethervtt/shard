@@ -22,6 +22,11 @@ export interface ResourceDef<T> {
   readonly schema: ComponentDef | undefined
   /** Saved games include it (0038). Needs `schema`. */
   readonly persist: boolean
+  /**
+   * Host code (UI, protocol handlers) writes it between frames, through `world.patchResource` or
+   * `world.touchResource` (0052). The on-demand runner's write check watches it.
+   */
+  readonly hostWritable: boolean
   readonly __type?: T
 }
 
@@ -31,6 +36,7 @@ export interface ResourceOptions<T> {
   reload?: 'keep' | 'replace'
   schema?: ComponentDef
   persist?: boolean
+  hostWritable?: boolean
 }
 
 const resources = new Map<string, ResourceDef<unknown>>()
@@ -56,6 +62,7 @@ export function defineResource<T>(name: string, options: ResourceOptions<T> = {}
     reload: options.reload ?? 'keep',
     schema: options.schema,
     persist: options.persist ?? false,
+    hostWritable: options.hostWritable ?? false,
   }
   resources.set(name, def as ResourceDef<unknown>)
   if (previous) {

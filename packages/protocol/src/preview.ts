@@ -231,6 +231,8 @@ async function renderPreview(
     return { width: image.width, height: image.height, data: image.data }
   } finally {
     releaseSceneHooks(app.world)
+    // Gives back the preview's GPU objects on the shared device (0052).
+    await app.dispose()
     target.destroy()
   }
 }

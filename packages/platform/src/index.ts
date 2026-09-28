@@ -45,6 +45,11 @@ export type RawInputEvent =
 export interface InputSource {
   /** Appends events since the last drain (and polls devices like gamepads). */
   drain(out: RawInputEvent[]): void
+  /**
+   * Calls `listener` whenever an event arrives, so an on-demand app wakes to drain it (0052).
+   * Returns an unsubscribe function. Polled devices (gamepads) don't call it.
+   */
+  onInput?(listener: () => void): () => void
   dispose(): void
 }
 

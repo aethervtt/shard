@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { assetServer } from '@aethervtt/shard-assets'
-import { t } from '@aethervtt/shard-core'
+import { beginRedefinition, endRedefinition, t } from '@aethervtt/shard-core'
 import { createNodePlatform } from '@aethervtt/shard-platform-node'
 import { App } from '@aethervtt/shard-runtime'
 import { findEntityByPath, loadScene, ScenePlugin, whenSceneReady } from '@aethervtt/shard-scene'
@@ -106,7 +106,14 @@ describe('project data types', () => {
   })
 
   it('shard docs lists the type in .agents/assets.md and writes its schema', async () => {
-    await bundle()()
+    // The last test left a reloaded Weapon registered: evaluating other code for the same name in
+    // this process is a reload too (0052 makes a different definition outside one a conflict).
+    beginRedefinition(NS)
+    try {
+      await bundle()()
+    } finally {
+      endRedefinition()
+    }
     const manifest = {
       name: NS,
       assetRoots: ['assets', 'data'],

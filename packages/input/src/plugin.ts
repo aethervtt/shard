@@ -195,6 +195,7 @@ export const updateActions = defineSystem({
 })
 
 export function inputPlugin(options: InputPluginOptions = {}): Plugin {
+  let unsubscribe: (() => void) | undefined
   return definePlugin({
     name: 'input',
     provides: [pluginModule],
@@ -217,6 +218,17 @@ export function inputPlugin(options: InputPluginOptions = {}): Plugin {
       app.world.initResource(InputContext)
       for (const map of options.actions ?? []) addActions(app.world, map)
       app.addSystems(First, updateInput, updateActions.after(updateInput))
+      // Input arriving wakes an on-demand runner to drain it (0052).
+      unsubscribe = options.source?.onInput?.(() => {
+        if (!app.disposed) app.requestFrame()
+      })
+    },
+    dispose(app) {
+      unsubscribe?.()
+      unsubscribe = undefined
+      const queue = app.world.tryResource(InputQueue)
+      queue?.source?.dispose()
+      if (queue) queue.source = undefined
     },
   })
 }

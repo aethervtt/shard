@@ -115,8 +115,14 @@ export interface CameraData {
   /** Scene luminance → pre-exposed HDR. */
   exposure: number
   ev100: number
-  /** Linear clear color, as displayed before the tonemap curve. */
+  /** Linear clear color, as displayed before the tonemap curve, premultiplied by its alpha. */
   clear: GPUColor
+  /**
+   * Clears to an alpha below 1 (0052): the passes carry alpha to the target, the sky and the
+   * environment background aren't drawn, and light raises alpha, so the view composites over
+   * whatever is under its surface.
+   */
+  alphaOutput: boolean
   msaa: number
   curve: number
   dither: boolean
@@ -167,6 +173,7 @@ export const ViewSettings = defineResource<ViewSettingsValue>('render/ViewSettin
   description:
     'Render settings shared by all views: the default MSAA sample count, and the display density past which it is skipped.',
   init: () => ({ msaa: 4, msaaMaxPixelRatio: 1.5 }),
+  hostWritable: true,
 })
 
 const scratchProj = mat4.create()
@@ -334,6 +341,7 @@ export const extractCameras = defineSystem({
             exposure: 1,
             ev100: 0,
             clear: { r: 0, g: 0, b: 0, a: 1 },
+            alphaOutput: false,
             msaa: 1,
             curve: 1,
             dither: true,
@@ -444,7 +452,10 @@ export const extractCameras = defineSystem({
         cam.ev100 = ev[i]!
         cam.exposure = exposureScale(ev[i]!)
         const c = i * 4
-        cam.clear = { r: clear[c]!, g: clear[c + 1]!, b: clear[c + 2]!, a: clear[c + 3]! }
+        // Scene color is premultiplied: a clear alpha scales its color too (1 for opaque views).
+        const ca = Math.min(1, Math.max(0, clear[c + 3]!))
+        cam.clear = { r: clear[c]! * ca, g: clear[c + 1]! * ca, b: clear[c + 2]! * ca, a: ca }
+        cam.alphaOutput = ca < 1
         // The G-buffer is single-sampled; deferred views anti-alias in post (FXAA, TAA).
         const aa = antialiasingOf(table, i)
         // The default follows the display, not the render scale, so the scale can't flip it.
@@ -471,7 +482,7 @@ export const extractCameras = defineSystem({
             name: `pixel-perfect:${entity}`,
             target: shown,
             order: order[i]! + 0.5,
-            data: { upscale: cam.pixelPerfect },
+            data: { upscale: cam.pixelPerfect, alphaOutput: cam.alphaOutput },
           })
         }
       }

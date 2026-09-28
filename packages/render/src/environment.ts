@@ -127,6 +127,7 @@ export interface DefaultEnvironmentValue {
 export const DefaultEnvironment = defineResource<DefaultEnvironmentValue>(
   'render/DefaultEnvironment',
   {
+    hostWritable: true,
     description:
       'The environment (map or procedural sky) for cameras that have none. AmbientLight is the fallback when neither is set.',
     init: () => ({ map: null, sky: null, background: true }),
@@ -249,6 +250,8 @@ export const prepareEnvironments = defineSystem({
       } else if (map?.texture) useMap(map as EnvironmentMapValue, skybox)
       else if (defaults.map?.texture)
         useMap(defaults.map, defaults.background ? Math.max(skybox, 1) : skybox)
+      // A view clearing to alpha shows the page behind it: no sky or skybox, but still IBL (0052).
+      if (cam.alphaOutput) entry.background = -1
       store.cameras.set(e, entry)
       view.data.environment = entry
     }

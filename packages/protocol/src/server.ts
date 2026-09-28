@@ -12,6 +12,7 @@ import {
   type JsonValue,
   Last,
   PostUpdate,
+  type ResourceDef,
   ShardError,
   t,
   type World,
@@ -584,7 +585,8 @@ export const METHODS: MethodDef[] = [
   },
   {
     name: 'resource.set',
-    description: 'Merges fields into a plain-object resource (e.g. render/AmbientLight).',
+    description:
+      'Merges fields into a plain-object resource (e.g. render/AmbientLight), marking it changed and waking an on-demand app.',
     params: s('ResourceSetParams', { name: t.string({ required: true }), value: t.json() }),
     handler: ({ world }, p) => {
       const def = findResource(p.name as string)
@@ -602,7 +604,7 @@ export const METHODS: MethodDef[] = [
         throw new ShardError('schema/type-mismatch', '"value" must be an object', {
           path: '/value',
         })
-      Object.assign(current, p.value)
+      world.patchResource(def as ResourceDef<object>, p.value)
       return toJson(current)
     },
   },
@@ -619,10 +621,11 @@ export const METHODS: MethodDef[] = [
     name: 'time.resume',
     description: 'Resumes a paused game.',
     params: none,
-    handler: ({ world }) => {
+    handler: ({ app, world }) => {
       const control = world.resource(AppControlResource)
       control.paused = false
       control.pausedByError = false
+      app.requestFrame() // an idle on-demand app starts again
       return { paused: false, frame: world.resource(Time).frame }
     },
   },

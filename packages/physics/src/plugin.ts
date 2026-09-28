@@ -13,7 +13,7 @@ import {
   type World,
 } from '@aethervtt/shard-core'
 import { defineOverlay } from '@aethervtt/shard-render'
-import { type App, FixedTime, type Plugin } from '@aethervtt/shard-runtime'
+import { type App, FixedTime, FrameDemand, type Plugin } from '@aethervtt/shard-runtime'
 import {
   GlobalTransform,
   GridCell,
@@ -474,6 +474,8 @@ const syncOut = defineSystem({
     visit: undefined as ((handle: number) => void) | undefined,
     world,
     tick: 0,
+    /** Awake bodies sync-out wrote this step: while any are, on-demand apps keep rendering. */
+    awake: 0,
     pos: new Float64Array(3),
     rot: new Float64Array(4),
     rootIdentity: true,
@@ -498,6 +500,7 @@ const syncOut = defineSystem({
     s.visit ??= (handle: number) => {
       const record = p.bodyByHandle.get(handle)
       if (!record || record.kind === KIND_FIXED) return
+      s.awake++
       const o = record.slot * 7
       const curr = p.curr
       for (let k = 0; k < 7; k++) p.prev[o + k] = curr[o + k]!
@@ -556,7 +559,10 @@ const syncOut = defineSystem({
         c.velTicks![row] = s.tick
       }
     }
+    s.awake = 0
     p.raw.islands.forEachActiveRigidBodyHandle(s.visit)
+    // Awake bodies keep an on-demand runner going until they sleep (0052).
+    world.tryResource(FrameDemand)?.set('physics', s.awake > 0)
   },
 })
 
@@ -706,6 +712,11 @@ function physicsPlugin(dim: 2 | 3): Plugin {
     async ready(app: App) {
       const R = await loadRapier(dim)
       app.world.insertResource(Physics, new PhysicsWorld(R, dim, app.world.resource(PhysicsConfig)))
+    },
+    dispose(app: App) {
+      // Rapier's world lives in WASM memory, which outlives the app unless freed (0052).
+      app.world.tryResource(Physics)?.free()
+      app.world.removeResource(Physics)
     },
   }
 }

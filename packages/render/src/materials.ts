@@ -4,6 +4,7 @@ import {
   defineComponent,
   defineSchema,
   type Fields,
+  isRedefinable,
   ShardError,
 } from '@aethervtt/shard-core'
 import type { GpuContext } from '@aethervtt/shard-gpu'
@@ -94,6 +95,8 @@ export class MaterialType {
   description: string
   /** Increments on every redefinition, so GPU state and pipelines rebuild. */
   version = 0
+  /** Its definition as a string: defining the name again with an equal one is a no-op (0052). */
+  signature = ''
   readonly modulePath: string
   /** WGSL identifier of the uniform (the PascalName). */
   readonly varName: string
@@ -262,6 +265,18 @@ export function defineMaterial<const F extends Fields>(
     ...(options.fields ?? {}),
   }
   const existing = types.get(name)
+  const signature = signatureOf(ext, options as MaterialTypeOptions<Fields>, fields)
+  if (existing && !isRedefinable(name)) {
+    // Registries are global and apps share the page (0052): the same definition twice is one type.
+    if (existing.signature === signature) return existing
+    throw new ShardError(
+      'render/registry-conflict',
+      `Material type ${name} is already defined, differently`,
+      {
+        hint: 'Two definitions (two apps or bundles) share the name. Rename one, or share the definition.',
+      },
+    )
+  }
   const schema = defineComponent(name, fields, {
     description:
       options.description ??
@@ -270,12 +285,28 @@ export function defineMaterial<const F extends Fields>(
   })
   if (existing) {
     existing.assign(options as MaterialTypeOptions<Fields>, schema)
+    existing.signature = signature
     for (const listener of listeners) listener(existing)
     return existing
   }
   const type = new MaterialType(name, options as MaterialTypeOptions<Fields>, schema)
+  type.signature = signature
   types.set(name, type)
   return type
+}
+
+/** Everything a definition says, as a string: equal strings are the same material type. */
+function signatureOf(ext: string, options: MaterialTypeOptions<Fields>, fields: Fields): string {
+  return JSON.stringify({
+    ext,
+    blend: options.blend ?? null,
+    shader: options.shader ?? null,
+    noise: options.noise ?? {},
+    arrays: options.arrays ?? [],
+    standardTextures: options.standardTextures ?? true,
+    description: options.description ?? null,
+    fields: Object.entries(fields).map(([key, field]) => [key, field.jsonSchema()]),
+  })
 }
 
 export function findMaterialType(name: string): MaterialType | undefined {

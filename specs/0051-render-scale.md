@@ -136,8 +136,7 @@ after 60 frames as with any resize.
 ```ts
 world.resource(RenderScale) // { mode: 'auto', scale: 1, min: 0.5, max: 1, targetMs: 0, maxHz: 144, sharpen: 0.25 }
 world.resource(DisplayRate) // { hz: 120, periodMs: 8.33, source: 'measured' }
-world.resource(RenderScale).mode = 'fixed'
-world.resource(RenderScale).scale = 0.75
+world.patchResource(RenderScale, { mode: 'fixed', scale: 0.75 }) // from host code (0052)
 
 forwardPlugin({ renderScale: { mode: 'fixed', scale: 0.8 } })
 ```

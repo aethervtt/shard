@@ -625,19 +625,18 @@ function idOf(o: object): number {
 }
 
 /** 1×1 stand-ins for a camera outside its primary (no sky-view or froxels). */
-let empty: { generation: number; d2: GPUTexture; d3: GPUTexture } | undefined
 function emptyTextures(gpu: GpuContext) {
-  if (!empty || empty.generation !== gpu.generation) {
+  // One pair per device, shared by every app on it (0052).
+  return gpu.shared('atmosphere/empty', (device) => {
     const usage = GPUTextureUsage.TEXTURE_BINDING
-    empty = {
-      generation: gpu.generation,
-      d2: gpu.device.createTexture({
+    return {
+      d2: device.createTexture({
         label: 'atmosphere/empty',
         size: [1, 1],
         format: 'rgba16float',
         usage,
       }),
-      d3: gpu.device.createTexture({
+      d3: device.createTexture({
         label: 'atmosphere/empty-3d',
         size: [1, 1, 1],
         dimension: '3d',
@@ -645,8 +644,7 @@ function emptyTextures(gpu: GpuContext) {
         usage,
       }),
     }
-  }
-  return empty
+  })
 }
 
 /**

@@ -15,6 +15,12 @@ export interface Plugin {
   build(app: App): void
   /** Optional async setup (e.g. loading WASM), awaited before Startup. */
   ready?(app: App): Promise<void> | void
+  /**
+   * Releases what `build` and `ready` created that outlives the app: GPU objects, surfaces, DOM
+   * listeners, observers, workers. `app.dispose()` calls it in reverse build order, after the
+   * runner stopped (0052).
+   */
+  dispose?(app: App): Promise<void> | void
 }
 
 export function definePlugin(plugin: Plugin): Plugin {

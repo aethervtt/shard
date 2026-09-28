@@ -418,3 +418,19 @@ override fn pbr_input(in: VertexOutput) -> PbrInput {
     expect(stats.pipelineSwitches).toBeLessThanOrEqual(10)
   })
 })
+
+describe('the material registry (0052)', () => {
+  it('treats the same definition twice as one type, and a different one as a conflict', () => {
+    const define = (glow: number) =>
+      defineMaterial('test/Shared', {
+        fields: { glow: t.f32({ default: glow }) },
+        shader: 'project::shared',
+      })
+    const first = define(1)
+    expect(define(1)).toBe(first) // a second app registering the same type
+    expect(() => define(2)).toThrow(expect.objectContaining({ code: 'render/registry-conflict' }))
+    beginRedefinition('test')
+    expect(define(2)).toBe(first) // hot reload still updates in place
+    endRedefinition()
+  })
+})

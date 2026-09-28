@@ -300,6 +300,13 @@ export class RenderGraph {
     this.timer = new GpuTimer(gpu)
   }
 
+  /** Rejects pending captures and destroys the timer's query set (the app is being disposed). */
+  dispose(): void {
+    const error = new ShardError('render/disposed', 'The app was disposed before the capture ran')
+    for (const capture of this.captures.splice(0)) capture.reject(error)
+    this.timer.destroy()
+  }
+
   addNode(name: string, node: NodeDescriptor): void {
     if (this.nodes.has(name)) {
       throw new ShardError('render/duplicate-node', `Render graph node "${name}" already exists`)

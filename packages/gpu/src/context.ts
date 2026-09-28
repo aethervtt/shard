@@ -1,10 +1,14 @@
 import { ShardError } from '@aethervtt/shard-core'
 import { LayoutCache, PipelineCache } from './caches'
 import { type GpuErrorListener, toShardError } from './errors'
+import { type GpuStats, Ledger, SHARED_OWNER, textureBytes } from './ledger'
+import { Surface, type SurfaceAlpha, type SurfaceOptions } from './surface'
 
 export interface CreateGpuContextOptions {
-  /** Omit for offscreen/headless rendering. */
+  /** A canvas to add as the first surface. Omit for a device only (headless, or surfaces later). */
   canvas?: HTMLCanvasElement | OffscreenCanvas
+  /** The canvas surface's alpha mode. Default 'opaque'. */
+  alpha?: SurfaceAlpha
   /** The WebGPU entry point. Defaults to `navigator.gpu`; in Node pass the `webgpu` package's. */
   gpu?: GPU
   /** Requested if the adapter supports them. */
@@ -44,61 +48,123 @@ export interface DeviceLostInfo {
 const MAX_ERRORS = 50
 
 /**
- * The adapter, device, and optional canvas, plus the caches every renderer needs. After a device
- * loss, `recreate()` gets a new device and bumps `generation`; `GpuBuffer`s and caches rebuild
- * against it.
+ * The adapter and device, the canvases it draws into (surfaces), and the caches every renderer
+ * needs. Several apps can share one (0052): each counts its buffers and textures under its own
+ * owner. After a device loss, `recreate()` gets a new device and bumps `generation`; `GpuBuffer`s,
+ * caches, and surfaces rebuild against it.
  */
 export class GpuContext {
   adapter: GPUAdapter
   device: GPUDevice
   readonly format: GPUTextureFormat
-  readonly canvas: HTMLCanvasElement | OffscreenCanvas | undefined
-  readonly context: GPUCanvasContext | undefined
   readonly features: ReadonlySet<string>
   readonly pipelines: PipelineCache
   readonly layouts: LayoutCache
   /** Increments when the device is replaced. */
   generation = 0
-  /** Canvas pixels per CSS pixel (devicePixelRatio) at the last resize; 1 without a canvas. */
-  pixelRatio = 1
+  /**
+   * Who new buffers and textures count against. An app sets it to its owner while it runs (the
+   * render plugin's scope); otherwise it's `'gpu'`, the device's own.
+   */
+  owner = SHARED_OWNER
   /** Most recent GPU errors, newest last. */
   readonly errors: ShardError[] = []
   private readonly options: CreateGpuContextOptions
   private readonly errorListeners = new Set<GpuErrorListener>()
   private readonly lostListeners = new Set<(info: DeviceLostInfo) => void>()
+  private readonly surfaces_: Surface[] = []
+  private readonly ledger = new Ledger()
+  private readonly shared_ = new Map<string, unknown>()
+  private recreating: Promise<void> | undefined
+  private destroyed = false
 
   constructor(
     options: CreateGpuContextOptions,
     adapter: GPUAdapter,
     device: GPUDevice,
     format: GPUTextureFormat,
-    context: GPUCanvasContext | undefined,
   ) {
     this.options = options
     this.adapter = adapter
     this.device = device
     this.format = format
-    this.canvas = options.canvas
-    this.context = context
     this.features = new Set(device.features as unknown as Iterable<string>)
     this.pipelines = new PipelineCache(this)
     this.layouts = new LayoutCache(this)
     this.attach(device)
   }
 
-  /** Match the canvas backing size to its CSS size. Returns true if it changed. */
-  resize(): boolean {
-    const canvas = this.canvas
-    if (!canvas || !('clientWidth' in canvas)) return false
-    const dpr = globalThis.devicePixelRatio ?? 1
-    this.pixelRatio = dpr
-    const width = Math.max(1, Math.floor(canvas.clientWidth * dpr))
-    const height = Math.max(1, Math.floor(canvas.clientHeight * dpr))
-    if (canvas.width === width && canvas.height === height) return false
-    canvas.width = width
-    canvas.height = height
-    return true
+  // --- surfaces ----------------------------------------------------------------
+
+  /** The canvases this device draws into, in the order they were added. */
+  get surfaces(): readonly Surface[] {
+    return this.surfaces_
   }
+
+  /** Configures a canvas as a surface of this device. `surface.remove()` gives it back. */
+  addSurface(canvas: HTMLCanvasElement | OffscreenCanvas, options: SurfaceOptions = {}): Surface {
+    const context = canvas.getContext('webgpu') as GPUCanvasContext | null
+    if (!context) throw new ShardError('gpu/no-context', 'Could not get a WebGPU canvas context')
+    if (this.surfaces_.some((s) => s.canvas === canvas)) {
+      throw new ShardError('gpu/duplicate-surface', 'This canvas is already a surface', {
+        hint: 'Share the Surface itself (renderPlugin({ gpu, surface })), or remove it first.',
+      })
+    }
+    const n = this.surfaces_.length
+    const surface = new Surface(this, canvas, context, {
+      alpha: options.alpha ?? 'opaque',
+      label: options.label ?? (n === 0 ? 'surface' : `surface-${n + 1}`),
+    })
+    this.surfaces_.push(surface)
+    return surface
+  }
+
+  /** @internal Called by `Surface.remove()`. */
+  forgetSurface(surface: Surface): void {
+    const i = this.surfaces_.indexOf(surface)
+    if (i !== -1) this.surfaces_.splice(i, 1)
+  }
+
+  // --- accounting ----------------------------------------------------------------
+
+  /** Runs `fn` with new buffers and textures counted against `owner`. */
+  withOwner<T>(owner: string, fn: () => T): T {
+    const previous = this.owner
+    this.owner = owner
+    try {
+      return fn()
+    } finally {
+      this.owner = previous
+    }
+  }
+
+  /** Live buffers and textures this device made for `owner`, or for everyone (0052). */
+  stats(owner?: string): GpuStats {
+    return this.ledger.stats(owner)
+  }
+
+  /** Owners with live objects, sorted. */
+  owners(): string[] {
+    return this.ledger.names()
+  }
+
+  /** Destroys every buffer and texture `owner` still has. Returns how many. */
+  release(owner: string): number {
+    return this.ledger.release(owner)
+  }
+
+  /**
+   * A per-device object every app on this device shares, made once by `create` and counted against
+   * the device, not whichever app asked first. Made again after a device loss.
+   */
+  shared<T>(key: string, create: (device: GPUDevice) => T): T {
+    if (this.shared_.has(key)) return this.shared_.get(key) as T
+    const value = this.withOwner(SHARED_OWNER, () => create(this.device))
+    this.shared_.set(key, value)
+    return value
+  }
+
+  // --- errors and loss -------------------------------------------------------------
 
   onError(listener: GpuErrorListener): () => void {
     this.errorListeners.add(listener)
@@ -108,6 +174,11 @@ export class GpuContext {
   onDeviceLost(listener: (info: DeviceLostInfo) => void): () => void {
     this.lostListeners.add(listener)
     return () => this.lostListeners.delete(listener)
+  }
+
+  /** Error and device-loss listeners, for teardown tests. */
+  get listenerCount(): { error: number; lost: number } {
+    return { error: this.errorListeners.size, lost: this.lostListeners.size }
   }
 
   reportError(error: ShardError): void {
@@ -129,16 +200,15 @@ export class GpuContext {
     return result
   }
 
-  /** Gets a fresh adapter and device after a loss, and reconfigures the canvas. */
-  async recreate(): Promise<void> {
-    const { adapter, device } = await requestDevice(this.options)
-    this.adapter = adapter
-    this.device = device
-    this.context?.configure(canvasConfig(device, this.format))
-    this.pipelines.clear()
-    this.layouts.clear()
-    this.generation++
-    this.attach(device)
+  /**
+   * Gets a fresh adapter and device after a loss and reconfigures every surface with its alpha
+   * mode. Apps sharing the device all call it; they share one recreation.
+   */
+  recreate(): Promise<void> {
+    this.recreating ??= this.replaceDevice().finally(() => {
+      this.recreating = undefined
+    })
+    return this.recreating
   }
 
   /** For tests and debugging: destroys the device and reports it as an unexpected loss. */
@@ -147,12 +217,34 @@ export class GpuContext {
     this.device.destroy()
   }
 
+  /** Removes every surface and destroys the device. */
   destroy(): void {
+    if (this.destroyed) return
+    this.destroyed = true
     this.lostListeners.clear()
+    this.errorListeners.clear()
+    for (const surface of [...this.surfaces_]) surface.remove()
+    this.ledger.clear()
+    this.shared_.clear()
     this.device.destroy()
   }
 
+  private async replaceDevice(): Promise<void> {
+    const { adapter, device } = await requestDevice(this.options)
+    this.adapter = adapter
+    this.device = device
+    // Everything counted lived on the old device.
+    this.ledger.clear()
+    this.shared_.clear()
+    this.pipelines.clear()
+    this.layouts.clear()
+    this.generation++
+    this.attach(device)
+    for (const surface of this.surfaces_) surface.configure()
+  }
+
   private attach(device: GPUDevice): void {
+    this.instrument(device)
     device.addEventListener('uncapturederror', (event) => {
       this.reportError(toShardError((event as GPUUncapturedErrorEvent).error, undefined))
     })
@@ -164,18 +256,25 @@ export class GpuContext {
     })
   }
 
+  /** Counts every buffer and texture the device makes against the current owner. */
+  private instrument(device: GPUDevice): void {
+    const ledger = this.ledger
+    const createBuffer = device.createBuffer.bind(device)
+    const createTexture = device.createTexture.bind(device)
+    device.createBuffer = (descriptor) => {
+      const buffer = createBuffer(descriptor)
+      ledger.track(buffer, this.owner, false, descriptor.size)
+      return buffer
+    }
+    device.createTexture = (descriptor) => {
+      const texture = createTexture(descriptor)
+      ledger.track(texture, this.owner, true, textureBytes(descriptor))
+      return texture
+    }
+  }
+
   private handleLoss(info: DeviceLostInfo): void {
     for (const listener of this.lostListeners) listener(info)
-  }
-}
-
-function canvasConfig(device: GPUDevice, format: GPUTextureFormat): GPUCanvasConfiguration {
-  return {
-    device,
-    format,
-    alphaMode: 'opaque',
-    // COPY_SRC lets the renderer capture screenshots straight from the swapchain.
-    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
   }
 }
 
@@ -210,18 +309,12 @@ async function requestDevice(options: CreateGpuContextOptions) {
   return { adapter, device }
 }
 
+/** A device, plus a first surface when `options.canvas` is given. */
 export async function createGpuContext(options: CreateGpuContextOptions = {}): Promise<GpuContext> {
   const { adapter, device } = await requestDevice(options)
   const gpu = options.gpu ?? (globalThis.navigator as Navigator).gpu
   const format = gpu.getPreferredCanvasFormat()
-  let context: GPUCanvasContext | undefined
-  if (options.canvas) {
-    const ctx = options.canvas.getContext('webgpu') as GPUCanvasContext | null
-    if (!ctx) throw new ShardError('gpu/no-context', 'Could not get a WebGPU canvas context')
-    ctx.configure(canvasConfig(device, format))
-    context = ctx
-  }
-  const result = new GpuContext(options, adapter, device, format, context)
-  result.resize()
+  const result = new GpuContext(options, adapter, device, format)
+  if (options.canvas) result.addSurface(options.canvas, { alpha: options.alpha })
   return result
 }
