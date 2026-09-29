@@ -36,7 +36,7 @@ beforeAll(async () => {
 })
 afterAll(() => gpu.destroy())
 
-/** Budgets hold under `pnpm bench` (serial); parallel `pnpm test` runs get 3x slack. */
+/** Budgets hold under `pnpm bench` (serial); `pnpm test` checks correctness only. */
 
 async function scene(width: number, height: number) {
   const app = new App().addPlugin(

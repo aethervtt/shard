@@ -25,19 +25,33 @@ start over. Remove an entry in the change that fixes it.
   the log of the first failure), confirm or rule out the collect race, then fix it with a test that
   forces the ordering.
 
-## Flaky only in local `pnpm test`
+## Tests that fail on Windows
 
-These miss their 3× time budgets now and then when every package runs in parallel on one machine.
-`pnpm bench` (serial) and CI (`SHARD_CI`, budgets off) don't see them, but a local red run still
-costs a rerun.
+CI runs Linux only, so these fail on a Windows checkout and nothing catches it. Each looks like a
+real bug on Windows, not a flake:
 
-- `physics`: "runs physics for 5,000 awake bodies in under 8 ms per step"
-- `nav`: "findPath on a 256×256 maze grid takes under 2 ms"
-- `node` (procgen): "under 2 ms of main-thread procgen work per frame"
-- `audio`: "48 moving spatial sources: under 0.1 ms a frame"
+- `save`, settings.test.ts (3 tests): `Storage key "settings.json" leaves the data folder`. The
+  key check probably compares against a `/`-separated path.
+- `node`, reload.test.ts: "a system that throws logs the project source line" (no source line)
+  and "rebuilds and swaps star-explorer" (the bundle path is `.shard\build\…`, the test wants `/`).
+- `cli`, cli.test.ts: both `shard check` tests (exit 2 instead of 1: `check` itself errors) and
+  "dev serves the runner with an engine import map" (`/@fsC:/…`: the URL needs a `/` before the
+  drive letter).
+- `render`, render.test.ts: "captures a cleared view with correct pixels" reads 127 where it wants
+  128, on D3D12 Dawn. Rounding of 0.5 differs by backend; the test could allow ±1.
+- `terrain`, budget.test.ts: most runs generate no chunks at all over the 1,920-frame descent
+  (`jobs` 0, expected over 200); one run alone passed. Not a time budget: nothing was generated.
+  Lead: the jobs wait on something (a pipeline, the heightfield kernel) that never becomes ready
+  under D3D12 Dawn, or `lastFrameJobs` is read before the frame that runs them.
 
-Options: run perf tests in their own serial turbo task, or make `pnpm test` skip time budgets and
-leave them to `pnpm bench` alone, as CI already does.
+To fix: each on its own, then a `windows-latest` CI job for the tests that don't need a GPU.
+
+## Budgets this machine misses under `pnpm bench`
+
+Seen on a Windows desktop (NVIDIA, 2026-09-29): noise's 6-octave fBm at 25M points/s (budget 40M),
+UI layout of 2,000 nodes at 1.11 ms (budget 1 ms), and a shader edit that re-renders 16 frames
+later (budget 2). Unrelated to recent changes (the same on 211d4aa). Either
+the budgets are for faster hardware, or these regressed: worth bisecting before loosening them.
 
 ## CI speed
 

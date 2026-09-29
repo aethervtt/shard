@@ -29,7 +29,7 @@ import { addFont, click, interFont, mouse, node, rect, root, uiApp } from './tes
 import { UiThemeAsset, UiThemes } from './theme'
 import { UiState } from './tree'
 
-/** Budgets hold under `pnpm bench` (serial); parallel `pnpm test` runs get 3x slack. */
+/** Budgets hold under `pnpm bench` (serial); `pnpm test` checks correctness only. */
 
 describe('layout in the world', () => {
   it('lays out a tree into UiLayout, in root pixels', async () => {

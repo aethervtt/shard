@@ -44,11 +44,19 @@ shard serve / shard mcp [--attach]    # protocol hub / MCP server
 ```
 
 Run `pnpm typecheck && pnpm test && pnpm lint` before calling work done. Run `pnpm bench` too
-when touching ECS storage, queries, anything on a per-frame path, or code a timing test covers:
-`pnpm test` runs in parallel and gives time budgets 3x slack; `pnpm bench` holds the real ones.
-CI sets `SHARD_CI=1`: its runners render on a software GPU, so time budgets and "allocates nothing"
-checks are off (`allocationChecks`) and timeouts are 5x.
-Write budgets and timeouts with `budget()` and `timeout()` from `@aethervtt/shard-core/test-env`.
+when touching ECS storage, queries, anything on a per-frame path, or code a timing test covers.
+Tests come in two tiers:
+
+- `pnpm test` (local, and CI with `SHARD_CI=1`) checks correctness only. Files run in parallel and
+  CI renders on a software GPU, so time budgets are unlimited and "allocates nothing" checks are off.
+  CI retries a failed test once; timeouts there are 5x.
+- `pnpm bench` checks performance: every file serially, at the specs' exact budgets, with allocation
+  checks on. Run it on a machine doing nothing else.
+
+Write every timing assertion through `budget()`, `slack` or `allocationChecks` (or
+`timingMode === 'bench'`), and timeouts with `timeout()`, all from `@aethervtt/shard-core/test-env`.
+A test that flakes in `pnpm test` is a bug: fix it, or skip it with an entry in `TODO.md`'s
+"Skipped tests" (what's known, the date, and the lead), never a local retry.
 CI splits test files across four runners (`SHARD_TEST_SHARD`, `scripts/test-shard.mjs`); a new test
 file that takes minutes there belongs in `scripts/test-weights.json` so the split stays even.
 Vendored third-party code (`**/vendor`) and test fixtures (`**/fixtures`) aren't linted or edited.

@@ -47,10 +47,13 @@ function hashed(path, count) {
 /**
  * `include` and `passWithNoTests` for a package's vitest config: `patterns` as is, or only this
  * runner's files when SHARD_TEST_SHARD is set. Runs in the package directory (turbo and pnpm do).
+ * In CI (SHARD_CI) it also sets `retry: 1`, so one hiccup on a shared runner doesn't fail the run;
+ * a test that needs the retry often belongs in TODO.md.
  */
 export function testFiles(patterns = ['src/**/*.test.ts']) {
+  const retry = process.env.SHARD_CI ? { retry: 1 } : {}
   const spec = process.env.SHARD_TEST_SHARD
-  if (!spec) return { include: patterns }
+  if (!spec) return { include: patterns, ...retry }
   const { index, count } = parse(spec)
   const assigned = weighted(count)
   const pkg = relative(repo, process.cwd())
@@ -62,5 +65,6 @@ export function testFiles(patterns = ['src/**/*.test.ts']) {
   return {
     include: mine.length > 0 ? mine.sort() : ['<none on this runner>'],
     passWithNoTests: true,
+    ...retry,
   }
 }
