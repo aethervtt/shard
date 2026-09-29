@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { TerrainBudget } from './components'
 import { heightAt } from './heights'
 import type { PlanetRender } from './render'
-import { placeCamera, planetApp } from './test-planet'
+import { placeCamera, planetApp, settleTerrain } from './test-planet'
 
 let gpu: GpuContext
 let terrain: NoiseGraph
@@ -61,8 +61,7 @@ describe('terrain budget (spec 0043)', () => {
     let jobs = 0
     let most = 0
     let altitude = 4e7
-    for (let f = 0; f < FRAMES + 120; f++) {
-      if (f < FRAMES) altitude *= ratio
+    const look = () => {
       const eye = n.map((v) => v * (R + ground + altitude))
       const ahead = Math.min(altitude * 1.2, R * 0.5)
       placeCamera(
@@ -70,6 +69,15 @@ describe('terrain budget (spec 0043)', () => {
         eye,
         n.map((v, k) => v * (R + ground) + east[k]! * ahead),
       )
+    }
+    // Start from a loaded planet. Kernels compile asynchronously, and frames here are faster
+    // than the compile: without this, generation began ~1,400 frames in, and under a loaded
+    // suite (or a slow shader compiler) not at all.
+    look()
+    await settleTerrain(p)
+    for (let f = 0; f < FRAMES + 120; f++) {
+      if (f < FRAMES) altitude *= ratio
+      look()
       // CPU: the update; GPU: submit to done (the queue is idle when the frame starts). A real
       // frame loop overlaps them, so a frame takes the longer of the two.
       const t0 = performance.now()
