@@ -153,8 +153,10 @@ export class GpuTimer {
           if (b > a) profiler?.record(label, Number(b - a) / 1e6)
         }
         // The whole frame, first pass start to last pass end: reliable even where passes overlap
-        // (tile-based GPUs), which makes per-pass times add up to more than the frame.
-        if (last > first) {
+        // (tile-based GPUs), which makes per-pass times add up to more than the frame. A frame
+        // inside one tick of a coarse clock (WARP's is 65 µs; browsers quantize to 100 µs) is 0 ms,
+        // not unmeasured: dropping those would leave only the frames that crossed a tick.
+        if (first !== 0n) {
           this.frameMs = Number(last - first) / 1e6
           this.frameSamples++
           profiler?.record('gpu:frame', this.frameMs)

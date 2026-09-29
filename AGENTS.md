@@ -61,6 +61,9 @@ A test that flakes in `pnpm test` is a bug: fix it, or skip it with an entry in 
 "Skipped tests" (what's known, the date, and the lead), never a local retry.
 CI splits test files across four runners (`SHARD_TEST_SHARD`, `scripts/test-shard.mjs`); a new test
 file that takes minutes there belongs in `scripts/test-weights.json` so the split stays even.
+The same four run on Windows too, rendering on WARP. Build paths with `node:path` and compare them
+with `relative`, never a `/` prefix. `SHARD_DAWN_OPTIONS` (`;`-separated) passes Dawn options to Node
+GPU contexts: `adapter=Microsoft Basic Render Driver` renders on WARP locally, as CI's Windows job does.
 Vendored third-party code (`**/vendor`) and test fixtures (`**/fixtures`) aren't linted or edited.
 The playground's browser tests (0062) need `pnpm exec playwright install chromium` and a WebGPU
 adapter; without them they skip locally. CI runs them in their own job, on Mesa's software Vulkan
