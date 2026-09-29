@@ -104,9 +104,10 @@ export async function runCapture(plan: CapturePlan, options: CaptureOptions): Pr
       }
       try {
         const run = await runSession(plan, name, dpr, browser, options.out, log)
-        if (run === 'no-webgpu') {
-          manifest.skipped.push({ browser: name, reason: 'no WebGPU adapter' })
-          log(`${name}: skipped (no WebGPU adapter)`)
+        if (typeof run === 'string') {
+          const reason = run === 'no-webgpu' ? 'no WebGPU in this build' : 'no WebGPU adapter'
+          manifest.skipped.push({ browser: name, reason })
+          log(`${name}: skipped (${reason})`)
           continue browsers
         }
         manifest.shots.push(...run.shots)
@@ -143,7 +144,7 @@ async function runSession(
   instance: Browser,
   out: string,
   log: (message: string) => void,
-): Promise<SessionResult | 'no-webgpu'> {
+): Promise<SessionResult | 'no-webgpu' | 'no-adapter'> {
   const result: SessionResult = { shots: [], steps: [], records: [], recordFiles: [] }
   const clients: Client[] = []
   try {
@@ -158,9 +159,11 @@ async function runSession(
       const errors: string[] = []
       page.on('pageerror', (err) => errors.push(err.message))
       await page.goto(clientUrl(plan.url, client))
-      if (!(await page.evaluate(async () => !!(await navigator.gpu?.requestAdapter())))) {
-        return 'no-webgpu'
-      }
+      // As probeWebGpu tells them apart: no API at all (Playwright's WebKit on Windows), or no adapter.
+      const gpu = await page.evaluate(async () =>
+        !navigator.gpu ? 'no-webgpu' : (await navigator.gpu.requestAdapter()) ? 'ok' : 'no-adapter',
+      )
+      if (gpu !== 'ok') return gpu
       await page
         .waitForFunction(() => window.__shardReady === true, undefined, { timeout: plan.timeoutMs })
         .catch((err: Error) => {
