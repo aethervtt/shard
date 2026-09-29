@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { assetServer } from '@aethervtt/shard-assets'
+import { timingMode } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { createNodePlatform } from '@aethervtt/shard-platform-node'
@@ -162,7 +163,7 @@ describe('file assets in scenes', () => {
     // CI runs the reload's own load can take longer, so only the reload itself is checked there.
     let took = 0
     let [r1, b1] = [r0, b0]
-    while (took < (process.env.SHARD_BENCH ? 2 : 60)) {
+    while (took < (timingMode === 'bench' ? 2 : 60)) {
       await frames(app, 1)
       took++
       ;[r1, b1] = redBlue(await capture(app, camera))

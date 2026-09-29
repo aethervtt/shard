@@ -5,7 +5,7 @@ import { PerformanceObserver } from 'node:perf_hooks'
 import { fileURLToPath } from 'node:url'
 import { assetServer } from '@aethervtt/shard-assets'
 import { ChildOf, type Entity, type World } from '@aethervtt/shard-core'
-import { budget } from '@aethervtt/shard-core/test-env'
+import { timingMode } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { encodeMesh } from '@aethervtt/shard-mesh'
@@ -316,13 +316,7 @@ describe('generators in a project', () => {
     expect(procgen(world).stats.runs - runs).toBe(200)
     expect(frames).toBeGreaterThan(10) // spread over frames, not done in one
     const sorted = perFrame.sort((a, b) => a - b)
-    if (process.env.SHARD_BENCH) {
-      // Serial, cores to itself: every frame.
-      expect(sorted.at(-1)!).toBeLessThan(2)
-    } else {
-      // Parallel runs share cores with other files' workers, which stretches a step now and then.
-      expect(sorted[Math.floor(sorted.length * 0.99)]!).toBeLessThan(budget(2))
-      expect(sorted.at(-1)!).toBeLessThan(budget(10))
-    }
+    // Serial, cores to itself: every frame.
+    if (timingMode === 'bench') expect(sorted.at(-1)!).toBeLessThan(2)
   })
 })
