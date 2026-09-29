@@ -1,5 +1,12 @@
 import { defineResource } from '@aethervtt/shard-core'
 
+/**
+ * The frame demand a renderer holds while a frame skipped draws (pipelines compiling, meshes or
+ * materials still loading, 0052). Such a frame isn't complete: traces and the first usable frame
+ * wait for one that is (0062).
+ */
+export const LOADING_DEMAND = 'render/loading'
+
 /** How the app's frames are driven: every display refresh, only when needed, or by hand. */
 export type FrameMode = 'continuous' | 'on-demand' | 'manual'
 

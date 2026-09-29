@@ -16,6 +16,7 @@ import { saveMethods } from '@aethervtt/shard-save'
 import { terrainMethods } from '@aethervtt/shard-terrain'
 import { localeMethods } from '@aethervtt/shard-text'
 import { uiMethods } from '@aethervtt/shard-ui'
+import { metricsMethods } from '@aethervtt/shard-verify/metrics'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import {
   CallToolRequestSchema,
@@ -67,6 +68,7 @@ const PLUGIN_METHODS = [
   ...procgenMethods,
   ...terrainMethods,
   ...atmosphereMethods,
+  ...metricsMethods,
 ]
 
 /** The protocol method's parameter schema, as an MCP input schema. */
@@ -489,6 +491,16 @@ export const TOOLS: Tool[] = [
     'physics_describe',
     'physics.describe',
     'Physics state: bodies by kind, how many sleep, and how many are parked beyond the physics range (large worlds), colliders by shape, joints, contact pairs, colliders waiting for a mesh, the range radius, and the last step time.',
+  ),
+  forward(
+    'metrics_record',
+    'metrics.record',
+    'A performance record (spec 0062) of the running app: cold start, first usable frame, patch-to-frame latency (p50/p95 of app.trace), frame-time p50/p95/p99 and GPU p95, long tasks, GPU memory by category, and downloads, over the window since metrics_reset (at most 30 s). Needs a live app (shard dev, attached). Measure after a change the way the capture scripts do: metrics_reset, exercise the scene, then metrics_record.',
+  ),
+  forward(
+    'metrics_reset',
+    'metrics.reset',
+    'Starts a new measurement window for metrics_record: frame times, traces and long tasks so far stop counting.',
   ),
   forward(
     'animation_describe',

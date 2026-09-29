@@ -39,6 +39,8 @@ shard run --frames 600                # headless run, prints a deterministic wor
 shard screenshot scenes/main.scene.json --out shot.png
 shard test                            # gameplay tests in tests/*.test.ts
 shard track scene.json --out t.bin    # record a physics track (0053) headless; prints its hash
+shard capture plan.json               # real-browser shots, checked steps, perf records (0062)
+shard compare / shard approve <shot> --reason "…" / shard perf-check <records> --plan plan.json
 shard docs                            # regenerate AGENTS.md block, .agents/, .shard/schemas
 shard serve / shard mcp [--attach]    # protocol hub / MCP server
 ```
@@ -60,6 +62,8 @@ A test that flakes in `pnpm test` is a bug: fix it, or skip it with an entry in 
 CI splits test files across four runners (`SHARD_TEST_SHARD`, `scripts/test-shard.mjs`); a new test
 file that takes minutes there belongs in `scripts/test-weights.json` so the split stays even.
 Vendored third-party code (`**/vendor`) and test fixtures (`**/fixtures`) aren't linted or edited.
+The playground's browser tests (0062) need `pnpm exec playwright install chromium` and a GPU; without
+them they skip. Its `verify.html` fixture and `plans/` are what `shard capture` runs against.
 
 ## Rules
 

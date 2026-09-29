@@ -1,7 +1,15 @@
 import { ShardError } from '@aethervtt/shard-core'
 import { LayoutCache, PipelineCache } from './caches'
 import { type GpuErrorListener, toShardError } from './errors'
-import { type GpuStats, Ledger, SHARED_OWNER, textureBytes } from './ledger'
+import {
+  bufferCategory,
+  type GpuMemory,
+  type GpuStats,
+  Ledger,
+  SHARED_OWNER,
+  textureBytes,
+  textureCategory,
+} from './ledger'
 import { Surface, type SurfaceAlpha, type SurfaceOptions } from './surface'
 
 export interface CreateGpuContextOptions {
@@ -62,6 +70,11 @@ export class GpuContext {
   readonly layouts: LayoutCache
   /** Increments when the device is replaced. */
   generation = 0
+  /**
+   * How long the first adapter and device request took, in ms (0062's `coldStart.device`). Set by
+   * `createGpuContext`; 0 for a context built directly.
+   */
+  deviceMs = 0
   /**
    * Who new buffers and textures count against. An app sets it to its owner while it runs (the
    * render plugin's scope); otherwise it's `'gpu'`, the device's own.
@@ -141,6 +154,11 @@ export class GpuContext {
   /** Live buffers and textures this device made for `owner`, or for everyone (0052). */
   stats(owner?: string): GpuStats {
     return this.ledger.stats(owner)
+  }
+
+  /** Live bytes for `owner` (or everyone) by what they're for: targets, textures, geometry... (0062). */
+  memory(owner?: string): GpuMemory {
+    return this.ledger.memory(owner)
   }
 
   /** Owners with live objects, sorted. */
@@ -263,12 +281,13 @@ export class GpuContext {
     const createTexture = device.createTexture.bind(device)
     device.createBuffer = (descriptor) => {
       const buffer = createBuffer(descriptor)
-      ledger.track(buffer, this.owner, false, descriptor.size)
+      ledger.track(buffer, this.owner, false, descriptor.size, bufferCategory(descriptor.usage))
       return buffer
     }
     device.createTexture = (descriptor) => {
       const texture = createTexture(descriptor)
-      ledger.track(texture, this.owner, true, textureBytes(descriptor))
+      const category = textureCategory(descriptor.usage)
+      ledger.track(texture, this.owner, true, textureBytes(descriptor), category)
       return texture
     }
   }
@@ -311,10 +330,12 @@ async function requestDevice(options: CreateGpuContextOptions) {
 
 /** A device, plus a first surface when `options.canvas` is given. */
 export async function createGpuContext(options: CreateGpuContextOptions = {}): Promise<GpuContext> {
+  const start = performance.now()
   const { adapter, device } = await requestDevice(options)
   const gpu = options.gpu ?? (globalThis.navigator as Navigator).gpu
   const format = gpu.getPreferredCanvasFormat()
   const result = new GpuContext(options, adapter, device, format)
+  result.deviceMs = performance.now() - start
   if (options.canvas) result.addSurface(options.canvas, { alpha: options.alpha })
   return result
 }

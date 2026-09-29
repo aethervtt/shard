@@ -21,6 +21,7 @@ import {
 } from './commands'
 import { dev } from './dev'
 import { createOutput, EXIT, errorJson, formatError } from './output'
+import { approve, capture, compare, perfCheck } from './verify'
 
 const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; help: string }> = {
   init: {
@@ -62,6 +63,22 @@ const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; 
     help: 'track <scene.json> [--out f]     record a physics track; prints its hash',
   },
   test: { run: testCommand, help: 'test [pattern]                  gameplay tests in tests/' },
+  capture: {
+    run: capture,
+    help: 'capture <plan.json> [--out dir]  browser captures, steps and records (0062)',
+  },
+  compare: {
+    run: compare,
+    help: 'compare [captures] [--approved dir] [--report f]   diff against approved images',
+  },
+  approve: {
+    run: approve,
+    help: 'approve <shot> --reason "…" [--captures dir] [--approved dir]',
+  },
+  'perf-check': {
+    run: perfCheck,
+    help: "perf-check <records...> --plan plan.json   fail on a plan's broken thresholds",
+  },
   describe: {
     run: describe,
     help: 'describe                        plugins, systems, scenes, renderer, input',
@@ -106,6 +123,13 @@ export async function main(argv: string[]): Promise<number> {
         param: { type: 'string', multiple: true },
         hub: { type: 'string' },
         attach: { type: 'boolean' },
+        approved: { type: 'string' },
+        captures: { type: 'string' },
+        reason: { type: 'string' },
+        report: { type: 'string' },
+        plan: { type: 'string' },
+        by: { type: 'string' },
+        headed: { type: 'boolean' },
         help: { type: 'boolean', short: 'h' },
       },
     })

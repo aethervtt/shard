@@ -13,6 +13,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { openProject } from '@aethervtt/shard-node'
 import { connectToHub, createProtocolServer, decodePng } from '@aethervtt/shard-protocol'
+import { encodePng, sha256 } from '@aethervtt/shard-verify/node'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { afterAll, beforeAll, describe, expect, it, onTestFinished } from 'vitest'
@@ -561,6 +562,8 @@ describe('MCP server', () => {
         'run_generator',
         'preview_generator',
         'describe_generators',
+        'metrics_record',
+        'metrics_reset',
       ]),
     )
     expect(tools.find((t) => t.name === 'physics_raycast')!.inputSchema).toMatchObject({
@@ -729,6 +732,129 @@ describe('shard track (0053)', () => {
     const r = shard(['track', 'bad.json', '--json'], dir)
     expect(r.code).toBe(2)
     expect(r.json().error).toMatchObject({ code: 'physics/track-scene', path: 'step' })
+    rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe('shard compare, approve, perf-check (0062)', () => {
+  /** A 64×32 capture: flat felt with a dark bar at `bar`. */
+  function shot(bar: number): Uint8Array {
+    const data = new Uint8Array(64 * 32 * 4)
+    for (let i = 0; i < 64 * 32; i++) {
+      const x = i % 64
+      data.set(x >= bar && x < bar + 4 ? [20, 20, 30, 255] : [120, 160, 110, 255], i * 4)
+    }
+    return encodePng(data, 64, 32)
+  }
+
+  /** A capture run in `dir` with one shot, as `shard capture` writes it. */
+  function captureRun(dir: string, png: Uint8Array) {
+    const id = 'chromium/main/grid@1x'
+    mkdirSync(join(dir, 'chromium/main'), { recursive: true })
+    writeFileSync(join(dir, `${id}.png`), png)
+    const entry = { id, browser: 'chromium', client: 'main', shot: 'grid', dpr: 1, scope: 'canvas' }
+    const manifest = {
+      version: 1,
+      url: 'http://localhost/verify.html',
+      fixture: 'grid',
+      date: new Date(0).toISOString(),
+      shots: [{ ...entry, width: 64, height: 32, hash: sha256(png), tolerance: {} }],
+      records: [],
+      steps: [],
+      skipped: [],
+    }
+    writeFileSync(join(dir, 'manifest.json'), JSON.stringify(manifest))
+  }
+
+  it('refuses an approval without a reason, then approves with one; compare fails a shifted grid', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'shard-approve-'))
+    captureRun(join(dir, 'first'), shot(10))
+    const approve = ['approve', 'chromium/main/grid@1x', '--captures', 'first', '--json']
+    const refused = shard(approve, dir)
+    expect(refused.code).toBe(2)
+    expect(refused.json().error).toMatchObject({ code: 'verify/approval-needs-reason' })
+    expect(existsSync(join(dir, 'captures/approved/approvals.json'))).toBe(false)
+
+    const approved = shard(
+      [...approve, '--reason', 'First capture of the grid', '--by', 'Pat'],
+      dir,
+    )
+    expect(approved.code).toBe(0)
+    expect(approved.json()).toMatchObject({
+      shot: 'chromium/main/grid@1x',
+      hash: sha256(shot(10)),
+      reason: 'First capture of the grid',
+      by: 'Pat',
+    })
+    expect(shard(['compare', 'first', '--json'], dir).json()).toMatchObject({ pass: true })
+
+    captureRun(join(dir, 'shifted'), shot(11))
+    const shifted = shard(['compare', 'shifted', '--json'], dir)
+    expect(shifted.code).toBe(1)
+    expect(shifted.json().shots).toEqual([
+      expect.objectContaining({ id: 'chromium/main/grid@1x', status: 'fail' }),
+    ])
+    expect(existsSync(join(dir, 'shifted/report.html'))).toBe(true)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('fails on an absolute and on a ratio breach, naming metric, values and budget; passes when met', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'shard-perf-'))
+    writeFileSync(
+      join(dir, 'plan.json'),
+      JSON.stringify({
+        url: 'http://localhost/verify.html',
+        thresholds: {
+          'tabletop-pan': {
+            'frameTime.p95': { max: 16.7 },
+            'patchToFrame.p95': { maxRatioTo: 'three', ratio: 1.0 },
+          },
+        },
+      }),
+    )
+    const record = (renderer: string, p95: number, patch: number) => ({
+      version: 1,
+      renderer,
+      fixture: 'table',
+      scenario: 'tabletop-pan',
+      device: { ua: 'Chrome/153', gpu: 'test', dpr: 1, viewport: [1320, 720] },
+      renderScale: { mode: 'fixed', min: 1, max: 1 },
+      coldStart: { total: 300, modules: 100, device: 50, pipelines: 120, assets: 80 },
+      firstUsableFrame: 700,
+      patchToFrame: { p50: patch * 0.8, p95: patch, n: 20 },
+      frameTime: { p50: 8, p95, p99: p95 + 1, n: 900 },
+      longTasks: { count: 0, totalMs: 0, maxMs: 0 },
+      gpuMemory: { bytes: 1024, byCategory: { targets: 1024 } },
+      download: { transferred: 1000, decoded: 3000 },
+    })
+    const write = (name: string, value: unknown) => {
+      mkdirSync(join(dir, name, '..'), { recursive: true })
+      writeFileSync(join(dir, name), JSON.stringify(value))
+    }
+    write('base/three.json', record('three@0.160.1', 14, 30))
+    write('breach/three.json', record('three@0.160.1', 14, 30))
+    write('breach/shard.json', record('shard@abc', 18.2, 36))
+    write('met/three.json', record('three@0.160.1', 14, 30))
+    write('met/shard.json', record('shard@abc', 11, 24))
+
+    const breach = shard(['perf-check', 'breach', '--plan', 'plan.json', '--json'], dir)
+    expect(breach.code).toBe(1)
+    expect(breach.json().breaches).toEqual([
+      expect.objectContaining({ metric: 'frameTime.p95', value: 18.2, budget: 'max 16.7' }),
+      expect.objectContaining({
+        metric: 'patchToFrame.p95',
+        value: 36,
+        baseline: { renderer: 'three@0.160.1', value: 30 },
+      }),
+    ])
+    const text = shard(['perf-check', 'breach', '--plan', 'plan.json'], dir)
+    expect(text.stderr).toContain(
+      'tabletop-pan frameTime.p95 (shard@abc): 18.2 is over the max of 16.7',
+    )
+
+    const met = shard(['perf-check', 'met', '--plan', 'plan.json', '--json'], dir)
+    expect(met.code).toBe(0)
+    expect(met.json()).toMatchObject({ pass: true, checked: 2, records: 2 })
     rmSync(dir, { recursive: true, force: true })
   })
 })

@@ -16,6 +16,7 @@ import {
 } from '@aethervtt/shard-core'
 import { describe, expect, it } from 'vitest'
 import { App } from './app'
+import { FrameDemand, LOADING_DEMAND } from './demand'
 import { LogResource } from './log'
 import { definePlugin } from './plugin'
 import { headlessRunner } from './runners'
@@ -562,5 +563,148 @@ describe('dispose (0052)', () => {
     await app.dispose()
     expect(depth).toEqual([1, 1, 1])
     expect(inside).toBe(0)
+  })
+})
+
+describe('presentation (0062)', () => {
+  /** An app on a clock the test moves, with a presenter the test resolves. */
+  async function presented() {
+    let now = 0
+    const app = new App({ now: () => now })
+    const waiting: ((at: undefined) => void)[] = []
+    app.setPresenter(() => new Promise<undefined>((resolve) => waiting.push(resolve)))
+    await app.init()
+    return {
+      app,
+      at: (ms: number) => {
+        now = ms
+      },
+      /** Presents every frame still waiting, then lets their callbacks run. */
+      present: async () => {
+        for (const resolve of waiting.splice(0)) resolve(undefined)
+        await Promise.resolve()
+      },
+    }
+  }
+
+  it('records when init started and ended', async () => {
+    let now = 5
+    const app = new App({ now: () => now }).addPlugin(
+      definePlugin({
+        name: 'test/slow',
+        build() {},
+        ready: () => {
+          now = 12
+        },
+      }),
+    )
+    await app.init()
+    expect(app.startup).toMatchObject({ initStart: 5, initEnd: 12 })
+    expect(app.startup.usable).toBeNaN()
+  })
+
+  it('resolves a trace when the frame that carries it is presented', async () => {
+    const { app, at, present } = await presented()
+    const seen: [string, number][] = []
+    app.onTrace((label, ms) => void seen.push([label, ms]))
+    at(10)
+    const latency = app.trace('token-move')
+    at(14)
+    app.update(1 / 60)
+    at(30)
+    await present()
+    expect(await latency).toBe(20)
+    expect(seen).toEqual([['token-move', 20]])
+  })
+
+  it('leaves a trace stamped during a frame for the next one', async () => {
+    const { app, at, present } = await presented()
+    let traced: Promise<number> | undefined
+    app.onFrame(() => {
+      traced ??= app.trace('late')
+    })
+    at(0)
+    app.update(1 / 60)
+    at(8)
+    await present()
+    let done = false
+    void traced!.then(() => {
+      done = true
+    })
+    await Promise.resolve()
+    expect(done).toBe(false)
+    app.update(1 / 60)
+    at(20)
+    await present()
+    expect(await traced!).toBe(20)
+  })
+
+  it('marks the first frame presented after markUsable', async () => {
+    const { app, at, present } = await presented()
+    app.update(1 / 60)
+    await present()
+    expect(app.startup.usable).toBeNaN()
+    at(100)
+    app.markUsable()
+    app.markUsable()
+    at(116)
+    app.update(1 / 60)
+    at(125)
+    await present()
+    expect(app.startup).toMatchObject({ usableMarked: 100, usable: 125 })
+    expect(await app.whenUsable()).toBe(125)
+  })
+
+  it('hands traces and the usable mark on while a frame is still loading', async () => {
+    const { app, at, present } = await presented()
+    const demand = app.world.resource(FrameDemand)
+    at(0)
+    app.markUsable()
+    const latency = app.trace('spawn')
+    demand.hold(LOADING_DEMAND) // this frame skipped a draw
+    app.update(1 / 60)
+    await present()
+    expect(app.startup.usable).toBeNaN()
+    demand.release(LOADING_DEMAND)
+    at(40)
+    app.update(1 / 60)
+    at(48)
+    await present()
+    expect(await latency).toBe(48)
+    expect(app.startup.usable).toBe(48)
+  })
+
+  it('waits for a presented frame without telling trace listeners', async () => {
+    const { app, at, present } = await presented()
+    const seen: string[] = []
+    app.onTrace((label) => void seen.push(label))
+    at(0)
+    const waited = app.whenPresented()
+    app.update(1 / 60)
+    at(9)
+    await present()
+    expect(await waited).toBe(9)
+    expect(seen).toEqual([])
+  })
+
+  it("takes the presenter's time for when the frame was on screen", async () => {
+    let now = 0
+    const app = new App({ now: () => now })
+    app.setPresenter(async () => 12) // the animation frame began at 12, its callback ran later
+    await app.init()
+    const latency = app.trace('write')
+    app.update(1 / 60)
+    now = 20
+    expect(await latency).toBe(12)
+  })
+
+  it('counts a frame as presented when it ends without a presenter', async () => {
+    let now = 0
+    const app = new App({ now: () => now })
+    await app.init()
+    const latency = app.trace('write')
+    now = 3
+    app.update(1 / 60)
+    expect(await latency).toBe(3)
   })
 })

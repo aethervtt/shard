@@ -18,9 +18,21 @@ export class PipelineCache {
   private readonly render_ = new Map<string, PipelineState<GPURenderPipeline>>()
   private readonly compute_ = new Map<string, PipelineState<GPUComputePipeline>>()
   private readonly gpu: GpuContext
+  /** Compiles in flight, and when the current run of them started (0062's `coldStart.pipelines`). */
+  private compiling = 0
+  private busySince = 0
+  private busyTotal = 0
 
   constructor(gpu: GpuContext) {
     this.gpu = gpu
+  }
+
+  /**
+   * Wall time, in ms, during which at least one pipeline was compiling, counted since the cache was
+   * made. Compiles that overlap count once.
+   */
+  busyMs(now = performance.now()): number {
+    return this.busyTotal + (this.compiling > 0 ? now - this.busySince : 0)
   }
 
   render(descriptor: GPURenderPipelineDescriptor): GPURenderPipeline | undefined {
@@ -74,11 +86,14 @@ export class PipelineCache {
       this.skipped++
       return undefined
     }
+    if (this.compiling++ === 0) this.busySince = performance.now()
     const promise = create(descriptor).then(
       (pipeline) => {
+        this.compiled()
         map.set(key, { status: 'ready', pipeline })
       },
       (err: Error) => {
+        this.compiled()
         const error = toShardError(err, descriptor.label)
         map.set(key, { status: 'failed', error })
         this.gpu.reportError(error)
@@ -87,6 +102,10 @@ export class PipelineCache {
     map.set(key, { status: 'pending', promise })
     this.skipped++
     return undefined
+  }
+
+  private compiled(): void {
+    if (--this.compiling === 0) this.busyTotal += performance.now() - this.busySince
   }
 }
 

@@ -63,6 +63,27 @@ describe('PipelineCache', () => {
     expect(gpu.pipelines.skipped).toBe(1)
   })
 
+  it('counts the wall time pipelines were compiling (0062)', async () => {
+    const before = gpu.pipelines.busyMs()
+    gpu.pipelines.render(pipelineDescriptor('busy-a'))
+    gpu.pipelines.compute({
+      label: 'busy-b',
+      layout: 'auto',
+      compute: {
+        module: gpu.device.createShaderModule({ code: '@compute @workgroup_size(1) fn main() {}' }),
+        entryPoint: 'main',
+      },
+    })
+    const start = performance.now()
+    await gpu.pipelines.whenIdle()
+    const elapsed = performance.now() - start
+    const busy = gpu.pipelines.busyMs() - before
+    expect(busy).toBeGreaterThan(0)
+    // Two overlapping compiles count once: no more than the wall time they took.
+    expect(busy).toBeLessThanOrEqual(elapsed + 1)
+    expect(gpu.pipelines.busyMs()).toBe(gpu.pipelines.busyMs())
+  })
+
   it('reports invalid pipelines as gpu/validation with the label', async () => {
     const errors: ShardError[] = []
     const off = gpu.onError((e) => errors.push(e))
@@ -76,6 +97,47 @@ describe('PipelineCache', () => {
     off()
     expect(errors[0]).toMatchObject({ code: 'gpu/validation', path: 'broken-pipeline' })
     expect(errors[0]?.message).toContain('broken-pipeline')
+  })
+})
+
+describe('memory (0062)', () => {
+  it('splits live bytes by what the objects are for', () => {
+    const owner = 'test/memory'
+    gpu.withOwner(owner, () => {
+      gpu.device.createBuffer({ size: 256, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST })
+      gpu.device.createBuffer({ size: 64, usage: GPUBufferUsage.UNIFORM })
+      gpu.device.createBuffer({
+        size: 128,
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+      })
+      gpu.device.createBuffer({ size: 512, usage: GPUBufferUsage.STORAGE })
+      gpu.device.createTexture({
+        size: [4, 4],
+        format: 'rgba8unorm',
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+      })
+      gpu.device.createTexture({
+        size: [8, 8],
+        format: 'rgba8unorm',
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      })
+    })
+    const memory = gpu.memory(owner)
+    expect(memory.byCategory).toEqual({
+      geometry: 256,
+      uniforms: 64,
+      staging: 128,
+      storage: 512,
+      targets: 64,
+      textures: 256,
+    })
+    expect(memory.bytes).toBe(gpu.stats(owner).bytes)
+    gpu.release(owner)
+    expect(gpu.memory(owner)).toEqual({ bytes: 0, byCategory: {} })
+  })
+
+  it('records how long the device request took', () => {
+    expect(gpu.deviceMs).toBeGreaterThan(0)
   })
 })
 

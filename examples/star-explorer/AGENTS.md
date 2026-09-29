@@ -16,7 +16,8 @@ shard test --json         # gameplay tests in tests/
 shard check --json        # type-check scripts: file, line, column
 shard gen <generator> --seeds 1-9 --out sheet.png   # preview a generator's outputs
 shard dev                 # play it in a browser; saves hot reload in place
-shard docs                # regenerate this block, .agents/, and .shard/schemas/
+shard capture plan.json   # real-browser shots and perf records; then compare, approve, perf-check
+shard docs              # regenerate this block, .agents/, and .shard/schemas/
 shard mcp                 # MCP server for this project (see .mcp.json)
 ```
 

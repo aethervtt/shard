@@ -20,6 +20,8 @@ import { connectToHub, createProtocolServer } from '@aethervtt/shard-protocol'
 import { Shaders } from '@aethervtt/shard-render'
 import { animationFrameRunner, LogResource, type Plugin } from '@aethervtt/shard-runtime'
 import { loadScene, whenSceneReady } from '@aethervtt/shard-scene'
+import { metricsPlugin } from '@aethervtt/shard-verify/metrics'
+import { installCapturePage } from '@aethervtt/shard-verify/page'
 
 interface DevInfo {
   manifest: ManifestValue
@@ -84,6 +86,8 @@ async function start() {
     audio: manifest.plugins.includes('audio') ? platform.audio : undefined,
     platform,
   })
+  // Performance records over the protocol (metrics.record), the same way scripts take them (0062).
+  app.addPlugin(metricsPlugin({ performance: platform.performance }))
   await app.init()
   await loadProjectNavCache(app, platform)
 
@@ -182,6 +186,10 @@ async function start() {
   Object.assign(globalThis, { shard: { app, session, assets } })
   show('')
   canvas.focus()
+  // The start scene is loaded: the first frame from here on is the first usable one, and
+  // `shard capture` can drive the page (0062).
+  app.markUsable()
+  installCapturePage(app)
   app.setRunner(animationFrameRunner())
   await app.run()
 }

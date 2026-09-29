@@ -6,12 +6,57 @@ export interface GpuStats {
   bytes: number
 }
 
+/**
+ * What a GPU object is for, from its usage flags (0062): `targets` (textures rendered into),
+ * `textures` (sampled only), `geometry` (vertex and index buffers), `storage`, `uniforms`,
+ * `staging` (mappable: uploads and readbacks), and `other`.
+ */
+export type GpuMemoryCategory =
+  | 'targets'
+  | 'textures'
+  | 'geometry'
+  | 'storage'
+  | 'uniforms'
+  | 'staging'
+  | 'other'
+
+/** Live bytes counted against an owner, or everyone, by category (`gpu.memory(owner)`). */
+export interface GpuMemory {
+  bytes: number
+  byCategory: Partial<Record<GpuMemoryCategory, number>>
+}
+
+// Usage bits, spelled out: Node has no GPUBufferUsage global until the webgpu globals are installed.
+const MAP_READ = 0x1
+const MAP_WRITE = 0x2
+const INDEX = 0x10
+const VERTEX = 0x20
+const UNIFORM = 0x40
+const STORAGE = 0x80
+const INDIRECT = 0x100
+const RENDER_ATTACHMENT = 0x10
+
+/** The category of a buffer from its usage. */
+export function bufferCategory(usage: number): GpuMemoryCategory {
+  if (usage & (MAP_READ | MAP_WRITE)) return 'staging'
+  if (usage & (VERTEX | INDEX)) return 'geometry'
+  if (usage & (STORAGE | INDIRECT)) return 'storage'
+  if (usage & UNIFORM) return 'uniforms'
+  return 'other'
+}
+
+/** The category of a texture from its usage. */
+export function textureCategory(usage: number): GpuMemoryCategory {
+  return usage & RENDER_ATTACHMENT ? 'targets' : 'textures'
+}
+
 /** The owner of objects made while no app runs, and of per-device objects apps share. */
 export const SHARED_OWNER = 'gpu'
 
 interface Entry {
   readonly owner: Owned
   readonly texture: boolean
+  readonly category: GpuMemoryCategory
   readonly bytes: number
   readonly ref: WeakRef<GPUBuffer | GPUTexture>
   live: boolean
@@ -42,9 +87,22 @@ export class Ledger {
   private readonly owners = new Map<string, Owned>()
   private readonly finalizer = new FinalizationRegistry<Entry>((entry) => this.drop(entry))
 
-  track(object: GPUBuffer | GPUTexture, owner: string, texture: boolean, bytes: number): void {
+  track(
+    object: GPUBuffer | GPUTexture,
+    owner: string,
+    texture: boolean,
+    bytes: number,
+    category: GpuMemoryCategory = texture ? 'textures' : 'other',
+  ): void {
     const owned = this.owned(owner)
-    const entry: Entry = { owner: owned, texture, bytes, ref: new WeakRef(object), live: true }
+    const entry: Entry = {
+      owner: owned,
+      texture,
+      category,
+      bytes,
+      ref: new WeakRef(object),
+      live: true,
+    }
     owned.entries.add(entry)
     if (texture) owned.textures++
     else owned.buffers++
@@ -107,6 +165,20 @@ export class Ledger {
       total.bytes += owned.bytes
     }
     return total
+  }
+
+  /** Live bytes of `owner` (or everyone) by category. Walks every live object: not per frame. */
+  memory(owner?: string): GpuMemory {
+    const result: GpuMemory = { bytes: 0, byCategory: {} }
+    const by = result.byCategory
+    for (const owned of this.owners.values()) {
+      if (owner !== undefined && owned.name !== owner) continue
+      for (const entry of owned.entries) {
+        result.bytes += entry.bytes
+        by[entry.category] = (by[entry.category] ?? 0) + entry.bytes
+      }
+    }
+    return result
   }
 
   /** Owners that have live objects, sorted. */

@@ -21,7 +21,7 @@ import {
   World,
 } from '@aethervtt/shard-core'
 import { AppControl, AppControlResource } from './control'
-import { FrameDemand, FrameDemandState } from './demand'
+import { FrameDemand, FrameDemandState, LOADING_DEMAND } from './demand'
 import { Log, LogResource } from './log'
 import type { Plugin } from './plugin'
 import type { Runner } from './runners'
@@ -77,6 +77,33 @@ export interface FrameDriver {
   stop(): void
 }
 
+/**
+ * Waits until what the last frame drew is on screen (0062), resolving with when that was on the
+ * app's clock if it knows better than "now". The render plugin sets one: the frame's GPU work done,
+ * then the next animation frame, whose timestamp it resolves with. Without one, a frame counts as
+ * presented when it ends.
+ */
+export type FramePresenter = () => Promise<number | undefined>
+
+/** When the app started and became usable, in ms on its clock (`AppOptions.now`) (0062). */
+export interface StartupTimings {
+  /** `init()` was called. NaN before. */
+  initStart: number
+  /** `init()` resolved. NaN before. */
+  initEnd: number
+  /** The host called `markUsable()`. NaN before. */
+  usableMarked: number
+  /** The first frame after `markUsable()` was presented. NaN before. */
+  usable: number
+}
+
+interface PendingTrace {
+  /** Undefined for `whenPresented`, which listeners don't see. */
+  readonly label: string | undefined
+  readonly at: number
+  readonly resolve: (ms: number) => void
+}
+
 /** Order the built-in schedules run in, for `describe()`. */
 const FRAME_SCHEDULES = [Startup, First, PreUpdate, FixedUpdate, Update, PostUpdate, Last]
 
@@ -122,6 +149,17 @@ export class App {
   private startupDone = false
   private accumulator = 0
   private readonly frameListeners = new Set<(frame: number) => void>()
+  private presenter: FramePresenter | undefined
+  /** Traces stamped since the last frame started; the next frame carries them. */
+  private readonly traces: PendingTrace[] = []
+  private readonly traceListeners = new Set<(label: string, ms: number) => void>()
+  private readonly usableWaiters: ((at: number) => void)[] = []
+  private readonly startup_: StartupTimings = {
+    initStart: Number.NaN,
+    initEnd: Number.NaN,
+    usableMarked: Number.NaN,
+    usable: Number.NaN,
+  }
   private readonly appMethods = new Map<string, AppMethod>()
   /** The plugin whose `build` is running, so registrations can be attributed to it. */
   private building: string | undefined
@@ -305,6 +343,7 @@ export class App {
   async init(): Promise<void> {
     this.assertLive()
     if (this.initialized) return
+    if (Number.isNaN(this.startup_.initStart)) this.startup_.initStart = this.now()
     const built: Plugin[] = []
     const builtNames = new Set<string>()
     while (this.pending.length > 0) {
@@ -319,6 +358,7 @@ export class App {
     }
     for (const plugin of built) await this.readyPlugin(plugin)
     this.initialized = true
+    this.startup_.initEnd = this.now()
   }
 
   /** Initializes, then hands control to the runner (manual if none was set). */
@@ -373,6 +413,71 @@ export class App {
     this.driver?.requestFrame()
   }
 
+  // --- presentation (0062) ----------------------------------------------------
+
+  /** Sets how a frame waits to be on screen (see `FramePresenter`). The render plugin calls it. */
+  setPresenter(presenter: FramePresenter | undefined): void {
+    this.presenter = presenter
+  }
+
+  /** When init started and ended and when the app became usable, in ms on the app's clock. */
+  get startup(): Readonly<StartupTimings> {
+    return this.startup_
+  }
+
+  /**
+   * The host says the app is usable (for a VTT, once the scene is interactive). The first complete
+   * frame presented after this is the first usable frame (`startup.usable`, `whenUsable()`). Later
+   * calls do nothing.
+   */
+  markUsable(): void {
+    this.assertLive()
+    if (!Number.isNaN(this.startup_.usableMarked)) return
+    this.startup_.usableMarked = this.now()
+    this.driver?.requestFrame()
+  }
+
+  /** Resolves with `startup.usable` once the first usable frame is presented. */
+  whenUsable(): Promise<number> {
+    if (!Number.isNaN(this.startup_.usable)) return Promise.resolve(this.startup_.usable)
+    return new Promise((resolve) => this.usableWaiters.push(resolve))
+  }
+
+  /**
+   * Stamps a host write (a patch, a token move) for latency: resolves with the ms from now until the
+   * frame that carries it is presented. Call it right after the write. The next frame to start
+   * carries every trace stamped before it; a frame that ends still loading (`LOADING_DEMAND`: a
+   * pipeline compiling, a mesh not uploaded) hands them on, so the latency runs until the write is
+   * visible. `onTrace` listeners see each result.
+   */
+  trace(label: string): Promise<number> {
+    this.assertLive()
+    return new Promise((resolve) => {
+      this.traces.push({ label, at: this.now(), resolve })
+      this.driver?.requestFrame()
+    })
+  }
+
+  /**
+   * Requests a frame and resolves (with the ms waited) once a complete frame is presented, as
+   * `trace` does, but no `onTrace` listener sees it: for tools waiting on the screen, not for
+   * latency.
+   */
+  whenPresented(): Promise<number> {
+    this.assertLive()
+    return new Promise((resolve) => {
+      this.traces.push({ label: undefined, at: this.now(), resolve })
+      this.driver?.requestFrame()
+    })
+  }
+
+  /** Called with every resolved trace: its label and latency in ms. Returns an unsubscribe function. */
+  onTrace(listener: (label: string, ms: number) => void): () => void {
+    this.assertLive()
+    this.traceListeners.add(listener)
+    return () => this.traceListeners.delete(listener)
+  }
+
   /**
    * Drops accumulated fixed-step time, so the next frame runs FixedUpdate for its own delta only.
    * On-demand runners call it on waking, so a scene idle for a minute doesn't simulate the minute.
@@ -401,6 +506,9 @@ export class App {
 
   private frame(delta: number): void {
     const world = this.world
+    // This frame carries what was stamped before it started (0062). No allocation without traces.
+    const traces = this.traces.length > 0 ? this.traces.splice(0) : undefined
+    const usable = Number.isNaN(this.startup_.usable) && !Number.isNaN(this.startup_.usableMarked)
     if (!this.startupDone) {
       this.runSchedule(Startup)
       this.startupDone = true
@@ -434,6 +542,38 @@ export class App {
     this.runSchedule(Last)
     time.frame++
     for (const listener of this.frameListeners) listener(time.frame)
+    if (!traces && !usable) return
+    // A frame that didn't draw everything shows nothing a trace waits for: the next one carries it.
+    if (world.resource(FrameDemand).isHeld(LOADING_DEMAND)) {
+      if (traces) this.traces.unshift(...traces)
+      return
+    }
+    this.present(traces, usable)
+  }
+
+  /** Resolves traces and the usable mark once this frame is on screen. */
+  private present(traces: PendingTrace[] | undefined, usable: boolean): void {
+    const done = (when?: number) => {
+      const at = when ?? this.now()
+      if (usable && Number.isNaN(this.startup_.usable)) {
+        this.startup_.usable = at
+        for (const resolve of this.usableWaiters.splice(0)) resolve(at)
+      }
+      if (!traces) return
+      for (const trace of traces) {
+        const ms = Math.max(0, at - trace.at)
+        trace.resolve(ms)
+        const label = trace.label
+        if (label !== undefined) for (const listener of this.traceListeners) listener(label, ms)
+      }
+    }
+    const presenter = this.presenter
+    if (!presenter) {
+      done()
+      return
+    }
+    // A failed presentation (a lost device) still ends the wait: the frame is as done as it gets.
+    presenter().then(done, () => done())
   }
 
   /** Called after every frame with the number of frames completed. Returns an unsubscribe function. */
@@ -542,6 +682,8 @@ export class App {
     this.driver = undefined
     driver?.stop()
     this.frameListeners.clear()
+    this.traceListeners.clear()
+    this.presenter = undefined
     this.world.onWake = undefined
     this.world.asleep = false
     const log = this.world.tryResource(LogResource)

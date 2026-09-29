@@ -228,6 +228,27 @@ export function allAssetResolvers(): readonly AssetResolver[] {
   return resolvers
 }
 
+/** Loads in flight, by guid, timing how long any were in flight (0062's `coldStart.assets`). */
+class LoadsInFlight extends Map<string, Promise<void>> {
+  private since = 0
+  private total = 0
+
+  override set(key: string, value: Promise<void>): this {
+    if (this.size === 0 && !this.has(key)) this.since = performance.now()
+    return super.set(key, value)
+  }
+
+  override delete(key: string): boolean {
+    const had = super.delete(key)
+    if (had && this.size === 0) this.total += performance.now() - this.since
+    return had
+  }
+
+  busyMs(now: number): number {
+    return this.total + (this.size > 0 ? now - this.since : 0)
+  }
+}
+
 /**
  * The asset database for one world: imports sources into cached artifacts, keeps the catalog of
  * paths and guids, loads artifacts into stores, hot reloads, and unloads what nothing references.
@@ -242,7 +263,7 @@ export class AssetServer {
   private readonly sources = new Map<string, SourceRecord>()
   private readonly entries = new Map<string, AssetEntry>()
   private readonly byPath = new Map<string, AssetEntry>()
-  private readonly loading = new Map<string, Promise<void>>()
+  private readonly loading = new LoadsInFlight()
   private readonly memory = new Map<string, Uint8Array | string>()
   private readonly virtuals = new Map<string, () => unknown>()
   private readonly collectable = new Set<string>()
@@ -427,6 +448,14 @@ export class AssetServer {
     const promise = this.loadEntry(entry, true).finally(() => this.loading.delete(entry.guid))
     this.loading.set(entry.guid, promise)
     return promise
+  }
+
+  /**
+   * Wall time, in ms, during which at least one asset was loading, since the server was made.
+   * Loads that overlap count once.
+   */
+  busyMs(now = performance.now()): number {
+    return this.loading.busyMs(now)
   }
 
   /** Starts loading without waiting; failures are logged, not thrown. */
