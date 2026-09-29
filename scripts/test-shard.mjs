@@ -57,10 +57,13 @@ export function testFiles(patterns = ['src/**/*.test.ts']) {
   const { index, count } = parse(spec)
   const assigned = weighted(count)
   const pkg = relative(repo, process.cwd())
-  const mine = globSync(patterns, { cwd: process.cwd() }).filter((file) => {
-    const path = `${pkg}/${file}`.split('\\').join('/')
-    return (assigned.get(path) ?? hashed(path, count)) === index
-  })
+  // `/`-separated: vitest reads `include` as globs, where Windows' `\` escapes and matches nothing.
+  const mine = globSync(patterns, { cwd: process.cwd() })
+    .map((file) => file.split('\\').join('/'))
+    .filter((file) => {
+      const path = `${pkg}/${file}`.split('\\').join('/')
+      return (assigned.get(path) ?? hashed(path, count)) === index
+    })
   // A package can have no files on a runner; vitest fails on an empty include unless told not to.
   return {
     include: mine.length > 0 ? mine.sort() : ['<none on this runner>'],
