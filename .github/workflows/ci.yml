@@ -74,15 +74,56 @@ jobs:
       # SHARD_CI: correctness only. Shared runners render on a software GPU, so time budgets are off
       # there and timeouts are 5x (see packages/core/src/test-env.ts); `pnpm bench` holds the budgets.
       # SHARD_TEST_SHARD: this runner's share of the test files (scripts/test-shard.mjs). The
-      # examples run through `shard test`, which doesn't split, so they run on runner 1 only.
+      # examples run through `shard test`, which doesn't split, so they run on runner 1 only. The
+      # playground's browser tests run in the browser job.
       # --continue: report every failing package, not just the first.
       - name: Run this runner's tests
         run: |
           if [ "${{ matrix.shard }}" = 1 ]; then
-            pnpm test --continue
+            pnpm test --continue --filter='!@aethervtt/shard-playground'
           else
-            pnpm test --continue --filter='!./examples/*'
+            pnpm test --continue --filter='!./examples/*' --filter='!@aethervtt/shard-playground'
           fi
         env:
           SHARD_CI: '1'
           SHARD_TEST_SHARD: ${{ matrix.shard }}/4
+
+  browser:
+    name: Browser tests (software GPU)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      # WebGPU in Chromium through Mesa's software Vulkan driver (lavapipe), with the browser headed
+      # under a virtual display: how three.js runs its WebGPU tests on hosted runners.
+      - name: Install a software Vulkan driver and a virtual display
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers xvfb
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install Chromium
+        run: pnpm --filter @aethervtt/shard-playground exec playwright install --with-deps chromium
+
+      # 0062's criteria in real Chromium (apps/playground/src/verify.test.ts). SHARD_BROWSER_TESTS:
+      # a missing adapter fails the job instead of skipping the tests. Timing checks hold under
+      # `pnpm bench` only, as everywhere else in CI.
+      - name: Run the browser tests
+        run: xvfb-run -a pnpm --filter @aethervtt/shard-playground test
+        env:
+          SHARD_CI: '1'
+          SHARD_BROWSER_TESTS: required
+          SHARD_BROWSER_HEADED: '1'
+          VK_DRIVER_FILES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json

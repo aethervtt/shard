@@ -1,19 +1,21 @@
 // Browser acceptance for 0062, against the verification fixture (verify.html) in real Chromium.
-// Skipped where no Chromium with a WebGPU adapter can start: `pnpm exec playwright install
-// chromium`, on a machine with a GPU (CI's software runners have none).
+// Needs Playwright's Chromium (`pnpm exec playwright install chromium`) and a WebGPU adapter: a
+// GPU, or Mesa's software Vulkan driver, which is how CI's browser job runs it. Without them the
+// tests skip, unless SHARD_BROWSER_TESTS=required (CI), where that's a failure. The latency test is
+// a timing check, so it holds under `pnpm bench` only.
 
 import { readFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { timeout } from '@aethervtt/shard-core/test-env'
+import { timeout, timingMode } from '@aethervtt/shard-core/test-env'
 import {
   type CapturePlan,
   parsePlan,
   perfRecordJsonSchema,
   type RgbaImage,
 } from '@aethervtt/shard-verify'
-import { decodePng, runCapture } from '@aethervtt/shard-verify/node'
+import { browserLaunch, decodePng, runCapture } from '@aethervtt/shard-verify/node'
 import { chromium } from 'playwright'
 import { createServer, type ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -26,7 +28,7 @@ let out = ''
 /** Why browser tests can't run here, or undefined when they can. */
 async function unavailable(url: string): Promise<string | undefined> {
   try {
-    const browser = await chromium.launch({ channel: 'chromium', args: ['--enable-unsafe-webgpu'] })
+    const browser = await chromium.launch(browserLaunch('chromium', 1))
     try {
       const page = await browser.newPage()
       await page.goto(url)
@@ -44,6 +46,9 @@ server = await createServer({ root, configFile: false, logLevel: 'error', server
 await server.listen()
 base = server.resolvedUrls!.local[0]!.replace(/\/$/, '')
 const skip = await unavailable(`${base}/verify.html`)
+if (skip && process.env.SHARD_BROWSER_TESTS === 'required') {
+  throw new Error(`0062 browser tests are required here, but can't run: ${skip}`)
+}
 if (skip) console.warn(`0062 browser tests skipped: ${skip}`)
 
 beforeAll(async () => {
@@ -242,13 +247,10 @@ describe.skipIf(skip)('browser performance records (0062)', () => {
     timeout(60_000),
   )
 
-  it(
+  it.skipIf(timingMode !== 'bench')(
     "measures patchToFrame within one refresh of when the token's pixels change on screen",
     async () => {
-      const browser = await chromium.launch({
-        channel: 'chromium',
-        args: ['--enable-unsafe-webgpu', '--force-device-scale-factor=1'],
-      })
+      const browser = await chromium.launch(browserLaunch('chromium', 1))
       try {
         const context = await browser.newContext({ viewport: { width: 960, height: 540 } })
         const page = await context.newPage()
@@ -311,11 +313,9 @@ describe.skipIf(skip)('browser performance records (0062)', () => {
           expect(outside, `move ${i}: no frame showed the goblin`).toBeDefined()
           gaps.push(Math.abs(inside.latency - outside!))
         }
-        // The typical move, not the worst: with the rest of the suite on the same GPU, the
-        // compositor now and then drops a frame the page already counted as presented. Timestamps
-        // are rounded to 0.1 ms or so on both sides.
-        const median = [...gaps].sort((a, b) => a - b)[gaps.length >> 1]!
-        expect(median, `gaps ${gaps.map((g) => g.toFixed(2))}`).toBeLessThanOrEqual(period + 0.5)
+        // Timestamps are rounded to 0.1 ms or so on both sides.
+        const shown = `gaps ${gaps.map((g) => g.toFixed(2))}`
+        for (const gap of gaps) expect(gap, shown).toBeLessThanOrEqual(period + 0.5)
       } finally {
         await browser.close()
       }

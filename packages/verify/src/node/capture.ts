@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { ShardError } from '@aethervtt/shard-core'
-import type { Browser, BrowserContext, Page } from 'playwright'
+import type { Browser, BrowserContext, LaunchOptions, Page } from 'playwright'
 import { type CheckFailure, checkExpectations } from '../expect'
 import type {} from '../page-api'
 import {
@@ -19,7 +19,7 @@ import { sha256 } from './png'
 export interface CaptureOptions {
   /** Where PNGs, records and `manifest.json` go. */
   out: string
-  /** Show the browser windows. Default false. */
+  /** Show the browser windows (also `SHARD_BROWSER_HEADED=1`). Default false. */
   headed?: boolean
   /** Extra browser flags (also `SHARD_BROWSER_ARGS`, space-separated). */
   browserArgs?: string[]
@@ -36,20 +36,34 @@ export interface CaptureRun {
 }
 
 /**
- * Flags that turn WebGPU on in each browser's automation build. Chromium also gets a real device
- * scale: its DPR emulation alone reports `devicePixelRatio` 2 with a device-pixel box of CSS size,
- * so a canvas would render at 1× and be scaled up.
+ * How `shard capture` launches a browser at a DPR, for anything that has to start it the same way
+ * (tests probing for an adapter). Chromium runs as the full browser in its new headless mode: the
+ * headless shell has no GPU process. It also gets a real device scale: its DPR emulation alone
+ * reports `devicePixelRatio` 2 with a device-pixel box of CSS size, so a canvas would render at 1×
+ * and be scaled up. On Linux, WebGPU goes through Vulkan (Mesa's software driver on CI runners, as
+ * three.js runs its tests), drawing without a Vulkan surface. `SHARD_BROWSER_HEADED=1` shows the
+ * window (CI runs it under `xvfb-run`), and `SHARD_BROWSER_ARGS` adds flags.
  */
-function launchArgs(browser: BrowserName, dpr: number, extra: string[]): string[] {
-  if (browser !== 'chromium') return extra
+export function browserLaunch(
+  browser: BrowserName,
+  dpr: number,
+  options: Pick<CaptureOptions, 'headed' | 'browserArgs'> = {},
+): LaunchOptions {
+  const extra = [
+    ...(options.browserArgs ?? []),
+    ...(process.env.SHARD_BROWSER_ARGS?.split(' ').filter(Boolean) ?? []),
+  ]
+  const headless = !(options.headed ?? process.env.SHARD_BROWSER_HEADED === '1')
+  if (browser !== 'chromium') return { headless, args: extra }
   const args = [
     '--enable-unsafe-webgpu',
     '--enable-gpu-rasterization',
     '--ignore-gpu-blocklist',
     `--force-device-scale-factor=${dpr}`,
   ]
-  if (process.platform === 'linux') args.push('--enable-features=Vulkan')
-  return [...args, ...extra]
+  if (process.platform === 'linux')
+    args.push('--enable-features=Vulkan', '--disable-vulkan-surface')
+  return { headless, channel: 'chromium', args: [...args, ...extra] }
 }
 
 interface Client {
@@ -62,10 +76,6 @@ interface Client {
 export async function runCapture(plan: CapturePlan, options: CaptureOptions): Promise<CaptureRun> {
   const playwright = await import('playwright')
   const log = options.log ?? (() => {})
-  const extra = [
-    ...(options.browserArgs ?? []),
-    ...(process.env.SHARD_BROWSER_ARGS?.split(' ').filter(Boolean) ?? []),
-  ]
   const manifest: CaptureManifest = {
     version: 1,
     url: plan.url,
@@ -85,12 +95,7 @@ export async function runCapture(plan: CapturePlan, options: CaptureOptions): Pr
     for (const dpr of plan.dpr) {
       let browser: Browser
       try {
-        browser = await playwright[name].launch({
-          headless: !options.headed,
-          // The full browser in its new headless mode: the headless shell has no GPU process.
-          ...(name === 'chromium' && { channel: 'chromium' }),
-          args: launchArgs(name, dpr, extra),
-        })
+        browser = await playwright[name].launch(browserLaunch(name, dpr, options))
       } catch (err) {
         const reason = (err as Error).message.split('\n')[0]!
         manifest.skipped.push({ browser: name, reason })

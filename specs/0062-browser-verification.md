@@ -280,7 +280,9 @@ anything is written. The file shows in review: every visible change has a senten
 ## Acceptance criteria
 
 The browser criteria run in `apps/playground/src/verify.test.ts` against Chromium with a WebGPU
-adapter (`pnpm exec playwright install chromium`). CI's runners have no GPU, so they skip there.
+adapter (`pnpm exec playwright install chromium`). CI runs them in its browser job, on Mesa's
+software Vulkan driver. The patch-to-frame criterion is a timing check, so it holds under
+`pnpm bench` only.
 
 - [x] `metricsPlugin` records every `PerfRecord` field in the playground, and the record validates
       against its schema.

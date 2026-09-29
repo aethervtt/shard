@@ -63,19 +63,10 @@ run. What's left:
   it (or shrinking what it renders on the software GPU) is the next win.
 - Run only affected packages on pull requests (`turbo run test --affected`), and everything on main.
 
-## Browser tests don't run in CI (0062)
+## WebKit captures (0062)
 
-`apps/playground/src/verify.test.ts` holds 0062's browser criteria (capture hashes, alpha, clients,
-page scope, records, pinned render scale, patch-to-frame against the screencast, the visibility
-flow). It skips when Chromium can't get a WebGPU adapter, which is every CI runner: they have no GPU,
-and Playwright's browsers aren't installed there.
-
-- Next step: install Chromium in CI (`pnpm exec playwright install --with-deps chromium`) and try
-  SwiftShader's WebGPU (`--use-webgpu-adapter=swiftshader --enable-features=Vulkan`), passed
-  through `SHARD_BROWSER_ARGS`. Hashes would differ from GPU runs, which is fine: they're compared
-  run to run, not to a golden.
-- WebKit: Playwright's WebKit build wasn't tried; plans list it and runs skip it when it won't
-  launch or has no adapter.
+Playwright's WebKit build wasn't tried: plans list it, and runs skip it when it won't launch or has
+no WebGPU adapter. CI's browser job runs Chromium only.
 
 ## Gamepads don't wake an on-demand app (0052)
 

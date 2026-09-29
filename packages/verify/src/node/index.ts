@@ -1,7 +1,13 @@
 // Node side of 0062: the Playwright capture runner and the file work of compare, approve, and
 // perf-check. Browser pages use `@aethervtt/shard-verify/page` and `/metrics` instead.
 
-export { type CaptureOptions, type CaptureRun, clientUrl, runCapture } from './capture'
+export {
+  browserLaunch,
+  type CaptureOptions,
+  type CaptureRun,
+  clientUrl,
+  runCapture,
+} from './capture'
 export {
   approveShot,
   type CompareResult,
