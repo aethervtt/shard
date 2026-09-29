@@ -270,12 +270,17 @@ export interface Diagnostic {
   message: string
 }
 
-/** Finds a TypeScript compiler: the project's own, else the one the CLI ships with. */
+/**
+ * Finds a TypeScript compiler: the project's own, else the one the CLI ships with. It's the
+ * package's `bin/tsc` script, run with Node: `.bin/tsc` is a shell shim Windows can't spawn.
+ */
 function findTsc(project: string): string {
-  const local = join(project, 'node_modules', '.bin', 'tsc')
-  if (existsSync(local)) return local
-  const require = createRequire(import.meta.url)
-  const pkg = require.resolve('typescript/package.json')
+  let pkg: string
+  try {
+    pkg = createRequire(join(project, 'package.json')).resolve('typescript/package.json')
+  } catch {
+    pkg = createRequire(import.meta.url).resolve('typescript/package.json')
+  }
   return join(dirname(pkg), 'bin', 'tsc')
 }
 
@@ -286,8 +291,8 @@ export function typecheckProject(
   const start = performance.now()
   return new Promise((resolvePromise, reject) => {
     const child = spawn(
-      findTsc(project),
-      ['--noEmit', '-p', 'tsconfig.json', '--pretty', 'false'],
+      process.execPath,
+      [findTsc(project), '--noEmit', '-p', 'tsconfig.json', '--pretty', 'false'],
       {
         cwd: project,
       },

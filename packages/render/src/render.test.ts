@@ -53,7 +53,7 @@ describe('render graph on the GPU', () => {
   it('captures a cleared view with correct pixels', async () => {
     const target = new OffscreenTarget(gpu, { label: 'shot', width: 8, height: 4 })
     const app = await headlessApp([{ name: 'main', target }])
-    app.world.resource(Graph).addNode('clear', clearNode([1, 0.5, 0, 1]))
+    app.world.resource(Graph).addNode('clear', clearNode([1, 128 / 255, 0, 1]))
     const shot = captureView(app.world, 'main')
     app.update(1 / 60)
     const image = await shot
