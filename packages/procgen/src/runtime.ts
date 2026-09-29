@@ -23,6 +23,7 @@ import type { KeyValueStorage, PlatformFileSystem, Workers } from '@aethervtt/sh
 import { LogResource } from '@aethervtt/shard-runtime'
 import {
   codeHashOf,
+  findGenerator,
   type Generator,
   type GenParams,
   type GenRequest,
@@ -335,6 +336,8 @@ export class ProcgenRuntime {
     { version: number; artifact: Artifact; hash: string }
   >()
   private pendingDeps = new Set<string>()
+  /** Regenerations under way, by guid: the code hash and dependency versions each started for. */
+  private readonly regenerating = new Map<string, Pick<Live, 'codeHash' | 'deps'>>()
 
   constructor(world: World, options: ProcgenOptions = {}) {
     this.world = world
@@ -638,9 +641,21 @@ export class ProcgenRuntime {
   private regenerate(guid: string): void {
     const entry = this.server.entry(guid)
     if (entry?.state !== 'loaded') return
-    this.server.updateVirtual(guid, entry.path, entry.type, () => this.produceLogged(guid), {
-      collectable: true,
-    })
+    // What it regenerates for: until it lands, `live` still describes the output it replaces.
+    const live = this.live.get(guid)
+    let target: Pick<Live, 'codeHash' | 'deps'> | undefined
+    const gen = live && findGenerator(live.request.generator)
+    if (live && gen) {
+      const deps = new Map<string, number>()
+      for (const dep of live.deps.keys()) deps.set(dep, this.server.entry(dep)?.version ?? -1)
+      target = { codeHash: codeHashOf(gen), deps }
+      this.regenerating.set(guid, target)
+    }
+    const produce = () =>
+      this.produceLogged(guid).finally(() => {
+        if (this.regenerating.get(guid) === target) this.regenerating.delete(guid)
+      })
+    this.server.updateVirtual(guid, entry.path, entry.type, produce, { collectable: true })
   }
 
   private regenerateForDeps(): void {
@@ -655,20 +670,18 @@ export class ProcgenRuntime {
   /**
    * Regenerates loaded outputs whose generator's code hash changed (or whose generator was
    * redefined) and those whose dependencies reloaded. They swap in place when ready; returns their
-   * paths.
+   * paths. One already regenerating for the current code and dependencies isn't stale.
    */
   regenerateStale(): string[] {
     const out: string[] = []
     for (const [guid, live] of this.live) {
       const entry = this.server.entry(guid)
       if (entry?.state !== 'loaded') continue
-      let stale: boolean
-      try {
-        stale = codeHashOf(requireGenerator(live.request.generator)) !== live.codeHash
-      } catch {
-        continue // the generator is gone; keep the last output
-      }
-      for (const [dep, version] of live.deps) {
+      const gen = findGenerator(live.request.generator)
+      if (!gen) continue // the generator is gone; keep the last output
+      const made = this.regenerating.get(guid) ?? live
+      let stale = codeHashOf(gen) !== made.codeHash
+      for (const [dep, version] of made.deps) {
         if (this.server.entry(dep)?.version !== version) stale = true
       }
       if (!stale) continue

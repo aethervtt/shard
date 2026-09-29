@@ -88,6 +88,52 @@ jobs:
           SHARD_CI: '1'
           SHARD_TEST_SHARD: ${{ matrix.shard }}/4
 
+  # The same tests on Windows: paths, drive letters, and .cmd shims break there and nowhere else.
+  # Hosted Windows runners have no GPU; Dawn renders on WARP, D3D12's software rasterizer.
+  test-windows:
+    name: Test Windows ${{ matrix.shard }}/4
+    runs-on: windows-latest
+    # WARP rasterizes on the runner's 4 cores; tighten once real run times are known.
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: actions/cache@v4
+        with:
+          path: .turbo/cache
+          key: turbo-test-windows-${{ matrix.shard }}-${{ github.sha }}
+          restore-keys: turbo-test-windows-${{ matrix.shard }}-
+
+      # As the Linux runners, with SHARD_DAWN_OPTIONS naming the adapter: a runner that has no WARP
+      # fails at the first GPU test instead of quietly rendering on something else.
+      - name: Run this runner's tests
+        run: |
+          if [ "${{ matrix.shard }}" = 1 ]; then
+            pnpm test --continue --filter='!@aethervtt/shard-playground'
+          else
+            pnpm test --continue --filter='!./examples/*' --filter='!@aethervtt/shard-playground'
+          fi
+        env:
+          SHARD_CI: '1'
+          SHARD_TEST_SHARD: ${{ matrix.shard }}/4
+          SHARD_DAWN_OPTIONS: adapter=Microsoft Basic Render Driver
+
   browser:
     name: Browser tests (software GPU)
     runs-on: ubuntu-latest

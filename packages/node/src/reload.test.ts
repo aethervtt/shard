@@ -1,5 +1,5 @@
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { join, relative, resolve } from 'node:path'
+import { join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { AssetStore } from '@aethervtt/shard-assets'
 import { findComponent, findResource } from '@aethervtt/shard-core'
@@ -189,7 +189,7 @@ describe('project code in bundle mode', () => {
     const ms = performance.now() - start
     expect(report.ok).toBe(true)
     expect(ms).toBeLessThan(budget(100))
-    expect(relative(root, project.bundler!.last!.file)).toMatch(
+    expect(relative(root, project.bundler!.last!.file).split(sep).join('/')).toMatch(
       /^\.shard\/build\/main\.[0-9a-f]{16}\.mjs$/,
     )
   })

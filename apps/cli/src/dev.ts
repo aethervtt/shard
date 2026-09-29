@@ -60,7 +60,9 @@ function engineImportMap(): Record<string, string> {
     }
     const entry = pkg.exports?.['.']
     if (!pkg.name.startsWith('@aethervtt/shard-') || typeof entry !== 'string') continue
-    imports[pkg.name] = `/@fs${resolve(dir, name, entry).split(sep).join('/')}`
+    // Vite's `/@fs/` prefix takes an absolute path; a Windows one (`C:/…`) needs its own slash.
+    const path = resolve(dir, name, entry).split(sep).join('/')
+    imports[pkg.name] = `/@fs${path.startsWith('/') ? '' : '/'}${path}`
   }
   return imports
 }

@@ -1,5 +1,11 @@
 import { ChildOf, defineComponent, t } from '@aethervtt/shard-core'
-import { allocationChecks, budget, gcWindow, timeout } from '@aethervtt/shard-core/test-env'
+import {
+  allocationChecks,
+  budget,
+  gcWindow,
+  timeout,
+  timingMode,
+} from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import {
@@ -302,13 +308,16 @@ describe('performance', () => {
         await gpu.device.queue.onSubmittedWorkDone()
         return performance.now() - t0
       }
-      for (let i = 0; i < 60; i++) {
+      // The frame time is held only under `pnpm bench`; elsewhere a few frames check what's drawn
+      // (CI's software GPUs take seconds for each of these).
+      const bench = timingMode === 'bench'
+      for (let i = 0; i < (bench ? 60 : 3); i++) {
         await frame()
         await w.resource(Shaders).whenIdle()
         await gpu.pipelines.whenIdle()
       }
       const times: number[] = []
-      for (let i = 0; i < 120; i++) times.push(await frame())
+      for (let i = 0; i < (bench ? 120 : 2); i++) times.push(await frame())
       const stats = [...w.resource(RenderStats).values()][0]!
       console.log(
         `200 skinned characters at 1080p: ${median(times).toFixed(2)} ms median frame (CPU + GPU), ${stats.visible} visible, ${stats.drawCalls} draws`,

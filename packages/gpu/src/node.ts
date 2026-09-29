@@ -14,9 +14,14 @@ export function installWebGpuGlobals(): void {
   installed = true
 }
 
+/**
+ * `SHARD_DAWN_OPTIONS` passes Dawn options, `;`-separated: CI's Windows job picks the software
+ * rasterizer with `adapter=Microsoft Basic Render Driver`, and `backend=vulkan` picks a backend.
+ */
 export function nodeGpu(): GPU {
   installWebGpuGlobals()
-  return create([]) as GPU
+  const options = process.env.SHARD_DAWN_OPTIONS?.split(';').filter(Boolean) ?? []
+  return create(options) as GPU
 }
 
 export function createNodeGpuContext(

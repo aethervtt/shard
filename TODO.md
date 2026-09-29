@@ -25,33 +25,23 @@ start over. Remove an entry in the change that fixes it.
   the log of the first failure), confirm or rule out the collect race, then fix it with a test that
   forces the ordering.
 
-## Tests that fail on Windows
-
-CI runs Linux only, so these fail on a Windows checkout and nothing catches it. Each looks like a
-real bug on Windows, not a flake:
-
-- `save`, settings.test.ts (3 tests): `Storage key "settings.json" leaves the data folder`. The
-  key check probably compares against a `/`-separated path.
-- `node`, reload.test.ts: "a system that throws logs the project source line" (no source line)
-  and "rebuilds and swaps star-explorer" (the bundle path is `.shard\build\…`, the test wants `/`).
-- `cli`, cli.test.ts: both `shard check` tests (exit 2 instead of 1: `check` itself errors) and
-  "dev serves the runner with an engine import map" (`/@fsC:/…`: the URL needs a `/` before the
-  drive letter).
-- `render`, render.test.ts: "captures a cleared view with correct pixels" reads 127 where it wants
-  128, on D3D12 Dawn. Rounding of 0.5 differs by backend; the test could allow ±1.
-- `terrain`, budget.test.ts: most runs generate no chunks at all over the 1,920-frame descent
-  (`jobs` 0, expected over 200); one run alone passed. Not a time budget: nothing was generated.
-  Lead: the jobs wait on something (a pipeline, the heightfield kernel) that never becomes ready
-  under D3D12 Dawn, or `lastFrameJobs` is read before the frame that runs them.
-
-To fix: each on its own, then a `windows-latest` CI job for the tests that don't need a GPU.
-
 ## Budgets this machine misses under `pnpm bench`
 
-Seen on a Windows desktop (NVIDIA, 2026-09-29): noise's 6-octave fBm at 25M points/s (budget 40M),
-UI layout of 2,000 nodes at 1.11 ms (budget 1 ms), and a shader edit that re-renders 16 frames
-later (budget 2). Unrelated to recent changes (the same on 211d4aa). Either
-the budgets are for faster hardware, or these regressed: worth bisecting before loosening them.
+On a Windows desktop (Ryzen 9 9950X3D, RTX 5060 Ti, D3D12 Dawn, 2026-09-29). None is a regression:
+each misses by the same amount at the commit that set its budget.
+
+- Noise, 6-octave fBm: 24.7M points/s (budget 40M), steady across runs; 28.3M on Node 22, 24–25M on
+  24, 25, and 26. The `.wasm` hasn't changed since 0041 set the budget (e1c56ec), and V8 is already
+  on TurboFan (`--no-liftoff` gives the same). The spec's 40–42M came from "the bench machine".
+  Lead: `f32x4.min`/`max` (NaN-propagating) and `i32x4.trunc_sat_f32x4` in `lanes.rs` are one
+  instruction on ARM NEON and several on x86 SSE, so the budget may only hold on ARM.
+- UI layout of 2,001 nodes: bimodal, about 0.83 ms or 1.2 ms from run to run, the same at 49ddb15
+  (0036) and now. Likely which CCD the process lands on (this CPU's two differ in clock and cache).
+- Shader edit to re-render: 11–25 frames (budget 2), the same at e1c56ec. It waits for one pipeline
+  compile, about 370 ms on D3D12; the budget assumes one under ~33 ms. This Dawn build finds no
+  Vulkan adapter here, so D3D12 wasn't compared against Vulkan on the same GPU.
+
+Decide per budget: hold it to the bench machine, or state what hardware each assumes.
 
 ## CI speed
 
@@ -65,8 +55,9 @@ run. What's left:
 
 ## WebKit captures (0062)
 
-Playwright's WebKit build wasn't tried: plans list it, and runs skip it when it won't launch or has
-no WebGPU adapter. CI's browser job runs Chromium only.
+Playwright's WebKit (26.6) on Windows launches but has no `navigator.gpu` at all, even on a secure
+localhost page: runs skip it ("no WebGPU in this build") and Chromium's shots still come through.
+Not tried on macOS, where Safari ships WebGPU, or Linux. CI's browser job runs Chromium only.
 
 ## Gamepads don't wake an on-demand app (0052)
 

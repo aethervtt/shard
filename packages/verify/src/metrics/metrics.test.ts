@@ -241,7 +241,8 @@ describe('metricsPlugin with a renderer (0062)', () => {
       // The host made the device before the app; its request still counts.
       expect(record.coldStart.device).toBeGreaterThan(0)
       expect(record.renderScale).toEqual({ mode: 'fixed', min: 1, max: 1 })
-      expect(record.frameTime.gpuP95).toBeGreaterThan(0)
+      // Measured, but maybe 0: a 64×64 cube can fit inside one tick of the GPU clock (WARP).
+      expect(record.frameTime.gpuP95).toBeGreaterThanOrEqual(0)
       await validates(record)
       await app.dispose()
     },

@@ -319,6 +319,54 @@ describe('runtime', () => {
     await spawnAndSettle([1, 2, 3, 4, 5, 6, 7, 9])
     expect(runs).toEqual(['system', 'planet 9'])
   })
+
+  it("doesn't count an output regenerating for a dependency as stale again", async () => {
+    let gate = Promise.resolve()
+    let runs = 0
+    const Slow = defineGenerator('test/SlowRock', {
+      params: { shape: t.handle('NoiseGraph') },
+      output: 'mesh',
+      async run(ctx, p) {
+        await gate
+        runs++
+        const mesh = ctx.mesh.icosphere(0)
+        if (p.shape) ctx.load<NoiseGraph>(p.shape)
+        return mesh
+      },
+    })
+    const root = mkdtempSync(join(tmpdir(), 'shard-procgen-stale-'))
+    try {
+      mkdirSync(join(root, 'assets/noise'), { recursive: true })
+      const noise = join(root, 'assets/noise/shape.noise.json')
+      const graph = (frequency: number) =>
+        JSON.stringify({ output: 'n', nodes: { n: { perlin: { frequency } } } })
+      writeFileSync(noise, graph(2))
+      const world = new World()
+      const server = assetServer(world).configure({
+        platform: createNodePlatform({ root, logTo: () => {} }),
+        roots: ['assets'],
+      })
+      await server.scan()
+      const shape = { path: 'assets/noise/shape.noise.json' }
+      const ref = await generate(world, Slow, { shape }, 1)
+      expect(runs).toBe(1)
+      // The graph changes; its regeneration waits on the gate, as a slow job would.
+      let open = () => {}
+      gate = new Promise((resolve) => (open = resolve))
+      await new Promise((r) => setTimeout(r, 20))
+      writeFileSync(noise, graph(3))
+      await server.scan()
+      // A reload now (a script edit) must not start a second one for the same change.
+      expect(procgen(world).regenerateStale()).toEqual([])
+      open()
+      for (let i = 0; i < 100 && runs < 2; i++) await new Promise((r) => setTimeout(r, 5))
+      expect(runs).toBe(2)
+      expect(procgen(world).regenerateStale()).toEqual([])
+      expect(server.entry(ref.guid!)!.state).toBe('loaded')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })
 
 function world2Positions(world: World, guid: string): number[] {

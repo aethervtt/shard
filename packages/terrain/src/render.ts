@@ -1566,7 +1566,7 @@ export function registerNode(app: App): void {
             (name) => ctx.timestamps(name),
           )
           world.tryResource(ProfilerResource)?.record('terrain/encode', performance.now() - t0)
-        }
+        } else pr.stats.lastFrameJobs = 0
         pr.stats.gpuFrames++
       }
     },

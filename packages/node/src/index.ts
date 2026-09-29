@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto'
 import { readdir, readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { dirname, join, relative, resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { type AssetServer, assetServer, type ScanReport } from '@aethervtt/shard-assets'
 import {
   type AnyField,
@@ -297,11 +297,12 @@ export function locateInProject(error: unknown, root: string): string | undefine
   if (typeof stack !== 'string') return undefined
   const prefix = resolve(root)
   for (const line of stack.split('\n')) {
-    const m = /(?:file:\/\/)?(\/[^\s():]+):(\d+):(\d+)/.exec(line)
+    // A file URL, or a path: `/home/…` on POSIX, `C:\…` or `C:/…` on Windows.
+    const m = /(file:\/\/[^\s()]+|(?:[A-Za-z]:)?[\\/][^\s():]+):(\d+):(\d+)/.exec(line)
     if (!m) continue
-    const file = decodeURIComponent(m[1]!)
-    if (!file.startsWith(`${prefix}/`)) continue
+    const file = m[1]!.startsWith('file:') ? fileURLToPath(m[1]!) : m[1]!
     const rel = relative(prefix, file).split('\\').join('/')
+    if (rel.startsWith('../') || isAbsolute(rel)) continue
     if (rel.startsWith('.shard/') || rel.includes('node_modules/')) continue
     return `${rel}:${m[2]}:${m[3]}`
   }
