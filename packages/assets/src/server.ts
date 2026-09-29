@@ -512,11 +512,16 @@ export class AssetServer {
         })
       }
       // Dependencies settle first; a failed dependency doesn't fail this asset. One that depends
-      // back on this asset (data assets whose handles point at each other) loads alongside it.
+      // back on this asset (data assets whose handles point at each other) loads alongside it,
+      // requested a microtask later: by then this load is in flight, so the dependency's own
+      // request for it finds it instead of starting it again (which recursed until the stack ran out).
       await Promise.allSettled(
         asset.dependencies.map((d) => {
           const dep = this.entry(d)
-          if (dep && this.dependsOn(dep, entry.guid)) return void this.request(d)
+          if (dep && this.dependsOn(dep, entry.guid)) {
+            queueMicrotask(() => void this.request(d))
+            return undefined
+          }
           return this.load(d)
         }),
       )
