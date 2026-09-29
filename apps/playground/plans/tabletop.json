@@ -1,0 +1,33 @@
+{
+  "url": "http://localhost:5180/verify.html",
+  "fixture": "verify-tabletop",
+  "browsers": ["chromium", "webkit"],
+  "dpr": [1, 2],
+  "viewport": [1320, 720],
+  "canvas": "#table",
+  "conditions": { "renderScale": { "mode": "fixed", "scale": 1 } },
+  "clients": [{ "name": "gm", "role": "gm" }, { "name": "player", "role": "player" }],
+  "shots": [
+    { "name": "map-close", "state": { "view": "map", "zoom": 4, "target": [-2.5, 0, 1.5] } },
+    { "name": "map-far", "state": { "view": "map", "zoom": 0.25 } },
+    { "name": "table-oblique", "state": { "view": "tabletop", "pitch": 35, "yaw": 30 } },
+    { "name": "dark", "state": { "view": "tabletop", "lighting": "night" } },
+    { "name": "missing", "state": { "view": "map", "break": ["token-art"] } },
+    { "name": "dice", "canvas": "#dice" },
+    { "name": "page", "scope": "page", "state": { "view": "tabletop", "pitch": 35, "yaw": 30 } }
+  ],
+  "scenarios": [
+    {
+      "name": "tabletop-pan",
+      "clients": ["gm"],
+      "steps": [{ "name": "pan", "args": { "seconds": 5 } }],
+      "seconds": 5
+    }
+  ],
+  "thresholds": {
+    "tabletop-pan": {
+      "frameTime.p95": { "max": 16.7 },
+      "longTasks.maxMs": { "max": 50 }
+    }
+  }
+}
