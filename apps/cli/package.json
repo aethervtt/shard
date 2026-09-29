@@ -36,6 +36,8 @@
     "@aethervtt/shard-terrain": "workspace:*",
     "@aethervtt/shard-text": "workspace:*",
     "@aethervtt/shard-ui": "workspace:*",
+    "@aethervtt/shard-verify": "workspace:*",
+    "playwright": "1.63.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "^8.3.0",

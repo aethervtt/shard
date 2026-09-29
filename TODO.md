@@ -63,6 +63,11 @@ run. What's left:
   it (or shrinking what it renders on the software GPU) is the next win.
 - Run only affected packages on pull requests (`turbo run test --affected`), and everything on main.
 
+## WebKit captures (0062)
+
+Playwright's WebKit build wasn't tried: plans list it, and runs skip it when it won't launch or has
+no WebGPU adapter. CI's browser job runs Chromium only.
+
 ## Gamepads don't wake an on-demand app (0052)
 
 Gamepads are polled when the input plugin drains its source, and the Gamepad API has no event for

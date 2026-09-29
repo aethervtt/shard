@@ -251,6 +251,21 @@ describe('errors', () => {
 })
 
 describe('loading', () => {
+  it('times the wall time loads were in flight, overlapping loads once (0062)', async () => {
+    write('assets/a.txt', 'a')
+    write('assets/b.txt', 'b')
+    const s = server()
+    await s.scan()
+    expect(s.busyMs()).toBe(0)
+    const start = performance.now()
+    await s.whenSettled(['assets/a.txt', 'assets/b.txt'])
+    const elapsed = performance.now() - start
+    const busy = s.busyMs()
+    expect(busy).toBeGreaterThan(0)
+    expect(busy).toBeLessThanOrEqual(elapsed + 1)
+    expect(s.busyMs()).toBe(busy) // nothing in flight: it stops counting
+  })
+
   it('reloads in place, keeping the object and guid, when a loaded source changes', async () => {
     write('assets/a.txt', 'one')
     const s = server()

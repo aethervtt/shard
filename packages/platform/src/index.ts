@@ -18,6 +18,31 @@ export interface Platform {
    * first use. Absent on hosts without threads; `workersOf` falls back to running jobs inline.
    */
   readonly workers?: Workers
+  /** The host's own performance instruments (long tasks, downloads), for 0062's metrics. */
+  readonly performance?: HostPerformance
+}
+
+/**
+ * What the host itself can measure about a page or process (0062). Browsers report long tasks and
+ * resource timing; Node and Tauri report what they can, and leave out what they can't.
+ */
+export interface HostPerformance {
+  /** The user agent, or the runtime's name and version. */
+  readonly userAgent: string
+  /**
+   * Main-thread tasks of 50 ms or more, as the host reports them: start (on the `clock`'s timeline)
+   * and duration, in ms. Returns an unsubscribe function. Absent where the host can't see them.
+   */
+  onLongTask?(listener: (startMs: number, durationMs: number) => void): () => void
+  /** Bytes fetched so far (scripts, WASM, assets), over the wire and decoded. Absent without resource timing. */
+  downloads?(): HostDownloads
+}
+
+export interface HostDownloads {
+  /** Bytes over the wire, headers included. Cached responses add nothing. */
+  transferred: number
+  /** Bytes after decoding (decompression). */
+  decoded: number
 }
 
 export * from './workers'

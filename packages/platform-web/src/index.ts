@@ -1,6 +1,7 @@
 import { ShardError } from '@aethervtt/shard-core'
 import type { AudioBackend, Platform, PlatformFileSystem, Workers } from '@aethervtt/shard-platform'
 import { createWebAudioBackend } from './audio'
+import { createWebPerformance } from './performance'
 import { createIndexedDbStorage } from './storage'
 import { createWebWorkers } from './workers'
 
@@ -57,6 +58,7 @@ export function createWebPlatform(options: WebPlatformOptions = {}): Platform {
     },
     fs,
     storage: createIndexedDbStorage(options.storageName),
+    performance: createWebPerformance(),
     clock: { now: () => performance.now() },
     log: {
       log: (level, message, data) => console[level](`[shard] ${message}`, data ?? ''),
@@ -66,5 +68,6 @@ export function createWebPlatform(options: WebPlatformOptions = {}): Platform {
 
 export { createWebAudioBackend, type WebAudioBackend } from './audio'
 export { createDomInputSource } from './input'
+export { createWebPerformance } from './performance'
 export { createIndexedDbStorage } from './storage'
 export { createWebWorkers } from './workers'

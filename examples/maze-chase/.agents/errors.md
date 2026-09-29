@@ -309,3 +309,17 @@ Every engine error is a `ShardError` with one of these codes.
 | `ui/unknown-node` | @aethervtt/shard-ui | Pass an entity id or a scene path of a node under a UiRoot (ui.describe lists them). |
 | `ui/unknown-state` | @aethervtt/shard-ui |  |
 | `ui/unknown-style` | @aethervtt/shard-ui | Add it to the root's *.theme.json styles, or fix UiNode.style (ui.describe shows each node's). |
+| `verify/approval-needs-reason` | @aethervtt/shard-verify | Say why it looks the way it does: shard approve <shot> --reason "Shadows are softer since 0058". |
+| `verify/idle-timeout` | @aethervtt/shard-verify |  |
+| `verify/invalid-json` | @aethervtt/shard-verify |  |
+| `verify/invalid-plan` | @aethervtt/shard-verify | Plans follow .shard/schemas/capture-plan.schema.json. |
+| `verify/invalid-record` | @aethervtt/shard-verify | Records follow .shard/schemas/perf-record.schema.json. |
+| `verify/no-browser` | @aethervtt/shard-verify |  |
+| `verify/no-canvas` | @aethervtt/shard-verify |  |
+| `verify/no-metrics` | @aethervtt/shard-verify | Add metricsPlugin() from @aethervtt/shard-verify/metrics to the app. |
+| `verify/not-found` | @aethervtt/shard-verify |  |
+| `verify/not-ready` | @aethervtt/shard-verify |  |
+| `verify/not-usable` | @aethervtt/shard-verify | The host calls app.markUsable() once the scene is interactive; records start after the frame that follows. |
+| `verify/size-mismatch` | @aethervtt/shard-verify | Check the viewport and DPR in the plan, or approve the new size with a reason. |
+| `verify/unknown-shot` | @aethervtt/shard-verify |  |
+| `verify/unknown-step` | @aethervtt/shard-verify |  |

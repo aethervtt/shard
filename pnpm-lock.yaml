@@ -83,9 +83,15 @@ importers:
       '@aethervtt/shard-ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@aethervtt/shard-verify':
+        specifier: workspace:*
+        version: link:../../packages/verify
       '@modelcontextprotocol/sdk':
         specifier: 1.30.0
         version: 1.30.0(zod@3.25.76)
+      playwright:
+        specifier: 1.63.0
+        version: 1.63.0
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
@@ -198,13 +204,28 @@ importers:
       '@aethervtt/shard-ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@aethervtt/shard-verify':
+        specifier: workspace:*
+        version: link:../../packages/verify
     devDependencies:
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
       '@webgpu/types':
         specifier: ^0.1.74
         version: 0.1.74
+      ajv:
+        specifier: ^8.17.1
+        version: 8.20.0
+      playwright:
+        specifier: 1.63.0
+        version: 1.63.0
       vite:
         specifier: ^8.3.0
         version: 8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15)
+      vitest:
+        specifier: ^5.0.1
+        version: 5.0.1(@types/node@26.6.2)(vite@8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15))
 
   apps/studio:
     dependencies:
@@ -983,6 +1004,9 @@ importers:
       '@aethervtt/shard-ui':
         specifier: workspace:*
         version: link:../ui
+      '@aethervtt/shard-verify':
+        specifier: workspace:*
+        version: link:../verify
     devDependencies:
       '@aethervtt/shard-platform-node':
         specifier: workspace:*
@@ -1484,6 +1508,52 @@ importers:
       '@webgpu/types':
         specifier: ^0.1.74
         version: 0.1.74
+      webgpu:
+        specifier: 0.6.1
+        version: 0.6.1
+
+  packages/verify:
+    dependencies:
+      '@aethervtt/shard-assets':
+        specifier: workspace:*
+        version: link:../assets
+      '@aethervtt/shard-core':
+        specifier: workspace:*
+        version: link:../core
+      '@aethervtt/shard-gpu':
+        specifier: workspace:*
+        version: link:../gpu
+      '@aethervtt/shard-platform':
+        specifier: workspace:*
+        version: link:../platform
+      '@aethervtt/shard-render':
+        specifier: workspace:*
+        version: link:../render
+      '@aethervtt/shard-runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@aethervtt/shard-texture':
+        specifier: workspace:*
+        version: link:../texture
+    devDependencies:
+      '@aethervtt/shard-mesh':
+        specifier: workspace:*
+        version: link:../mesh
+      '@aethervtt/shard-transform':
+        specifier: workspace:*
+        version: link:../transform
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+      '@webgpu/types':
+        specifier: ^0.1.74
+        version: 0.1.74
+      ajv:
+        specifier: ^8.17.1
+        version: 8.20.0
+      playwright:
+        specifier: 1.63.0
+        version: 1.63.0
       webgpu:
         specifier: 0.6.1
         version: 0.6.1
@@ -2509,6 +2579,16 @@ packages:
     resolution: {integrity: sha512-wQ0b/W4Fr01qtpHlqSqspcj3EhBvimsdh0KlHhH8HRZnMsEa0ea2fTULOXOS9ccQr3om+GcGRk4e+isrZWV8qQ==}
     engines: {node: '>=16.20.0'}
 
+  playwright-core@1.63.0:
+    resolution: {integrity: sha512-rYCsBF/M5HjUch52bbtVONEFjv6Xu8sm8h72dNlR5bzIE1fvC/bxgspzkjSfU+MweEMmPM8KJebG6nnyxo5mCg==}
+    engines: {node: '>=20'}
+    hasBin: true
+
+  playwright@1.63.0:
+    resolution: {integrity: sha512-+7ziBLidS4NaNCdt57SUDT+wYmmd5fmiQejUic/kb+YsYSCPyOOE9sebzMjNmQrsnNpDJqd4WHvV/8lfKfUDUg==}
+    engines: {node: '>=20'}
+    hasBin: true
+
   postcss@8.5.28:
     resolution: {integrity: sha512-RRuzqDtt5Y9h3quz5hWhK+TPnsmVs6WwSU6LkJMeY4HstUEDuYTG8UJSdawMRzmzAtV+KEoG8N3Qg2qLy5vM/A==}
     engines: {node: ^10 || ^12 || >=14}
@@ -3532,6 +3612,12 @@ snapshots:
   picomatch@4.0.7: {}
 
   pkce-challenge@5.0.1: {}
+
+  playwright-core@1.63.0: {}
+
+  playwright@1.63.0:
+    dependencies:
+      playwright-core: 1.63.0
 
   postcss@8.5.28:
     dependencies:

@@ -35,7 +35,8 @@
     "@aethervtt/shard-terrain": "workspace:*",
     "@aethervtt/shard-text": "workspace:*",
     "@aethervtt/shard-transform": "workspace:*",
-    "@aethervtt/shard-ui": "workspace:*"
+    "@aethervtt/shard-ui": "workspace:*",
+    "@aethervtt/shard-verify": "workspace:*"
   },
   "devDependencies": {
     "@aethervtt/shard-gpu": "workspace:*",

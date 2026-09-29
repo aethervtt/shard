@@ -5,9 +5,11 @@ export {
   type AppOptions,
   type AppScope,
   type FrameDriver,
+  type FramePresenter,
+  type StartupTimings,
 } from './app'
 export { AppControl, AppControlResource } from './control'
-export { FrameDemand, FrameDemandState, type FrameMode } from './demand'
+export { FrameDemand, FrameDemandState, type FrameMode, LOADING_DEMAND } from './demand'
 export { COMMON_RATES, RefreshMeter, rateFromIntervals, snapRate } from './display'
 export { Log, type LogEntry, type LogLevel, LogResource } from './log'
 export { definePlugin, type Plugin } from './plugin'

@@ -283,6 +283,40 @@ describe('surfaces, shared devices, and teardown (0052)', () => {
   })
 })
 
+describe('presentation (0062)', () => {
+  it(
+    'resolves a trace after the GPU finished the frame and the next animation frame started',
+    async () => {
+      const frames = fakeAnimationFrames()
+      try {
+        const app = new App().addPlugin(
+          TransformPlugin,
+          renderPlugin({ gpu, windowView: false }),
+          forwardPlugin({ msaa: 1 }),
+        )
+        await app.init()
+        let latency: number | undefined
+        void app.trace('write').then((ms) => {
+          latency = ms
+        })
+        app.update(1 / 60)
+        // Submitted and done on the GPU, but not yet on screen: that waits for the next refresh.
+        await gpu.device.queue.onSubmittedWorkDone()
+        await new Promise((r) => setTimeout(r, 5))
+        expect(latency).toBeUndefined()
+        expect(frames.tick()).toBe(1)
+        await new Promise((r) => setTimeout(r, 0))
+        // Resolved with the fake frame's timestamp, which isn't on the app's clock: only that it did.
+        expect(latency).toBeGreaterThanOrEqual(0)
+        await app.dispose()
+      } finally {
+        frames.restore()
+      }
+    },
+    timeout(30_000),
+  )
+})
+
 describe('on-demand rendering (0052)', () => {
   it(
     'keeps rendering from a cold start until pipelines compile, then stops',

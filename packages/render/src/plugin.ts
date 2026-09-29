@@ -13,7 +13,13 @@ import {
   type Surface,
   type SurfaceAlpha,
 } from '@aethervtt/shard-gpu'
-import { definePlugin, FrameDemand, LogResource, type Plugin } from '@aethervtt/shard-runtime'
+import {
+  definePlugin,
+  FrameDemand,
+  LOADING_DEMAND,
+  LogResource,
+  type Plugin,
+} from '@aethervtt/shard-runtime'
 import { type ShaderBake, ShaderLibrary } from '@aethervtt/shard-shader'
 import { type CapturedBuffer, type CapturedImage, RenderGraph, type RenderView } from './graph'
 import { registerEngineShaders } from './shaders'
@@ -132,7 +138,7 @@ const execute = defineSystem({
     const gpu = world.resource(Gpu)
     anyPending = gpu.pipelines.skipped > 0 || gpu.pipelines.pending > 0
     if (!anyPending) world.tryResource(RenderStats)?.forEach(notePending)
-    world.tryResource(FrameDemand)?.set('render/loading', anyPending)
+    world.tryResource(FrameDemand)?.set(LOADING_DEMAND, anyPending)
   },
 })
 
@@ -175,6 +181,27 @@ interface RenderAppState {
 
 const renderApps = new WeakMap<object, RenderAppState>()
 let nextOwner = 1
+
+/**
+ * The next animation frame's timestamp: the frame that composites what was submitted before it.
+ * Its callbacks run later in the frame, after other work; the timestamp is when the frame began.
+ */
+function nextRefresh(): Promise<number> {
+  return new Promise((resolve) => requestAnimationFrame(resolve))
+}
+
+/**
+ * A frame is presented once the GPU has done its work and the next animation frame starts (0062).
+ * Without animation frames (headless), the GPU finishing is the whole of it.
+ */
+function presentOn(state: RenderAppState): () => Promise<number | undefined> {
+  return () => {
+    const done = state.gpu!.device.queue.onSubmittedWorkDone()
+    return typeof requestAnimationFrame === 'function'
+      ? done.then(nextRefresh)
+      : done.then(() => undefined)
+  }
+}
 
 export function renderPlugin(options: RenderPluginOptions = {}): Plugin {
   return definePlugin({
@@ -245,6 +272,7 @@ export function renderPlugin(options: RenderPluginOptions = {}): Plugin {
         app.insertResource(Gpu, gpu)
         app.insertResource(Graph, new RenderGraph(gpu))
       })
+      app.setPresenter(presentOn(state))
       const shaders = options.shaders ?? new ShaderLibrary()
       if (!options.shaders) registerEngineShaders(shaders)
       if (options.shaderBake) shaders.preload(options.shaderBake)

@@ -1,0 +1,177 @@
+{
+  "url": "http://localhost:5180/verify.html",
+  "fixture": "verify-visibility",
+  "dpr": [1],
+  "viewport": [960, 540],
+  "canvas": "#table",
+  "conditions": {
+    "renderScale": {
+      "mode": "fixed",
+      "scale": 1
+    }
+  },
+  "clients": [
+    {
+      "name": "gm",
+      "role": "gm"
+    },
+    {
+      "name": "player",
+      "role": "player"
+    }
+  ],
+  "steps": [
+    {
+      "name": "into-vision",
+      "run": "move",
+      "args": {
+        "name": "goblin",
+        "to": [-1.5, 2.5]
+      },
+      "trace": true,
+      "capture": true,
+      "expect": {
+        "gm": {
+          "entities": {
+            "includes": ["goblin"]
+          },
+          "fog": {
+            "equals": 0
+          }
+        },
+        "player": {
+          "entities": {
+            "includes": ["goblin"],
+            "sameAs": "fresh.entities"
+          },
+          "step.latencyMs": {
+            "max": 100
+          }
+        }
+      }
+    },
+    {
+      "name": "out-of-vision",
+      "run": "move",
+      "args": {
+        "name": "goblin",
+        "to": [-6.5, 6.5]
+      },
+      "trace": true,
+      "capture": true,
+      "expect": {
+        "gm": {
+          "entities": {
+            "includes": ["goblin"]
+          }
+        },
+        "player": {
+          "entities": {
+            "excludes": ["goblin"],
+            "sameAs": "fresh.entities"
+          }
+        }
+      }
+    },
+    {
+      "name": "vision-moves",
+      "run": "move",
+      "args": {
+        "name": "hero",
+        "to": [3.5, 2.5]
+      },
+      "trace": true,
+      "capture": true,
+      "expect": {
+        "gm": {
+          "fog": {
+            "equals": 0
+          }
+        },
+        "player": {
+          "fog": {
+            "sameAs": "fresh.fog"
+          },
+          "entities": {
+            "includes": ["ogre"],
+            "sameAs": "fresh.entities"
+          },
+          "step.latencyMs": {
+            "max": 100
+          }
+        }
+      }
+    },
+    {
+      "name": "scene-switch",
+      "run": "switchScene",
+      "args": {
+        "scene": "crypt"
+      },
+      "capture": true,
+      "expect": {
+        "gm": {
+          "entities": {
+            "sameAs": "fresh.entities"
+          },
+          "owners.oldScene": {
+            "equals": 0
+          }
+        },
+        "player": {
+          "entities": {
+            "sameAs": "fresh.entities"
+          },
+          "owners.oldScene": {
+            "equals": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "disconnect"
+    },
+    {
+      "name": "moved-while-away",
+      "run": "move",
+      "args": {
+        "name": "skeleton",
+        "to": [-2.5, 2.5]
+      }
+    },
+    {
+      "name": "reconnect",
+      "capture": true,
+      "expect": {
+        "gm": {
+          "entities": {
+            "sameAs": "fresh.entities"
+          },
+          "positions": {
+            "sameAs": "fresh.positions"
+          },
+          "mirror.changed": {
+            "equals": 1
+          },
+          "mirror.applied": {
+            "sameAs": "mirror.changed"
+          }
+        },
+        "player": {
+          "entities": {
+            "sameAs": "fresh.entities"
+          },
+          "positions": {
+            "sameAs": "fresh.positions"
+          },
+          "mirror.changed": {
+            "equals": 1
+          },
+          "mirror.applied": {
+            "sameAs": "mirror.changed"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -8,7 +8,15 @@ export {
 } from './context'
 export { type GpuErrorListener, toShardError } from './errors'
 export { descriptorKey } from './key'
-export { type GpuStats, SHARED_OWNER, textureBytes } from './ledger'
+export {
+  bufferCategory,
+  type GpuMemory,
+  type GpuMemoryCategory,
+  type GpuStats,
+  SHARED_OWNER,
+  textureBytes,
+  textureCategory,
+} from './ledger'
 export {
   type ProbeWebGpuOptions,
   probeWebGpu,
