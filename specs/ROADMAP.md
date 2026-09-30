@@ -141,4 +141,4 @@ effects (0065) build on 0054 and 0063 once 0054 is implemented.
 | [0064](0064-webgl2-fallback.md) | WebGL2 fallback and the baseline tier (one API, backend chosen at startup; staged, off the critical path) | accepted |
 | [0065](0065-dice-entrances.md) | Dice entrances and screen effects (a result arriving through a host scene instead of a tumble; typed effects the table draws) | implemented |
 | [0066](0066-curved-walls.md) | Curved walls and structure materials (arcs, Béziers, one subdivision for drawing and barriers; textured, normal-mapped walls) | draft |
-| [0067](0067-structure-groups.md) | Structure groups: levels and roofs (hide a level or a roof without a rebuild) | draft |
+| [0067](0067-structure-groups.md) | Structure groups: levels, roofs and cutouts (hide a level or a roof without a rebuild; stairwells, hatches, skylights) | draft |
