@@ -3,10 +3,11 @@ import { ShardError, type World } from '@aethervtt/shard-core'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { LogResource } from '@aethervtt/shard-runtime'
 import type { ShaderLibrary } from '@aethervtt/shard-shader'
-import type { MaterialAsset } from './assets'
+import { MaterialAsset } from './assets'
 import { MaterialNoise } from './material-noise'
 import { allMaterialTypes, BLEND_MODES, type BlendMode, type MaterialType } from './materials'
 import { Shaders } from './plugin'
+import { STANDARD_FIELDS } from './standard-fields'
 
 const ordinals = new WeakMap<MaterialType, number>()
 let nextOrdinal = 0
@@ -122,10 +123,22 @@ const missingNoise = new WeakSet<MaterialType>()
  */
 export class MaterialPipelines {
   private frame = -1
+  private revision = -1
   private readonly modules = new Map<number, GPUShaderModule | undefined>()
   private readonly pipelines = new Map<number, GPURenderPipeline | undefined>()
+  /**
+   * Types whose shader or pipeline failed (0061), with the type version that failed: their draws
+   * use the standard pipeline through a proxy material until the type is defined again.
+   */
+  private readonly failedTypes = new Map<MaterialType, { version: number; error: ShardError }>()
+  private readonly proxies = new WeakMap<MaterialAsset, { version: number; proxy: MaterialAsset }>()
 
-  beginFrame(frame: number): void {
+  /** `revision`: the shader library's; any edit gives failed types another try (0061). */
+  beginFrame(frame: number, revision = this.revision): void {
+    if (revision !== this.revision) {
+      this.revision = revision
+      this.failedTypes.clear()
+    }
     if (frame === this.frame) return
     this.frame = frame
     this.modules.clear()
@@ -175,14 +188,67 @@ export class MaterialPipelines {
       }
     }
     registerMaterialModule(library, type, noise)
-    const module = library.module(gpu, {
+    const request = {
       root,
       defines,
       overrides: type.shader ? [type.shader] : undefined,
       label: type.name === 'render/StandardMaterial' ? undefined : `material ${type.name}`,
-    })
+    }
+    const module = library.module(gpu, request)
+    if (!module && type.name !== 'render/StandardMaterial') {
+      const error = library.failure(request)
+      if (error) this.failedTypes.set(type, { version: type.version, error })
+    }
     this.modules.set(key, module)
     return module
+  }
+
+  /**
+   * Whether the type's shader or pipeline failed (0061). Callers then draw its batches with
+   * `proxy(material)` and the standard pipeline, so nothing using it disappears.
+   */
+  failing(type: MaterialType): boolean {
+    if (this.failedTypes.size === 0) return false
+    const f = this.failedTypes.get(type)
+    return f !== undefined && f.version === type.version
+  }
+
+  /** How many types draw through the standard fallback now. */
+  get failureCount(): number {
+    let n = 0
+    for (const [type, f] of this.failedTypes) if (f.version === type.version) n++
+    return n
+  }
+
+  /** Types drawing through the standard fallback now, with why (for RenderHealth). */
+  failures(): { type: string; error: ShardError }[] {
+    const out: { type: string; error: ShardError }[] = []
+    for (const [type, f] of this.failedTypes) {
+      if (f.version === type.version) out.push({ type: type.name, error: f.error })
+    }
+    return out
+  }
+
+  /**
+   * A standard material standing in for one whose type failed: its standard fields when the type
+   * extends standard, else its `baseColor` or `color` if it has one. Kept per material and
+   * refreshed when the material changes.
+   */
+  proxy(material: MaterialAsset): MaterialAsset {
+    const hit = this.proxies.get(material)
+    if (hit && hit.version === material.version) return hit.proxy
+    const value = material.value as Record<string, unknown>
+    const init: Record<string, unknown> = {}
+    if (material.type.standard) {
+      for (const k of Object.keys(STANDARD_FIELDS)) if (k in value) init[k] = value[k]
+    } else {
+      const color = value.baseColor ?? value.color
+      if (isColor(color)) init.baseColor = color
+    }
+    const proxy = hit?.proxy ?? new MaterialAsset(init)
+    if (hit) proxy.set(init)
+    this.proxies.set(material, { version: material.version, proxy })
+    return proxy
   }
 
   /** A compiled pipeline under `key` (unique per pass, type, and variant), if there is one. */
@@ -205,8 +271,13 @@ export class MaterialPipelines {
     gpu: GpuContext,
     key: number,
     descriptor: GPURenderPipelineDescriptor,
+    type?: MaterialType,
   ): GPURenderPipeline | undefined {
     const pipeline = gpu.pipelines.render(descriptor)
+    if (!pipeline && type && type.name !== 'render/StandardMaterial') {
+      const error = gpu.pipelines.failure(descriptor)
+      if (error) this.failedTypes.set(type, { version: type.version, error })
+    }
     if (pipeline) {
       this.pipelines.set(key, pipeline)
       this.previous.set(key, { pipeline, layout: descriptor.layout, generation: gpu.generation })
@@ -218,4 +289,12 @@ export class MaterialPipelines {
     }
     return undefined
   }
+}
+
+function isColor(value: unknown): value is ArrayLike<number> {
+  return (
+    (Array.isArray(value) || value instanceof Float32Array) &&
+    (value.length === 3 || value.length === 4) &&
+    Array.prototype.every.call(value, (c: unknown) => typeof c === 'number')
+  )
 }

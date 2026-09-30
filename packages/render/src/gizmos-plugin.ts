@@ -2,6 +2,7 @@ import { First, Last } from '@aethervtt/shard-core'
 import { definePlugin } from '@aethervtt/shard-runtime'
 import { OriginShift } from '@aethervtt/shard-transform'
 import { GIZMO_SHADERS } from './debug-shaders'
+import { addRenderFeatures } from './features'
 import { upload } from './forward'
 import { beginGizmos, GizmoGpuResource, Gizmos, gizmoNode, uploadGizmos } from './gizmos'
 import { DebugOverlays, drawOverlays, gridsOverlay } from './overlays'
@@ -34,6 +35,12 @@ export const gizmosPlugin = definePlugin({
   },
   ready(app) {
     registerShaders(app.world.resource(Shaders), GIZMO_SHADERS)
+    addRenderFeatures(app.world, {
+      name: 'render/gizmos',
+      description: 'Debug lines, shapes and labels.',
+      nodes: ['gizmos'],
+      baseline: { strategy: 'Line and glyph records in data textures' },
+    })
     app.world.resource(Graph).addNode('gizmos', gizmoNode(app.world))
   },
 })

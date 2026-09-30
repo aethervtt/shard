@@ -8,6 +8,7 @@ import {
   findResource,
   isPlainObject,
   type JsonValue,
+  type Owner,
   pointer,
   quat,
   type ResolvedAsset,
@@ -473,6 +474,10 @@ export function validateTree(
         )
         continue
       }
+      if (def.hostOnly) {
+        errors.push(notAuthorable(name, base))
+        continue
+      }
       if (!def.serializable || def === ChildOf) {
         errors.push(
           new ShardError('scene/derived-component', `"${name}" can't be written in a scene`, {
@@ -644,11 +649,15 @@ export function dedupeErrors(errors: ShardError[]): ShardError[] {
 
 // --- load ----------------------------------------------------------------------
 
-/** Validates, then spawns the scene. Throws `scene/invalid` (with every error in `details`) if invalid. */
+/**
+ * Validates, then spawns the scene. Throws `scene/invalid` (with every error in `details`) if invalid.
+ * With `owner` (0061), everything in it belongs to that owner, and a scene that would exceed the
+ * owner's entity limit throws `core/owner-quota` before anything spawns.
+ */
 export function loadScene(
   world: World,
   json: unknown,
-  options: { id?: string } = {},
+  options: { id?: string; owner?: Owner } = {},
 ): LoadedSceneHandle {
   const id = options.id ?? 'main'
   const index = world.initResource(SceneIndex)
@@ -668,6 +677,7 @@ export function loadScene(
   const file = json as SceneFile
   const flat: FlatEntity[] = []
   flatten(file.entities, '/entities', undefined, flat)
+  if (options.owner) world.owners.ensureCapacity(options.owner, 'entities', flat.length)
 
   const entities = new Map<string, Entity>()
   for (const f of flat) entities.set(f.path, world.reserveEntity())
@@ -714,6 +724,12 @@ export function loadScene(
     scene.loadedResources.set(name, toJson(world.resource(def)))
   }
 
+  if (options.owner) {
+    for (const f of flat)
+      if (f.parent === undefined) world.owners.adopt(options.owner, entities.get(f.path)!)
+    scene.owner = options.owner
+    forgetOnRelease(world)
+  }
   index.set(id, scene)
   return { id, entities }
 }
@@ -918,3 +934,23 @@ export function stringifyScene(file: SceneFile): string {
 }
 
 export type { AssetRef }
+
+/** Scenes loaded for an owner leave the index when it's released (its entities are already gone). */
+const forgetting = new WeakSet<World>()
+function forgetOnRelease(world: World): void {
+  if (forgetting.has(world)) return
+  forgetting.add(world)
+  world.owners.onRelease((owner) => {
+    const index = world.tryResource(SceneIndex)
+    if (!index) return
+    for (const [id, scene] of index) if (scene.owner === owner) index.delete(id)
+  })
+}
+
+/** A host-only component (ownership, 0061) named in authored data. */
+export function notAuthorable(name: string, path: string): ShardError {
+  return new ShardError('core/owner-not-authorable', `"${name}" can't be written in scene files`, {
+    path,
+    hint: 'Ownership is a grant from host code: the host loads the scene for an owner (world.owners).',
+  })
+}

@@ -30,7 +30,15 @@ export interface CreateGpuContextOptions {
    * true; Basis textures transcode to whichever the device ends up with.
    */
   compressedTextures?: boolean
+  /**
+   * How a lost device is replaced (0061): up to `attempts` tries, `intervalMs` apart, before the
+   * context gives up (`status: 'failed'`). Default 3 tries, 1 s apart.
+   */
+  recovery?: { attempts?: number; intervalMs?: number }
 }
+
+/** Whether the device works: `lost` between a loss and its replacement, `failed` if that gave up. */
+export type GpuStatus = 'ok' | 'lost' | 'failed'
 
 const COMPRESSED_TEXTURE_FEATURES: GPUFeatureName[] = [
   'texture-compression-bc',
@@ -83,6 +91,8 @@ export class GpuContext {
   owner = SHARED_OWNER
   /** Most recent GPU errors, newest last. */
   readonly errors: ShardError[] = []
+  /** Whether the device works now (0061). */
+  status: GpuStatus = 'ok'
   private readonly options: CreateGpuContextOptions
   private readonly errorListeners = new Set<GpuErrorListener>()
   private readonly lostListeners = new Set<(info: DeviceLostInfo) => void>()
@@ -232,10 +242,37 @@ export class GpuContext {
    * mode. Apps sharing the device all call it; they share one recreation.
    */
   recreate(): Promise<void> {
-    this.recreating ??= this.replaceDevice().finally(() => {
+    this.recreating ??= this.recover().finally(() => {
       this.recreating = undefined
     })
     return this.recreating
+  }
+
+  /** Replaces the device, retrying as `options.recovery` says; `failed` once every try failed. */
+  private async recover(): Promise<void> {
+    const attempts = Math.max(1, this.options.recovery?.attempts ?? 3)
+    const interval = this.options.recovery?.intervalMs ?? 1000
+    this.status = 'lost'
+    let last: unknown
+    for (let i = 0; i < attempts; i++) {
+      if (i > 0) await new Promise((resolve) => setTimeout(resolve, interval))
+      if (this.destroyed) return
+      try {
+        await this.replaceDevice()
+        this.status = 'ok'
+        return
+      } catch (err) {
+        last = err
+      }
+    }
+    this.status = 'failed'
+    const error = new ShardError(
+      'gpu/recovery-failed',
+      `The GPU device couldn't be replaced after ${attempts} tries`,
+      { hint: 'Tell the user 3D is unavailable; reloading the page tries again.', cause: last },
+    )
+    this.reportError(error)
+    throw error
   }
 
   /** For tests and debugging: destroys the device and reports it as an unexpected loss. */
@@ -325,6 +362,7 @@ export class GpuContext {
   }
 
   private handleLoss(info: DeviceLostInfo): void {
+    this.status = 'lost'
     for (const listener of this.lostListeners) listener(info)
   }
 }

@@ -1,3 +1,4 @@
+import { AssetServerResource } from '@aethervtt/shard-assets'
 import {
   defineEvent,
   defineResource,
@@ -21,7 +22,9 @@ import {
   type Plugin,
 } from '@aethervtt/shard-runtime'
 import { type ShaderBake, ShaderLibrary } from '@aethervtt/shard-shader'
+import { describeFeatures, RenderFeatures } from './features'
 import { type CapturedBuffer, type CapturedImage, RenderGraph, type RenderView } from './graph'
+import { healthSystem, RenderHealth, RenderHealthChanged, RenderHealthReports } from './health'
 import { registerEngineShaders } from './shaders'
 import { GpuMemory, RenderCounters, RenderStats } from './stats'
 import type { RenderTarget } from './target'
@@ -119,12 +122,19 @@ const begin = defineSystem({
   },
 })
 
+/** Marks entities drawing a fallback for a failed asset with MissingAsset (0061). */
+const markMissing = defineSystem({
+  name: 'render/mark-missing',
+  description: 'Puts MissingAsset on entities that reference an asset showing a fallback.',
+  run: (_, world) => world.tryResource(AssetServerResource)?.markMissing(),
+})
+
 const execute = defineSystem({
   name: 'render/execute-graph',
   description: 'Runs the render graph for every view and submits.',
-  setup: () => ({ recovering: { value: false } }),
-  run: ({ recovering }, world) => {
-    if (recovering.value) return
+  run: (_, world) => {
+    // Between a device loss and its replacement there's nothing to draw with (0061).
+    if (world.resource(Gpu).status !== 'ok') return
     const views = world.resource(Views).list
     const window = world.tryResource(Window)
     const options = world.resource(RenderOptions)
@@ -213,6 +223,10 @@ export function renderPlugin(options: RenderPluginOptions = {}): Plugin {
       GpuDeviceLost,
       Graph,
       RenderDescribers,
+      RenderFeatures,
+      RenderHealth,
+      RenderHealthChanged,
+      RenderHealthReports,
       RenderOptions,
       Shaders,
       Views,
@@ -255,7 +269,15 @@ export function renderPlugin(options: RenderPluginOptions = {}): Plugin {
           RenderSet.Upload.after(RenderSet.Queue),
           RenderSet.Graph.after(RenderSet.Upload),
         )
-        .addSystems(Last, begin.inSet(RenderSet.Begin), execute.inSet(RenderSet.Graph))
+        .addSystems(
+          Last,
+          begin.inSet(RenderSet.Begin),
+          markMissing.inSet(RenderSet.Begin).after(begin),
+          execute.inSet(RenderSet.Graph),
+          healthSystem({ status: () => state.gpu?.status ?? 'ok' })
+            .inSet(RenderSet.Graph)
+            .after(execute),
+        )
     },
     async ready(app) {
       const state = renderApps.get(app)!
@@ -292,7 +314,11 @@ export function renderPlugin(options: RenderPluginOptions = {}): Plugin {
       state.unsubscribe.push(
         gpu.onDeviceLost((info) => {
           app.world.send(GpuDeviceLost, info)
-          void gpu.recreate()
+          // Recovery retries (0061); a final failure is reported and shows in RenderHealth.
+          gpu.recreate().then(
+            () => app.disposed || app.requestFrame(),
+            () => app.disposed || app.requestFrame(),
+          )
         }),
       )
     },
@@ -379,6 +405,8 @@ export function describeRender(world: World) {
     counters: { ...(world.tryResource(RenderCounters) ?? { taaResets: 0, originShifts: 0 }) },
     memory: world.tryResource(GpuMemory) ?? { textures: 0, textureBytes: 0 },
     recentErrors: gpu.errors.slice(-5).map((e) => e.toJSON()),
+    features: describeFeatures(world),
+    health: world.tryResource(RenderHealth) ?? { state: 'ok', issues: [] },
   }
   const sections: Record<string, unknown> = {}
   for (const [name, fn] of world.tryResource(RenderDescribers) ?? []) sections[name] = fn(world)

@@ -326,6 +326,11 @@ export class RenderGraph {
     return this.nodes.has(name)
   }
 
+  /** Every node's name, in the order they were added. */
+  nodeNames(): string[] {
+    return [...this.nodes.keys()]
+  }
+
   /** The data of a view rendered in the last frame. */
   lastViewData(view: string): Record<string, unknown> | undefined {
     return this.viewData.get(view)

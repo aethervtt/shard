@@ -8,6 +8,7 @@ import {
 } from '@aethervtt/shard-core'
 import { Time } from '@aethervtt/shard-runtime'
 import { Exposure } from './camera'
+import { addRenderFeatures } from './features'
 import { drawMaterials, ForwardStateResource, PASS_PREPASS, viewBindGroup } from './forward'
 import { type NodeDescriptor, RenderPhase, type RenderView } from './graph'
 import { Graph, Views } from './plugin'
@@ -878,6 +879,27 @@ export function addPostNodes(world: World): void {
       const cam = cameraOf(view)
       return cam ? bloomLevels(cam) : 1
     },
+  })
+  addRenderFeatures(world, {
+    name: 'render/post',
+    description: 'The prepass, SSAO, fog, TAA, motion blur, depth of field and bloom.',
+    nodes: [
+      'prepass',
+      'ssao',
+      'ssao-deferred',
+      'post/fog',
+      'post/taa',
+      'post/motion-blur',
+      'post/dof',
+      'post/bloom',
+    ],
+    baseline: { strategy: 'The same fragment passes' },
+  })
+  addRenderFeatures(world, {
+    name: 'render/auto-exposure',
+    description: 'Automatic exposure from a luminance histogram.',
+    nodes: ['post/exposure'],
+    baseline: { strategy: 'A log-luminance mip chain averaged to one texel and read back' },
   })
   graph.addNode('prepass', prepassNode)
   graph.addNode('ssao', ssaoNode(RenderPhase.Prepass + 50, false))

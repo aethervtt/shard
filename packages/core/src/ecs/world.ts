@@ -6,6 +6,7 @@ import type { EventDef, ResourceDef } from '../schema/resource'
 import { type Entity, formatEntity, MAX_ENTITIES, makeEntity } from './entity'
 import { EventQueue, EventReader } from './events'
 import { ChildOf, Children } from './hierarchy'
+import { assertHostWrite } from './host-write'
 import {
   type LifecycleKind,
   type LifecycleObserver,
@@ -16,6 +17,7 @@ import {
   onSet,
   type TriggerObserver,
 } from './observers'
+import { Owners } from './owners'
 import { Query, type QueryDescriptor, queryKey } from './query'
 import { Table, type TickSource } from './table'
 
@@ -72,10 +74,20 @@ export class World implements TickSource {
   private readonly eventQueues = new Map<number, EventQueue<unknown>>()
   private readonly observers = new ObserverTable()
   private readonly registered: boolean[] = []
+  private owners_: Owners | undefined
 
   constructor() {
     this.emptyTable = this.getOrCreateTable([])
     this.installHierarchy()
+  }
+
+  /**
+   * Who made what (0061): owners hold entities and asset leases, and release them together.
+   * Only code holding an `Owner` can spawn into it, lease for it, or release it.
+   */
+  get owners(): Owners {
+    this.owners_ ??= new Owners(this)
+    return this.owners_
   }
 
   incrementTick(): number {
@@ -175,6 +187,7 @@ export class World implements TickSource {
   /** Adds a component (defaults for missing fields). If present, replaces it and fires `onSet`. */
   add<F extends Fields>(entity: Entity, component: ComponentDef<F>, value?: InitFields<F>): void {
     const def = component as ComponentDef
+    if (def.hostOnly) assertHostWrite(def)
     const index = this.locate(entity)
     if (this.asleep) this.wake()
     this.ensureRegistered(def)
@@ -209,6 +222,7 @@ export class World implements TickSource {
 
   /** Removes a component. Returns false if the entity didn't have it. */
   remove(entity: Entity, component: ComponentDef): boolean {
+    if (component.hostOnly) assertHostWrite(component)
     let index = this.locate(entity)
     if (!this.tables[this.tableOf[index]!]!.has(component)) return false
     if (this.asleep) this.wake()
@@ -243,6 +257,7 @@ export class World implements TickSource {
   /** Writes the given fields and marks the component changed. */
   set<F extends Fields>(entity: Entity, component: ComponentDef<F>, values: InitFields<F>): void {
     const def = component as ComponentDef
+    if (def.hostOnly) assertHostWrite(def)
     const index = this.locate(entity)
     const table = this.tables[this.tableOf[index]!]!
     if (!table.has(def)) throw missingComponent(entity, def.name)
@@ -501,6 +516,7 @@ export class World implements TickSource {
     for (let i = 0; i < inits.length; i++) {
       const init = inits[i]!
       const def = (Array.isArray(init) ? init[0] : init) as ComponentDef
+      if (def.hostOnly) assertHostWrite(def)
       this.ensureRegistered(def)
       table = this.tableWith(table, def)
     }

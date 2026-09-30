@@ -7,7 +7,7 @@ import {
   type SchemaContext,
   ShardError,
 } from '@aethervtt/shard-core'
-import { decodeMesh, type Mesh } from '@aethervtt/shard-mesh'
+import { bevelBox, decodeMesh, type Mesh } from '@aethervtt/shard-mesh'
 import {
   allMaterialTypes,
   findMaterialType,
@@ -147,7 +147,23 @@ export const MeshAsset = defineAssetType<Mesh>('Mesh', {
   store: Meshes,
   load: (artifact) => decodeMesh(artifact.bytes!),
   update: (existing, next) => existing.update(next.data()),
+  fallback: () => missingMesh(),
+  cost: (mesh) => ({ triangles: Math.floor(mesh.drawCount / 3), bytes: meshBytes(mesh) }),
 })
+
+/** What a mesh that failed to load shows (0061): a 1 m beveled box, drawn with the missing material. */
+export function missingMesh(): Mesh {
+  const mesh = bevelBox({ x: 1, y: 1, z: 1 })
+  mesh.missing = true
+  return mesh
+}
+
+/** CPU bytes of a mesh's vertex and index data: about what its GPU copy takes. */
+function meshBytes(mesh: Mesh): number {
+  let bytes = mesh.positions.byteLength + (mesh.indices?.byteLength ?? 0)
+  for (const a of [mesh.normals, mesh.uvs, mesh.uvs1, mesh.tangents]) bytes += a?.byteLength ?? 0
+  return bytes
+}
 
 /** Materials load from material JSON (any type); a reload bumps the material's version. */
 export const MaterialAssetType = defineAssetType<MaterialAsset>('Material', {
@@ -162,6 +178,8 @@ export const MaterialAssetType = defineAssetType<MaterialAsset>('Material', {
     }
     const errors = validateMaterial(artifact.json, { resolveAsset })
     if (errors.length > 0) {
+      const color = readableBaseColor(artifact.json)
+      if (color) readableColors.set(ctx.guid, color)
       const first = errors[0]!
       throw new ShardError('assets/load-failed', `${ctx.path}: ${first.message}`, {
         path: first.path,
@@ -175,7 +193,38 @@ export const MaterialAssetType = defineAssetType<MaterialAsset>('Material', {
     existing.type = next.type
     existing.set(next.value)
   },
+  references: (material) => handlesIn(material.value),
+  // A material that failed to load draws as the standard one, in its own base color if readable.
+  fallback: ({ guid }) => {
+    const baseColor = readableColors.get(guid)
+    readableColors.delete(guid)
+    return new MaterialAsset(baseColor ? { baseColor } : {})
+  },
 })
+
+/** Asset refs (`{ guid }` objects) anywhere in a material's values: its textures. */
+function* handlesIn(value: unknown): Generator<{ guid?: string }> {
+  if (value === null || typeof value !== 'object' || ArrayBuffer.isView(value)) return
+  if (Array.isArray(value)) {
+    for (const v of value) yield* handlesIn(v)
+    return
+  }
+  if (typeof (value as { guid?: unknown }).guid === 'string') yield value as { guid: string }
+  for (const v of Object.values(value)) yield* handlesIn(v)
+}
+
+/** Base colors read from materials that failed to load, for their fallbacks (0061). */
+const readableColors = new Map<string, number[]>()
+
+function readableBaseColor(json: unknown): number[] | undefined {
+  const raw = (json as { baseColor?: unknown } | null)?.baseColor
+  if (raw === undefined) return undefined
+  try {
+    return [...StandardMaterial.deserialize({ baseColor: raw }).baseColor]
+  } catch {
+    return undefined
+  }
+}
 
 /**
  * `*.material.json` files. `"type"` names the material type (default: render/StandardMaterial);

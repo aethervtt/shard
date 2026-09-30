@@ -2,6 +2,7 @@ import { defineResource, type Entity, mat4, ShardError, type World } from '@aeth
 import type { Mesh } from '@aethervtt/shard-mesh'
 import { GlobalTransform } from '@aethervtt/shard-transform'
 import { Meshes } from './assets'
+import { addRenderFeatures } from './features'
 import { drawMaterials, ForwardStateResource, PASS_PICK, PASS_PICK_GROUND } from './forward'
 import type { NodeContext, NodeDescriptor, RenderView } from './graph'
 import { RenderPhase } from './graph'
@@ -247,6 +248,12 @@ export function addPickNodes(world: World): void {
   graph.declare({ name: 'pick-id', format: 'r32uint', usage })
   graph.declare({ name: 'pick-normal', format: 'rgba32float', usage })
   graph.declare({ name: 'pick-depth', format: 'depth32float' })
+  addRenderFeatures(world, {
+    name: 'render/picking',
+    description: 'Entity picking from id and normal targets, read back per request.',
+    nodes: ['picking', 'picking/readback'],
+    baseline: { strategy: 'The same targets, read back with copies' },
+  })
   graph.addNode('picking', pickNode(world))
   graph.addNode('picking/readback', pickReadbackNode(world))
 }

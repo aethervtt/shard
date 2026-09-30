@@ -1,5 +1,6 @@
 import { type ResolvedAsset, ShardError, type World } from '@aethervtt/shard-core'
 import {
+  bevelBox,
   box,
   capsule,
   cone,
@@ -25,6 +26,15 @@ export const PROCEDURAL_MESHES: Record<string, { params: readonly string[]; crea
   torus: {
     params: ['radius', 'tube', 'radialSegments', 'tubularSegments'],
     create: (p) => torus(p),
+  },
+  // The stand-in for a mesh or model that failed to load (0061).
+  'missing-box': {
+    params: [],
+    create: () => {
+      const mesh = bevelBox()
+      mesh.missing = true
+      return mesh
+    },
   },
 }
 

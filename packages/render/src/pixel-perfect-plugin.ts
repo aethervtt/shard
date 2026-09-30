@@ -1,4 +1,5 @@
 import { definePlugin } from '@aethervtt/shard-runtime'
+import { addRenderFeatures } from './features'
 import type { NodeContext, NodeDescriptor, RenderView } from './graph'
 import { RenderPhase } from './graph'
 import { type PixelPerfectLayout, PixelPerfectPath } from './pixel-perfect'
@@ -136,6 +137,12 @@ export const pixelPerfectPlugin = definePlugin({
   },
   ready(app) {
     registerShaders(app.world.resource(Shaders), PIXEL_PERFECT_SHADERS)
+    addRenderFeatures(app.world, {
+      name: 'render/pixel-perfect',
+      description: 'Pixel-art cameras: low-resolution render, integer upscale.',
+      nodes: ['pixel-upscale'],
+      baseline: { strategy: 'The same fragment pass' },
+    })
     app.world.resource(Graph).addNode('pixel-upscale', pixelUpscaleNode())
   },
 })

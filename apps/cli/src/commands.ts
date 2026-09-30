@@ -153,6 +153,8 @@ export async function validate({ out, project }: CommandContext): Promise<number
     scenes: Record<string, unknown[]>
     prefabs: Record<string, unknown[]>
     warnings: string[]
+    /** Assets that would draw a fallback at runtime (0061): sources that failed to import. */
+    fallbacks: string[]
   } = {
     valid: true,
     manifest: manifestErrors.map((e) => e.toJSON()),
@@ -160,6 +162,7 @@ export async function validate({ out, project }: CommandContext): Promise<number
     scenes: {},
     prefabs: {},
     warnings: [],
+    fallbacks: [],
   }
   if (manifestErrors.length === 0) {
     const { manifest } = await loadProject(platform)
@@ -179,6 +182,7 @@ export async function validate({ out, project }: CommandContext): Promise<number
         report.warnings.push(`${entry.source}${w.path ? ` ${w.path}` : ''}: ${w.message}`)
     }
     const failed = new Set(scan.failed.map((f) => f.path))
+    report.fallbacks = [...failed].sort()
     // String tables against each other; keys used in scenes and prefabs are checked below.
     const strings = await validateLocalization(world)
     for (const { source, error } of strings.errors)
@@ -246,6 +250,10 @@ export async function validate({ out, project }: CommandContext): Promise<number
       `  ${e.source}${e.path && e.path !== e.source ? ` ${e.path}` : ''}: [${e.code}] ${e.message}${e.hint ? `\n      hint: ${e.hint}` : ''}`,
     )
   for (const w of report.warnings) lines.push(`  warning: ${w}`)
+  for (const f of report.fallbacks)
+    lines.push(
+      `  fallback: ${f} draws its fallback at runtime until it imports (assets.retry reloads it)`,
+    )
   for (const [scene, errors] of [
     ...Object.entries(report.prefabs),
     ...Object.entries(report.scenes),

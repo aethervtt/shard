@@ -686,7 +686,9 @@ export function drawShadowCasters(
   const draws = view.draws
   for (let d = 0; d < draws.length; d++) {
     const item = draws.items[d]!
-    const material = item.batch.material
+    // A type whose shader or pipeline failed casts through the standard pipeline (0061).
+    const fallback = pipelines.failing(item.batch.material.type)
+    const material = fallback ? pipelines.proxy(item.batch.material) : item.batch.material
     const type = material.type
     const variant = materialVariant(material)
     const masked = type.standard && variantBlend(variant) === 'mask'
@@ -695,21 +697,38 @@ export function drawShadowCasters(
     if (!pipeline) {
       const module = pipelines.module(world, gpu, type, 8, 'shard::pbr::shadow', undefined)
       if (!module) {
-        gpu.pipelines.skipped++
+        if (!fallback && pipelines.failing(type)) d--
+        else gpu.pipelines.skipped++
         continue
       }
-      pipeline = pipelines.create(gpu, key, {
-        label: `shadow/${type.name}/${masked ? 'mask' : 'opaque'}/${variantCull(variant)}`,
-        layout: gpu.layouts.pipelineLayout({
-          label: `shadow/${type.name}`,
-          bindGroupLayouts: [shadowView, assets.layoutOf(type), store.layout],
-        }),
-        vertex: { module, entryPoint: 'vs', buffers: SHADOW_BUFFERS },
-        fragment: masked ? { module, entryPoint: 'fs_mask', targets: [] } : undefined,
-        primitive: { topology: 'triangle-list', cullMode: variantCull(variant), frontFace: 'ccw' },
-        depthStencil: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'greater' },
-      })
-      if (!pipeline) continue
+      pipeline = pipelines.create(
+        gpu,
+        key,
+        {
+          label: `shadow/${type.name}/${masked ? 'mask' : 'opaque'}/${variantCull(variant)}`,
+          layout: gpu.layouts.pipelineLayout({
+            label: `shadow/${type.name}`,
+            bindGroupLayouts: [shadowView, assets.layoutOf(type), store.layout],
+          }),
+          vertex: { module, entryPoint: 'vs', buffers: SHADOW_BUFFERS },
+          fragment: masked ? { module, entryPoint: 'fs_mask', targets: [] } : undefined,
+          primitive: {
+            topology: 'triangle-list',
+            cullMode: variantCull(variant),
+            frontFace: 'ccw',
+          },
+          depthStencil: {
+            format: 'depth32float',
+            depthWriteEnabled: true,
+            depthCompare: 'greater',
+          },
+        },
+        type,
+      )
+      if (!pipeline) {
+        if (!fallback && pipelines.failing(type)) d--
+        continue
+      }
     }
     const mat = assets.material(world, material)
     if (!mat?.bindGroup) continue

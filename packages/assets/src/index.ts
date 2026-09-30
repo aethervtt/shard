@@ -9,6 +9,7 @@ export {
   validateDataAssets,
 } from './data'
 export { randomGuid, sha256Hex } from './hash'
+export { MissingAsset } from './missing'
 export {
   type AssetEntry,
   AssetEvent,
@@ -30,6 +31,7 @@ export {
 export { AssetStore } from './store'
 export {
   type Artifact,
+  type AssetCost,
   type AssetPreview,
   type AssetTypeDef,
   allAssetPreviews,
@@ -42,6 +44,7 @@ export {
   defineAssetType,
   defineImportDependency,
   defineImporter,
+  type FallbackContext,
   findAssetPreview,
   findAssetType,
   findImporter,

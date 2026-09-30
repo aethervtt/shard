@@ -48,3 +48,9 @@ export const DisplayRate = defineResource<DisplayRateData>('core/DisplayRate', {
 export const GlobalRng = defineResource<Rng>('core/GlobalRng', {
   description: 'The app root random stream, seeded from AppOptions.seed. Fork it per system.',
 })
+
+/** Whether this is a development build (`new App({ dev: true })`). */
+export const DevMode = defineResource<{ enabled: boolean }>('runtime/DevMode', {
+  description: 'Development build: loud fallbacks and dev-only checks.',
+  init: () => ({ enabled: false }),
+})

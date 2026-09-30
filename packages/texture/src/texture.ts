@@ -297,4 +297,26 @@ export const TextureAssetType = defineAssetType<Texture>('Texture', {
     existing.premultiplied = next.premultiplied
     existing.version++
   },
+  fallback: ({ dev }) => fallbackTexture(dev),
+  cost: (texture) => ({ textures: 1, bytes: texture.byteSize }),
 })
+
+/**
+ * What a texture that failed to load shows (0061): 50% gray, or in a dev build a magenta and gray
+ * checker that can't be mistaken for art. RGBA8, so it binds in any color or data slot.
+ */
+export function fallbackTexture(dev: boolean): Texture {
+  const size = dev ? 8 : 1
+  const pixels = new Uint8Array(size * size * 4)
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const o = (y * size + x) * 4
+      const checker = dev && ((x >> 1) + (y >> 1)) % 2 === 0
+      pixels[o] = checker ? 255 : 128
+      pixels[o + 1] = checker ? 0 : 128
+      pixels[o + 2] = checker ? 255 : 128
+      pixels[o + 3] = 255
+    }
+  }
+  return Texture.create({ width: size, height: size, mips: [pixels], usage: 'color', cpu: true })
+}

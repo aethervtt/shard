@@ -125,6 +125,18 @@ Two-bone IK (legs, arms): puts tip on target by rotating root and mid, bending t
 | `weight` | number | `1` | ≥ 0, ≤ 1 | How much the solution counts: slerps each joint from its animated rotation. |
 | `tipRotation` | number | `0` | ≥ 0, ≤ 1 | How much the tip takes the target's world rotation (1 for feet FootPlacement aligns to the ground). 0: the tip keeps its animated local rotation. |
 
+## `assets/MissingAsset`
+
+This entity shows a fallback for an asset that failed to load (0061). assets.retry(ref) reloads it.
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `ref` | string | `""` |  | The asset path (or guid) that failed. |
+| `code` | string | `""` |  | The load error's code, such as assets/load-failed. |
+| `message` | string | `""` |  | The load error's message. |
+
 ## `audio/AudioListener`
 
 Where the player hears from: put it on the camera. The first one found is used; without one, the world origin looking down -Z.
@@ -195,6 +207,17 @@ _Computed by the engine; never written in scene files._
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `matrix` | number[12] | `[1,0,0,0,0,1,0,0,0,0,1,0]` |  | World matrix (top three rows, row by row), relative to the floating origin. Computed from Transform each frame. |
+
+## `core/OwnedBy`
+
+Who owns this entity (0061). Only host code holding the Owner writes it (world.owners.spawn / adopt); children take their parent's owner. Never in scene files.
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `owner` | integer | `0` | ≥ 0, ≤ 4294967295 | The owner id; world.owners.nameOf(entity) gives its name. |
+| `inherited` | boolean | `false` |  | Set when the entity took its parent's owner. |
 
 ## `core/Transform`
 

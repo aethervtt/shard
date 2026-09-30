@@ -71,6 +71,8 @@ interface VariantState {
   /** What it was last requested with, so a change can rebuild it before the next request. */
   gpu: GpuContext | undefined
   request: LinkRequest | undefined
+  /** Why the latest build failed, while it has; cleared by the next clean compile (0061). */
+  failed: ShardError | undefined
 }
 
 const PATH = /^[a-z_][a-z0-9_]*(::[a-z_][a-z0-9_]*)+$/
@@ -105,6 +107,11 @@ export class ShaderLibrary {
   private readonly variants = new Map<string, VariantState>()
   private readonly listeners = new Set<(paths: readonly string[]) => void>()
   private version = 0
+
+  /** Bumps whenever a module is registered or changes: what renderers compare to retry failures. */
+  get revision(): number {
+    return this.version
+  }
   private readonly preloaded = new Map<string, BakedShader>()
   /** Every variant linked or served from the bake, for `bake()`. */
   private readonly used = new Map<string, BakedShader>()
@@ -254,7 +261,7 @@ export class ShaderLibrary {
     const key = variantKey(request)
     let state = this.variants.get(key)
     if (!state) {
-      state = { good: undefined, pending: undefined, version: -1, gpu, request }
+      state = { good: undefined, pending: undefined, version: -1, gpu, request, failed: undefined }
       this.variants.set(key, state)
     }
     const s = state
@@ -275,27 +282,40 @@ export class ShaderLibrary {
         if (s.good?.code !== linked.code) {
           s.pending = linked.code
           const error = await compile(gpu, linked)
-          if (error) gpu.reportError(labelled(error, request.label))
-          else
+          if (error) {
+            s.failed = labelled(error, request.label)
+            gpu.reportError(s.failed)
+          } else {
+            s.failed = undefined
             s.good = {
               code: linked.code,
               module: moduleFor(gpu, linked),
               linked,
               generation: gpu.generation,
             }
-        }
+          }
+        } else s.failed = undefined
         s.pending = undefined
       },
       (err: unknown) => {
-        gpu.reportError(
-          labelled(
-            err instanceof ShardError ? err : new ShardError('shader/link', String(err)),
-            request.label,
-          ),
+        s.failed = labelled(
+          err instanceof ShardError ? err : new ShardError('shader/link', String(err)),
+          request.label,
         )
+        gpu.reportError(s.failed)
         s.pending = undefined
       },
     )
+  }
+
+  /**
+   * Why a variant has no module to give: its code failed to link or compile, and no earlier version
+   * compiled either. Undefined while it compiles, once it has a module, and for unknown variants.
+   * Renderers draw with a fallback then instead of skipping the draw forever (0061).
+   */
+  failure(request: LinkRequest): ShardError | undefined {
+    const s = this.variants.get(variantKey(request))
+    return s && !s.good && s.pending === undefined ? s.failed : undefined
   }
 
   /** Waits until every variant requested through `module()` has finished compiling. */

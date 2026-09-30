@@ -8,6 +8,7 @@ import {
   Environments,
   environmentBakers,
 } from './environment'
+import { addRenderFeatures } from './features'
 import { ForwardStateResource, sceneColor } from './forward'
 import { type NodeContext, type NodeDescriptor, RenderPhase, type RenderView } from './graph'
 import { Gpu, Graph, Shaders, Views } from './plugin'
@@ -876,6 +877,13 @@ export function addAtmosphereNodes(world: World): void {
   const graph = world.resource(Graph)
   world.initResource(AtmosphereGpuResource)
   environmentBakers.set('atmosphere', bakeAtmosphere)
+  addRenderFeatures(world, {
+    name: 'render/atmosphere',
+    description:
+      'Atmosphere scattering LUTs, sky-view and aerial-perspective froxels, sky, composite.',
+    nodes: ['atmosphere/luts', 'atmosphere/view', 'atmosphere/sky', 'post/atmosphere'],
+    baseline: { strategy: 'LUTs, sky-view and froxel slices as fragment passes' },
+  })
   graph.addNode('atmosphere/luts', lutNode())
   graph.addNode('atmosphere/view', viewNode())
   graph.addNode('atmosphere/sky', skyNode())

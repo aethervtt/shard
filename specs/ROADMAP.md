@@ -137,7 +137,7 @@ walls (0066) and groups (0067), then surface variation (0068), per-view visibili
 | [0058](0058-projected-fog.md) | Projected fog (ordered regions, feathered masks, world-space composite) | accepted |
 | [0059](0059-tabletop-tilemaps.md) | Tilemaps on the tabletop, and diffable tile data | accepted |
 | [0060](0060-camera-controls-gestures.md) | Camera controls, gestures, and object drag | accepted |
-| [0061](0061-ownership-recovery.md) | Ownership and failure recovery (owners, fallbacks, health) | accepted |
+| [0061](0061-ownership-recovery.md) | Ownership and failure recovery (owners, fallbacks, health) | implemented |
 | [0062](0062-browser-verification.md) | Browser captures, approvals, and performance records | implemented |
 | [0063](0063-lens-fields.md) | Screen-space lens fields (bounded post displacement from published fields) | implemented |
 | [0064](0064-webgl2-fallback.md) | WebGL2 fallback and the baseline tier (one API, backend chosen at startup; staged, off the critical path) | accepted |

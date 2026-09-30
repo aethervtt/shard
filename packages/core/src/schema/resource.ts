@@ -27,6 +27,8 @@ export interface ResourceDef<T> {
    * `world.touchResource` (0052). The on-demand runner's write check watches it.
    */
   readonly hostWritable: boolean
+  /** Only host code writes it: the protocol's `resource.set` refuses it (ownership, 0061). */
+  readonly hostOnly: boolean
   readonly __type?: T
 }
 
@@ -37,6 +39,7 @@ export interface ResourceOptions<T> {
   schema?: ComponentDef
   persist?: boolean
   hostWritable?: boolean
+  hostOnly?: boolean
 }
 
 const resources = new Map<string, ResourceDef<unknown>>()
@@ -63,6 +66,7 @@ export function defineResource<T>(name: string, options: ResourceOptions<T> = {}
     schema: options.schema,
     persist: options.persist ?? false,
     hostWritable: options.hostWritable ?? false,
+    hostOnly: options.hostOnly ?? false,
   }
   resources.set(name, def as ResourceDef<unknown>)
   if (previous) {

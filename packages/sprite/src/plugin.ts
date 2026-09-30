@@ -1,5 +1,13 @@
 import { Last, Update } from '@aethervtt/shard-core'
-import { Gpu, Graph, Picking, RenderDescribers, RenderSet, Shaders } from '@aethervtt/shard-render'
+import {
+  addRenderFeatures,
+  Gpu,
+  Graph,
+  Picking,
+  RenderDescribers,
+  RenderSet,
+  Shaders,
+} from '@aethervtt/shard-render'
 import { definePlugin } from '@aethervtt/shard-runtime'
 import * as atlasModule from './atlas'
 import { TextureAtlases } from './atlas'
@@ -64,6 +72,18 @@ export const spritePlugin = definePlugin({
       shaders.register(path, source, `engine:${path}`)
     }
     const graph = world.resource(Graph)
+    addRenderFeatures(world, {
+      name: 'sprite/lights2d',
+      description: '2D lighting: light tiles, occluder shadows, soft-shadow coarse maps.',
+      nodes: ['sprites/lights2d'],
+      baseline: { strategy: 'Light binning and shadow rows on the CPU, uploaded as data textures' },
+    })
+    addRenderFeatures(world, {
+      name: 'sprite',
+      description: 'Sprites and tilemaps, in the scene and in the overlay.',
+      nodes: ['sprites', 'sprites/overlay'],
+      baseline: { strategy: 'Sprite, tile and chunk records in data textures' },
+    })
     graph.addNode('sprites/lights2d', lights2dNode(world))
     graph.addNode('sprites', spriteNode(world))
     graph.addNode('sprites/overlay', overlayNode(world))

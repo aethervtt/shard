@@ -1,0 +1,32 @@
+{
+  "name": "@aethervtt/shard-scenes",
+  "version": "0.0.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@aethervtt/shard-core": "workspace:*",
+    "@aethervtt/shard-grid": "workspace:*",
+    "@aethervtt/shard-mesh": "workspace:*",
+    "@aethervtt/shard-render": "workspace:*",
+    "@aethervtt/shard-runtime": "workspace:*",
+    "@aethervtt/shard-structure": "workspace:*",
+    "@aethervtt/shard-transform": "workspace:*",
+    "@aethervtt/shard-vector": "workspace:*"
+  },
+  "devDependencies": {
+    "@aethervtt/shard-gpu": "workspace:*",
+    "@aethervtt/shard-mirror": "workspace:*",
+    "@types/node": "^26.6.2",
+    "@webgpu/types": "^0.1.74",
+    "webgpu": "0.6.1"
+  }
+}

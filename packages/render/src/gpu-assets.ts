@@ -1,9 +1,9 @@
-import { assetServer } from '@aethervtt/shard-assets'
+import { type AssetServer, AssetServerResource, assetServer } from '@aethervtt/shard-assets'
 import { defineResource, type World } from '@aethervtt/shard-core'
 import type { GpuContext } from '@aethervtt/shard-gpu'
-import type { Mesh } from '@aethervtt/shard-mesh'
-import { FORMAT_INFO, type Texture, Textures } from '@aethervtt/shard-texture'
-import { type MaterialAsset, STANDARD_TYPE, TEXTURE_SLOTS } from './assets'
+import { Mesh } from '@aethervtt/shard-mesh'
+import { FORMAT_INFO, Texture, Textures } from '@aethervtt/shard-texture'
+import { MaterialAsset, STANDARD_TYPE, TEXTURE_SLOTS } from './assets'
 import type { MaterialType } from './materials'
 import { materialLayout } from './shaders'
 import type { FrameCounts, GpuMemoryData } from './stats'
@@ -296,6 +296,48 @@ export class GpuAssets {
     return gm
   }
 
+  /**
+   * Frees GPU copies of assets as the asset server drops them: unloaded (an owner released, 0061),
+   * or a fallback replaced by the real asset. Returns the unsubscribe.
+   */
+  watch(server: AssetServer): () => void {
+    return server.onUnload((_, item) => {
+      if (item instanceof Texture) this.releaseTexture(item)
+      else if (item instanceof Mesh) this.releaseMesh(item)
+      else if (item instanceof MaterialAsset) this.releaseMaterial(item)
+    })
+  }
+
+  /** The GPU objects made for one asset object (a texture, mesh or material): owners.describe (0061). */
+  objectsOf(item: unknown): { buffers: number; textures: number; bytes: number } {
+    const out = { buffers: 0, textures: 0, bytes: 0 }
+    const gpu = this.gpu
+    if (item instanceof Texture) {
+      const gt = this.textures.get(item)
+      if (gt && gt.generation === gpu.generation) {
+        out.textures = 1
+        out.bytes = gt.bytes
+      }
+    } else if (item instanceof Mesh) {
+      const gm = this.meshes.get(item)
+      if (gm && gm.generation === gpu.generation && !gm.sharedVertices) {
+        const buffers = [gm.positions, gm.normals, gm.uvs, gm.uvs1, gm.tangents]
+        if (gm.indices && !gm.sharedIndices) buffers.push(gm.indices)
+        out.buffers = buffers.length
+        for (const b of buffers) out.bytes += b.size
+      }
+    } else if (item instanceof MaterialAsset) {
+      const gm = this.materials.get(item)
+      if (gm && gm.generation === gpu.generation) {
+        const buffers = [gm.buffer, gm.textureBuffer]
+        if (gm.ownBuffer) buffers.push(gm.ownBuffer)
+        out.buffers = buffers.length
+        for (const b of buffers) out.bytes += b.size
+      }
+    }
+    return out
+  }
+
   /** Frees a mesh's GPU buffers now (they're made again if it's drawn later). */
   releaseMesh(mesh: Mesh): void {
     const gm = this.meshes.get(mesh)
@@ -495,7 +537,7 @@ export class GpuAssets {
         this.ownTextures[i] = undefined
         continue
       }
-      const texture = store?.get(ref as { guid: string | undefined })
+      const texture = store?.get(ref as { guid: string | undefined }) ?? missingTexture(world, ref)
       if (!texture || !this.available(world, texture, ref)) return false
       this.ownTextures[i] = texture
     }
@@ -507,7 +549,7 @@ export class GpuAssets {
         this.slotTextures[i] = undefined
         continue
       }
-      const texture = store?.get(ref)
+      const texture = store?.get(ref) ?? missingTexture(world, ref)
       if (!texture || !this.available(world, texture, ref)) return false
       this.slotTextures[i] = texture
     }
@@ -697,6 +739,18 @@ function standardEntries(): GPUBindGroupLayoutEntry[] {
 
 export function createMaterialLayout(gpu: GpuContext): GPUBindGroupLayout {
   return STANDARD_TYPE.bindGroupLayout(gpu, standardEntries())
+}
+
+/**
+ * A texture ref nothing can load (its guid unknown to the catalog, or its runtime texture gone)
+ * gets the fallback texture instead of holding its material back forever (0061).
+ */
+function missingTexture(world: World, ref: { guid?: string | undefined }): Texture | undefined {
+  if (ref.guid === undefined) return undefined
+  const server = world.tryResource(AssetServerResource)
+  if (!server || server.entry(ref.guid)) return undefined
+  server.missing(ref, 'Texture')
+  return world.tryResource(Textures)?.byGuid(ref.guid)
 }
 
 export const GpuAssetsResource = defineResource<GpuAssets>('render/GpuAssets', {

@@ -25,6 +25,23 @@ export interface LoadContext {
   resolve(path: string): AssetRef | undefined
 }
 
+/** What an owner's lease of an asset counts against its limits (0061). */
+export interface AssetCost {
+  triangles?: number
+  textures?: number
+  bytes?: number
+}
+
+export interface FallbackContext {
+  readonly guid: string
+  readonly path: string
+  /** Why the load failed. */
+  readonly error: ShardError
+  /** A development build (`DevMode`): a fallback may be louder, such as a checker. */
+  readonly dev: boolean
+  readonly world: World
+}
+
 export interface AssetTypeDef<T = unknown> {
   readonly name: string
   readonly store: ResourceDef<AssetStore<T>>
@@ -37,6 +54,19 @@ export interface AssetTypeDef<T = unknown> {
   update?(existing: T, next: T): void
   /** Releases what `load` created (GPU copies are released by their owners). */
   unload?(item: T): void
+  /**
+   * What the store holds for an asset that failed to load (0061): drawn in its place, marked on
+   * the entities that use it with `MissingAsset`, and replaced by `assets.retry`. Types without
+   * one leave the store empty for it, as before.
+   */
+  fallback?(ctx: FallbackContext): T
+  /** What a lease of it counts against an owner's limits (0061). Nothing when omitted. */
+  cost?(item: T): AssetCost
+  /**
+   * Assets this one uses at runtime (a material's textures), so an entity drawing it is marked
+   * `MissingAsset` when one of those failed (0061).
+   */
+  references?(item: T): Iterable<{ readonly guid?: string | undefined } | null | undefined>
 }
 
 const assetTypes = new Map<string, AssetTypeDef>()

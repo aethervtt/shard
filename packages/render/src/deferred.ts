@@ -1,6 +1,7 @@
 import { ShardError, type World } from '@aethervtt/shard-core'
 import { GpuBuffer } from '@aethervtt/shard-gpu'
 import { Culler } from './culling'
+import { addRenderFeatures } from './features'
 import {
   drawMaterials,
   ForwardStateResource,
@@ -325,6 +326,20 @@ export function addDeferredNodes(app: { world: World }): void {
   graph.declare({ name: 'gbuffer0', format: 'rgba8unorm-srgb' })
   graph.declare({ name: 'gbuffer1', format: 'rgba16float' })
   graph.declare({ name: 'gbuffer2', format: gbufferEmissiveFormat(gpu) })
+  addRenderFeatures(app.world, {
+    name: 'render/deferred',
+    description: 'The deferred path: G-buffer, lighting, and forward-only materials.',
+    nodes: [
+      'deferred-gbuffer',
+      'gbuffer-fill',
+      'deferred-lighting',
+      'deferred-forward',
+      'gbuffer-debug',
+    ],
+    baseline: {
+      strategy: 'The same passes, reading lights and clusters through the baseline accessors',
+    },
+  })
   graph.addNode('deferred-gbuffer', gbufferNode)
   graph.addNode('gbuffer-fill', gbufferFillNode)
   graph.addNode('deferred-lighting', lightingNode())

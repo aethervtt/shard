@@ -1,3 +1,4 @@
+import { AssetServerResource } from '@aethervtt/shard-assets'
 import {
   defineComponent,
   defineResource,
@@ -9,7 +10,7 @@ import {
 } from '@aethervtt/shard-core'
 import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
 import type { Mesh } from '@aethervtt/shard-mesh'
-import { LogResource } from '@aethervtt/shard-runtime'
+import { DevMode, LogResource } from '@aethervtt/shard-runtime'
 import { toHalf } from '@aethervtt/shard-texture'
 import { GlobalTransform, Transform } from '@aethervtt/shard-transform'
 import { MaterialAsset, Materials, Meshes } from './assets'
@@ -470,6 +471,13 @@ export class InstanceStore {
   readonly lodSets: LodSet[] = []
   private readonly lodByKey = new Map<string, LodSet>()
   readonly defaultMaterial = new MaterialAsset()
+  /**
+   * What stand-ins for failed meshes are drawn with (0061): matte gray, or magenta in a dev build
+   * (`DevMode`, read by prepareInstances).
+   */
+  readonly missingMaterial = new MaterialAsset({ baseColor: [0.5, 0.5, 0.5, 1], roughness: 1 })
+  /** A development build: the missing material turns magenta. */
+  dev = false
   /** Bytes of instance data uploaded this frame. */
   uploadedBytes = 0
   /** Slots with a batch and not hidden, and hidden ones: stats for GPU-culled views. */
@@ -1708,6 +1716,11 @@ export const prepareInstances = defineSystem({
     const assets = world.resource(GpuAssetsResource)
     assets.beginFrame()
     store.beginFrame()
+    const dev = world.tryResource(DevMode)?.enabled ?? false
+    if (dev !== store.dev) {
+      store.dev = dev
+      store.missingMaterial.set({ baseColor: dev ? [1, 0, 1, 1] : [0.5, 0.5, 0.5, 1] })
+    }
     const deforms = world.hasResource(DeformPath)
     const since = ctx.lastRunTick
     let hidden = 0
@@ -1825,9 +1838,21 @@ export const prepareInstances = defineSystem({
     store.settleMoved()
     store.hiddenCount = hidden
     store.drawableCount = rows - store.pending.size
-    // Retry slots whose assets weren't loaded.
+    // Retry slots whose assets weren't loaded. A ref nothing can load (its guid unknown, or its
+    // runtime asset gone) gets a stand-in, so it draws the fallback instead of waiting (0061).
     if (store.pending.size > 0) {
-      for (const slot of store.pending) resolveSlot(store, slot, meshes, materials)
+      const server = world.tryResource(AssetServerResource)
+      for (const slot of store.pending) {
+        if (server) {
+          const meshRef = store.meshRefs[slot]
+          if (meshRef?.guid !== undefined && !meshes.has(meshRef.guid))
+            server.missing(meshRef, 'Mesh')
+          const materialRef = store.materialRefs[slot]
+          if (materialRef?.guid !== undefined && !materials.has(materialRef.guid))
+            server.missing(materialRef, 'Material')
+        }
+        resolveSlot(store, slot, meshes, materials)
+      }
     }
     // A batch whose mesh or material left its store (unloaded) re-resolves its slots.
     for (const batch of store.batches) {
@@ -1886,9 +1911,17 @@ function resolveSlot(
   }
   store.pending.delete(slot)
   const ground = !Number.isNaN(store.groundKeys[slot]!)
+  // A failed mesh's stand-in draws with the missing material, whatever the entity asked for.
+  const drawn = mesh.missing ? store.missingMaterial : material
   store.assign(
     slot,
-    store.batchFor(mesh, material, meshRef?.guid, materialRef?.guid ?? undefined, ground).index,
+    store.batchFor(
+      mesh,
+      drawn,
+      meshRef?.guid,
+      mesh.missing ? undefined : (materialRef?.guid ?? undefined),
+      ground,
+    ).index,
   )
 }
 

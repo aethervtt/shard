@@ -98,6 +98,8 @@ export class Mesh {
   readonly bounds = aabb.create()
   /** Increments on `update`, so GPU copies know to re-upload. */
   version = 0
+  /** The stand-in for a mesh that failed to load (0061): drawn with the missing material. */
+  missing = false
   /**
    * Set for meshes the GPU writes (`Mesh.gpu`): their vertex buffers are storage buffers with no
    * CPU copy; `positions` is empty.

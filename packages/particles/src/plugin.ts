@@ -1,5 +1,5 @@
 import { Last } from '@aethervtt/shard-core'
-import { Graph, RenderDescribers, RenderSet } from '@aethervtt/shard-render'
+import { addRenderFeatures, Graph, RenderDescribers, RenderSet } from '@aethervtt/shard-render'
 import { definePlugin } from '@aethervtt/shard-runtime'
 import { OriginShift } from '@aethervtt/shard-transform'
 import * as componentsModule from './components'
@@ -32,6 +32,14 @@ export const particlesPlugin = definePlugin({
   },
   ready(app) {
     const graph = app.world.resource(Graph)
+    addRenderFeatures(app.world, {
+      name: 'particles',
+      description: 'Particle simulation, depth sort and drawing.',
+      nodes: ['particles/simulate', 'particles'],
+      baseline: {
+        strategy: 'CPU simulation and depth sort for every system; particles in data textures',
+      },
+    })
     graph.addNode('particles/simulate', simulateNode())
     graph.addNode('particles', drawNode())
     app.world.initResource(RenderDescribers).set('particles', (w) => describeParticles(w))

@@ -56,6 +56,10 @@ Every engine error is a `ShardError` with one of these codes.
 | `audio/no-plugin` | @aethervtt/shard-audio | Add "audio" to plugins in shard.json (or app.addPlugin(audioPlugin())). |
 | `audio/unknown-bus` | @aethervtt/shard-audio |  |
 | `audio/unsupported-format` | @aethervtt/shard-audio | Audio clips are WAV (PCM or float), Ogg Vorbis, Ogg Opus, MP3, or FLAC. |
+| `core/owner-invalid` | @aethervtt/shard-core | An Owner is a grant from host code; it cannot be constructed or copied. |
+| `core/owner-not-authorable` | @aethervtt/shard-core | Ownership is a grant from host code: spawn with world.owners.spawn(owner, ...) or world.owners.adopt(owner, entity). |
+| `core/owner-quota` | @aethervtt/shard-core |  |
+| `core/owner-released` | @aethervtt/shard-core | Create a new owner; a released one holds nothing and accepts nothing. |
 | `data/extends-cycle` | @aethervtt/shard-assets | Point "$extends" at a file that does not extend this one. |
 | `data/extends-type-mismatch` | @aethervtt/shard-assets |  |
 | `dice/attachment-budget` | @aethervtt/shard-dice | Draw fewer vertices, split the effect, or raise it with setDiceBudgets first. |
@@ -97,6 +101,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `gpu/missing-feature` | @aethervtt/shard-gpu |  |
 | `gpu/no-adapter` | @aethervtt/shard-gpu |  |
 | `gpu/no-context` | @aethervtt/shard-gpu |  |
+| `gpu/recovery-failed` | @aethervtt/shard-gpu | Tell the user 3D is unavailable; reloading the page tries again. |
 | `gpu/unsupported` | @aethervtt/shard-gpu | Use a browser or webview with WebGPU, or pass `gpu` (e.g. from the `webgpu` package in Node). |
 | `ik/not-a-chain` | @aethervtt/shard-animation | Each joint must be an ancestor of the next (root → mid → tip; chain entries top first, above the joint). |
 | `ik/unknown-joint` | @aethervtt/shard-animation | Joint fields are paths under the IK entity or an ancestor (the model root): "Armature/Hips/UpLeg_L". animation_describe on the model lists what bound. |
@@ -198,6 +203,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `protocol/invalid-components` | @aethervtt/shard-protocol |  |
 | `protocol/invalid-params` | @aethervtt/shard-protocol |  |
 | `protocol/invalid-position64` | @aethervtt/shard-protocol | Pass { "position64": [x, y, z], "grid": <grid> } together. |
+| `protocol/method-not-allowed` | @aethervtt/shard-protocol |  |
 | `protocol/no-files` | @aethervtt/shard-protocol |  |
 | `protocol/no-preview` | @aethervtt/shard-protocol | Previews exist for textures, materials, meshes, scenes, and types that register one. |
 | `protocol/no-renderer` | @aethervtt/shard-protocol |  |
@@ -207,6 +213,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `protocol/unknown-debug-view` | @aethervtt/shard-protocol | Use 'clusters', 'cascades', 'lod', 'culling', 'none', or 'shadow-map:<light>'. |
 | `protocol/unknown-entity` | @aethervtt/shard-protocol | Pass an entity id from world.query, or a scene path like "ship/camera". |
 | `protocol/unknown-overlay` | @aethervtt/shard-protocol |  |
+| `protocol/unknown-owner` | @aethervtt/shard-protocol | owners.describe with no name lists every live owner. |
 | `protocol/unknown-resource` | @aethervtt/shard-protocol |  |
 | `protocol/unsettable-resource` | @aethervtt/shard-protocol | Only resources that are plain JSON objects can be set. |
 | `render/atmosphere-inside-ground` | @aethervtt/shard-render | Give it a positive thickness (Earth 60 000 m). |

@@ -8,6 +8,7 @@ import {
 } from '@aethervtt/shard-core'
 import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
 import {
+  addRenderFeatures,
   cameraOf,
   DebugOverlays,
   defineOverlay,
@@ -862,6 +863,12 @@ export function installUiRenderer(app: App): void {
   const shaders = world.resource(Shaders)
   for (const [path, source] of Object.entries(UI_SHADERS))
     shaders.register(path, source, `engine:${path}`)
+  addRenderFeatures(world, {
+    name: 'ui',
+    description: 'UI and HUD quads.',
+    nodes: ['ui'],
+    baseline: { strategy: 'Quad records in a data texture' },
+  })
   graph.addNode('ui', uiNode(world))
   app.addSystems(Last, prepareUi.inSet(RenderSet.Prepare))
   world.initResource(RenderDescribers).set('ui', (w) => describeUiRender(w))

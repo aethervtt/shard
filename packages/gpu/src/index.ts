@@ -5,6 +5,7 @@ export {
   createGpuContext,
   type DeviceLostInfo,
   GpuContext,
+  type GpuStatus,
 } from './context'
 export { type GpuErrorListener, toShardError } from './errors'
 export { descriptorKey } from './key'

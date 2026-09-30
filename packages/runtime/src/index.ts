@@ -30,6 +30,7 @@ export {
   setState,
 } from './state'
 export {
+  DevMode,
   DisplayRate,
   type DisplayRateData,
   FixedTime,

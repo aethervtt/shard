@@ -10,6 +10,7 @@ import {
   Skybox,
 } from './environment'
 import { ENVIRONMENT_SHADERS } from './environment-shaders'
+import { addRenderFeatures } from './features'
 import { ForwardStateResource, isCamera, skyNode } from './forward'
 import { RenderPhase } from './graph'
 import { Graph, RenderDescribers, RenderSet, Shaders } from './plugin'
@@ -33,6 +34,15 @@ export const environmentPlugin = definePlugin({
     registerShaders(world.resource(Shaders), ENVIRONMENT_SHADERS)
     world.initResource(RenderDescribers).set('environment', (w) => describeEnvironment(w))
     const graph = world.resource(Graph)
+    addRenderFeatures(world, {
+      name: 'render/environment',
+      description:
+        'Image-based lighting: cube conversion, specular prefilter, SH irradiance, BRDF LUT; and the sky.',
+      nodes: ['environment', 'sky'],
+      baseline: {
+        strategy: 'Prefilter, SH and BRDF LUT as fragment passes into the cube faces and mips',
+      },
+    })
     graph.addNode('environment', {
       kind: 'raw',
       phase: RenderPhase.Setup,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { decodeMesh, encodeMesh } from './codec'
 import { Mesh } from './mesh'
-import { box, capsule, cone, cube, cylinder, plane, sphere, torus } from './primitives'
+import { bevelBox, box, capsule, cone, cube, cylinder, plane, sphere, torus } from './primitives'
 
 const primitives: [string, Mesh][] = [
   ['cube', cube()],
@@ -12,6 +12,7 @@ const primitives: [string, Mesh][] = [
   ['cone', cone({ radius: 0.5, height: 1 })],
   ['capsule', capsule({ radius: 0.5, height: 2 })],
   ['torus', torus()],
+  ['bevelBox', bevelBox({ x: 1, y: 1, z: 1 })],
 ]
 
 describe('primitives', () => {

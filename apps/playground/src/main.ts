@@ -29,6 +29,7 @@ import { character2dDemoPlugin } from './character2d'
 import { crowdPlugin } from './crowd'
 import { dataDemoPlugin } from './data'
 import { deferredPlugin } from './deferred'
+import { DEMOS } from './demos'
 import { iblPlugin, skyPlugin } from './environment'
 import { fpsGraphPlugin } from './fps-graph'
 import { galaxyPlugin, Population } from './galaxy'
@@ -54,42 +55,6 @@ import { uiDemoPlugin } from './ui'
 
 const canvas = document.getElementById('viewport') as HTMLCanvasElement
 const hud = document.getElementById('hud') as HTMLElement
-const DEMOS = [
-  'scene',
-  'galaxy',
-  'lights',
-  'ibl',
-  'sky',
-  'deferred',
-  'crowd',
-  'post',
-  'lens',
-  'sprites',
-  'particles',
-  'physics',
-  'planet',
-  'physics2d',
-  'character',
-  'character-planet',
-  'character2d',
-  'prefabs',
-  'data',
-  'animation',
-  'animgraph',
-  'ik',
-  'audio',
-  'ui',
-  'nav',
-  'nav2d',
-  'save',
-  'lights2d',
-  'grids',
-  'noise',
-  'procgen',
-  'terrain',
-  'atmosphere',
-  'tabletop',
-] as const
 const demo = DEMOS.find((d) => location.hash === `#${d}`) ?? 'scene'
 document.body.dataset.demo = demo
 
@@ -259,8 +224,10 @@ app.addPlugin(fpsGraphPlugin)
 app.setRunner(animationFrameRunner())
 window.addEventListener('hashchange', () => location.reload())
 
-// Exposed for poking at from the devtools console.
-Object.assign(globalThis, { app, describe: () => describeRender(app.world) })
+// Exposed for poking at from the devtools console, and for demos.test.ts: `started` once the app
+// runs, `error` if it couldn't.
+const playground = { demo, started: false, error: undefined as string | undefined }
+Object.assign(globalThis, { app, describe: () => describeRender(app.world), playground })
 
 /**
  * With ?hub (or ?hub=ws://host:port), the page dials out to a protocol hub (`shard serve` or
@@ -277,11 +244,13 @@ async function start() {
       onStatus: (on) => console.info(`[shard] hub ${on ? 'connected' : 'disconnected'}: ${url}`),
     })
   }
+  playground.started = true
   await app.run()
 }
 
 start().catch((err: unknown) => {
   hud.textContent =
     err instanceof ShardError ? `${err.code}: ${err.message}` : `error: ${String(err)}`
+  playground.error = hud.textContent
   console.error(err)
 })

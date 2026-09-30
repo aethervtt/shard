@@ -136,6 +136,8 @@ describe('commands', () => {
           [files[2], 'data/extends-cycle', '/$extends'],
         ]),
       )
+      // What fails to import draws a fallback at runtime (0061): validate says which.
+      expect(r.json().fallbacks).toEqual(expect.arrayContaining([files[0]]))
       // A handle to an asset of the wrong type (checked against the catalog after importing).
       writeFileSync(
         heavy,

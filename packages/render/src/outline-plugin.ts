@@ -8,6 +8,7 @@ import {
 } from '@aethervtt/shard-core'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { definePlugin } from '@aethervtt/shard-runtime'
+import { addRenderFeatures } from './features'
 import { ForwardStateResource, forwardQueue, VERTEX_BUFFERS, viewBindGroup } from './forward'
 import { GpuAssetsResource } from './gpu-assets'
 import { type NodeDescriptor, RenderPhase } from './graph'
@@ -593,6 +594,12 @@ export const outlinePlugin = definePlugin({
   ready(app) {
     registerShaders(app.world.resource(Shaders), OUTLINE_SHADERS)
     app.world.initResource(RenderDescribers).set('outlines', describeOutlines)
+    addRenderFeatures(app.world, {
+      name: 'render/outline',
+      description: 'Selection outlines (mask and jump flood).',
+      nodes: ['post/outline'],
+      baseline: { strategy: 'The same fragment passes' },
+    })
     app.world.resource(Graph).addNode('post/outline', outlineNode(app.world))
   },
 })

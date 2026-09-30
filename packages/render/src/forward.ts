@@ -1,3 +1,4 @@
+import { assetServer } from '@aethervtt/shard-assets'
 import {
   defineResource,
   defineSystem,
@@ -33,8 +34,10 @@ import {
 import { Culler, cullGround, cullTransparent, GpuCuller } from './culling'
 import { addDisplayNodes } from './display-nodes'
 import { Environments, environmentParams } from './environment-state'
+import { addRenderFeatures } from './features'
 import { GpuAssets, GpuAssetsResource } from './gpu-assets'
 import { type ColorAttachment, type NodeContext, RenderPhase, type RenderView } from './graph'
+import { MaterialFallbacks } from './health'
 import {
   type CullParams,
   DeformPath,
@@ -291,7 +294,7 @@ export const forwardQueue = defineSystem({
     stats.clear()
     state.frame++
     ensureLayouts(gpu, state, world.resource(GpuAssetsResource), store)
-    state.pipelines.beginFrame(state.frame)
+    state.pipelines.beginFrame(state.frame, world.resource(Shaders).revision)
     shadows.uniforms.reset()
     culler.beginFrame()
     const gpuCull = culler.active
@@ -644,7 +647,10 @@ export function drawMaterials(
   let switches = 0
   for (let d = 0; d < draws.length; d++) {
     const item = draws.items[d]!
-    const material = item.batch.material
+    const own = item.batch.material
+    // A type whose shader or pipeline failed draws with the standard pipeline instead (0061).
+    const fallback = state.pipelines.failing(own.type)
+    const material = fallback ? state.pipelines.proxy(own) : own
     const type = material.type
     const variant = materialVariant(material)
     const blend = variantBlend(variant)
@@ -653,7 +659,7 @@ export function drawMaterials(
     const pick = pass === PASS_PICK || pass === PASS_PICK_GROUND
     const ground = pass === PASS_GROUND || pass === PASS_PICK_GROUND
     // The G-buffer only takes standard lighting; anything else draws forward.
-    if (gbuffer && !type.standard) continue
+    if (gbuffer && !own.type.standard) continue
     // The G-buffer, the prepass, and picking are always single-sampled.
     const msaa = gbuffer || prepass || pick ? 1 : cam.msaa
     const key = ((pass * 1024 + typeOrdinal(type)) * 16 + variant) * 8 + msaa
@@ -699,41 +705,55 @@ export function drawMaterials(
         ],
       )
       if (!module) {
-        gpu.pipelines.skipped++ // a draw waiting on its shader is a skipped draw too
+        // It just failed: draw this item again, through the fallback.
+        if (!fallback && state.pipelines.failing(type)) d--
+        else gpu.pipelines.skipped++ // a draw waiting on its shader is a skipped draw too
         continue
       }
       const transparent = isTransparent(blend) && !pick
-      pipeline = state.pipelines.create(gpu, key, {
-        label: `${pick ? 'pick' : prepass ? 'prepass' : gbuffer ? 'gbuffer' : ground ? 'ground' : 'forward'}/${type.name}/${blend}/x${msaa}/${variantCull(variant)}`,
-        layout: materialLayout(gpu, state, assets, type, store),
-        vertex: { module, entryPoint: 'vs', buffers: VERTEX_BUFFERS },
-        fragment: {
-          module,
-          entryPoint: 'fs',
-          targets: pick
-            ? PICK_TARGETS
-            : prepass
-              ? PREPASS_TARGETS
-              : gbuffer
-                ? state.gbufferTargets
-                : [{ format: 'rgba16float', blend: blendState(blend) }],
+      pipeline = state.pipelines.create(
+        gpu,
+        key,
+        {
+          label: `${pick ? 'pick' : prepass ? 'prepass' : gbuffer ? 'gbuffer' : ground ? 'ground' : 'forward'}/${type.name}/${blend}/x${msaa}/${variantCull(variant)}`,
+          layout: materialLayout(gpu, state, assets, type, store),
+          vertex: { module, entryPoint: 'vs', buffers: VERTEX_BUFFERS },
+          fragment: {
+            module,
+            entryPoint: 'fs',
+            targets: pick
+              ? PICK_TARGETS
+              : prepass
+                ? PREPASS_TARGETS
+                : gbuffer
+                  ? state.gbufferTargets
+                  : [{ format: 'rgba16float', blend: blendState(blend) }],
+          },
+          primitive: {
+            topology: 'triangle-list',
+            cullMode: variantCull(variant),
+            frontFace: 'ccw',
+          },
+          depthStencil: {
+            format: 'depth32float',
+            // Ground bands never write depth (so they never fight); picking them writes it, so the
+            // nearest band wins at equal depth.
+            depthWriteEnabled: pick || (!transparent && !ground),
+            depthCompare: transparent || ground ? 'greater-equal' : 'greater',
+            // Ground bands lie on their floor: a few ULPs and a slope term keep them in front of it
+            // at any angle (reversed Z: toward the camera). Bands don't write depth, so they never
+            // fight each other; the order does that.
+            depthBias: ground ? GROUND_DEPTH_BIAS : 0,
+            depthBiasSlopeScale: ground ? GROUND_SLOPE_BIAS : 0,
+          },
+          multisample: { count: msaa },
         },
-        primitive: { topology: 'triangle-list', cullMode: variantCull(variant), frontFace: 'ccw' },
-        depthStencil: {
-          format: 'depth32float',
-          // Ground bands never write depth (so they never fight); picking them writes it, so the
-          // nearest band wins at equal depth.
-          depthWriteEnabled: pick || (!transparent && !ground),
-          depthCompare: transparent || ground ? 'greater-equal' : 'greater',
-          // Ground bands lie on their floor: a few ULPs and a slope term keep them in front of it
-          // at any angle (reversed Z: toward the camera). Bands don't write depth, so they never
-          // fight each other; the order does that.
-          depthBias: ground ? GROUND_DEPTH_BIAS : 0,
-          depthBiasSlopeScale: ground ? GROUND_SLOPE_BIAS : 0,
-        },
-        multisample: { count: msaa },
-      })
-      if (!pipeline) continue
+        type,
+      )
+      if (!pipeline) {
+        if (!fallback && state.pipelines.failing(type)) d--
+        continue
+      }
     }
     const mat = assets.material(ctx.world, material)
     if (!mat?.bindGroup) continue
@@ -1400,6 +1420,7 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
     provides: [
       // core
       Environments,
+      MaterialFallbacks,
       DeferredPath,
       DeformPath,
       PostFeatures,
@@ -1529,6 +1550,20 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       assets.counts = app.world.initResource(RenderStats).current
       const store = new InstanceStore(gpu)
       app.insertResource(GpuAssetsResource, assets)
+      unwatch.set(app, assets.watch(assetServer(app.world)))
+      // owners.describe(owner).gpu: the GPU objects behind the assets it leases (0061).
+      app.world.owners.addDescriber('gpu', (owner) => {
+        const server = assetServer(app.world)
+        const total = { buffers: 0, textures: 0, bytes: 0 }
+        for (const path of server.leasesOf(owner)) {
+          const item = server.item(path)
+          const o = assets.objectsOf(item)
+          total.buffers += o.buffers
+          total.textures += o.textures
+          total.bytes += o.bytes
+        }
+        return total
+      })
       app.insertResource(Instances, store)
       app.insertResource(Culler, new GpuCuller(gpu))
       app.insertResource(
@@ -1560,6 +1595,10 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
           { format: gbufferEmissiveFormat(gpu) },
         ],
       }
+      app.insertResource(MaterialFallbacks, {
+        count: () => state.pipelines.failureCount,
+        list: () => state.pipelines.failures(),
+      })
       // Batches draw grouped by material type and variant, so pipeline switches stay rare.
       store.batchKey = (b) => typeOrdinal(b.material.type) * 16 + materialVariant(b.material)
       app.insertResource(State, state)
@@ -1569,6 +1608,33 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       graph.declare({ name: 'hdr', format: 'rgba16float' })
       graph.declare({ name: 'depth', format: 'depth32float' })
       graph.declare({ name: 'ldr', format: 'view' })
+      addRenderFeatures(app.world, {
+        name: 'render/forward',
+        description: 'Opaque, ground and transparent mesh passes, and the MSAA depth resolve.',
+        nodes: ['forward-opaque', 'forward-ground', 'forward-transparent', 'depth-resolve'],
+        baseline: {
+          strategy:
+            'Instances, visibility and deform data in data textures; MSAA depth from a single-sample depth prepass',
+        },
+      })
+      addRenderFeatures(app.world, {
+        name: 'render/culling',
+        description: 'GPU frustum, range and LOD culling with indirect draws.',
+        nodes: ['instance-cull'],
+        baseline: { strategy: 'CPU culling and direct draws' },
+      })
+      addRenderFeatures(app.world, {
+        name: 'render/light-clusters',
+        description: 'Clustered light binning (Forward+).',
+        nodes: ['light-clusters'],
+        baseline: { strategy: 'CPU binning into a 128-light bitmask texture' },
+      })
+      addRenderFeatures(app.world, {
+        name: 'render/shadows',
+        description: 'Cascaded directional shadows, and spot and point shadow layers.',
+        nodes: ['shadows/cascades', 'shadows/local'],
+        baseline: { strategy: 'The same render passes' },
+      })
       graph.addNode('instance-cull', cullNode(state))
       graph.addNode('light-clusters', clusterNode(state))
       graph.addNode('shadows/cascades', cascadeNode(state))
@@ -1579,8 +1645,15 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       graph.addNode('depth-resolve', depthResolveNode())
       addDisplayNodes(app.world)
     },
+    dispose(app) {
+      unwatch.get(app)?.()
+      unwatch.delete(app)
+    },
   })
 }
+
+/** Per app: stops freeing GPU copies on asset unloads (the forward plugin's dispose). */
+const unwatch = new WeakMap<object, () => void>()
 
 /** rg11b10ufloat when the device can render to it, else rgba16float. */
 export function gbufferEmissiveFormat(gpu: GpuContext): GPUTextureFormat {

@@ -9,4 +9,14 @@ export {
   type MeshData,
   type MorphTarget,
 } from './mesh'
-export { box, capsule, cone, cube, cylinder, plane, sphere, torus } from './primitives'
+export {
+  bevelBox,
+  box,
+  capsule,
+  cone,
+  cube,
+  cylinder,
+  plane,
+  sphere,
+  torus,
+} from './primitives'

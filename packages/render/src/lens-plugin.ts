@@ -1,6 +1,7 @@
 import { defineResource, defineSystem, type Entity, Last, type World } from '@aethervtt/shard-core'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { definePlugin } from '@aethervtt/shard-runtime'
+import { addRenderFeatures } from './features'
 import { type NodeDescriptor, RenderPhase } from './graph'
 import { Lens, LensFields, LensPath, MAX_LENS_FIELDS } from './lens'
 import { Graph, RenderDescribers, RenderSet, Shaders, Views } from './plugin'
@@ -334,6 +335,12 @@ export const lensPlugin = definePlugin({
   ready(app) {
     registerShaders(app.world.resource(Shaders), LENS_SHADERS)
     app.world.initResource(RenderDescribers).set('lens', describeLens)
+    addRenderFeatures(app.world, {
+      name: 'render/lens',
+      description: 'Screen-space lens fields (bounded displacement).',
+      nodes: ['post/lens'],
+      baseline: { strategy: 'The same fragment passes' },
+    })
     app.world.resource(Graph).addNode('post/lens', lensNode(app.world.resource(LensViews)))
   },
 })

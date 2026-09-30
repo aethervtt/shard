@@ -10,6 +10,7 @@ export {
   materialFields,
   materialFromJson,
   materialTypeOf,
+  missingMesh,
   RenderTargets,
   STANDARD_TYPE,
   StandardMaterial,
@@ -121,6 +122,14 @@ export {
 } from './environment'
 export { environmentPlugin } from './environment-plugin'
 export {
+  addRenderFeatures,
+  type BaselineStrategy,
+  describeFeatures,
+  featureOfNode,
+  type RenderFeature,
+  RenderFeatures,
+} from './features'
+export {
   type ForwardPluginOptions,
   type ForwardState,
   ForwardStateResource,
@@ -135,7 +144,7 @@ export {
   viewPixelScale,
 } from './forward'
 export { fxaaPlugin } from './fxaa'
-export { LABEL_FONT, labelWidth } from './gizmo-font'
+export { LABEL_FONT, labelAtlas, labelWidth } from './gizmo-font'
 export {
   GIZMO_LINE_FLOATS,
   type GizmoOptions,
@@ -167,6 +176,17 @@ export {
   type TransientTexture,
   VIEW_TARGET,
 } from './graph'
+export {
+  clearHealthIssue,
+  MaterialFallbacks,
+  RenderHealth,
+  RenderHealthChanged,
+  type RenderHealthIssue,
+  RenderHealthReports,
+  type RenderHealthState,
+  type RenderHealthValue,
+  raiseHealthIssue,
+} from './health'
 export {
   type Batch,
   createDrawList,
