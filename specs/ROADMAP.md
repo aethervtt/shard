@@ -136,7 +136,7 @@ effects (0065) build on 0054 and 0063 once 0054 is implemented.
 | [0059](0059-tabletop-tilemaps.md) | Tilemaps on the tabletop, and diffable tile data | accepted |
 | [0060](0060-camera-controls-gestures.md) | Camera controls, gestures, and object drag | accepted |
 | [0061](0061-ownership-recovery.md) | Ownership and failure recovery (owners, fallbacks, health) | accepted |
-| [0062](0062-browser-verification.md) | Browser captures, approvals, and performance records | accepted |
+| [0062](0062-browser-verification.md) | Browser captures, approvals, and performance records | implemented |
 | [0063](0063-lens-fields.md) | Screen-space lens fields (bounded post displacement from published fields) | implemented |
 | [0064](0064-webgl2-fallback.md) | WebGL2 fallback and the baseline tier (one API, backend chosen at startup; staged, off the critical path) | accepted |
 | [0065](0065-dice-entrances.md) | Dice entrances and screen effects (a result arriving through a host scene instead of a tumble; typed effects the table draws) | implemented |

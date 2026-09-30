@@ -1,6 +1,6 @@
 # 0062 — Browser captures, approvals, and performance records
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@aethervtt/shard-verify` (new), `@aethervtt/shard-runtime`, `@aethervtt/shard-render`,
   `@aethervtt/shard-gpu`, `@aethervtt/shard-assets`, `@aethervtt/shard-platform`,
   `@aethervtt/shard-platform-web`, `apps/cli`, `apps/playground`
