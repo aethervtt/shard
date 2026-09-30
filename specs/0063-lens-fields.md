@@ -1,6 +1,6 @@
 # 0063 — Screen-space lens fields
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@aethervtt/shard-render`
 - **Depends on:** 0023, 0052
 

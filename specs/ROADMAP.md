@@ -136,5 +136,5 @@ tabletop shaders use its `shard::data` accessors once stage 1 lands.
 | [0060](0060-camera-controls-gestures.md) | Camera controls, gestures, and object drag | accepted |
 | [0061](0061-ownership-recovery.md) | Ownership and failure recovery (owners, fallbacks, health) | accepted |
 | [0062](0062-browser-verification.md) | Browser captures, approvals, and performance records | accepted |
-| [0063](0063-lens-fields.md) | Screen-space lens fields (bounded post displacement from published fields) | accepted |
+| [0063](0063-lens-fields.md) | Screen-space lens fields (bounded post displacement from published fields) | implemented |
 | [0064](0064-webgl2-fallback.md) | WebGL2 fallback and the baseline tier (one API, backend chosen at startup; staged, off the critical path) | accepted |
