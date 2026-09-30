@@ -1,6 +1,6 @@
 # 0066 — Curved walls and structure materials
 
-- **Status:** draft
+- **Status:** accepted
 - **Packages:** `@aethervtt/shard-structure`, `@aethervtt/shard-grid`, `@aethervtt/shard-texture`
 - **Depends on:** 0055, 0057
 
