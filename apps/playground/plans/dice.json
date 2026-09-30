@@ -5,6 +5,7 @@
   "dpr": [1],
   "viewport": [1320, 720],
   "canvas": "#dice",
+  "timeoutMs": 120000,
   "conditions": { "renderScale": { "mode": "fixed", "scale": 1 } },
   "clients": [{ "name": "main", "query": { "focus": "dice" } }],
   "steps": [

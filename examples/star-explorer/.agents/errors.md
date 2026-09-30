@@ -334,7 +334,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `ui/unknown-state` | @aethervtt/shard-ui |  |
 | `ui/unknown-style` | @aethervtt/shard-ui | Add it to the root's *.theme.json styles, or fix UiNode.style (ui.describe shows each node's). |
 | `verify/approval-needs-reason` | @aethervtt/shard-verify | Say why it looks the way it does: shard approve <shot> --reason "Shadows are softer since 0058". |
-| `verify/idle-timeout` | @aethervtt/shard-verify |  |
+| `verify/idle-timeout` | @aethervtt/shard-verify | Holding nothing: it was slow, not stuck; raise the plan's timeoutMs. |
 | `verify/invalid-json` | @aethervtt/shard-verify |  |
 | `verify/invalid-plan` | @aethervtt/shard-verify | Plans follow .shard/schemas/capture-plan.schema.json. |
 | `verify/invalid-record` | @aethervtt/shard-verify | Records follow .shard/schemas/perf-record.schema.json. |
