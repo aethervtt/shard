@@ -5,6 +5,7 @@ import {
   bufferCategory,
   type GpuMemory,
   type GpuStats,
+  type GpuUploads,
   Ledger,
   SHARED_OWNER,
   textureBytes,
@@ -161,6 +162,14 @@ export class GpuContext {
     return this.ledger.memory(owner)
   }
 
+  /**
+   * Bytes `owner` has written to the GPU since the device was made, by upload category, and the
+   * buffers and textures it created (0055). Cumulative: diff two reads for a frame's worth.
+   */
+  uploads(owner: string): GpuUploads {
+    return this.ledger.uploads(owner)
+  }
+
   /** Owners with live objects, sorted. */
   owners(): string[] {
     return this.ledger.names()
@@ -274,27 +283,82 @@ export class GpuContext {
     })
   }
 
-  /** Counts every buffer and texture the device makes against the current owner. */
+  /**
+   * Counts every buffer and texture the device makes against the current owner, and every byte
+   * written into one against its owner and upload category.
+   */
   private instrument(device: GPUDevice): void {
     const ledger = this.ledger
     const createBuffer = device.createBuffer.bind(device)
     const createTexture = device.createTexture.bind(device)
     device.createBuffer = (descriptor) => {
       const buffer = createBuffer(descriptor)
-      ledger.track(buffer, this.owner, false, descriptor.size, bufferCategory(descriptor.usage))
+      const category = bufferCategory(descriptor.usage)
+      ledger.track(buffer, this.owner, false, descriptor.size, category, descriptor.label)
       return buffer
     }
     device.createTexture = (descriptor) => {
       const texture = createTexture(descriptor)
       const category = textureCategory(descriptor.usage)
-      ledger.track(texture, this.owner, true, textureBytes(descriptor), category)
+      ledger.track(texture, this.owner, true, textureBytes(descriptor), category, descriptor.label)
       return texture
+    }
+    const queue = device.queue
+    const writeBuffer = queue.writeBuffer.bind(queue)
+    const writeTexture = queue.writeTexture.bind(queue)
+    const copyExternal = queue.copyExternalImageToTexture?.bind(queue)
+    queue.writeBuffer = (buffer, offset, data, dataOffset, size) => {
+      writeBuffer(buffer, offset, data, dataOffset, size)
+      ledger.upload(buffer, writtenBytes(data, dataOffset, size))
+    }
+    queue.writeTexture = (destination, data, layout, size) => {
+      writeTexture(destination, data, layout, size as GPUExtent3D)
+      ledger.upload(destination.texture, textureWriteBytes(data, layout, size))
+    }
+    if (copyExternal) {
+      queue.copyExternalImageToTexture = (source, destination, size) => {
+        copyExternal(source, destination, size as GPUExtent3D)
+        const [w, h, d] = extent(size)
+        ledger.upload(destination.texture, w * h * d * 4)
+      }
     }
   }
 
   private handleLoss(info: DeviceLostInfo): void {
     for (const listener of this.lostListeners) listener(info)
   }
+}
+
+/** Bytes a `writeBuffer` call copies: offsets and sizes are in elements for typed arrays. */
+function writtenBytes(
+  data: unknown,
+  dataOffset: number | undefined,
+  size: number | undefined,
+): number {
+  if (ArrayBuffer.isView(data)) {
+    const unit = (data as { BYTES_PER_ELEMENT?: number }).BYTES_PER_ELEMENT ?? 1
+    return (size ?? data.byteLength / unit - (dataOffset ?? 0)) * unit
+  }
+  return size ?? (data as ArrayBuffer).byteLength - (dataOffset ?? 0)
+}
+
+function extent(size: unknown): [number, number, number] {
+  if (Symbol.iterator in (size as object)) {
+    const a = [...(size as Iterable<number>)]
+    return [a[0] ?? 1, a[1] ?? 1, a[2] ?? 1]
+  }
+  const d = size as GPUExtent3DDict
+  return [d.width, d.height ?? 1, d.depthOrArrayLayers ?? 1]
+}
+
+/** Bytes a `writeTexture` call copies: the rows it reads, capped by the data's size. */
+function textureWriteBytes(data: unknown, layout: GPUTexelCopyBufferLayout, size: unknown): number {
+  const [w, h, d] = extent(size)
+  const bytes = ArrayBuffer.isView(data) ? data.byteLength : (data as ArrayBuffer).byteLength
+  const total = bytes - (layout.offset ?? 0)
+  const rows = (layout.rowsPerImage ?? h) * d
+  const perRow = layout.bytesPerRow ?? w * 4
+  return Math.min(total, perRow * rows)
 }
 
 async function requestDevice(options: CreateGpuContextOptions) {

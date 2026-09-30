@@ -367,11 +367,15 @@ export { prepareDeforms } from './skinning'
 export { skinningPlugin } from './skinning-plugin'
 export { forwardPlugin } from './standard'
 export {
+  type FrameCounts,
+  type FrameRecord,
   GpuMemory,
   type GpuMemoryData,
+  RECENT_FRAMES,
   RenderCounters,
   type RenderCountersData,
   RenderStats,
+  RenderStatsMap,
   type ViewStats,
 } from './stats'
 export {

@@ -109,10 +109,13 @@ import {
   fitCascades,
   fitLocalShadows,
   LocalShadows,
+  markShadowDrawn,
   packShadowData,
   SHADOW_DATA_FLOATS,
   ShadowPassUniforms,
   ShadowsResource,
+  type ShadowViewDraw,
+  shadowRedraw,
   shadowViewLayout,
 } from './shadows'
 import { SkinAssetType, Skins } from './skin-asset'
@@ -341,16 +344,20 @@ const queue = defineSystem({
     }
     const local = shadows.local
     fitLocalShadows(local, settings.shadowMapSize)
+    // Cached shadow maps (0055) redraw only when something they show changed.
+    store.checkMeshVersions()
     if (main) {
       for (let i = 0; i < local.spots.length; i++) {
         const view = local.spotViews[i]!
         cullShadow(main, view.draws, view.frustum)
         view.offset = shadows.uniforms.push(view.viewProj)
+        view.redraw = shadowRedraw(view, local.spots[i]?.cachedShadow ?? false, store)
       }
       for (let i = 0; i < local.points.length * 6; i++) {
         const view = local.pointViews[i]!
         cullShadow(main, view.draws, view.frustum)
         view.offset = shadows.uniforms.push(view.viewProj)
+        view.redraw = true
       }
     }
 
@@ -369,6 +376,7 @@ const queue = defineSystem({
         for (let i = 0; i < pv.cascades.count; i++) {
           const v = pv.cascades.views[i]!
           v.offset = shadows.uniforms.push(v.viewProj)
+          v.redraw = shadowRedraw(v, sun.cached, store)
         }
       } else {
         pv.cascades.count = 0
@@ -946,6 +954,24 @@ function clusterNode(state: ForwardState) {
   }
 }
 
+/** Draws skipped before a shadow view started (a skip during it leaves its layer incomplete). */
+let skippedBefore = 0
+
+/** Whether a shadow view draws this frame; counts it when it does. */
+function beginShadowView(ctx: NodeContext, view: ShadowViewDraw): boolean {
+  if (!view.redraw && view.drawn) return false
+  skippedBefore = ctx.gpu.pipelines.skipped
+  ctx.world.resource(RenderStats).current.shadowMapsRendered++
+  return true
+}
+
+/** A cached layer is kept only if every caster drew. */
+function endShadowView(ctx: NodeContext, view: ShadowViewDraw): void {
+  if (ctx.gpu.pipelines.skipped === skippedBefore)
+    markShadowDrawn(view, ctx.world.resource(Instances))
+  else view.drawn = false
+}
+
 /** Renders the camera's cascades: one depth layer per cascade. */
 function cascadeNode(state: ForwardState) {
   return {
@@ -961,16 +987,19 @@ function cascadeNode(state: ForwardState) {
       const size = ctx.world.resource(LightingSettings).cascadeMapSize
       const texture = pv.cascades.ensureTexture(ctx.gpu, size, ctx.view.name)
       for (let i = 0; i < pv.cascades.count; i++) {
+        const view = pv.cascades.views[i]!
+        if (!beginShadowView(ctx, view)) continue
         drawShadowCasters(
           ctx,
           texture.createView({ dimension: '2d', baseArrayLayer: i, arrayLayerCount: 1 }),
-          pv.cascades.views[i]!,
-          pv.cascades.views[i]!.offset,
+          view,
+          view.offset,
           shadows.uniforms,
           state.pipelines,
           state.layouts.shadowView,
           `shadows/cascade${i}`,
         )
+        endShadowView(ctx, view)
       }
     },
   }
@@ -995,6 +1024,7 @@ function localShadowNode(state: ForwardState) {
         texture.createView({ dimension: '2d', baseArrayLayer: i, arrayLayerCount: 1 })
       for (let i = 0; i < local.spots.length; i++) {
         const view = local.spotViews[i]!
+        if (!beginShadowView(ctx, view)) continue
         drawShadowCasters(
           ctx,
           layer(local.spotTexture!, i),
@@ -1005,9 +1035,11 @@ function localShadowNode(state: ForwardState) {
           state.layouts.shadowView,
           `shadows/spot${i}`,
         )
+        endShadowView(ctx, view)
       }
       for (let i = 0; i < local.points.length * 6; i++) {
         const view = local.pointViews[i]!
+        if (!beginShadowView(ctx, view)) continue
         drawShadowCasters(
           ctx,
           layer(local.pointTexture!, i),
@@ -1018,6 +1050,7 @@ function localShadowNode(state: ForwardState) {
           state.layouts.shadowView,
           `shadows/point${i}`,
         )
+        endShadowView(ctx, view)
       }
     },
   }
@@ -1417,6 +1450,7 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
         etc2: gpu.features.has('texture-compression-etc2'),
       })
       const assets = new GpuAssets(gpu, app.world.initResource(GpuMemory))
+      assets.counts = app.world.initResource(RenderStats).current
       const store = new InstanceStore(gpu)
       app.insertResource(GpuAssetsResource, assets)
       app.insertResource(Instances, store)

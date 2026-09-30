@@ -133,6 +133,7 @@ const execute = defineSystem({
     }
     if (views.length === 0) return
     world.resource(Graph).execute(world, views)
+    world.tryResource(RenderStats)?.endFrame(world.resource(Gpu).uploads(options.owner))
     // A frame that couldn't draw everything (pipelines compiling, meshes or materials still
     // loading) is followed by another, so an on-demand app doesn't stop on a half-drawn frame.
     const gpu = world.resource(Gpu)

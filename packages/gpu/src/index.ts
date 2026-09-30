@@ -13,9 +13,14 @@ export {
   type GpuMemory,
   type GpuMemoryCategory,
   type GpuStats,
+  type GpuUploads,
   SHARED_OWNER,
   textureBytes,
   textureCategory,
+  UPLOAD_CATEGORIES,
+  Upload,
+  type UploadCategory,
+  uploadCategory,
 } from './ledger'
 export {
   type ProbeWebGpuOptions,

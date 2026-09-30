@@ -1,0 +1,42 @@
+export {
+  type CompileReport,
+  compileStructure,
+  DOOR_DEMAND,
+  Structure,
+  StructureState,
+  swingDoors,
+} from './compile'
+export {
+  CHANNELS,
+  DOOR_STATES,
+  DoorLeaf,
+  Floor,
+  HINGES,
+  OPENING_KINDS,
+  Opening,
+  StructureChunk,
+  StructureSettings,
+  type StructureSettingsValue,
+  SWINGS,
+  Wall,
+  WindowPane,
+} from './components'
+export {
+  ClipScratch,
+  chunkKey,
+  chunkX,
+  chunkZ,
+  emitFloor,
+  emitWall,
+  type FloorShape,
+  floorChunks,
+  floorShape,
+  MeshBuilder,
+  type OpeningShape,
+  type Piece,
+  type WallShape,
+  wallChunks,
+  wallLength,
+  wallPieces,
+} from './geometry'
+export { structureMethods, structurePlugin } from './plugin'

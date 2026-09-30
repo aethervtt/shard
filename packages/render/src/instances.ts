@@ -217,6 +217,8 @@ export interface Batch {
   /** Per-cull scratch for forward-only slots in deferred views. */
   forwardScratch: Uint32Array
   forwardCount: number
+  /** The mesh version shadows last saw (cached shadows redraw when it changes, 0055). */
+  meshVersion: number
 }
 
 /** A Lod component's levels resolved to batches, shared by every entity with the same values. */
@@ -443,6 +445,11 @@ export class InstanceStore {
   hiddenCount = 0
   /** Bumps when batches or LOD sets change shape (the GPU tables re-upload). */
   structureVersion = 0
+  /**
+   * Bumps when what casts shadows changes other than by moving: a slot's batch, its caster or
+   * visible flag, or a batch's mesh data. Cached shadow maps (0055) redraw when it moves.
+   */
+  shadowEpoch = 0
   /** Visible slot lists of every CPU-culled view this frame, concatenated. */
   visible = new Uint32Array(1024)
   visibleCount = 0
@@ -677,6 +684,7 @@ export class InstanceStore {
   assign(slot: number, assignment: number): void {
     const old = this.batchOf[slot]!
     if (old === assignment) return
+    this.shadowEpoch++
     if (old >= 0) {
       this.batches[old]!.count--
       this.removeMember(slot, this.batches[old]!)
@@ -701,6 +709,49 @@ export class InstanceStore {
           ? (LOD_BIT | (-2 - assignment)) >>> 0
           : NO_BATCH
     this.markDirty(slot)
+  }
+
+  /**
+   * Bumps `shadowEpoch` if any batch's mesh data changed since the last call (a structure chunk
+   * rebuilt in place). One compare per batch.
+   */
+  checkMeshVersions(): void {
+    const batches = this.batches
+    for (let i = 0; i < batches.length; i++) {
+      const b = batches[i]!
+      if (b.meshVersion !== b.mesh.version) {
+        b.meshVersion = b.mesh.version
+        this.shadowEpoch++
+      }
+    }
+  }
+
+  /**
+   * Whether a visible caster that moved this frame touches the half-spaces `planes`, where it
+   * was or where it is now. Call after prepare. Skinned and morphed poses aren't moves; see
+   * `deforming`.
+   */
+  movedCasterIn(planes: Float32Array): boolean {
+    const need = InstanceFlags.Visible | InstanceFlags.Caster
+    const sphere = scratchSphere
+    for (let i = 0; i < this.lastMovedCount; i++) {
+      const slot = this.lastMoved[i]!
+      if (slot >= this.high || (this.flags[slot]! & need) !== need) continue
+      const a = this.batchOf[slot]!
+      if (a === -1) continue
+      const batch = this.batches[a >= 0 ? a : this.lodSets[-2 - a]!.batches[0]!]!
+      if (batch.transparent) continue
+      sphereOfSlot(sphere, this, slot, this.flags[slot]!, batch.mesh.bounds)
+      if (sphereInFrustum(planes, sphere)) return true
+      slotSphere(sphere, this.prev, slot * 12, batch.mesh.bounds)
+      if (sphereInFrustum(planes, sphere)) return true
+    }
+    return false
+  }
+
+  /** Whether skinned or morphed poses are being written this frame (their shadows move). */
+  get deforming(): boolean {
+    return this.deform.poseCount > 0
   }
 
   /** A plain batch assignment. */
@@ -757,6 +808,7 @@ export class InstanceStore {
         scratchCount: 0,
         forwardScratch: new Uint32Array(16),
         forwardCount: 0,
+        meshVersion: mesh.version,
       }
       byMaterial.set(material, batch)
       this.batches.push(batch)
@@ -1531,6 +1583,8 @@ export const prepareInstances = defineSystem({
           u32[o + 13] = flags
           slotFlags[slot] = flags
           store.markDirty(slot)
+          if ((oldFlags ^ flags) & (InstanceFlags.Visible | InstanceFlags.Caster))
+            store.shadowEpoch++
         }
         if (fresh || rangeChanged[i]! > since) {
           if (hasRange) store.setRange(slot, rangeStart![i]!, rangeEnd![i]!)

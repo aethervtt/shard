@@ -45,6 +45,14 @@ const shadowFields = (defaults: { bias: number; normalBias: number }) => ({
   }),
 })
 
+export const SHADOW_UPDATES = ['always', 'on-change'] as const
+
+const shadowUpdateField = () =>
+  t.enum(SHADOW_UPDATES, {
+    description:
+      "always: shadow maps redraw every frame. on-change: they redraw only when the light or the camera's cascade fit moved, or a shadow caster inside them changed (0055); a still scene draws none.",
+  })
+
 export const CascadeSettings = t.struct(
   {
     count: t.u8({ default: 4, min: 1, max: 4, description: 'Number of cascades.' }),
@@ -77,6 +85,7 @@ export const DirectionalLight = defineComponent(
         'Presets: direct-sun 100000, daylight 10000, overcast 1000, indoor 400, twilight 10, moonlight 0.3.',
     }),
     ...shadowFields({ bias: 0.02, normalBias: 1.5 }),
+    shadowUpdate: shadowUpdateField(),
     cascades: CascadeSettings,
     angularDiameter: t.f32({
       default: 0.53,
@@ -131,6 +140,7 @@ export const SpotLight = defineComponent(
   {
     ...pointFields,
     ...shadowFields({ bias: 0.02, normalBias: 1 }),
+    shadowUpdate: shadowUpdateField(),
     innerAngle: t.f32({
       default: 30,
       min: 0,
@@ -219,6 +229,8 @@ export interface LightRecord {
   outerAngle: number
   radius: number
   alive: boolean
+  /** Spot lights with `shadowUpdate: 'on-change'`: the shadow map is cached. */
+  cachedShadow: boolean
 }
 
 /**
@@ -241,6 +253,9 @@ export class LightStore {
   readonly directional: GpuBuffer
   readonly directionalData = new Float32Array(4 + MAX_DIRECTIONAL * 8)
   readonly directionalU32 = new Uint32Array(this.directionalData.buffer)
+  /** What the directional buffer holds, so an unchanged frame writes nothing (0055). */
+  private readonly directionalSent = new Float32Array(this.directionalData.length)
+  private directionalStale = true
   /** The first directional light with shadows: entity, and its settings. */
   shadowSun: {
     entity: Entity
@@ -251,6 +266,8 @@ export class LightStore {
     bias: number
     normalBias: number
     softness: number
+    /** `shadowUpdate: 'on-change'`: cascades are cached. */
+    cached: boolean
   } | null = null
   directionalCount = 0
   private generation: number
@@ -307,6 +324,7 @@ export class LightStore {
       outerAngle: 0,
       radius: 0,
       alive: true,
+      cachedShadow: false,
     }
     this.records[slot] = r
     this.byEntity.set(entity, r)
@@ -346,6 +364,7 @@ export class LightStore {
     if (this.generation !== this.gpu.generation) {
       this.generation = this.gpu.generation
       this.dirty.fill(1, 0, this.high)
+      this.directionalStale = true
     }
     let lights = 0
     let runStart = -1
@@ -367,7 +386,15 @@ export class LightStore {
     }
     this.uploadedLights = lights
     this.uploadedBytes = lights * LIGHT_FLOATS * 4
-    this.directional.write(this.directionalData)
+    const d = this.directionalData
+    const sent = this.directionalSent
+    let same = !this.directionalStale
+    for (let i = 0; same && i < d.length; i++) if (!Object.is(d[i], sent[i])) same = false
+    if (!same) {
+      this.directional.write(d)
+      sent.set(d)
+      this.directionalStale = false
+    }
   }
 }
 
@@ -477,6 +504,7 @@ export const extractLights = defineSystem({
         const normalBias = table.column(def, 'shadowNormalBias')
         const softness = table.column(def, 'shadowSoftness')
         const inner = kind === SPOT_KIND ? table.column(SpotLight, 'innerAngle') : undefined
+        const update = kind === SPOT_KIND ? table.column(SpotLight, 'shadowUpdate') : undefined
         const outer = kind === SPOT_KIND ? table.column(SpotLight, 'outerAngle') : undefined
         for (let i = 0; i < n; i++) {
           const entity = table.entities[i]!
@@ -485,6 +513,7 @@ export const extractLights = defineSystem({
           const r = store.record(entity, kind)
           if (!r) continue
           r.shadows = shadows[i] !== 0
+          r.cachedShadow = update !== undefined && update[i] === 1
           if (existing === r && gChanged[i]! <= since && changed[i]! <= since) continue
           writeLight(
             store,
@@ -550,6 +579,7 @@ export const extractLights = defineSystem({
             bias: table.column(DirectionalLight, 'shadowBias')[i]!,
             normalBias: table.column(DirectionalLight, 'shadowNormalBias')[i]!,
             softness: table.column(DirectionalLight, 'shadowSoftness')[i]!,
+            cached: table.column(DirectionalLight, 'shadowUpdate')[i] === 1,
           }
         }
         count++

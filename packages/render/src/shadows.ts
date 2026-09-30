@@ -3,7 +3,13 @@ import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
 import { Culler } from './culling'
 import { GpuAssetsResource } from './gpu-assets'
 import type { NodeContext } from './graph'
-import { createDrawList, type DrawList, InstanceFlags, Instances } from './instances'
+import {
+  createDrawList,
+  type DrawList,
+  InstanceFlags,
+  type InstanceStore,
+  Instances,
+} from './instances'
 import { type LightRecord, type LightStore, setShadowIndex } from './lights'
 import {
   type MaterialPipelines,
@@ -44,13 +50,54 @@ const VIEW_STRIDE = 256
 export interface ShadowViewDraw {
   viewProj: Float32Array
   frustum: Float32Array
+  /** What casters are culled against: the frustum, but open toward the light for cascades. */
+  cullPlanes: Float32Array
   draws: DrawList
   /** Dynamic offset of this view's matrix in the frame's shadow uniforms. */
   offset: number
+  /** Whether its layer holds a complete draw (0055: cached shadows keep it). */
+  drawn: boolean
+  /** The matrix and `InstanceStore.shadowEpoch` it was drawn with. */
+  drawnViewProj: Float32Array
+  drawnEpoch: number
+  /** Set by the queue: draw it this frame. */
+  redraw: boolean
 }
 
 function shadowView(): ShadowViewDraw {
-  return { viewProj: mat4.create(), frustum: frustum.create(), draws: createDrawList(), offset: 0 }
+  return {
+    viewProj: mat4.create(),
+    frustum: frustum.create(),
+    cullPlanes: frustum.create(),
+    draws: createDrawList(),
+    offset: 0,
+    drawn: false,
+    drawnViewProj: mat4.create(),
+    drawnEpoch: -1,
+    redraw: true,
+  }
+}
+
+/**
+ * Whether a shadow view must draw this frame (0055). Views of `shadowUpdate: 'always'` lights
+ * always do. A cached view draws when its layer isn't complete, its matrix changed (the light or
+ * the cascade's fit moved), what casts shadows changed (`shadowEpoch`), poses deform, or a
+ * caster inside its cull planes moved.
+ */
+export function shadowRedraw(view: ShadowViewDraw, cached: boolean, store: InstanceStore): boolean {
+  if (!cached || !view.drawn || view.drawnEpoch !== store.shadowEpoch || store.deforming)
+    return true
+  const a = view.viewProj
+  const b = view.drawnViewProj
+  for (let i = 0; i < 16; i++) if (a[i] !== b[i]) return true
+  return store.movedCasterIn(view.cullPlanes)
+}
+
+/** Records that a shadow view's layer now holds a complete draw of this frame's state. */
+export function markShadowDrawn(view: ShadowViewDraw, store: InstanceStore): void {
+  view.drawn = true
+  view.drawnViewProj.set(view.viewProj)
+  view.drawnEpoch = store.shadowEpoch
 }
 
 /** A camera's cascades: fitted each frame, one depth layer each. */
@@ -68,6 +115,7 @@ export class Cascades {
   ensureTexture(gpu: GpuContext, size: number, label: string): GPUTexture {
     if (!this.texture || this.size !== size || this.generation !== gpu.generation) {
       this.texture?.destroy()
+      for (const view of this.views) view.drawn = false
       this.texture = gpu.device.createTexture({
         label: `${label}/cascades`,
         size: [size, size, MAX_CASCADES],
@@ -223,6 +271,7 @@ export function fitCascades(
     set(4, -basis[6]!, -basis[7]!, -basis[8]!, lz + radius)
     set(5, 0, 0, 0, 1)
     const view = cascades.views[i]!
+    view.cullPlanes.set(p)
     const any = cull(view, p, scratchBox)
     // Depth range: from the nearest culled caster to the far side of the sphere, quantized.
     let zNear = lz - radius
@@ -305,11 +354,13 @@ export class LocalShadows {
       })
     if (fresh || !this.spotTexture || spotLayers > this.spotLayers) {
       this.spotTexture?.destroy()
+      for (const view of this.spotViews) view.drawn = false
       this.spotLayers = Math.max(spotLayers, fresh ? 1 : this.spotLayers)
       this.spotTexture = make('shadows/spots', this.spotLayers)
     }
     if (fresh || !this.pointTexture || pointLayers > this.pointLayers) {
       this.pointTexture?.destroy()
+      for (const view of this.pointViews) view.drawn = false
       this.pointLayers = Math.max(pointLayers, fresh ? 6 : this.pointLayers)
       this.pointTexture = make('shadows/points', this.pointLayers)
     }
@@ -421,6 +472,7 @@ export function fitLocalShadows(shadows: LocalShadows, size: number): void {
     const view = shadows.spotViews[i]!
     mat4.multiply(view.viewProj, scratchProj, scratchView)
     frustum.fromViewProjection(view.frustum, view.viewProj)
+    view.cullPlanes.set(view.frustum)
     shadows.spotParams[i * 4] = tanHalf
     shadows.spotParams[i * 4 + 1] = near
   }
@@ -439,6 +491,7 @@ export function fitLocalShadows(shadows: LocalShadows, size: number): void {
       const view = shadows.pointViews[i * 6 + f]!
       mat4.multiply(view.viewProj, scratchProj, scratchView)
       frustum.fromViewProjection(view.frustum, view.viewProj)
+      view.cullPlanes.set(view.frustum)
     }
   }
 }
@@ -494,6 +547,11 @@ export class ShadowPassUniforms {
   bindGroup: GPUBindGroup | undefined
   private bound = ''
   private readonly gpu: GpuContext
+  /** What the buffer holds, so unchanged shadow views write nothing (0055). */
+  private sent = new Float32Array(0)
+  private sentCount = 0
+  private sentVersion = -1
+  private sentGeneration = -1
 
   constructor(gpu: GpuContext) {
     this.gpu = gpu
@@ -521,7 +579,15 @@ export class ShadowPassUniforms {
   }
 
   upload(layout: GPUBindGroupLayout, globals: GpuBuffer): void {
-    if (this.count > 0) this.buffer.write(this.data, 0, 0, (this.count * VIEW_STRIDE) / 4)
+    const floats = (this.count * VIEW_STRIDE) / 4
+    if (this.count > 0 && !this.unchanged(floats)) {
+      this.buffer.write(this.data, 0, 0, floats)
+      if (this.sent.length < this.data.length) this.sent = new Float32Array(this.data.length)
+      this.sent.set(this.data.subarray(0, floats))
+      this.sentCount = this.count
+      this.sentVersion = this.buffer.version
+      this.sentGeneration = this.gpu.generation
+    }
     const key = `${this.buffer.version}/${globals.version}/${this.gpu.generation}`
     if (!this.bindGroup || this.bound !== key) {
       this.bindGroup = this.gpu.device.createBindGroup({
@@ -534,6 +600,16 @@ export class ShadowPassUniforms {
       })
       this.bound = key
     }
+  }
+
+  private unchanged(floats: number): boolean {
+    if (this.sentCount < this.count) return false
+    if (this.sentVersion !== this.buffer.version || this.sentGeneration !== this.gpu.generation)
+      return false
+    const data = this.data
+    const sent = this.sent
+    for (let i = 0; i < floats; i++) if (data[i] !== sent[i]) return false
+    return true
   }
 }
 
