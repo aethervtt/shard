@@ -27,10 +27,13 @@ const CONDITION = t.struct(
 
 const EFFECT = t.struct(
   {
-    kind: t.enum(['light-pulse', 'particle-burst', 'sound-accent', 'lens-pulse', 'attachment'], {
-      description:
-        'light-pulse: a point light swells and fades; particle-burst: CPU particles; sound-accent: a cue; lens-pulse: a lens field (0063) on the die; attachment: a registered scene on each matching die.',
-    }),
+    kind: t.enum(
+      ['light-pulse', 'particle-burst', 'sound-accent', 'lens-pulse', 'attachment', 'entrance'],
+      {
+        description:
+          'light-pulse: a point light swells and fades; particle-burst: CPU particles; sound-accent: a cue; lens-pulse: a lens field (0063) on the die; attachment: a registered scene on each matching die; entrance: a registered scene brings each matching die in instead of the tumble (0065).',
+      },
+    ),
     color: t.color({ default: [1, 0.82, 0.45, 1], description: 'light-pulse: color.' }),
     colors: t.list(t.color(), { description: 'particle-burst: 1 to 4 colors.' }),
     intensity: t.f32({ default: 2, min: 0, max: 8, description: 'light-pulse: 0..8.' }),
@@ -56,6 +59,12 @@ const EFFECT = t.struct(
       description: 'lens-pulse: below 0 pulls in.',
     }),
     attachment: t.string({ description: 'attachment: the name given to defineDiceAttachment.' }),
+    entrance: t.string({ description: 'entrance: the name given to defineDiceEntrance.' }),
+    params: t.json({
+      default: {},
+      description:
+        'attachment, entrance: what the scene reads (at most 16 keys), so skins share one.',
+    }),
   },
   { description: 'One effect.' },
 )
@@ -90,6 +99,7 @@ export const RECIPE_LIMITS = {
   minDurationMs: 100,
   maxDurationMs: 1200,
   recipesPerRoll: 4,
+  params: 16,
 }
 
 /** A recipe from its JSON form, with defaults filled in. */
@@ -100,7 +110,7 @@ export function diceEffectRecipe(json: Record<string, unknown>): DiceEffectRecip
 function bounds(message: string, path: string): ShardError {
   return new ShardError('dice/recipe-bounds', message, {
     path,
-    hint: `Recipes hold at most ${RECIPE_LIMITS.conditions} conditions and ${RECIPE_LIMITS.effects} effects; bursts ${RECIPE_LIMITS.particles} particles; durations ${RECIPE_LIMITS.minDurationMs}–${RECIPE_LIMITS.maxDurationMs} ms.`,
+    hint: `Recipes hold at most ${RECIPE_LIMITS.conditions} conditions and ${RECIPE_LIMITS.effects} effects; bursts ${RECIPE_LIMITS.particles} particles; durations ${RECIPE_LIMITS.minDurationMs}–${RECIPE_LIMITS.maxDurationMs} ms; scene params ${RECIPE_LIMITS.params} keys.`,
   })
 }
 
@@ -137,6 +147,15 @@ export function recipeProblems(recipe: DiceEffectRecipeValue): ShardError[] {
           path: `${path}/attachment`,
         }),
       )
+    if (e.kind === 'entrance' && !e.entrance)
+      out.push(
+        new ShardError('dice/invalid-recipe', 'An entrance effect names no entrance', {
+          path: `${path}/entrance`,
+        }),
+      )
+    const params = e.params as Record<string, unknown> | null
+    if (params && typeof params === 'object' && Object.keys(params).length > RECIPE_LIMITS.params)
+      out.push(bounds(`Params with ${Object.keys(params).length} keys`, `${path}/params`))
   })
   return out
 }

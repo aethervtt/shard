@@ -1,4 +1,11 @@
-import { defineResource, defineSystem, Last, PostUpdate, type World } from '@aethervtt/shard-core'
+import {
+  defineResource,
+  defineSystem,
+  Last,
+  PostUpdate,
+  PreUpdate,
+  type World,
+} from '@aethervtt/shard-core'
 import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
 import { definePlugin, LogResource, type Plugin, Time } from '@aethervtt/shard-runtime'
 import { setTextureCapabilities, Textures } from '@aethervtt/shard-texture'
@@ -73,7 +80,7 @@ import {
 } from './material-pipelines'
 import { isTransparent, type MaterialType } from './materials'
 import { PixelPerfect, PixelPerfectPath, PixelTargets } from './pixel-perfect'
-import { Gpu, Graph, RenderSet, Shaders, Views } from './plugin'
+import { Gpu, Graph, RenderDescribers, RenderSet, Shaders, Views } from './plugin'
 import {
   Antialiasing,
   AutoExposure,
@@ -87,6 +94,13 @@ import {
   Vignette,
 } from './post'
 import { RenderScale, type RenderScaleValue } from './render-scale'
+import {
+  describeScreenEffects,
+  expireScreenEffects,
+  runScreenEffects,
+  ScreenEffectHandlers,
+  ScreenEffects,
+} from './screen-effects'
 import { ViewUniform, viewLayout } from './shaders'
 import {
   assignLocalShadows,
@@ -1353,6 +1367,9 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       Lens,
       LensFields,
       LensPath,
+      // screen effects
+      ScreenEffects,
+      ScreenEffectHandlers,
     ],
     dependencies: ['render', 'core/transform'],
     build(app) {
@@ -1370,14 +1387,19 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       w.initResource(ViewSettings).msaa = options.msaa ?? 4
       Object.assign(w.initResource(RenderScale), options.renderScale)
       w.initResource(LensFields)
+      w.initResource(ScreenEffects)
+      w.initResource(ScreenEffectHandlers)
+      w.initResource(RenderDescribers).set('screenEffects', describeScreenEffects)
       observeInstanceRemovals(w)
       observeLightRemovals(w)
       observeOriginShifts(w)
       app
+        .addSystems(PreUpdate, runScreenEffects)
         .addSystems(PostUpdate, computeVisibility.after(TransformSystems), applyPhysicalCameras)
         .addSystems(
           Last,
           expireLensFields.inSet(RenderSet.Begin),
+          expireScreenEffects.inSet(RenderSet.Begin),
           extractCameras.inSet(RenderSet.Extract),
           extractLights.inSet(RenderSet.Extract),
           prepareInstances.inSet(RenderSet.Prepare),

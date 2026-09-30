@@ -23,6 +23,11 @@ export interface DiceLookKey {
    */
   blended: boolean
   dropped: boolean
+  /**
+   * An entrance die's index (0065): it draws with a material of its own, so its result and
+   * resultTime are its own (it lands after the dice sharing its kind and skin).
+   */
+  entrance?: number
 }
 
 export interface DiceResourceEntry {
@@ -37,9 +42,12 @@ export interface DiceResourceEntry {
   texture: AssetRef<'Texture'>
   params: Record<string, unknown>
   materials: Map<string, AssetRef<'Material'>>
+  /** Entrance dice's own materials (0065), by look: apart, so setAll leaves them be. */
+  own: Map<string, AssetRef<'Material'>>
 }
 
-const lookKey = (l: DiceLookKey) => `${l.blended ? 'b' : 'o'}${l.dropped ? 'd' : ''}`
+const lookKey = (l: DiceLookKey) =>
+  `${l.blended ? 'b' : 'o'}${l.dropped ? 'd' : ''}${l.entrance === undefined ? '' : `@${l.entrance}`}`
 
 export class DiceResources {
   private readonly entries = new Map<string, DiceResourceEntry>()
@@ -99,6 +107,7 @@ export class DiceResources {
         texture,
         params: variant.params,
         materials: new Map(),
+        own: new Map(),
       }
       this.entries.set(key, entry)
     }
@@ -110,7 +119,8 @@ export class DiceResources {
   /** The entry's material for a look, made on first use. */
   material(entry: DiceResourceEntry, look: DiceLookKey): AssetRef<'Material'> {
     const k = lookKey(look)
-    const existing = entry.materials.get(k)
+    const store = look.entrance === undefined ? entry.materials : entry.own
+    const existing = store.get(k)
     if (existing) return existing
     const family = entry.family
     const schema = family.type.schema
@@ -129,7 +139,7 @@ export class DiceResources {
         new MaterialAsset(value, family.type),
         `dice:material/${entry.key}/${k}`,
       ) as AssetRef<'Material'>
-    entry.materials.set(k, ref)
+    store.set(k, ref)
     return ref
   }
 
@@ -144,7 +154,10 @@ export class DiceResources {
     return blend === 'alpha' || blend === 'premultiplied' || blend === 'additive'
   }
 
-  /** Sets a field on every material of these entries (result, its time, fade). */
+  /**
+   * Sets a field on every material of these entries (result, its time, fade); entrance dice's own
+   * (in `own`) follow their own landing.
+   */
   setAll(
     entries: Iterable<DiceResourceEntry>,
     field: 'result' | 'resultTime' | 'fade',
@@ -197,7 +210,7 @@ export class DiceResources {
     const mesh = meshes.get(entry.mesh)
     if (mesh) gpu?.releaseMesh(mesh)
     meshes.delete(entry.mesh.guid!)
-    for (const ref of entry.materials.values()) {
+    for (const ref of [...entry.materials.values(), ...entry.own.values()]) {
       const m = materials.get(ref)
       if (m) gpu?.releaseMaterial(m)
       materials.delete(ref.guid!)
@@ -219,7 +232,7 @@ export class DiceResources {
     let materials = 0
     for (const e of this.entries.values()) {
       if (e.refs > 0) used++
-      materials += e.materials.size
+      materials += e.materials.size + e.own.size
     }
     return {
       entries: this.entries.size,
@@ -247,7 +260,7 @@ export class DiceResources {
       family: e.family.name,
       refs: e.refs,
       releaseInMs: e.refs > 0 ? null : e.releaseAt,
-      materials: [...e.materials.keys()],
+      materials: [...e.materials.keys(), ...e.own.keys()],
       atlas: [e.atlas.width, e.atlas.height],
     }))
   }

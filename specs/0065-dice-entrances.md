@@ -56,6 +56,7 @@ defineDiceEntrance('meteor', {
   durationMs: 3200,                     // the whole scene, at most 8,000
   landAtMs: 1400,                       // when the die lands: at most durationMs
   spot: 'center',                       // where it wants the die: 'center', or [u, v] in −1..1 of the tray
+  impact: 1,                            // how hard it lands, 0..1: its impact sound (default 0.8)
   assets: [meteorMesh, fireTexture],    // loaded before it plays
   spawn(ctx) { return [...] },          // the scene; the table despawns it
   update(ctx, seconds, entities) {      // every frame from its start; false ends it early
@@ -64,6 +65,8 @@ defineDiceEntrance('meteor', {
   },
 })
 ```
+
+A landing outside the scene, or a spot off the tray, throws `dice/invalid-entrance`.
 
 ### Choosing, before the physics
 
@@ -96,6 +99,7 @@ clock:
 - **At `landAt`:** the table snaps the die to its rest pose and shows it, sets its `result` ramp and
   `resultTime` (0054), plays its impact (the skin's impact sound, `strength` from the entrance,
   default 0.8), and starts the other effects of the recipe that chose the entrance, anchored there.
+  The accent phase doesn't play that recipe again.
 - **After `landAt`:** the scene keeps its entities until `durationMs`, or until `update` returns
   false, then they're despawned. The next entrance starts at the previous one's `landAt`.
 
@@ -110,7 +114,7 @@ make it glow while it's carried, or catch fire before it lands.
 ### The context
 
 ```ts
-interface DiceEntranceContext {
+interface DiceEntranceContext extends DiceSceneContext {
   world: World
   die: Entity; kind: DieKind; value: number; label: string; scale: number
   params: Record<string, unknown>            // from the recipe effect
@@ -132,14 +136,18 @@ interface DiceEntranceContext {
 }
 ```
 
-Attachments (0054) get `camera`, `screen`, `effect`, `sound` and `seed` too, so an attachment on a
-landed die can set the map on fire as well.
+Everything but `rest`, `landAt`, `skipped`, `pose`, `show` and `material` is `DiceSceneContext`,
+which attachments (0054) now get too (`DiceAttachmentContext` is an alias): an attachment gains
+`params` from its recipe effect, `camera`, `screen`, `effect`, `sound` and `seed`, so an attachment
+on a landed die can set the map on fire as well. `ctx.material` rejects the dice's reserved fields
+and `alphaMode` with `dice/reserved-param`.
 
 **Windows.** Both kinds of scene draw effects on camera-facing quads. The package exports what the
 playground's cosmic dice proved: `spawnDiceWindow(ctx, material, { x, y, width, height, turn,
-lift })` places a quad facing the dice camera over the die, in die radii, `lift` die radii toward
-the camera, moved along the line from the camera and scaled by how much nearer it got, so windows
-at different depths line up wherever the die is.
+lift, at? })` places a quad facing the dice camera over the die (or over `at`, an entrance's rest
+spot before the die is there), in die radii, `lift` die radii toward the camera, moved along the
+line from the camera and scaled by how much nearer it got, so windows at different depths line up
+wherever the die is.
 
 ### Skipping, cancelling, failing
 
@@ -147,19 +155,28 @@ at different depths line up wherever the die is.
   `ctx.skipped` turns true, the die snaps to its rest pose, and scenes get 400 ms to wind down.
 - Dismissal, replacement, cancellation, device loss and disposal despawn the scene with the dice,
   stop its sounds and clear its lens fields and screen effects.
-- An entrance that isn't registered, whose assets fail to load, or that isn't loaded 1,500 ms after
-  the physics is ready, doesn't play: its die drops into its rest spot (0054's placed drop) with
-  its recipe's other effects, and `dice/entrance-unavailable` is logged once per entrance.
+- An entrance that isn't registered, whose assets fail to load, or that isn't ready
+  `entranceWaitMs` after the physics is ready (a `dicePlugin` option, default 1,500), doesn't
+  play: its die drops into its rest spot (0054's placed drop, 300 ms) with its recipe's other
+  effects, and `dice/entrance-unavailable` is logged once per entrance.
 
 ### Budgets and first frames
 
-`dicePlugin({ budgets: { attachmentVertices = 12_000, entranceVertices = 60_000, entranceMs =
-8_000 } })`. A definition over its budget throws `dice/entrance-budget` at `defineDiceEntrance`; a
-scene that spawns more than it declared is ended at spawn, as attachments are.
+`setDiceBudgets({ attachmentVertices = 12_000, entranceVertices = 60_000, entranceMs = 8_000 })`,
+read from `DICE_BUDGETS`. They're module-wide, like the registries they guard: definitions are
+checked when they're made, before any plugin exists, so set them first. A definition over its
+budget throws `dice/entrance-budget` at `defineDiceEntrance`; a scene that spawns more mesh
+vertices than it declared doesn't play (its die drops in, and `dice/entrance-budget` is logged
+once), as an attachment over its declaration is ended at spawn.
 
 A scene's first frame mustn't compile. While the worker records, the table loads the entrance's
-`assets`, spawns its scene hidden and draws it once to an offscreen target on the app's device (as
-`renderDiceThumbnail` does), so its pipelines and uploads are ready, then despawns that copy.
+`assets`, then spawns a copy of the scene far from the tray, with its die at a rest pose, and
+draws it through a camera of its own to a 64×64 offscreen target on the app's device (as
+`renderDiceThumbnail` does). The copy's context publishes nothing and plays nothing. It draws until
+three frames in a row are complete (draw calls made, none skipped for an upload, a shader still
+linking or a pipeline compiling, and the pipeline cache idle: new entities upload in their first
+frame and draw from the next), or the roll ends, then despawns the copy. An entrance whose turn
+comes before its warm-up is done waits for it, within `entranceWaitMs`.
 
 ### Screen effects
 
@@ -183,10 +200,13 @@ onScreenEffect(world, kind, {                          // in the consuming app
 They're lens fields' sibling in `@aethervtt/shard-render`: in CSS pixels of the target, `ttlMs`
 counted down and refreshed, expired in core with a frame demand while live, forwarded between apps
 with an origin offset. The difference is who draws them: lens fields feed the engine's `post/lens`
-pass; a screen effect goes to whatever the consuming app registered for its kind. A kind nobody
-registered is dropped and logged once (`render/unhandled-screen-effect`). Reduced motion, effects
-off, the large-pool tier, a hidden document and disposal clear the dice's effects, as they do lens
-fields.
+pass; a screen effect goes to whatever the consuming app registered for its kind. Both resources
+and the lifecycle are in `forwardCorePlugin`: `runScreenEffects` in `PreUpdate` starts, updates and
+ends handlers, and the demand (`render/screen-effects`) is held while an effect or a handler's
+entities are live. A kind nobody registered is dropped and logged once
+(`render/unhandled-screen-effect`); an effect with no kind, a negative radius or more than 8 params
+throws `render/invalid-screen-effect`. Reduced motion, effects off, the large-pool tier, a hidden
+document and disposal clear the dice's effects, as they do lens fields.
 
 The playground registers `fire` on its table: it maps the screen point onto the table plane (0057's
 `screenToPlane`; until then the camera's `invViewProj`), and spawns flames (0026 particles), a
@@ -197,21 +217,25 @@ and the scorch fades over ten.
 
 The dice page gains an `inferno` skin: an animated family whose flames lick up the die and burn
 brightest on its top face from `resultTime`. On a natural 20 its `meteor` entrance drops the d20
-from above the page as a burning meteor (a trail on a camera-facing window, sparks), strikes its
-rest spot with a flash and a shockwave, lands it in flames, and sets the table on fire around it
-(`fire`). On a natural 1, `fizzle` drops it with a sputter and a puff of smoke, and leaves a small
-scorch. Rolled with other dice (advantage, 2d20 + 1d6), the others tumble first. A "skip" button
-calls `dice.skip()`.
+from above the page as a burning meteor (the die itself, glowing through `ctx.material`, spinning
+down a slant with a particle trail), strikes its rest spot with sparks and a shockwave on a
+camera-facing window, lands it in flames, and sets the table on fire around it (`fire`). On a
+natural 1, `fizzle` drops it with a puff of smoke, and leaves a small fire and scorch. Rolled with
+other dice from the roll builder, the others tumble first. A "skip entrance" button calls
+`dice.skip()`. All of it is host code, in `apps/playground/src/dice-inferno.ts`.
 
 ### Agent surface
 
 - `dice.describe` adds `entrances`: `{ name, die, state: 'waiting' | 'playing' | 'landed' |
-  'done', seconds, landAtMs, durationMs, rest, fallback: reason | null }`, and why a matched entrance
-  didn't play (tier, reduced motion, effects off, over 2); and the dice's `screenEffects`.
+  'done', ready (its assets loaded and its scene warmed), seconds, landAtMs, durationMs, rest,
+  fallback: reason | null, skipped }`, and why a matched entrance
+  didn't play (tier, reduced motion, effects off, over 2); the dice's `screenEffects`; and the
+  track's `bodies` (the physical dice it holds).
 - `dice.skip` through the protocol. `render.describe` lists live screen effects and their handlers.
-- **Errors:** `dice/entrance-budget`, `dice/entrance-unavailable` (logged, not thrown),
-  `dice/registry-conflict` (a name defined twice), `dice/recipe-bounds` for entrance params over 16
-  keys, `render/unhandled-screen-effect`.
+- **Errors:** `dice/entrance-budget`, `dice/invalid-entrance`, `dice/entrance-unavailable` (logged,
+  not thrown), `dice/registry-conflict` (a name defined twice), `dice/reserved-param`,
+  `dice/recipe-bounds` for entrance params over 16 keys, `render/invalid-screen-effect`,
+  `render/unhandled-screen-effect`.
 
 ## Decisions
 
@@ -235,28 +259,47 @@ calls `dice.skip()`.
 
 ## Acceptance criteria
 
-- [ ] A roll of a d20 at 20 with an `inferno` skin and a d6: the track's request holds only the d6;
+- [x] A roll of a d20 at 20 with an entrance skin and a d6: the track's request holds only the d6;
       the d6 tumbles, then the meteor plays; at `landAtMs` the d20 is at its rest pose with 20 up,
       within the readable bound (0054), not overlapping the d6, and the recipe's other effects start
       then, not before.
-- [ ] The same roll records the same track hash inline and in the worker, and the same rest spot.
-- [ ] No entrance plays in reduced motion, with effects off, or in the balanced or large-pool tiers;
+- [x] The same roll records the same track hash inline and in the worker, and the same rest spot.
+- [x] No entrance plays in reduced motion, with effects off, or in the balanced or large-pool tiers;
       the die is physical (or placed) as in 0054, and `dice.describe` gives the reason. A third
       matching die in one roll tumbles.
-- [ ] The entrance die's `resultTime` is its own landing time; dice of the same kind and skin that
+- [x] The entrance die's `resultTime` is its own landing time; dice of the same kind and skin that
       landed earlier keep theirs.
-- [ ] `dice.skip()` lands a playing entrance within one frame, target up; dismissing or cancelling
+- [x] `dice.skip()` lands a playing entrance within one frame, target up; dismissing or cancelling
       mid-entrance leaves no entrance entities, no screen effects and no held frame demand.
-- [ ] An entrance whose asset fails to load, or loads after 1,500 ms, drops its die into its rest spot
-      instead, logs `dice/entrance-unavailable` once, and the roll finishes.
-- [ ] An entrance definition over its vertex budget throws `dice/entrance-budget`.
-- [ ] The first frame of an entrance compiles no pipeline (the scene was drawn once offscreen while
-      the worker recorded).
-- [ ] A screen effect published in one app and forwarded to another starts its handler once, updates
+- [x] An entrance whose asset fails to load, or isn't ready 1,500 ms after the physics, drops its
+      die into its rest spot instead, logs `dice/entrance-unavailable` once, and the roll finishes.
+- [x] An entrance definition over its vertex budget throws `dice/entrance-budget`.
+- [x] From the frame an entrance starts, with frames that never yield (so nothing could compile in
+      between), every mesh is in the draw list and none is skipped for an upload, a shader or a
+      pipeline. Without the warm-up, its first frame skips 11 draws and the test fails.
+- [x] A screen effect published in one app and forwarded to another starts its handler once, updates
       it while refreshed, and ends it `ttlMs` after the last refresh; the consuming app goes idle
       after. An unregistered kind logs `render/unhandled-screen-effect` once.
-- [ ] In the dice page, the meteor's natural 20 sets the table on fire around the die, and the fire
+- [x] In the dice page, the meteor's natural 20 sets the table on fire around the die, and the fire
       dies down after the roll; `renderer-min` stays within its size budget.
+
+## Implementation notes
+
+- **Package:** `packages/dice`: `entrances.ts` (the registry), `windows.ts` (`spawnDiceWindow`, and
+  `meshVertices` for the spawn checks), `attachments.ts` (`DiceSceneContext`, `DICE_BUDGETS`),
+  `track.ts` (`entranceSpots`: the free grid spot nearest the wanted one), `resources.ts` (entrance
+  dice's own materials, apart from `setAll`), `table.ts` (choosing, rest spots, the warm-up and the
+  timeline). `packages/render`: `screen-effects.ts`.
+- **Engine changes:** `forwardCorePlugin` gains `ScreenEffects`, `ScreenEffectHandlers`,
+  `runScreenEffects` (`PreUpdate`) and their expiry (`RenderSet.Begin`); `render.describe` gains
+  `screenEffects`. The dice table maps track bodies to dice (`bodyOf`), so contacts, impacts and
+  poses read the right die when entrance dice are left out.
+- **Measuring first frames:** a draw waiting on its shader counts in `gpu.pipelines.skipped`, not
+  in `pipelines.pending` (no pipeline is asked for yet) nor `ViewStats.pending`; and a GPU-culled
+  view's `drawCalls` come back a frame or two late. The warm-up checks `skipped`; the test culls on
+  the CPU and runs its frames without yielding.
+- **Demo:** the playground's particles draw with a soft round sprite: without a texture, a
+  billboard is a square.
 
 ## Open questions
 

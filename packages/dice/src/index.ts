@@ -1,16 +1,19 @@
 // @aethervtt/shard-dice (0054): dice as a first-party package. Definitions and their numbering,
 // face layouts baked into MSDF atlases, skins over material families, physical tracks recorded
 // in a worker (0053), landing on the host's result by a symmetry of the die, and presentation:
-// phases, dropped dice, reduced motion, quality tiers, effects, cancellation and cleanup.
+// phases, dropped dice, reduced motion, quality tiers, effects, cancellation and cleanup; and
+// entrances (0065): dice brought in by a host scene instead of the tumble.
 
 export {
   allDiceAttachments,
+  DICE_BUDGETS,
   type DiceAttachmentContext,
   type DiceAttachmentDef,
+  type DiceSceneContext,
   defineDiceAttachment,
   findDiceAttachment,
-  MAX_ATTACHMENT_VERTICES,
   MAX_ATTACHMENTS,
+  setDiceBudgets,
 } from './attachments'
 export {
   BUILTIN_DICE,
@@ -62,6 +65,14 @@ export {
   RECIPE_LIMITS,
   recipeProblems,
 } from './effects'
+export {
+  allDiceEntrances,
+  type DiceEntranceContext,
+  type DiceEntranceDef,
+  defineDiceEntrance,
+  findDiceEntrance,
+  MAX_ENTRANCES,
+} from './entrances'
 export { BUILTIN_FAMILIES, GLASS, METAL, RESIN, SOLID } from './families'
 export {
   allDiceGlyphs,
@@ -181,6 +192,8 @@ export {
   DiceTable,
   type DiceTableOptions,
   DiceTableState,
+  ENTRANCE_DEMAND,
+  ENTRANCE_WAIT_MS,
   PRESENTATION_DEMAND,
   PREVIEW_TRAY,
 } from './table'
@@ -207,3 +220,4 @@ export {
   unlandedDice,
 } from './track'
 export { DiceTray as DiceTrayMaterial, TRAY_SHADERS } from './tray'
+export { type DiceWindow, spawnDiceWindow } from './windows'

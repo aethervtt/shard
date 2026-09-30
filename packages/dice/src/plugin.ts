@@ -32,7 +32,7 @@ import { diceMethods } from './methods'
 import type { DiceRoll } from './roll'
 import { BUILTIN_SKINS, DICE_SKINS, DiceSkin, diceSkin } from './skin'
 import { studioEnvironment } from './studio'
-import { DiceTable, DiceTableState } from './table'
+import { DiceTable, DiceTableState, ENTRANCE_WAIT_MS } from './table'
 import { DiceTray, TRAY_SHADERS } from './tray'
 
 export interface DicePluginOptions {
@@ -58,6 +58,11 @@ export interface DicePluginOptions {
   illuminance?: number
   /** Image-based light from a small procedural studio. Default true. */
   environment?: boolean
+  /**
+   * How long a roll waits, past its physics, for an entrance's assets and warm-up before its die
+   * drops in instead (0065). Default 1,500 ms.
+   */
+  entranceWaitMs?: number
 }
 
 /** Where the dice camera looks from: straight down, screen-up toward -z. */
@@ -144,6 +149,7 @@ export function dicePlugin(options: DicePluginOptions = {}): Plugin {
           kinds: { ...KIND_DEFINITIONS, ...options.kinds },
           worker: options.worker ?? 'inline',
           fovY: options.camera?.fovY ?? 35,
+          entranceWaitMs: options.entranceWaitMs ?? ENTRANCE_WAIT_MS,
         }),
       )
       app.addSystems(Update, tableFrame, rollRequests, deviceLoss)
