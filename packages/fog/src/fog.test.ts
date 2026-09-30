@@ -219,6 +219,40 @@ describe('projected fog (0058)', () => {
     timeout(60_000),
   )
 
+  it(
+    'packs the tessellation arena after evicting unused meshes, and draws what an unpacked one draws',
+    async () => {
+      const { app, world } = await fogApp()
+      const texel = 0.078125
+      const first = randomRegions(9000, 3)
+      const ref = regionsRef(world, first)
+      const entity = layer(world, ref, texel)
+      await settle(app)
+      const state = world.resource(FogStateResource)
+      // A different 9,000: over the cache's limit, so the first set's meshes go and the arena packs.
+      const second = randomRegions(9000, 4)
+      setFogRegions(world, ref, { rev: 2, regions: second })
+      app.update(1 / 60)
+      expect(state.meshes.size).toBeLessThanOrEqual(9000)
+      // Redrawn from the packed arena: reversed, so it's a redraw of cached meshes only.
+      const reversed = [...second].reverse()
+      setFogRegions(world, ref, { rev: 3, regions: reversed })
+      await settle(app)
+      const l = state.layers.get(entity)!
+      expect(l.lastUpdate).toBe('none')
+      const packed = await readMask(entity, world)
+      // The same regions in a fresh app, whose arena never packed: the same mask, texel for texel.
+      const fresh = await fogApp()
+      const other = layer(fresh.world, regionsRef(fresh.world, reversed), texel)
+      await settle(fresh.app)
+      const unpacked = await readMask(other, fresh.world)
+      expect(Buffer.compare(Buffer.from(packed), Buffer.from(unpacked))).toBe(0)
+      await fresh.app.dispose()
+      await app.dispose()
+    },
+    timeout(120_000),
+  )
+
   it('appends a brush stroke to 4,000 regions by drawing only that stroke', async () => {
     const { app, world } = await fogApp()
     const base = randomRegions(4000, 11)
@@ -320,6 +354,7 @@ describe('projected fog (0058)', () => {
       app.update(1 / 60)
       await gpu.device.queue.onSubmittedWorkDone()
       const ms = performance.now() - start
+      console.log(`fog redraw, 4,000 regions × 1,000 points: ${ms.toFixed(1)} ms`)
       expect(
         (describeRender(world).fog as { layers: { lastUpdate: string }[] }).layers[0]!.lastUpdate,
       ).toBe('redraw')
@@ -330,7 +365,7 @@ describe('projected fog (0058)', () => {
   )
 
   it.each([1, 4] as const)(
-    'darkens by the viewer’s opacity: 0.45 over hidden fog takes 45%% ± 1%% off the pixel (MSAA %i)',
+    'darkens by the viewer’s opacity: 0.45 over hidden fog takes 0.45 ± 0.01 of the pixel away (MSAA %i)',
     async (msaa) => {
       const { app, world, cam } = await fogApp({ msaa })
       const hdr = async () => {

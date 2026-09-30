@@ -9,8 +9,8 @@ import { FogLayer, type FogRegion, FogRegionsStore, type FogRegionsValue } from 
 // in order onto it: `hide` is dst + c(1 − dst), `reveal` is dst(1 − strength · c). A region's
 // triangles may overlap (brush joins); a stencil lets each texel take only its first triangle per
 // region, core triangles first. Appending regions draws only the new ones; any other change
-// clears to the base and draws them all. Tessellation is cached by content, so a redraw is GPU
-// work only.
+// clears to the base and draws them all. Tessellations are cached by content in one GPU arena,
+// uploaded once each, so a redraw is draw calls only.
 
 /** The largest mask side. */
 export const MAX_MASK_SIZE = 4096
@@ -21,18 +21,39 @@ const STRIDE = 3
 /** Stencil values a pass can hand out before it has to clear (0 means "not yet drawn"). */
 const STENCIL_REFS = 255
 
-/** A region tessellated with its feather, strength baked into the coverage. */
+/** A region tessellated with its feather, strength baked into the coverage, and its arena slot. */
 interface RegionMesh {
   vertices: Float32Array
+  /** From the mesh's own first vertex: drawn with `baseVertex`. */
   indices: Uint32Array
   hide: boolean
+  baseVertex: number
+  firstIndex: number
 }
 
-/** Where a region's triangles sit in the layer's buffers. */
+/** One region's draw: where its triangles sit in the arena. */
 interface RegionDraw {
+  baseVertex: number
   firstIndex: number
   indexCount: number
   hide: boolean
+}
+
+/**
+ * Every cached tessellation, back to back: a CPU copy, and GPU buffers holding the first
+ * `uploaded*` of it. A replaced buffer (grown, or a lost device) is uploaded whole again.
+ */
+interface Arena {
+  vertices: Float32Array
+  indices: Uint32Array
+  vertexCount: number
+  indexCount: number
+  vertexBuffer: GpuBuffer | undefined
+  indexBuffer: GpuBuffer | undefined
+  uploadedVertices: number
+  uploadedIndices: number
+  vertexVersion: number
+  indexVersion: number
 }
 
 export interface LayerState {
@@ -49,26 +70,17 @@ export interface LayerState {
   opacity: number
   /** The region list drawn from, and how many of its regions are on the mask. */
   value: FogRegionsValue | undefined
+  /** Content hashes of the drawn regions, and the texel size their meshes were made for. */
   hashes: number[]
+  texel: number
   drawn: number
   /** Regions to draw this frame, from `drawFrom`; `clear` first when redrawing. */
   drawFrom: number
   clear: boolean
-  vertices: Float32Array
-  indices: Uint32Array
-  vertexCount: number
-  indexCount: number
+  /** The drawn regions' draws, in order. */
   draws: RegionDraw[]
-  /** Buffers and how much of the CPU arrays they hold. */
-  vertexBuffer: GpuBuffer | undefined
-  indexBuffer: GpuBuffer | undefined
-  uploadedVertices: number
-  uploadedIndices: number
   uniform: GpuBuffer | undefined
   uniformGroup: GPUBindGroup | undefined
-  /** The buffers' versions when last uploaded: a replaced buffer is uploaded whole. */
-  vertexVersion: number
-  indexVersion: number
   /** What the last update did, for `fog.describe`. */
   lastUpdate: 'none' | 'append' | 'redraw'
   lastDrawn: number
@@ -79,8 +91,9 @@ export interface FogState {
   layers: Map<Entity, LayerState>
   /** Layers in draw order this frame (at most MAX_FOG_LAYERS compose). */
   active: LayerState[]
-  /** Tessellations by content hash. */
+  /** Tessellations by content hash and texel size, and the arena they're drawn from. */
   meshes: Map<number, RegionMesh>
+  arena: Arena
   stencil: GPUTexture | undefined
   stencilSize: [number, number]
   stencilGeneration: number
@@ -99,6 +112,18 @@ export function createFogState(): FogState {
     layers: new Map(),
     active: [],
     meshes: new Map(),
+    arena: {
+      vertices: new Float32Array(4096),
+      indices: new Uint32Array(4096),
+      vertexCount: 0,
+      indexCount: 0,
+      vertexBuffer: undefined,
+      indexBuffer: undefined,
+      uploadedVertices: 0,
+      uploadedIndices: 0,
+      vertexVersion: -1,
+      indexVersion: -1,
+    },
     stencil: undefined,
     stencilSize: [0, 0],
     stencilGeneration: -1,
@@ -167,11 +192,25 @@ export function regionHash(r: FogRegion): number {
   return h
 }
 
-/** A region's triangles, strength baked in: from the cache, or tessellated now. */
-export function regionMesh(state: FogState, r: FogRegion, hash: number, error: number): RegionMesh {
-  let mesh = state.meshes.get(hash)
+/**
+ * How finely a mask of `texel` tessellates regions: arcs to a quarter texel, and input points the
+ * outline doesn't need dropped while it stays within 1/255 of a texel, which no 8-bit mask shows.
+ * The CPU reference raster uses the same.
+ */
+export function tessellation(texel: number): { error: number; tolerance: number } {
+  return { error: Math.max(0.001, texel * 0.25), tolerance: texel / 255 }
+}
+
+/** A region's triangles for a mask of `texel`, strength baked in: from the cache, or tessellated now. */
+export function regionMesh(state: FogState, r: FogRegion, hash: number, texel: number): RegionMesh {
+  // Tessellation depends on the texel size, so layers with different ones don't share meshes.
+  const key = hashNumber(hash, texel)
+  let mesh = state.meshes.get(key)
   if (mesh) return mesh
-  const cov: CoverageMesh = featheredCoverage(r.shape, { feather: r.feather ?? 0, error })
+  const cov: CoverageMesh = featheredCoverage(r.shape, {
+    feather: r.feather ?? 0,
+    ...tessellation(texel),
+  })
   const strength = r.strength ?? 1
   const n = cov.coverage.length
   const vertices = new Float32Array(n * STRIDE)
@@ -180,9 +219,52 @@ export function regionMesh(state: FogState, r: FogRegion, hash: number, error: n
     vertices[i * STRIDE + 1] = cov.positions[i * 2 + 1]!
     vertices[i * STRIDE + 2] = cov.coverage[i]! * strength
   }
-  mesh = { vertices, indices: cov.indices, hide: r.op === 'hide' }
-  state.meshes.set(hash, mesh)
+  mesh = { vertices, indices: cov.indices, hide: r.op === 'hide', baseVertex: 0, firstIndex: 0 }
+  arenaAdd(state.arena, mesh)
+  state.meshes.set(key, mesh)
   return mesh
+}
+
+/** Appends a mesh to the arena's CPU copy (uploaded before the next draw) and records its slot. */
+function arenaAdd(arena: Arena, mesh: RegionMesh): void {
+  const v = mesh.vertices
+  const needV = arena.vertexCount * STRIDE + v.length
+  if (needV > arena.vertices.length) {
+    const next = new Float32Array(Math.max(needV, arena.vertices.length * 2))
+    next.set(arena.vertices.subarray(0, arena.vertexCount * STRIDE))
+    arena.vertices = next
+  }
+  const needI = arena.indexCount + mesh.indices.length
+  if (needI > arena.indices.length) {
+    const next = new Uint32Array(Math.max(needI, arena.indices.length * 2))
+    next.set(arena.indices.subarray(0, arena.indexCount))
+    arena.indices = next
+  }
+  mesh.baseVertex = arena.vertexCount
+  mesh.firstIndex = arena.indexCount
+  arena.vertices.set(v, arena.vertexCount * STRIDE)
+  arena.indices.set(mesh.indices, arena.indexCount)
+  arena.vertexCount += v.length / STRIDE
+  arena.indexCount += mesh.indices.length
+}
+
+/** Packs the arena again from the meshes still cached (after evicting), uploaded whole next. */
+function arenaCompact(state: FogState): void {
+  const arena = state.arena
+  arena.vertexCount = 0
+  arena.indexCount = 0
+  arena.uploadedVertices = 0
+  arena.uploadedIndices = 0
+  for (const mesh of state.meshes.values()) arenaAdd(arena, mesh)
+  // Draw lists point into the arena: rebuild them from the regions they draw.
+  for (const layer of state.layers.values()) {
+    for (let i = 0; i < layer.draws.length; i++) {
+      const mesh = state.meshes.get(hashNumber(layer.hashes[i]!, layer.texel))!
+      const d = layer.draws[i]!
+      d.baseVertex = mesh.baseVertex
+      d.firstIndex = mesh.firstIndex
+    }
+  }
 }
 
 // --- per-frame update -----------------------------------------------------------------------------
@@ -200,50 +282,27 @@ function newLayer(entity: Entity): LayerState {
     opacity: 1,
     value: undefined,
     hashes: [],
+    texel: 0,
     drawn: 0,
     drawFrom: 0,
     clear: false,
-    vertices: new Float32Array(1024),
-    indices: new Uint32Array(1024),
-    vertexCount: 0,
-    indexCount: 0,
     draws: [],
-    vertexBuffer: undefined,
-    indexBuffer: undefined,
-    uploadedVertices: 0,
-    uploadedIndices: 0,
     uniform: undefined,
     uniformGroup: undefined,
-    vertexVersion: -1,
-    indexVersion: -1,
     lastUpdate: 'none',
     lastDrawn: 0,
     seen: 0,
   }
 }
 
-/** Appends a region's triangles to the layer's arrays. */
+/** Adds a region's draw to the layer's list. */
 function appendRegion(layer: LayerState, mesh: RegionMesh): void {
-  const v = mesh.vertices
-  const needV = (layer.vertexCount + v.length / STRIDE) * STRIDE
-  if (needV > layer.vertices.length) {
-    const next = new Float32Array(Math.max(needV, layer.vertices.length * 2))
-    next.set(layer.vertices.subarray(0, layer.vertexCount * STRIDE))
-    layer.vertices = next
-  }
-  layer.vertices.set(v, layer.vertexCount * STRIDE)
-  const base = layer.vertexCount
-  const idx = mesh.indices
-  const needI = layer.indexCount + idx.length
-  if (needI > layer.indices.length) {
-    const next = new Uint32Array(Math.max(needI, layer.indices.length * 2))
-    next.set(layer.indices.subarray(0, layer.indexCount))
-    layer.indices = next
-  }
-  for (let i = 0; i < idx.length; i++) layer.indices[layer.indexCount + i] = idx[i]! + base
-  layer.draws.push({ firstIndex: layer.indexCount, indexCount: idx.length, hide: mesh.hide })
-  layer.vertexCount += v.length / STRIDE
-  layer.indexCount += idx.length
+  layer.draws.push({
+    baseVertex: mesh.baseVertex,
+    firstIndex: mesh.firstIndex,
+    indexCount: mesh.indices.length,
+    hide: mesh.hide,
+  })
 }
 
 /**
@@ -287,7 +346,12 @@ export function updateFog(world: World, state: FogState, gpu: GpuContext): void 
       const base = BASES[bases[row] as number] ?? 'hidden'
       const e = layer.extent
       const moved =
-        e[0] !== minX || e[1] !== minZ || e[2] !== maxX || e[3] !== maxZ || layer.base !== base
+        e[0] !== minX ||
+        e[1] !== minZ ||
+        e[2] !== maxX ||
+        e[3] !== maxZ ||
+        layer.base !== base ||
+        layer.texel !== texel
       const resized = width !== layer.width || height !== layer.height
       if (resized || layer.generation !== gpu.generation || !layer.texture) {
         layer.texture?.destroy()
@@ -312,6 +376,7 @@ export function updateFog(world: World, state: FogState, gpu: GpuContext): void 
         e[2] = maxX
         e[3] = maxZ
         layer.base = base
+        layer.texel = texel
         layer.drawn = 0
         layer.value = undefined
       }
@@ -333,14 +398,9 @@ export function updateFog(world: World, state: FogState, gpu: GpuContext): void 
           }
         }
       }
-      const error = Math.max(0.001, texel * 0.25)
       if (!append) {
-        layer.vertexCount = 0
-        layer.indexCount = 0
         layer.draws.length = 0
         layer.hashes.length = 0
-        layer.uploadedVertices = 0
-        layer.uploadedIndices = 0
         layer.drawn = 0
         layer.drawFrom = 0
         layer.clear = true
@@ -350,7 +410,7 @@ export function updateFog(world: World, state: FogState, gpu: GpuContext): void 
         const r = regions[i]!
         const hash = regionHash(r)
         layer.hashes.push(hash)
-        appendRegion(layer, regionMesh(state, r, hash, error))
+        appendRegion(layer, regionMesh(state, r, hash, texel))
       }
       layer.drawn = regions.length
       layer.value = value
@@ -363,16 +423,17 @@ export function updateFog(world: World, state: FogState, gpu: GpuContext): void 
   for (const [entity, layer] of state.layers) {
     if (layer.seen === state.frame) continue
     layer.texture?.destroy()
-    layer.vertexBuffer?.destroy()
-    layer.indexBuffer?.destroy()
     layer.uniform?.destroy()
     state.layers.delete(entity)
   }
-  // Tessellations no layer uses any more, once there are many.
+  // Tessellations no layer uses any more, once there are many: dropped, and the arena packed.
   if (state.meshes.size > 8192) {
     const used = new Set<number>()
-    for (const layer of state.layers.values()) for (const h of layer.hashes) used.add(h)
+    for (const layer of state.layers.values())
+      for (const h of layer.hashes) used.add(hashNumber(h, layer.texel))
+    const before = state.meshes.size
     for (const h of state.meshes.keys()) if (!used.has(h)) state.meshes.delete(h)
+    if (state.meshes.size < before) arenaCompact(state)
   }
 }
 
@@ -465,52 +526,55 @@ function stencilFor(gpu: GpuContext, state: FogState, width: number, height: num
   return state.stencil
 }
 
-/** Writes what this frame draws of a layer into its buffers and its uniform. */
-function upload(gpu: GpuContext, layer: LayerState): void {
-  if (!layer.vertexBuffer) {
-    layer.vertexBuffer = new GpuBuffer(gpu, { label: 'fog/vertices', usage: GPUBufferUsage.VERTEX })
-    layer.indexBuffer = new GpuBuffer(gpu, { label: 'fog/indices', usage: GPUBufferUsage.INDEX })
-    layer.uniform = new GpuBuffer(gpu, {
-      label: 'fog/mask-params',
-      usage: GPUBufferUsage.UNIFORM,
-      size: 16,
-    })
+/** Uploads what the arena gained since the last upload (all of it into a replaced buffer). */
+function uploadArena(gpu: GpuContext, arena: Arena): void {
+  if (!arena.vertexBuffer) {
+    arena.vertexBuffer = new GpuBuffer(gpu, { label: 'fog/vertices', usage: GPUBufferUsage.VERTEX })
+    arena.indexBuffer = new GpuBuffer(gpu, { label: 'fog/indices', usage: GPUBufferUsage.INDEX })
   }
-  const vb = layer.vertexBuffer
-  const ib = layer.indexBuffer!
-  // Growing (or a lost device) replaces a buffer and its contents: upload everything again.
-  vb.ensureCapacity(layer.vertexCount * STRIDE * 4)
-  ib.ensureCapacity(layer.indexCount * 4)
-  if (vb.version !== layer.vertexVersion || ib.version !== layer.indexVersion) {
-    layer.uploadedVertices = 0
-    layer.uploadedIndices = 0
+  const vb = arena.vertexBuffer
+  const ib = arena.indexBuffer!
+  vb.ensureCapacity(Math.max(16, arena.vertexCount * STRIDE * 4))
+  ib.ensureCapacity(Math.max(16, arena.indexCount * 4))
+  if (vb.version !== arena.vertexVersion || ib.version !== arena.indexVersion) {
+    arena.uploadedVertices = 0
+    arena.uploadedIndices = 0
   }
-  if (layer.uploadedVertices < layer.vertexCount) {
+  if (arena.uploadedVertices < arena.vertexCount) {
     vb.write(
-      layer.vertices,
-      layer.uploadedVertices * STRIDE * 4,
-      layer.uploadedVertices * STRIDE,
-      (layer.vertexCount - layer.uploadedVertices) * STRIDE,
+      arena.vertices,
+      arena.uploadedVertices * STRIDE * 4,
+      arena.uploadedVertices * STRIDE,
+      (arena.vertexCount - arena.uploadedVertices) * STRIDE,
     )
-    layer.uploadedVertices = layer.vertexCount
+    arena.uploadedVertices = arena.vertexCount
   }
-  if (layer.uploadedIndices < layer.indexCount) {
+  if (arena.uploadedIndices < arena.indexCount) {
     ib.write(
-      layer.indices,
-      layer.uploadedIndices * 4,
-      layer.uploadedIndices,
-      layer.indexCount - layer.uploadedIndices,
+      arena.indices,
+      arena.uploadedIndices * 4,
+      arena.uploadedIndices,
+      arena.indexCount - arena.uploadedIndices,
     )
-    layer.uploadedIndices = layer.indexCount
+    arena.uploadedIndices = arena.indexCount
   }
+  arena.vertexVersion = vb.version
+  arena.indexVersion = ib.version
+}
+
+/** Writes a layer's extent into its uniform. */
+function uploadParams(gpu: GpuContext, layer: LayerState): void {
+  layer.uniform ??= new GpuBuffer(gpu, {
+    label: 'fog/mask-params',
+    usage: GPUBufferUsage.UNIFORM,
+    size: 16,
+  })
   const e = layer.extent
   params[0] = e[0]
   params[1] = e[1]
   params[2] = 1 / (e[2] - e[0])
   params[3] = 1 / (e[3] - e[1])
-  layer.uniform!.write(params)
-  layer.vertexVersion = vb.version
-  layer.indexVersion = ib.version
+  layer.uniform.write(params)
 }
 const params = new Float32Array(4)
 
@@ -530,9 +594,11 @@ export function encodeMasks(ctx: NodeContext, state: FogState): void {
   if (!p) return
   state.encoded = state.frame
   const gpu = ctx.gpu
+  uploadArena(gpu, state.arena)
+  const arena = state.arena
   for (const layer of state.active) {
     if (layer.drawFrom >= layer.drawn && !layer.clear) continue
-    upload(gpu, layer)
+    uploadParams(gpu, layer)
     const group = gpu.device.createBindGroup({
       label: 'fog/mask',
       layout: state.layout!,
@@ -568,8 +634,8 @@ export function encodeMasks(ctx: NodeContext, state: FogState): void {
       pass.setViewport(0, 0, layer.width, layer.height, 0, 1)
       pass.setScissorRect(0, 0, layer.width, layer.height)
       pass.setBindGroup(0, group)
-      pass.setVertexBuffer(0, layer.vertexBuffer!.buffer)
-      pass.setIndexBuffer(layer.indexBuffer!.buffer, 'uint32')
+      pass.setVertexBuffer(0, arena.vertexBuffer!.buffer)
+      pass.setIndexBuffer(arena.indexBuffer!.buffer, 'uint32')
       let current: GPURenderPipeline | undefined
       const end = Math.min(layer.drawn, r + STENCIL_REFS)
       for (let ref = 1; r < end; r++, ref++) {
@@ -581,7 +647,7 @@ export function encodeMasks(ctx: NodeContext, state: FogState): void {
           current = pipeline
         }
         pass.setStencilReference(ref)
-        pass.drawIndexed(d.indexCount, 1, d.firstIndex, 0, 0)
+        pass.drawIndexed(d.indexCount, 1, d.firstIndex, d.baseVertex, 0)
       }
       pass.end()
     } while (r < layer.drawn)

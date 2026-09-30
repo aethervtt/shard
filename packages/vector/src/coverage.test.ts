@@ -106,6 +106,51 @@ describe('feathered coverage (0058)', () => {
     expect(coverageAt(dot, 2.5, 1)).toBeCloseTo(0.5, 2)
   })
 
+  it('simplifies rings and brush paths within the tolerance, and keeps every point without one', () => {
+    const circle: [number, number][] = []
+    for (let k = 0; k < 1000; k++) {
+      const a = (k / 1000) * Math.PI * 2
+      circle.push([Math.cos(a) * 0.4, Math.sin(a) * 0.4])
+    }
+    const full = featheredCoverage({ kind: 'polygon', outer: circle }, { feather: 0 })
+    expect(full.coverage.length).toBe(1000)
+    const tolerance = 0.05 / 255
+    const simple = featheredCoverage({ kind: 'polygon', outer: circle }, { feather: 0, tolerance })
+    // A chord error of t at radius r needs π / acos(1 − t / r) points: about 100 here.
+    const needed = Math.PI / Math.acos(1 - tolerance / 0.4)
+    expect(simple.coverage.length).toBeLessThan(needed * 1.5)
+    expect(simple.coverage.length).toBeGreaterThan(needed * 0.5)
+    // Every dropped point is within the tolerance of the simplified outline.
+    const kept = simple.positions
+    const n = simple.coverage.length
+    let worst = 0
+    for (const [x, z] of circle) {
+      let best = Number.POSITIVE_INFINITY
+      for (let i = 0; i < n; i++) {
+        const ax = kept[i * 2]!
+        const az = kept[i * 2 + 1]!
+        const bx = kept[((i + 1) % n) * 2]!
+        const bz = kept[((i + 1) % n) * 2 + 1]!
+        const cx = bx - ax
+        const cz = bz - az
+        const t = Math.max(0, Math.min(1, ((x - ax) * cx + (z - az) * cz) / (cx * cx + cz * cz)))
+        best = Math.min(best, Math.hypot(x - ax - t * cx, z - az - t * cz))
+      }
+      worst = Math.max(worst, best)
+    }
+    expect(worst).toBeLessThanOrEqual(tolerance * 1.0001)
+    // A straight brush stroke drawn with many points is two points' worth of capsules.
+    const line: [number, number][] = []
+    for (let k = 0; k <= 200; k++) line.push([k * 0.01, 0])
+    const dense = featheredCoverage({ kind: 'brush', points: line, radius: 0.1 }, { feather: 0 })
+    const sparse = featheredCoverage(
+      { kind: 'brush', points: line, radius: 0.1 },
+      { feather: 0, tolerance: 0.001 },
+    )
+    expect(sparse.indices.length).toBeLessThan(dense.indices.length / 10)
+    expect(coverageAt(sparse, 1, 0.05)).toBeCloseTo(1, 6)
+  })
+
   it('tessellates a multipolygon as each polygon', () => {
     const square = (x: number): [number, number][] => [
       [x, 0],

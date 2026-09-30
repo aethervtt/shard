@@ -1,5 +1,6 @@
 import { featheredCoverage } from '@aethervtt/shard-vector'
 import type { FogRegion } from './components'
+import { tessellation } from './masks'
 
 // A CPU raster of a fog layer's mask (0058), made the way the GPU makes it: the same tessellation,
 // vertices snapped to 1/256 of a texel, texel centers tested with the top-left rule, each region
@@ -29,7 +30,7 @@ export function referenceMask(regions: readonly FogRegion[], layer: ReferenceLay
   const oz = f(minZ)
   const sx = f(1 / (maxX - minX))
   const sz = f(1 / (maxZ - minZ))
-  const error = Math.max(0.001, layer.texelSize * 0.25)
+  const detail = tessellation(layer.texelSize)
   // Vertex → snapped texel coordinates (y down), in 1/256 units, as the shader and rasterizer do.
   const toX = (x: number) => Math.round(f(f(f(x) - ox) * sx) * width * SUB)
   const toY = (z: number) => Math.round(f(f(f(z) - oz) * sz) * height * SUB)
@@ -37,7 +38,7 @@ export function referenceMask(regions: readonly FogRegion[], layer: ReferenceLay
     const region = regions[r]!
     const hide = region.op === 'hide'
     const strength = region.strength ?? 1
-    const mesh = featheredCoverage(region.shape, { feather: region.feather ?? 0, error })
+    const mesh = featheredCoverage(region.shape, { feather: region.feather ?? 0, ...detail })
     const n = mesh.coverage.length
     const px = new Float64Array(n)
     const py = new Float64Array(n)

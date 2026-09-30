@@ -30,6 +30,12 @@ export interface CoverageOptions {
   feather: number
   /** Chord error allowed on arcs (round caps, corners), in world units. Default 0.01. */
   error?: number
+  /**
+   * Drops input points the outline doesn't need: the simplified outline stays within this distance
+   * of the given one (Douglas–Peucker). A mask of texel t loses nothing at 8 bits with t / 255.
+   * Default 0: every point kept.
+   */
+  tolerance?: number
 }
 
 /** How far a reflex corner's miter may reach, in feathers, before it's clamped. */
@@ -147,8 +153,8 @@ function area(r: Ring): number {
   return a / 2
 }
 
-/** Drops repeated points (and a closing point equal to the first). */
-function clean(r: Ring, closed: boolean): Ring {
+/** Drops repeated points (and a closing point equal to the first), then simplifies to `tolerance`. */
+function clean(r: Ring, closed: boolean, tolerance: number): Ring {
   const out: Ring = []
   for (const p of r) {
     const last = out[out.length - 1]
@@ -159,6 +165,73 @@ function clean(r: Ring, closed: boolean): Ring {
     const z = out[out.length - 1]!
     if (a[0] === z[0] && a[1] === z[1]) out.pop()
   }
+  return tolerance > 0 ? simplify(out, closed, tolerance) : out
+}
+
+/**
+ * Douglas–Peucker: keeps the points needed for the outline to stay within `tolerance` of the
+ * given one. A closed ring is split at its first point and the point farthest from it.
+ * Iterative, so a ring of 100k points doesn't recurse 100k deep.
+ */
+function simplify(r: Ring, closed: boolean, tolerance: number): Ring {
+  const n = r.length
+  if (n <= (closed ? 4 : 2)) return r
+  const keep = new Uint8Array(n)
+  const t2 = tolerance * tolerance
+  const spans: number[] = []
+  keep[0] = 1
+  if (closed) {
+    let far = 1
+    let best = -1
+    for (let i = 1; i < n; i++) {
+      const dx = r[i]![0] - r[0]![0]
+      const dz = r[i]![1] - r[0]![1]
+      const d = dx * dx + dz * dz
+      if (d > best) {
+        best = d
+        far = i
+      }
+    }
+    keep[far] = 1
+    spans.push(0, far, far, n)
+  } else {
+    keep[n - 1] = 1
+    spans.push(0, n - 1)
+  }
+  while (spans.length > 0) {
+    const end = spans.pop()!
+    const start = spans.pop()!
+    if (end - start < 2) continue
+    // The chord from start to end (index n wraps to the first point of a closed ring).
+    const a = r[start]!
+    const b = r[end % n]!
+    const cx = b[0] - a[0]
+    const cz = b[1] - a[1]
+    const len2 = cx * cx + cz * cz
+    let worst = -1
+    let at = -1
+    for (let i = start + 1; i < end; i++) {
+      const p = r[i]!
+      let dx = p[0] - a[0]
+      let dz = p[1] - a[1]
+      if (len2 > 0) {
+        const t = Math.max(0, Math.min(1, (dx * cx + dz * cz) / len2))
+        dx -= t * cx
+        dz -= t * cz
+      }
+      const d = dx * dx + dz * dz
+      if (d > worst) {
+        worst = d
+        at = i
+      }
+    }
+    if (worst > t2) {
+      keep[at] = 1
+      spans.push(start, at, at, end)
+    }
+  }
+  const out: Ring = []
+  for (let i = 0; i < n; i++) if (keep[i]) out.push(r[i]!)
   return out
 }
 
@@ -166,11 +239,18 @@ function clean(r: Ring, closed: boolean): Ring {
  * The core fill of a polygon (coverage 1) and, with a feather, a ring outside every boundary:
  * round at convex corners, mitred at reflex ones.
  */
-function polygonCoverage(b: Builder, outer: Ring, holes: Ring[], feather: number, error: number) {
+function polygonCoverage(
+  b: Builder,
+  outer: Ring,
+  holes: Ring[],
+  feather: number,
+  error: number,
+  tolerance: number,
+) {
   // Fill on the left of every ring: the outer counter-clockwise, holes clockwise.
   const rings = [outer, ...holes]
     .map((r, i) => {
-      const c = clean(r, true)
+      const c = clean(r, true, tolerance)
       const ccw = area(c) > 0
       return (i === 0) === ccw ? c : [...c].reverse()
     })
@@ -326,8 +406,15 @@ function arc(
  * A brush stroke: a chain of capsules of `radius` around the points (a quad per segment, round
  * joins, round caps), and its feather: side strips, round outer joins, round caps.
  */
-function brushCoverage(b: Builder, pts: Ring, radius: number, feather: number, error: number) {
-  const path = clean(pts, false)
+function brushCoverage(
+  b: Builder,
+  pts: Ring,
+  radius: number,
+  feather: number,
+  error: number,
+  tolerance: number,
+) {
+  const path = clean(pts, false, tolerance)
   if (path.length === 0) return
   if (path.length === 1) {
     disk(b, path[0]!, radius, feather, error)
@@ -396,6 +483,7 @@ function brushCoverage(b: Builder, pts: Ring, radius: number, feather: number, e
 export function featheredCoverage(shape: CoverageShape, options: CoverageOptions): CoverageMesh {
   const feather = Math.max(0, options.feather)
   const error = options.error ?? 0.01
+  const tolerance = Math.max(0, options.tolerance ?? 0)
   const b = new Builder()
   switch (shape.kind) {
     case 'rect':
@@ -412,17 +500,19 @@ export function featheredCoverage(shape: CoverageShape, options: CoverageOptions
           [],
           feather,
           error,
+          0,
         )
       }
       break
     case 'polygon':
-      polygonCoverage(b, shape.outer, shape.holes ?? [], feather, error)
+      polygonCoverage(b, shape.outer, shape.holes ?? [], feather, error, tolerance)
       break
     case 'multipolygon':
-      for (const p of shape.polygons) polygonCoverage(b, p.outer, p.holes ?? [], feather, error)
+      for (const p of shape.polygons)
+        polygonCoverage(b, p.outer, p.holes ?? [], feather, error, tolerance)
       break
     case 'brush':
-      brushCoverage(b, shape.points, shape.radius, feather, error)
+      brushCoverage(b, shape.points, shape.radius, feather, error, tolerance)
       break
   }
   return b.finish()

@@ -80,8 +80,11 @@ core triangles (coverage 1) come first. A pass holds 255 regions, one stencil va
 **Incremental.** A layer remembers `(rev, count)` and a hash of the regions it last drew. If the
 new list extends the old one (the same prefix, a higher count), only the new regions draw onto the
 existing mask; that's the brush-painting case. Any other change redraws the layer: clear to the
-base, then all regions. Regions are tessellated once and cached by content, so a redraw is GPU
-work only. A layer whose regions didn't change costs nothing.
+base, then all regions. Regions are tessellated once and cached by content and texel size, into
+one GPU arena uploaded as meshes are added, so a redraw is draw calls only. Tessellation drops input
+points the outline doesn't need, keeping it within 1/255 of a texel of the given one, which no
+8-bit mask shows: a 1,000-point circle a few texels wide becomes about 100 points. A layer whose
+regions didn't change costs nothing.
 
 ### Composite
 
