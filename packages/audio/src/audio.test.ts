@@ -9,7 +9,7 @@ import { App, LogResource } from '@aethervtt/shard-runtime'
 import { findEntityByPath, loadScene, ScenePlugin, whenSceneReady } from '@aethervtt/shard-scene'
 import { Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { afterAll, describe, expect, it } from 'vitest'
-import { duck, isSoundPlaying, playSound, setBus, stopSound } from './api'
+import { duck, isSoundPlaying, playSound, preloadSound, setBus, stopSound } from './api'
 import { AudioClips, audioClip } from './clip'
 import { AudioFinished, type AudioFinishedData, AudioListener, AudioSource } from './components'
 import { HeadlessAudioBackend } from './headless'
@@ -256,6 +256,94 @@ describe('sources and one-shots', () => {
     playSound(world, direct, { bus: 'ui' })
     frames(a, 1)
     expect(voices(world)[0]).toMatchObject({ clip: 'direct', bus: 'ui', gain: 1, position: null })
+  })
+})
+
+describe('pitch and volume ranges', () => {
+  it('picks each one-shot’s pitch and volume in its range, the same way under the same seed', async () => {
+    const picks = async (seed: number) => {
+      const backend = new HeadlessAudioBackend()
+      const a = new App({ seed }).addPlugin(
+        TransformPlugin,
+        audioPlugin({ backend, maxVoicesPerClip: 64 }),
+      )
+      await a.init()
+      const clip = addClip(a.world, 1, 'tick')
+      for (let i = 0; i < 48; i++)
+        playSound(a.world, clip, { pitch: [0.8, 1.25], volume: [0.5, 1] })
+      playSound(a.world, clip, { pitch: 1.5, volume: 0.25 })
+      frames(a, 1)
+      return backend.history.map((v) => [v.params.pitch, v.params.gain] as const)
+    }
+    const a = await picks(7)
+    const ranged = a.slice(0, 48)
+    for (const [pitch, gain] of ranged) {
+      expect(pitch).toBeGreaterThanOrEqual(0.8)
+      expect(pitch).toBeLessThanOrEqual(1.25)
+      expect(gain).toBeGreaterThanOrEqual(0.5)
+      expect(gain).toBeLessThanOrEqual(1)
+    }
+    expect(new Set(ranged.map(([p]) => p)).size).toBeGreaterThan(40)
+    // Even in log space: [0.8, 1.25] is as far below 1 as above, so about half fall on each side.
+    const below = ranged.filter(([p]) => p < 1).length
+    expect(below).toBeGreaterThan(12)
+    expect(below).toBeLessThan(36)
+    // A plain number is played as given.
+    expect(a[48]).toEqual([1.5, 0.25])
+    expect(await picks(7)).toEqual(a)
+    expect(await picks(8)).not.toEqual(a)
+  })
+
+  it('gives a source new factors each time it starts, and keeps them while it plays', async () => {
+    const { app: a, world, backend } = await app()
+    const clip = addClip(world, 2, 'step')
+    const e = source(world, clip, {
+      spatial: false,
+      pitch: 2,
+      pitchRandom: [0.9, 1.1],
+      volumeRandom: [0.5, 0.5],
+    })
+    frames(a, 1)
+    const first = backend.history[0]!.params.pitch
+    expect(first).toBeGreaterThanOrEqual(1.8 - 1e-9)
+    expect(first).toBeLessThanOrEqual(2.2 + 1e-9)
+    expect(backend.history[0]!.params.gain).toBeCloseTo(0.5, 10)
+    frames(a, 3)
+    expect(backend.history[0]!.params.pitch).toBe(first)
+    const seen = new Set([first])
+    for (let i = 0; i < 6; i++) {
+      world.set(e, AudioSource, { playing: false })
+      frames(a, 1)
+      world.set(e, AudioSource, { playing: true })
+      frames(a, 1)
+      seen.add(backend.history.at(-1)!.params.pitch)
+    }
+    expect(backend.history.length).toBe(7)
+    expect(seen.size).toBeGreaterThan(4)
+  })
+
+  it('preloads clips, made in code or loaded, ahead of their first play', async () => {
+    const { world, backend } = await app()
+    preloadSound(world, audioClip(sineWav(0.1), { id: 'direct' }))
+    preloadSound(world, addClip(world, 0.1, 'stored'))
+    expect(backend.preloaded).toEqual(['direct', 'stored'])
+  })
+
+  it('rejects a range that isn’t one', async () => {
+    const { world } = await app()
+    const clip = addClip(world, 1, 'x')
+    const code = (options: Parameters<typeof playSound>[2]) => {
+      try {
+        playSound(world, clip, options)
+      } catch (err) {
+        return (err as { code: string }).code
+      }
+      return 'played'
+    }
+    expect(code({ pitch: [1.2, 0.8] })).toBe('audio/invalid-range')
+    expect(code({ pitch: [0, 1] })).toBe('audio/invalid-range')
+    expect(code({ volume: [-0.5, 1] })).toBe('audio/invalid-range')
+    expect(code({ volume: [0, 0] })).toBe('played')
   })
 })
 

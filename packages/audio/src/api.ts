@@ -1,15 +1,24 @@
-import { type AssetRef, ShardError, type World } from '@aethervtt/shard-core'
+import { type AssetRef, type Rng, ShardError, type World } from '@aethervtt/shard-core'
 import type { AudioDistanceModel, AudioPanningModel } from '@aethervtt/shard-platform'
-import type { AudioClipAsset } from './clip'
+import { type AudioClipAsset, AudioClips } from './clip'
 import { type AudioBus, AudioBuses } from './components'
-import { audioState, busOf, endVoice, newVoice, unknownBus } from './mixer'
+import { audioState, busOf, endVoice, newVoice, pickInRange, unknownBus } from './mixer'
+
+/** A [min, max] range: each play picks a value in it. */
+export type SoundRange = readonly [min: number, max: number]
 
 export interface PlaySoundOptions {
   /** World position. With one the sound is spatial; without, it plays flat. */
   position?: ArrayLike<number>
   bus?: string
-  volume?: number
-  pitch?: number
+  /** Linear gain, or a [min, max] range picked from on each play. Default 1. */
+  volume?: number | SoundRange
+  /**
+   * Playback rate, or a [min, max] range picked from on each play (evenly in log space, so a
+   * range as far below 1 as above sounds even). `[0.92, 1.08]` keeps a sound played over and over
+   * (footsteps, impacts) from sounding identical. Default 1.
+   */
+  pitch?: number | SoundRange
   loop?: boolean
   /** 0-255; over the voice limit, lower priorities lose their voice first. Default 128. */
   priority?: number
@@ -20,6 +29,28 @@ export interface PlaySoundOptions {
   rolloff?: AudioDistanceModel
   rolloffFactor?: number
   panning?: AudioPanningModel
+}
+
+/** A play's volume or pitch: the number, or one picked in the range. */
+function pick(rng: Rng, value: number | SoundRange | undefined, name: 'volume' | 'pitch'): number {
+  if (value === undefined) return 1
+  if (typeof value === 'number') return value
+  const [min, max] = value
+  const floor = name === 'pitch' ? min > 0 : min >= 0
+  if (!(Number.isFinite(min) && Number.isFinite(max) && floor && min <= max)) {
+    throw new ShardError(
+      'audio/invalid-range',
+      `playSound ${name} range [${min}, ${max}] is not a range`,
+      {
+        hint:
+          name === 'pitch'
+            ? 'Give [min, max] with 0 < min ≤ max, e.g. [0.92, 1.08].'
+            : 'Give [min, max] with 0 ≤ min ≤ max, e.g. [0.8, 1].',
+        path: name,
+      },
+    )
+  }
+  return pickInRange(rng, min, max, name === 'pitch')
 }
 
 function isClip(value: unknown): value is AudioClipAsset {
@@ -36,6 +67,7 @@ function isClip(value: unknown): value is AudioClipAsset {
  *
  * ```ts
  * playSound(world, weapon.sound, { position: muzzle, bus: 'sfx' })
+ * playSound(world, step, { pitch: [0.92, 1.08], volume: [0.7, 1] }) // no two alike
  * ```
  */
 export function playSound(
@@ -53,8 +85,8 @@ export function playSound(
     voice.ref =
       typeof clip === 'string' ? { type: 'AudioClip', guid: undefined, path: clip } : { ...clip }
   voice.bus = bus
-  voice.volume = options.volume ?? 1
-  voice.pitch = options.pitch ?? 1
+  voice.volume = pick(state.rng, options.volume, 'volume')
+  voice.pitch = pick(state.rng, options.pitch, 'pitch')
   voice.loop = options.loop ?? false
   voice.priority = options.priority ?? 128
   voice.time = options.offset ?? 0
@@ -72,6 +104,17 @@ export function playSound(
   }
   state.voices.push(voice)
   return voice.id
+}
+
+/**
+ * Gets a clip ready ahead of its first play (a browser decodes it then), so a sound that must land
+ * on its moment (an impact, a hit) starts on time instead of late into the clip. A ref whose clip
+ * isn't loaded yet is skipped.
+ */
+export function preloadSound(world: World, clip: AssetRef | AudioClipAsset): void {
+  const state = audioState(world)
+  const asset = isClip(clip) ? clip : world.resource(AudioClips).get(clip)
+  if (asset) state.backend.preload?.(asset)
 }
 
 /** Stops a voice from playSound, fading out over `fade` seconds. False if it already ended. */

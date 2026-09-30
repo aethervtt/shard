@@ -1,6 +1,6 @@
 import { PostUpdate } from '@aethervtt/shard-core'
 import type { AudioBackend } from '@aethervtt/shard-platform'
-import { definePlugin, LogResource, type Plugin } from '@aethervtt/shard-runtime'
+import { definePlugin, GlobalRng, LogResource, type Plugin } from '@aethervtt/shard-runtime'
 import { TransformSystems } from '@aethervtt/shard-transform'
 import * as clipModule from './clip'
 import { AudioClips } from './clip'
@@ -42,7 +42,9 @@ export function audioPlugin(options: AudioPluginOptions = {}): Plugin {
       if (options.maxVoicesPerClip !== undefined) config.maxVoicesPerClip = options.maxVoicesPerClip
       const backend = options.backend ?? defaultBackend()
       backend.onError = (err) => w.tryResource(LogResource)?.error(err)
-      w.insertResource(AudioState, createAudioState(backend))
+      // Pitch and volume ranges draw from the app's seed, so a replay picks the same values.
+      const rng = w.tryResource(GlobalRng)?.stream('audio')
+      w.insertResource(AudioState, createAudioState(backend, rng))
       app.addSystems(PostUpdate, updateAudio.after(TransformSystems))
       app.addMethod(...audioMethods)
     },

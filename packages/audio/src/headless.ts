@@ -1,5 +1,6 @@
 import type {
   AudioBackend,
+  AudioClipSource,
   AudioSpatialDesc,
   AudioVoiceDesc,
   AudioVoiceParams,
@@ -32,6 +33,8 @@ export class HeadlessAudioBackend implements AudioBackend {
   readonly state = 'headless' as const
   /** Every voice ever played, in order. */
   readonly history: HeadlessVoice[] = []
+  /** Ids of the clips preloadSound got ready, in order. */
+  readonly preloaded: string[] = []
   readonly buses = new Map<string, number>()
   readonly listener = new Float64Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0])
   private readonly byId = new Map<number, HeadlessVoice>()
@@ -52,6 +55,10 @@ export class HeadlessAudioBackend implements AudioBackend {
     this.history.push(voice)
     this.byId.set(voice.id, voice)
     return voice.id
+  }
+
+  preload(clip: AudioClipSource): void {
+    this.preloaded.push(clip.id)
   }
 
   update(id: number, params: AudioVoiceParams): void {
