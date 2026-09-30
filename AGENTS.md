@@ -33,6 +33,7 @@ takes `--json`:
 ```sh
 shard validate                        # manifest, assets, and scenes; lists every error
 shard import / shard mv <from> <to>   # import changed asset files / move one, fixing references
+shard tiles read|edit <asset>         # tilemap cells by name (0059); tiles <asset> --encoding rows|base64
 shard check                           # type-check the project's scripts
 shard dev                             # play it in a browser; saves hot reload in place
 shard run --frames 600                # headless run, prints a deterministic world hash

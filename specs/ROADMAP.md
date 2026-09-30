@@ -135,7 +135,7 @@ walls (0066) and groups (0067), then surface variation (0068), per-view visibili
 | [0056](0056-modular-builds-size.md) | Modular builds and size budgets (no import side effects, feature plugins, three baseline) | implemented |
 | [0057](0057-tabletop-layers.md) | Tabletop layers (ground bands, render layers, grids, vector shapes, outlines) | implemented |
 | [0058](0058-projected-fog.md) | Projected fog (ordered regions, feathered masks, world-space composite) | implemented |
-| [0059](0059-tabletop-tilemaps.md) | Tilemaps on the tabletop, and diffable tile data | accepted |
+| [0059](0059-tabletop-tilemaps.md) | Tilemaps on the tabletop, and diffable tile data | implemented |
 | [0060](0060-camera-controls-gestures.md) | Camera controls, gestures, and object drag | accepted |
 | [0061](0061-ownership-recovery.md) | Ownership and failure recovery (owners, fallbacks, health) | implemented |
 | [0062](0062-browser-verification.md) | Browser captures, approvals, and performance records | implemented |

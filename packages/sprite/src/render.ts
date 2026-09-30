@@ -14,6 +14,7 @@ import {
   cameraOf,
   Gpu,
   GpuAssetsResource,
+  GroundLayer,
   type NodeContext,
   type NodeDescriptor,
   PICK_TARGETS,
@@ -22,7 +23,7 @@ import {
   Shaders,
   sceneColor,
 } from '@aethervtt/shard-render'
-import { Time } from '@aethervtt/shard-runtime'
+import { LogResource, Time } from '@aethervtt/shard-runtime'
 import { type Texture, Textures } from '@aethervtt/shard-texture'
 import { GlobalTransform } from '@aethervtt/shard-transform'
 import { TextureAtlases } from './atlas'
@@ -35,7 +36,7 @@ import {
   litView,
 } from './lights2d'
 import { Sprite, Sprite2dSettings, SpriteSlot } from './sprite'
-import { Tilemap, TilemapDatas } from './tilemap'
+import { Tilemap, type TilemapData, TilemapDatas, unknownTiles } from './tilemap'
 
 /** Floats per sprite record: affine rows (12), uv rect (4), size (2), anchor (2), color, flags, pad. */
 export const SPRITE_FLOATS = 24
@@ -657,6 +658,8 @@ interface TilemapGpu {
   regionKey: string
   remap: GpuBuffer
   remapData: Uint32Array
+  /** Tile id → atlas region + 1, before animation. */
+  baseRemap: Uint32Array
   layer: number
   tileSize: [number, number]
   affine: Float32Array
@@ -770,6 +773,7 @@ function syncTilemaps(world: World): void {
             size: 256,
           }),
         remapData: new Uint32Array(0),
+        baseRemap: new Uint32Array(0),
         layer: 0,
         tileSize: [1, 1],
         affine: new Float32Array(12),
@@ -838,8 +842,8 @@ function syncTilemaps(world: World): void {
         chunkBounds(g, x0, y0, x1, y1, b, chunk * 6)
       }
     })
-    // Region UVs, for this atlas and texture size.
-    const key = `${atlas.version}/${texture.width}x${texture.height}/${atlas.count}`
+    // Region UVs, for this atlas and texture size; tile ids resolved against the atlas (0059).
+    const key = `${atlas.version}/${texture.width}x${texture.height}/${atlas.count}/${data.version}/${data.palette?.length ?? -1}`
     if (map.regionKey !== key) {
       const uv = new Float32Array(Math.max(4, atlas.count * 4))
       for (let r = 0; r < atlas.count; r++) {
@@ -850,10 +854,10 @@ function syncTilemaps(world: World): void {
       }
       map.regions.write(uv)
       map.regionKey = key
-      // Tile → drawn tile, identity but for animated tiles. The shader clamps tiles past the
-      // atlas's regions to its last one rather than reading past the end.
-      map.remapData = new Uint32Array(atlas.count + 1)
-      for (let t = 0; t < map.remapData.length; t++) map.remapData[t] = t
+      // Tile id → atlas region + 1 (0: draws nothing): through the palette's names, or the id
+      // itself for version 1 maps. Animated tiles are pointed at their current frame below.
+      map.baseRemap = resolveTiles(world, data, atlas)
+      map.remapData = map.baseRemap.slice()
       map.remap.write(map.remapData)
     }
     // Animated tiles: point each at its current frame.
@@ -861,10 +865,8 @@ function syncTilemaps(world: World): void {
       let changed = false
       for (const a of data.animations) {
         if (a.frames.length === 0 || a.tile >= map.remapData.length) continue
-        const frame = Math.min(
-          a.frames[Math.floor(time / a.frameTime) % a.frames.length]!,
-          atlas.count,
-        )
+        const id = a.frames[Math.floor(time / a.frameTime) % a.frames.length]!
+        const frame = map.baseRemap[Math.min(id, map.baseRemap.length - 1)]!
         if (map.remapData[a.tile] !== frame) {
           map.remapData[a.tile] = frame
           changed = true
@@ -874,6 +876,39 @@ function syncTilemaps(world: World): void {
     }
   }
   for (const entity of tilemaps.maps.keys()) if (!seen.has(entity)) tilemaps.maps.delete(entity)
+}
+
+/** Palette sizes already checked for unknown names, per tilemap data. */
+const unknownChecked = new WeakMap<TilemapData, number>()
+
+/**
+ * Tile id → atlas region + 1 for a map (0059): each palette name looked up in the atlas once, so a
+ * re-packed atlas draws the same map. Version 1 ids are regions + 1 already (clamped to the atlas).
+ * A name the atlas lacks draws nothing and is reported once (`sprite/unknown-tile`, see unknownTiles).
+ */
+export function resolveTiles(
+  world: World,
+  data: TilemapData,
+  atlas: { count: number; region(name: string): number },
+): Uint32Array {
+  if (!data.palette) {
+    const out = new Uint32Array(atlas.count + 1)
+    for (let t = 0; t < out.length; t++) out[t] = t
+    return out
+  }
+  const out = new Uint32Array(data.palette.length + 1)
+  let unknown = false
+  for (let i = 0; i < data.palette.length; i++) {
+    const region = atlas.region(data.palette[i]!)
+    out[i + 1] = region + 1
+    if (region === -1) unknown = true
+  }
+  if (unknown && unknownChecked.get(data) !== data.palette.length) {
+    unknownChecked.set(data, data.palette.length)
+    const log = world.tryResource(LogResource)
+    for (const error of unknownTiles(data, atlas)) log?.error(error)
+  }
+  return out
 }
 
 function chunkBounds(
@@ -926,8 +961,11 @@ function* queryTilemaps(world: World): Generator<
     Float32Array,
   ]
 > {
-  for (const table of world.query({ with: [Tilemap, GlobalTransform, ComputedVisibility] })
-    .tables) {
+  // Tilemaps with a GroundLayer draw in the ground phase instead (0059, ground.ts).
+  for (const table of world.query({
+    with: [Tilemap, GlobalTransform, ComputedVisibility],
+    without: [GroundLayer],
+  }).tables) {
     const g = table.column(GlobalTransform, 'matrix') as unknown as Float32Array
     const vis = table.column(ComputedVisibility, 'visible')
     const atlas = table.column(Tilemap, 'atlas')
@@ -946,7 +984,8 @@ function* queryTilemaps(world: World): Generator<
           tileSize: [tileSize[i * 2]!, tileSize[i * 2 + 1]!],
           chunkSize: chunkSize[i]!,
           layer: layer[i]!,
-          lit: lit[i] !== 0,
+          // Enum index: 0 is '2d', the only mode the sprite pass lights.
+          lit: lit[i] === 0,
         },
         g.subarray(i * 12, i * 12 + 12),
       ]

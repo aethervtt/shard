@@ -8,7 +8,7 @@ import {
 } from '@aethervtt/shard-core'
 import { FogLayer, FogRegionsStore, fogPlugin } from '@aethervtt/shard-fog'
 import { Grid, gridPlugin } from '@aethervtt/shard-grid'
-import { box, cylinder, plane } from '@aethervtt/shard-mesh'
+import { box, cylinder } from '@aethervtt/shard-mesh'
 import {
   AmbientLight,
   Camera3d,
@@ -21,24 +21,94 @@ import {
   Meshes,
   MeshMaterial,
   NotShadowCaster,
+  PointLight,
   RenderLayers,
   Tonemapping,
 } from '@aethervtt/shard-render'
 import type { Plugin } from '@aethervtt/shard-runtime'
+import {
+  spritePlugin,
+  TextureAtlas,
+  TextureAtlases,
+  Tilemap,
+  TilemapData,
+  TilemapDatas,
+  tilemapOnGround,
+} from '@aethervtt/shard-sprite'
 import { Floor, Opening, structurePlugin, Wall } from '@aethervtt/shard-structure'
+import { Texture, Textures } from '@aethervtt/shard-texture'
 import { lookAt, Transform } from '@aethervtt/shard-transform'
 import { VectorShape, vectorPlugin } from '@aethervtt/shard-vector'
 
-// The tabletop parity fixture (0057): floor, tiles, grid, drawings, flat tokens, projected fog (0058),
-// walls and props on one scene, seen by a Map camera (flat token discs) and a Tabletop camera (standees).
-// Node goldens, the playground's pages and 0064's baseline and WebGL2 runs all draw this scene.
+// The tabletop parity fixture (0057): floor, tiles (0059), grid, drawings, flat tokens, projected
+// fog (0058), walls and props on one scene, seen by a Map camera (flat token discs) and a Tabletop
+// camera (standees). Node goldens, the playground's pages and 0064's baseline and WebGL2 runs all
+// draw this scene.
 
 /** Render layers: 1 is shared; each view adds its own visuals' layer. */
 export const PARITY_LAYERS = { shared: 1, map: 2, tabletop: 4 } as const
 
 /** What the fixture adds beyond the renderer (`renderPlugin`, `forwardPlugin`, `TransformPlugin`). */
 export function parityPlugins(): Plugin[] {
-  return [structurePlugin, gridPlugin, vectorPlugin, fogPlugin]
+  return [structurePlugin, gridPlugin, vectorPlugin, fogPlugin, spritePlugin]
+}
+
+/**
+ * The tile map (0059), one row per line: its first row lies beyond the north wall, and the cells
+ * the tests probe are stone. Its top-left corner is at world (x −2, z −9.5); tiles are 1 m.
+ */
+export const PARITY_TILES = {
+  origin: [-2, -9.5] as const,
+  rows: [
+    'moss moss dirt moss moss moss dirt moss moss',
+    'stone stone stone stone crack stone stone stone stone',
+    'stone moss stone stone stone stone stone stone dirt',
+    'stone stone crack stone stone moss stone stone stone',
+    'dirt stone stone stone stone stone stone crack stone',
+    'stone stone stone moss stone stone dirt stone stone',
+    'stone crack stone stone stone stone stone stone moss',
+    'stone stone stone stone dirt stone stone stone stone',
+  ],
+}
+
+/** Tile art: four 8×8 regions with a mortar line, made in code so the fixture needs no files. */
+function tileAtlas(world: World): AssetRef<'TextureAtlas'> {
+  const names = ['stone', 'crack', 'moss', 'dirt']
+  const base: [number, number, number][] = [
+    [150, 144, 132],
+    [150, 144, 132],
+    [78, 112, 60],
+    [124, 94, 66],
+  ]
+  const pixels = new Uint8Array(32 * 8 * 4)
+  for (let r = 0; r < 4; r++)
+    for (let y = 0; y < 8; y++)
+      for (let x = 0; x < 8; x++) {
+        // A little texel noise, a darker mortar edge, and a crack across one region.
+        const n = ((x * 73 + y * 151 + r * 37) % 17) - 8
+        const edge = x === 0 || y === 0 ? 0.7 : 1
+        const crack = r === 1 && (x === y || x === y + 1) ? 0.55 : 1
+        const [cr, cg, cb] = base[r]!
+        const f = edge * crack
+        pixels.set(
+          [
+            Math.max(0, Math.min(255, cr * f + n)),
+            Math.max(0, Math.min(255, cg * f + n)),
+            Math.max(0, Math.min(255, cb * f + n)),
+            255,
+          ],
+          (y * 32 + r * 8 + x) * 4,
+        )
+      }
+  const texture = world
+    .resource(Textures)
+    .add(Texture.create({ width: 32, height: 8, mips: [pixels] })) as AssetRef<'Texture'>
+  return world.resource(TextureAtlases).add(
+    new TextureAtlas(
+      texture,
+      names.map((name, i) => ({ name, rect: [i * 8, 0, 8, 8] })),
+    ),
+  ) as AssetRef<'TextureAtlas'>
 }
 
 export interface ParityScene {
@@ -115,18 +185,46 @@ export function spawnParity(world: World, options: ParityOptions = {}): ParitySc
     Opening,
     { wall: wallEntities[1]!, kind: 'window', offset: 6, width: 2, sill: 1, height: 1 },
   ])
-  // Tiles (band 10): a patch of quads, standing in for 0059.
-  const quad = meshes.add(plane({ size: 1 }))
-  const tile = mat([0.45, 0.28, 0.14, 1])
-  for (let x = 0; x < 4; x++)
-    for (let z = 0; z < 3; z++)
-      spawn(
-        [Mesh3d, { mesh: quad }],
-        [MeshMaterial, { material: tile }],
-        [GroundLayer, { band: 10 }],
-        NotShadowCaster,
-        [Transform, { translation: [1 + x * 1.5, 0, -6 + z * 1.5], scale: [1.4, 1, 1.4] }],
-      )
+  // Tiles (band 10, 0059): a map lit like the floor, running under the north wall.
+  const data = TilemapData.create(9, PARITY_TILES.rows.length, ['floor'], [])
+  PARITY_TILES.rows.forEach((row, y) => {
+    row.split(' ').forEach((name, x) => {
+      data.layers[0]!.set(x, y, data.tileId(name))
+    })
+  })
+  const ground = tilemapOnGround()
+  spawn(
+    [
+      Tilemap,
+      {
+        atlas: tileAtlas(world),
+        data: world.resource(TilemapDatas).add(data),
+        lit: '3d',
+      },
+    ],
+    [GroundLayer, { band: 10 }],
+    [
+      Transform,
+      {
+        translation: [PARITY_TILES.origin[0], 0, PARITY_TILES.origin[1]],
+        rotation: ground.rotation,
+      },
+    ],
+  )
+  // A tabletop light (bright, then dim to its range) over the tiles' northeast.
+  spawn(
+    [
+      PointLight,
+      {
+        color: [1, 0.8, 0.55, 1],
+        intensity: 600_000,
+        range: 3.5,
+        bright: 1.5,
+        falloff: 'tabletop',
+      },
+    ],
+    [Transform, { translation: [5.5, 1.2, -7] }],
+  )
   // The grid (band 20).
   spawn(
     [Grid, { size: 1.5, color: [1, 1, 1, 1], opacity: 0.35, lineWidth: 1, extent: [20, 16] }],
@@ -243,6 +341,13 @@ export function spawnParity(world: World, options: ParityOptions = {}): ParitySc
         feather: 0.3,
         shape: { kind: 'rect', x: 7.5, y: 5.5, w: 2.2, h: 2 },
       },
+      // Over the tiles' west end.
+      {
+        op: 'hide',
+        strength: 0.75,
+        feather: 0.3,
+        shape: { kind: 'rect', x: -2, y: -8, w: 2, h: 1.8 },
+      },
     ],
   }) as AssetRef<'FogRegions'>
   spawn([
@@ -261,6 +366,12 @@ export function spawnParity(world: World, options: ParityOptions = {}): ParitySc
       [MeshMaterial, { material: propMat }],
       [Transform, { translation: [x, s / 2, z] }],
     )
+  // The pillar, whose shadow falls across the tiles.
+  spawn(
+    [Mesh3d, { mesh: meshes.add(cylinder({ radius: 0.3, height: 2.5 })) }],
+    [MeshMaterial, { material: propMat }],
+    [Transform, { translation: [1, 1.25, -6.6] }],
+  )
   const camera = (layers: number, orthographic: boolean) =>
     spawn(
       [

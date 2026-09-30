@@ -71,6 +71,8 @@ export const Grid = defineComponent(
 export const GridLines = defineMaterial('grid/GridLines', {
   extends: 'none',
   blend: 'premultiplied',
+  // Lines over the table, not a thing on it: picks reach the tiles and floor under them.
+  pickable: false,
   fields: {
     color: t.color({ default: [0, 0, 0, 1], description: 'Line color (linear), alpha included.' }),
     lineWidth: t.f32({ default: 1, min: 0, description: 'CSS pixels.' }),

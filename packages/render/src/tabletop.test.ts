@@ -14,6 +14,7 @@ import { GroundLayer, RenderLayers } from './layers'
 import { tabletopFalloff } from './lights'
 import { defineMaterial } from './materials'
 import { Outline } from './outline'
+import { pick } from './picking'
 import { describeRender, Gpu, Graph, renderPlugin, Shaders } from './plugin'
 import { worldToScreen } from './projection'
 import { registerShaders } from './shaders'
@@ -37,7 +38,24 @@ const Flat = defineMaterial('test/TabletopFlat', {
   description: 'A flat color for the tabletop tests.',
 })
 
+/** The same flat color, but not a pick target (like a grid's lines). */
+const Overlay = defineMaterial('test/TabletopOverlay', {
+  extends: 'none',
+  fields: { color: t.color({ default: [1, 1, 1, 1] }) },
+  shader: 'test::tabletop_overlay',
+  pickable: false,
+  description: 'An unpickable flat color for the tabletop tests.',
+})
+
 const FLAT_SHADER = {
+  'test::tabletop_overlay': `
+import shard::pbr::types::VertexOutput;
+import shard::view::view;
+import material::tabletop_overlay::TabletopOverlay;
+
+override fn shade(in: VertexOutput) -> vec4f {
+  return vec4f(TabletopOverlay.color.rgb / view.exposure, 1.0);
+}`,
   'test::tabletop_flat': `
 import shard::pbr::types::VertexOutput;
 import shard::view::view;
@@ -148,6 +166,69 @@ describe('ground bands', () => {
       ground: { bands: Record<string, number> }
     }
     expect(described.ground.bands).toEqual({ 20: 1, 30: 1, 40: 1 })
+    expect(world.resource(Gpu).errors).toEqual([])
+    await r.app.dispose()
+    r.target.destroy()
+  })
+})
+
+describe('ground band picking', () => {
+  it('returns the topmost pickable band and a point on its surface at any angle', async () => {
+    const r = await tabletop()
+    const { world, meshes, materials, flat } = r
+    world.spawn(
+      [Mesh3d, { mesh: meshes.add(plane({ size: 20 })) }],
+      [MeshMaterial, { material: flat([0.02, 0.02, 0.02]) }],
+      Transform,
+    )
+    const quad = meshes.add(plane({ size: 1 }))
+    const tiles = world.spawn(
+      [Mesh3d, { mesh: quad }],
+      [MeshMaterial, { material: flat([1, 0, 0]) }],
+      [GroundLayer, { band: 10 }],
+      [Transform, { scale: [8, 1, 8] }],
+    )
+    // Over the tiles, a band that isn't a pick target: picks go through it.
+    world.spawn(
+      [Mesh3d, { mesh: quad }],
+      [
+        MeshMaterial,
+        { material: materials.add(new MaterialAsset({ color: [0, 1, 0, 1] }, Overlay)) },
+      ],
+      [GroundLayer, { band: 20 }],
+      [Transform, { scale: [8, 1, 8] }],
+    )
+    for (const [name, eye] of [
+      ['top-down', [0, 16, 0.0001]],
+      ['55°', [0, 11.5, 8]],
+      ['30°', [0, 7, 12]],
+      ['15°', [0, 3.5, 13]],
+    ] as const) {
+      const cam = camera(world, r.ref, [...eye], [0, 0, 0])
+      await settle(r.app)
+      for (const p of [
+        [0, 0, 0],
+        [2.5, 0, -3],
+        [-3, 0, 2.5],
+      ] as const) {
+        const css = [0, 0]
+        expect(worldToScreen(world, cam, [...p], css)).toBe(true)
+        let done = false
+        const hit = pick(world, cam, Math.floor(css[0]!), Math.floor(css[1]!)).finally(() => {
+          done = true
+        })
+        for (let i = 0; i < 30 && !done; i++) {
+          r.app.update(1 / 60)
+          await world.resource(Gpu).pipelines.whenIdle()
+          await new Promise((resolve) => setTimeout(resolve, 0))
+        }
+        const h = await hit
+        expect(h?.entity, name).toBe(tiles)
+        // On the band's surface: ground bands draw with a depth bias, which the point must not have.
+        expect(Math.abs(h!.position[1]), `${name} ${p}`).toBeLessThan(0.01)
+      }
+      world.despawn(cam)
+    }
     expect(world.resource(Gpu).errors).toEqual([])
     await r.app.dispose()
     r.target.destroy()

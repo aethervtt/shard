@@ -1387,9 +1387,44 @@ _Computed by the engine; never written in scene files._
 |---|---|---|---|---|
 | `slot` | integer | `0` | ≥ 0, ≤ 4294967295 | Slot + 1 (0 = none yet). |
 
+## `sprite/TileChunk`
+
+A ground tilemap's chunk mesh: spawned and kept by the sprite plugin.
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `tilemap` | null or integer or string | `null` |  | The Tilemap this chunk belongs to. |
+| `layer` | integer | `0` | ≥ 0, ≤ 65535 | Layer index in the tilemap data. |
+| `chunk` | integer | `0` | ≥ 0, ≤ 4294967295 | Chunk index: cy · chunks across + cx. |
+
+## `sprite/TileLit`
+
+Lit ground tiles (a Tilemap on a GroundLayer, lit: 3d or 2d).
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `baseColor` | string or number[4] | `[0.8,0.8,0.8,1]` |  | Albedo (linear), alpha in w. |
+| `metallic` | number | `0` | ≥ 0, ≤ 1 | 0 for dielectrics, 1 for metals. |
+| `roughness` | number | `0.5` | ≥ 0, ≤ 1 | Microsurface roughness. |
+| `emissive` | string or number[4] | `"#ffffff"` |  | Emitted color (linear), scaled by emissiveLuminance. |
+| `emissiveLuminance` | number | `0` | ≥ 0, cd/m² | Emitted luminance. 0 = not emissive. |
+| `doubleSided` | boolean | `false` |  | Draw back faces too (no culling). |
+| `alphaMode` | `"opaque"` \| `"mask"` \| `"alpha"` \| `"additive"` \| `"premultiplied"` | `"opaque"` |  | opaque ignores alpha; mask discards pixels below alphaCutoff; alpha blends (transparent, drawn after opaque, sorted back to front); additive adds light (glows); premultiplied expects color already multiplied by alpha. |
+| `alphaCutoff` | number | `0.5` | ≥ 0, ≤ 1 | Alpha threshold for alphaMode "mask". |
+| `normalScale` | number | `1` |  | Strength of the normal map. |
+| `occlusionStrength` | number | `1` | ≥ 0, ≤ 1 | Strength of the occlusion map. |
+| `baseColorTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Albedo (sRGB), multiplied with baseColor. |
+| `metallicRoughnessTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | G = roughness, B = metallic (linear), multiplied with the factors. |
+| `normalTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Tangent-space normal map. |
+| `occlusionTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Ambient occlusion in R (linear). |
+| `emissiveTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Emission color (sRGB), multiplied with emissive. |
+| `atlas` | null or Texture ref | `null` |  | The tile atlas. |
+
 ## `sprite/Tilemap`
 
-Tile layers drawn over the entity's XY plane: tile (x, y) covers [x, x+1] × [−y−1, −y] tile sizes, rows going down from the top.
+Tile layers drawn over the entity's XY plane: tile (x, y) covers [x, x+1] × [−y−1, −y] tile sizes, rows going down from the top. With a GroundLayer (0059), they draw in the ground phase among the tabletop's bands (lay them flat with tilemapOnGround).
 
 Brings along: `core/Transform`, `render/Visibility`.
 
@@ -1400,7 +1435,15 @@ Brings along: `core/Transform`, `render/Visibility`.
 | `tileSize` | number[2] | `[1,1]` | m | World size of one tile. |
 | `chunkSize` | integer | `32` | ≥ 4, ≤ 256 | Tiles per chunk side: chunks are the unit of culling and re-upload. |
 | `layer` | integer | `0` | ≥ -32768, ≤ 32767 | Draw-order band, like Sprite.layer (tilemaps draw first in a band). |
-| `lit` | boolean | `true` |  | Lit by 2D lights under a Lighting2d camera. |
+| `lit` | `"2d"` \| `"3d"` \| `"none"` | `"2d"` |  | 2d: lit by 2D lights under a Lighting2d camera. 3d: lit by 3D lights and shadows like a floor. none: drawn as the atlas is. On the ground (with a GroundLayer) there are no 2D lights: 2d and 3d both light it like a floor. |
+
+## `sprite/TileUnlit`
+
+Unlit ground tiles (a Tilemap on a GroundLayer, lit: none).
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `atlas` | null or Texture ref | `null` |  | The tile atlas. |
 
 ## `star-explorer/Ship`
 

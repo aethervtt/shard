@@ -303,6 +303,8 @@ export {
 export { descendantPaths, entityName, findModelRoot } from './paths'
 export {
   type PickBlocker,
+  type PickDetail,
+  type PickDetailer,
   type PickDrawer,
   type PickHit,
   Picking,

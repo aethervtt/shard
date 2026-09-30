@@ -93,7 +93,8 @@ found by name so the renderer doesn't import the scene package.
   than missing.
 - `pick(world, camera, x, y)` returns a Promise of `{ entity, path, position, normal, distance } |
   undefined`. The position comes from the depth through the unjittered view-projection, and the
-  normal from the geometry.
+  normal from the geometry. Packages add `detail` through `Picking.detailers` (a tilemap's cell,
+  0059), for picks and raycasts alike.
 - Other packages add pickable things through `Picking.drawers`. Sprites draw their world-space
   runs into the pick pass, with texels under half opacity not counted.
 - **CPU:** `raycast(world, origin, direction, { maxDistance, all, boundsOnly })` tests bounds (a

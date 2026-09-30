@@ -10,6 +10,8 @@ import {
   forwardPlugin,
   Gpu,
   OffscreenTarget,
+  type PickHit,
+  pick,
   RenderTargets,
   renderPlugin,
   worldToScreen,
@@ -18,7 +20,13 @@ import { compareGolden, pixel, pngBytes, renderView, settle } from '@aethervtt/s
 import { App } from '@aethervtt/shard-runtime'
 import { TransformPlugin } from '@aethervtt/shard-transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { parityPlugins, poseParityCamera, showParityView, spawnParity } from './parity'
+import {
+  type ParityScene,
+  parityPlugins,
+  poseParityCamera,
+  showParityView,
+  spawnParity,
+} from './parity'
 
 const here = dirname(fileURLToPath(import.meta.url))
 
@@ -135,6 +143,92 @@ describe('projected fog on the parity fixture (0058)', () => {
     expect(tabletop[2]!).toBeGreaterThan(0.98)
     for (let i = 0; i < floor.length; i++)
       expect(Math.abs(map[i]! - tabletop[i]!), `point ${i}`).toBeLessThan(0.02)
+    expect(world.resource(Gpu).errors).toEqual([])
+    await app.dispose()
+    target.destroy()
+  })
+})
+
+describe('tiles on the parity fixture (0059)', () => {
+  it('are lit by the tabletop light, shadowed by the pillar, fogged, hidden behind the wall, and picked by cell, in both views', {
+    timeout: 120_000,
+  }, async () => {
+    const { app, target, scene } = await parity()
+    const world = app.world
+    type P = [number, number, number]
+    const cameraOf = (s: ParityScene, view: 'map' | 'tabletop') =>
+      view === 'map' ? s.map : s.tabletop
+    const screen = (view: 'map' | 'tabletop', p: P): [number, number] => {
+      const css = [0, 0]
+      expect(worldToScreen(world, cameraOf(scene, view), p, css)).toBe(true)
+      return [Math.floor(css[0]!), Math.floor(css[1]!)]
+    }
+    // Linear HDR brightness at world points (before the tonemap: ratios are exact there).
+    const brightness = async (view: 'map' | 'tabletop', points: P[]) => {
+      await settle(app)
+      const pending = captureBuffer(world, `camera:${cameraOf(scene, view)}`, 'hdr')
+      app.update(1 / 60)
+      const shot = await pending
+      return points.map((p) => {
+        const [x, y] = screen(view, p)
+        const px = pixel({ width: shot.width, data: shot.data }, x, y)
+        return px[0]! + px[1]! + px[2]!
+      })
+    }
+    const picks = async (view: 'map' | 'tabletop', points: P[]) => {
+      let done = false
+      const all = Promise.all(
+        points.map((p) => {
+          const [x, y] = screen(view, p)
+          return pick(world, cameraOf(scene, view), x, y)
+        }),
+      ).finally(() => {
+        done = true
+      })
+      for (let i = 0; i < 30 && !done; i++) {
+        app.update(1 / 60)
+        await world.resource(Gpu).pipelines.whenIdle()
+        await new Promise((r) => setTimeout(r, 0))
+      }
+      return (await all) as (PickHit | undefined)[]
+    }
+    // Stone cells: under the light, in the pillar's shadow, and in the open (neither).
+    const lit: P = [5.5, 0, -7]
+    const shadowed: P = [1.8, 0, -7.2]
+    const open: P = [1.8, 0, -5.9]
+    // A moss cell under the fog rect over the tiles' west end.
+    const fogged: P = [-1, 0, -7]
+    // Beyond the north wall: a dirt cell of the first row.
+    const beyond: P = [4.5, 0, -9]
+    for (const view of ['map', 'tabletop'] as const) {
+      showParityView(world, scene, view)
+      poseParityCamera(world, scene, view, view === 'map' ? 'top' : 30)
+      const [l, sh, o] = await brightness(view, [lit, shadowed, open])
+      expect(l! / o!, `${view}: the tabletop light`).toBeGreaterThan(1.3)
+      expect(sh! / o!, `${view}: the pillar's shadow`).toBeLessThan(0.7)
+      world.patchResource(FogSettings, { viewerOpacity: 0 })
+      const [clear] = await brightness(view, [fogged])
+      world.patchResource(FogSettings, { viewerOpacity: 1 })
+      const [fog] = await brightness(view, [fogged])
+      expect(Math.abs(fog! / clear! - 0.25), `${view}: fog over the tiles`).toBeLessThan(0.05)
+
+      const [litHit, beyondHit] = await picks(view, [lit, beyond])
+      expect(litHit?.detail, view).toMatchObject({
+        kind: 'tile',
+        layer: 'floor',
+        x: 7,
+        y: 2,
+        tile: 'stone',
+      })
+      if (view === 'map') {
+        // Seen from above, the row beyond the wall is there.
+        expect(beyondHit?.detail).toMatchObject({ kind: 'tile', x: 6, y: 0, tile: 'dirt' })
+      } else {
+        // From the table's side, the wall hides it: the pick hits the wall.
+        expect(beyondHit?.detail, 'hidden behind the north wall').toBeUndefined()
+        expect(beyondHit?.position[2]).toBeGreaterThan(-8.2)
+      }
+    }
     expect(world.resource(Gpu).errors).toEqual([])
     await app.dispose()
     target.destroy()

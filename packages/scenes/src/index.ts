@@ -1,5 +1,6 @@
 export {
   PARITY_LAYERS,
+  PARITY_TILES,
   type ParityAngle,
   type ParityOptions,
   type ParityScene,

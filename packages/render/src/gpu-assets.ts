@@ -704,7 +704,7 @@ export class GpuAssets {
           })
         } else {
           const g = gm.ownBound[i] ?? defaults.white
-          entries.push({ binding: binding++, resource: g.linear })
+          entries.push({ binding: binding++, resource: type.colors.has(name) ? g.srgb : g.linear })
         }
         entries.push({ binding: binding++, resource: this.sampler('repeat', 'linear') })
       }

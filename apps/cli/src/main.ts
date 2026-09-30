@@ -17,6 +17,7 @@ import {
   screenshot,
   serve,
   testCommand,
+  tiles,
   track,
   validate,
 } from './commands'
@@ -38,6 +39,10 @@ const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; 
     help: 'import [--force]                import new and changed assets; list failures',
   },
   mv: { run: mv, help: 'mv <from> <to>                  move an asset and rewrite references' },
+  tiles: {
+    run: tiles,
+    help: 'tiles read|edit <asset> [--layer l] [--chunk cx,cy] [--rect x,y,w,h] [--cell x,y=name] [--fill x,y,w,h=name] [--row r]; tiles <asset> --encoding rows|base64 [--atlas a]',
+  },
   check: {
     run: check,
     help: 'check                           type-check the project; file:line:col',
@@ -135,6 +140,14 @@ export async function main(argv: string[]): Promise<number> {
         plan: { type: 'string' },
         by: { type: 'string' },
         headed: { type: 'boolean' },
+        layer: { type: 'string' },
+        chunk: { type: 'string' },
+        rect: { type: 'string' },
+        cell: { type: 'string', multiple: true },
+        fill: { type: 'string' },
+        row: { type: 'string', multiple: true },
+        encoding: { type: 'string' },
+        atlas: { type: 'string' },
         help: { type: 'boolean', short: 'h' },
       },
     })

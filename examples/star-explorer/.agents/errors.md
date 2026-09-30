@@ -43,6 +43,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `assets/load-failed` | @aethervtt/shard-assets |  |
 | `assets/move-target-exists` | @aethervtt/shard-assets |  |
 | `assets/no-listing` | @aethervtt/shard-assets | Import on a host with file listing (the CLI, the dev server, Studio). |
+| `assets/no-source` | @aethervtt/shard-assets | Only assets imported from project files can be written back. |
 | `assets/not-found` | @aethervtt/shard-assets | Check the path; it starts at the project root, e.g. "data/weapons/laser.weapon.json". |
 | `assets/not-loaded` | @aethervtt/shard-assets |  |
 | `assets/outside-roots` | @aethervtt/shard-assets |  |
@@ -299,15 +300,22 @@ Every engine error is a `ShardError` with one of these codes.
 | `shader/unsupported-field` | @aethervtt/shard-shader | GPU structs take numbers, bools, enums, vectors, colors, and matrices. f64 fields are not allowed; object fields are skipped. |
 | `shader/watch-unsupported` | @aethervtt/shard-shader |  |
 | `sprite/atlas-too-large` | @aethervtt/shard-sprite | Raise maxSize, or split the images into several atlases. |
+| `sprite/bad-chunk` | @aethervtt/shard-sprite |  |
+| `sprite/bad-flag` | @aethervtt/shard-sprite | Flags are fx, fy and r90, joined by +. |
 | `sprite/duplicate-region` | @aethervtt/shard-sprite | Region names are unique within an atlas. |
 | `sprite/invalid-occluder` | @aethervtt/shard-sprite | Give polygons 3+ points without crossing edges, boxes a nonzero size, and collider occluders a cuboid, ball, capsule, or convex Collider. |
-| `sprite/invalid-tilemap` | @aethervtt/shard-sprite |  |
+| `sprite/invalid-tilemap` | @aethervtt/shard-sprite | Chunk keys are "cx,cy": the chunk column and row from the top left. |
 | `sprite/no-atlas` | @aethervtt/shard-sprite |  |
 | `sprite/no-layer` | @aethervtt/shard-sprite |  |
+| `sprite/no-palette` | @aethervtt/shard-sprite | Save it once with its atlas (tilemapToJson(data, { atlas })) to give it a palette. |
 | `sprite/no-texture` | @aethervtt/shard-sprite |  |
 | `sprite/not-a-tilemap` | @aethervtt/shard-sprite |  |
 | `sprite/tile-out-of-range` | @aethervtt/shard-sprite |  |
+| `sprite/tilemap-needs-atlas` | @aethervtt/shard-sprite | Its tiles are atlas regions: pass the atlas so they can be named (the palette). |
 | `sprite/tilemap-not-loaded` | @aethervtt/shard-sprite | Wait for its TilemapData asset, or create one with TilemapData.create. |
+| `sprite/unencodable-tile` | @aethervtt/shard-sprite | Region names in rows have no spaces, ":", "*" or "+". Save with encoding base64. |
+| `sprite/unknown-tile` | @aethervtt/shard-sprite | Rename it to a region the atlas has, or add the region to the atlas. |
+| `sprite/unknown-tilemap` | @aethervtt/shard-sprite | Name a *.tilemap.json asset by path or guid that a Tilemap in the world uses. |
 | `sprite/unsupported-image` | @aethervtt/shard-sprite |  |
 | `terrain/bad-direction` | @aethervtt/shard-terrain | Pass a direction from the planet’s center in its frame, e.g. the position of a point on it. |
 | `terrain/bad-points` | @aethervtt/shard-terrain | e.g. { "latlon": [[0, 0], [45, 90]] }, or { "directions": [[0, 1, 0]] } for the north pole. |

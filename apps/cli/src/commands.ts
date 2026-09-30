@@ -43,6 +43,15 @@ import {
   validateScene,
   whenSceneReady,
 } from '@aethervtt/shard-scene'
+import {
+  editTiles,
+  readTiles,
+  TextureAtlas,
+  TilemapData,
+  type TileRect,
+  tilemapToText,
+  validateTilemaps,
+} from '@aethervtt/shard-sprite'
 import { localizationKeysIn, validateLocalization } from '@aethervtt/shard-text'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { Hub, localTarget, type ProtocolTarget } from './hub'
@@ -203,10 +212,13 @@ export async function validate({ out, project }: CommandContext): Promise<number
     for (const { source, errors } of await validateDataAssets(world)) {
       for (const e of errors) report.assets.push({ ...e.toJSON(), source })
     }
+    // Files that place things (scenes, prefabs), for checks that pair assets (tilemap and atlas).
+    const placing: unknown[] = []
     // Instance overrides are checked against their prefab or model, so those load first.
     for (const entry of assetServer(world).list({ type: 'Prefab' })) {
       if (!entry.source || failed.has(entry.source)) continue // reported with the imports
       const json = JSON.parse(await platform.fs.readText(entry.source))
+      placing.push(json)
       await loadInstanceAssets(world, json)
       report.prefabs[entry.source] = [
         ...validatePrefab(world, json, { id: entry.source }).map((e) => e.toJSON()),
@@ -224,10 +236,15 @@ export async function validate({ out, project }: CommandContext): Promise<number
         continue
       }
       await loadInstanceAssets(world, json)
+      placing.push(json)
       report.scenes[scene] = [
         ...validateScene(world, json, { id: scene }).map((e) => e.toJSON()),
         ...undefinedKeys(json),
       ]
+    }
+    // Tile names against the atlas each tilemap is drawn with (0059).
+    for (const { source, errors } of await validateTilemaps(world, placing)) {
+      for (const e of errors) report.assets.push({ ...e.toJSON(), source })
     }
   }
   const problems =
@@ -435,6 +452,110 @@ export async function mv({ out, project, args }: CommandContext): Promise<number
     result,
     `Moved ${result.from} -> ${result.to}.${result.rewritten.length > 0 ? `\nRewrote references in:\n${result.rewritten.map((f) => `  ${f}`).join('\n')}` : ''}`,
   )
+  return EXIT.ok
+}
+
+// --- tiles -------------------------------------------------------------------------
+
+/** "a,b,c" as numbers, for --chunk and --rect. */
+function numbersOf(value: unknown, n: number, flag: string): number[] {
+  const parts = String(value).split(',').map(Number)
+  if (parts.length !== n || parts.some((v) => !Number.isInteger(v) || v < 0)) {
+    throw new ShardError('cli/usage', `--${flag} takes ${n} whole numbers joined by commas`)
+  }
+  return parts
+}
+
+function rectOf(value: unknown, flag: string): TileRect {
+  const [x, y, w, h] = numbersOf(value, 4, flag) as [number, number, number, number]
+  return { x, y, w, h }
+}
+
+function listFlag(value: unknown): string[] {
+  return value === undefined ? [] : Array.isArray(value) ? value.map(String) : [String(value)]
+}
+
+/**
+ * `shard tiles read|edit <asset>`, and `shard tiles <asset> --encoding rows|base64`: tilemap files
+ * read and edited by tile name (0059), without running the game. Version 1 files name no tiles:
+ * `--atlas <path>` names them.
+ */
+export async function tiles({ out, project, args, flags }: CommandContext): Promise<number> {
+  const verb = args[0] === 'read' || args[0] === 'edit' ? args[0] : undefined
+  const file = verb ? args[1] : args[0]
+  if (!file || (!verb && flags.encoding === undefined)) {
+    throw new ShardError(
+      'cli/usage',
+      'Usage: shard tiles read|edit <asset> [--layer l] …, or shard tiles <asset> --encoding rows|base64',
+    )
+  }
+  const platform = createNodePlatform({ root: project })
+  const json = JSON.parse(await platform.fs.readText(file)) as { $schema?: string }
+  const schema = json.$schema
+  const data = TilemapData.fromJson(json)
+  let atlas: { names: readonly string[] } | undefined
+  if (typeof flags.atlas === 'string') {
+    const assets = await projectAssets(project)
+    await assets.scan()
+    await assets.load(flags.atlas)
+    const item = assets.item(flags.atlas)
+    if (!(item instanceof TextureAtlas)) {
+      throw new ShardError('cli/usage', `--atlas ${flags.atlas} is not a texture atlas`)
+    }
+    atlas = item
+  }
+  const layer = typeof flags.layer === 'string' ? flags.layer : undefined
+  if (verb === 'read') {
+    const result = readTiles(
+      data,
+      {
+        layer,
+        chunk: flags.chunk === undefined ? undefined : numbersOf(flags.chunk, 2, 'chunk'),
+        rect: flags.rect === undefined ? undefined : rectOf(flags.rect, 'rect'),
+      },
+      atlas,
+    )
+    const text =
+      'rows' in result
+        ? result.rows.join('\n')
+        : Object.entries(result.chunks)
+            .map(([key, rows]) => `${key}:\n${rows.map((r) => `  ${r}`).join('\n')}`)
+            .join('\n')
+    out.result({ asset: file, ...result }, text)
+    return EXIT.ok
+  }
+  if (verb === 'edit') {
+    // --cell x,y=name[:flags] (repeatable), --fill x,y,w,h=name, --chunk cx,cy with --row (repeatable).
+    const cells = listFlag(flags.cell).map((c) => {
+      const m = /^(\d+),(\d+)=([^:]+)(?::(.+))?$/.exec(c)
+      if (!m) throw new ShardError('cli/usage', `--cell takes x,y=name[:flags], got "${c}"`)
+      return { x: Number(m[1]), y: Number(m[2]), tile: m[3]!, flags: m[4] ?? '' }
+    })
+    let fill: { rect: TileRect; tile: string } | undefined
+    if (flags.fill !== undefined) {
+      const [rect, tile] = String(flags.fill).split('=')
+      if (!rect || !tile) throw new ShardError('cli/usage', '--fill takes x,y,w,h=name')
+      fill = { rect: rectOf(rect, 'fill'), tile }
+    }
+    const rowList = listFlag(flags.row)
+    if (rowList.length > 0 && flags.chunk === undefined) {
+      throw new ShardError('cli/usage', '--row needs --chunk cx,cy')
+    }
+    const rows =
+      rowList.length > 0 ? { chunk: numbersOf(flags.chunk, 2, 'chunk'), rows: rowList } : undefined
+    const changed = editTiles(data, { layer, cells, fill, rows }, atlas)
+    await platform.fs.writeText(file, tilemapToText(data, { atlas, schema }))
+    out.result({ asset: file, changed }, `Changed ${changed} cell(s) in ${file}.`)
+    return EXIT.ok
+  }
+  const encoding = flags.encoding
+  if (encoding !== 'rows' && encoding !== 'base64') {
+    throw new ShardError('cli/usage', '--encoding is rows or base64')
+  }
+  const from = data.palette ? data.encoding : 'version 1'
+  data.encoding = encoding
+  await platform.fs.writeText(file, tilemapToText(data, { atlas, schema }))
+  out.result({ asset: file, from, encoding }, `Wrote ${file} as ${encoding} (was ${from}).`)
   return EXIT.ok
 }
 

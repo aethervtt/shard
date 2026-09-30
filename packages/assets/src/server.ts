@@ -1934,6 +1934,33 @@ export class AssetServer {
   }
 
   /**
+   * Writes a data asset's source file from its JSON, edited in place (a tilemap, 0059): two-space
+   * indented, keeping the file's `$schema` (which importing drops). Returns the project path
+   * written. The next scan or watcher event reimports it as for any edit.
+   */
+  async writeSource(ref: AssetRef | string, json: Record<string, unknown>): Promise<string> {
+    const fs = this.requireWritable()
+    const entry = this.entry(ref)
+    const path = entry?.source
+    if (!entry || !path || entry.label !== '') {
+      throw new ShardError(
+        'assets/no-source',
+        `${typeof ref === 'string' ? ref : (ref.path ?? ref.guid)} has no source file`,
+        { hint: 'Only assets imported from project files can be written back.' },
+      )
+    }
+    let schema: unknown
+    try {
+      schema = (JSON.parse(await fs.readText(path)) as { $schema?: unknown }).$schema
+    } catch {
+      // Not there, or not JSON: written as given.
+    }
+    const body = schema !== undefined && !('$schema' in json) ? { $schema: schema, ...json } : json
+    await fs.writeText(path, `${JSON.stringify(body, null, 2)}\n`)
+    return path
+  }
+
+  /**
    * Moves a source and its `.meta`, then rewrites references to it in scene files and JSON data
    * assets. The guid is unchanged, so loaded assets stay loaded.
    */

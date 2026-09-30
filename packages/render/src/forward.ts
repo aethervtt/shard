@@ -661,6 +661,8 @@ export function drawMaterials(
     const ground = pass === PASS_GROUND || pass === PASS_PICK_GROUND
     // The G-buffer only takes standard lighting; anything else draws forward.
     if (gbuffer && !own.type.standard) continue
+    // Picks go through types that aren't pick targets (a grid's lines).
+    if (pick && !own.type.pickable) continue
     // The G-buffer, the prepass, and picking are always single-sampled.
     const msaa = gbuffer || prepass || pick ? 1 : cam.msaa
     const key = ((pass * 1024 + typeOrdinal(type)) * 16 + variant) * 8 + msaa

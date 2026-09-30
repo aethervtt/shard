@@ -558,6 +558,8 @@ describe('MCP server', () => {
         'project_status',
         'reload_project',
         'typecheck',
+        'tilemap_read',
+        'tilemap_edit',
         'physics_raycast',
         'spawn_prefab',
         'prefab_overrides',
@@ -701,6 +703,117 @@ describe('MCP server', () => {
     disconnect()
     hub.close()
     live.close()
+  })
+})
+
+describe('shard tiles (0059)', () => {
+  const maze = resolve(here, '../../../examples/maze-chase')
+  const atlas = 'assets/maze/tiles.atlas.json'
+
+  it('reads a version 1 map through its atlas, converts it to rows, edits one line, and round-trips base64', () => {
+    const file = 'assets/maze/zz-copy.tilemap.json'
+    const path = join(maze, file)
+    try {
+      writeFileSync(path, readFileSync(join(maze, 'assets/maze/maze.tilemap.json')))
+      // Version 1 names no tiles: reading needs the atlas.
+      let r = shard(['tiles', 'read', file, '--rect', '0,0,4,2', '--json'], maze)
+      expect(r.code).toBe(2)
+      expect(r.json().error.code).toBe('sprite/tilemap-needs-atlas')
+      r = shard(['tiles', 'read', file, '--rect', '0,0,4,2', '--atlas', atlas, '--json'], maze)
+      expect(r.code).toBe(0)
+      expect(r.json()).toMatchObject({ layer: 'floor', width: 21, height: 15 })
+      expect(r.json().rows).toHaveLength(2)
+      for (const row of r.json().rows) expect(row).toMatch(/^tile\d/)
+
+      r = shard(['tiles', file, '--encoding', 'rows', '--atlas', atlas, '--json'], maze)
+      expect(r.json()).toMatchObject({ from: 'version 1', encoding: 'rows' })
+      const rows = readFileSync(path, 'utf8')
+      expect(JSON.parse(rows)).toMatchObject({ version: 2, encoding: 'rows' })
+      // Rows name tiles themselves: no atlas needed from here on.
+      r = shard(['tiles', 'read', file, '--layer', 'walls', '--chunk', '0,0', '--json'], maze)
+      expect(r.code).toBe(0)
+      expect(r.json().rows.length).toBeGreaterThan(0)
+
+      // A name the palette has (a new one would add a palette line too), flipped: one row changes.
+      const known = JSON.parse(rows).palette[0]
+      r = shard(
+        ['tiles', 'edit', file, '--layer', 'floor', '--cell', `3,2=${known}:fx`, '--json'],
+        maze,
+      )
+      expect(r.json()).toEqual({ asset: file, changed: 1 })
+      const edited = readFileSync(path, 'utf8').split('\n')
+      const before = rows.split('\n')
+      expect(edited.length).toBe(before.length)
+      expect(edited.filter((line, i) => line !== before[i])).toHaveLength(1)
+
+      const rowsAfterEdit = readFileSync(path, 'utf8')
+      expect(shard(['tiles', file, '--encoding', 'base64', '--json'], maze).json()).toMatchObject({
+        from: 'rows',
+        encoding: 'base64',
+      })
+      expect(typeof JSON.parse(readFileSync(path, 'utf8')).layers[0].tiles).toBe('string')
+      shard(['tiles', file, '--encoding', 'rows'], maze)
+      expect(readFileSync(path, 'utf8')).toBe(rowsAfterEdit)
+
+      r = shard(['tiles', 'edit', file, '--row', 'tile0*16'], maze)
+      expect(r.code).toBe(3)
+    } finally {
+      rmSync(path, { force: true })
+      rmSync(`${path}.meta`, { force: true })
+    }
+  })
+
+  it('validate names an unknown tile: its layer, its cell, its name, and the row it is on', () => {
+    const data = 'assets/maze/zz-unknown.tilemap.json'
+    const scene = 'scenes/zz-tiles.scene.json'
+    try {
+      writeFileSync(
+        join(maze, data),
+        JSON.stringify({
+          version: 2,
+          encoding: 'rows',
+          chunkSize: 16,
+          palette: ['tile0', 'lava'],
+          layers: [
+            {
+              name: 'floor',
+              width: 4,
+              height: 3,
+              chunks: { '0,0': ['tile0*4', 'tile0*2 lava tile0', 'tile0*4'] },
+            },
+          ],
+        }),
+      )
+      writeFileSync(
+        join(maze, scene),
+        JSON.stringify({
+          version: 1,
+          entities: [
+            {
+              name: 'tiles',
+              components: {
+                'core/Transform': {},
+                'sprite/Tilemap': { atlas: { path: atlas }, data: { path: data } },
+              },
+            },
+          ],
+        }),
+      )
+      const r = shard(['validate', '--json'], maze)
+      expect(r.code).toBe(1)
+      const unknown = r
+        .json()
+        .assets.filter((e: { code: string }) => e.code === 'sprite/unknown-tile')
+      expect(unknown).toEqual([
+        expect.objectContaining({ source: data, path: '/layers/0/chunks/0,0/1' }),
+      ])
+      expect(unknown[0].message).toContain('Layer "floor"')
+      expect(unknown[0].message).toContain('cell (2, 1)')
+      expect(unknown[0].message).toContain('"lava"')
+    } finally {
+      for (const f of [data, `${data}.meta`, scene]) rmSync(join(maze, f), { force: true })
+      shard(['import', '--json'], maze) // drop the removed files from the cache index
+    }
   })
 })
 

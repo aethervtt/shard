@@ -221,6 +221,11 @@ struct TilemapParams {
     return out;
   }
   let tile = remap[min(raw, arrayLength(&remap) - 1u)];
+  // A palette name the atlas lacks resolves to 0: nothing to draw.
+  if (tile == 0u) {
+    out.clip = vec4f(0.0, 0.0, 0.0, 0.0);
+    return out;
+  }
   let flags = value >> 16u;
   let c = corner(v);
   // Tile (x, y) covers [x, x + 1] × [-y - 1, -y] in tile units.

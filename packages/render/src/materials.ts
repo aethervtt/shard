@@ -42,11 +42,21 @@ export interface MaterialTypeOptions<F extends Fields> {
    */
   arrays?: readonly string[]
   /**
+   * Texture fields that hold color (albedo, an atlas): sampled through the sRGB view, as
+   * `baseColorTexture` is. Other texture fields sample the stored values (the linear view).
+   */
+  colors?: readonly string[]
+  /**
    * Standard extensions only: false leaves the standard material's five texture slots (and their
    * samplers) out of the layout, for types that build their own surface and need the room (a stage
    * holds 16 sampled textures). Its shader must then not call `standard_input`.
    */
   standardTextures?: boolean
+  /**
+   * false: draws of this type aren't pick targets. A pick (GPU or raycast) goes through them to
+   * what's under: a grid's lines over the tiles they're drawn on (0059). Default true.
+   */
+  pickable?: boolean
   description?: string
 }
 
@@ -88,6 +98,10 @@ export class MaterialType {
   textures: string[]
   /** Texture fields bound as 2D arrays. */
   arrays: Set<string>
+  /** Texture fields sampled through the sRGB view. */
+  colors: Set<string>
+  /** Whether picks can hit draws of this type (MaterialTypeOptions.pickable). */
+  pickable = true
   blend: BlendMode | undefined
   shader: string | undefined
   /** Noise graphs the module wraps as `noise_<name>`. */
@@ -111,6 +125,7 @@ export class MaterialType {
     this.layout = undefined
     this.textures = []
     this.arrays = new Set()
+    this.colors = new Set()
     this.blend = options.blend
     this.shader = options.shader
     this.noise = []
@@ -129,9 +144,11 @@ export class MaterialType {
     }
     this.extends = options.extends ?? 'standard'
     this.standardTextures = options.standardTextures ?? true
+    this.pickable = options.pickable ?? true
     this.schema = schema
     this.textures = textures
     this.arrays = new Set(options.arrays ?? [])
+    this.colors = new Set(options.colors ?? [])
     this.blend = options.blend
     this.shader = options.shader
     this.noise = Object.entries(options.noise ?? {}).map(([name, path]) => {
@@ -303,7 +320,9 @@ function signatureOf(ext: string, options: MaterialTypeOptions<Fields>, fields: 
     shader: options.shader ?? null,
     noise: options.noise ?? {},
     arrays: options.arrays ?? [],
+    colors: options.colors ?? [],
     standardTextures: options.standardTextures ?? true,
+    pickable: options.pickable ?? true,
     description: options.description ?? null,
     fields: Object.entries(fields).map(([key, field]) => [key, field.jsonSchema()]),
   })
