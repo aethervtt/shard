@@ -80,7 +80,7 @@ Cutout {
   points: list(vec2),                    // the hole, a simple polygon inside the host
   kind: 'hole' | 'hatch' | 'skylight',
   frameWidth: f32, frameDepth: f32, frameMaterial: handle('Material'),
-  hinge: vec2,                           // hatches: the edge the leaf hangs from, as two point indices
+  hinge: u16,                            // hatches: the outline edge the leaf hangs from (edge i: point i to i + 1)
   state: 'closed' | 'open' | 'locked',   // hatches
 }
 ```
@@ -91,7 +91,7 @@ them), so the surface keeps its exact area minus theirs, and gives each cutout's
 outline, kind or frame changes; its `state` marks nothing, as with a door.
 
 - **Hole:** just the gap: stairwells, pits, chasms, smoke holes.
-- **Hatch:** a leaf entity (a trapdoor), hinged on the `hinge` edge. `structure/doors` swings it
+- **Hatch:** a leaf entity (a trapdoor) the shape of the hole, hinged on its `hinge` edge. `structure/doors` swings it
   up by `state` over `doorSwingMs`, holding a frame demand while it moves: one instance slot a
   frame, no rebuild. `DoorLeaf.opening` points back at the cutout.
 - **Skylight:** a glass pane across the hole, which casts no shadow.
