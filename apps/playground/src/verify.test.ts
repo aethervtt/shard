@@ -360,7 +360,8 @@ describe.skipIf(skip)('dice in the browser (0054)', () => {
       expect(partial).toBeGreaterThan(500)
       const [record] = run.records
       expect(record!.scenario).toBe('dice-32')
-      expect(record!.frameTime.n).toBeGreaterThan(60)
+      // Frames all through its second; how many is timing (CI's software GPU draws about 30).
+      expect(record!.frameTime.n).toBeGreaterThan(timingMode === 'bench' ? 60 : 0)
       // Frame time and long tasks are timing: the plan's thresholds hold under pnpm bench (CI
       // renders on the CPU).
       if (timingMode === 'bench') {
