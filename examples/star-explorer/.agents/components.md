@@ -779,6 +779,7 @@ Brings along: `core/Transform`, `render/Exposure`.
 | `clearColor` | string or number[4] | `[0.0056,0.0065,0.0091,1]` |  | Background (linear). |
 | `target` | null or RenderTarget ref | `null` |  | Offscreen target, or null for the window. |
 | `active` | boolean | `true` |  | Renders when true. An inactive camera keeps its settings and transform but draws nothing. |
+| `layers` | integer | `65535` | ≥ 0, ≤ 65535 | Render layers this camera draws (0057): a renderable draws if its RenderLayers mask shares a bit. Default: all. |
 
 ## `render/ColorGrading`
 
@@ -833,6 +834,7 @@ Brings along: `core/Transform`.
 | `shadowBias` | number | `0.02` | ≥ 0, m | Moves receivers toward the light before the depth test. Fixes acne. |
 | `shadowNormalBias` | number | `1.5` | ≥ 0 | Moves receivers along their normal, in shadow-map texels. Fixes acne at grazing angles. |
 | `shadowSoftness` | number | `0` | ≥ 0 | PCF filter radius in texels beyond the base 3x3 (0 = 3x3). Softer edges. |
+| `shadowUpdate` | `"always"` \| `"on-change"` | `"always"` |  | always: shadow maps redraw every frame. on-change: they redraw only when the light or the camera's cascade fit moved, or a shadow caster inside them changed (0055); a still scene draws none. |
 | `cascades` | object | `{"count":4,"maxDistance":150,"splitLambda":0.8}` |  | How cascaded shadow maps divide the view. |
 | `angularDiameter` | number | `0.53` | ≥ 0, ≤ 30, deg | The sun disk's size in an atmosphere's sky (the Sun 0.53°). 0: no disk. Illuminance is at the top of the atmosphere. |
 
@@ -868,6 +870,18 @@ Brings along: `render/Camera3d`.
 | `start` | number | `0` | ≥ 0, m | Clear distance from the camera. |
 | `sunScattering` | number | `0.5` | ≥ 0, ≤ 1 | Glow toward the sun (forward scattering). |
 | `mode` | `"default"` \| `"add"` | `"default"` |  | default: fog for flat scenes, ignored inside a planet's Atmosphere (render/fog-with-atmosphere); add: extra ground fog on top of the atmosphere's haze. |
+
+## `render/GroundLayer`
+
+Draws a mesh in the ground phase: coplanar layers in a fixed order, hidden by walls and props, never z-fighting.
+
+Brings along: `core/Transform`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `band` | integer or `"tiles"` \| `"grid"` \| `"drawings"` \| `"tokens-flat"` \| `"fog"` \| `"overlay"` | `30` |  | Stacking band: tiles 10, grid 20, drawings 30, tokens-flat 40, fog 50, overlay 60. Higher draws over lower. Presets: tiles, grid, drawings, tokens-flat, fog, overlay. |
+| `order` | integer | `0` | ≥ -2147483648, ≤ 2147483647 | Order within the band: higher draws over lower. |
+| `level` | integer | `0` | ≥ -16, ≤ 15 | Structure level index (0067): ground layers sort by level first, so a lower level never draws over an upper one. 0 is the ground level. |
 
 ## `render/InstanceData`
 
@@ -961,6 +975,16 @@ Tag: shadows are not applied to this mesh.
 
 Tag (no fields).
 
+## `render/Outline`
+
+Outlines a renderable, or every renderable under this entity. Selection and hover are two Outlines with different colors; the host sets and clears them.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `color` | string or number[4] | `[1,0.78,0.2,1]` |  | Outline color (linear), with alpha. |
+| `width` | number | `2` | ≥ 0, ≤ 32, px | Width in CSS pixels, outside the silhouette, at any zoom and display density. |
+| `occluded` | `"hide"` \| `"show"` \| `"dim"` | `"hide"` |  | Where something hides the outlined object: hide the outline there, show it anyway, or dim it. |
+
 ## `render/PhysicalCamera`
 
 Photographic camera settings. When present, they set Exposure (and fovY).
@@ -986,7 +1010,7 @@ Crisp pixel art on an orthographic camera: renders at one texel per pixel (Camer
 
 ## `render/PointLight`
 
-Light emitted equally in all directions, in lumens (intensity lm / 4π candela), with physical inverse-square falloff windowed to zero at range.
+Light emitted equally in all directions, in lumens (intensity lm / 4π candela), with physical inverse-square falloff windowed to zero at range, or tabletop falloff (bright, then dim to range).
 
 Brings along: `core/Transform`.
 
@@ -1000,6 +1024,9 @@ Brings along: `core/Transform`.
 | `shadowBias` | number | `0.02` | ≥ 0, m | Moves receivers toward the light before the depth test. Fixes acne. |
 | `shadowNormalBias` | number | `1` | ≥ 0 | Moves receivers along their normal, in shadow-map texels. Fixes acne at grazing angles. |
 | `shadowSoftness` | number | `0` | ≥ 0 | PCF filter radius in texels beyond the base 3x3 (0 = 3x3). Softer edges. |
+| `shadowUpdate` | `"always"` \| `"on-change"` | `"always"` |  | always: shadow maps redraw every frame. on-change: they redraw only when the light or the camera's cascade fit moved, or a shadow caster inside them changed (0055); a still scene draws none. |
+| `falloff` | `"physical"` \| `"tabletop"` | `"physical"` |  | physical: inverse square, windowed to zero at range. tabletop (0057): full intensity inside bright, then linear to zero at range (a VTT light's bright and dim radii). |
+| `bright` | number | `0` | ≥ 0, m | Tabletop falloff: the radius of full intensity. Past it, light fades linearly to zero at range. |
 
 ## `render/ProceduralSky`
 
@@ -1012,6 +1039,14 @@ An Earth sky seen from 10 m above the ground wherever the camera is: an Atmosphe
 | `mie` | number | `1` | ≥ 0 | Multiplies aerosol (white haze) scattering. |
 | `groundAlbedo` | string or number[4] | `[0.3,0.3,0.3,1]` |  | Ground below the horizon. |
 | `sunDiskSize` | number | `1` | ≥ 0 | Sun disk size, as a multiple of the DirectionalLight's angularDiameter (the Sun's 0.53°). 0 hides the disk. |
+
+## `render/RenderLayers`
+
+Per-view visuals: a token keeps its Transform on a root, and each child visual (a flat disc, a standee) carries the layer of the camera that shows it.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `mask` | integer | `1` | ≥ 0, ≤ 65535 | Layer bits, 16 layers (1 is layer 1). A camera draws it if any bit is also in its layers. |
 
 ## `render/RenderPath`
 
@@ -1028,6 +1063,12 @@ Invisible except for the shadows it receives: under a camera clearing to alpha 0
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `opacity` | number | `0.6` | ≥ 0, ≤ 1 | Alpha of full shadow. Partial shadow (penumbra, one of two lights) is less. |
+
+## `render/ShadowWhenHidden`
+
+Tag: while hidden, this mesh still casts shadows (camera views skip it).
+
+Tag (no fields).
 
 ## `render/SkinnedMesh`
 
@@ -1064,6 +1105,7 @@ Brings along: `core/Transform`.
 | `shadowBias` | number | `0.02` | ≥ 0, m | Moves receivers toward the light before the depth test. Fixes acne. |
 | `shadowNormalBias` | number | `1` | ≥ 0 | Moves receivers along their normal, in shadow-map texels. Fixes acne at grazing angles. |
 | `shadowSoftness` | number | `0` | ≥ 0 | PCF filter radius in texels beyond the base 3x3 (0 = 3x3). Softer edges. |
+| `shadowUpdate` | `"always"` \| `"on-change"` | `"always"` |  | always: shadow maps redraw every frame. on-change: they redraw only when the light or the camera's cascade fit moved, or a shadow caster inside them changed (0055); a still scene draws none. |
 | `innerAngle` | number | `30` | ≥ 0, ≤ 89, deg | Full brightness inside this angle from the axis. |
 | `outerAngle` | number | `45` | ≥ 0.1, ≤ 89.9, deg | No light outside this angle from the axis. |
 
@@ -1127,6 +1169,7 @@ Tonemapping for a camera. Without it, cameras use the default curve with ditheri
 | `prevViewProj` | number[16] | `[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]` |  |  |
 | `jitter` | number[4] | `[0,0,0,0]` |  |  |
 | `sunTransmittance` | number[16] | `[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]` |  |  |
+| `pixelScale` | number[4] | `[0,0,0,0]` |  |  |
 
 ## `render/Vignette`
 
