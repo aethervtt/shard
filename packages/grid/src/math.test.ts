@@ -4,12 +4,16 @@ import {
   cellCenter,
   cellPolygon,
   distance,
+  edgeMidpoints,
   type GridGeometry,
+  gridVertex,
   hexDistance,
   neighbors,
   pathDistance,
   pointToAxial,
   roundAxial,
+  tokenCenter,
+  wallAnchor,
 } from './math'
 
 // Aether's grid fixtures (packages/core/test/grid.test.ts), in its pixel units.
@@ -107,5 +111,44 @@ describe('distance', () => {
     // One leg: 5 diagonals (1+2+1+2+1 = 7) and 2 straight cells.
     expect(distance(g, [0, 0], [490, 350], 'alternating')).toBe(9)
     expect(distance(g, [0, 0], [490, 350], 'equal')).toBe(7)
+  })
+})
+
+describe('snapping (Aether parity)', () => {
+  it('snaps square vertices and tokens by footprint parity, respecting the origin', () => {
+    const g = grid()
+    expect(gridVertex(g, 90, 100)).toEqual([81, 87])
+    expect(tokenCenter(g, 90, 100, 1)).toEqual([116, 122])
+    expect(tokenCenter(g, 90, 100, 2)).toEqual([81, 87])
+    expect(tokenCenter(g, 90, 100, 3)).toEqual([116, 122])
+  })
+
+  it('lands walls on an edge midpoint as well as a vertex', () => {
+    const g = grid({ offset: [0, 0], size: 100 })
+    expect(edgeMidpoints(g, 55, 4)).toContainEqual([50, 0])
+    expect(wallAnchor(g, 52, 3)).toEqual([50, 0])
+    expect(wallAnchor(g, 3, 2)).toEqual([0, 0])
+  })
+
+  it('snaps hex walls to corners and edge midpoints, and hex tokens to centres', () => {
+    for (const orientation of ['pointy', 'flat'] as const) {
+      const g = grid({ kind: 'hex', orientation, size: 60, offset: [13, 19] })
+      const centre = cellCenter(g, [2, -1])
+      const corners = cellPolygon(g, [2, -1])
+      const [cx, cz] = corners[0]!
+      const v = gridVertex(g, cx + 0.5, cz - 0.4)
+      expect(v[0]).toBeCloseTo(cx, 9)
+      expect(v[1]).toBeCloseTo(cz, 9)
+      const [mx, mz] = [
+        (corners[0]![0] + corners[1]![0]) / 2,
+        (corners[0]![1] + corners[1]![1]) / 2,
+      ]
+      const a = wallAnchor(g, mx + 0.3, mz + 0.2)
+      expect(a[0]).toBeCloseTo(mx, 9)
+      expect(a[1]).toBeCloseTo(mz, 9)
+      const t = tokenCenter(g, centre[0] + 4, centre[1] - 3, 2)
+      expect(t[0]).toBeCloseTo(centre[0], 9)
+      expect(t[1]).toBeCloseTo(centre[1], 9)
+    }
   })
 })

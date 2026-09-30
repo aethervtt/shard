@@ -112,7 +112,7 @@ Each dirty chunk rebuilds its per-material meshes:
 - walls split around their openings, extruded to `height`: full-height spans between openings,
   the wall below a window's sill and above an opening's head (with its underside);
 - door and window frames: two jambs and a head, plus a sill rail for windows, standing
-  `frameDepth` out from each face, in the frame material (or the wall's);
+  `frameDepth` out from each face, in the frame material (or a built-in wood, 0066);
 - floors, triangulated once by ear clipping (`polygon.triangulate` in `@aethervtt/shard-core`,
   which bridges holes for vector fills and fog, 0057 and 0058).
 

@@ -32,6 +32,7 @@ import {
 } from '@aethervtt/shard-render'
 import { definePlugin } from '@aethervtt/shard-runtime'
 import { DoorLeaf, Floor, Opening, Structure, Wall } from '@aethervtt/shard-structure'
+import { brickMaterial } from '@aethervtt/shard-structure/fixtures'
 import { lookAt, Transform } from '@aethervtt/shard-transform'
 import { VectorShape } from '@aethervtt/shard-vector'
 import { hudExtras } from './hud'
@@ -41,6 +42,8 @@ import { hudExtras } from './hud'
 // perspective orbit with standees. Walls, doors, windows and floors compile into chunks; grid,
 // drawings, discs and fog stack in ground bands. Click a token to select it (and move it by
 // clicking the floor), click a door to swing it. Name labels are DOM, placed by worldToScreen.
+// The east wing's straight walls and the yard's round tower and garden wall share one procedural
+// brick material (0066), so the courses can be compared on straight, arc and Bézier walls.
 
 /** Layer 1 is shared; each view adds its own visuals' layer. */
 const SHARED = 1
@@ -58,6 +61,8 @@ interface WallDoc {
   a: Vec2
   b: Vec2
   material: string
+  height?: number
+  curve?: { kind: 'arc'; bow: number } | { kind: 'bezier'; c0: Vec2; c1: Vec2 }
 }
 interface OpeningDoc {
   id: string
@@ -73,6 +78,7 @@ interface FloorDoc {
   rev: number
   points: Vec2[]
   material: string
+  elevation?: number
 }
 interface TokenDoc {
   id: string
@@ -99,6 +105,25 @@ function initialTable(): Table {
     b,
     material,
   })
+  // A round brick tower in the yard: four quarter arcs, walked anticlockwise, bowing outward.
+  const [tx, tz, r] = [-10, 4.5, 3]
+  const corners: Vec2[] = [
+    [tx + r, tz],
+    [tx, tz + r],
+    [tx - r, tz],
+    [tx, tz - r],
+  ]
+  const tower = corners.map(
+    (a, i): WallDoc => ({
+      ...w(`tower-${i}`, a, corners[(i + 1) % 4]!, 'brick'),
+      curve: { kind: 'arc', bow: -r * (1 - Math.SQRT1_2) },
+    }),
+  )
+  const towerFloor: Vec2[] = []
+  for (let i = 0; i < 32; i++) {
+    const t = (i / 32) * Math.PI * 2
+    towerFloor.push([tx + Math.cos(t) * r, tz + Math.sin(t) * r])
+  }
   return {
     walls: [
       w('hall-n', [-15, -9], [3, -9]),
@@ -110,6 +135,12 @@ function initialTable(): Table {
       w('east-e', [15, -9], [15, 9], 'brick'),
       w('east-mid', [3, 1.5], [15, 1.5], 'brick'),
       w('south', [-15, 9], [15, 9]),
+      ...tower,
+      {
+        ...w('garden', [-4, 8], [2, 3], 'brick'),
+        height: 1.2,
+        curve: { kind: 'bezier', c0: [-0.5, 8.8], c1: [3, 6] },
+      },
     ],
     openings: [
       {
@@ -158,6 +189,24 @@ function initialTable(): Table {
         state: 'closed',
       },
       { id: 'win-n', rev: 0, wall: 'hall-n', kind: 'window', offset: 6, width: 3, state: 'closed' },
+      {
+        id: 'door-tower',
+        rev: 0,
+        wall: 'tower-0',
+        kind: 'door',
+        offset: 1.75,
+        width: 1.2,
+        state: 'closed',
+      },
+      {
+        id: 'win-tower',
+        rev: 0,
+        wall: 'tower-2',
+        kind: 'window',
+        offset: 1.8,
+        width: 1.2,
+        state: 'closed',
+      },
     ],
     floors: [
       {
@@ -193,6 +242,7 @@ function initialTable(): Table {
         ],
         material: 'plank',
       },
+      { id: 'tower', rev: 0, points: towerFloor, material: 'flag', elevation: 0.02 },
     ],
     tokens: [
       { id: 'ranger', rev: 0, name: 'Ranger', x: -9.75, z: -5.25, color: [0.2, 0.6, 0.25, 1] },
@@ -256,7 +306,11 @@ function mirrors(world: World, materials: Map<string, AssetRef<'Material'>>) {
       w.set(e, Wall, {
         a: d.a,
         b: d.b,
-        height: 2.8,
+        shape: d.curve?.kind ?? 'straight',
+        bow: d.curve?.kind === 'arc' ? d.curve.bow : 0,
+        c0: d.curve?.kind === 'bezier' ? d.curve.c0 : [0, 0],
+        c1: d.curve?.kind === 'bezier' ? d.curve.c1 : [0, 0],
+        height: d.height ?? 2.8,
         thickness: 0.3,
         material: materials.get(d.material) ?? null,
       }),
@@ -285,7 +339,11 @@ function mirrors(world: World, materials: Map<string, AssetRef<'Material'>>) {
     rev: (d) => d.rev,
     spawn: (_d, w) => w.spawn(Floor),
     apply: (e, d, w) =>
-      w.set(e, Floor, { points: d.points, material: materials.get(d.material) ?? null }),
+      w.set(e, Floor, {
+        points: d.points,
+        elevation: d.elevation ?? 0,
+        material: materials.get(d.material) ?? null,
+      }),
   })
   const tokenMaterials = new Map<string, AssetRef<'Material'>>()
   const tokens = createMirror<TokenDoc>(world, {
@@ -433,7 +491,6 @@ function spawnScene(world: World): Demo {
   }
   const refs = new Map<string, AssetRef<'Material'>>([
     mat('stone', { baseColor: [0.55, 0.53, 0.5, 1], roughness: 0.9 }),
-    mat('brick', { baseColor: [0.5, 0.26, 0.18, 1], roughness: 0.85 }),
     mat('wood', { baseColor: [0.33, 0.2, 0.1, 1], roughness: 0.6 }),
     mat('flag', { baseColor: [0.3, 0.31, 0.33, 1], roughness: 0.9 }),
     mat('dirt', { baseColor: [0.28, 0.22, 0.14, 1], roughness: 1 }),
@@ -441,6 +498,7 @@ function spawnScene(world: World): Demo {
     mat('moss', { baseColor: [0.2, 0.34, 0.18, 1], roughness: 0.9 }),
     mat('ink', { baseColor: [0.05, 0.05, 0.06, 1], roughness: 0.5 }),
   ])
+  refs.set('brick', brickMaterial(world))
   const m = mirrors(world, refs)
   const table = initialTable()
   // Props: barrels, crates and pillars (they cast shadows and hide the bands behind them).
@@ -454,7 +512,7 @@ function spawnScene(world: World): Demo {
     [pillar, 'stone', -9, 1.4, -4.5],
     [pillar, 'stone', -3, 1.4, -4.5],
     [crate, 'moss', 12.5, 0.5, 6.5],
-    [pillar, 'brick', 9, 1.4, -4],
+    [pillar, 'stone', 9, 1.4, -4],
   ] as const)
     world.spawn(
       [Mesh3d, { mesh }],

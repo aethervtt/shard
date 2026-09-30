@@ -18,13 +18,17 @@ export {
   cubeToAxial,
   type DiagonalRule,
   distance,
+  edgeMidpoints,
   type GridGeometry,
   type GridKind,
+  gridVertex,
   type HexOrientation,
   hexDistance,
   neighbors,
   pathDistance,
   pointToAxial,
   roundAxial,
+  tokenCenter,
+  wallAnchor,
 } from './math'
 export { gridPlugin } from './plugin'

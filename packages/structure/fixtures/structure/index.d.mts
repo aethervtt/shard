@@ -11,12 +11,25 @@ export interface SceneGrid {
   unit: string
   diagonal: 'euclidean' | 'equal' | 'alternating'
 }
+/** Aether's scene material: the textured fields are optional here (the generators leave them out). */
 export interface MaterialDoc {
   id: string
   rev: number
   name: string
   tint: string
   roughness: number
+  metalness?: number
+  /** Asset refs (`asset:<sha256>`) a host resolves to images. */
+  baseColorTexture?: string | null
+  /** Pixels one texture tile covers. */
+  repeat?: Point
+  /** Degrees. */
+  rotation?: number
+  wrap?: 'mirrored-repeat'
+  normal?: { texture: string; convention: 'opengl'; strength: number }
+  roughnessTexture?: string
+  metalnessTexture?: string
+  ambientOcclusion?: { texture: string; strength: number }
 }
 export interface WallDoc {
   id: string
@@ -28,6 +41,8 @@ export interface WallDoc {
   thickness: number
   elevation: number
   materialId: string
+  /** Curved walls (0066), in pixels: an arc's bow, or a cubic's control points. */
+  curve?: { kind: 'arc'; bow: number } | { kind: 'bezier'; c0: Point; c1: Point }
 }
 export interface OpeningDoc {
   id: string

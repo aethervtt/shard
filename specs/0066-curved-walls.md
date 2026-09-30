@@ -81,11 +81,12 @@ get no caps, so a curved wall is one continuous surface. Caps stay at the wall's
 openings. Chunk overlap uses the same clipped quads, so an edit still rebuilds exactly the chunks
 its old and new geometry overlap.
 
-- **UVs:** `u` runs along the arc length (offset so a straight wall's UVs are what they were), `v`
-  up the wall: textures follow the curve without stretching.
+- **UVs:** `u` runs along the arc length and `v` down the wall (see Materials): textures follow
+  the curve without stretching.
 - **Openings:** `offset` and `width` are measured along the centreline. Frames follow the curve.
   A door leaf is straight, spanning the chord between the opening's two ends on the centreline;
-  a window pane likewise.
+  a window pane likewise. Frames and leaves without a `frameMaterial` wear a built-in wood
+  (`structure:frame`), not the wall's material: a brick wall's door isn't brick.
 - **Tight curves:** a radius of curvature smaller than half the thickness folds the inner face. An
   arc that tight is invalid (`structure/wall-too-tight`, with the wall's path); a Bézier that
   folds anywhere draws as sampled and logs `structure/wall-folds` once per revision.
@@ -102,12 +103,17 @@ the ones compile draws, so the server blocks what players see.
 
 Structure UVs are in metres, so a material's texture slot `scale` is tiles per metre:
 
-- **Wall faces:** `u` along the centreline's arc length (a straight wall's `u` is what it was,
-  the projection on its direction), `v` the height `y`. Courses of bricks stay level and follow
-  a curve without stretching; `u` is continuous across sample joints and chunk cuts.
-- **Caps (ends, reveals):** `u` across the wall, `v` the height.
+- **Wall faces:** `u` along the centreline's arc length, increasing to the right as seen from
+  the face (so each face reads its texture unmirrored), and `v = −y`, so images stand upright.
+  Courses of bricks stay level and follow a curve without stretching; `u` is continuous across
+  sample joints and chunk cuts. Side vertices take the curve's smooth normal at their arc length.
+- **Caps (ends, reveals):** `u` across the wall, right as seen from the cap, `v = −y`.
 - **Tops, undersides and floors:** `u, v = x, z`.
-- **Tangents:** every vertex carries its `u` direction and handedness, so normal maps apply.
+- **Tangents:** every vertex carries its `u` direction and handedness (`w`), with the bitangent
+  `cross(N, T) · w` pointing up the image, so normal maps apply.
+
+Straight walls' positions, normals and indices are what 0055 compiled; only their UVs changed, to
+this convention (0055's were never textured).
 
 Aether's scene material maps onto `StandardMaterial` like this (the reference adapter does it):
 `tint` → `baseColor`; `baseColorTexture` → `baseColorTexture`; `repeat` (pixels per tile) →
@@ -159,32 +165,34 @@ planarBarriers(walls, openings, { tolerance: 0.01 })
 
 ## Acceptance criteria
 
-- [ ] Straight walls compile to the same meshes, and `planarBarriers` returns the same segments
-      and ids, as before this spec (every 0055 test and golden unchanged).
-- [ ] An arc's samples lie on its circle, no chord strays more than the tolerance from it, and its
+- [x] Straight walls compile to the same positions, normals and indices, and `planarBarriers`
+      returns the same segments and ids, as before this spec (every 0055 test and golden
+      unchanged).
+- [x] An arc's samples lie on its circle, no chord strays more than the tolerance from it, and its
       arc length is exact (± 0.1%); a Bézier's samples stay within the tolerance of the curve.
-- [ ] A curved wall's footprint, clipped into chunks, keeps its exact area (± 0.1%), each part
+- [x] A curved wall's footprint, clipped into chunks, keeps its exact area (± 0.1%), each part
       inside its chunk, and an edit rebuilds exactly the chunks its old and new geometry overlap
       (checked against a reference overlap test), under 4 ms in `pnpm bench` for a 6 m arc.
-- [ ] A door on an arc sits at its arc-length offset: its opening's barrier segments start and end
+- [x] A door on an arc sits at its arc-length offset: its opening's barrier segments start and end
       at the centreline points `offset` and `offset + width` along the arc.
-- [ ] `planarBarriers` on curved walls uses the same points compile draws, and every point of a
+- [x] `planarBarriers` on curved walls uses the same points compile draws, and every point of a
       curved wall's centreline is within the tolerance of a barrier segment.
-- [ ] A round tower (four quarter arcs, a door and a window) matches its golden captures top-down
+- [x] A round tower (four quarter arcs, a door and a window) matches its golden captures top-down
       and at 30°, with no seam at sample joints or chunk cuts.
-- [ ] An arc with a radius under half its thickness reports `structure/wall-too-tight` with its
+- [x] An arc with a radius under half its thickness reports `structure/wall-too-tight` with its
       path; a folding Bézier draws and logs `structure/wall-folds` once.
-- [ ] `quadraticToCubic` reproduces the quadratic exactly (to float precision) at 100 parameters.
-- [ ] The snapping helpers match Aether's grid fixtures (wall anchors, grid vertices, edge
+- [x] `quadraticToCubic` reproduces the quadratic exactly (to float precision) at 100 parameters.
+- [x] The snapping helpers match Aether's grid fixtures (wall anchors, grid vertices, edge
       midpoints, token centres for footprints 1 to 3).
-- [ ] Brick walls, straight and curved, match golden captures top-down and at 30°: courses level,
-      bricks the same size on both, no seam at sample joints, chunk cuts or wall corners.
-- [ ] A normal-mapped brick wall lit from the side differs from the same wall without its normal
+- [x] Brick walls, straight, arc and Bézier, match a golden capture at 30° (the brick tower's
+      cover top-down): courses level, bricks the same size on all, no seam at sample joints, chunk
+      cuts or wall corners.
+- [x] A normal-mapped brick wall lit from the side differs from the same wall without its normal
       map (the tangents reach the shader), on straight and curved walls.
-- [ ] An Aether scene material (tint, base color texture, repeat, rotation, mirrored wrap,
+- [x] An Aether scene material (tint, base color texture, repeat, rotation, mirrored wrap,
       roughness and metalness textures, normal map, AO) maps to the `StandardMaterial` above, and
       one texture tile covers `repeat` pixels of the scene.
-- [ ] `packMetallicRoughness` puts roughness in G and metalness in B, and a missing map packs as 1.
+- [x] `packMetallicRoughness` puts roughness in G and metalness in B, and a missing map packs as 1.
 
 ## Open questions
 

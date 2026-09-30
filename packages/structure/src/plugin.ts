@@ -3,7 +3,14 @@ import { box } from '@aethervtt/shard-mesh'
 import { MaterialAsset, Materials, Meshes } from '@aethervtt/shard-render'
 import { type AppMethod, definePlugin } from '@aethervtt/shard-runtime'
 import { TransformSystems } from '@aethervtt/shard-transform'
-import { compileStructure, observeRemovals, Structure, StructureState, swingDoors } from './compile'
+import {
+  compileStructure,
+  FRAME_KEY,
+  observeRemovals,
+  Structure,
+  StructureState,
+  swingDoors,
+} from './compile'
 import {
   DoorLeaf,
   Floor,
@@ -64,6 +71,13 @@ export const structurePlugin = definePlugin({
       new MaterialAsset({ baseColor: [0.62, 0.6, 0.57, 1], roughness: 0.85 }),
       'structure:default',
     ) as AssetRef<'Material'>
+    state.materials.set(
+      FRAME_KEY,
+      materials.add(
+        new MaterialAsset({ baseColor: [0.29, 0.18, 0.1, 1], roughness: 0.6 }),
+        FRAME_KEY,
+      ) as AssetRef<'Material'>,
+    )
     state.glassMaterial = materials.add(
       new MaterialAsset({
         baseColor: [0.62, 0.76, 0.86, 0.28],

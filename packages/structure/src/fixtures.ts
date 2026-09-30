@@ -9,6 +9,7 @@ import {
   Meshes,
   MeshMaterial,
 } from '@aethervtt/shard-render'
+import { type Image, packMetallicRoughness, Texture, Textures } from '@aethervtt/shard-texture'
 import { Transform } from '@aethervtt/shard-transform'
 import {
   type FloorDoc,
@@ -39,6 +40,50 @@ function linear(hex: string): [number, number, number, number] {
     return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4
   }
   return [c(0), c(1), c(2), 1]
+}
+
+/** Resolves a host's texture asset ref to a decoded image (Aether: `asset:<sha256>`). */
+export type ImageSource = (ref: string) => Image | undefined
+
+/**
+ * Aether's scene material as a `StandardMaterial` value (0066). `texture` makes (or finds) the
+ * texture for a ref and a use; `packed` is the packed roughness/metalness texture, if the material
+ * has either map. Repeat is pixels per tile, so a slot's scale is 1 / (repeat × pxToWorld) tiles per
+ * metre on structure's metre UVs.
+ */
+export function sceneMaterialValue(
+  doc: MaterialDoc,
+  pxToWorld: number,
+  texture: (ref: string, usage: 'color' | 'normal' | 'data') => AssetRef<'Texture'> | null,
+  packed: AssetRef<'Texture'> | null = null,
+): Record<string, unknown> {
+  const repeat = doc.repeat ?? { x: 1 / pxToWorld, y: 1 / pxToWorld }
+  const slot = (ref: AssetRef<'Texture'> | null) =>
+    ref && {
+      texture: ref,
+      scale: [1 / (repeat.x * pxToWorld), 1 / (repeat.y * pxToWorld)],
+      rotation: ((doc.rotation ?? 0) * Math.PI) / 180,
+      wrap: doc.wrap === 'mirrored-repeat' ? 'mirror' : 'repeat',
+    }
+  const value: Record<string, unknown> = {
+    baseColor: linear(doc.tint),
+    roughness: doc.roughness,
+    metallic: doc.metalness ?? 0,
+  }
+  const base = doc.baseColorTexture ? texture(doc.baseColorTexture, 'color') : null
+  if (base) value.baseColorTexture = slot(base)
+  const normal = doc.normal ? texture(doc.normal.texture, 'normal') : null
+  if (normal) {
+    value.normalTexture = slot(normal)
+    value.normalScale = doc.normal!.strength
+  }
+  const ao = doc.ambientOcclusion ? texture(doc.ambientOcclusion.texture, 'data') : null
+  if (ao) {
+    value.occlusionTexture = slot(ao)
+    value.occlusionStrength = doc.ambientOcclusion!.strength
+  }
+  if (packed) value.metallicRoughnessTexture = slot(packed)
+  return value
 }
 
 /** What one `sync` of every mirror did. */
@@ -74,9 +119,14 @@ export class HostScene {
   private discMesh: AssetRef<'Mesh'> | undefined
   private tokenMaterial: AssetRef<'Material'> | undefined
 
-  constructor(world: World, pxToWorld = PX_TO_WORLD) {
+  /** Textures made from the host's images, by ref and use. */
+  private readonly textureRefs = new Map<string, AssetRef<'Texture'>>()
+  private readonly images: ImageSource | undefined
+
+  constructor(world: World, pxToWorld = PX_TO_WORLD, images?: ImageSource) {
     this.world = world
     this.k = pxToWorld
+    this.images = images
     const k = pxToWorld
     const rev = (d: { rev: number }) => d.rev
     const id = (d: { id: string }) => d.id
@@ -93,10 +143,7 @@ export class HostScene {
       },
       apply: (_e, doc) => {
         const ref = this.materialRefs.get(doc.id)!
-        world
-          .resource(Materials)
-          .get(ref)
-          ?.set({ baseColor: linear(doc.tint), roughness: doc.roughness })
+        world.resource(Materials).get(ref)?.set(this.materialValue(doc))
       },
       despawn: (e, w, key) => {
         const ref = this.materialRefs.get(key)
@@ -117,6 +164,10 @@ export class HostScene {
         world.set(e, Wall, {
           a: [d.a.x * k, d.a.y * k],
           b: [d.b.x * k, d.b.y * k],
+          shape: d.curve?.kind ?? 'straight',
+          bow: d.curve?.kind === 'arc' ? d.curve.bow * k : 0,
+          c0: d.curve?.kind === 'bezier' ? [d.curve.c0.x * k, d.curve.c0.y * k] : [0, 0],
+          c1: d.curve?.kind === 'bezier' ? [d.curve.c1.x * k, d.curve.c1.y * k] : [0, 0],
           height: d.height * k,
           thickness: d.thickness * k,
           elevation: d.elevation * k,
@@ -137,7 +188,9 @@ export class HostScene {
           sill: d.sill * k,
           frameWidth: d.frameWidth * k,
           frameDepth: d.frameDepth * k,
-          frameMaterial: d.frameMaterialId ? (this.materialRefs.get(d.frameMaterialId) ?? null) : null,
+          frameMaterial: d.frameMaterialId
+            ? (this.materialRefs.get(d.frameMaterialId) ?? null)
+            : null,
           hinge: d.hinge ?? 'start',
           swing: d.swing ?? 'left',
           state: d.state ?? 'closed',
@@ -154,7 +207,9 @@ export class HostScene {
           points: d.points.map((p) => [p.x * k, p.y * k] as [number, number]),
           elevation: d.elevation * k,
           material:
-            d.surface.kind === 'material' ? (this.materialRefs.get(d.surface.materialId) ?? null) : null,
+            d.surface.kind === 'material'
+              ? (this.materialRefs.get(d.surface.materialId) ?? null)
+              : null,
         }),
     })
     this.props = createMirror<PropDoc>(world, {
@@ -202,6 +257,46 @@ export class HostScene {
     })
   }
 
+  /** A scene material's value: its textures made from the host's images on first use. */
+  private materialValue(doc: MaterialDoc): Record<string, unknown> {
+    const texture = (ref: string, usage: 'color' | 'normal' | 'data') => {
+      const key = `${usage}:${ref}`
+      let t = this.textureRefs.get(key)
+      if (!t) {
+        const image = this.images?.(ref)
+        if (!image) return null
+        t = this.world.resource(Textures).add(
+          Texture.create({
+            width: image.width,
+            height: image.height,
+            usage,
+            mips: [image.data as Uint8Array],
+            mipmaps: true,
+          }),
+          `host:texture/${key}`,
+        ) as AssetRef<'Texture'>
+        this.textureRefs.set(key, t)
+      }
+      return t
+    }
+    let packed: AssetRef<'Texture'> | null = null
+    if (doc.roughnessTexture || doc.metalnessTexture) {
+      const key = `mr:${doc.roughnessTexture ?? ''}:${doc.metalnessTexture ?? ''}`
+      packed = this.textureRefs.get(key) ?? null
+      if (!packed) {
+        const r = doc.roughnessTexture ? this.images?.(doc.roughnessTexture) : undefined
+        const m = doc.metalnessTexture ? this.images?.(doc.metalnessTexture) : undefined
+        if (r || m) {
+          packed = this.world
+            .resource(Textures)
+            .add(packMetallicRoughness(r, m), `host:texture/${key}`) as AssetRef<'Texture'>
+          this.textureRefs.set(key, packed)
+        }
+      }
+    }
+    return sceneMaterialValue(doc, this.k, texture, packed)
+  }
+
   /** World size of one grid cell: the grid's pixel size through the visual scale. */
   get cell(): number {
     return (this.grid?.size ?? 70) * this.k
@@ -238,7 +333,10 @@ export class HostScene {
   private sizeToken(root: Entity, d: TokenDoc): void {
     const disc = this.discs.get(root)!
     const footprint = d.size * this.cell * 0.9
-    this.world.set(disc, Transform, { translation: [0, 0.03, 0], scale: [footprint, 0.06, footprint] })
+    this.world.set(disc, Transform, {
+      translation: [0, 0.03, 0],
+      scale: [footprint, 0.06, footprint],
+    })
   }
 
   private placeProp(e: Entity, d: PropDoc): void {
@@ -254,14 +352,20 @@ export class HostScene {
   private disc(): AssetRef<'Mesh'> {
     this.discMesh ??= this.world
       .resource(Meshes)
-      .add(cylinder({ radius: 0.5, height: 1, segments: 32 }), 'host:token-disc') as AssetRef<'Mesh'>
+      .add(
+        cylinder({ radius: 0.5, height: 1, segments: 32 }),
+        'host:token-disc',
+      ) as AssetRef<'Mesh'>
     return this.discMesh
   }
 
   private tokenMat(): AssetRef<'Material'> {
     this.tokenMaterial ??= this.world
       .resource(Materials)
-      .add(new MaterialAsset({ baseColor: [0.75, 0.2, 0.15, 1], roughness: 0.5 }), 'host:token') as AssetRef<'Material'>
+      .add(
+        new MaterialAsset({ baseColor: [0.75, 0.2, 0.15, 1], roughness: 0.5 }),
+        'host:token',
+      ) as AssetRef<'Material'>
     return this.tokenMaterial
   }
 
@@ -283,6 +387,8 @@ export class HostScene {
 }
 
 /** Mirrors Aether-shaped documents onto `world` (see `HostScene`). */
-export function hostScene(world: World, pxToWorld = PX_TO_WORLD): HostScene {
-  return new HostScene(world, pxToWorld)
+export function hostScene(world: World, pxToWorld = PX_TO_WORLD, images?: ImageSource): HostScene {
+  return new HostScene(world, pxToWorld, images)
 }
+
+export { type BrickOptions, brickMaterial, brickTextures } from './bricks'

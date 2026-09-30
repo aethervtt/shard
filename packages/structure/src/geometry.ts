@@ -1,11 +1,21 @@
 import { polygon } from '@aethervtt/shard-core'
+import { type Centerline, pointAt } from './curve'
 
-// Structure geometry (0055), as pure functions over plain numbers: walls split around their
+// Structure geometry (0055, 0066), as pure functions over plain numbers: walls split around their
 // openings, door and window frames, floors, and every piece clipped to the chunk squares it lies
 // in. A chunk owns exactly the part of each piece inside its square; cut faces get no caps, so
-// the parts meet as one surface. UVs are world-space, so textures don't seam at cuts.
+// the parts meet as one surface.
+//
+// A wall runs along a sampled centreline (straight, arc or Bézier, see curve.ts). Each piece's
+// footprint is the strip of quads between consecutive samples, offset half its thickness to each
+// side; joints between quads, like chunk cuts, get no faces. Every footprint vertex carries its arc
+// length, so UVs follow the curve and side normals are smooth along it.
+//
+// UVs are in metres. Wall faces: u runs to the right as seen from the face, v down (so an image
+// reads upright), tops and floors: u, v = x, z. Every vertex has a tangent along u, so normal maps
+// apply.
 
-/** A wall in world units: a centreline from a to b in the XZ plane, extruded up from `elevation`. */
+/** A wall in world units: a centreline in the XZ plane, extruded up from `elevation`. */
 export interface WallShape {
   ax: number
   az: number
@@ -14,9 +24,11 @@ export interface WallShape {
   height: number
   thickness: number
   elevation: number
+  /** The sampled centreline (two samples for a straight wall). */
+  line: Centerline
 }
 
-/** An opening along its host wall, in world units from the wall's start. */
+/** An opening along its host wall, in world units of arc length from the wall's start. */
 export interface OpeningShape {
   kind: 'door' | 'window'
   offset: number
@@ -28,8 +40,8 @@ export interface OpeningShape {
 }
 
 /**
- * A box along a wall: `[s0, s1]` along it, `[y0, y1]` up, `half` either side of the centreline.
- * Caps are the faces at s0 and s1; a piece that continues into another has none there.
+ * A box along a wall: `[s0, s1]` of arc length along it, `[y0, y1]` up, `half` either side of the
+ * centreline. Caps are the faces at s0 and s1; a piece that continues into another has none there.
  */
 export interface Piece {
   s0: number
@@ -47,11 +59,9 @@ export interface Piece {
   source: number
 }
 
-/** Length of a wall's centreline. */
+/** Length of a wall's centreline (its arc length when curved). */
 export function wallLength(w: WallShape): number {
-  const dx = w.bx - w.ax
-  const dz = w.bz - w.az
-  return Math.sqrt(dx * dx + dz * dz)
+  return w.line.length
 }
 
 function piece(
@@ -155,58 +165,95 @@ const SIDE_POS = 0
 const CAP_END = 1
 const SIDE_NEG = 2
 const CAP_START = 3
+/** Along a chunk's edge, or between two quads of a curved piece: no face. */
 const CUT = 4
 
-/** Scratch for clipping: footprints are quads, clipped to at most 8 points. */
+/** Scratch for clipping: footprint quads, clipped to at most 8 points, with arc lengths. */
 export class ClipScratch {
   readonly a = new Float64Array(24)
   readonly b = new Float64Array(24)
   readonly la = new Int8Array(12)
   readonly lb = new Int8Array(12)
+  /** Arc length at each point. */
+  readonly sa = new Float64Array(12)
+  readonly sb = new Float64Array(12)
   readonly tri = new Float64Array(6)
+  /** A centreline point and normal (pointAt). */
+  readonly at = new Float64Array(4)
+  /** The quad boundaries of the piece being walked: arc lengths. */
+  bounds = new Float64Array(64)
 }
 
-/** The footprint quad of a piece, counter-clockwise in (x, z), edge labels alongside. */
-function footprint(
-  w: WallShape,
-  p: Piece,
-  len: number,
-  out: Float64Array,
-  labels: Int8Array,
-): void {
-  const dx = (w.bx - w.ax) / len
-  const dz = (w.bz - w.az) / len
-  const nx = -dz * p.half
-  const nz = dx * p.half
-  const x0 = w.ax + dx * p.s0
-  const z0 = w.az + dz * p.s0
-  const x1 = w.ax + dx * p.s1
-  const z1 = w.az + dz * p.s1
-  // c0 (start, +n) → c1 (end, +n): side +n; c1 → c2 (end, −n): end cap; c2 → c3: side −n; c3 → c0.
-  out[0] = x0 + nx
-  out[1] = z0 + nz
-  out[2] = x1 + nx
-  out[3] = z1 + nz
-  out[4] = x1 - nx
-  out[5] = z1 - nz
-  out[6] = x0 - nx
-  out[7] = z0 - nz
-  labels[0] = SIDE_POS
-  labels[1] = CAP_END
-  labels[2] = SIDE_NEG
-  labels[3] = CAP_START
+/** The arc lengths a piece's strip breaks at: s0, the samples inside it, and s1. Returns count. */
+function strip(line: Centerline, p: Piece, s: ClipScratch): number {
+  let n = 0
+  const push = (v: number) => {
+    if (n === s.bounds.length) {
+      const next = new Float64Array(n * 2)
+      next.set(s.bounds)
+      s.bounds = next
+    }
+    s.bounds[n++] = v
+  }
+  push(p.s0)
+  for (let i = 1; i < line.count - 1; i++) {
+    const v = line.s[i]!
+    if (v > p.s0 + 1e-9 && v < p.s1 - 1e-9) push(v)
+  }
+  push(p.s1)
+  return n
 }
 
 /**
- * Sutherland–Hodgman against one axis-aligned edge, keeping each output edge's label: the label of
- * the input edge it lies on, or CUT for an edge along the clip line.
+ * Quad q of a piece's strip (between bounds q and q + 1), counter-clockwise from its +n side,
+ * with edge labels and arc lengths, into `s.a`, `s.la` and `s.sa`.
+ */
+function quad(line: Centerline, p: Piece, q: number, last: number, s: ClipScratch): void {
+  const sa = s.bounds[q]!
+  const sb = s.bounds[q + 1]!
+  const at = s.at
+  pointAt(line, sa, at)
+  const ax = at[0]!
+  const az = at[1]!
+  const anx = at[2]! * p.half
+  const anz = at[3]! * p.half
+  pointAt(line, sb, at)
+  const bx = at[0]!
+  const bz = at[1]!
+  const bnx = at[2]! * p.half
+  const bnz = at[3]! * p.half
+  // c0 (start, +n) → c1 (end, +n): side +n; c1 → c2: end; c2 → c3: side −n; c3 → c0: start.
+  const o = s.a
+  o[0] = ax + anx
+  o[1] = az + anz
+  o[2] = bx + bnx
+  o[3] = bz + bnz
+  o[4] = bx - bnx
+  o[5] = bz - bnz
+  o[6] = ax - anx
+  o[7] = az - anz
+  s.la[0] = SIDE_POS
+  s.la[1] = q + 1 === last ? CAP_END : CUT
+  s.la[2] = SIDE_NEG
+  s.la[3] = q === 0 ? CAP_START : CUT
+  s.sa[0] = sa
+  s.sa[1] = sb
+  s.sa[2] = sb
+  s.sa[3] = sa
+}
+
+/**
+ * Sutherland–Hodgman against one axis-aligned edge, keeping each output edge's label (the label of
+ * the input edge it lies on, or CUT along the clip line) and interpolating each point's arc length.
  */
 function clipLabeled(
   src: Float64Array,
   srcLabels: Int8Array,
+  srcS: Float64Array,
   n: number,
   dst: Float64Array,
   dstLabels: Int8Array,
+  dstS: Float64Array,
   axis: number,
   at: number,
   sign: number,
@@ -216,61 +263,57 @@ function clipLabeled(
   let pi = n - 1
   let px = src[pi * 2]!
   let pz = src[pi * 2 + 1]!
+  let ps = srcS[pi]!
   let pd = sign * ((axis === 0 ? px : pz) - at)
   for (let i = 0; i < n; i++) {
     const x = src[i * 2]!
     const z = src[i * 2 + 1]!
+    const sv = srcS[i]!
     const d = sign * ((axis === 0 ? x : z) - at)
     if (d >= 0) {
       if (pd < 0) {
         const t = pd / (pd - d)
         dst[count * 2] = px + (x - px) * t
         dst[count * 2 + 1] = pz + (z - pz) * t
+        dstS[count] = ps + (sv - ps) * t
         dstLabels[count] = srcLabels[pi]!
         count++
       }
       dst[count * 2] = x
       dst[count * 2 + 1] = z
+      dstS[count] = sv
       dstLabels[count] = srcLabels[i]!
       count++
     } else if (pd >= 0) {
       const t = pd / (pd - d)
       dst[count * 2] = px + (x - px) * t
       dst[count * 2 + 1] = pz + (z - pz) * t
+      dstS[count] = ps + (sv - ps) * t
       dstLabels[count] = CUT
       count++
     }
     pi = i
     px = x
     pz = z
+    ps = sv
     pd = d
   }
   return count
 }
 
-/** Clips a piece's footprint to a chunk square. The result is in `s.a` / `s.la`; returns its count. */
-function clipPiece(
-  w: WallShape,
-  p: Piece,
-  len: number,
-  minX: number,
-  minZ: number,
-  maxX: number,
-  maxZ: number,
-  s: ClipScratch,
-): number {
-  footprint(w, p, len, s.a, s.la)
-  let n = clipLabeled(s.a, s.la, 4, s.b, s.lb, 0, minX, 1)
-  n = clipLabeled(s.b, s.lb, n, s.a, s.la, 0, maxX, -1)
-  n = clipLabeled(s.a, s.la, n, s.b, s.lb, 1, minZ, 1)
-  n = clipLabeled(s.b, s.lb, n, s.a, s.la, 1, maxZ, -1)
+/** Clips the quad in `s.a` to a chunk square; the result stays in `s.a`. Returns its count. */
+function clipQuad(minX: number, minZ: number, maxX: number, maxZ: number, s: ClipScratch): number {
+  let n = clipLabeled(s.a, s.la, s.sa, 4, s.b, s.lb, s.sb, 0, minX, 1)
+  n = clipLabeled(s.b, s.lb, s.sb, n, s.a, s.la, s.sa, 0, maxX, -1)
+  n = clipLabeled(s.a, s.la, s.sa, n, s.b, s.lb, s.sb, 1, minZ, 1)
+  n = clipLabeled(s.b, s.lb, s.sb, n, s.a, s.la, s.sa, 1, maxZ, -1)
   if (n < 3 || Math.abs(polygon.signedArea(s.a, 0, n)) <= 1e-9) return 0
   return n
 }
 
 /**
  * Adds the keys of every chunk a wall's pieces overlap to `out` (a piece touching a chunk's edge
- * without area in it doesn't count). The same test decides what each chunk draws.
+ * without area in it doesn't count). The same quads and test decide what each chunk draws.
  */
 export function wallChunks(
   w: WallShape,
@@ -280,32 +323,31 @@ export function wallChunks(
   out: Set<number>,
   s: ClipScratch,
 ): void {
-  const len = wallLength(w)
+  const line = w.line
   for (let i = 0; i < count; i++) {
     const p = pieces[i]!
-    footprint(w, p, len, s.a, s.la)
-    let x0 = Infinity
-    let z0 = Infinity
-    let x1 = -Infinity
-    let z1 = -Infinity
-    for (let k = 0; k < 4; k++) {
-      const x = s.a[k * 2]!
-      const z = s.a[k * 2 + 1]!
-      if (x < x0) x0 = x
-      if (x > x1) x1 = x
-      if (z < z0) z0 = z
-      if (z > z1) z1 = z
-    }
-    const cx0 = Math.floor(x0 / size)
-    const cx1 = Math.floor(x1 / size)
-    const cz0 = Math.floor(z0 / size)
-    const cz1 = Math.floor(z1 / size)
-    for (let cx = cx0; cx <= cx1; cx++) {
-      for (let cz = cz0; cz <= cz1; cz++) {
-        const key = chunkKey(cx, cz)
-        if (out.has(key)) continue
-        if (clipPiece(w, p, len, cx * size, cz * size, (cx + 1) * size, (cz + 1) * size, s) > 0)
-          out.add(key)
+    const bounds = strip(line, p, s)
+    for (let q = 0; q + 1 < bounds; q++) {
+      quad(line, p, q, bounds - 1, s)
+      let x0 = Infinity
+      let z0 = Infinity
+      let x1 = -Infinity
+      let z1 = -Infinity
+      for (let k = 0; k < 4; k++) {
+        const x = s.a[k * 2]!
+        const z = s.a[k * 2 + 1]!
+        if (x < x0) x0 = x
+        if (x > x1) x1 = x
+        if (z < z0) z0 = z
+        if (z > z1) z1 = z
+      }
+      for (let cx = Math.floor(x0 / size); cx <= Math.floor(x1 / size); cx++) {
+        for (let cz = Math.floor(z0 / size); cz <= Math.floor(z1 / size); cz++) {
+          const key = chunkKey(cx, cz)
+          if (out.has(key)) continue
+          quad(line, p, q, bounds - 1, s)
+          if (clipQuad(cx * size, cz * size, (cx + 1) * size, (cz + 1) * size, s) > 0) out.add(key)
+        }
       }
     }
   }
@@ -316,6 +358,7 @@ export class MeshBuilder {
   positions = new Float32Array(768)
   normals = new Float32Array(768)
   uvs = new Float32Array(512)
+  tangents = new Float32Array(1024)
   indices = new Uint32Array(1024)
   vertexCount = 0
   indexCount = 0
@@ -334,6 +377,7 @@ export class MeshBuilder {
     this.maxX = this.maxY = this.maxZ = -Infinity
   }
 
+  /** A vertex: position, normal, uv, and the tangent along u with its bitangent sign. */
   vertex(
     x: number,
     y: number,
@@ -343,6 +387,10 @@ export class MeshBuilder {
     nz: number,
     u: number,
     v: number,
+    tx: number,
+    ty: number,
+    tz: number,
+    tw: number,
   ): number {
     const i = this.vertexCount
     if ((i + 1) * 3 > this.positions.length) this.growVertices()
@@ -355,6 +403,11 @@ export class MeshBuilder {
     this.normals[p + 2] = nz
     this.uvs[i * 2] = u
     this.uvs[i * 2 + 1] = v
+    const t = i * 4
+    this.tangents[t] = tx
+    this.tangents[t + 1] = ty
+    this.tangents[t + 2] = tz
+    this.tangents[t + 3] = tw
     if (x < this.minX) this.minX = x
     if (y < this.minY) this.minY = y
     if (z < this.minZ) this.minZ = z
@@ -385,6 +438,7 @@ export class MeshBuilder {
     this.positions = grow(this.positions)
     this.normals = grow(this.normals)
     this.uvs = grow(this.uvs)
+    this.tangents = grow(this.tangents)
   }
 
   /**
@@ -423,8 +477,8 @@ export class MeshBuilder {
 /**
  * Emits the parts of a wall's pieces inside one chunk square: tops, undersides where they show,
  * the long sides, and caps at the wall's ends and around openings. Faces along the chunk's
- * edges are left open. `builder(i)` is where piece i goes (by its material). Returns whether
- * anything was emitted.
+ * edges, and between the quads of a curve, are left open. `builder(i)` is where piece i goes (by
+ * its material). Returns whether anything was emitted.
  */
 export function emitWall(
   w: WallShape,
@@ -437,69 +491,109 @@ export function emitWall(
   builder: (piece: number) => MeshBuilder,
   s: ClipScratch,
 ): boolean {
-  const len = wallLength(w)
-  if (len < 1e-6) return false
-  const dx = (w.bx - w.ax) / len
-  const dz = (w.bz - w.az) / len
-  // Outward normal of the +n side (the wall's left, looking from a to b).
-  const nx = -dz
-  const nz = dx
+  const line = w.line
+  if (line.length < 1e-6) return false
+  // u on the +n side is the arc length plus where the start projects on the start's direction, so a
+  // straight wall's u is the projection of the point on its direction.
+  const d0x = line.nz[0]!
+  const d0z = -line.nx[0]!
+  const u0 = w.ax * d0x + w.az * d0z
+  const at = s.at
   let any = false
   for (let i = 0; i < count; i++) {
     const p = pieces[i]!
-    const n = clipPiece(w, p, len, minX, minZ, maxX, maxZ, s)
-    if (n === 0) continue
-    any = true
     const m = builder(i)
-    const pts = s.a
-    const labels = s.la
-    // Top and (where it shows) bottom: u, v = x, z.
-    let first = m.vertexCount
-    for (let k = 0; k < n; k++)
-      m.vertex(pts[k * 2]!, p.y1, pts[k * 2 + 1]!, 0, 1, 0, pts[k * 2]!, pts[k * 2 + 1]!)
-    m.fan(first, n, 0, 1, 0)
-    if (p.bottom) {
-      first = m.vertexCount
+    const bounds = strip(line, p, s)
+    for (let q = 0; q + 1 < bounds; q++) {
+      quad(line, p, q, bounds - 1, s)
+      const n = clipQuad(minX, minZ, maxX, maxZ, s)
+      if (n === 0) continue
+      any = true
+      const pts = s.a
+      const labels = s.la
+      const arc = s.sa
+      // Top and (where it shows) bottom: u, v = x, z; the bitangent follows v (image up is −z).
+      let first = m.vertexCount
       for (let k = 0; k < n; k++)
-        m.vertex(pts[k * 2]!, p.y0, pts[k * 2 + 1]!, 0, -1, 0, pts[k * 2]!, pts[k * 2 + 1]!)
-      m.fan(first, n, 0, -1, 0)
-    }
-    // Vertical faces: one quad per edge that belongs to the box and isn't a cut.
-    for (let k = 0; k < n; k++) {
-      const label = labels[k]!
-      if (label === CUT) continue
-      if (label === CAP_START && !p.capStart) continue
-      if (label === CAP_END && !p.capEnd) continue
-      let fx: number
-      let fz: number
-      let ux: number
-      let uz: number
-      if (label === SIDE_POS || label === SIDE_NEG) {
-        const sgn = label === SIDE_POS ? 1 : -1
-        fx = nx * sgn
-        fz = nz * sgn
-        ux = dx
-        uz = dz
-      } else {
-        const sgn = label === CAP_END ? 1 : -1
-        fx = dx * sgn
-        fz = dz * sgn
-        ux = nx
-        uz = nz
+        m.vertex(
+          pts[k * 2]!,
+          p.y1,
+          pts[k * 2 + 1]!,
+          0,
+          1,
+          0,
+          pts[k * 2]!,
+          pts[k * 2 + 1]!,
+          1,
+          0,
+          0,
+          1,
+        )
+      m.fan(first, n, 0, 1, 0)
+      if (p.bottom) {
+        first = m.vertexCount
+        for (let k = 0; k < n; k++)
+          m.vertex(
+            pts[k * 2]!,
+            p.y0,
+            pts[k * 2 + 1]!,
+            0,
+            -1,
+            0,
+            pts[k * 2]!,
+            pts[k * 2 + 1]!,
+            1,
+            0,
+            0,
+            -1,
+          )
+        m.fan(first, n, 0, -1, 0)
       }
-      const k2 = (k + 1) % n
-      const x0 = pts[k * 2]!
-      const z0 = pts[k * 2 + 1]!
-      const x1 = pts[k2 * 2]!
-      const z1 = pts[k2 * 2 + 1]!
-      const u0 = x0 * ux + z0 * uz
-      const u1 = x1 * ux + z1 * uz
-      first = m.vertexCount
-      m.vertex(x0, p.y0, z0, fx, 0, fz, u0, p.y0)
-      m.vertex(x1, p.y0, z1, fx, 0, fz, u1, p.y0)
-      m.vertex(x1, p.y1, z1, fx, 0, fz, u1, p.y1)
-      m.vertex(x0, p.y1, z0, fx, 0, fz, u0, p.y1)
-      m.fan(first, 4, fx, 0, fz)
+      // Vertical faces: one quad per edge that belongs to the box and isn't a cut or a joint.
+      for (let k = 0; k < n; k++) {
+        const label = labels[k]!
+        if (label === CUT) continue
+        if (label === CAP_START && !p.capStart) continue
+        if (label === CAP_END && !p.capEnd) continue
+        const k2 = (k + 1) % n
+        const x0 = pts[k * 2]!
+        const z0 = pts[k * 2 + 1]!
+        const x1 = pts[k2 * 2]!
+        const z1 = pts[k2 * 2 + 1]!
+        first = m.vertexCount
+        if (label === SIDE_POS || label === SIDE_NEG) {
+          // Smooth along the curve: each end's normal is the centreline's at its arc length.
+          const sgn = label === SIDE_POS ? 1 : -1
+          for (let e = 0; e < 4; e++) {
+            const end = e === 0 || e === 3 ? k : k2
+            const x = end === k ? x0 : x1
+            const z = end === k ? z0 : z1
+            pointAt(line, arc[end]!, at)
+            const fx = at[2]! * sgn
+            const fz = at[3]! * sgn
+            // u runs right as seen from the face: +s on the +n side, −s on the −n side.
+            const u = sgn * (arc[end]! + u0)
+            const y = e < 2 ? p.y0 : p.y1
+            m.vertex(x, y, z, fx, 0, fz, u, -y, fz, 0, -fx, 1)
+          }
+          pointAt(line, (arc[k]! + arc[k2]!) / 2, at)
+          m.fan(first, 4, at[2]! * sgn, 0, at[3]! * sgn)
+        } else {
+          // Caps face along the centreline at their end.
+          pointAt(line, label === CAP_END ? p.s1 : p.s0, at)
+          const sgn = label === CAP_END ? 1 : -1
+          const fx = at[3]! * sgn
+          const fz = -at[2]! * sgn
+          // Right as seen from the face: (fz, −fx).
+          const ux0 = x0 * fz - z0 * fx
+          const ux1 = x1 * fz - z1 * fx
+          m.vertex(x0, p.y0, z0, fx, 0, fz, ux0, -p.y0, fz, 0, -fx, 1)
+          m.vertex(x1, p.y0, z1, fx, 0, fz, ux1, -p.y0, fz, 0, -fx, 1)
+          m.vertex(x1, p.y1, z1, fx, 0, fz, ux1, -p.y1, fz, 0, -fx, 1)
+          m.vertex(x0, p.y1, z0, fx, 0, fz, ux0, -p.y1, fz, 0, -fx, 1)
+          m.fan(first, 4, fx, 0, fz)
+        }
+      }
     }
   }
   return any
@@ -621,7 +715,7 @@ export function emitFloor(
     for (let k = 0; k < n; k++) {
       const x = s.a[k * 2]!
       const z = s.a[k * 2 + 1]!
-      m.vertex(x, y, z, 0, 1, 0, x, z)
+      m.vertex(x, y, z, 0, 1, 0, x, z, 1, 0, 0, 1)
     }
     m.fan(first, n, 0, 1, 0)
   }

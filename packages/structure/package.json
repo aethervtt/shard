@@ -21,6 +21,7 @@
     "@aethervtt/shard-mirror": "workspace:*",
     "@aethervtt/shard-render": "workspace:*",
     "@aethervtt/shard-runtime": "workspace:*",
+    "@aethervtt/shard-texture": "workspace:*",
     "@aethervtt/shard-transform": "workspace:*"
   },
   "devDependencies": {

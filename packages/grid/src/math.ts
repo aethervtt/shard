@@ -200,3 +200,97 @@ export function pathDistance(
   }
   return { legs, total }
 }
+
+// ---------------------------------------------------------------------------
+// Snapping (0066): Aether's rules, so a host's tools and an agent snap walls and tokens alike.
+
+type Point = [number, number]
+
+function hexCorners(grid: GridGeometry, cx: number, cz: number, out: Point[]): void {
+  const radius = grid.size / SQRT3
+  const start = grid.orientation === 'pointy' ? -30 : 0
+  for (let i = 0; i < 6; i++) {
+    const a = ((start + i * 60) * Math.PI) / 180
+    out.push([cx + radius * Math.cos(a), cz + radius * Math.sin(a)])
+  }
+}
+
+/** The centres of the hex containing (x, z) and its six neighbours. */
+function nearbyHexes(grid: GridGeometry, x: number, z: number): Point[] {
+  const cell = cellAt(grid, x, z)
+  return [cell, ...neighbors(grid, cell)].map((c) => cellCenter(grid, c))
+}
+
+function nearest(x: number, z: number, choices: readonly Point[]): Point {
+  let best = choices[0] ?? [x, z]
+  let d = Infinity
+  for (const c of choices) {
+    const e = (c[0] - x) ** 2 + (c[1] - z) ** 2
+    if (e < d) {
+      d = e
+      best = c
+    }
+  }
+  return [best[0], best[1]]
+}
+
+/** The grid corner nearest (x, z): a square's intersection, or a hex's vertex. */
+export function gridVertex(grid: GridGeometry, x: number, z: number): Point {
+  if (grid.kind === 'square') {
+    return [
+      grid.offset[0] + Math.round((x - grid.offset[0]) / grid.size) * grid.size,
+      grid.offset[1] + Math.round((z - grid.offset[1]) / grid.size) * grid.size,
+    ]
+  }
+  const corners: Point[] = []
+  for (const [cx, cz] of nearbyHexes(grid, x, z)) hexCorners(grid, cx, cz, corners)
+  return nearest(x, z, corners)
+}
+
+/** The midpoints of the edges of the cell containing (x, z). */
+export function edgeMidpoints(grid: GridGeometry, x: number, z: number): Point[] {
+  const [cx, cz] = cellCenter(grid, cellAt(grid, x, z))
+  if (grid.kind === 'square') {
+    const h = grid.size / 2
+    return [
+      [cx, cz - h],
+      [cx + h, cz],
+      [cx, cz + h],
+      [cx - h, cz],
+    ]
+  }
+  const corners: Point[] = []
+  hexCorners(grid, cx, cz, corners)
+  return corners.map((a, i) => {
+    const b = corners[(i + 1) % 6]!
+    return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
+  })
+}
+
+/** Where a wall's end snaps: the nearest cell corner or edge midpoint. */
+export function wallAnchor(grid: GridGeometry, x: number, z: number): Point {
+  if (grid.kind === 'square')
+    return nearest(x, z, [gridVertex(grid, x, z), ...edgeMidpoints(grid, x, z)])
+  const features: Point[] = []
+  for (const [cx, cz] of nearbyHexes(grid, x, z)) {
+    const corners: Point[] = []
+    hexCorners(grid, cx, cz, corners)
+    features.push(...corners)
+    for (let i = 0; i < 6; i++) {
+      const a = corners[i]!
+      const b = corners[(i + 1) % 6]!
+      features.push([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2])
+    }
+  }
+  return nearest(x, z, features)
+}
+
+/**
+ * Where a token's centre snaps: odd square footprints (in cells) to a cell centre, even ones to an
+ * intersection; hex tokens always to a cell centre.
+ */
+export function tokenCenter(grid: GridGeometry, x: number, z: number, footprint = 1): Point {
+  if (grid.kind === 'hex' || Math.max(1, Math.round(footprint)) % 2 === 1)
+    return cellCenter(grid, cellAt(grid, x, z))
+  return gridVertex(grid, x, z)
+}

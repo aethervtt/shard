@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { arcOf, pointAt, sampleWall } from './curve'
 import { type PlanarOpening, type PlanarWall, planarBarriers } from './planar'
 
 // Aether's structural barrier fixtures (packages/core/test/scene-structure.test.ts): a 300 px wall
@@ -105,5 +106,64 @@ describe('planarBarriers', () => {
     expect(segments[1]!.a[0]).toBeCloseTo(6, 9)
     expect(segments[1]!.a[1]).toBeCloseTo(8, 9)
     expect(segments[4]!.b).toEqual([30, 40])
+  })
+})
+
+describe('planarBarriers on curved walls', () => {
+  const tower: PlanarWall = { id: 'tower', a: [0, 0], b: [6, 0], shape: 'arc', bow: 3 }
+  const door: PlanarOpening = {
+    id: 'door',
+    wall: 'tower',
+    kind: 'door',
+    offset: 4,
+    width: 1.2,
+    state: 'closed',
+    sight: 'normal',
+    movement: 'normal',
+  }
+
+  it('places an opening at its arc-length offset along the curve', () => {
+    const segments = planarBarriers([tower], [door])
+    const opening = segments.filter((s) => s.openingId === 'door')
+    const line = sampleWall(tower)
+    const start = pointAt(line, 4, new Float64Array(4))
+    const end = pointAt(line, 5.2, new Float64Array(4))
+    expect(opening[0]!.a[0]).toBeCloseTo(start[0]!, 9)
+    expect(opening[0]!.a[1]).toBeCloseTo(start[1]!, 9)
+    expect(opening.at(-1)!.b[0]).toBeCloseTo(end[0]!, 9)
+    expect(opening.at(-1)!.b[1]).toBeCloseTo(end[1]!, 9)
+    // The first segment keeps the span's id; the rest count up.
+    expect(opening.map((s) => s.id)).toEqual(
+      opening.map((_, k) => (k === 0 ? 'struct-opening:door' : `struct-opening:door~${k}`)),
+    )
+  })
+
+  it('splits at the points compile draws, and stays within the tolerance of the curve', () => {
+    const tolerance = 0.01
+    const segments = planarBarriers([tower], [], { tolerance })
+    const line = sampleWall(tower, tolerance)
+    expect(segments).toHaveLength(line.count - 1)
+    for (let i = 0; i < segments.length; i++) {
+      expect(segments[i]!.a).toEqual([line.x[i], line.z[i]])
+      expect(segments[i]!.b).toEqual([line.x[i + 1], line.z[i + 1]])
+    }
+    // Every point of the true arc is within the tolerance of a segment.
+    const arc = arcOf(tower)!
+    for (let k = 0; k <= 1000; k++) {
+      const a = arc.from + (arc.sweep * k) / 1000
+      const x = arc.cx + arc.r * Math.cos(a)
+      const z = arc.cz + arc.r * Math.sin(a)
+      let best = Infinity
+      for (const s of segments) {
+        const dx = s.b[0] - s.a[0]
+        const dz = s.b[1] - s.a[1]
+        const t = Math.max(
+          0,
+          Math.min(1, ((x - s.a[0]) * dx + (z - s.a[1]) * dz) / (dx * dx + dz * dz)),
+        )
+        best = Math.min(best, Math.hypot(x - s.a[0] - dx * t, z - s.a[1] - dz * t))
+      }
+      expect(best).toBeLessThanOrEqual(tolerance + 1e-9)
+    }
   })
 })

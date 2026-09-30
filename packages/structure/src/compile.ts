@@ -5,6 +5,7 @@ import {
   defineSystem,
   type Entity,
   onRemove,
+  ShardError,
   type World,
 } from '@aethervtt/shard-core'
 import { Mesh, type MeshData } from '@aethervtt/shard-mesh'
@@ -16,7 +17,7 @@ import {
   NotShadowCaster,
   RenderStats,
 } from '@aethervtt/shard-render'
-import { FrameDemand, Time } from '@aethervtt/shard-runtime'
+import { FrameDemand, LogResource, Time } from '@aethervtt/shard-runtime'
 import { Transform } from '@aethervtt/shard-transform'
 import {
   DoorLeaf,
@@ -27,6 +28,7 @@ import {
   Wall,
   WindowPane,
 } from './components'
+import { pointAt, sampleWall } from './curve'
 import {
   ClipScratch,
   chunkX,
@@ -46,6 +48,9 @@ import {
 } from './geometry'
 
 type MaterialRef = AssetRef<'Material'>
+
+/** The key of the plain frame material: frames and door leaves without one of their own. */
+export const FRAME_KEY = 'structure:frame'
 
 interface WallRecord {
   shape: WallShape
@@ -125,6 +130,9 @@ export class StructureState {
   /** Doors swinging. */
   readonly moving = new Set<Entity>()
   chunkSize = 0
+  curveTolerance = 0
+  /** The shape each wall last reported a too-tight curve for (reported once per shape). */
+  readonly warned = new Map<Entity, string>()
   last: CompileReport = { dirtyChunks: [], chunksRebuilt: 0, meshesRebuilt: 0, ms: 0 }
   /** Totals since start. */
   chunksRebuilt = 0
@@ -178,6 +186,15 @@ export class StructureState {
     return c
   }
 
+  /** Curved walls and how finely each is sampled (0066). */
+  private curves() {
+    const out: { wall: Entity; samples: number; length: number }[] = []
+    for (const [wall, rec] of this.walls)
+      if (rec.shape.line.count > 2)
+        out.push({ wall, samples: rec.shape.line.count, length: rec.shape.line.length })
+    return out
+  }
+
   /** Counts for `structure.describe`. */
   describe() {
     const size = this.chunkSize
@@ -219,6 +236,8 @@ export class StructureState {
           : null,
       perChunk,
       doorsMoving: this.moving.size,
+      curves: this.curves(),
+      warnings: [...this.warned.keys()],
       lastCompile: this.last,
       totals: { compiles: this.compiles, chunksRebuilt: this.chunksRebuilt },
     }
@@ -242,13 +261,20 @@ export function observeRemovals(world: World, state: StructureState): void {
   })
 }
 
-function wallShape(value: {
-  a: number[]
-  b: number[]
-  height: number
-  thickness: number
-  elevation: number
-}): WallShape {
+function wallShape(
+  value: {
+    a: number[]
+    b: number[]
+    height: number
+    thickness: number
+    elevation: number
+    shape: 'straight' | 'arc' | 'bezier'
+    bow: number
+    c0: number[]
+    c1: number[]
+  },
+  tolerance: number,
+): WallShape {
   return {
     ax: value.a[0]!,
     az: value.a[1]!,
@@ -257,7 +283,48 @@ function wallShape(value: {
     height: value.height,
     thickness: value.thickness,
     elevation: value.elevation,
+    line: sampleWall(value, tolerance),
   }
+}
+
+/**
+ * Curves too tight for their thickness (0066): an arc whose radius is under half its thickness
+ * can't be drawn and is skipped; a Bézier that folds somewhere draws as sampled. Each reports once
+ * per shape.
+ */
+function checkCurve(
+  state: StructureState,
+  entity: Entity,
+  value: { shape: string; thickness: number; bow: number; c0: number[]; c1: number[] },
+  shape: WallShape,
+): boolean {
+  if (shape.line.radius >= value.thickness / 2) {
+    state.warned.delete(entity)
+    return true
+  }
+  const signature = `${value.shape}/${value.bow}/${value.c0}/${value.c1}/${value.thickness}`
+  const arc = value.shape === 'arc'
+  if (state.warned.get(entity) !== signature) {
+    state.warned.set(entity, signature)
+    const err = new ShardError(
+      arc ? 'structure/wall-too-tight' : 'structure/wall-folds',
+      arc
+        ? `Wall ${entity}: an arc of radius ${shape.line.radius.toFixed(3)} m can't hold a wall ${value.thickness} m thick`
+        : `Wall ${entity}: the curve bends tighter than half the wall's thickness, so its inner face folds`,
+      {
+        path: `/entities/${entity}/structure/Wall/${arc ? 'bow' : 'c0'}`,
+        hint: arc
+          ? 'Bow it less, or make the wall thinner: the radius must be at least half the thickness.'
+          : 'Move the control points apart, or make the wall thinner.',
+      },
+    )
+    state.world.tryResource(LogResource)?.log(arc ? 'error' : 'warn', err.message, {
+      code: err.code,
+      path: err.path,
+      hint: err.hint,
+    })
+  }
+  return !arc
 }
 
 function markChunks(state: StructureState, chunks: Set<number>): void {
@@ -277,7 +344,11 @@ function evaluateWall(state: StructureState, entity: Entity): void {
     state.walls.delete(entity)
     return
   }
-  const shape = wallShape(value)
+  const shape = wallShape(value, state.curveTolerance)
+  if (!checkCurve(state, entity, value, shape)) {
+    state.walls.delete(entity)
+    return
+  }
   const material = state.materialKey(value.material as MaterialRef | null)
   // Openings on this wall, by offset (then entity, so ties are stable).
   const list = state.sortedOpenings
@@ -305,8 +376,10 @@ function evaluateWall(state: StructureState, entity: Entity): void {
     const p = rec.pieces[i]!
     if (!p.frame) rec.pieceMaterials[i] = material
     else {
+      // Frames without their own material are plain wood, not the wall's (a textured wall's
+      // pattern doesn't belong on a frame).
       const frame = (list[p.source] as OpeningRecord).frameMaterial
-      rec.pieceMaterials[i] = frame || material
+      rec.pieceMaterials[i] = frame || FRAME_KEY
     }
   }
   rec.chunks.clear()
@@ -463,6 +536,8 @@ function spawnLeaf(state: StructureState, opening: Entity, rec: OpeningRecord): 
 }
 
 const HALF_PI = Math.PI / 2
+const chordA = new Float64Array(4)
+const chordB = new Float64Array(4)
 
 /**
  * Puts a door leaf (a unit box: x 0..1, y 0..1, z −½..½) at its hinge, turned by how far open it
@@ -486,27 +561,32 @@ function placeLeaf(state: StructureState, opening: Entity): void {
   }
   const s = wall.shape
   const len = wallLength(s)
-  const dx = (s.bx - s.ax) / len
-  const dz = (s.bz - s.az) / len
   const o0 = Math.max(0, Math.min(len, rec.offset))
   const o1 = Math.max(o0, Math.min(len, rec.offset + rec.width))
   const fw = Math.max(0, Math.min(rec.frameWidth, (o1 - o0) / 2))
   const head = Math.min(s.height, rec.sill + rec.height)
   const bottom = rec.sill + (rec.kind === 'window' ? fw : 0)
-  const width = Math.max(0, o1 - o0 - 2 * fw)
   const height = Math.max(0, head - fw - bottom)
   const thick = rec.kind === 'window' ? Math.min(0.02, s.thickness * 0.2) : s.thickness * 0.4
   const end = rec.kind === 'door' && rec.hinge === 'end'
-  const at = end ? o1 - fw : o0 + fw
-  // Local +x runs along the wall from the hinge; yaw turns it there, the swing opens it.
-  const yaw = end ? Math.atan2(dz, -dx) : Math.atan2(-dz, dx)
+  // The leaf spans the chord between the opening's ends inside its frame (straight on a curve).
+  const p0 = pointAt(s.line, o0 + fw, chordA)
+  const p1 = pointAt(s.line, Math.max(o0 + fw, o1 - fw), chordB)
+  const cx = p1[0]! - p0[0]!
+  const cz = p1[1]! - p0[1]!
+  const width = Math.sqrt(cx * cx + cz * cz)
+  const dx = (end ? -cx : cx) / (width || 1)
+  const dz = (end ? -cz : cz) / (width || 1)
+  const hinge = end ? p1 : p0
+  // Local +x runs from the hinge along the chord; yaw turns it there, the swing opens it.
+  const yaw = Math.atan2(-dz, dx)
   const sign = (rec.swing === 'left') !== end ? 1 : -1
   const angle = yaw + (rec.kind === 'door' ? sign * rec.open * HALF_PI : 0)
   const translation = table.column(Transform, 'translation') as Float32Array
   const rotation = table.column(Transform, 'rotation') as Float32Array
-  translation[row * 3] = s.ax + dx * at
+  translation[row * 3] = hinge[0]!
   translation[row * 3 + 1] = s.elevation + bottom
-  translation[row * 3 + 2] = s.az + dz * at
+  translation[row * 3 + 2] = hinge[1]!
   rotation[row * 4] = 0
   rotation[row * 4 + 1] = Math.sin(angle / 2)
   rotation[row * 4 + 2] = 0
@@ -524,8 +604,7 @@ function dressLeaf(state: StructureState, opening: Entity): void {
   const rec = state.openings.get(opening)
   const world = state.world
   if (rec?.kind !== 'door' || rec.leaf === null || !world.isAlive(rec.leaf)) return
-  const wall = state.walls.get(rec.wall)
-  const material = state.materialRef(rec.frameMaterial || wall?.material || '')
+  const material = state.materialRef(rec.frameMaterial || FRAME_KEY)
   const current = world.get(rec.leaf, MeshMaterial).material as MaterialRef | null
   if (current?.guid !== material.guid || current?.path !== material.path)
     world.set(rec.leaf, MeshMaterial, { material })
@@ -610,6 +689,7 @@ function meshData(b: MeshBuilder): MeshData {
     positions: b.positions.slice(0, v * 3),
     normals: b.normals.slice(0, v * 3),
     uvs: b.uvs.slice(0, v * 2),
+    tangents: b.tangents.slice(0, v * 4),
     indices:
       v < 65536
         ? Uint16Array.from(b.indices.subarray(0, b.indexCount))
@@ -649,10 +729,13 @@ export const compileStructure = defineSystem({
   run: ({ walls, floors, openings }, world, ctx) => {
     const state = world.resource(Structure)
     const since = ctx.lastRunTick
-    const size = world.resource(StructureSettings).chunkSize
+    const settings = world.resource(StructureSettings)
+    const size = settings.chunkSize
+    const tolerance = settings.curveTolerance
     let any =
       state.removedWalls.length + state.removedFloors.length + state.removedOpenings.length > 0 ||
-      size !== state.chunkSize
+      size !== state.chunkSize ||
+      tolerance !== state.curveTolerance
     if (!any) {
       for (let t = 0; t < walls.tables.length && !any; t++)
         if (walls.tables[t]!.lastChanged(Wall) > since) any = true
@@ -663,8 +746,9 @@ export const compileStructure = defineSystem({
     }
     if (!any) return
     const start = performance.now()
-    if (size !== state.chunkSize) {
+    if (size !== state.chunkSize || tolerance !== state.curveTolerance) {
       state.chunkSize = size
+      state.curveTolerance = tolerance
       resetChunks(state)
     }
     // Despawns first: an entity removed and added back this frame reads as new below.

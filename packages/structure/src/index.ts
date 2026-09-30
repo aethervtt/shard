@@ -18,9 +18,20 @@ export {
   StructureSettings,
   type StructureSettingsValue,
   SWINGS,
+  WALL_SHAPES,
   Wall,
   WindowPane,
 } from './components'
+export {
+  arcOf,
+  type Centerline,
+  CURVE_TOLERANCE,
+  type CurveInput,
+  pointAt,
+  quadraticToCubic,
+  sampleWall,
+  type WallCurve,
+} from './curve'
 export {
   ClipScratch,
   chunkKey,

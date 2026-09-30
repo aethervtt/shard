@@ -1434,6 +1434,9 @@ importers:
       '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../runtime
+      '@aethervtt/shard-texture':
+        specifier: workspace:*
+        version: link:../texture
       '@aethervtt/shard-transform':
         specifier: workspace:*
         version: link:../transform

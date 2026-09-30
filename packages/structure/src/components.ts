@@ -4,6 +4,8 @@ import { defineComponent, defineResource, defineTag, t } from '@aethervtt/shard-
 // own coordinates with one fixed visual scale; game distance ("5 ft per square") never places
 // anything.
 
+export const WALL_SHAPES = ['straight', 'arc', 'bezier'] as const
+
 export const Wall = defineComponent(
   'structure/Wall',
   {
@@ -13,10 +15,20 @@ export const Wall = defineComponent(
     thickness: t.f32({ default: 0.2, min: 0, unit: 'm', description: 'Full thickness.' }),
     elevation: t.f32({ unit: 'm', description: 'Where the wall stands (y).' }),
     material: t.handle('Material', { description: 'Surface material. Empty uses a plain grey.' }),
+    shape: t.enum(WALL_SHAPES, {
+      description: 'straight; arc (bowed by bow); bezier (a cubic through c0 and c1).',
+    }),
+    bow: t.f32({
+      unit: 'm',
+      description:
+        'Arc: how far the midpoint bows off the line from a to b; positive bows to the left of a → b. More than half the chord is a major arc.',
+    }),
+    c0: t.vec2({ description: 'Bézier: the first control point, (x, z).' }),
+    c1: t.vec2({ description: 'Bézier: the second control point, (x, z).' }),
   },
   {
     description:
-      'A straight wall. Structure compile draws it into chunked, per-material meshes; the entity itself draws nothing.',
+      'A wall: straight, an arc or a Bézier (0066). Structure compile draws it into chunked, per-material meshes; the entity itself draws nothing.',
   },
 )
 
@@ -58,7 +70,7 @@ export const Opening = defineComponent(
       description: 'How far the frame stands out from each face of the wall.',
     }),
     frameMaterial: t.handle('Material', {
-      description: "Frame and door leaf material. Empty uses the wall's.",
+      description: 'Frame and door leaf material. Empty uses the built-in wood (structure:frame).',
     }),
     hinge: t.enum(HINGES, { description: 'Doors: which end of the opening the leaf hangs from.' }),
     swing: t.enum(SWINGS, { description: 'Doors: which side of the wall the leaf opens toward.' }),
@@ -125,10 +137,16 @@ export interface StructureSettingsValue {
   doorSwingMs: number
   /** Doors snap open and closed instead of swinging. */
   reducedMotion: boolean
+  /**
+   * How far a curved wall's chords may stray from the curve, metres (0066). planarBarriers must
+   * use the same value, so a server blocks what's drawn. Changing it rebuilds every chunk.
+   */
+  curveTolerance: number
 }
 
 export const StructureSettings = defineResource<StructureSettingsValue>('structure/Settings', {
-  description: 'Chunk size, door swing time, and reduced motion. Write with patchResource.',
-  init: () => ({ chunkSize: 8, doorSwingMs: 250, reducedMotion: false }),
+  description:
+    'Chunk size, door swing time, reduced motion and curve tolerance. Write with patchResource.',
+  init: () => ({ chunkSize: 8, doorSwingMs: 250, reducedMotion: false, curveTolerance: 0.01 }),
   hostWritable: true,
 })
