@@ -102,7 +102,8 @@ override fn shade(in: VertexOutput) -> vec4f {
 }
 
 interface ShapeRecord {
-  mesh: AssetRef<'Mesh'>
+  /** Absent while the shape has nothing to draw. */
+  mesh: AssetRef<'Mesh'> | undefined
   material: AssetRef<'Material'>
   rev: number
   strokeWidth: number
@@ -189,15 +190,12 @@ function updateShape(world: World, state: VectorStateValue, e: Entity): void {
   }
   const materials = world.resource(Materials)
   if (!rec) {
-    const mesh = world
-      .resource(Meshes)
-      .add(Mesh.create(data!), `vector:shape/${e}`) as AssetRef<'Mesh'>
     const material = materials.add(
       new MaterialAsset(materialValues(v), VectorMaterial),
       `vector:shape/${e}`,
     ) as AssetRef<'Material'>
     rec = {
-      mesh,
+      mesh: undefined,
       material,
       rev: v.rev,
       strokeWidth: v.strokeWidth,
@@ -205,14 +203,22 @@ function updateShape(world: World, state: VectorStateValue, e: Entity): void {
       filled,
     }
     state.shapes.set(e, rec)
-    world.add(e, Mesh3d, { mesh })
     world.add(e, MeshMaterial, { material })
     if (!world.has(e, NotShadowCaster)) world.add(e, NotShadowCaster)
     if (!world.has(e, GroundLayer)) world.add(e, GroundLayer, { band: GROUND_BANDS.drawings })
-    return
+  } else materials.get(rec.material)?.set(materialValues(v))
+  if (data) {
+    // A shape with nothing to draw (no fill, no stroke) has no mesh: it leaves the draw lists
+    // until it has geometry again.
+    if (data.indices.length === 0) {
+      if (world.has(e, Mesh3d)) world.remove(e, Mesh3d)
+    } else {
+      const meshes = world.resource(Meshes)
+      if (rec.mesh) meshes.get(rec.mesh)?.update(data)
+      else rec.mesh = meshes.add(Mesh.create(data), `vector:shape/${e}`) as AssetRef<'Mesh'>
+      if (!world.has(e, Mesh3d)) world.add(e, Mesh3d, { mesh: rec.mesh })
+    }
   }
-  if (data) world.resource(Meshes).get(rec.mesh)?.update(data)
-  materials.get(rec.material)?.set(materialValues(v))
   rec.rev = v.rev
   rec.strokeWidth = v.strokeWidth
   rec.strokeUnits = v.strokeUnits
@@ -226,15 +232,17 @@ function dropShape(world: World, state: VectorStateValue, e: Entity): void {
   const meshes = world.resource(Meshes)
   const materials = world.resource(Materials)
   const gpu = world.tryResource(GpuAssetsResource)
-  const mesh = meshes.get(rec.mesh)
-  if (mesh) gpu?.releaseMesh(mesh)
-  meshes.delete(rec.mesh.guid!)
+  if (rec.mesh) {
+    const mesh = meshes.get(rec.mesh)
+    if (mesh) gpu?.releaseMesh(mesh)
+    meshes.delete(rec.mesh.guid!)
+  }
   const material = materials.get(rec.material)
   if (material) gpu?.releaseMaterial(material)
   materials.delete(rec.material.guid!)
-  if (world.isAlive(e) && world.has(e, Mesh3d)) {
-    world.remove(e, Mesh3d)
-    world.remove(e, MeshMaterial)
+  if (world.isAlive(e)) {
+    if (world.has(e, Mesh3d)) world.remove(e, Mesh3d)
+    if (world.has(e, MeshMaterial)) world.remove(e, MeshMaterial)
   }
 }
 

@@ -7,6 +7,7 @@ import {
   forwardPlugin,
   Gpu,
   GroundLayer,
+  Mesh3d,
   OffscreenTarget,
   RenderTargets,
   renderPlugin,
@@ -88,6 +89,36 @@ describe('vector shapes', () => {
     r.world.set(r.camera, Camera3d, { orthoHeight: 2 })
     expect(Math.abs((await thickness()) - 16)).toBeLessThanOrEqual(1)
     expect(r.world.get(line, GroundLayer).band).toBe(30)
+    expect(r.world.resource(Gpu).errors).toEqual([])
+    await r.app.dispose()
+    r.target.destroy()
+  })
+
+  it('draws nothing, and keeps running, while a shape has no fill and no stroke', async () => {
+    const r = await scene()
+    // Fog toggled off: a polygon with its fill at 0 and no stroke.
+    const fog = r.world.spawn(
+      [
+        VectorShape,
+        { geometry: { kind: 'rect', width: 4, height: 4 }, fillOpacity: 0, strokeWidth: 0 },
+      ],
+      Transform,
+    )
+    r.app.update(1 / 60)
+    expect(r.world.has(fog, Mesh3d)).toBe(false)
+    r.world.set(fog, VectorShape, { fillOpacity: 0.8 })
+    r.app.update(1 / 60)
+    expect(r.world.has(fog, Mesh3d)).toBe(true)
+    r.world.set(fog, VectorShape, { fillOpacity: 0 })
+    r.app.update(1 / 60)
+    r.app.update(1 / 60)
+    expect(r.world.has(fog, Mesh3d)).toBe(false)
+    r.world.set(fog, VectorShape, { fillOpacity: 0.8 })
+    r.app.update(1 / 60)
+    expect(r.world.has(fog, Mesh3d)).toBe(true)
+    r.world.despawn(fog)
+    r.app.update(1 / 60)
+    expect(r.world.resource(VectorState).shapes.size).toBe(0)
     expect(r.world.resource(Gpu).errors).toEqual([])
     await r.app.dispose()
     r.target.destroy()
