@@ -721,6 +721,14 @@ _Computed by the engine; never written in scene files._
 |---|---|---|---|---|
 | `slot` | integer | `0` | ≥ 0, ≤ 4294967295 | GPU instance slot + 1 (0 = none yet). Managed by the renderer. |
 
+## `render/Lens`
+
+Tag: this camera's view bends its own pixels inside the live LensFields, after the display stage. Pixels outside every field are left exactly as rendered.
+
+Brings along: `render/Camera3d`.
+
+Tag (no fields).
+
 ## `render/Lod`
 
 Level of detail: the drawn mesh follows the entity's size on screen, chosen per camera (shadows use the camera's choice). Replaces Mesh3d.mesh.

@@ -16,6 +16,7 @@ import { RenderTargets } from './assets'
 import { Camera3d, Exposure, exposureScale } from './camera'
 import type { RenderView } from './graph'
 import { createDrawList, type DrawList } from './instances'
+import { Lens, LensPath } from './lens'
 import {
   PixelPerfect,
   type PixelPerfectLayout,
@@ -245,6 +246,19 @@ function warnMissingPixelPerfect(world: World): void {
     )
 }
 
+const reportedLens = new WeakSet<World>()
+
+function warnMissingLens(world: World): void {
+  if (reportedLens.has(world)) return
+  reportedLens.add(world)
+  world
+    .tryResource(LogResource)
+    ?.log('warn', "A camera has Lens, but lensPlugin isn't installed; it renders unbent", {
+      code: 'render/feature-missing',
+      hint: "Add lensPlugin from '@aethervtt/shard-render' (forwardPlugin includes it).",
+    })
+}
+
 /** Logs render/feature-missing once per effect a camera asked for whose plugin isn't installed. */
 function warnMissingEffects(world: World, missing: number): void {
   const reported = reportedEffects.get(world) ?? 0
@@ -283,6 +297,7 @@ export const extractCameras = defineSystem({
     const installed = world.tryResource(PostFeatures)?.effects ?? CORE_EFFECTS
     const deferredInstalled = world.hasResource(DeferredPath)
     const pixelInstalled = world.hasResource(PixelPerfectPath)
+    const lensInstalled = world.hasResource(LensPath)
     for (const table of q.tables) {
       const projection = table.column(Camera3d, 'projection')
       const fovY = table.column(Camera3d, 'fovY')
@@ -300,6 +315,7 @@ export const extractCameras = defineSystem({
       const curve = hasTonemap ? table.column(Tonemapping, 'curve') : undefined
       const dither = hasTonemap ? table.column(Tonemapping, 'dither') : undefined
       if (table.has(PixelPerfect) && !pixelInstalled) warnMissingPixelPerfect(world)
+      if (table.has(Lens) && !lensInstalled) warnMissingLens(world)
       const pixel = pixelInstalled && table.has(PixelPerfect)
       const ppu = pixel ? table.column(PixelPerfect, 'pixelsPerUnit') : undefined
       const snap = pixel ? table.column(PixelPerfect, 'snap') : undefined

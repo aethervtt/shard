@@ -190,6 +190,27 @@ export {
 } from './instances'
 export { observeOriginShifts, shiftRenderHistory } from './large-world'
 export {
+  clearLensFields,
+  expireLensFields,
+  forwardLensFields,
+  LENS_DEMAND,
+  Lens,
+  type LensField,
+  LensFields,
+  LensPath,
+  MAX_LENS_FIELDS,
+  publishLensField,
+} from './lens'
+export {
+  describeLens,
+  extractLens,
+  LENS_SHADERS,
+  type LensView,
+  LensViews,
+  lensPlugin,
+  MAX_LENS_PIXELS,
+} from './lens-plugin'
+export {
   AmbientLight,
   type AmbientLightValue,
   CascadeSettings,
