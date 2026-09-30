@@ -298,6 +298,10 @@ other dice from the roll builder, the others tumble first. A "skip entrance" but
   in `pipelines.pending` (no pipeline is asked for yet) nor `ViewStats.pending`; and a GPU-culled
   view's `drawCalls` come back a frame or two late. The warm-up checks `skipped`; the test culls on
   the CPU and runs its frames without yielding.
+- **The warm-up waits on frames, not captures.** Every stat it reads is known once a frame is
+  submitted. A capture also waits for the GPU; on a software device a host that submits frames
+  faster than the GPU runs them makes each capture wait longer than the last (CI's lavapipe: 0.2,
+  0.5, 4.5 s, then past the test's 1,500 frames).
 - **Demo:** the playground's particles draw with a soft round sprite: without a texture, a
   billboard is a square.
 

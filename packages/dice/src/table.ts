@@ -17,7 +17,6 @@ import {
 import {
   Camera3d,
   Cameras,
-  captureView,
   clearLensFields,
   clearScreenEffects,
   DirectionalLight,
@@ -315,6 +314,8 @@ export class DiceTableState {
   private disposed = false
   private fitted = { aspect: 0, halfWidth: 0, halfDepth: 0 }
   private warned = new Set<string>()
+  /** Warm-ups waiting for the next frame (0065). */
+  private frameWaiters: (() => void)[] = []
 
   constructor(world: World, options: DiceTableOptions) {
     this.world = world
@@ -884,6 +885,11 @@ export class DiceTableState {
   frame(): void {
     const world = this.world
     const now = this.options.now()
+    const waiters = this.frameWaiters
+    if (waiters.length > 0) {
+      this.frameWaiters = []
+      for (let i = 0; i < waiters.length; i++) waiters[i]!()
+    }
     this.fitCamera()
     if (this.resources.nextRelease() <= now) this.resources.sweep(now)
     const p = this.current
@@ -1645,12 +1651,14 @@ export class DiceTableState {
       // Complete frames of it: drawn, no draw skipped (for an upload, a shader still linking or a
       // pipeline compiling), nothing compiling. Three in a row: new entities upload in their first
       // frame and draw from the next, compiling as they do. `skipped` counts the whole last frame,
-      // which drew this view: skips elsewhere only make it wait longer.
+      // which drew this view: skips elsewhere only make it wait longer. Frames, not captures: a
+      // capture waits for the GPU, which on a software device falls further behind with every
+      // frame a host submits, and each capture would wait longer than the last.
       const view = `camera:${camera}`
       const pipelines = world.resource(Gpu).pipelines
       let complete = 0
       for (let i = 0; i < 240 && !p.done && complete < 3; i++) {
-        await captureView(world, view)
+        await this.nextFrame()
         const stats = world.resource(RenderStats).get(view)
         const done =
           stats &&
@@ -1668,6 +1676,16 @@ export class DiceTableState {
       world.resource(RenderTargets).delete(targetRef.guid!)
       target.destroy()
     }
+  }
+
+  /**
+   * Resolves at the table's next frame (an idle app is woken for it); code after the `await` runs
+   * once that frame has rendered, with its stats in.
+   */
+  private nextFrame(): Promise<void> {
+    const next = new Promise<void>((resolve) => this.frameWaiters.push(resolve))
+    this.world.wake()
+    return next
   }
 
   /** An entrance's context: live on its die, or (warming up) on a stand-in, going nowhere. */
@@ -2007,6 +2025,8 @@ export class DiceTableState {
     if (this.disposed) return
     if (this.current) this.finish(this.current, 'dismissed')
     this.disposed = true
+    // Warm-ups waiting for a frame end: their roll is done.
+    for (const resolve of this.frameWaiters.splice(0)) resolve()
     this.client?.dispose()
     this.resources.dispose()
   }

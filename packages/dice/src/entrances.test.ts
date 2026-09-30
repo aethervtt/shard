@@ -167,7 +167,10 @@ async function until(r: Rig, done: () => boolean, max = 1500): Promise<void> {
     r.frame()
     await new Promise((resolve) => setTimeout(resolve, 0))
   }
-  throw new Error(`still ${r.table.phase} after ${max} frames`)
+  const { entrances } = describeOf(r)
+  throw new Error(
+    `still ${r.table.phase} after ${max} frames; entrances: ${JSON.stringify(entrances)}`,
+  )
 }
 
 interface Described {
