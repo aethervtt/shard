@@ -159,3 +159,43 @@ export function compareGolden(
   }
   return { mean: sum / expected.length, max, written: false }
 }
+
+/**
+ * Watches a device for what the baseline tier (0064) must never ask for: compute passes, and
+ * storage buffers visible to the vertex or fragment stage. Counts from now on.
+ */
+export function watchBaseline(gpu: import('@aethervtt/shard-gpu').GpuContext): {
+  computePasses: number
+  renderStorage: string[]
+} {
+  const found = { computePasses: 0, renderStorage: [] as string[] }
+  const device = gpu.device
+  const createEncoder = device.createCommandEncoder.bind(device)
+  device.createCommandEncoder = (descriptor) => {
+    const encoder = createEncoder(descriptor)
+    const begin = encoder.beginComputePass.bind(encoder)
+    encoder.beginComputePass = (d) => {
+      found.computePasses++
+      return begin(d)
+    }
+    return encoder
+  }
+  const createLayout = device.createBindGroupLayout.bind(device)
+  device.createBindGroupLayout = (descriptor) => {
+    for (const e of descriptor.entries) {
+      const render = e.visibility & (GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT)
+      const t = e.buffer?.type
+      if (render && (t === 'storage' || t === 'read-only-storage'))
+        found.renderStorage.push(`${descriptor.label ?? '?'}#${e.binding}`)
+    }
+    return createLayout(descriptor)
+  }
+  return found
+}
+
+/** Mean absolute difference of two images' bytes. */
+export function meanDifference(a: ArrayLike<number>, b: ArrayLike<number>): number {
+  let sum = 0
+  for (let i = 0; i < a.length; i++) sum += Math.abs(a[i]! - b[i]!)
+  return sum / a.length
+}

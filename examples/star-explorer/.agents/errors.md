@@ -224,6 +224,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `render/atmosphere-inside-ground` | @aethervtt/shard-render | Give it a positive thickness (Earth 60 000 m). |
 | `render/bad-vector` | @aethervtt/shard-render |  |
 | `render/capture-format` | @aethervtt/shard-render |  |
+| `render/data-textures-not-loaded` | @aethervtt/shard-render | Await loadDataTextures() before making DataStores on a baseline device. |
 | `render/disposed` | @aethervtt/shard-render |  |
 | `render/duplicate-node` | @aethervtt/shard-render |  |
 | `render/feature-missing` | @aethervtt/shard-render | Add materialNoisePlugin from '@aethervtt/shard-render/noise'. |

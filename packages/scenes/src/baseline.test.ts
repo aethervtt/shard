@@ -10,7 +10,7 @@ import {
   RenderTargets,
   renderPlugin,
 } from '@aethervtt/shard-render'
-import { pngBytes, renderView, settle } from '@aethervtt/shard-render/testing'
+import { pngBytes, renderView, settle, watchBaseline } from '@aethervtt/shard-render/testing'
 import { App } from '@aethervtt/shard-runtime'
 import { TransformPlugin } from '@aethervtt/shard-transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -41,33 +41,6 @@ afterAll(() => {
   baselineCore.destroy()
 })
 
-/** What the baseline tier must never ask for: compute, and storage in a render stage. */
-function watch(gpu: GpuContext) {
-  const found = { computePasses: 0, renderStorage: [] as string[] }
-  const device = gpu.device
-  const createEncoder = device.createCommandEncoder.bind(device)
-  device.createCommandEncoder = (descriptor) => {
-    const encoder = createEncoder(descriptor)
-    const begin = encoder.beginComputePass.bind(encoder)
-    encoder.beginComputePass = (d) => {
-      found.computePasses++
-      return begin(d)
-    }
-    return encoder
-  }
-  const createLayout = device.createBindGroupLayout.bind(device)
-  device.createBindGroupLayout = (descriptor) => {
-    for (const e of descriptor.entries) {
-      const render = e.visibility & (GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT)
-      const t = e.buffer?.type
-      if (render && (t === 'storage' || t === 'read-only-storage'))
-        found.renderStorage.push(`${descriptor.label ?? '?'}#${e.binding}`)
-    }
-    return createLayout(descriptor)
-  }
-  return found
-}
-
 async function parity(gpu: GpuContext, msaa: 1 | 4) {
   const app = new App().addPlugin(
     TransformPlugin,
@@ -94,7 +67,7 @@ describe('the parity fixture at the baseline tier (0064 stage 1)', () => {
       timeout: 120_000,
     }, async () => {
       const gpu = c.device === 'compat' ? compat : baselineCore
-      const found = watch(gpu)
+      const found = watchBaseline(gpu)
       const errors = gpu.errors.length
       const a = await parity(full, c.msaa)
       const b = await parity(gpu, c.msaa)

@@ -13,7 +13,7 @@ import { AmbientLight, DirectionalLight, LightingSettings, PointLight, SpotLight
 import { describeRender, Gpu, renderPlugin } from './plugin'
 import { forwardPlugin } from './standard'
 import { OffscreenTarget } from './target'
-import { pngBytes, renderView, settle } from './testing'
+import { pngBytes, renderView, settle, watchBaseline } from './testing'
 import { Tonemapping } from './view'
 
 // The baseline tier (0064) on a WebGPU compatibility-mode device: what renders there, renders
@@ -29,33 +29,6 @@ afterAll(() => {
   full.destroy()
   compat.destroy()
 })
-
-/** Counts what the device is asked for that the baseline tier must never do. */
-function watch(gpu: GpuContext) {
-  const found = { computePasses: 0, renderStorage: [] as string[] }
-  const device = gpu.device
-  const createEncoder = device.createCommandEncoder.bind(device)
-  device.createCommandEncoder = (descriptor) => {
-    const encoder = createEncoder(descriptor)
-    const begin = encoder.beginComputePass.bind(encoder)
-    encoder.beginComputePass = (d) => {
-      found.computePasses++
-      return begin(d)
-    }
-    return encoder
-  }
-  const createLayout = device.createBindGroupLayout.bind(device)
-  device.createBindGroupLayout = (descriptor) => {
-    for (const e of descriptor.entries) {
-      const render = e.visibility & (GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT)
-      const storage =
-        e.buffer && (e.buffer.type === 'storage' || e.buffer.type === 'read-only-storage')
-      if (render && storage) found.renderStorage.push(`${descriptor.label ?? '?'}#${e.binding}`)
-    }
-    return createLayout(descriptor)
-  }
-  return found
-}
 
 async function litScene(gpu: GpuContext, localLights = true) {
   const app = new App().addPlugin(
@@ -115,7 +88,7 @@ describe('the baseline tier on a compatibility device (0064)', () => {
   it('renders a lit, shadowed scene with no compute, no render-stage storage, and close to full', {
     timeout: 60_000,
   }, async () => {
-    const found = watch(compat)
+    const found = watchBaseline(compat)
     const reference = await litScene(full)
     const a = await renderView(reference.app, `camera:${reference.cam}`)
     await reference.app.dispose()

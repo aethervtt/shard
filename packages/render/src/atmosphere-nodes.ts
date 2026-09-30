@@ -13,7 +13,7 @@ import { ForwardStateResource, sceneColor } from './forward'
 import { type NodeContext, type NodeDescriptor, RenderPhase, type RenderView } from './graph'
 import { Gpu, Graph, Shaders, Views } from './plugin'
 import { hasEffect, PostEffect } from './post'
-import { depthReadEntry } from './tier'
+import { bindingDimension, depthReadEntry } from './tier'
 import { type CameraData, cameraOf } from './view'
 
 /** Atmospheres whose LUTs stay on the GPU at once (layers of the LUT arrays). */
@@ -38,6 +38,11 @@ interface CameraGpu {
   transmittance: GPUTexture | undefined
   /** The frame the sky-view and froxels were last computed. */
   computed: number
+  /**
+   * Whether this frame's uniform holds the atmospheres (it's zeros until their LUTs exist): a bake
+   * waits for it, or the LUTs computed this frame would bake a black sky.
+   */
+  packed: boolean
   generation: number
   seen: number
 }
@@ -61,24 +66,27 @@ export class AtmosphereGpu {
   frame = 0
   readonly pipelines = new Map<string, GPUComputePipeline | GPURenderPipeline>()
   layouts: Record<string, GPUBindGroupLayout> | undefined
+  /** The baseline tier's passes (0064): fragment passes, loaded only on a baseline device. */
+  baseline: typeof import('./baseline/atmosphere') | undefined
   private readonly groups = new Map<string, { key: string; group: GPUBindGroup }>()
 
   ensure(gpu: GpuContext): void {
     if (this.generation === gpu.generation) return
     this.generation = gpu.generation
-    const usage =
-      GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_SRC
+    const usage = GPUTextureUsage.TEXTURE_BINDING | written(gpu) | GPUTextureUsage.COPY_SRC
     this.transmittance = gpu.device.createTexture({
       label: 'atmosphere/transmittance',
       size: [TRANSMITTANCE_W, TRANSMITTANCE_H, LUT_LAYERS],
       format: 'rgba16float',
       usage,
+      ...bindingDimension(gpu, '2d-array'),
     })
     this.multiscatter = gpu.device.createTexture({
       label: 'atmosphere/multiscatter',
       size: [MULTISCATTER_SIZE, MULTISCATTER_SIZE, LUT_LAYERS],
       format: 'rgba16float',
       usage,
+      ...bindingDimension(gpu, '2d-array'),
     })
     this.transmittanceArray = this.transmittance.createView({ dimension: '2d-array' })
     this.multiscatterArray = this.multiscatter.createView({ dimension: '2d-array' })
@@ -150,6 +158,7 @@ export class AtmosphereGpu {
         scatter: undefined,
         transmittance: undefined,
         computed: -1,
+        packed: false,
         generation: gpu.generation,
         seen: 0,
       }
@@ -175,6 +184,11 @@ export class AtmosphereGpu {
   }
 }
 
+/** How the atmosphere's textures are written: by compute (full tier), or rendered (baseline, 0064). */
+function written(gpu: GpuContext): GPUTextureUsageFlags {
+  return gpu.tier === 'full' ? GPUTextureUsage.STORAGE_BINDING : GPUTextureUsage.RENDER_ATTACHMENT
+}
+
 export const AtmosphereGpuResource = defineResource<AtmosphereGpu>('render/AtmosphereGpu', {
   description: 'Atmosphere LUTs, per-camera sky-view LUTs and froxels, and their pipelines.',
   init: () => new AtmosphereGpu(),
@@ -183,7 +197,7 @@ export const AtmosphereGpuResource = defineResource<AtmosphereGpu>('render/Atmos
 // --- packing ---------------------------------------------------------------------------------
 
 /** Writes a record's parameters (and the camera's origin in it) at `o`. */
-function packParams(
+export function packParams(
   rec: AtmosphereRecord,
   out: Float32Array,
   o: number,
@@ -245,6 +259,7 @@ function relativeInverse(cam: CameraData, out: Float32Array): Float32Array {
 
 function packView(ca: CameraAtmosphere, cam: CameraData, c: CameraGpu, out: Float32Array): void {
   out.fill(0)
+  c.packed = false
   // Nothing until every LUT has been computed once (the first frame, and while shaders compile).
   for (const rec of ca.list) if (rec.layerVersion < 0) return
   const n = Math.min(ca.list.length, 4)
@@ -272,6 +287,7 @@ function packView(ca: CameraAtmosphere, cam: CameraData, c: CameraGpu, out: Floa
   out[O_CAMERA + 1] = cam.position[1]!
   out[O_CAMERA + 2] = cam.position[2]!
   out[O_CAMERA + 3] = cam.exposure
+  c.packed = true
 }
 
 /**
@@ -323,7 +339,7 @@ function ensureViewTextures(gpu: GpuContext, c: CameraGpu, ca: CameraAtmosphere)
       label: 'atmosphere/sky-view',
       size: [sw, sh],
       format: 'rgba16float',
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING,
+      usage: GPUTextureUsage.TEXTURE_BINDING | written(gpu),
     })
   }
   const [fx, fy, fz] = ca.froxels
@@ -341,7 +357,7 @@ function ensureViewTextures(gpu: GpuContext, c: CameraGpu, ca: CameraAtmosphere)
       size: [fx, fy, fz],
       dimension: '3d',
       format: 'rgba16float',
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING,
+      usage: GPUTextureUsage.TEXTURE_BINDING | written(gpu),
     }
     c.scatter = gpu.device.createTexture(desc)
     c.transmittance = gpu.device.createTexture({
@@ -491,6 +507,10 @@ function lutNode(): NodeDescriptor {
         s.lutFrame = s.frame
         return
       }
+      if (s.baseline) {
+        if (s.baseline.runLuts(ctx, s)) s.lutFrame = s.frame
+        return
+      }
       const t = compute(ctx, s, 'transmittance', 'shard::atmosphere::transmittance_lut')
       const m = compute(ctx, s, 'multiscatter', 'shard::atmosphere::multiscatter_lut')
       if (!t || !m) return
@@ -561,6 +581,16 @@ function viewNode(): NodeDescriptor {
       const c = s.cameras.get(cam.entity)
       if (!c?.skyView || !c.scatter || !c.transmittance) return
       if (ca.primary.layerVersion !== ca.primary.version) return
+      if (s.baseline) {
+        const view = {
+          uniform: c.uniform,
+          skyView: c.skyView,
+          scatter: c.scatter,
+          transmittance: c.transmittance,
+        }
+        if (s.baseline.runView(ctx, s, ca, view)) c.computed = s.frame
+        return
+      }
       const sky = compute(ctx, s, 'skyView', 'shard::atmosphere::sky_view')
       const aerial = compute(ctx, s, 'aerial', 'shard::atmosphere::aerial')
       if (!sky || !aerial) return
@@ -848,7 +878,7 @@ function bakeAtmosphere(
   const primary = ca?.primary
   if (!ca || !primary || primary.layerVersion !== primary.version) return false
   const c = s.cameras.get(ca.camera)
-  if (!c) return false
+  if (!c?.packed) return false
   const pipeline = compute(ctx, s, 'bake', 'shard::atmosphere::bake')
   if (!pipeline) return false
   const gpu = ctx.gpu

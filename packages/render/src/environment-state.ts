@@ -119,6 +119,8 @@ export class EnvironmentStore {
   frame = 0
   /** The frame the prefilter work last ran (it runs once per frame, for all views). */
   ranFrame = -1
+  /** The baseline tier's prefilter (0064): fragment passes, loaded only on a baseline device. */
+  baseline: typeof import('./baseline/environment') | undefined
 
   ensure(gpu: GpuContext): void {
     if (this.generation === gpu.generation && this.lut) return

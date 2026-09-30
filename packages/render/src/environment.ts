@@ -403,7 +403,10 @@ export function runEnvironmentWork(ctx: NodeContext): void {
   const store = world.resource(Environments)
   if (store.ranFrame === store.frame) return
   // Compute: the full tier's. Baseline prefilters with fragment passes (baseline/environment.ts).
-  if (gpu.tier === 'baseline') return
+  if (gpu.tier === 'baseline') {
+    store.baseline?.runBaselineEnvironment(ctx, store)
+    return
+  }
   if (store.pending.length === 0 && store.lutReady) {
     store.ranFrame = store.frame
     return

@@ -20,7 +20,10 @@ export interface DataStoreOptions {
   label: string
   /** Initial size in bytes. Default 256. */
   size?: number
-  /** Buffer usages on the full tier beyond STORAGE (a GPU pass that writes it, say). */
+  /**
+   * Buffer usages beyond STORAGE (full tier) or UNIFORM (a baseline uniform block): a GPU pass that
+   * writes it, a readback. Data textures ignore it.
+   */
   usage?: GPUBufferUsageFlags
   /** How baseline shaders read it: a data texture (default), or a uniform block. */
   kind?: 'texture' | 'uniform'
@@ -103,9 +106,8 @@ export class DataStore {
     this.buffer = new GpuBuffer(gpu, {
       label: options.label,
       usage:
-        gpu.tier === 'baseline'
-          ? GPUBufferUsage.UNIFORM
-          : GPUBufferUsage.STORAGE | (options.usage ?? 0),
+        (gpu.tier === 'baseline' ? GPUBufferUsage.UNIFORM : GPUBufferUsage.STORAGE) |
+        (options.usage ?? 0),
       size,
     })
   }

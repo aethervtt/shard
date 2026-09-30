@@ -1,3 +1,8 @@
+export {
+  FRAGMENT_KERNEL_TARGET,
+  type FragmentKernel,
+  fragmentKernel,
+} from './baseline/fragment-kernel'
 export { DATA_TEXTURE_WIDTH } from './data-marks'
 export { applyHooks, findHooks, type HookSignature } from './hooks'
 export { type WgslLayout, wgslLayout } from './layout'

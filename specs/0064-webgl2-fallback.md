@@ -208,12 +208,19 @@ uploads (0022). Material hooks (0020) use the accessors too.
 | Skinning, morph targets | Storage | Data textures |
 | Sprites, tilemaps, text, UI | Storage in 6 sprite and 1 UI shader | Data textures |
 | Particles | GPU backend | CPU backend (exists) |
-| IBL prefilter, BRDF LUT | Compute | Fragment passes into the same textures |
-| Atmosphere LUTs | Compute | Fragment passes |
-| Auto exposure | Histogram compute | Mip-chain average |
+| IBL prefilter, BRDF LUT | Compute | Fragment passes into the same textures, one face of one mip each: the image kernels in fragment form, mips and SH9 reading the cube as a cube |
+| Atmosphere LUTs, sky-view, froxels, bake | Compute | Fragment passes: the image kernels in fragment form; froxels a slice a pass, each marching its column to that slice |
+| Auto exposure | Histogram compute | A 64×36 meter image read back and binned into the same histogram on the CPU, so both tiers meter alike |
 | Bloom, DoF, TAA, FXAA, SSAO, fog, grading | Fragment passes | The same |
 | Outlines, fog masks, grid, lens fields (0057, 0058, 0063) | Fragment passes | The same |
 | Terrain generation, GPU scatter, clouds, GPU noise | Compute | Unsupported: `render/feature-unsupported`, naming the feature and the tier |
+
+An **image kernel** is a compute entry point that stores to one storage texture at its invocation
+id. It runs as a fragment pass on baseline with the same WGSL body: shader's `fragmentKernel` binds
+a `vec4u` target uniform (size and layer) where the storage texture was, reads
+`textureDimensions` from it, and turns each store into the fragment's return and an early return
+into `discard`. Kernels that aren't image kernels (reductions, several outputs) get a fragment form
+written for baseline.
 
 Limits are per tier: a baseline limit never applies on the full tier. From this spec on, every
 render feature declares a baseline strategy or `baseline: 'unsupported'`, and a registry test
