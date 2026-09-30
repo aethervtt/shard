@@ -58,6 +58,7 @@ import {
   VisibilityRange,
 } from './instances'
 import { observeOriginShifts } from './large-world'
+import { GroundLayer, RenderLayers } from './layers'
 import { expireLensFields, Lens, LensFields, LensPath } from './lens'
 import {
   AmbientLight,
@@ -80,7 +81,7 @@ import {
   variantCull,
 } from './material-pipelines'
 import { isTransparent, type MaterialType } from './materials'
-import { observeOutlinesWithoutPass } from './outline'
+import { Outline, OutlinePath, observeOutlinesWithoutPass } from './outline'
 import { PixelPerfect, PixelPerfectPath, PixelTargets } from './pixel-perfect'
 import { Gpu, Graph, RenderDescribers, RenderSet, Shaders, Views } from './plugin'
 import {
@@ -124,6 +125,7 @@ import { SkinAssetType, Skins } from './skin-asset'
 import { GpuMemory, RenderCounters, RenderStats } from './stats'
 import {
   type CameraData,
+  CameraMoved,
   Cameras,
   cameraOf,
   DeferredPath,
@@ -1447,6 +1449,12 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       SkinAssetType,
       Skins,
       RenderScale,
+      // tabletop (0057)
+      GroundLayer,
+      RenderLayers,
+      Outline,
+      OutlinePath,
+      CameraMoved,
       // shadows
       ShadowsResource,
       // post
