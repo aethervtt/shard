@@ -128,7 +128,7 @@ effects (0065) build on 0054 and 0063 once 0054 is implemented.
 |---|---|---|
 | [0052](0052-embedding.md) | Embedding (transparent surfaces, shared devices, on-demand frames, teardown) | implemented |
 | [0053](0053-deterministic-physics-tracks.md) | Deterministic physics and recorded tracks (worker, cancellation) | implemented |
-| [0054](0054-dice.md) | Dice (definitions, layouts, skins, tracks, landing on a supplied result) | accepted |
+| [0054](0054-dice.md) | Dice (definitions, layouts, skins, tracks, landing on a supplied result) | implemented |
 | [0055](0055-host-scenes-structure.md) | Host-driven scenes and incremental structure (mirror, chunks, upload accounting) | accepted |
 | [0056](0056-modular-builds-size.md) | Modular builds and size budgets (no import side effects, feature plugins, three baseline) | implemented |
 | [0057](0057-tabletop-layers.md) | Tabletop layers (ground bands, render layers, grids, vector shapes, outlines) | accepted |
@@ -139,4 +139,4 @@ effects (0065) build on 0054 and 0063 once 0054 is implemented.
 | [0062](0062-browser-verification.md) | Browser captures, approvals, and performance records | accepted |
 | [0063](0063-lens-fields.md) | Screen-space lens fields (bounded post displacement from published fields) | implemented |
 | [0064](0064-webgl2-fallback.md) | WebGL2 fallback and the baseline tier (one API, backend chosen at startup; staged, off the critical path) | accepted |
-| [0065](0065-dice-entrances.md) | Dice entrances and screen effects (a result arriving through a host scene instead of a tumble; typed effects the table draws) | accepted |
+| [0065](0065-dice-entrances.md) | Dice entrances and screen effects (a result arriving through a host scene instead of a tumble; typed effects the table draws) | implemented |

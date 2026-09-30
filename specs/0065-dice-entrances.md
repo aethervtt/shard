@@ -1,6 +1,6 @@
 # 0065 — Dice entrances and screen effects
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@aethervtt/shard-dice`, `@aethervtt/shard-render`, `apps/playground`
 - **Depends on:** 0054, 0063, 0026, 0035
 
