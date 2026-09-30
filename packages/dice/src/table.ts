@@ -15,9 +15,13 @@ import {
   type TrackWorkerLike,
 } from '@aethervtt/shard-physics/worker'
 import {
+  Camera3d,
   Cameras,
   clearLensFields,
+  clearScreenEffects,
   DirectionalLight,
+  EnvironmentMap,
+  Exposure,
   Gpu,
   InstanceData,
   LensFields,
@@ -26,16 +30,26 @@ import {
   MeshMaterial,
   NotShadowCaster,
   NotShadowReceiver,
+  OffscreenTarget,
   PointLight,
   publishLensField,
+  publishScreenEffect,
   RenderStats,
+  RenderTargets,
   renderOwner,
+  ScreenEffects,
+  Visibility,
   Window,
 } from '@aethervtt/shard-render'
 import { FrameDemand, LogResource, Time } from '@aethervtt/shard-runtime'
 import { Fonts } from '@aethervtt/shard-text'
-import { Transform } from '@aethervtt/shard-transform'
-import { type DiceAttachmentContext, findDiceAttachment, MAX_ATTACHMENTS } from './attachments'
+import { lookAt, Transform } from '@aethervtt/shard-transform'
+import {
+  type DiceAttachmentContext,
+  type DiceSceneContext,
+  findDiceAttachment,
+  MAX_ATTACHMENTS,
+} from './attachments'
 import type { DieKind } from './builtins'
 import { DiceDie } from './components'
 import { type DieGeometry, dieGeometry, requireDie } from './definition'
@@ -46,9 +60,16 @@ import {
   type MatchedRecipe,
   matchRecipes,
 } from './effects'
+import {
+  type DiceEntranceContext,
+  type DiceEntranceDef,
+  findDiceEntrance,
+  MAX_ENTRANCES,
+} from './entrances'
 import { floorUp, landingCorrection, naturalValue, restingHeight, restRotation } from './landing'
 import { FaceLayout, type FaceLayoutValue } from './layout'
-import { hashString } from './math'
+import { DICE_FIELDS } from './material'
+import { hashString, type V3 } from './math'
 import { type DiceQualityChoice, resolveDiceQuality } from './quality'
 import { type DiceResourceEntry, DiceResources, RELEASE_AFTER_MS } from './resources'
 import { type DiceRoll, expandRoll, type PhysicalDie, rollTrackRequest, viewportTray } from './roll'
@@ -66,6 +87,7 @@ import {
   type DiceTrackRequest,
   diceSettleParams,
   diceTrackScene,
+  entranceSpots,
   laneLayout,
   placeDie,
   placedFrom,
@@ -73,11 +95,12 @@ import {
   type UnlandedReason,
   unlandedDice,
 } from './track'
+import { meshVertices } from './windows'
 
 // The dice table (0054): one presentation at a time, from a host's roll to dice resting on the
 // tray. The package never decides a result; it shows one.
 
-export type DicePhase = 'idle' | 'simulating' | 'tumble' | 'accent' | 'rest'
+export type DicePhase = 'idle' | 'simulating' | 'tumble' | 'entrance' | 'accent' | 'rest'
 export type DiceOutcome = 'finished' | 'dismissed' | 'cancelled' | 'failed'
 
 export interface DicePlayOptions {
@@ -96,6 +119,8 @@ export interface DiceTableOptions {
   worker: (() => TrackWorkerLike) | 'inline'
   /** The dice camera's vertical field of view, degrees. */
   fovY: number
+  /** How long a roll waits for an entrance's assets and warm-up past the physics (0065). */
+  entranceWaitMs: number
 }
 
 /** The frame demand a presentation holds while it moves. */
@@ -103,6 +128,14 @@ export const PRESENTATION_DEMAND = 'dice/presentation'
 const ATTACHMENT_DEMAND = 'dice/attachments'
 /** Held while dice of an animated family (at the display's rate) are shown. */
 export const ANIMATED_DEMAND = 'dice/animated'
+/** Held while an entrance's scene is alive (0065). */
+export const ENTRANCE_DEMAND = 'dice/entrance'
+/** How long a roll waits for an entrance's assets past the physics being ready, by default. */
+export const ENTRANCE_WAIT_MS = 1500
+/** A skipped scene's time to wind down. */
+const SKIP_WIND_DOWN_MS = 400
+/** An entrance that can't play drops its die into its spot this fast. */
+const ENTRANCE_DROP_MS = 300
 /** Steps faster than this are clamped, so a hitch doesn't skip contacts. */
 const MAX_STEP_S = 1 / 15
 const RESULT_RAMP_MS = 350
@@ -129,6 +162,30 @@ interface ActiveAttachment {
   update:
     | ((ctx: DiceAttachmentContext, seconds: number, entities: readonly Entity[]) => boolean)
     | undefined
+}
+
+/** One die coming in through a scene instead of the tumble (0065). */
+interface EntranceRun {
+  name: string
+  die: number
+  def: DiceEntranceDef | undefined
+  params: Record<string, unknown>
+  /** The recipe that chose it: its other effects play when the die lands. */
+  recipe: MatchedRecipe
+  rest: { position: [number, number, number]; rotation: [number, number, number, number] }
+  /** waiting: its turn hasn't come (or its assets); playing; landed: the scene winds down. */
+  state: 'waiting' | 'playing' | 'landed' | 'done'
+  /** Why it drops into its spot instead of playing its scene; null while it plays. */
+  fallback: string | null
+  /** Its assets are loaded and its scene drawn once (so its first frame compiles nothing). */
+  ready: boolean
+  started: number
+  landedAt: number
+  windDownUntil: number
+  skipped: boolean
+  entities: Entity[]
+  ctx: DiceEntranceContext | undefined
+  material: AssetRef<'Material'> | undefined
 }
 
 interface Presentation {
@@ -181,7 +238,20 @@ interface Presentation {
   trayShadow: number
   /** The fastest animated family among the dice (0: none move once they rest). */
   fps: number
+  /** The dice in the physics, in body order, and each die's body (−1 for entrance dice, 0065). */
+  physical: number[]
+  bodyOf: Int32Array
+  entrances: EntranceRun[]
+  /** Matched entrances that didn't play, and why (for describe). */
+  entranceSkips: { die: number; name: string; reason: string }[]
+  /** Recipes whose effects played as their entrance die landed: the accent skips them. */
+  playedRecipes: Set<string>
+  /** When the physics was ready: entrance assets get ENTRANCE_WAIT_MS past it. */
+  readyAt: number
 }
+
+/** Where entrance scenes warm up, far from everything: each gets its own spot. */
+let warmSlot = 0
 
 // Scratch for playback: nothing per frame allocates.
 const POS = new Float64Array(3)
@@ -244,6 +314,8 @@ export class DiceTableState {
   private disposed = false
   private fitted = { aspect: 0, halfWidth: 0, halfDepth: 0 }
   private warned = new Set<string>()
+  /** Warm-ups waiting for the next frame (0065). */
+  private frameWaiters: (() => void)[] = []
 
   constructor(world: World, options: DiceTableOptions) {
     this.world = world
@@ -338,6 +410,12 @@ export class DiceTableState {
       shadowsBefore: undefined,
       trayShadow: Number.NaN,
       fps: 0,
+      physical: [],
+      bodyOf: new Int32Array(0),
+      entrances: [],
+      entranceSkips: [],
+      playedRecipes: new Set(),
+      readyAt: Number.NaN,
     }
     this.current = p
     const signal = options.signal
@@ -472,30 +550,44 @@ export class DiceTableState {
     try {
       await this.loadSkins(p)
       if (p.done) return
+      // Entrances first (0065): their dice stay out of the physics.
+      this.chooseEntrances(p)
       this.acquire(p)
-      p.request = rollTrackRequest(p.roll, p.dice, p.tray)
+      p.request = rollTrackRequest(
+        p.roll,
+        p.physical.map((i) => p.dice[i]!),
+        p.tray,
+      )
       if (p.reduced) {
         this.placeReduced(p)
         return
       }
-      this.recordings++
       const request = p.request
-      const recording = this.tracks().record(diceTrackScene(request), {
-        signal: p.abort.signal,
-        settle: { rule: DICE_SETTLE_RULE, params: diceSettleParams(request) },
-        contacts: DICE_CONTACTS,
-      })
-      // While the worker records: bake the impacts the tumble will play, and have them decoded.
+      const recording =
+        p.physical.length > 0
+          ? this.tracks().record(diceTrackScene(request), {
+              signal: p.abort.signal,
+              settle: { rule: DICE_SETTLE_RULE, params: diceSettleParams(request) },
+              contacts: DICE_CONTACTS,
+            })
+          : undefined
+      if (recording) this.recordings++
+      // While the worker records: bake the impacts the tumble will play, have them decoded, and
+      // get the entrances ready (assets loaded, scenes drawn once).
       if (p.soundGain > 0 && this.world.tryResource(AudioState)) {
         for (const skin of new Set(p.skins)) {
           this.sounds.prepare(skin.sounds.impact, (clip) => preloadSound(this.world, clip))
         }
       }
-      const track = await recording
+      for (const run of p.entrances) void this.readyEntrance(p, run)
+      const track = recording ? await recording : undefined
       if (p.done) return
+      p.readyAt = this.options.now()
       this.land(p, track)
       this.spawnDice(p)
-      p.phase = 'tumble'
+      // Every die entering: nothing tumbles; the entrances start now.
+      if (track) p.phase = 'tumble'
+      else this.landed(p)
     } catch (err) {
       if (p.done) return
       const code = (err as ShardError).code
@@ -554,31 +646,76 @@ export class DiceTableState {
     return floorUp([x, 0, z])
   }
 
-  /** The track is in: which dice land, where the rest go, and each die's correction. */
-  private land(p: Presentation, track: Track): void {
-    p.track = track
-    p.hash = trackHash(track)
-    const request = p.request!
+  /**
+   * The track is in (or there's none: every die enters): which dice land, where the rest go, each
+   * die's correction, and where entrance dice will land (0065).
+   */
+  private land(p: Presentation, track: Track | undefined): void {
     const up = this.screenUp()
-    p.placed = unlandedDice(track, request)
-    const spots = placementSpots(track, request, p.placed)
     const n = p.dice.length
     p.corrections = new Float64Array(n * 4)
-    const o = track.steps * n
-    for (let i = 0; i < n; i++) {
-      const d = p.dice[i]!
-      const g = dieGeometry(requireDie(d.definition))
-      let c: number[] = [0, 0, 0, 1]
-      if (p.placed[i]) {
-        placeDie(track, i, spots[i]!, restRotation(g, d.value, up), g, d.scale)
-        p.natural.push(d.value)
-      } else {
-        const final = track.rotations.subarray((o + i) * 4, (o + i) * 4 + 4)
-        p.natural.push(naturalValue(g, final))
-        c = landingCorrection(g, final, d.value, up)
+    for (let i = 0; i < n; i++) p.corrections[i * 4 + 3] = 1
+    p.placed = p.dice.map(() => null)
+    p.natural = p.dice.map((d) => d.value)
+    if (track) {
+      p.track = track
+      p.hash = trackHash(track)
+      const request = p.request!
+      const unlanded = unlandedDice(track, request)
+      const spots = placementSpots(track, request, unlanded)
+      const o = track.steps * track.bodyCount
+      for (let b = 0; b < p.physical.length; b++) {
+        const i = p.physical[b]!
+        const d = p.dice[i]!
+        const g = dieGeometry(requireDie(d.definition))
+        p.placed[i] = unlanded[b]!
+        if (unlanded[b]) {
+          placeDie(track, b, spots[b]!, restRotation(g, d.value, up), g, d.scale)
+          continue
+        }
+        const final = track.rotations.subarray((o + b) * 4, (o + b) * 4 + 4)
+        p.natural[i] = naturalValue(g, final)
+        p.corrections.set(landingCorrection(g, final, d.value, up), i * 4)
       }
-      p.corrections.set(c, i * 4)
     }
+    this.placeEntrances(p, up)
+  }
+
+  /**
+   * Rest poses for entrance dice: free spots near what each entrance wants (the tray's center by
+   * default), clear of where the physical dice ended, target up with the readable twist.
+   */
+  private placeEntrances(p: Presentation, up: [number, number, number]): void {
+    if (p.entrances.length === 0) return
+    const taken: V3[] = []
+    const track = p.track
+    if (track) {
+      const o = track.steps * track.bodyCount
+      for (let b = 0; b < track.bodyCount; b++) {
+        taken.push([track.positions[(o + b) * 3]!, 0, track.positions[(o + b) * 3 + 2]!])
+      }
+    }
+    const wants: V3[] = p.entrances.map((run) => {
+      const spot = run.def?.spot
+      return spot && spot !== 'center'
+        ? [spot[0] * p.tray.halfWidth, 0, spot[1] * p.tray.halfDepth]
+        : [0, 0, 0]
+    })
+    const all = p.dice.map((d) => ({
+      definition: d.definition,
+      scale: d.scale,
+      dropped: d.dropped,
+    }))
+    const spots = entranceSpots(p.tray, all, taken, wants)
+    p.entrances.forEach((run, k) => {
+      const d = p.dice[run.die]!
+      const g = dieGeometry(requireDie(d.definition))
+      const rotation = restRotation(g, d.value, up)
+      run.rest = {
+        position: [spots[k]![0], restingHeight(g, rotation, d.scale), spots[k]![2]],
+        rotation: [rotation[0], rotation[1], rotation[2], rotation[3]],
+      }
+    })
   }
 
   /** Reduced motion: no physics. Each die rests in its lane, target up and upright, fading in. */
@@ -628,17 +765,28 @@ export class DiceTableState {
     for (let i = 0; i < p.dice.length; i++) {
       const d = p.dice[i]!
       const entry = p.entries[i]!
+      // An entrance die waits at its rest pose, hidden, with a material of its own (0065).
+      const run = p.entrances.find((r) => r.die === i)
       if (pose) pose(i, POS, ROT)
-      else this.samplePose(p, i, 0, POS, ROT)
+      else if (run) {
+        POS.set(run.rest.position)
+        ROT.set(run.rest.rotation)
+      } else this.samplePose(p, i, 0, POS, ROT)
       const material = this.resources.material(entry, {
         blended: p.blended[i]!,
         dropped: d.dropped,
+        entrance: run ? i : undefined,
       })
+      if (run) {
+        run.material = material
+        world.resource(Materials).get(material)?.set({ result: 0, resultTime: 0 })
+      }
       const s = d.scale
       p.entities.push(
         world.spawn(
           // Large pools switch shadows on as they land: dice that caught them would darken at once.
           ...(large ? [NotShadowReceiver] : []),
+          ...(run ? [[Visibility, { mode: 'hidden' as const }] as const] : []),
           [Mesh3d, { mesh: entry.mesh }],
           [MeshMaterial, { material }],
           [
@@ -714,7 +862,7 @@ export class DiceTableState {
     pos: Float64Array,
     rot: Float64Array,
   ): void {
-    sampleTrack(p.track!, time, i, pos, rot)
+    sampleTrack(p.track!, time, p.bodyOf[i]!, pos, rot)
     const c = p.corrections
     const o = i * 4
     const ax = rot[0]!
@@ -737,6 +885,11 @@ export class DiceTableState {
   frame(): void {
     const world = this.world
     const now = this.options.now()
+    const waiters = this.frameWaiters
+    if (waiters.length > 0) {
+      this.frameWaiters = []
+      for (let i = 0; i < waiters.length; i++) waiters[i]!()
+    }
     this.fitCamera()
     if (this.resources.nextRelease() <= now) this.resources.sweep(now)
     const p = this.current
@@ -745,10 +898,10 @@ export class DiceTableState {
     if (p.phase === 'tumble') this.tumble(p, dt)
     if (!Number.isNaN(p.landedAt)) this.settleLook(p, now)
     if (!Number.isNaN(p.fadeFrom)) this.fade(p, now)
-    if (p.phase === 'accent') {
-      this.accent(p, now)
-      if (now >= p.accentEndsAt) this.rest(p)
-    }
+    if (p.entrances.length > 0) this.entrancesFrame(p, now)
+    // Effects run from the accent, and from an entrance die's landing before it.
+    if (p.runs.length > 0) this.accent(p, now)
+    if (p.phase === 'accent' && now >= p.accentEndsAt) this.rest(p)
     this.attachmentsFrame(p, now)
     // Animated families keep frames coming while their dice are on the table.
     if (p.fps > 0 && !p.reduced && p.entities.length > 0 && !p.done) {
@@ -763,8 +916,10 @@ export class DiceTableState {
     const world = this.world
     const track = p.track!
     p.time += dt
-    const n = p.dice.length
-    for (let i = 0; i < n; i++) {
+    // The dice in the physics; entrance dice wait for their scene (0065).
+    const n = p.physical.length
+    for (let b = 0; b < n; b++) {
+      const i = p.physical[b]!
       const e = p.entities[i]!
       this.samplePose(p, i, p.time, POS, ROT)
       const table = world.entityTableUnchecked(e)
@@ -810,8 +965,9 @@ export class DiceTableState {
     while (p.nextContact < c.steps.length && c.steps[p.nextContact]! <= step) {
       const k = p.nextContact++
       const s = c.steps[k]!
-      const a = c.a[k]!
-      const b = c.b[k]!
+      // Bodies to dice (entrance dice aren't bodies, 0065).
+      const a = p.physical[c.a[k]!]!
+      const b = c.b[k]! >= 0 ? p.physical[c.b[k]!]! : -1
       // A placed die isn't where the physics was once it drops in.
       if (s >= placedStep && (p.placed[a] || (b >= 0 && p.placed[b]))) continue
       if (!audio || p.soundGain <= 0) continue
@@ -842,8 +998,8 @@ export class DiceTableState {
   private impact(p: Presentation, k: number, strength: number, together: number): void {
     const track = p.track!
     const c = track.contacts
-    const a = c.a[k]!
-    const b = c.b[k]!
+    const a = p.physical[c.a[k]!]!
+    const b = c.b[k]! >= 0 ? p.physical[c.b[k]!]! : -1
     const t = c.steps[k]! * track.step
     p.lastImpact[a] = t
     if (b >= 0) p.lastImpact[b] = t
@@ -896,6 +1052,18 @@ export class DiceTableState {
         )
       }
     }
+    // Then the entrances, one after another (0065); the accent waits for their dice.
+    if (p.entrances.length > 0) {
+      p.phase = 'entrance'
+      world.resource(FrameDemand).hold(ENTRANCE_DEMAND)
+      this.nextEntrance(p, now)
+      return
+    }
+    this.afterLanding(p, now)
+  }
+
+  /** Every die is down: the accent if anything plays in it, else the rest. */
+  private afterLanding(p: Presentation, now: number): void {
     if (p.effects && this.startAccent(p, now)) return
     this.rest(p)
   }
@@ -1005,60 +1173,133 @@ export class DiceTableState {
     return [x / anchors.length, 0.6, z / anchors.length]
   }
 
-  /** Starts the accent phase if anything plays in it. */
-  private startAccent(p: Presentation, now: number): boolean {
+  /**
+   * The roll's recipes, matched once (the conditions read only the roll), and the entrance dice they
+   * choose (0065): at most 2, in the full tier, with effects on and full motion.
+   */
+  private chooseEntrances(p: Presentation): void {
     const { recipes, carriers } = this.recipesOf(p)
     const { matched, degraded } = matchRecipes(recipes, p.roll, p.dice)
     for (const m of matched) m.anchors = m.anchors.filter((i) => carriers.get(m.recipe.id)?.has(i))
     p.matched = matched
     p.degraded = degraded
-    let longest = 0
-    let particles = 0
-    let light = false
-    let cue = false
+    // The tier before effects: a large pool turns effects off itself.
+    const barred = p.reduced
+      ? 'reduced motion'
+      : p.quality.tier !== 'full'
+        ? `the ${p.quality.tier} tier`
+        : !p.effects
+          ? 'effects off'
+          : null
+    const chosen = new Set<number>()
     for (const m of matched) {
-      const at = this.centroid(p, m.anchors)
       for (const effect of m.recipe.effects) {
-        if (effect.kind === 'attachment') {
-          for (const i of m.anchors) this.attach(p, effect.attachment, i, now)
-          continue
+        if (effect.kind !== 'entrance') continue
+        for (const i of m.anchors) {
+          if (chosen.has(i)) continue
+          const name = effect.entrance
+          if (barred || p.entrances.length >= MAX_ENTRANCES) {
+            p.entranceSkips.push({ die: i, name, reason: barred ?? `over ${MAX_ENTRANCES}` })
+            continue
+          }
+          chosen.add(i)
+          const def = findDiceEntrance(name)
+          if (!def) this.entranceUnavailable(name, `no entrance "${name}" is defined`)
+          p.entrances.push({
+            name,
+            die: i,
+            def,
+            params: (effect.params as Record<string, unknown> | null) ?? {},
+            recipe: m,
+            rest: { position: [0, 0, 0], rotation: [0, 0, 0, 1] },
+            state: 'waiting',
+            fallback: def ? null : 'undefined',
+            ready: !def,
+            started: Number.NaN,
+            landedAt: Number.NaN,
+            windDownUntil: Number.POSITIVE_INFINITY,
+            skipped: false,
+            entities: [],
+            ctx: undefined,
+            material: undefined,
+          })
         }
-        if (effect.kind === 'sound-accent') {
-          if (cue) continue
-          cue = true
-          this.accentSound(p, effect.cue, effect.gain)
-          continue
-        }
-        if (!at) continue
-        if (effect.kind === 'light-pulse') {
-          if (light) continue
-          light = true
-        }
-        if (effect.kind === 'particle-burst') {
-          if (particles >= 32) continue
-          particles += effect.count
-        }
-        if (effect.kind === 'lens-pulse' && !p.lens) continue
-        longest = Math.max(longest, effect.durationMs)
-        const run: EffectRun = {
-          kind: effect.kind,
-          effect,
-          at,
-          source: p.entities[m.anchors[0]!]!,
-          entity: undefined,
-          started: now,
-        }
-        this.startRun(p, run)
-        p.runs.push(run)
       }
     }
-    // The skin's own landing cue, for kept dice.
-    if (!cue) {
-      const i = p.dice.findIndex((d, k) => !d.dropped && p.skins[k]!.sounds.accent)
-      if (i >= 0) {
-        cue = true
-        this.accentSound(p, p.skins[i]!.sounds.accent as AccentCue, 0.6)
+    p.physical = []
+    p.bodyOf = new Int32Array(p.dice.length).fill(-1)
+    for (let i = 0; i < p.dice.length; i++) {
+      if (chosen.has(i)) continue
+      p.bodyOf[i] = p.physical.length
+      p.physical.push(i)
+    }
+  }
+
+  /** Budgets for one burst of effects: one light, one cue, 32 particles. */
+  private static budget(): { light: boolean; cue: boolean; particles: number } {
+    return { light: false, cue: false, particles: 0 }
+  }
+
+  /** Starts a matched recipe's effects on `anchors`. Returns how long the longest runs, ms. */
+  private playRecipe(
+    p: Presentation,
+    m: MatchedRecipe,
+    anchors: readonly number[],
+    now: number,
+    budget: { light: boolean; cue: boolean; particles: number },
+  ): number {
+    let longest = 0
+    const at = this.centroid(p, anchors)
+    for (const effect of m.recipe.effects) {
+      if (effect.kind === 'entrance') continue
+      if (effect.kind === 'attachment') {
+        for (const i of anchors) this.attach(p, effect, i, now)
+        continue
       }
+      if (effect.kind === 'sound-accent') {
+        if (budget.cue) continue
+        budget.cue = true
+        this.accentSound(p, effect.cue, effect.gain)
+        continue
+      }
+      if (!at) continue
+      if (effect.kind === 'light-pulse') {
+        if (budget.light) continue
+        budget.light = true
+      }
+      if (effect.kind === 'particle-burst') {
+        if (budget.particles >= 32) continue
+        budget.particles += effect.count
+      }
+      if (effect.kind === 'lens-pulse' && !p.lens) continue
+      longest = Math.max(longest, effect.durationMs)
+      const run: EffectRun = {
+        kind: effect.kind,
+        effect,
+        at,
+        source: p.entities[anchors[0]!]!,
+        entity: undefined,
+        started: now,
+      }
+      this.startRun(p, run)
+      p.runs.push(run)
+    }
+    return longest
+  }
+
+  /** Starts the accent phase if anything plays in it. */
+  private startAccent(p: Presentation, now: number): boolean {
+    let longest = 0
+    const budget = DiceTableState.budget()
+    for (const m of p.matched) {
+      // Played as its entrance die landed.
+      if (p.playedRecipes.has(m.recipe.id)) continue
+      longest = Math.max(longest, this.playRecipe(p, m, m.anchors, now, budget))
+    }
+    // The skin's own landing cue, for kept dice.
+    if (!budget.cue) {
+      const i = p.dice.findIndex((d, k) => !d.dropped && p.skins[k]!.sounds.accent)
+      if (i >= 0) this.accentSound(p, p.skins[i]!.sounds.accent as AccentCue, 0.6)
     }
     if (longest === 0 && p.live.length === 0) return false
     p.phase = 'accent'
@@ -1169,11 +1410,12 @@ export class DiceTableState {
 
   // --- attachments ------------------------------------------------------------------------------
 
-  private attach(p: Presentation, name: string, die: number, now: number): void {
+  private attach(p: Presentation, effect: DiceEffect, die: number, now: number): void {
     if (!p.attachments) return
     const d = p.dice[die]!
     if (d.dropped) return
     if (p.live.length >= MAX_ATTACHMENTS) return
+    const name = effect.attachment
     const def = findDiceAttachment(name)
     if (!def) {
       this.warnOnce(
@@ -1184,14 +1426,54 @@ export class DiceTableState {
       return
     }
     const world = this.world
+    const params = (effect.params as Record<string, unknown> | null) ?? {}
+    const ctx: DiceAttachmentContext = this.sceneContext(p, die, params)
+    const entities = def.spawn(ctx)
+    // Held to what it declared.
+    if (meshVertices(world, entities) > def.vertices) {
+      for (const e of entities) if (world.isAlive(e)) world.despawn(e)
+      this.warnOnce(
+        `attachment-budget:${name}`,
+        'dice/attachment-budget',
+        `Attachment "${name}" spawned more than its ${def.vertices} vertices; it was ended.`,
+      )
+      return
+    }
+    p.live.push({ name, die, entities, started: now, ctx, update: def.update })
+    if (def.update) world.resource(FrameDemand).hold(ATTACHMENT_DEMAND)
+  }
+
+  /**
+   * What a scene on a die can reach and do (attachments, and entrances, 0065): the die, the camera,
+   * its screen point, lens fields and screen effects on it, sound at the roll's gain.
+   */
+  private sceneContext(
+    p: Presentation,
+    die: number,
+    params: Record<string, unknown>,
+  ): DiceSceneContext {
+    const world = this.world
     const entity = p.entities[die]!
-    const ctx: DiceAttachmentContext = {
+    const d = p.dice[die]!
+    const where = (at: ArrayLike<number> | undefined) =>
+      at ?? world.get(entity, Transform).translation
+    return {
       world,
       die: entity,
       kind: d.kind,
       value: d.rolled,
       label: d.label,
       scale: d.scale,
+      params,
+      camera: this.camera,
+      seed: hashString(`${p.roll.seed ?? p.roll.id}:scene:${die}`),
+      soundGain: p.soundGain,
+      screen: (point) => {
+        const t = where(point)
+        return screenOf(world, this.camera, t[0]!, t[1]!, t[2]!, SCREEN)
+          ? [SCREEN[0]!, SCREEN[1]!]
+          : null
+      },
       lens: (field) => {
         if (!p.lens || p.done) return false
         const t = world.get(entity, Transform).translation
@@ -1204,10 +1486,32 @@ export class DiceTableState {
           source: entity,
         })
       },
+      effect: (e) => {
+        if (!p.lens || p.done) return false
+        const t = where(e.at)
+        if (!screenOf(world, this.camera, t[0]!, t[1]!, t[2]!, SCREEN)) return false
+        return publishScreenEffect(world, {
+          kind: e.kind,
+          screen: [SCREEN[0]!, SCREEN[1]!],
+          radius: e.radius,
+          ttlMs: e.ttlMs ?? 250,
+          source: entity,
+          params: e.params ?? {},
+        })
+      },
+      sound: (clip, options = {}) => {
+        if (p.done || p.soundGain <= 0 || !world.tryResource(AudioState)) return -1
+        const g = p.soundGain
+        const v = options.volume ?? 1
+        const volume = typeof v === 'number' ? v * g : ([v[0] * g, v[1] * g] as const)
+        const voice = playSound(world, clip, { ...options, volume })
+        p.voices.push(voice)
+        return voice
+      },
+      cue: (cue, gain = 1) => {
+        if (!p.done) this.accentSound(p, cue, gain)
+      },
     }
-    const entities = def.spawn(ctx)
-    p.live.push({ name, die, entities, started: now, ctx, update: def.update })
-    if (def.update) world.resource(FrameDemand).hold(ATTACHMENT_DEMAND)
   }
 
   private attachmentsFrame(p: Presentation, now: number): void {
@@ -1223,6 +1527,382 @@ export class DiceTableState {
       }
     }
     if (!p.live.some((a) => a.update)) world.resource(FrameDemand).release(ATTACHMENT_DEMAND)
+  }
+
+  // --- entrances (0065) ---------------------------------------------------------------------------
+
+  /**
+   * Lands every entrance still to come or playing, now: each die snaps to its rest pose, and scenes
+   * get 400 ms to wind down (`ctx.skipped`). False when no entrance is left to skip.
+   */
+  skip(): boolean {
+    const p = this.current
+    if (!p || p.done) return false
+    const now = this.options.now()
+    const left = p.entrances.filter((r) => r.state === 'waiting' || r.state === 'playing')
+    if (left.length === 0) return false
+    for (const run of left) {
+      run.skipped = true
+      run.windDownUntil = now + SKIP_WIND_DOWN_MS
+    }
+    for (const run of left) {
+      if (run.state === 'waiting') {
+        run.state = 'playing'
+        run.started = now
+      }
+      this.landEntrance(p, run, now)
+    }
+    return true
+  }
+
+  private entranceUnavailable(name: string, why: string): void {
+    this.warnOnce(
+      `entrance:${name}`,
+      'dice/entrance-unavailable',
+      `Entrance "${name}" can't play (${why}); its die drops into its spot instead.`,
+    )
+  }
+
+  /** While the physics records: the entrance's assets, then its scene drawn once. */
+  private async readyEntrance(p: Presentation, run: EntranceRun): Promise<void> {
+    const def = run.def
+    if (!def) return
+    try {
+      const assets = def.assets ?? []
+      if (assets.length > 0) await Promise.all(assets.map((r) => assetServer(this.world).load(r)))
+      if (p.done) return
+      await this.warmEntrance(p, run, def)
+    } catch (err) {
+      if (p.done) return
+      run.fallback ??= 'assets failed'
+      this.entranceUnavailable(run.name, `its assets failed: ${(err as Error).message}`)
+    }
+    run.ready = true
+  }
+
+  /**
+   * Draws an entrance's scene once, away from everything, to an offscreen target on the app's
+   * device (as thumbnails are), so its uploads are done and its pipelines compiled before it plays.
+   * The warm copy's lens fields, screen effects and sounds go nowhere.
+   */
+  private async warmEntrance(
+    p: Presentation,
+    run: EntranceRun,
+    def: DiceEntranceDef,
+  ): Promise<void> {
+    const world = this.world
+    const d = p.dice[run.die]!
+    const entry = p.entries[run.die]!
+    const g = dieGeometry(requireDie(d.definition))
+    const rotation = restRotation(g, d.value)
+    const x = 30_000 + (warmSlot++ % 16) * 50
+    const rest = {
+      position: [x, restingHeight(g, rotation, d.scale), 0] as [number, number, number],
+      rotation: [rotation[0], rotation[1], rotation[2], rotation[3]] as [
+        number,
+        number,
+        number,
+        number,
+      ],
+    }
+    const target = new OffscreenTarget(world.resource(Gpu), {
+      label: 'dice-entrance-warm',
+      width: 64,
+      height: 64,
+    })
+    const targetRef = world
+      .resource(RenderTargets)
+      .add(target, `dice:warm/${x}`) as AssetRef<'RenderTarget'>
+    const material = this.resources.material(entry, {
+      blended: p.blended[run.die]!,
+      dropped: false,
+      entrance: run.die,
+    })
+    const s = d.scale
+    const die = world.spawn(
+      [Mesh3d, { mesh: entry.mesh }],
+      [MeshMaterial, { material }],
+      [Transform, { translation: rest.position, rotation: rest.rotation, scale: [s, s, s] }],
+      [InstanceData, { x: d.value, y: 0 }],
+    )
+    // Looking down on it as the dice camera does, far enough to take in a scene around it.
+    const eye: [number, number, number] = [x, rest.position[1] + 30 * s, 0]
+    const camera = world.spawn(
+      [Camera3d, { fovY: 35, clearColor: [0, 0, 0, 0], target: targetRef, order: 49 }],
+      [Exposure, { ev100: 13 }],
+      [Transform, { translation: eye, rotation: lookAt(eye, rest.position, [0, 0, -1]) }],
+    )
+    const env = world.tryGet(this.camera, EnvironmentMap)
+    if (env) world.add(camera, EnvironmentMap, { texture: env.texture, intensity: env.intensity })
+    let entities: Entity[] = []
+    try {
+      const ctx = this.entranceContext(p, run, die, camera, rest, false)
+      entities = def.spawn(ctx)
+      if (meshVertices(world, entities) > def.vertices) {
+        run.fallback = 'over budget'
+        this.warnOnce(
+          `entrance-budget:${run.name}`,
+          'dice/entrance-budget',
+          `Entrance "${run.name}" spawned more than its ${def.vertices} vertices; its die drops in instead.`,
+        )
+        return
+      }
+      def.update?.(ctx, 0, entities)
+      // Complete frames of it: drawn, no draw skipped (for an upload, a shader still linking or a
+      // pipeline compiling), nothing compiling. Three in a row: new entities upload in their first
+      // frame and draw from the next, compiling as they do. `skipped` counts the whole last frame,
+      // which drew this view: skips elsewhere only make it wait longer. Frames, not captures: a
+      // capture waits for the GPU, which on a software device falls further behind with every
+      // frame a host submits, and each capture would wait longer than the last.
+      const view = `camera:${camera}`
+      const pipelines = world.resource(Gpu).pipelines
+      let complete = 0
+      for (let i = 0; i < 240 && !p.done && complete < 3; i++) {
+        await this.nextFrame()
+        const stats = world.resource(RenderStats).get(view)
+        const done =
+          stats &&
+          stats.drawCalls > 0 &&
+          stats.pending === 0 &&
+          pipelines.pending === 0 &&
+          pipelines.skipped === 0
+        complete = done ? complete + 1 : 0
+        if (!done) await pipelines.whenIdle()
+      }
+    } finally {
+      for (const e of entities) if (world.isAlive(e)) world.despawn(e)
+      world.despawn(die)
+      world.despawn(camera)
+      world.resource(RenderTargets).delete(targetRef.guid!)
+      target.destroy()
+    }
+  }
+
+  /**
+   * Resolves at the table's next frame (an idle app is woken for it); code after the `await` runs
+   * once that frame has rendered, with its stats in.
+   */
+  private nextFrame(): Promise<void> {
+    const next = new Promise<void>((resolve) => this.frameWaiters.push(resolve))
+    this.world.wake()
+    return next
+  }
+
+  /** An entrance's context: live on its die, or (warming up) on a stand-in, going nowhere. */
+  private entranceContext(
+    p: Presentation,
+    run: EntranceRun,
+    die: Entity,
+    camera: Entity,
+    rest: EntranceRun['rest'],
+    live: boolean,
+  ): DiceEntranceContext {
+    const world = this.world
+    const base = this.sceneContext(p, run.die, run.params)
+    const s = p.dice[run.die]!.scale
+    return {
+      ...base,
+      die,
+      camera,
+      screen: live ? base.screen : () => null,
+      lens: live ? base.lens : () => false,
+      effect: live ? base.effect : () => false,
+      sound: live ? base.sound : () => -1,
+      cue: live ? base.cue : () => {},
+      rest,
+      landAt: (run.def?.landAtMs ?? 0) / 1000,
+      get skipped() {
+        return run.skipped
+      },
+      pose: (position, rotation, scale) => {
+        if (live && run.state !== 'playing') return
+        const table = world.entityTableUnchecked(die)
+        const row = world.entityRowUnchecked(die)
+        const tr = table.column(Transform, 'translation')
+        const rt = table.column(Transform, 'rotation')
+        const sc = table.column(Transform, 'scale')
+        for (let k = 0; k < 3; k++) tr[row * 3 + k] = position[k]!
+        for (let k = 0; k < 4; k++) rt[row * 4 + k] = rotation[k]!
+        const z = scale ?? s
+        for (let k = 0; k < 3; k++) sc[row * 3 + k] = z
+        table.markChanged(Transform, row)
+      },
+      show: (visible) => {
+        if (live && run.state !== 'playing') return
+        world.set(die, Visibility, { mode: visible ? 'visible' : 'hidden' })
+      },
+      material: (fields) => {
+        for (const key of Object.keys(fields)) {
+          if (key in DICE_FIELDS || key === 'alphaMode') {
+            throw new ShardError(
+              'dice/reserved-param',
+              `An entrance can't set the dice field "${key}"`,
+              {
+                path: key,
+                hint: "Set the family's own fields; the table sets the dice fields.",
+              },
+            )
+          }
+        }
+        if (run.material) world.resource(Materials).get(run.material)?.set(fields)
+      },
+    }
+  }
+
+  /** Starts the next entrance whose turn it is; with every die down, the accent (or the rest). */
+  private nextEntrance(p: Presentation, now: number): void {
+    for (const run of p.entrances) {
+      if (run.state === 'playing') return
+      if (run.state === 'waiting') {
+        this.startEntrance(p, run, now)
+        return
+      }
+    }
+    if (p.phase === 'entrance') this.afterLanding(p, now)
+  }
+
+  private startEntrance(p: Presentation, run: EntranceRun, now: number): void {
+    // Its assets (and warm-up) have until ENTRANCE_WAIT_MS past the physics.
+    if (!run.ready && !run.skipped) {
+      const wait = this.options.entranceWaitMs
+      if (now < p.readyAt + wait) return
+      run.fallback ??= 'assets late'
+      this.entranceUnavailable(
+        run.name,
+        `it wasn't ready ${this.options.entranceWaitMs} ms after the physics`,
+      )
+    }
+    run.state = 'playing'
+    run.started = now
+    const def = run.def
+    if (run.skipped || run.fallback || !def) {
+      if (!run.skipped) this.world.set(p.entities[run.die]!, Visibility, { mode: 'visible' })
+      return
+    }
+    const world = this.world
+    run.ctx = this.entranceContext(p, run, p.entities[run.die]!, this.camera, run.rest, true)
+    run.entities = def.spawn(run.ctx)
+    if (meshVertices(world, run.entities) > def.vertices) {
+      for (const e of run.entities) if (world.isAlive(e)) world.despawn(e)
+      run.entities = []
+      run.ctx = undefined
+      run.fallback = 'over budget'
+      this.warnOnce(
+        `entrance-budget:${run.name}`,
+        'dice/entrance-budget',
+        `Entrance "${run.name}" spawned more than its ${def.vertices} vertices; its die drops in instead.`,
+      )
+      world.set(p.entities[run.die]!, Visibility, { mode: 'visible' })
+    }
+  }
+
+  /** Each frame while an entrance is alive: scenes, the die's landing, its result ramp. */
+  private entrancesFrame(p: Presentation, now: number): void {
+    const world = this.world
+    if (p.phase === 'entrance' && !p.entrances.some((r) => r.state === 'playing'))
+      this.nextEntrance(p, now)
+    for (const run of p.entrances) {
+      if (run.state === 'done' || run.state === 'waiting') continue
+      const ms = now - run.started
+      const def = run.def
+      const scene = run.ctx !== undefined && def !== undefined
+      if (run.state === 'playing') {
+        if (!scene) {
+          // The placed drop (0054): straight down into its spot.
+          const t = run.skipped ? 1 : Math.min(1, ms / ENTRANCE_DROP_MS)
+          this.dropPose(p, run, t)
+          if (t >= 1) this.landEntrance(p, run, now)
+        } else if (run.skipped || ms >= def.landAtMs) this.landEntrance(p, run, now)
+      }
+      let over = true
+      if (scene) {
+        const keep = def.update ? def.update(run.ctx!, ms / 1000, run.entities) !== false : true
+        over = !keep || ms >= def.durationMs || now >= run.windDownUntil
+        // A scene that ends before its landing lands its die as it ends.
+        if (over && run.state === 'playing') this.landEntrance(p, run, now)
+      }
+      if (run.state === 'landed') {
+        const t = Math.min(1, (now - run.landedAt) / RESULT_RAMP_MS)
+        if (run.material) world.resource(Materials).get(run.material)?.set({ result: t })
+        if (over && t >= 1) this.endEntrance(run)
+      }
+    }
+    // Frames stop being held the frame the last scene ends.
+    let alive = false
+    for (const run of p.entrances) if (run.state !== 'done') alive = true
+    if (!alive) world.resource(FrameDemand).release(ENTRANCE_DEMAND)
+  }
+
+  /** The placed drop, t from 0 to 1: from above its spot down onto it, easing in. */
+  private dropPose(p: Presentation, run: EntranceRun, t: number): void {
+    const world = this.world
+    const e = p.entities[run.die]!
+    const table = world.entityTableUnchecked(e)
+    const row = world.entityRowUnchecked(e)
+    const tr = table.column(Transform, 'translation')
+    const rt = table.column(Transform, 'rotation')
+    const fall = (1 - t * t) * 2.2 * p.dice[run.die]!.scale
+    tr[row * 3] = run.rest.position[0]
+    tr[row * 3 + 1] = run.rest.position[1] + fall
+    tr[row * 3 + 2] = run.rest.position[2]
+    for (let k = 0; k < 4; k++) rt[row * 4 + k] = run.rest.rotation[k]!
+    table.markChanged(Transform, row)
+  }
+
+  /**
+   * The die lands: its rest pose, shown, its result from now (its own material), its impact, and
+   * the effects of the recipe that chose it, on it. Then the next entrance's turn.
+   */
+  private landEntrance(p: Presentation, run: EntranceRun, now: number): void {
+    if (run.state !== 'playing') return
+    const world = this.world
+    run.state = 'landed'
+    run.landedAt = now
+    const e = p.entities[run.die]!
+    const s = p.dice[run.die]!.scale
+    world.set(e, Transform, {
+      translation: run.rest.position,
+      rotation: run.rest.rotation,
+      scale: [s, s, s],
+    })
+    world.set(e, Visibility, { mode: 'visible' })
+    if (run.material) {
+      world
+        .resource(Materials)
+        .get(run.material)
+        ?.set({ result: 0, resultTime: world.resource(Time).elapsed })
+    }
+    this.entranceImpact(p, run)
+    p.playedRecipes.add(run.recipe.recipe.id)
+    if (p.effects) this.playRecipe(p, run.recipe, [run.die], now, DiceTableState.budget())
+    if (p.phase === 'entrance') this.nextEntrance(p, now)
+  }
+
+  /** The skin's impact as the die lands, as hard as the entrance says (default 0.8). */
+  private entranceImpact(p: Presentation, run: EntranceRun): void {
+    const strength = run.def?.impact ?? 0.8
+    if (strength <= 0 || p.soundGain <= 0 || !this.world.tryResource(AudioState)) return
+    const variation = ((p.soundSeed ^ Math.imul(run.die + 7, 0x9e3779b1)) >>> 0) % IMPACT_VARIATIONS
+    const clip = this.sounds.impact(
+      p.skins[run.die]!.sounds.impact,
+      'tray',
+      impactLayer(strength),
+      variation,
+    )
+    const level = strength ** 1.5 * 0.24 * p.soundGain
+    const pitch = p.pitch[run.die] ?? 1
+    p.voices.push(
+      playSound(this.world, clip, {
+        volume: [level * 0.8, level],
+        pitch: [pitch * 0.94, pitch * 1.06],
+      }),
+    )
+  }
+
+  private endEntrance(run: EntranceRun): void {
+    run.state = 'done'
+    for (const e of run.entities) if (this.world.isAlive(e)) this.world.despawn(e)
+    run.entities = []
   }
 
   // --- the end --------------------------------------------------------------------------------------
@@ -1248,9 +1928,12 @@ export class DiceTableState {
     const now = this.options.now()
     {
       for (const a of p.live) for (const e of a.entities) if (world.isAlive(e)) world.despawn(e)
+      for (const run of p.entrances)
+        for (const e of run.entities) if (world.isAlive(e)) world.despawn(e)
       for (const run of p.runs)
         if (run.entity !== undefined && world.isAlive(run.entity)) world.despawn(run.entity)
       if (world.hasResource(LensFields)) for (const e of p.entities) clearLensFields(world, e)
+      if (world.hasResource(ScreenEffects)) for (const e of p.entities) clearScreenEffects(world, e)
       for (const e of p.entities) if (world.isAlive(e)) world.despawn(e)
       for (const e of p.blobs) if (e >= 0 && world.isAlive(e)) world.despawn(e)
       if (p.shadowsBefore && world.isAlive(this.light)) {
@@ -1265,6 +1948,7 @@ export class DiceTableState {
       demand.release(PRESENTATION_DEMAND)
       demand.release(ATTACHMENT_DEMAND)
       demand.release(ANIMATED_DEMAND)
+      demand.release(ENTRANCE_DEMAND)
     }
     for (const entry of p.entries) this.resources.release(entry, now)
     if (p.entries.length > 0) world.resource(FrameDemand).after(RELEASE_AFTER_MS + 16)
@@ -1278,7 +1962,7 @@ export class DiceTableState {
   private warnOnce(key: string, code: string, message: string): void {
     if (this.warned.has(key)) return
     this.warned.add(key)
-    this.world.tryResource(LogResource)?.warn(message, { code })
+    this.world.tryResource(LogResource)?.log('warn', message, { code })
   }
 
   // --- the camera -------------------------------------------------------------------------------
@@ -1341,6 +2025,8 @@ export class DiceTableState {
     if (this.disposed) return
     if (this.current) this.finish(this.current, 'dismissed')
     this.disposed = true
+    // Warm-ups waiting for a frame end: their roll is done.
+    for (const resolve of this.frameWaiters.splice(0)) resolve()
     this.client?.dispose()
     this.resources.dispose()
   }
@@ -1388,6 +2074,8 @@ export class DiceTableState {
             hash: p!.hash!.toString(16).padStart(8, '0'),
             sceneHash: track.sceneHash.toString(16).padStart(8, '0'),
             steps: track.steps,
+            // The dice in the physics (entrance dice are not, 0065).
+            bodies: track.bodyCount,
             settled: track.settled,
             maxStepsHit: track.maxStepsHit,
             simulationMs: Math.round(track.simulationMs * 10) / 10,
@@ -1407,6 +2095,23 @@ export class DiceTableState {
       lensFields: fields
         .filter((f) => mine.has(f.source))
         .map((f) => ({ ...f, screen: [...f.screen] })),
+      // Entrances (0065): each playing die's scene, and matches that didn't play, with why.
+      entrances: (p?.entrances ?? []).map((r) => ({
+        name: r.name,
+        die: r.die,
+        state: r.state,
+        ready: r.ready,
+        seconds: Number.isNaN(r.started) ? null : (this.options.now() - r.started) / 1000,
+        landAtMs: r.def?.landAtMs ?? null,
+        durationMs: r.def?.durationMs ?? null,
+        rest: r.rest,
+        fallback: r.fallback,
+        skipped: r.skipped,
+      })),
+      entranceSkips: p?.entranceSkips ?? [],
+      screenEffects: (world.tryResource(ScreenEffects)?.effects ?? [])
+        .filter((e) => mine.has(e.source))
+        .map((e) => ({ ...e, screen: [...e.screen] })),
       resources: { ...this.resources.stats(), list: this.resources.describe() },
       gpu: gpu ? gpu.stats(renderOwner(world)) : null,
       worker: { recordings: this.recordings, spawns: this.client?.spawns ?? 0 },

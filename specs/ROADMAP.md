@@ -121,7 +121,8 @@ foundations), then 0054 dice with 0063. The table follows: 0055, 0057, 0060, 005
 0062 measure the result throughout. The Aether adapter that maps its documents onto these lives in
 Aether. Already done outside a spec: `Camera3d.active` (0007) and `probeWebGpu` (0061). The WebGL2
 fallback (0064) runs in parallel, in three stages, and doesn't block the WebGPU replacement. New
-tabletop shaders use its `shard::data` accessors once stage 1 lands.
+tabletop shaders use its `shard::data` accessors once stage 1 lands. Dice entrances and screen
+effects (0065) build on 0054 and 0063 once 0054 is implemented.
 
 | Spec | Title | Status |
 |---|---|---|
@@ -138,3 +139,4 @@ tabletop shaders use its `shard::data` accessors once stage 1 lands.
 | [0062](0062-browser-verification.md) | Browser captures, approvals, and performance records | accepted |
 | [0063](0063-lens-fields.md) | Screen-space lens fields (bounded post displacement from published fields) | implemented |
 | [0064](0064-webgl2-fallback.md) | WebGL2 fallback and the baseline tier (one API, backend chosen at startup; staged, off the critical path) | accepted |
+| [0065](0065-dice-entrances.md) | Dice entrances and screen effects (a result arriving through a host scene instead of a tumble; typed effects the table draws) | accepted |

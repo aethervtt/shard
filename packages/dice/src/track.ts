@@ -244,7 +244,7 @@ export function unlandedDice(track: Track, request: DiceTrackRequest): (Unlanded
 }
 
 /** How far apart two dice sit in a lane: the larger footprint, with room between. */
-function laneSpacing(request: DiceTrackRequest): number {
+function laneSpacing(request: { readonly dice: readonly DiceTrackDie[] }): number {
   let widest = 0
   for (const d of request.dice) {
     const g = dieGeometry(requireDie(d.definition))
@@ -324,6 +324,44 @@ export function placementSpots(
       )
     const spot = free[0] ?? want
     taken.push(spot)
+    return spot
+  })
+}
+
+/**
+ * Where dice that aren't in the physics land (0065's entrance dice): for each wanted point (tray
+ * coordinates), the grid spot nearest it that none of `taken` (where the physical dice ended) and no
+ * earlier entrance die is near. `dice` are every die on the tray, for the spacing.
+ */
+export function entranceSpots(
+  tray: DiceTray,
+  dice: readonly DiceTrackDie[],
+  taken: readonly V3[],
+  wants: readonly V3[],
+): V3[] {
+  const spacing = laneSpacing({ dice })
+  const margin = spacing * 0.6
+  const spots = gridSpots(tray, spacing, margin)
+  const occupied = taken.slice()
+  return wants.map((w) => {
+    const want: V3 = [
+      Math.max(-tray.halfWidth + margin, Math.min(tray.halfWidth - margin, w[0])),
+      0,
+      Math.max(-tray.halfDepth + margin, Math.min(tray.halfDepth - margin, w[2])),
+    ]
+    let best: V3 | undefined
+    let bestD = Number.POSITIVE_INFINITY
+    for (const s of spots) {
+      if (occupied.some((q) => (s[0] - q[0]) ** 2 + (s[2] - q[2]) ** 2 < spacing ** 2 * 0.81))
+        continue
+      const d = (s[0] - want[0]) ** 2 + (s[2] - want[2]) ** 2
+      if (d < bestD) {
+        bestD = d
+        best = s
+      }
+    }
+    const spot = best ?? want
+    occupied.push(spot)
     return spot
   })
 }

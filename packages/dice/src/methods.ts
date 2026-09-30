@@ -37,4 +37,11 @@ export const diceMethods: AppMethod[] = [
     params: defineSchema('dice/DismissParams', {}),
     handler: ({ world }) => ({ dismissed: world.resource(DiceTable).dismiss() }),
   },
+  {
+    name: 'dice.skip',
+    description:
+      'Lands every entrance still to come or playing, now (0065): each die snaps to its rest pose, target up; scenes wind down within 400 ms.',
+    params: defineSchema('dice/SkipParams', {}),
+    handler: ({ world }) => ({ skipped: world.resource(DiceTable).skip() }),
+  },
 ]

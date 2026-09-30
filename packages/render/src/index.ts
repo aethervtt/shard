@@ -330,6 +330,23 @@ export {
   scaledSize,
 } from './render-scale'
 export {
+  clearScreenEffects,
+  describeScreenEffects,
+  expireScreenEffects,
+  forwardScreenEffects,
+  MAX_SCREEN_EFFECT_PARAMS,
+  MAX_SCREEN_EFFECTS,
+  onScreenEffect,
+  publishScreenEffect,
+  runScreenEffects,
+  SCREEN_EFFECTS_DEMAND,
+  type ScreenEffect,
+  type ScreenEffectHandler,
+  ScreenEffectHandlers,
+  type ScreenEffectParams,
+  ScreenEffects,
+} from './screen-effects'
+export {
   ENGINE_SHADERS,
   materialLayout,
   registerEngineShaders,

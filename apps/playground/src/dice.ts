@@ -43,6 +43,7 @@ import {
   Exposure,
   forwardLensFields,
   forwardPlugin,
+  forwardScreenEffects,
   Lens,
   MaterialAsset,
   Materials,
@@ -64,6 +65,13 @@ import {
   defineQuasarAttachment,
   RESULT_SHADERS,
 } from './dice-cosmic'
+import {
+  burnTable,
+  defineInfernoEntrances,
+  INFERNO_SHADERS,
+  SCORCH_SHADERS,
+  tendFires,
+} from './dice-inferno'
 
 const tableCanvas = document.getElementById('table') as HTMLCanvasElement
 const diceCanvas = document.getElementById('dice') as HTMLCanvasElement
@@ -97,6 +105,8 @@ const table = new App().addPlugin(
   TransformPlugin,
   renderPlugin({ gpu, surface: gpu.addSurface(tableCanvas), owner: 'table' }),
   forwardPlugin(),
+  // The table draws the fires the dice set (0065's screen effects).
+  particlesPlugin,
 )
 await table.init()
 {
@@ -149,12 +159,17 @@ await table.init()
     )
   }
   const eye: [number, number, number] = [0, 12, 6]
-  w.spawn(
+  const camera = w.spawn(
     [Camera3d, { fovY: 42, clearColor: [0.04, 0.05, 0.05, 1] }],
     [Exposure, { ev100: 12.4 }],
     [Transform, { translation: eye, rotation: lookAt(eye, [0, 0, 0.6]) }],
     Lens,
   )
+  // A die that asks for fire gets it here: flames, light, and a scorch that lingers.
+  for (const { path, source } of SCORCH_SHADERS)
+    w.resource(Shaders).register(path, source, 'apps/playground/src/dice-inferno.ts')
+  burnTable(w, camera)
+  table.onFrame(() => tendFires(w))
 }
 table.setRunner(runner())
 void table.run()
@@ -191,6 +206,8 @@ defineDiceFamily('playground/NebulaDice', {
 defineAccretionAttachment()
 definePulsarAttachment()
 defineQuasarAttachment()
+// The inferno's natural 20 falls as a meteor, its natural 1 fizzles (0065 entrances).
+defineInfernoEntrances()
 
 // --- the dice app: transparent, over everything -------------------------------------------------------
 
@@ -208,18 +225,21 @@ const dice = new App().addPlugin(
 )
 await dice.init()
 // The attachments' own shaders (the families' are the dice plugin's to register).
-for (const { path, source } of [ACCRETION_SHADER, ...RESULT_SHADERS])
+for (const { path, source } of [ACCRETION_SHADER, ...RESULT_SHADERS, ...INFERNO_SHADERS])
   dice.world.resource(Shaders).register(path, source, 'apps/playground/src/dice-cosmic.ts')
 const diceTable = dice.world.resource(DiceTable)
 void diceTable.tracks().ready()
 dice.setRunner(runner())
 void dice.run()
 
-// The dice's lens fields reach the table: both canvases measure fields in their own CSS pixels.
+// The dice's lens fields and screen effects reach the table: both canvases measure them in their own
+// CSS pixels.
 dice.onFrame(() => {
   const t = tableCanvas.getBoundingClientRect()
   const d = diceCanvas.getBoundingClientRect()
-  forwardLensFields(dice.world, table.world, [t.left - d.left, t.top - d.top])
+  const offset: [number, number] = [t.left - d.left, t.top - d.top]
+  forwardLensFields(dice.world, table.world, offset)
+  forwardScreenEffects(dice.world, table.world, offset)
 })
 
 // Recipes: a natural 20 celebrates, a natural 1 falls flat.
@@ -316,6 +336,32 @@ const cosmicRecipes: [string, Parameters<typeof diceEffectRecipe>[0]][] = [
     },
   ],
 ]
+// The inferno's (0065): its natural 20 arrives as a meteor and sets the table on fire; its 1 fizzles.
+cosmicRecipes.push(
+  [
+    'demo:inferno20',
+    {
+      id: 'inferno20',
+      conditions: [{ kind: 'die', die: 'd20', value: 20, state: 'kept' }],
+      effects: [
+        { kind: 'entrance', entrance: 'meteor' },
+        { kind: 'light-pulse', color: '#ff8a3a', intensity: 7, durationMs: 1200 },
+        { kind: 'sound-accent', cue: 'arcane-spark', gain: 0.8 },
+      ],
+    },
+  ],
+  [
+    'demo:inferno1',
+    {
+      id: 'inferno1',
+      conditions: [{ kind: 'die', die: 'd20', value: 1, state: 'kept' }],
+      effects: [
+        { kind: 'entrance', entrance: 'fizzle' },
+        { kind: 'light-pulse', color: '#ff4a3a', intensity: 1.5, durationMs: 700 },
+      ],
+    },
+  ],
+)
 for (const [guid, json] of cosmicRecipes) recipes.set(guid, diceEffectRecipe(json))
 // A recipe over its bounds fails every roll of the skins that carry it: fail here instead, loudly.
 for (const [guid, recipe] of recipes.entries()) {
@@ -414,6 +460,22 @@ addSkin(
     sounds: { impact: 'glass' },
   },
   ['demo:quasar20', 'demo:cosmic1'],
+)
+addSkin(
+  'inferno',
+  {
+    family: 'playground/InfernoDice',
+    params: {
+      markColor: '#ffe6c2',
+      markEmissive: 2200,
+      markDepth: 0.5,
+      edgeColor: '#2a1a14',
+      edgeMix: 0.4,
+    },
+    variants: { d20: { params: { infernoTriumph: 20 } } },
+    sounds: { impact: 'resin' },
+  },
+  ['demo:inferno20', 'demo:inferno1'],
 )
 let skin = skins[0]!
 
@@ -635,6 +697,7 @@ $<HTMLButtonElement>('[data-action="roll"]').onclick = () => {
   )
 }
 $<HTMLButtonElement>('[data-action="dismiss"]').onclick = () => diceTable.dismiss()
+$<HTMLButtonElement>('[data-action="skip"]').onclick = () => diceTable.skip()
 $<HTMLButtonElement>('[data-action="shorten"]').onclick = () => diceTable.shortenRest(150)
 $<HTMLButtonElement>('[data-action="cancel"]').onclick = () => {
   const many = Array.from({ length: 16 }, () => die('d10'))

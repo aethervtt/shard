@@ -58,13 +58,15 @@ Every engine error is a `ShardError` with one of these codes.
 | `audio/unsupported-format` | @aethervtt/shard-audio | Audio clips are WAV (PCM or float), Ogg Vorbis, Ogg Opus, MP3, or FLAC. |
 | `data/extends-cycle` | @aethervtt/shard-assets | Point "$extends" at a file that does not extend this one. |
 | `data/extends-type-mismatch` | @aethervtt/shard-assets |  |
-| `dice/attachment-budget` | @aethervtt/shard-dice | Draw fewer vertices, or split the effect. |
+| `dice/attachment-budget` | @aethervtt/shard-dice | Draw fewer vertices, split the effect, or raise it with setDiceBudgets first. |
 | `dice/busy` | @aethervtt/shard-dice | Queue rolls in the host, dismiss this one, or pass { replace: true }. |
 | `dice/device-lost` | @aethervtt/shard-dice | The renderer recreates the device; roll again. |
 | `dice/disposed` | @aethervtt/shard-dice |  |
+| `dice/entrance-budget` | @aethervtt/shard-dice | Trim the scene, or raise DICE_BUDGETS with setDiceBudgets before defining it. |
 | `dice/failed` | @aethervtt/shard-dice |  |
 | `dice/family-field-clash` | @aethervtt/shard-dice | Give the field another name: the dice fields are shared by every family. |
 | `dice/invalid-definition` | @aethervtt/shard-dice |  |
+| `dice/invalid-entrance` | @aethervtt/shard-dice | landAtMs is when the die lands: between 0 and durationMs. |
 | `dice/invalid-family` | @aethervtt/shard-dice | Give a WGSL `surface` snippet, or a `shader` module overriding pbr_input. |
 | `dice/invalid-glyph` | @aethervtt/shard-dice | Glyph paths are SVG path data (M, L, H, V, C, S, Q, T, A, Z). |
 | `dice/invalid-recipe` | @aethervtt/shard-dice |  |
@@ -212,6 +214,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `render/duplicate-node` | @aethervtt/shard-render |  |
 | `render/feature-missing` | @aethervtt/shard-render | Add materialNoisePlugin from '@aethervtt/shard-render/noise'. |
 | `render/graph-cycle` | @aethervtt/shard-render | Check reads/writes and `after` on these nodes. |
+| `render/invalid-screen-effect` | @aethervtt/shard-render | A screen effect has a kind, a radius of at least 0, and at most 8 params. |
 | `render/material-field-clash` | @aethervtt/shard-render | Give the field another name, or use extends: "none". |
 | `render/material-noise-name` | @aethervtt/shard-render | Use lowercase letters, digits, and underscores: { detail: "assets/noise/rock.noise.json" }. |
 | `render/missing-resource` | @aethervtt/shard-render | Declare it in a node's `writes` (as a transient texture) or with graph.declare. |
