@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Shard Playground: dice (0054)</title>
+    <style>
+      :root { --panel: #171a21; --line: #2a2f3b; --ink: #d8dce6; --dim: #8a91a3; --gold: #f0c674; }
+      html, body { margin: 0; height: 100%; background: #0f1115; color: var(--ink); font: 13px system-ui, sans-serif; overflow: hidden; }
+      #layout { display: grid; grid-template: 44px 1fr / 300px 1fr 340px; height: 100%; }
+      #bar { grid-column: 1 / 4; display: flex; align-items: center; gap: 8px; padding: 0 14px; background: #1b1e26; border-bottom: 1px solid var(--line); }
+      #bar strong { margin-right: 14px; letter-spacing: 0.02em; }
+      #bar .spacer { flex: 1; }
+      #controls { background: var(--panel); border-right: 1px solid var(--line); padding: 12px 14px; overflow-y: auto; }
+      #table { display: block; width: 100%; height: 100%; }
+      #side { background: var(--panel); border-left: 1px solid var(--line); display: grid; grid-template-rows: 1fr auto; min-height: 0; }
+      #chat { overflow-y: auto; padding: 12px 14px; line-height: 1.45; }
+      .entry { margin: 0 0 12px; padding: 8px 10px; border-radius: 6px; background: #1d212b; border: 1px solid var(--line); }
+      .entry .who { color: var(--gold); font-weight: 600; }
+      .entry .formula { color: var(--dim); margin-left: 6px; }
+      .entry .dice { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; }
+      .entry .die { min-width: 22px; padding: 1px 6px; border-radius: 4px; background: #2a3040; text-align: center; font-variant-numeric: tabular-nums; }
+      .entry .die.dropped { opacity: 0.45; text-decoration: line-through; }
+      .entry .die.crit { background: #5a4712; color: #ffe8a8; }
+      .entry .die.fumble { background: #4a1616; color: #ffb0a8; }
+      .entry .total { margin-top: 6px; font-size: 18px; font-weight: 700; }
+      .entry .note { color: var(--dim); font-size: 11px; margin-top: 2px; }
+      #hud { margin: 0; padding: 10px 12px; border-top: 1px solid var(--line); background: #12151b; font: 10.5px ui-monospace, monospace; white-space: pre; overflow-x: auto; max-height: 40vh; color: #b9bfcd; }
+      h4 { margin: 14px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+      h4:first-child { margin-top: 0; }
+      .row { display: flex; flex-wrap: wrap; gap: 6px; }
+      button, select { font: inherit; color: inherit; background: #262b37; border: 1px solid #353c4c; border-radius: 5px; padding: 4px 9px; cursor: pointer; }
+      button:hover { background: #303747; }
+      button.primary { background: #2f5d4a; border-color: #3f7a61; }
+      button.primary:hover { background: #3a6f59; }
+      .kind { width: 52px; }
+      #pool { min-height: 26px; margin: 8px 0; display: flex; flex-wrap: wrap; gap: 4px; }
+      #pool .chip { padding: 2px 7px; border-radius: 10px; background: #2a3040; }
+      #skins { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+      #skins button { padding: 3px; display: grid; justify-items: center; gap: 2px; font-size: 10px; color: var(--dim); }
+      #skins button.on { border-color: var(--gold); color: var(--gold); background: #2b2a22; }
+      #skins img { width: 52px; height: 52px; }
+      label { display: flex; align-items: center; gap: 6px; margin: 4px 0; color: var(--dim); }
+      label select { flex: 1; }
+      .hint { color: var(--dim); font-size: 11px; line-height: 1.4; margin-top: 10px; }
+      /* The dice: one transparent canvas over the whole page, panels and chat included; clicks pass through. */
+      #dice { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
+    </style>
+  </head>
+  <body>
+    <div id="layout">
+      <div id="bar">
+        <strong>Dice (0054)</strong>
+        <button type="button" data-quick="d20">d20</button>
+        <button type="button" data-quick="advantage">advantage</button>
+        <button type="button" data-quick="stats">4d6 drop lowest</button>
+        <button type="button" data-quick="fireball">fireball 8d6</button>
+        <button type="button" data-quick="percentile">percentile</button>
+        <button type="button" data-quick="d100">d100</button>
+        <button type="button" data-quick="all">one of each</button>
+        <button type="button" data-quick="pool">32 dice</button>
+        <span class="spacer"></span>
+        <button type="button" data-action="cancel">roll and cancel</button>
+        <button type="button" data-action="shorten">shorten rest</button>
+        <button type="button" data-action="dismiss">dismiss</button>
+      </div>
+      <div id="controls">
+        <h4>Pool</h4>
+        <div class="row">
+          <button type="button" class="kind" data-add="d4">d4</button>
+          <button type="button" class="kind" data-add="d6">d6</button>
+          <button type="button" class="kind" data-add="d8">d8</button>
+          <button type="button" class="kind" data-add="d10">d10</button>
+          <button type="button" class="kind" data-add="d12">d12</button>
+          <button type="button" class="kind" data-add="d20">d20</button>
+          <button type="button" class="kind" data-add="d100">d100</button>
+          <button type="button" class="kind" data-add="percentile">%</button>
+        </div>
+        <div id="pool"></div>
+        <div class="row">
+          <button type="button" class="primary" data-action="roll">roll pool</button>
+          <button type="button" data-action="clear">clear</button>
+        </div>
+        <h4>Skin</h4>
+        <div id="skins"></div>
+        <h4>Presentation</h4>
+        <label>motion <select id="motion"><option value="full">full</option><option value="reduced">reduced</option></select></label>
+        <label>quality <select id="quality"><option value="auto">auto</option><option value="full">full</option><option value="balanced">balanced</option><option value="large-pool">large-pool</option></select></label>
+        <label>effects <select id="effects"><option value="on">on</option><option value="off">off</option></select></label>
+        <label>sound <select id="sound"><option value="1">on</option><option value="0.4">quiet</option><option value="0">off</option></select></label>
+        <label>tray <select id="tray"><option value="viewport">this viewport's</option><option value="shared">shared 5.4 × 3.15</option></select></label>
+        <label>seed <select id="seed"><option value="random">each roll</option><option value="fixed">fixed</option></select></label>
+        <div class="hint">
+          The page decides every result, as a server would; the dice only show it. Tracks record in a
+          worker and land on the result by a symmetry of each die. A natural 20 celebrates; on the
+          black-hole skin it also bends the table under the die (a lens field, 0063).
+        </div>
+      </div>
+      <canvas id="table"></canvas>
+      <div id="side">
+        <div id="chat"></div>
+        <pre id="hud">starting…</pre>
+      </div>
+    </div>
+    <canvas id="dice"></canvas>
+    <script type="module" src="/src/dice.ts"></script>
+  </body>
+</html>
