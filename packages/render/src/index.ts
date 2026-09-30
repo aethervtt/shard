@@ -75,7 +75,7 @@ export {
   MAX_LIGHTS_PER_CLUSTER,
   ViewLightList,
 } from './clusters'
-export { Culler, GpuCuller, readVisibleSlots, visibleSlots } from './culling'
+export { Culler, cullGround, GpuCuller, readVisibleSlots, visibleSlots } from './culling'
 export {
   captureShadowMap,
   DEBUG_VIEWS,
@@ -125,10 +125,14 @@ export {
   type ForwardState,
   ForwardStateResource,
   forwardCorePlugin,
+  forwardQueue,
+  PASS_GROUND,
   PICK_TARGETS,
   sceneColor,
+  VERTEX_BUFFERS,
   type ViewGpu,
   viewBindGroup,
+  viewPixelScale,
 } from './forward'
 export { fxaaPlugin } from './fxaa'
 export { LABEL_FONT, labelWidth } from './gizmo-font'
@@ -169,6 +173,7 @@ export {
   DeformPath,
   type DrawItem,
   type DrawList,
+  groundKey,
   INSTANCE_BYTES,
   INSTANCE_FLOATS,
   InstanceData,
@@ -189,6 +194,7 @@ export {
   VisibilityRange,
 } from './instances'
 export { observeOriginShifts, shiftRenderHistory } from './large-world'
+export { GROUND_BANDS, type GroundBand, GroundLayer, RenderLayers } from './layers'
 export {
   clearLensFields,
   expireLensFields,
@@ -215,6 +221,7 @@ export {
   type AmbientLightValue,
   CascadeSettings,
   DirectionalLight,
+  FALLOFFS,
   LIGHT_FLOATS,
   LightingSettings,
   type LightingSettingsValue,
@@ -225,7 +232,9 @@ export {
   LuminousPowerPresets,
   lumens,
   PointLight,
+  SHADOW_UPDATES,
   SpotLight,
+  tabletopFalloff,
 } from './lights'
 export { MaterialNoise, type MaterialNoiseSupport } from './material-noise'
 export { registerMaterialModule, typeOrdinal } from './material-pipelines'
@@ -242,6 +251,20 @@ export {
   materialModulePath,
   onMaterialTypeChange,
 } from './materials'
+export {
+  MAX_OUTLINE_STYLES,
+  OUTLINE_OCCLUSION,
+  Outline,
+  OutlinePath,
+} from './outline'
+export {
+  describeOutlines,
+  OUTLINE_SHADERS,
+  type OutlineView,
+  OutlineViews,
+  outlinePlugin,
+  queueOutlines,
+} from './outline-plugin'
 export {
   allOverlays,
   DebugOverlays,
@@ -322,6 +345,7 @@ export {
   POST_NODES,
 } from './post-nodes'
 export { postPlugin } from './post-plugin'
+export { screenToPlane, screenToRay, worldToScreen } from './projection'
 export {
   describeRenderScale,
   RenderScale,
@@ -386,6 +410,7 @@ export {
 export { GpuTimer } from './timer'
 export {
   type CameraData,
+  CameraMoved,
   Cameras,
   cameraOf,
   DEFAULT_CURVE,

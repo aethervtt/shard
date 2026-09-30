@@ -1,4 +1,5 @@
 import {
+  type ComponentDef,
   defineComponent,
   defineResource,
   defineSystem,
@@ -125,15 +126,45 @@ const pointFields = {
   }),
 }
 
+/** The fields point and spot lights share, for reading either kind's columns. */
+type PointLike = ComponentDef<
+  typeof pointFields &
+    ReturnType<typeof shadowFields> & { shadowUpdate: ReturnType<typeof shadowUpdateField> }
+>
+
+export const FALLOFFS = ['physical', 'tabletop'] as const
+
 export const PointLight = defineComponent(
   'render/PointLight',
-  { ...pointFields, ...shadowFields({ bias: 0.02, normalBias: 1 }) },
+  {
+    ...pointFields,
+    ...shadowFields({ bias: 0.02, normalBias: 1 }),
+    shadowUpdate: shadowUpdateField(),
+    falloff: t.enum(FALLOFFS, {
+      description:
+        "physical: inverse square, windowed to zero at range. tabletop (0057): full intensity inside bright, then linear to zero at range (a VTT light's bright and dim radii).",
+    }),
+    bright: t.f32({
+      min: 0,
+      unit: 'm',
+      description:
+        'Tabletop falloff: the radius of full intensity. Past it, light fades linearly to zero at range.',
+    }),
+  },
   {
     description:
-      'Light emitted equally in all directions, in lumens (intensity lm / 4π candela), with physical inverse-square falloff windowed to zero at range.',
+      'Light emitted equally in all directions, in lumens (intensity lm / 4π candela), with physical inverse-square falloff windowed to zero at range, or tabletop falloff (bright, then dim to range).',
     requires: [Transform],
   },
 )
+
+/**
+ * Tabletop falloff (0057): 1 inside `bright`, linear to 0 at `range`. Mirrors `light_falloff`
+ * in `shard::pbr::lights`.
+ */
+export function tabletopFalloff(distance: number, bright: number, range: number): number {
+  return Math.min(1, Math.max(0, (range - distance) / Math.max(range - bright, 1e-4)))
+}
 
 export const SpotLight = defineComponent(
   'render/SpotLight',
@@ -229,7 +260,7 @@ export interface LightRecord {
   outerAngle: number
   radius: number
   alive: boolean
-  /** Spot lights with `shadowUpdate: 'on-change'`: the shadow map is cached. */
+  /** `shadowUpdate: 'on-change'`: the light's shadow maps are cached. */
   cachedShadow: boolean
 }
 
@@ -422,6 +453,8 @@ function writeLight(
   softness: number,
   inner: number,
   outer: number,
+  falloff = 0,
+  bright = 0,
 ): void {
   const s = r.slot
   r.x = g[o + 3]!
@@ -469,6 +502,8 @@ function writeLight(
   store.set(s, 15, bias)
   store.set(s, 16, normalBias)
   store.set(s, 17, softness)
+  store.set(s, 18, falloff)
+  store.set(s, 19, bright)
 }
 
 /** Reads lights into the light store. Only lights whose values changed are re-uploaded later. */
@@ -486,8 +521,8 @@ export const extractLights = defineSystem({
     const since = ctx.lastRunTick
     seen.clear()
     for (const [def, kind, q] of [
-      [PointLight, POINT_KIND, points],
-      [SpotLight, SPOT_KIND, spots],
+      [PointLight as unknown as PointLike, POINT_KIND, points],
+      [SpotLight as unknown as PointLike, SPOT_KIND, spots],
     ] as const) {
       for (const table of q.tables) {
         const n = table.count
@@ -504,7 +539,9 @@ export const extractLights = defineSystem({
         const normalBias = table.column(def, 'shadowNormalBias')
         const softness = table.column(def, 'shadowSoftness')
         const inner = kind === SPOT_KIND ? table.column(SpotLight, 'innerAngle') : undefined
-        const update = kind === SPOT_KIND ? table.column(SpotLight, 'shadowUpdate') : undefined
+        const update = table.column(def, 'shadowUpdate')
+        const falloff = kind === POINT_KIND ? table.column(PointLight, 'falloff') : undefined
+        const bright = kind === POINT_KIND ? table.column(PointLight, 'bright') : undefined
         const outer = kind === SPOT_KIND ? table.column(SpotLight, 'outerAngle') : undefined
         for (let i = 0; i < n; i++) {
           const entity = table.entities[i]!
@@ -513,7 +550,7 @@ export const extractLights = defineSystem({
           const r = store.record(entity, kind)
           if (!r) continue
           r.shadows = shadows[i] !== 0
-          r.cachedShadow = update !== undefined && update[i] === 1
+          r.cachedShadow = update[i] === 1
           if (existing === r && gChanged[i]! <= since && changed[i]! <= since) continue
           writeLight(
             store,
@@ -530,6 +567,8 @@ export const extractLights = defineSystem({
             softness[i]!,
             inner ? inner[i]! : 0,
             outer ? outer[i]! : 90,
+            falloff ? falloff[i]! : 0,
+            bright ? bright[i]! : 0,
           )
         }
       }
@@ -592,7 +631,7 @@ export const extractLights = defineSystem({
 
 /** Frees a light's slot when its component goes away (including despawn). */
 export function observeLightRemovals(world: World): void {
-  for (const def of [PointLight, SpotLight]) {
+  for (const def of [PointLight, SpotLight] as PointLike[]) {
     world.observe(onRemove(def), ({ entity, world }) => {
       world.tryResource(Lights)?.remove(entity)
     })

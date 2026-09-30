@@ -1,6 +1,7 @@
 import {
   affine,
   defineComponent,
+  defineEvent,
   defineResource,
   defineSystem,
   type Entity,
@@ -133,6 +134,10 @@ export interface CameraData {
   transparent: DrawList
   /** Deferred views: opaque draws the G-buffer can't take (custom lighting), drawn forward. */
   forwardOnly: DrawList
+  /** Ground draws (0057): coplanar bands in (band, order) order, after opaque geometry. */
+  ground: DrawList
+  /** Render layers this camera draws (Camera3d.layers). */
+  layers: number
   /** Renders through the G-buffer (RenderPath deferred). */
   deferred: boolean
   /** G-buffer channel to show for a capture (-1: none), also forcing a G-buffer in forward views. */
@@ -151,6 +156,23 @@ export interface CameraData {
   post: PostSettings
   /** Set for PixelPerfect cameras: the low-resolution target and how it scales up. */
   pixelPerfect: PixelPerfectLayout | undefined
+  /** The display size and pixel ratio the last CameraMoved was sent for. */
+  movedWidth: number
+  movedHeight: number
+  movedRatio: number
+}
+
+/**
+ * Sent after extraction, once per camera whose projection moved this frame (its unjittered view-
+ * projection, display size or pixel ratio changed), and on its first frame (0057).
+ */
+export const CameraMoved = defineEvent<{ camera: Entity }>('render/CameraMoved', {
+  description: 'A camera moved or its view resized: DOM overlays following the scene reposition.',
+})
+
+function sameMatrix(a: Float32Array, b: Float32Array): boolean {
+  for (let i = 0; i < 16; i++) if (a[i] !== b[i]) return false
+  return true
 }
 
 export const Cameras = defineResource<Map<Entity, CameraData>>('render/Cameras', {
@@ -308,6 +330,7 @@ export const extractCameras = defineSystem({
       const clear = table.column(Camera3d, 'clearColor')
       const target = table.column(Camera3d, 'target')
       const active = table.column(Camera3d, 'active')
+      const layers = table.column(Camera3d, 'layers')
       const g = table.column(GlobalTransform, 'matrix')
       const ev = table.column(Exposure, 'ev100')
       const path = table.has(RenderPath) ? table.column(RenderPath, 'mode') : undefined
@@ -364,6 +387,8 @@ export const extractCameras = defineSystem({
             draws: createDrawList(),
             transparent: createDrawList(),
             forwardOnly: createDrawList(),
+            ground: createDrawList(),
+            layers: 0xffffffff,
             deferred: false,
             gbufferDebug: -1,
             lodState: new Uint8Array(0),
@@ -374,10 +399,14 @@ export const extractCameras = defineSystem({
             debug: 0,
             post: createPostSettings(),
             pixelPerfect: undefined,
+            movedWidth: 0,
+            movedHeight: 0,
+            movedRatio: 0,
           }
           cameras.set(entity, cam)
         }
         cam.orthographic = projection[i] !== 0
+        cam.layers = layers[i]!
         let height = orthoHeight[i]!
         cam.pixelPerfect = undefined
         if (ppu && cam.orthographic) {
@@ -431,6 +460,19 @@ export const extractCameras = defineSystem({
         if (cam.frames > 0) mat4.copy(cam.prevViewProj, cam.viewProjNoJitter)
         mat4.multiply(cam.viewProjNoJitter, scratchProj, cam.view)
         if (cam.frames === 0) mat4.copy(cam.prevViewProj, cam.viewProjNoJitter)
+        // Hosts reposition DOM handles on this, not every frame (0057).
+        if (
+          cam.frames === 0 ||
+          !sameMatrix(cam.viewProjNoJitter, cam.prevViewProj) ||
+          cam.displayWidth !== cam.movedWidth ||
+          cam.displayHeight !== cam.movedHeight ||
+          cam.pixelRatio !== cam.movedRatio
+        ) {
+          cam.movedWidth = cam.displayWidth
+          cam.movedHeight = cam.displayHeight
+          cam.movedRatio = cam.pixelRatio
+          world.send(CameraMoved, { camera: entity })
+        }
         const jitter = cam.post.jitter
         if (cam.post.effects & PostEffect.Taa) {
           // Halton (2, 3) over 8 frames: sub-pixel offsets in (-0.5, 0.5) pixels.

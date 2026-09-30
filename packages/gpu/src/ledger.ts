@@ -62,6 +62,8 @@ export const Upload = {
 export function uploadCategory(label: string | undefined, texture: boolean): number {
   if (texture) return Upload.textures
   const l = label ?? ''
+  // A view's culled list is derived from the view, rewritten every frame it's culled on the CPU.
+  if (l === 'instances/visible') return Upload.view
   if (l.startsWith('instances')) return Upload.instances
   if (l.startsWith('mesh/') || l.startsWith('mesh ')) return Upload.meshes
   if (l.startsWith('material')) return Upload.materials

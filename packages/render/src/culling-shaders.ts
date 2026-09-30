@@ -38,6 +38,11 @@ struct CullView {
   lod_camera: u32,
   args_base: u32,
   visible_base: u32,
+  /** Render layers the view draws (0057). */
+  layers: u32,
+  _pad0: u32,
+  _pad1: u32,
+  _pad2: u32,
 }
 
 struct Params {
@@ -158,6 +163,8 @@ fn cull(@builtin(global_invocation_id) id: vec3u) {
   var mask = FLAG_VISIBLE;
   if ((view.flags & VIEW_CASTERS) != 0u) { mask |= FLAG_CASTER; }
   if ((inst.flags & mask) != mask) { return; }
+  // Render layers (0057) ride in flags bits 8–23.
+  if ((((inst.flags >> 8u) & 0xffffu) & view.layers) == 0u) { return; }
   var b = inst.batch;
   var lod = false;
   var lod_set: LodSet;

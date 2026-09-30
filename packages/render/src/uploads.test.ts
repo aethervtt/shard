@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { MaterialAsset, Materials, Meshes, RenderTargets } from './assets'
 import { Camera3d, Exposure } from './camera'
 import { Mesh3d, MeshMaterial } from './instances'
-import { DirectionalLight } from './lights'
+import { DirectionalLight, PointLight } from './lights'
 import { describeRender, Gpu, renderPlugin } from './plugin'
 import { forwardPlugin } from './standard'
 import { RenderStats } from './stats'
@@ -133,6 +133,25 @@ describe('upload accounting', () => {
 })
 
 describe('cached shadows', () => {
+  it("caches a point light's six faces too, and redraws them when it moves", async () => {
+    const { app, world, sun, target, stats } = await scene('on-change')
+    world.despawn(sun)
+    const torch = world.spawn(
+      [PointLight, { shadows: true, shadowUpdate: 'on-change', range: 10 }],
+      [Transform, { translation: [0, 3, 0] }],
+    )
+    await settle(app)
+    app.update(1 / 60)
+    expect(stats.lastFrame.shadowMapsRendered).toBe(0)
+    world.set(torch, Transform, { translation: [0.5, 3, 0] })
+    app.update(1 / 60)
+    expect(stats.lastFrame.shadowMapsRendered).toBe(6)
+    app.update(1 / 60)
+    expect(stats.lastFrame.shadowMapsRendered).toBe(0)
+    await app.dispose()
+    target.destroy()
+  })
+
   it("'always' draws every cascade every frame", async () => {
     const { app, target, stats } = await scene('always')
     app.update(1 / 60)

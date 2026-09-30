@@ -172,7 +172,8 @@ created; one that grew gets new buffers.
 
 ### Cached shadows
 
-`DirectionalLight` and `SpotLight` get `shadowUpdate: 'always' | 'on-change'`. With `'on-change'`,
+`DirectionalLight`, `SpotLight` and `PointLight` get `shadowUpdate: 'always' | 'on-change'` (point lights
+too: a table lit by shadowed torches is the common case). With `'on-change'`,
 a light re-renders its map (or a cascade) only when the light moved, the cascade's fit moved, or a
 shadow-casting instance inside its bounds changed. Instance stores already know the slots that
 moved this frame; the queue tests their spheres, before and after the move, against each

@@ -2,7 +2,7 @@ import { defineResource, type Entity, mat4, ShardError, type World } from '@aeth
 import type { Mesh } from '@aethervtt/shard-mesh'
 import { GlobalTransform } from '@aethervtt/shard-transform'
 import { Meshes } from './assets'
-import { drawMaterials, ForwardStateResource, PASS_PICK } from './forward'
+import { drawMaterials, ForwardStateResource, PASS_PICK, PASS_PICK_GROUND } from './forward'
 import type { NodeContext, NodeDescriptor, RenderView } from './graph'
 import { RenderPhase } from './graph'
 import { Lod, Mesh3d } from './instances'
@@ -132,6 +132,8 @@ export function pickNode(world: World): NodeDescriptor {
       drawMaterials(ctx, state, pv, cam, cam.draws, PASS_PICK)
       if (cam.deferred) drawMaterials(ctx, state, pv, cam, cam.forwardOnly, PASS_PICK)
       drawMaterials(ctx, state, pv, cam, cam.transparent, PASS_PICK)
+      // Ground bands last, in band order: at their floor's depth, the topmost band wins.
+      drawMaterials(ctx, state, pv, cam, cam.ground, PASS_PICK_GROUND)
       for (const draw of picking.drawers.values()) draw(ctx, cam)
       if (ctx.gpu.pipelines.skipped > skipped) picking.incomplete.add(ctx.view.name)
     },
