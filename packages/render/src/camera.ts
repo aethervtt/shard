@@ -102,6 +102,11 @@ export const Camera3d = defineComponent(
       description:
         'Renders when true. An inactive camera keeps its settings and transform but draws nothing.',
     }),
+    layers: t.u16({
+      default: 0xffff,
+      description:
+        'Render layers this camera draws (0057): a renderable draws if its RenderLayers mask shares a bit. Default: all.',
+    }),
   },
   {
     description: 'Renders the scene from this entity, looking down its -Z axis.',

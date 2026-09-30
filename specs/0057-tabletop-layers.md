@@ -1,7 +1,8 @@
 # 0057 — Tabletop layers: grids, drawings, tokens, outlines, and ground order
 
-- **Status:** accepted
-- **Packages:** `@aethervtt/shard-render`, `@aethervtt/shard-grid` (new), `@aethervtt/shard-vector` (new)
+- **Status:** implemented
+- **Packages:** `@aethervtt/shard-render`, `@aethervtt/shard-grid` (new), `@aethervtt/shard-vector` (new),
+  `@aethervtt/shard-core` (`polygon`, shared with 0055)
 - **Depends on:** 0007, 0018, 0022, 0024, 0027, 0055
 
 ## Context
@@ -56,15 +57,32 @@ Entities with `GroundLayer` draw in a `Ground` phase after opaque geometry. Dept
 walls, doors and props in front hide them. Depth write is off, so bands never fight each other.
 They're sorted by `(band, order)`. Floors are opaque, write depth, and sit under every band.
 Default bands, which a host may renumber: `tiles 10`, `grid 20`, `drawings 30`, `tokens-flat 40`,
-`fog 50`, `overlay 60`. The phase works the same in orthographic and perspective views, so both
-views stack alike.
+`fog 50`, `overlay 60` (`GROUND_BANDS`). The phase works the same in orthographic and perspective
+views, so both views stack alike.
+
+Any `Mesh3d` can be ground: its (mesh, material) batch is kept apart from the same pair off the
+ground, the GPU culler leaves it to the CPU, and each view builds its ground list on the CPU in
+`(band, order)` order, one draw per run of a batch. `RenderPhase.Ground` (420) comes after the sky,
+which draws wherever no depth was written. Ground draws cast no shadows, and picking draws them
+last with `greater-equal`, so the topmost band wins a click.
+
+A band lies exactly on its floor, and two meshes at one height don't interpolate the same depth to
+the last bit, so ground pipelines carry a small depth bias (a few float ULPs plus a slope term)
+toward the camera. It only ever decides band against floor; bands against each other never
+compare depth at all.
 
 ### Render layers
 
 ```ts
-RenderLayers { mask: u32 = 1 }          // on a renderable; absent = layer 1
-Camera3d.layers: u32 = 0xffffffff       // what this camera draws
+RenderLayers { mask: u16 = 1 }          // on a renderable; absent = layer 1
+Camera3d.layers: u16 = 0xffff           // what this camera draws
 ```
+
+Sixteen layers: the mask rides in bits 8–23 of the instance record's flags word, where the GPU
+culler reads it (its compute stage is already at the default limit of 8 storage buffers). The
+convention: layer 1 holds what every view shares, and each view's own visuals take a bit of their
+own, so a Map camera draws `1 | MAP` and a Tabletop camera `1 | TABLETOP`. Cascades cull with
+their camera's layers; spot and point shadows, shared by every camera, with the main camera's.
 
 A renderable draws in a view only if `mask & camera.layers` is nonzero. Culling tests it first, so
 a hidden visual costs no draw. A token entity carries the logical `Transform`, and two children
@@ -90,7 +108,13 @@ sizes in cells (token footprints, per-cell props), as 0055 describes.
 
 `@aethervtt/shard-grid/math`, a set of pure functions: `cellAt(grid, x, z)`, `cellCenter`, `cellPolygon`,
 axial and cube hex coordinates, `neighbors`, and `distance(grid, a, b, diagonal)` with Aether's
-`euclidean | equal | alternating` rules.
+`euclidean | equal | alternating` rules. `pathDistance(grid, points, diagonal)` measures legs and
+carries the alternating phase across waypoints (Aether's `pathCells`).
+
+Hex `size` follows Aether: the distance between adjacent cell centres. The quad is a child of its
+Grid entity (it follows the Grid's Transform, scaled to `extent`), and the lines themselves are
+anchored in world space at `offset`. Line color is display-referred: the scene's exposure doesn't
+dim it.
 
 ### Vector shapes
 
@@ -104,26 +128,43 @@ VectorShape {
 }
 ```
 
-`tessellate(shape) → MeshData` does fills by ear clipping with holes bridged, strokes as a mitred
-polyline (round caps and joins for pen), and ellipses and cones subdivided to a chord error of 0.5
-CSS px at the densest zoom. The mesh is rebuilt only when `rev` changes. CSS-pixel strokes widen in
-the vertex shader from the view's pixel scale, so they don't need a rebuild on zoom. Pure
-functions, used by `@aethervtt/shard-fog`.
+`tessellate(geometry, style, { pixelsPerUnit }) → MeshData` does fills by ear clipping with holes bridged
+(`polygon.triangulate` in core), strokes as a mitred polyline (miters clamped at 4 half-widths;
+round caps and joins for pen), and ellipses and cones subdivided to a chord error of 0.5 CSS px at
+the densest zoom (`pixelsPerUnit` CSS px per world unit, default 256). Geometry is local (x, z):
+`rect` runs from the origin, `ellipse` is centred, `cone` has its apex at the origin and opens
+along +x. Only closed shapes fill. The mesh is rebuilt only when `rev` (or the stroke's width,
+units, or whether it fills) changes; colors live in a per-shape `VectorMaterial` and change
+without a rebuild. CSS-pixel strokes keep their centreline and carry the widening in their
+tangents (offset direction, and half the width in w); the material's `vertex_position` widens them
+from the view's pixel scale, so they don't need a rebuild on zoom. A shape gets `Mesh3d`,
+`MeshMaterial` and a drawings-band `GroundLayer` unless it has its own. Pure functions, used by
+`@aethervtt/shard-fog`.
+
+`ViewUniform.pixelScale` carries what this needs: render pixels per CSS pixel, world units per
+render pixel at one unit of depth (or everywhere, orthographic), and whether the view is
+orthographic.
 
 ### Outlines
 
 `Outline { color: color, width: f32 (CSS px) = 2, occluded: 'hide' | 'show' | 'dim' }` on any
 renderable, or on a parent (applied to every descendant). The post pass renders outlined entities'
-ids into a small mask, dilates it by jump flood to `width`, and composites the edge. It runs only
-while at least one `Outline` exists in the view; with none, it isn't in the graph. Selection and
-hover are two `Outline`s with different colors; the host sets and clears them.
+style and depth into a small mask (through the mesh vertex stage, so skinned meshes outline where
+they are), seeds jump flood from it (parts something hides seed only for `show` and `dim`),
+floods to `width`, and composites the ring on the view target after the display stage. It runs
+only while at least one `Outline` exists in the view; with none, it isn't in the graph. Selection
+and hover are two `Outline`s with different colors; the host sets and clears them. A view draws up
+to 16 styles at once: the style rides in the top four bits of each visible-list entry. The
+component is core; the pass is `outlinePlugin` (in `forwardPlugin`), and an Outline without it
+logs `render/feature-missing`.
 
 ### Lights
 
 `PointLight.falloff: 'physical' | 'tabletop'`, and `bright: f32` for tabletop. Tabletop falloff is
 full intensity inside `bright`, linear down to zero at `range` (Aether's dim radius). It's a
 clustered light like any other (0018), so it lights floors, tokens and props, and casts shadows if
-asked.
+asked. Both falloffs are one WGSL function, `light_falloff` in `shard::pbr::lights`, which the
+lighting and the shadow catcher share; `tabletopFalloff` is its CPU mirror.
 
 ### Projection helpers
 
@@ -131,22 +172,26 @@ asked.
 worldToScreen(world, camera, point: Vec3, out: Vec2): boolean   // CSS px; false when behind
 screenToRay(world, camera, x, y, outOrigin, outDir): void
 screenToPlane(world, camera, x, y, planeY, out: Vec3): boolean
-world.events(CameraMoved)                                        // after extraction, once per changed camera
+world.reader(CameraMoved)                                        // after extraction, once per changed camera
 ```
+
+A camera moves when its unjittered view-projection, display size or pixel ratio changes, and on its
+first frame. The helpers use that same unjittered projection, so they agree with what the GPU drew.
 
 A host repositions its DOM handles on `CameraMoved` and on its own edits, not every frame.
 
 ### Baseline tier (0064)
 
-Every shader here reads per-draw and per-scene data through `shard::data` accessors, never raw
-`var<storage>`, and every pass is a render pass. The ground phase, render layers, the grid, vector
-shapes, outlines and tabletop falloff all run on the baseline tier unchanged. Outlines' jump flood
-is a chain of fragment passes on both tiers. Tabletop lights count toward
-`LightBudget.baselineMax` on baseline.
+Every pass here is a render pass, and outlines' jump flood is a chain of fragment passes. The
+`shard::data` accessors 0064 defines don't exist yet: the grid, vector and outline shaders read
+per-draw data through the material system's accessors (`instance_at`, `vertex_world`,
+`vertex_tangent`, `mesh_vertex_at`), which are what 0064 retargets, and never declare storage of
+their own. Tabletop lights will count toward `LightBudget.baselineMax` once 0064 adds it.
 
 ### Agent surface
 
-- `render.describe` lists ground bands with their entity counts, and outlines by view.
+- `render.describe` lists ground bands with their entity counts and each view's ground draws
+  (`ground`), and outlines by view (`outlines`: styles and how many renderables they cover).
 - `Grid`, `VectorShape`, `GroundLayer`, `RenderLayers` and `Outline` are schema components, so
   scenes, `entity.patch` and the inspector cover them.
 
@@ -154,6 +199,9 @@ is a chain of fragment passes on both tiers. Tabletop lights count toward
 
 - **A ground phase with depth write off, not depth bias.** Bias depends on the angle and the depth
   precision, and it fails exactly at the oblique Tabletop angles. Sorting coplanar content is exact.
+  (A few ULPs of bias against the floor under the bands are still needed: see Ground bands.)
+- **Sixteen render layers in the flags word.** A layer buffer would be a ninth storage buffer in
+  the cull pass; sixteen layers cover every view a VTT has.
 - **Two child visuals and a layer mask, not a per-view component switch.** It reuses culling and
   picking as they are, and the logical transform stays in one place.
 - **An analytic grid.** One quad, no geometry to rebuild, and constant line width at every zoom and
@@ -163,24 +211,25 @@ is a chain of fragment passes on both tiers. Tabletop lights count toward
 
 ## Acceptance criteria
 
-- [ ] Golden captures of the parity fixture (floor, tiles, grid, drawings, flat tokens, fog, walls,
+- [x] Golden captures of the parity fixture (floor, tiles, grid, drawings, flat tokens, fog, walls,
       props) in both views at 30°, 55° and top-down show band order preserved and no z-fighting.
       Walls hide the bands behind them.
-- [ ] With the Map camera active, standees draw 0 instances and flat discs draw; switching to the
+- [x] With the Map camera active, standees draw 0 instances and flat discs draw; switching to the
       Tabletop camera swaps them, and no mesh or instance is rebuilt.
-- [ ] Grid lines measure `lineWidth` ± 0.5 CSS px at zoom 0.25×, 1× and 4×, and at pixel ratios 1
+- [x] Grid lines measure `lineWidth` ± 0.5 CSS px at zoom 0.25×, 1× and 4×, and at pixel ratios 1
       and 2, for square, pointy hex and flat hex.
-- [ ] Changing the grid's `distance`, `unit` or `diagonal` changes no pixel of a golden capture.
-- [ ] `cellAt ∘ cellCenter` is the identity over 10k random cells for every grid kind, and
+- [x] Changing the grid's `distance`, `unit` or `diagonal` changes no pixel of a golden capture.
+- [x] `cellAt ∘ cellCenter` is the identity over 10k random cells for every grid kind, and
       `distance` matches Aether's fixtures for all three diagonal rules.
-- [ ] A polygon with two holes tessellates to the exact area (± 0.1%), and a 1,000-point pen stroke
+- [x] A polygon with two holes tessellates to the exact area (± 0.1%), and a 1,000-point pen stroke
       tessellates in under 1 ms.
-- [ ] With no `Outline`, the graph has no outline pass. With one, the outline measures `width` ± 1
+- [x] With no `Outline`, the graph has no outline pass. With one, the outline measures `width` ± 1
       CSS px.
-- [ ] Tabletop falloff is 1 at `bright`, 0.5 halfway to `range`, and 0 at `range`.
-- [ ] `worldToScreen` agrees with the GPU's projection to within 0.5 px in both projections.
+- [x] Tabletop falloff is 1 at `bright`, 0.5 halfway to `range`, and 0 at `range`.
+- [x] `worldToScreen` agrees with the GPU's projection to within 0.5 px in both projections.
 
 ## Open questions
 
 - Should standees billboard to the camera or keep a fixed yaw, as Aether's do today? Proposed:
-  billboard around the vertical axis, as now.
+  billboard around the vertical axis, as now. Still open: a standee is the host's visual (a sprite
+  or a GLB on the tabletop layer), and the engine doesn't turn it yet.

@@ -6,7 +6,7 @@ import { FORMAT_INFO, type Texture, Textures } from '@aethervtt/shard-texture'
 import { type MaterialAsset, STANDARD_TYPE, TEXTURE_SLOTS } from './assets'
 import type { MaterialType } from './materials'
 import { materialLayout } from './shaders'
-import type { GpuMemoryData } from './stats'
+import type { FrameCounts, GpuMemoryData } from './stats'
 
 export interface GpuMesh {
   version: number
@@ -75,6 +75,8 @@ interface SlotValue {
  */
 export class GpuAssets {
   readonly meshes = new Map<Mesh, GpuMesh>()
+  /** Where mesh uploads are counted (`RenderStats.current.meshesRebuilt`), when set. */
+  counts: FrameCounts | undefined
   readonly materials = new Map<MaterialAsset, GpuMaterial>()
   readonly textures = new Map<Texture, GpuTexture>()
   private defaults: { white: GpuTexture; normal: GpuTexture } | undefined
@@ -128,7 +130,12 @@ export class GpuAssets {
       if (mesh.gpu) gm.count = mesh.drawCount
       return gm
     }
-    if (gm && gm.generation === gpu.generation) this.destroyMesh(gm)
+    if (this.counts) this.counts.meshesRebuilt++
+    if (gm && gm.generation === gpu.generation) {
+      // New data that fits the buffers it had is written in place: no new buffers (0055).
+      if (!mesh.gpu && this.rewrite(mesh, gm)) return gm
+      this.destroyMesh(gm)
+    }
     if (mesh.gpu) return this.gpuMesh(mesh)
     const device = gpu.device
     const n = mesh.vertexCount
@@ -174,6 +181,50 @@ export class GpuAssets {
     }
     this.meshes.set(mesh, gm)
     return gm
+  }
+
+  /**
+   * Writes a CPU mesh's new data into the buffers of its previous version, when each fits and the
+   * mesh is still indexed the same way. Returns false when it needs new buffers.
+   */
+  private rewrite(mesh: Mesh, gm: GpuMesh): boolean {
+    if (gm.sharedVertices || gm.sharedIndices) return false
+    const indices = mesh.indices
+    if ((indices === undefined) !== (gm.indices === undefined)) return false
+    const n = mesh.vertexCount
+    const fits = (buffer: GPUBuffer, bytes: number) => buffer.size >= bytes
+    if (
+      !fits(gm.positions, n * 12) ||
+      !fits(gm.normals, n * 12) ||
+      !fits(gm.uvs, n * 8) ||
+      !fits(gm.uvs1, n * 8) ||
+      !fits(gm.tangents, n * 16) ||
+      (indices !== undefined && !fits(gm.indices!, (indices.byteLength + 3) & ~3))
+    )
+      return false
+    const queue = this.gpu.device.queue
+    const write = (buffer: GPUBuffer, data: ArrayBufferView & ArrayLike<number>) => {
+      if (data.length > 0) queue.writeBuffer(buffer, 0, data, 0, data.length)
+    }
+    write(gm.positions, mesh.positions)
+    write(gm.normals, mesh.normals ?? new Float32Array(n * 3).map((_, i) => (i % 3 === 1 ? 1 : 0)))
+    const uvs = mesh.uvs ?? new Float32Array(n * 2)
+    write(gm.uvs, uvs)
+    write(gm.uvs1, mesh.uvs1 ?? uvs)
+    write(gm.tangents, mesh.tangents ?? new Float32Array(n * 4))
+    if (indices) {
+      let data = indices
+      if (data instanceof Uint16Array && data.length % 2 === 1) {
+        const padded = new Uint16Array(data.length + 1)
+        padded.set(data)
+        data = padded
+      }
+      write(gm.indices!, data)
+      gm.indexFormat = indices instanceof Uint32Array ? 'uint32' : 'uint16'
+    }
+    gm.version = mesh.version
+    gm.count = mesh.drawCount
+    return true
   }
 
   private destroyMesh(gm: GpuMesh): void {

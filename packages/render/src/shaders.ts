@@ -29,6 +29,12 @@ export const ViewUniform = defineComponent('render/ViewUniform', {
    * that sun, applied to its light (spec 0044). All ones without an atmosphere.
    */
   sunTransmittance: t.mat4,
+  /**
+   * Screen scale (0057): render pixels per CSS pixel (x); world units per render pixel at one
+   * unit of view depth, or everywhere when orthographic (y); 1 when orthographic (z). A CSS-pixel
+   * width w at view depth d is w · x · y · d world units (w · x · y orthographic).
+   */
+  pixelScale: t.vec4,
 })
 
 export const viewLayout = wgslLayout(ViewUniform)
@@ -437,8 +443,24 @@ struct Light {
   shadow_bias: f32,
   shadow_normal_bias: f32,
   shadow_softness: f32,
-  _pad0: f32,
-  _pad1: f32,
+  /** 0: physical; 1: tabletop (0057). */
+  falloff: f32,
+  /** Tabletop: full intensity inside this radius. */
+  bright: f32,
+}
+
+/**
+ * Distance attenuation of a point or spot light: physical inverse square windowed to zero at
+ * range, or tabletop (0057): full intensity inside bright, linear to zero at range.
+ */
+fn light_falloff(light: Light, d: f32, d2: f32) -> f32 {
+  if (light.falloff > 0.5) {
+    return clamp((light.range - d) / max(light.range - light.bright, 1e-4), 0.0, 1.0);
+  }
+  let ratio = d / light.range;
+  let r4 = ratio * ratio * ratio * ratio;
+  let window = clamp(1.0 - r4, 0.0, 1.0);
+  return window * window / d2;
 }
 
 struct DirectionalLight {
@@ -599,7 +621,7 @@ fn point_shadow(index: u32, world: vec3f, n: vec3f, bias: f32, normal_bias: f32,
 import shard::view::view;
 import shard::pbr::types::PbrInput;
 import shard::pbr::brdf::{ PI, d_ggx, v_smith_ggx_correlated, f_schlick };
-import shard::pbr::lights::{ lights, clusters, directional, LIGHT_SPOT, NO_SHADOW, CLUSTER_X, CLUSTER_Y, CLUSTER_Z, CLUSTER_COUNT, MAX_PER_CLUSTER };
+import shard::pbr::lights::{ lights, clusters, directional, light_falloff, LIGHT_SPOT, NO_SHADOW, CLUSTER_X, CLUSTER_Y, CLUSTER_Z, CLUSTER_COUNT, MAX_PER_CLUSTER };
 import shard::pbr::shadows::{ directional_shadow, spot_shadow, point_shadow, cascade_index };
 import shard::pbr::environment::environment_light;
 
@@ -674,10 +696,7 @@ fn apply_lighting(p: PbrInput, world_position: vec3f, frag_coord: vec4f, flags: 
       let d2 = max(dot(to_light, to_light), 1e-4);
       let d = sqrt(d2);
       let l = to_light / d;
-      let ratio = d / light.range;
-      let r4 = ratio * ratio * ratio * ratio;
-      let window = clamp(1.0 - r4, 0.0, 1.0);
-      var attenuation = window * window / d2;
+      var attenuation = light_falloff(light, d, d2);
       if (light.kind == LIGHT_SPOT) {
         let cd = dot(-l, light.direction);
         let spot = clamp(cd * light.spot_scale + light.spot_offset, 0.0, 1.0);

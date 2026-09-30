@@ -15,6 +15,7 @@ import { GlobalTransform, Transform } from '@aethervtt/shard-transform'
 import { MaterialAsset, Materials, Meshes } from './assets'
 import { DEFORM_WORDS, DeformStore } from './deform'
 import { GpuAssetsResource } from './gpu-assets'
+import { GroundLayer, RenderLayers } from './layers'
 import { isTransparent } from './materials'
 import { ComputedVisibility, Visibility } from './visibility'
 
@@ -36,6 +37,16 @@ export const NotShadowCaster = defineComponent(
   'render/NotShadowCaster',
   {},
   { description: 'Tag: this mesh casts no shadows.' },
+)
+
+/**
+ * Tag: while hidden (Visibility), this mesh still casts shadows. A hidden roof keeps its interior
+ * dark (0067): camera views skip it, shadow views draw it.
+ */
+export const ShadowWhenHidden = defineComponent(
+  'render/ShadowWhenHidden',
+  {},
+  { description: 'Tag: while hidden, this mesh still casts shadows (camera views skip it).' },
 )
 
 export const NotShadowReceiver = defineComponent(
@@ -181,9 +192,14 @@ export const InstanceFlags = {
   Skinned: 32,
   /** Morphed: the vertex stage adds morph target deltas. */
   Morph: 64,
+  /** Hidden, but drawn in shadow views (ShadowWhenHidden); Visible is off. */
+  ShadowOnly: 128,
 } as const
 
 /** Record value for "no batch". LOD slots store `LOD_BIT | lodSet`. */
+/** The render layer mask's place in the flags word (bits 8–23; LOD rides in 24–27 when read). */
+export const LAYER_SHIFT = 8
+export const LAYER_BITS = 0xffff << LAYER_SHIFT
 export const NO_BATCH = 0xffffffff
 export const LOD_BIT = 0x80000000
 /** Visible-list entries: slot in the low 28 bits, LOD level in the top 4. */
@@ -217,6 +233,14 @@ export interface Batch {
   /** Per-cull scratch for forward-only slots in deferred views. */
   forwardScratch: Uint32Array
   forwardCount: number
+  /** The mesh version shadows last saw (cached shadows redraw when it changes, 0055). */
+  meshVersion: number
+  /**
+   * Drawn in the ground phase (0057): its slots have a GroundLayer, draw in (band, order) order
+   * after opaque geometry, and cast no shadows. Kept apart from the same mesh and material off
+   * the ground.
+   */
+  ground: boolean
 }
 
 /** A Lod component's levels resolved to batches, shared by every entity with the same values. */
@@ -267,6 +291,8 @@ export interface CullParams {
   /** LOD state per slot for this view's camera; updated when `updateLod`. */
   lodState: Uint8Array | undefined
   updateLod: boolean
+  /** Render layers the view draws (0057): slots sharing no bit are culled first. Default: all. */
+  layers?: number
 }
 
 const halfToFloat = (h: number): number => {
@@ -433,6 +459,14 @@ export class InstanceStore {
   /** Batches in draw order (sorted by pipeline, then material, then mesh). */
   readonly sorted: Batch[] = []
   private readonly byMesh = new Map<Mesh, Map<MaterialAsset, Batch>>()
+  private readonly byMeshGround = new Map<Mesh, Map<MaterialAsset, Batch>>()
+  /**
+   * Render layer mask per slot (0057); 1 for slots without RenderLayers. It also rides in bits
+   * 8–23 of the record's flags word, where the GPU culler reads it.
+   */
+  layers = new Uint16Array(0)
+  /** Ground key per slot, (level, band, order) packed; NaN off the ground (0057, 0067). */
+  groundKeys = new Float64Array(0)
   readonly lodSets: LodSet[] = []
   private readonly lodByKey = new Map<string, LodSet>()
   readonly defaultMaterial = new MaterialAsset()
@@ -443,6 +477,11 @@ export class InstanceStore {
   hiddenCount = 0
   /** Bumps when batches or LOD sets change shape (the GPU tables re-upload). */
   structureVersion = 0
+  /**
+   * Bumps when what casts shadows changes other than by moving: a slot's batch, its caster or
+   * visible flag, or a batch's mesh data. Cached shadow maps (0055) redraw when it moves.
+   */
+  shadowEpoch = 0
   /** Visible slot lists of every CPU-culled view this frame, concatenated. */
   visible = new Uint32Array(1024)
   visibleCount = 0
@@ -517,6 +556,12 @@ export class InstanceStore {
     const movedFrame = new Uint32Array(capacity)
     movedFrame.set(this.movedFrame)
     this.movedFrame = movedFrame
+    const layers = new Uint16Array(capacity).fill(1)
+    layers.set(this.layers)
+    this.layers = layers
+    const groundKeys = new Float64Array(capacity).fill(Number.NaN)
+    groundKeys.set(this.groundKeys)
+    this.groundKeys = groundKeys
     this.capacity = capacity
     this.deform.ensureSlots(capacity)
   }
@@ -528,15 +573,39 @@ export class InstanceStore {
       slot = this.high++
     }
     this.u32[slot * INSTANCE_FLOATS + 12] = NO_BATCH
-    this.u32[slot * INSTANCE_FLOATS + 13] = 0
+    this.u32[slot * INSTANCE_FLOATS + 13] = 1 << LAYER_SHIFT
     this.flags[slot] = 0
     this.u32[slot * INSTANCE_FLOATS + 14] = 0
     this.u32[slot * INSTANCE_FLOATS + 15] = entity % 0x100000000
     this.batchOf[slot] = -1
     this.memberIndex[slot] = -1
     this.lods[slot] = null
+    this.groundKeys[slot] = Number.NaN
+    this.layers[slot] = 1
     this.markDirty(slot)
     return slot
+  }
+
+  /** A slot's render layer mask (0057). What casts shadows in a view may change: cached maps redraw. */
+  setLayers(slot: number, mask: number): void {
+    const m = mask & 0xffff
+    if (this.layers[slot] === m) return
+    this.layers[slot] = m
+    const o = slot * INSTANCE_FLOATS + 13
+    this.u32[o] = ((this.u32[o]! & ~LAYER_BITS) | (m << LAYER_SHIFT)) >>> 0
+    this.markDirty(slot)
+    this.shadowEpoch++
+  }
+
+  /**
+   * A slot's ground key (0057): `groundKey(band, order, level)`, or NaN off the ground. Returns whether
+   * it moved on or off the ground (its batch must be resolved again).
+   */
+  setGround(slot: number, key: number): boolean {
+    const old = this.groundKeys[slot]!
+    if (Object.is(old, key)) return false
+    this.groundKeys[slot] = key
+    return Number.isNaN(old) !== Number.isNaN(key)
   }
 
   release(slot: number): void {
@@ -566,12 +635,11 @@ export class InstanceStore {
       b[0] = b[1] = b[2] = Number.POSITIVE_INFINITY
       b[3] = b[4] = b[5] = Number.NEGATIVE_INFINITY
       const sphere = scratchSphere
-      const need = InstanceFlags.Visible | InstanceFlags.Caster
       for (let s = 0; s < this.high; s++) {
         const a = this.batchOf[s]!
-        if (a === -1 || (this.u32[s * INSTANCE_FLOATS + 13]! & need) !== need) continue
+        if (a === -1 || !casts(this.u32[s * INSTANCE_FLOATS + 13]!)) continue
         const batch = this.batches[a >= 0 ? a : this.lodSets[-2 - a]!.batches[0]!]!
-        if (batch.transparent) continue
+        if (batch.transparent || batch.ground) continue
         sphereOfSlot(sphere, this, s, this.u32[s * INSTANCE_FLOATS + 13]!, batch.mesh.bounds)
         for (let k = 0; k < 3; k++) {
           if (sphere[k]! - sphere[3]! < b[k]!) b[k] = sphere[k]! - sphere[3]!
@@ -677,6 +745,7 @@ export class InstanceStore {
   assign(slot: number, assignment: number): void {
     const old = this.batchOf[slot]!
     if (old === assignment) return
+    this.shadowEpoch++
     if (old >= 0) {
       this.batches[old]!.count--
       this.removeMember(slot, this.batches[old]!)
@@ -701,6 +770,48 @@ export class InstanceStore {
           ? (LOD_BIT | (-2 - assignment)) >>> 0
           : NO_BATCH
     this.markDirty(slot)
+  }
+
+  /**
+   * Bumps `shadowEpoch` if any batch's mesh data changed since the last call (a structure chunk
+   * rebuilt in place). One compare per batch.
+   */
+  checkMeshVersions(): void {
+    const batches = this.batches
+    for (let i = 0; i < batches.length; i++) {
+      const b = batches[i]!
+      if (b.meshVersion !== b.mesh.version) {
+        b.meshVersion = b.mesh.version
+        this.shadowEpoch++
+      }
+    }
+  }
+
+  /**
+   * Whether a visible caster that moved this frame touches the half-spaces `planes`, where it
+   * was or where it is now. Call after prepare. Skinned and morphed poses aren't moves; see
+   * `deforming`.
+   */
+  movedCasterIn(planes: Float32Array): boolean {
+    const sphere = scratchSphere
+    for (let i = 0; i < this.lastMovedCount; i++) {
+      const slot = this.lastMoved[i]!
+      if (slot >= this.high || !casts(this.flags[slot]!)) continue
+      const a = this.batchOf[slot]!
+      if (a === -1) continue
+      const batch = this.batches[a >= 0 ? a : this.lodSets[-2 - a]!.batches[0]!]!
+      if (batch.transparent || batch.ground) continue
+      sphereOfSlot(sphere, this, slot, this.flags[slot]!, batch.mesh.bounds)
+      if (sphereInFrustum(planes, sphere)) return true
+      slotSphere(sphere, this.prev, slot * 12, batch.mesh.bounds)
+      if (sphereInFrustum(planes, sphere)) return true
+    }
+    return false
+  }
+
+  /** Whether skinned or morphed poses are being written this frame (their shadows move). */
+  get deforming(): boolean {
+    return this.deform.poseCount > 0
   }
 
   /** A plain batch assignment. */
@@ -732,11 +843,13 @@ export class InstanceStore {
     material: MaterialAsset,
     meshGuid: string | undefined,
     materialGuid: string | undefined,
+    ground = false,
   ): Batch {
-    let byMaterial = this.byMesh.get(mesh)
+    const byMesh = ground ? this.byMeshGround : this.byMesh
+    let byMaterial = byMesh.get(mesh)
     if (!byMaterial) {
       byMaterial = new Map()
-      this.byMesh.set(mesh, byMaterial)
+      byMesh.set(mesh, byMaterial)
     }
     let batch = byMaterial.get(material)
     if (!batch) {
@@ -757,6 +870,8 @@ export class InstanceStore {
         scratchCount: 0,
         forwardScratch: new Uint32Array(16),
         forwardCount: 0,
+        meshVersion: mesh.version,
+        ground,
       }
       byMaterial.set(material, batch)
       this.batches.push(batch)
@@ -924,6 +1039,12 @@ export class InstanceStore {
   private tBatches = new Int32Array(64)
   private tDepths = new Float32Array(64)
   private readonly tOrder: number[] = []
+  // Ground instances this cull: slot, batch, and (band, order) key.
+  private groundCount = 0
+  private gSlots = new Uint32Array(64)
+  private gBatches = new Int32Array(64)
+  private gKeys = new Float64Array(64)
+  private readonly gOrder: number[] = []
 
   /**
    * CPU culling of every slot into `list` (and, for camera views, `transparent` back to front and
@@ -939,6 +1060,7 @@ export class InstanceStore {
     forward?: Float32Array,
     forwardOnly?: DrawList,
     transparentOnly = false,
+    ground?: DrawList,
   ): void {
     if (bounds) {
       bounds[0] = bounds[1] = bounds[2] = Number.POSITIVE_INFINITY
@@ -952,6 +1074,9 @@ export class InstanceStore {
     list.cullView = -1
     this.transparentCount = 0
     this.forwardOnlyCount = 0
+    this.groundCount = 0
+    const layers = this.layers
+    const viewLayers = params.layers ?? 0xffffffff
     const batches = this.batches
     for (let b = 0; b < batches.length; b++) {
       batches[b]!.scratchCount = 0
@@ -960,14 +1085,20 @@ export class InstanceStore {
     const f = this.f32
     const u32 = this.u32
     const mask = InstanceFlags.Visible | params.require
+    // Shadow views also draw hidden ShadowWhenHidden meshes.
+    const shadowOnly = (params.require & InstanceFlags.Caster) !== 0 ? InstanceFlags.ShadowOnly : 0
     const eye = params.eye
     const sphere = scratchSphere
     for (let s = 0; s < this.high; s++) {
       const assignment = this.batchOf[s]!
       if (assignment === -1) continue
       const flags = u32[s * INSTANCE_FLOATS + 13]!
-      if ((flags & mask) !== mask) {
+      if (((flags & shadowOnly ? flags | InstanceFlags.Visible : flags) & mask) !== mask) {
         if ((flags & InstanceFlags.Visible) === 0) list.hidden++
+        continue
+      }
+      if ((layers[s]! & viewLayers) === 0) {
+        list.culled++
         continue
       }
       let set: LodSet | undefined
@@ -982,6 +1113,8 @@ export class InstanceStore {
         list.pending++
         continue
       }
+      // Ground batches cast no shadows, and only camera views that ask draw them.
+      if (batch.ground && (params.require !== 0 || !ground)) continue
       // Transparent batches never cast shadows, and only camera views that ask draw them.
       if (batch.transparent && (params.require !== 0 || !transparent)) continue
       if (flags & InstanceFlags.Skinned) sphereOfSlot(sphere, this, s, flags, batch.mesh.bounds)
@@ -1032,6 +1165,11 @@ export class InstanceStore {
           if (sphere[k]! + sphere[3]! > bounds[k + 3]!) bounds[k + 3] = sphere[k]! + sphere[3]!
         }
       }
+      if (batch.ground) {
+        // Counted with the ground list (like forward-only slots), not the opaque one.
+        this.pushGround(entry, b)
+        continue
+      }
       if (batch.transparent) {
         this.pushTransparent(entry, b, eye, forward)
         list.visible++
@@ -1057,6 +1195,7 @@ export class InstanceStore {
     }
     this.pack(list)
     if (transparent) this.packTransparent(transparent)
+    if (ground) this.packGround(ground)
     if (forwardOnly) {
       // Opaque materials the G-buffer can't take, drawn forward after deferred lighting.
       for (const batch of this.batches) {
@@ -1079,12 +1218,14 @@ export class InstanceStore {
     const u32 = this.u32
     const eye = params.eye
     const sphere = scratchSphere
+    const viewLayers = params.layers ?? 0xffffffff
     for (const batch of this.batches) {
-      if (!batch.transparent || !batch.ready || batch.memberCount === 0) continue
+      if (!batch.transparent || batch.ground || !batch.ready || batch.memberCount === 0) continue
       for (let m = 0; m < batch.memberCount; m++) {
         const s = batch.members[m]!
         const flags = u32[s * INSTANCE_FLOATS + 13]!
         if ((flags & InstanceFlags.Visible) === 0) continue
+        if ((this.layers[s]! & viewLayers) === 0) continue
         sphereOfSlot(sphere, this, s, flags, batch.mesh.bounds)
         if (params.planes && !sphereInFrustum(params.planes, sphere)) continue
         if (flags & InstanceFlags.Range && eye) {
@@ -1098,6 +1239,110 @@ export class InstanceStore {
       }
     }
     this.packTransparent(list)
+  }
+
+  /**
+   * Ground-only CPU cull over ground batches' members (0057), for views the GPU culls: the ground
+   * list is always built on the CPU, in (band, order) order.
+   */
+  cullGroundMembers(list: DrawList, params: CullParams): void {
+    this.groundCount = 0
+    const u32 = this.u32
+    const sphere = scratchSphere
+    const viewLayers = params.layers ?? 0xffffffff
+    for (const batch of this.batches) {
+      if (!batch.ground || !batch.ready || batch.memberCount === 0) continue
+      for (let m = 0; m < batch.memberCount; m++) {
+        const s = batch.members[m]!
+        const flags = u32[s * INSTANCE_FLOATS + 13]!
+        if ((flags & InstanceFlags.Visible) === 0) continue
+        if ((this.layers[s]! & viewLayers) === 0) continue
+        slotSphere(sphere, this.f32, s * INSTANCE_FLOATS, batch.mesh.bounds)
+        if (params.planes && !sphereInFrustum(params.planes, sphere)) continue
+        this.pushGround(s, batch.index)
+      }
+    }
+    this.packGround(list)
+  }
+
+  private pushGround(entry: number, batch: number): void {
+    const n = this.groundCount
+    if (n >= this.gSlots.length) {
+      const size = this.gSlots.length * 2
+      const s = new Uint32Array(size)
+      s.set(this.gSlots)
+      this.gSlots = s
+      const b = new Int32Array(size)
+      b.set(this.gBatches)
+      this.gBatches = b
+      const k = new Float64Array(size)
+      k.set(this.gKeys)
+      this.gKeys = k
+    }
+    this.gSlots[n] = entry
+    this.gBatches[n] = batch
+    this.gKeys[n] = this.groundKeys[entry & SLOT_MASK]!
+    this.groundCount = n + 1
+  }
+
+  /**
+   * Packs visible-list entries (a slot in the low 28 bits, 4 spare bits a pass may use, like an
+   * outline style) into `list`, one draw per batch: for passes that draw chosen slots (0057's
+   * outline mask). `batches` holds each entry's batch index. Skips entries whose batch isn't ready.
+   */
+  packEntries(list: DrawList, entries: Uint32Array, batches: Int32Array, count: number): void {
+    list.length = 0
+    list.cullView = -1
+    list.visible = 0
+    if (count === 0) return
+    const order = this.gOrder
+    order.length = count
+    for (let i = 0; i < count; i++) order[i] = i
+    order.sort((a, b) => batches[a]! - batches[b]! || entries[a]! - entries[b]!)
+    this.reserve(count)
+    let item: DrawItem | undefined
+    for (let k = 0; k < count; k++) {
+      const i = order[k]!
+      const batch = this.batches[batches[i]!]
+      if (!batch?.ready) continue
+      if (!item || item.batch !== batch) {
+        item = this.item(list, batch)
+        item.first = this.visibleCount
+        item.count = 0
+      }
+      this.visible[this.visibleCount++] = entries[i]!
+      item.count++
+      list.visible++
+    }
+  }
+
+  /** Sorts this cull's ground instances by (level, band, order), then batch; runs of a batch share a draw. */
+  private packGround(list: DrawList): void {
+    list.length = 0
+    list.cullView = -1
+    const n = this.groundCount
+    list.visible = n
+    if (n === 0) return
+    const order = this.gOrder
+    order.length = n
+    for (let i = 0; i < n; i++) order[i] = i
+    const keys = this.gKeys
+    const batches = this.gBatches
+    const slots = this.gSlots
+    order.sort((a, b) => keys[a]! - keys[b]! || batches[a]! - batches[b]! || slots[a]! - slots[b]!)
+    this.reserve(n)
+    let item: DrawItem | undefined
+    for (let k = 0; k < n; k++) {
+      const i = order[k]!
+      const batch = this.batches[batches[i]!]!
+      if (!item || item.batch !== batch) {
+        item = this.item(list, batch)
+        item.first = this.visibleCount
+        item.count = 0
+      }
+      this.visible[this.visibleCount++] = slots[i]!
+      item.count++
+    }
   }
 
   /**
@@ -1215,7 +1460,8 @@ export class InstanceStore {
     // LOD-set slots aren't members; big batches aren't worth the walk.
     if (n === 0 || n !== batch.count || n > 8) return true
     for (let i = 0; i < n; i++) {
-      if (this.u32[batch.members[i]! * INSTANCE_FLOATS + 13]! & InstanceFlags.Visible) return true
+      const flags = this.u32[batch.members[i]! * INSTANCE_FLOATS + 13]!
+      if (flags & (InstanceFlags.Visible | InstanceFlags.ShadowOnly)) return true
     }
     return false
   }
@@ -1396,8 +1642,26 @@ function tableChanged(table: Table, since: number): boolean {
     (table.has(MeshMaterial) && table.lastChanged(MeshMaterial) > since) ||
     (table.has(Lod) && table.lastChanged(Lod) > since) ||
     (table.has(VisibilityRange) && table.lastChanged(VisibilityRange) > since) ||
-    (table.has(InstanceData) && table.lastChanged(InstanceData) > since)
+    (table.has(InstanceData) && table.lastChanged(InstanceData) > since) ||
+    (table.has(RenderLayers) && table.lastChanged(RenderLayers) > since) ||
+    (table.has(GroundLayer) && table.lastChanged(GroundLayer) > since)
   )
+}
+
+/** Whether a slot's flags make it a shadow caster: visible (or ShadowOnly) and a caster. */
+function casts(flags: number): boolean {
+  return (
+    (flags & InstanceFlags.Caster) !== 0 &&
+    (flags & (InstanceFlags.Visible | InstanceFlags.ShadowOnly)) !== 0
+  )
+}
+
+/**
+ * Ground draw order: level (−16..15, 0067), then band, then order. Exact in a double: 5 + 16 + 32
+ * bits.
+ */
+export function groundKey(band: number, order: number, level = 0): number {
+  return (level + 16) * 281474976710656 + (band + 32768) * 4294967296 + (order + 2147483648)
 }
 
 let zeros = new Uint32Array(1024)
@@ -1480,6 +1744,12 @@ export const prepareInstances = defineSystem({
       const dataY = hasData ? table.column(InstanceData, 'y') : undefined
       const dataChanged = hasData ? table.changedTicks(InstanceData) : zeroTicks(n)
       const vis = table.column(ComputedVisibility, 'visible')
+      const hiddenFlag = table.has(ShadowWhenHidden) ? InstanceFlags.ShadowOnly : 0
+      const layerMasks = table.has(RenderLayers) ? table.column(RenderLayers, 'mask') : undefined
+      const hasGround = table.has(GroundLayer)
+      const bands = hasGround ? table.column(GroundLayer, 'band') : undefined
+      const orders = hasGround ? table.column(GroundLayer, 'order') : undefined
+      const levels = hasGround ? table.column(GroundLayer, 'level') : undefined
       const deformed = table.has(SkinnedMesh) || table.has(MorphWeights)
       if (deformed && !deforms) warnNoDeforms(world)
       const tableFlags =
@@ -1506,11 +1776,17 @@ export const prepareInstances = defineSystem({
         const o = slot * INSTANCE_FLOATS
         const visible = vis[i] !== 0
         if (!visible) hidden++
-        const flags = tableFlags | (visible ? InstanceFlags.Visible : 0)
+        const flags = tableFlags | (visible ? InstanceFlags.Visible : hiddenFlag)
         const oldFlags = slotFlags[slot]!
         if (fresh || gChanged[i]! > since) store.moveSlot(slot, g, i * 12, fresh)
+        store.setLayers(slot, layerMasks ? layerMasks[i]! : 1)
+        const onOffGround = store.setGround(
+          slot,
+          hasGround ? groundKey(bands![i]!, orders![i]!, levels![i]!) : Number.NaN,
+        )
         if (
           fresh ||
+          onOffGround ||
           ((oldFlags ^ flags) & InstanceFlags.Lod) !== 0 ||
           meshChanged[i]! > since ||
           materialChanged[i]! > since ||
@@ -1528,9 +1804,14 @@ export const prepareInstances = defineSystem({
           resolveSlot(store, slot, meshes, materials)
         }
         if (oldFlags !== flags) {
-          u32[o + 13] = flags
+          u32[o + 13] = (flags | (store.layers[slot]! << LAYER_SHIFT)) >>> 0
           slotFlags[slot] = flags
           store.markDirty(slot)
+          if (
+            (oldFlags ^ flags) &
+            (InstanceFlags.Visible | InstanceFlags.Caster | InstanceFlags.ShadowOnly)
+          )
+            store.shadowEpoch++
         }
         if (fresh || rangeChanged[i]! > since) {
           if (hasRange) store.setRange(slot, rangeStart![i]!, rangeEnd![i]!)
@@ -1604,9 +1885,10 @@ function resolveSlot(
     return
   }
   store.pending.delete(slot)
+  const ground = !Number.isNaN(store.groundKeys[slot]!)
   store.assign(
     slot,
-    store.batchFor(mesh, material, meshRef?.guid, materialRef?.guid ?? undefined).index,
+    store.batchFor(mesh, material, meshRef?.guid, materialRef?.guid ?? undefined, ground).index,
   )
 }
 

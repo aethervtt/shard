@@ -12,7 +12,7 @@ export const SHADOW_CATCHER_SHADERS: Record<string, string> = {
   'shard::pbr::catcher': `
 import shard::view::view;
 import shard::pbr::types::VertexOutput;
-import shard::pbr::lights::{ lights, clusters, directional, LIGHT_SPOT, NO_SHADOW, CLUSTER_COUNT, MAX_PER_CLUSTER };
+import shard::pbr::lights::{ lights, clusters, directional, light_falloff, LIGHT_SPOT, NO_SHADOW, CLUSTER_COUNT, MAX_PER_CLUSTER };
 import shard::pbr::shadows::{ directional_shadow, spot_shadow, point_shadow };
 import shard::pbr::lighting::cluster_of;
 
@@ -50,9 +50,7 @@ fn shadow_visibility(in: VertexOutput) -> f32 {
       let d2 = max(dot(to_light, to_light), 1e-4);
       let d = sqrt(d2);
       let l = to_light / d;
-      let ratio = d / light.range;
-      let window = clamp(1.0 - ratio * ratio * ratio * ratio, 0.0, 1.0);
-      var attenuation = window * window / d2;
+      var attenuation = light_falloff(light, d, d2);
       if (light.kind == LIGHT_SPOT) {
         let spot = clamp(dot(-l, light.direction) * light.spot_scale + light.spot_offset, 0.0, 1.0);
         attenuation *= spot * spot;

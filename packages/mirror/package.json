@@ -1,0 +1,21 @@
+{
+  "name": "@aethervtt/shard-mirror",
+  "version": "0.0.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@aethervtt/shard-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2"
+  }
+}

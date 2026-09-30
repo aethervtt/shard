@@ -20,6 +20,68 @@ export type GpuMemoryCategory =
   | 'staging'
   | 'other'
 
+/**
+ * What bytes written to the GPU were for (0055), from the label of the buffer or texture written:
+ * `instances` (instance records), `meshes` (vertex and index data), `materials` (material
+ * uniforms), `textures`, `lights`, `shadows` (shadow views), `view` (camera and per-frame
+ * uniforms, culling parameters: derived from the view, not the scene), and `other`.
+ */
+export const UPLOAD_CATEGORIES = [
+  'instances',
+  'meshes',
+  'materials',
+  'textures',
+  'lights',
+  'shadows',
+  'view',
+  'other',
+] as const
+export type UploadCategory = (typeof UPLOAD_CATEGORIES)[number]
+
+/** Bytes written and objects created by an owner since the device was made (`gpu.uploads(owner)`). */
+export interface GpuUploads {
+  /** Cumulative bytes written, indexed like `UPLOAD_CATEGORIES`. */
+  readonly bytes: Float64Array
+  /** Buffers and textures created. */
+  created: number
+}
+
+/** Index of each category in `UPLOAD_CATEGORIES` (and in `GpuUploads.bytes`). */
+export const Upload = {
+  instances: 0,
+  meshes: 1,
+  materials: 2,
+  textures: 3,
+  lights: 4,
+  shadows: 5,
+  view: 6,
+  other: 7,
+} as const satisfies Record<UploadCategory, number>
+
+/** The upload category of a buffer or texture, from its label. Textures are always `textures`. */
+export function uploadCategory(label: string | undefined, texture: boolean): number {
+  if (texture) return Upload.textures
+  const l = label ?? ''
+  // A view's culled list is derived from the view, rewritten every frame it's culled on the CPU.
+  if (l === 'instances/visible') return Upload.view
+  if (l.startsWith('instances')) return Upload.instances
+  if (l.startsWith('mesh/') || l.startsWith('mesh ')) return Upload.meshes
+  if (l.startsWith('material')) return Upload.materials
+  if (l === 'lights' || l.startsWith('lights/')) return Upload.lights
+  if (l.startsWith('shadows/')) return Upload.shadows
+  // Per-view buffers are named after their view (`camera:12/view`, `window/tonemap`).
+  if (
+    l.startsWith('camera:') ||
+    l.startsWith('window/') ||
+    l === 'globals' ||
+    l.startsWith('cull/') ||
+    l.endsWith('/view') ||
+    l.includes('light-clusters')
+  )
+    return Upload.view
+  return Upload.other
+}
+
 /** Live bytes counted against an owner, or everyone, by category (`gpu.memory(owner)`). */
 export interface GpuMemory {
   bytes: number
@@ -57,6 +119,8 @@ interface Entry {
   readonly owner: Owned
   readonly texture: boolean
   readonly category: GpuMemoryCategory
+  /** Index into `UPLOAD_CATEGORIES`. */
+  readonly upload: number
   readonly bytes: number
   readonly ref: WeakRef<GPUBuffer | GPUTexture>
   live: boolean
@@ -65,6 +129,7 @@ interface Entry {
 interface Owned extends GpuStats {
   readonly name: string
   readonly entries: Set<Entry>
+  readonly uploads: GpuUploads
 }
 
 /** What a tracked object's own `destroy` needs: its entry and the prototype's destroy. */
@@ -93,12 +158,14 @@ export class Ledger {
     texture: boolean,
     bytes: number,
     category: GpuMemoryCategory = texture ? 'textures' : 'other',
+    label?: string,
   ): void {
     const owned = this.owned(owner)
     const entry: Entry = {
       owner: owned,
       texture,
       category,
+      upload: uploadCategory(label, texture),
       bytes,
       ref: new WeakRef(object),
       live: true,
@@ -107,6 +174,7 @@ export class Ledger {
     if (texture) owned.textures++
     else owned.buffers++
     owned.bytes += bytes
+    owned.uploads.created++
     entryOf.set(object, { ledger: this, entry })
     this.finalizer.register(object, entry, entry)
     object.destroy = destroyTracked
@@ -121,6 +189,19 @@ export class Ledger {
     if (entry.texture) owned.textures--
     else owned.buffers--
     owned.bytes -= entry.bytes
+  }
+
+  /** Counts bytes written into a tracked object against its owner and upload category. */
+  upload(object: object, bytes: number): void {
+    const tracked = entryOf.get(object)
+    if (!tracked || tracked.ledger !== this) return
+    const entry = tracked.entry
+    entry.owner.uploads.bytes[entry.upload]! += bytes
+  }
+
+  /** Cumulative bytes written and objects created by `owner`. */
+  uploads(owner: string): GpuUploads {
+    return this.owned(owner).uploads
   }
 
   /** Destroys every object `owner` still has. Returns how many there were. */
@@ -192,7 +273,14 @@ export class Ledger {
   private owned(name: string): Owned {
     let owned = this.owners.get(name)
     if (!owned) {
-      owned = { name, entries: new Set(), buffers: 0, textures: 0, bytes: 0 }
+      owned = {
+        name,
+        entries: new Set(),
+        buffers: 0,
+        textures: 0,
+        bytes: 0,
+        uploads: { bytes: new Float64Array(UPLOAD_CATEGORIES.length), created: 0 },
+      }
       this.owners.set(name, owned)
     }
     return owned

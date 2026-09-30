@@ -14,7 +14,7 @@ import { Shaders } from './plugin'
 
 /** Words per indirect draw: indexed (count, instances, first index, base vertex, first instance). */
 const ARGS_WORDS = 5
-const VIEW_FLOATS = 32
+const VIEW_FLOATS = 36
 const BATCH_WORDS = 8
 const LOD_WORDS = 20
 
@@ -23,6 +23,7 @@ const VIEW_UPDATE_LOD = 2
 const VIEW_ORTHO = 4
 const VIEW_NO_PLANES = 8
 
+/** Drawn from CPU lists (blended, or on the ground, 0057): the GPU cull skips it. */
 const BATCH_TRANSPARENT = 1
 const BATCH_NOT_READY = 2
 
@@ -37,6 +38,8 @@ interface CullView {
   lodScale: number
   flags: number
   lodCamera: number
+  /** Render layers the view draws (0057). */
+  layers: number
 }
 
 /**
@@ -150,6 +153,7 @@ export class GpuCuller {
         lodScale: 1,
         flags: 0,
         lodCamera: 0,
+        layers: 0xffffffff,
       }
       this.views.push(view)
     }
@@ -161,6 +165,7 @@ export class GpuCuller {
     if (params.eye) view.eye.set(params.eye)
     view.lodScale = params.lodScale
     view.lodCamera = lodCamera
+    view.layers = params.layers ?? 0xffffffff
     view.flags =
       (params.require & InstanceFlags.Caster ? VIEW_CASTERS : 0) |
       (params.updateLod ? VIEW_UPDATE_LOD : 0) |
@@ -180,7 +185,8 @@ export class GpuCuller {
     let n = 0
     let m = 0
     for (const batch of store.sorted) {
-      if (batch.count === 0 || batch.transparent || !store.anyVisible(batch)) continue
+      if (batch.count === 0 || batch.transparent || batch.ground || !store.anyVisible(batch))
+        continue
       // Waiting on its material's GPU resources: its members count as pending, so readiness
       // checks (settle, asset previews) wait for them.
       if (!batch.ready) {
@@ -232,7 +238,8 @@ export class GpuCuller {
       this.batchData[o + 5] = batch.mesh.indexed ? 1 + batch.mesh.baseVertex : 0
       this.batchData[o + 6] = batch.region
       this.batchData[o + 7] =
-        (batch.transparent ? BATCH_TRANSPARENT : 0) | (batch.ready ? 0 : BATCH_NOT_READY)
+        (batch.transparent || batch.ground ? BATCH_TRANSPARENT : 0) |
+        (batch.ready ? 0 : BATCH_NOT_READY)
     }
     this.regionSize = Math.max(1, region)
     this.batchBuffer.write(this.batchData, 0, 0, Math.max(1, batches.length) * BATCH_WORDS)
@@ -272,6 +279,7 @@ export class GpuCuller {
       this.viewU32[o + 29] = view.lodCamera
       this.viewU32[o + 30] = v * batches.length
       this.viewU32[o + 31] = v * this.regionSize
+      this.viewU32[o + 32] = view.layers
       // Draw items: byte offsets of their indirect arguments.
       for (const list of [view.list, view.forwardOnly]) {
         if (!list) continue
@@ -537,6 +545,11 @@ export function cullTransparent(
   forward: Float32Array,
 ): void {
   store.cullTransparentMembers(list, params, forward)
+}
+
+/** The CPU ground list (0057) of a view the GPU culls. */
+export function cullGround(store: InstanceStore, list: DrawList, params: CullParams): void {
+  store.cullGroundMembers(list, params)
 }
 
 /**

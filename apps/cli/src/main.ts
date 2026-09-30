@@ -1,6 +1,7 @@
 import { resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { ShardError } from '@aethervtt/shard-core'
+import { bench } from './bench'
 import {
   bake,
   type CommandContext,
@@ -63,6 +64,10 @@ const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; 
     help: 'track <scene.json> [--out f]     record a physics track; prints its hash',
   },
   test: { run: testCommand, help: 'test [pattern]                  gameplay tests in tests/' },
+  bench: {
+    run: bench,
+    help: 'bench structure                  engine fixtures against their budgets (0055)',
+  },
   capture: {
     run: capture,
     help: 'capture <plan.json> [--out dir]  browser captures, steps and records (0062)',

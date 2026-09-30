@@ -2,6 +2,7 @@ import { animationPlugin } from '@aethervtt/shard-animation'
 import { audioPlugin } from '@aethervtt/shard-audio'
 import { ShardError } from '@aethervtt/shard-core'
 import { gltfPlugin } from '@aethervtt/shard-gltf'
+import { gridPlugin } from '@aethervtt/shard-grid'
 import { inputPlugin } from '@aethervtt/shard-input'
 import { navGridPlugin, navPlugin } from '@aethervtt/shard-nav'
 import { particlesPlugin } from '@aethervtt/shard-particles'
@@ -14,9 +15,11 @@ import { App, animationFrameRunner } from '@aethervtt/shard-runtime'
 import { savePlugin } from '@aethervtt/shard-save'
 import { ScenePlugin } from '@aethervtt/shard-scene'
 import { spritePlugin } from '@aethervtt/shard-sprite'
+import { structurePlugin } from '@aethervtt/shard-structure'
 import { terrainPlugin } from '@aethervtt/shard-terrain'
 import { TransformPlugin } from '@aethervtt/shard-transform'
 import { uiPlugin } from '@aethervtt/shard-ui'
+import { vectorPlugin } from '@aethervtt/shard-vector'
 import { animationDemoPlugin } from './animation'
 import { animgraphDemoPlugin } from './animgraph'
 import { atmosphereDemoPlugin } from './atmosphere'
@@ -45,6 +48,7 @@ import { procgenDemoPlugin } from './procgen'
 import { saveDemoPlugin } from './save'
 import { scenePlugin } from './scene'
 import { spritesPlugin } from './sprites'
+import { tabletopDemoPlugin } from './tabletop'
 import { terrainDemoPlugin } from './terrain'
 import { uiDemoPlugin } from './ui'
 
@@ -84,6 +88,7 @@ const DEMOS = [
   'procgen',
   'terrain',
   'atmosphere',
+  'tabletop',
 ] as const
 const demo = DEMOS.find((d) => location.hash === `#${d}`) ?? 'scene'
 document.body.dataset.demo = demo
@@ -235,6 +240,16 @@ if (demo === 'galaxy') {
   app.addPlugin(TransformPlugin, forwardPlugin(), terrainPlugin(), hudPlugin, terrainDemoPlugin)
 } else if (demo === 'atmosphere') {
   app.addPlugin(TransformPlugin, forwardPlugin(), terrainPlugin(), hudPlugin, atmosphereDemoPlugin)
+} else if (demo === 'tabletop') {
+  app.addPlugin(
+    TransformPlugin,
+    forwardPlugin(),
+    structurePlugin,
+    gridPlugin,
+    vectorPlugin,
+    hudPlugin,
+    tabletopDemoPlugin,
+  )
 } else if (demo === 'sky') {
   app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, skyPlugin)
 } else {

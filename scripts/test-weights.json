@@ -65,6 +65,10 @@
     "packages/physics/src/agent.test.ts": 5,
     "packages/nav/src/grid.test.ts": 5,
     "packages/nav/src/perf.test.ts": 5,
-    "packages/sprite/src/picking.test.ts": 5
+    "packages/sprite/src/picking.test.ts": 5,
+    "packages/structure/src/structure.test.ts": 240,
+    "packages/render/src/tabletop.test.ts": 60,
+    "packages/grid/src/grid.test.ts": 90,
+    "packages/vector/src/parity.test.ts": 60
   }
 }

@@ -1,4 +1,5 @@
 import {
+  type ComponentDef,
   defineComponent,
   defineResource,
   defineSystem,
@@ -45,6 +46,14 @@ const shadowFields = (defaults: { bias: number; normalBias: number }) => ({
   }),
 })
 
+export const SHADOW_UPDATES = ['always', 'on-change'] as const
+
+const shadowUpdateField = () =>
+  t.enum(SHADOW_UPDATES, {
+    description:
+      "always: shadow maps redraw every frame. on-change: they redraw only when the light or the camera's cascade fit moved, or a shadow caster inside them changed (0055); a still scene draws none.",
+  })
+
 export const CascadeSettings = t.struct(
   {
     count: t.u8({ default: 4, min: 1, max: 4, description: 'Number of cascades.' }),
@@ -77,6 +86,7 @@ export const DirectionalLight = defineComponent(
         'Presets: direct-sun 100000, daylight 10000, overcast 1000, indoor 400, twilight 10, moonlight 0.3.',
     }),
     ...shadowFields({ bias: 0.02, normalBias: 1.5 }),
+    shadowUpdate: shadowUpdateField(),
     cascades: CascadeSettings,
     angularDiameter: t.f32({
       default: 0.53,
@@ -116,21 +126,52 @@ const pointFields = {
   }),
 }
 
+/** The fields point and spot lights share, for reading either kind's columns. */
+type PointLike = ComponentDef<
+  typeof pointFields &
+    ReturnType<typeof shadowFields> & { shadowUpdate: ReturnType<typeof shadowUpdateField> }
+>
+
+export const FALLOFFS = ['physical', 'tabletop'] as const
+
 export const PointLight = defineComponent(
   'render/PointLight',
-  { ...pointFields, ...shadowFields({ bias: 0.02, normalBias: 1 }) },
+  {
+    ...pointFields,
+    ...shadowFields({ bias: 0.02, normalBias: 1 }),
+    shadowUpdate: shadowUpdateField(),
+    falloff: t.enum(FALLOFFS, {
+      description:
+        "physical: inverse square, windowed to zero at range. tabletop (0057): full intensity inside bright, then linear to zero at range (a VTT light's bright and dim radii).",
+    }),
+    bright: t.f32({
+      min: 0,
+      unit: 'm',
+      description:
+        'Tabletop falloff: the radius of full intensity. Past it, light fades linearly to zero at range.',
+    }),
+  },
   {
     description:
-      'Light emitted equally in all directions, in lumens (intensity lm / 4π candela), with physical inverse-square falloff windowed to zero at range.',
+      'Light emitted equally in all directions, in lumens (intensity lm / 4π candela), with physical inverse-square falloff windowed to zero at range, or tabletop falloff (bright, then dim to range).',
     requires: [Transform],
   },
 )
+
+/**
+ * Tabletop falloff (0057): 1 inside `bright`, linear to 0 at `range`. Mirrors `light_falloff`
+ * in `shard::pbr::lights`.
+ */
+export function tabletopFalloff(distance: number, bright: number, range: number): number {
+  return Math.min(1, Math.max(0, (range - distance) / Math.max(range - bright, 1e-4)))
+}
 
 export const SpotLight = defineComponent(
   'render/SpotLight',
   {
     ...pointFields,
     ...shadowFields({ bias: 0.02, normalBias: 1 }),
+    shadowUpdate: shadowUpdateField(),
     innerAngle: t.f32({
       default: 30,
       min: 0,
@@ -219,6 +260,8 @@ export interface LightRecord {
   outerAngle: number
   radius: number
   alive: boolean
+  /** `shadowUpdate: 'on-change'`: the light's shadow maps are cached. */
+  cachedShadow: boolean
 }
 
 /**
@@ -241,6 +284,9 @@ export class LightStore {
   readonly directional: GpuBuffer
   readonly directionalData = new Float32Array(4 + MAX_DIRECTIONAL * 8)
   readonly directionalU32 = new Uint32Array(this.directionalData.buffer)
+  /** What the directional buffer holds, so an unchanged frame writes nothing (0055). */
+  private readonly directionalSent = new Float32Array(this.directionalData.length)
+  private directionalStale = true
   /** The first directional light with shadows: entity, and its settings. */
   shadowSun: {
     entity: Entity
@@ -251,6 +297,8 @@ export class LightStore {
     bias: number
     normalBias: number
     softness: number
+    /** `shadowUpdate: 'on-change'`: cascades are cached. */
+    cached: boolean
   } | null = null
   directionalCount = 0
   private generation: number
@@ -307,6 +355,7 @@ export class LightStore {
       outerAngle: 0,
       radius: 0,
       alive: true,
+      cachedShadow: false,
     }
     this.records[slot] = r
     this.byEntity.set(entity, r)
@@ -346,6 +395,7 @@ export class LightStore {
     if (this.generation !== this.gpu.generation) {
       this.generation = this.gpu.generation
       this.dirty.fill(1, 0, this.high)
+      this.directionalStale = true
     }
     let lights = 0
     let runStart = -1
@@ -367,7 +417,15 @@ export class LightStore {
     }
     this.uploadedLights = lights
     this.uploadedBytes = lights * LIGHT_FLOATS * 4
-    this.directional.write(this.directionalData)
+    const d = this.directionalData
+    const sent = this.directionalSent
+    let same = !this.directionalStale
+    for (let i = 0; same && i < d.length; i++) if (!Object.is(d[i], sent[i])) same = false
+    if (!same) {
+      this.directional.write(d)
+      sent.set(d)
+      this.directionalStale = false
+    }
   }
 }
 
@@ -395,6 +453,8 @@ function writeLight(
   softness: number,
   inner: number,
   outer: number,
+  falloff = 0,
+  bright = 0,
 ): void {
   const s = r.slot
   r.x = g[o + 3]!
@@ -442,6 +502,8 @@ function writeLight(
   store.set(s, 15, bias)
   store.set(s, 16, normalBias)
   store.set(s, 17, softness)
+  store.set(s, 18, falloff)
+  store.set(s, 19, bright)
 }
 
 /** Reads lights into the light store. Only lights whose values changed are re-uploaded later. */
@@ -459,8 +521,8 @@ export const extractLights = defineSystem({
     const since = ctx.lastRunTick
     seen.clear()
     for (const [def, kind, q] of [
-      [PointLight, POINT_KIND, points],
-      [SpotLight, SPOT_KIND, spots],
+      [PointLight as unknown as PointLike, POINT_KIND, points],
+      [SpotLight as unknown as PointLike, SPOT_KIND, spots],
     ] as const) {
       for (const table of q.tables) {
         const n = table.count
@@ -477,6 +539,9 @@ export const extractLights = defineSystem({
         const normalBias = table.column(def, 'shadowNormalBias')
         const softness = table.column(def, 'shadowSoftness')
         const inner = kind === SPOT_KIND ? table.column(SpotLight, 'innerAngle') : undefined
+        const update = table.column(def, 'shadowUpdate')
+        const falloff = kind === POINT_KIND ? table.column(PointLight, 'falloff') : undefined
+        const bright = kind === POINT_KIND ? table.column(PointLight, 'bright') : undefined
         const outer = kind === SPOT_KIND ? table.column(SpotLight, 'outerAngle') : undefined
         for (let i = 0; i < n; i++) {
           const entity = table.entities[i]!
@@ -485,6 +550,7 @@ export const extractLights = defineSystem({
           const r = store.record(entity, kind)
           if (!r) continue
           r.shadows = shadows[i] !== 0
+          r.cachedShadow = update[i] === 1
           if (existing === r && gChanged[i]! <= since && changed[i]! <= since) continue
           writeLight(
             store,
@@ -501,6 +567,8 @@ export const extractLights = defineSystem({
             softness[i]!,
             inner ? inner[i]! : 0,
             outer ? outer[i]! : 90,
+            falloff ? falloff[i]! : 0,
+            bright ? bright[i]! : 0,
           )
         }
       }
@@ -550,6 +618,7 @@ export const extractLights = defineSystem({
             bias: table.column(DirectionalLight, 'shadowBias')[i]!,
             normalBias: table.column(DirectionalLight, 'shadowNormalBias')[i]!,
             softness: table.column(DirectionalLight, 'shadowSoftness')[i]!,
+            cached: table.column(DirectionalLight, 'shadowUpdate')[i] === 1,
           }
         }
         count++
@@ -562,7 +631,7 @@ export const extractLights = defineSystem({
 
 /** Frees a light's slot when its component goes away (including despawn). */
 export function observeLightRemovals(world: World): void {
-  for (const def of [PointLight, SpotLight]) {
+  for (const def of [PointLight, SpotLight] as PointLike[]) {
     world.observe(onRemove(def), ({ entity, world }) => {
       world.tryResource(Lights)?.remove(entity)
     })

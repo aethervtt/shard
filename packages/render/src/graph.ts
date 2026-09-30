@@ -112,6 +112,8 @@ export const RenderPhase = {
   Opaque: 300,
   Lighting: 350,
   Sky: 400,
+  /** Coplanar ground bands (0057): after the sky, which draws where no depth was written. */
+  Ground: 420,
   Sprites: 450,
   Transparent: 500,
   Effects3d: 550,

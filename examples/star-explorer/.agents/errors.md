@@ -110,6 +110,8 @@ Every engine error is a `ShardError` with one of these codes.
 | `mesh/invalid` | @aethervtt/shard-mesh | positions/normals: 3 per vertex, uvs/uvs1: 2, colors/tangents/joints/weights: 4; indices must be < vertex count. |
 | `mesh/invalid-artifact` | @aethervtt/shard-mesh | Re-import the source (`shard import --force`). |
 | `mesh/not-gpu` | @aethervtt/shard-mesh | Change a CPU mesh with update(). |
+| `mirror/duplicate-key` | @aethervtt/shard-mirror | Keys are the host ids of documents: each may appear once per list. |
+| `mirror/no-diff` | @aethervtt/shard-mirror | Pass rev: (doc) => doc.rev when documents carry a revision (cheapest), or equal(prev, next). |
 | `nav/bad-cache` | @aethervtt/shard-nav |  |
 | `nav/bake-failed` | @aethervtt/shard-nav | Check the NavSource geometry has upward faces flatter than maxSlope, wide enough for agentRadius. |
 | `nav/invalid-grid` | @aethervtt/shard-nav |  |
@@ -319,8 +321,10 @@ Every engine error is a `ShardError` with one of these codes.
 | `texture/invalid` | @aethervtt/shard-texture |  |
 | `texture/invalid-array` | @aethervtt/shard-texture |  |
 | `texture/normal-map-mismatch` | @aethervtt/shard-sprite | A normal-map companion must match its image pixel for pixel. |
+| `texture/nothing-to-pack` | @aethervtt/shard-texture | Without either, leave metallicRoughnessTexture empty: the scalar factors apply. |
 | `texture/transcoder-unavailable` | @aethervtt/shard-texture | Basis Universal ships in @aethervtt/shard-texture/vendor/basis; check the files are present. |
 | `texture/unsupported-format` | @aethervtt/shard-texture | Use a 2D image, a 2D array (*.texarray.json), or a cube map (6 faces). |
+| `texture/wrong-kind` | @aethervtt/shard-texture | Decode them as RGBA8 (kind "u8"). |
 | `transform/cell-outside-grid` | @aethervtt/shard-scene | Nest the entity directly under an entity with transform/Grid, or remove its GridCell. |
 | `transform/grid-cycle` | @aethervtt/shard-transform | Check the ChildOf chain of your Grid entities. |
 | `transform/multiple-origins` | @aethervtt/shard-scene | Keep one transform/FloatingOrigin per world, usually on the camera. |
@@ -336,6 +340,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `ui/unknown-node` | @aethervtt/shard-ui | Pass an entity id or a scene path of a node under a UiRoot (ui.describe lists them). |
 | `ui/unknown-state` | @aethervtt/shard-ui |  |
 | `ui/unknown-style` | @aethervtt/shard-ui | Add it to the root's *.theme.json styles, or fix UiNode.style (ui.describe shows each node's). |
+| `vector/invalid-geometry` | @aethervtt/shard-vector | geometry is { kind: 'pen' \| 'line' \| 'rect' \| 'ellipse' \| 'cone' \| 'polygon', ... } in local (x, z) units. |
 | `verify/approval-needs-reason` | @aethervtt/shard-verify | Say why it looks the way it does: shard approve <shot> --reason "Shadows are softer since 0058". |
 | `verify/idle-timeout` | @aethervtt/shard-verify | Holding nothing: it was slow, not stuck; raise the plan's timeoutMs. |
 | `verify/invalid-json` | @aethervtt/shard-verify |  |

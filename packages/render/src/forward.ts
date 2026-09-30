@@ -30,7 +30,7 @@ import {
   MAX_LIGHTS_PER_CLUSTER,
   ViewLightList,
 } from './clusters'
-import { Culler, cullTransparent, GpuCuller } from './culling'
+import { Culler, cullGround, cullTransparent, GpuCuller } from './culling'
 import { addDisplayNodes } from './display-nodes'
 import { Environments, environmentParams } from './environment-state'
 import { GpuAssets, GpuAssetsResource } from './gpu-assets'
@@ -53,10 +53,12 @@ import {
   NotShadowReceiver,
   observeInstanceRemovals,
   prepareInstances,
+  ShadowWhenHidden,
   SkinnedMesh,
   VisibilityRange,
 } from './instances'
 import { observeOriginShifts } from './large-world'
+import { GroundLayer, RenderLayers } from './layers'
 import { expireLensFields, Lens, LensFields, LensPath } from './lens'
 import {
   AmbientLight,
@@ -79,6 +81,7 @@ import {
   variantCull,
 } from './material-pipelines'
 import { isTransparent, type MaterialType } from './materials'
+import { Outline, OutlinePath, observeOutlinesWithoutPass } from './outline'
 import { PixelPerfect, PixelPerfectPath, PixelTargets } from './pixel-perfect'
 import { Gpu, Graph, RenderDescribers, RenderSet, Shaders, Views } from './plugin'
 import {
@@ -109,16 +112,20 @@ import {
   fitCascades,
   fitLocalShadows,
   LocalShadows,
+  markShadowDrawn,
   packShadowData,
   SHADOW_DATA_FLOATS,
   ShadowPassUniforms,
   ShadowsResource,
+  type ShadowViewDraw,
+  shadowRedraw,
   shadowViewLayout,
 } from './shadows'
 import { SkinAssetType, Skins } from './skin-asset'
 import { GpuMemory, RenderCounters, RenderStats } from './stats'
 import {
   type CameraData,
+  CameraMoved,
   Cameras,
   cameraOf,
   DeferredPath,
@@ -241,6 +248,7 @@ const cameraCull: CullParams = {
   orthographic: false,
   lodState: undefined,
   updateLod: true,
+  layers: 0xffffffff,
 }
 const shadowCull: CullParams = {
   planes: null,
@@ -250,6 +258,7 @@ const shadowCull: CullParams = {
   orthographic: false,
   lodState: undefined,
   updateLod: false,
+  layers: 0xffffffff,
 }
 
 /** Culling parameters of a camera: its (possibly frozen) frustum, eye, and LOD scale. */
@@ -257,6 +266,7 @@ function cameraParams(cam: CameraData, out: CullParams): CullParams {
   out.planes = cam.frozenFrustum ?? cam.frustum
   out.eye = cam.frozenPosition ?? cam.position
   out.orthographic = cam.orthographic
+  out.layers = cam.layers
   // Screen size = diameter / viewport height: 2r / (2 d tan(fov/2)), or 2r / orthoHeight.
   out.lodScale = cam.orthographic ? 2 / cam.orthoHeight : 1 / Math.tan(cam.fovY / 2)
   if (cam.lodState.length < cam.lodCapacity)
@@ -265,7 +275,7 @@ function cameraParams(cam: CameraData, out: CullParams): CullParams {
   return out
 }
 
-const queue = defineSystem({
+export const forwardQueue = defineSystem({
   name: 'render/forward-queue',
   description:
     'Culls instances per camera and shadow view (on the GPU when it can), clusters lights, and writes view uniforms.',
@@ -305,8 +315,18 @@ const queue = defineSystem({
       if (gpuCull) {
         culler.add(store, cam.draws, params, culler.lodCamera(cam.entity), forwardOnly)
         cullTransparent(store, cam.transparent, params, cam.forward)
+        cullGround(store, cam.ground, params)
       } else {
-        store.cullCpu(cam.draws, params, undefined, cam.transparent, cam.forward, forwardOnly)
+        store.cullCpu(
+          cam.draws,
+          params,
+          undefined,
+          cam.transparent,
+          cam.forward,
+          forwardOnly,
+          false,
+          cam.ground,
+        )
       }
       // Nearest first within each pipeline and material: the depth test culls overdraw.
       store.orderNearFirst(cam.draws, cam.position)
@@ -341,16 +361,20 @@ const queue = defineSystem({
     }
     const local = shadows.local
     fitLocalShadows(local, settings.shadowMapSize)
+    // Cached shadow maps (0055) redraw only when something they show changed.
+    store.checkMeshVersions()
     if (main) {
       for (let i = 0; i < local.spots.length; i++) {
         const view = local.spotViews[i]!
         cullShadow(main, view.draws, view.frustum)
         view.offset = shadows.uniforms.push(view.viewProj)
+        view.redraw = shadowRedraw(view, local.spots[i]?.cachedShadow ?? false, store)
       }
       for (let i = 0; i < local.points.length * 6; i++) {
         const view = local.pointViews[i]!
         cullShadow(main, view.draws, view.frustum)
         view.offset = shadows.uniforms.push(view.viewProj)
+        view.redraw = shadowRedraw(view, local.points[(i / 6) | 0]?.cachedShadow ?? false, store)
       }
     }
 
@@ -369,6 +393,7 @@ const queue = defineSystem({
         for (let i = 0; i < pv.cascades.count; i++) {
           const v = pv.cascades.views[i]!
           v.offset = shadows.uniforms.push(v.viewProj)
+          v.redraw = shadowRedraw(v, sun.cached, store)
         }
       } else {
         pv.cascades.count = 0
@@ -398,8 +423,8 @@ const queue = defineSystem({
             ? (culler.drawCounts.get(cam.forwardOnly) ?? 0)
             : cam.forwardOnly.length
       }
-      st.visible += cam.transparent.visible
-      st.drawCalls += cam.transparent.length
+      st.visible += cam.transparent.visible + cam.ground.visible
+      st.drawCalls += cam.transparent.length + cam.ground.length
       stats.set(view.name, st)
     }
   },
@@ -452,6 +477,19 @@ const envScratch = new Float32Array(4)
 const jitterScratch = new Float32Array(4)
 const noTransmittance = new Float32Array(16).fill(1)
 
+const pixelScaleScratch = new Float32Array(4)
+
+/** `ViewUniform.pixelScale` for a camera: see the field. */
+export function viewPixelScale(cam: CameraData, out: Float32Array): Float32Array {
+  out[0] = (cam.pixelRatio * cam.width) / Math.max(1, cam.displayWidth)
+  out[1] = cam.orthographic
+    ? cam.orthoHeight / Math.max(1, cam.height)
+    : (2 * Math.tan(cam.fovY / 2)) / Math.max(1, cam.height)
+  out[2] = cam.orthographic ? 1 : 0
+  out[3] = 0
+  return out
+}
+
 function writeViewUniform(
   world: World,
   state: ForwardState,
@@ -491,6 +529,7 @@ function writeViewUniform(
     jitter: jitterScratch as never,
     sunTransmittance: (world.tryResource(Atmospheres)?.cameras.get(cam.entity)?.sunTransmittance ??
       noTransmittance) as never,
+    pixelScale: viewPixelScale(cam, pixelScaleScratch) as never,
   })
   pv.uniform.write(new Float32Array(state.viewBytes.buffer, 0, viewLayout.size / 4))
 }
@@ -513,7 +552,7 @@ export const upload = defineSystem({
 
 // --- graph nodes ---------------------------------------------------------------
 
-const VERTEX_BUFFERS: GPUVertexBufferLayout[] = [
+export const VERTEX_BUFFERS: GPUVertexBufferLayout[] = [
   { arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] },
   { arrayStride: 12, attributes: [{ shaderLocation: 1, offset: 0, format: 'float32x3' }] },
   { arrayStride: 8, attributes: [{ shaderLocation: 2, offset: 0, format: 'float32x2' }] },
@@ -557,6 +596,13 @@ export const PASS_GBUFFER = 3
 export const PASS_PREPASS = 5
 /** Entity ids, normals, and depth for GPU picking (picking.ts). */
 export const PASS_PICK = 7
+/** Ground bands (0057): forward shading, depth tested but not written. */
+export const PASS_GROUND = 9
+/** Picking ground bands: they share their floor's depth, so equal depth passes. */
+export const PASS_PICK_GROUND = 11
+/** Depth bias of ground draws against the floor under them (float depth ULPs, and slope). */
+const GROUND_DEPTH_BIAS = 8
+const GROUND_SLOPE_BIAS = 2
 
 /**
  * The picking pass's color targets: entity id, and the world normal with the depth in w (0 where
@@ -604,7 +650,8 @@ export function drawMaterials(
     const blend = variantBlend(variant)
     const gbuffer = pass === PASS_GBUFFER
     const prepass = pass === PASS_PREPASS
-    const pick = pass === PASS_PICK
+    const pick = pass === PASS_PICK || pass === PASS_PICK_GROUND
+    const ground = pass === PASS_GROUND || pass === PASS_PICK_GROUND
     // The G-buffer only takes standard lighting; anything else draws forward.
     if (gbuffer && !type.standard) continue
     // The G-buffer, the prepass, and picking are always single-sampled.
@@ -657,7 +704,7 @@ export function drawMaterials(
       }
       const transparent = isTransparent(blend) && !pick
       pipeline = state.pipelines.create(gpu, key, {
-        label: `${pick ? 'pick' : prepass ? 'prepass' : gbuffer ? 'gbuffer' : 'forward'}/${type.name}/${blend}/x${msaa}/${variantCull(variant)}`,
+        label: `${pick ? 'pick' : prepass ? 'prepass' : gbuffer ? 'gbuffer' : ground ? 'ground' : 'forward'}/${type.name}/${blend}/x${msaa}/${variantCull(variant)}`,
         layout: materialLayout(gpu, state, assets, type, store),
         vertex: { module, entryPoint: 'vs', buffers: VERTEX_BUFFERS },
         fragment: {
@@ -674,8 +721,15 @@ export function drawMaterials(
         primitive: { topology: 'triangle-list', cullMode: variantCull(variant), frontFace: 'ccw' },
         depthStencil: {
           format: 'depth32float',
-          depthWriteEnabled: !transparent,
-          depthCompare: transparent ? 'greater-equal' : 'greater',
+          // Ground bands never write depth (so they never fight); picking them writes it, so the
+          // nearest band wins at equal depth.
+          depthWriteEnabled: pick || (!transparent && !ground),
+          depthCompare: transparent || ground ? 'greater-equal' : 'greater',
+          // Ground bands lie on their floor: a few ULPs and a slope term keep them in front of it
+          // at any angle (reversed Z: toward the camera). Bands don't write depth, so they never
+          // fight each other; the order does that.
+          depthBias: ground ? GROUND_DEPTH_BIAS : 0,
+          depthBiasSlopeScale: ground ? GROUND_SLOPE_BIAS : 0,
         },
         multisample: { count: msaa },
       })
@@ -857,6 +911,28 @@ function forwardNode(state: ForwardState) {
   }
 }
 
+/**
+ * Ground bands (0057): coplanar layers in (band, order) order after opaque geometry and the sky,
+ * depth-tested so walls and props in front hide them, never writing depth so no band fights another.
+ */
+function groundNode(state: ForwardState) {
+  return {
+    kind: 'render' as const,
+    phase: RenderPhase.Ground,
+    enabled: (view: RenderView) => (cameraOf(view)?.ground.length ?? 0) > 0,
+    reads: ['clusters', 'shadow-cascades', 'shadow-local', 'environment', 'culled', 'ssao'],
+    writes: ['scene-color', 'hdr'],
+    color: (view: RenderView) => sceneColor(view),
+    depth: { resource: 'scene-depth', readOnly: true },
+    run: (ctx: NodeContext) => {
+      const cam = cameraOf(ctx.view)!
+      const pv = state.views.get(ctx.view.name)
+      if (!pv) return
+      drawMaterials(ctx, state, pv, cam, cam.ground, PASS_GROUND)
+    },
+  }
+}
+
 /** Blended materials, after opaque geometry and the sky: back to front, depth-tested, no writes. */
 function transparentNode(state: ForwardState) {
   return {
@@ -946,6 +1022,24 @@ function clusterNode(state: ForwardState) {
   }
 }
 
+/** Draws skipped before a shadow view started (a skip during it leaves its layer incomplete). */
+let skippedBefore = 0
+
+/** Whether a shadow view draws this frame; counts it when it does. */
+function beginShadowView(ctx: NodeContext, view: ShadowViewDraw): boolean {
+  if (!view.redraw && view.drawn) return false
+  skippedBefore = ctx.gpu.pipelines.skipped
+  ctx.world.resource(RenderStats).current.shadowMapsRendered++
+  return true
+}
+
+/** A cached layer is kept only if every caster drew. */
+function endShadowView(ctx: NodeContext, view: ShadowViewDraw): void {
+  if (ctx.gpu.pipelines.skipped === skippedBefore)
+    markShadowDrawn(view, ctx.world.resource(Instances))
+  else view.drawn = false
+}
+
 /** Renders the camera's cascades: one depth layer per cascade. */
 function cascadeNode(state: ForwardState) {
   return {
@@ -961,16 +1055,19 @@ function cascadeNode(state: ForwardState) {
       const size = ctx.world.resource(LightingSettings).cascadeMapSize
       const texture = pv.cascades.ensureTexture(ctx.gpu, size, ctx.view.name)
       for (let i = 0; i < pv.cascades.count; i++) {
+        const view = pv.cascades.views[i]!
+        if (!beginShadowView(ctx, view)) continue
         drawShadowCasters(
           ctx,
           texture.createView({ dimension: '2d', baseArrayLayer: i, arrayLayerCount: 1 }),
-          pv.cascades.views[i]!,
-          pv.cascades.views[i]!.offset,
+          view,
+          view.offset,
           shadows.uniforms,
           state.pipelines,
           state.layouts.shadowView,
           `shadows/cascade${i}`,
         )
+        endShadowView(ctx, view)
       }
     },
   }
@@ -995,6 +1092,7 @@ function localShadowNode(state: ForwardState) {
         texture.createView({ dimension: '2d', baseArrayLayer: i, arrayLayerCount: 1 })
       for (let i = 0; i < local.spots.length; i++) {
         const view = local.spotViews[i]!
+        if (!beginShadowView(ctx, view)) continue
         drawShadowCasters(
           ctx,
           layer(local.spotTexture!, i),
@@ -1005,9 +1103,11 @@ function localShadowNode(state: ForwardState) {
           state.layouts.shadowView,
           `shadows/spot${i}`,
         )
+        endShadowView(ctx, view)
       }
       for (let i = 0; i < local.points.length * 6; i++) {
         const view = local.pointViews[i]!
+        if (!beginShadowView(ctx, view)) continue
         drawShadowCasters(
           ctx,
           layer(local.pointTexture!, i),
@@ -1018,6 +1118,7 @@ function localShadowNode(state: ForwardState) {
           state.layouts.shadowView,
           `shadows/point${i}`,
         )
+        endShadowView(ctx, view)
       }
     },
   }
@@ -1325,6 +1426,7 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       MorphWeights,
       NotShadowCaster,
       NotShadowReceiver,
+      ShadowWhenHidden,
       SkinnedMesh,
       VisibilityRange,
       AmbientLight,
@@ -1347,6 +1449,12 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       SkinAssetType,
       Skins,
       RenderScale,
+      // tabletop (0057)
+      GroundLayer,
+      RenderLayers,
+      Outline,
+      OutlinePath,
+      CameraMoved,
       // shadows
       ShadowsResource,
       // post
@@ -1391,6 +1499,7 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       w.initResource(ScreenEffectHandlers)
       w.initResource(RenderDescribers).set('screenEffects', describeScreenEffects)
       observeInstanceRemovals(w)
+      observeOutlinesWithoutPass(w)
       observeLightRemovals(w)
       observeOriginShifts(w)
       app
@@ -1404,7 +1513,7 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
           extractLights.inSet(RenderSet.Extract),
           prepareInstances.inSet(RenderSet.Prepare),
           prepareLights.inSet(RenderSet.Prepare),
-          queue.inSet(RenderSet.Queue),
+          forwardQueue.inSet(RenderSet.Queue),
           upload.inSet(RenderSet.Upload),
         )
     },
@@ -1417,6 +1526,7 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
         etc2: gpu.features.has('texture-compression-etc2'),
       })
       const assets = new GpuAssets(gpu, app.world.initResource(GpuMemory))
+      assets.counts = app.world.initResource(RenderStats).current
       const store = new InstanceStore(gpu)
       app.insertResource(GpuAssetsResource, assets)
       app.insertResource(Instances, store)
@@ -1464,6 +1574,7 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       graph.addNode('shadows/cascades', cascadeNode(state))
       graph.addNode('shadows/local', localShadowNode(state))
       graph.addNode('forward-opaque', forwardNode(state))
+      graph.addNode('forward-ground', groundNode(state))
       graph.addNode('forward-transparent', transparentNode(state))
       graph.addNode('depth-resolve', depthResolveNode())
       addDisplayNodes(app.world)
