@@ -74,7 +74,16 @@ async function run(page: Page, demo: string, settleMs: number): Promise<DemoRun>
     const errors = g.describe().recentErrors.map((e) => `${e.code}: ${e.message}`)
     return { error: undefined, gpuErrors: errors }
   }, settleMs)
-  const shot = await decodePng(new Uint8Array(await page.locator('#viewport').screenshot()))
+  // The page, clipped to the viewport: an element screenshot first waits for two frames in which
+  // the element doesn't move, which a heavy demo on a software GPU may not give it in time.
+  const box = await page.locator('#viewport').boundingBox()
+  const shot = await decodePng(
+    new Uint8Array(
+      await page.screenshot(
+        box ? { clip: box, timeout: timeout(30_000) } : { timeout: timeout(30_000) },
+      ),
+    ),
+  )
   // Distinct colors, quantized to 4 bits a channel: a blank or single-color canvas has one or two.
   const seen = new Set<number>()
   const d = shot.data

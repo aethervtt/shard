@@ -141,7 +141,9 @@ unchanged. The composite reads layer masks as textures, not storage.
 - [x] `fog.sample` inside a revealed polygon's hole returns the base; inside the polygon it returns
       0; at `feather / 2` outside the edge it returns 0.5 ± 0.05.
 - [x] Hide and reveal regions applied in list order match a CPU reference raster of 200 mixed
-      regions within 1/255 per texel.
+      regions within 1/255 per texel, but for at most 0.1% of texels within 2/255: a driver may round
+      a borderline blend the other way (D3D allows it; WARP does), and the difference carries into
+      the regions drawn over it.
 - [x] Appending one brush stroke to 4,000 regions draws only that stroke (counted), in under 1 ms
       of GPU time (bench, with timestamp queries).
 - [x] Changing only the vision polygons redraws the vision layer and leaves the manual mask
