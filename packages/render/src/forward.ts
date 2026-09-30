@@ -50,6 +50,7 @@ import {
   VisibilityRange,
 } from './instances'
 import { observeOriginShifts } from './large-world'
+import { expireLensFields, Lens, LensFields, LensPath } from './lens'
 import {
   AmbientLight,
   DirectionalLight,
@@ -1348,6 +1349,10 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       PixelPerfect,
       PixelPerfectPath,
       PixelTargets,
+      // lens fields
+      Lens,
+      LensFields,
+      LensPath,
     ],
     dependencies: ['render', 'core/transform'],
     build(app) {
@@ -1364,6 +1369,7 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       w.initResource(Environments)
       w.initResource(ViewSettings).msaa = options.msaa ?? 4
       Object.assign(w.initResource(RenderScale), options.renderScale)
+      w.initResource(LensFields)
       observeInstanceRemovals(w)
       observeLightRemovals(w)
       observeOriginShifts(w)
@@ -1371,6 +1377,7 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
         .addSystems(PostUpdate, computeVisibility.after(TransformSystems), applyPhysicalCameras)
         .addSystems(
           Last,
+          expireLensFields.inSet(RenderSet.Begin),
           extractCameras.inSet(RenderSet.Extract),
           extractLights.inSet(RenderSet.Extract),
           prepareInstances.inSet(RenderSet.Prepare),

@@ -7,6 +7,7 @@ import { environmentPlugin } from './environment-plugin'
 import { type ForwardPluginOptions, forwardCorePlugin } from './forward'
 import { fxaaPlugin } from './fxaa'
 import { gizmosPlugin } from './gizmos-plugin'
+import { lensPlugin } from './lens-plugin'
 import { pickingPlugin } from './picking-plugin'
 import { pixelPerfectPlugin } from './pixel-perfect-plugin'
 import { postPlugin } from './post-plugin'
@@ -32,6 +33,7 @@ export function forwardPlugin(options: ForwardPluginOptions = {}): Plugin {
         deferredPlugin,
         skinningPlugin,
         pixelPerfectPlugin,
+        lensPlugin,
         shadowCatcherPlugin,
         dynamicResolutionPlugin,
         renderDescribePlugin,

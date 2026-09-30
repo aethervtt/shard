@@ -32,6 +32,7 @@ import { galaxyPlugin, Population } from './galaxy'
 import { gridsDemoPlugin } from './grids'
 import { applyResolution, hudPlugin } from './hud'
 import { ikDemoPlugin } from './ik'
+import { lensDemoPlugin } from './lens'
 import { lightsPlugin } from './lights'
 import { lights2dDemoPlugin } from './lights2d'
 import { nav2dDemoPlugin, navDemoPlugin } from './nav'
@@ -58,6 +59,7 @@ const DEMOS = [
   'deferred',
   'crowd',
   'post',
+  'lens',
   'sprites',
   'particles',
   'physics',
@@ -106,6 +108,8 @@ if (demo === 'galaxy') {
   app.addPlugin(TransformPlugin, forwardPlugin({ msaa: 1 }), hudPlugin, crowdPlugin)
 } else if (demo === 'post') {
   app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, postPlugin)
+} else if (demo === 'lens') {
+  app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, lensDemoPlugin)
 } else if (demo === 'sprites') {
   app.addPlugin(TransformPlugin, forwardPlugin({ msaa: 1 }), spritePlugin, hudPlugin, spritesPlugin)
 } else if (demo === 'particles') {

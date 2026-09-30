@@ -39,15 +39,20 @@ import {
   AmbientLight,
   Bloom,
   Camera3d,
+  Cameras,
   DirectionalLight,
+  describeLens,
   Exposure,
+  forwardLensFields,
   forwardPlugin,
+  Lens,
   MaterialAsset,
   Materials,
   Mesh3d,
   Meshes,
   MeshMaterial,
   NotShadowCaster,
+  publishLensField,
   renderOwner,
   renderPlugin,
   ShadowCatcher,
@@ -151,6 +156,20 @@ async function mountTable(): Promise<App> {
     ],
     Transform,
   )
+  // A one-unit grid, as a VTT table has: straight lines show where a lens field bends it (0063).
+  const line = meshes.add(cube({ size: 1 }))
+  const ink = materials.add(new MaterialAsset({ baseColor: [0.12, 0.17, 0.11, 1], roughness: 0.9 }))
+  for (let i = -8; i <= 8; i++) {
+    for (const scale of [
+      [0.04, 0.01, 16],
+      [16, 0.01, 0.04],
+    ] as const) {
+      w.spawn([Mesh3d, { mesh: line }], [MeshMaterial, { material: ink }], NotShadowCaster, [
+        Transform,
+        { translation: scale[0] < 1 ? [i, 0.005, 0] : [0, 0.005, i], scale: [...scale] },
+      ])
+    }
+  }
   const token = meshes.add(cylinder({ radius: 0.45, height: 0.25 }))
   const colors: [number, number, number, number][] = [
     [0.8, 0.25, 0.2, 1],
@@ -179,6 +198,8 @@ async function mountTable(): Promise<App> {
     [Camera3d, { fovY: 45, clearColor: [0.05, 0.06, 0.08, 1] }],
     [Exposure, { ev100: 13 }],
     [Transform, { translation: eye, rotation: lookAt(eye, [0, 0, 0]) }],
+    // The table bends its own pixels under the dice's lens fields (0063).
+    Lens,
   )
   meterFrames(app)
   app.setRunner(runner())
@@ -244,10 +265,71 @@ function stopPlayback(world: World): void {
   world.resource(FrameDemand).set('dice-track', false)
 }
 
+// --- the black hole (0063): a landed die publishes a lens field the table bends under ------------
+
+interface BlackHole {
+  die: Entity
+  /** Elapsed time when the die landed; NaN while it's still rolling. */
+  start: number
+}
+
+const blackHoles = new WeakMap<World, BlackHole>()
+const diceCameras = new WeakMap<World, Entity>()
+const BLACK_HOLE_S = 4
+const holeAt = new Float64Array(2)
+
+/** Where `entity` shows on the dice canvas, in its CSS pixels. False when it's behind the camera. */
+function screenOf(world: World, entity: Entity, out: Float64Array): boolean {
+  const cam = world.resource(Cameras).get(diceCameras.get(world)!)
+  if (!cam) return false
+  const p = world.get(entity, Transform).translation
+  const x = p[0]!
+  const y = p[1]!
+  const z = p[2]!
+  const m = cam.viewProj
+  const w = m[3]! * x + m[7]! * y + m[11]! * z + m[15]!
+  if (w <= 0) return false
+  const cx = (m[0]! * x + m[4]! * y + m[8]! * z + m[12]!) / w
+  const cy = (m[1]! * x + m[5]! * y + m[9]! * z + m[13]!) / w
+  out[0] = ((cx + 1) / 2) * (cam.displayWidth / cam.pixelRatio)
+  out[1] = ((1 - cy) / 2) * (cam.displayHeight / cam.pixelRatio)
+  return true
+}
+
+/**
+ * Once the die has landed, it refreshes its field every frame for 4 s, ramping the pull in and out.
+ * Then it stops refreshing: the field expires 250 ms later, here and in the table's copy.
+ */
+const blackHole = defineSystem({
+  name: 'embedding/black-hole',
+  run: (_, world) => {
+    const hole = blackHoles.get(world)
+    if (!hole || playbacks.has(world)) return
+    const demand = world.resource(FrameDemand)
+    const now = world.resource(Time).elapsed
+    if (Number.isNaN(hole.start)) hole.start = now
+    const t = now - hole.start
+    if (t >= BLACK_HOLE_S || !world.isAlive(hole.die) || !screenOf(world, hole.die, holeAt)) {
+      blackHoles.delete(world)
+      demand.release('black-hole')
+      return
+    }
+    demand.hold('black-hole')
+    const ramp = Math.min(1, t / 0.5, (BLACK_HOLE_S - t) / 0.6)
+    publishLensField(world, {
+      screen: [holeAt[0]!, holeAt[1]!],
+      radius: 170 + 12 * Math.sin(t * 4),
+      strength: -ramp,
+      ttlMs: 250,
+      source: hole.die,
+    })
+  },
+})
+
 function trackPlugin(tracks: TrackClient): Plugin {
   return {
     name: 'embedding/dice-tracks',
-    build: (app) => void app.addSystems(Update, playTracks),
+    build: (app) => void app.addSystems(Update, playTracks, blackHole.after(playTracks)),
     // The worker goes with the app (0052 teardown): 20 mount cycles leave no workers behind.
     dispose: () => tracks.dispose(),
   }
@@ -328,7 +410,7 @@ async function mountDice(): Promise<Dice> {
     )
   }
   const eye: [number, number, number] = [0, 10, 8]
-  w.spawn(
+  const camera = w.spawn(
     // Alpha 0: nothing drawn shows the page. Bloom's glow raises alpha over it.
     [Camera3d, { fovY: 40, clearColor: [0, 0, 0, 0] }],
     [Exposure, { ev100: 13 }],
@@ -336,8 +418,17 @@ async function mountDice(): Promise<Dice> {
     [Bloom, { intensity: 0.3, threshold: 1500 }],
     [Transform, { translation: eye, rotation: lookAt(eye, [0, 0, 0]) }],
   )
+  diceCameras.set(w, camera)
   w.resource(ParticleEffects).add(SPARKS)
   meterFrames(app)
+  // The host forwards the dice's lens fields to the table after each dice frame (0063). Fields are
+  // in each canvas's CSS pixels, and the table's canvas starts below the top bar: offset them.
+  app.onFrame(() => {
+    if (table.disposed) return
+    const t = tableCanvas.getBoundingClientRect()
+    const d = diceCanvas.getBoundingClientRect()
+    forwardLensFields(w, table.world, [t.left - d.left, t.top - d.top])
+  })
   app.setRunner(runner())
   void app.run()
   // Load the worker's WASM now, so the first roll doesn't wait for it.
@@ -547,6 +638,17 @@ button('roll').onclick = () => dice && void roll(dice)
 button('live').onclick = () => dice && liveRoll(dice)
 button('cancel').onclick = () => dice && void cancelRoll(dice)
 button('sparks').onclick = () => dice && sparks(dice)
+button('hole').onclick = async () => {
+  const d = dice
+  if (!d) return
+  const w = d.app.world
+  if (!d.dice.some((e) => w.isAlive(e))) await roll(d)
+  const die = d.dice.find((e) => w.isAlive(e))
+  if (die === undefined || d.app.disposed) return
+  // Starts when the die lands: the system waits out the playback.
+  blackHoles.set(w, { die, start: Number.NaN })
+  d.app.requestFrame()
+}
 button('mount').onclick = async () => {
   if (dice) {
     const d = dice
@@ -607,6 +709,19 @@ function line(name: string, app: App | undefined): string {
   return `${name.padEnd(6)} ${fps(app)}   frame ${String(w.resource(Time).frame).padStart(6)}   ${demand.mode}   holding: ${held.length ? held.join(', ') : '—'}\n       gpu: ${fmt(gpu.stats(renderOwner(w)))}`
 }
 
+/** Lens fields (0063): what the table bends, and whether its pass and lens target exist. */
+function lensLine(): string {
+  if (table.disposed) return ''
+  const views = Object.values(describeLens(table.world).views) as {
+    fields: unknown[]
+    ran: boolean
+    target: number[] | null
+  }[]
+  const v = views[0]
+  if (!v) return 'lens: —'
+  return `lens: table bending ${v.fields.length} field(s), post/lens ${v.ran ? 'ran' : 'off'}, target ${v.target ? v.target.join('×') : '— (released)'}`
+}
+
 /** Tracks (0053): which build does what, the golden check, the last roll, the last cancel. */
 function tracksLines(): string {
   const physics = dice && !dice.app.disposed ? dice.app.world.tryResource(Physics) : undefined
@@ -642,6 +757,7 @@ setInterval(() => {
     line('table', table),
     line('dice', dice?.app),
     tracksLines(),
+    lensLine(),
     `device: ${fmt(gpu.stats())}   owners: ${gpu.owners().join(', ')}   surfaces: ${gpu.surfaces.map((s) => `${s.label} (${s.alpha}, ${s.width}×${s.height})`).join(', ')}`,
     warning(),
     note,
