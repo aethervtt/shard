@@ -53,6 +53,7 @@ import {
   NotShadowReceiver,
   observeInstanceRemovals,
   prepareInstances,
+  ShadowWhenHidden,
   SkinnedMesh,
   VisibilityRange,
 } from './instances'
@@ -1423,6 +1424,7 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       MorphWeights,
       NotShadowCaster,
       NotShadowReceiver,
+      ShadowWhenHidden,
       SkinnedMesh,
       VisibilityRange,
       AmbientLight,

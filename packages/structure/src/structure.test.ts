@@ -520,7 +520,7 @@ describe('the max fixture', () => {
       r.frame()
     }
     const state = r.app.world.resource(Structure)
-    expect(state.walls.size + state.floors.size).toBe(0)
+    expect(state.walls.size + state.slabs.size).toBe(0)
     // The first build warms V8 and the pipeline caches; the rest are what a scene load costs.
     times.shift()
     times.sort((a, b) => a - b)

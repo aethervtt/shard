@@ -53,6 +53,12 @@ export const GroundLayer = defineComponent(
         'Stacking band: tiles 10, grid 20, drawings 30, tokens-flat 40, fog 50, overlay 60. Higher draws over lower.',
     }),
     order: t.i32({ description: 'Order within the band: higher draws over lower.' }),
+    level: t.i8({
+      min: -16,
+      max: 15,
+      description:
+        'Structure level index (0067): ground layers sort by level first, so a lower level never draws over an upper one. 0 is the ground level.',
+    }),
   },
   {
     description:

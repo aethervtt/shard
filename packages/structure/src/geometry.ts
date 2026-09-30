@@ -600,46 +600,236 @@ export function emitWall(
 }
 
 // ---------------------------------------------------------------------------
-// Floors
+// Slabs: floors and roofs (0055, 0067)
+//
+// A slab is an outline with holes (cutouts), a surface that is flat or rises along one slope, and
+// an optional thickness below it. The surface is triangulated once per edit; a thick slab adds its
+// underside, its outline's edges and its holes' rims. A hole can have a frame: a band around it on
+// the surface, standing `depth` above it.
 
-/** A floor ready to clip: its outline and ear-clipped triangles, computed once per edit. */
+/** A hole's frame (0067): a band `width` wide around ring `ring`, standing `depth` above the surface. */
+export interface SlabFrame {
+  ring: number
+  width: number
+  depth: number
+}
+
+export interface SlabOptions {
+  /** Holes, each a simple polygon inside the outline, either winding. */
+  holes?: readonly ArrayLike<ArrayLike<number>>[]
+  /** Frames around holes (`ring` 1 is the first hole). */
+  frames?: readonly SlabFrame[]
+  thickness?: number
+  /** Degrees: 0 is flat; more is one slope rising along `ridge` from the outline's lowest point. */
+  pitch?: number
+  /** The direction the slope rises, (x, z). */
+  ridge?: ArrayLike<number>
+}
+
+/** A floor or roof ready to clip: its rings, triangles and frames, computed once per edit. */
 export interface FloorShape {
-  /** Flat (x, z) pairs. */
+  /** Flat (x, z) pairs: the outline, then each hole. */
   points: Float64Array
+  /** Where each ring starts, in points, then the total: ring r is `rings[r]` to `rings[r + 1]`. */
+  rings: Uint32Array
+  /** Per ring, the sign that turns an edge's left normal into the one pointing out of the slab. */
+  sides: Int8Array
   /** Three vertex indices per triangle. */
   triangles: Uint32Array
+  /** The surface's height at its lowest point: y = elevation + slope × (x·rx + z·rz − d0). */
   elevation: number
-  /** Outline bounds. */
+  slope: number
+  rx: number
+  rz: number
+  d0: number
+  thickness: number
+  frames: readonly SlabFrame[]
+  /** Each framed ring's points offset onto the slab by its frame's width (indexed as points). */
+  frameOuter: Float64Array
+  /** Bounds of everything it draws (the outline and frames). */
   minX: number
   minZ: number
   maxX: number
   maxZ: number
 }
 
-/** Triangulates a floor outline (a simple polygon, either winding). */
-export function floorShape(points: ArrayLike<ArrayLike<number>>, elevation: number): FloorShape {
-  const flat = new Float64Array(points.length * 2)
+/** The surface height of a slab at (x, z). */
+export function slabY(f: FloorShape, x: number, z: number): number {
+  return f.elevation + f.slope * (x * f.rx + z * f.rz - f.d0)
+}
+
+/**
+ * Triangulates a slab: an outline (a simple polygon, either winding) with holes, and the frames
+ * around them.
+ */
+export function floorShape(
+  points: ArrayLike<ArrayLike<number>>,
+  elevation: number,
+  options: SlabOptions = {},
+): FloorShape {
+  const holes = options.holes ?? []
+  let count = points.length
+  for (const h of holes) count += h.length
+  const flat = new Float64Array(count * 2)
+  const rings = new Uint32Array(holes.length + 2)
+  let n = 0
+  const add = (ring: ArrayLike<ArrayLike<number>>) => {
+    for (let i = 0; i < ring.length; i++) {
+      flat[n * 2] = ring[i]![0]!
+      flat[n * 2 + 1] = ring[i]![1]!
+      n++
+    }
+  }
+  add(points)
+  for (let h = 0; h < holes.length; h++) {
+    rings[h + 1] = n
+    add(holes[h]!)
+  }
+  rings[holes.length + 1] = n
+  const sides = new Int8Array(holes.length + 1)
+  for (let r = 0; r <= holes.length; r++) {
+    const area = polygon.signedArea(flat, rings[r]!, rings[r + 1]!)
+    // The outline's inside is its left when counter-clockwise; a hole's inside isn't the slab.
+    sides[r] = area > 0 === (r === 0) ? -1 : 1
+  }
+  const triangles = Uint32Array.from(polygon.triangulate(flat, rings.subarray(1, holes.length + 1)))
+  const pitch = ((options.pitch ?? 0) * Math.PI) / 180
+  let rx = options.ridge?.[0] ?? 0
+  let rz = options.ridge?.[1] ?? 1
+  const rl = Math.sqrt(rx * rx + rz * rz)
+  if (rl < 1e-9) {
+    rx = 0
+    rz = 1
+  } else {
+    rx /= rl
+    rz /= rl
+  }
+  let d0 = Infinity
   let minX = Infinity
   let minZ = Infinity
   let maxX = -Infinity
   let maxZ = -Infinity
   for (let i = 0; i < points.length; i++) {
-    const x = points[i]![0]!
-    const z = points[i]![1]!
-    flat[i * 2] = x
-    flat[i * 2 + 1] = z
+    const x = flat[i * 2]!
+    const z = flat[i * 2 + 1]!
+    d0 = Math.min(d0, x * rx + z * rz)
     if (x < minX) minX = x
     if (x > maxX) maxX = x
     if (z < minZ) minZ = z
     if (z > maxZ) maxZ = z
   }
-  const triangles = Uint32Array.from(polygon.triangulate(flat))
-  return { points: flat, triangles, elevation, minX, minZ, maxX, maxZ }
+  const f: FloorShape = {
+    points: flat,
+    rings,
+    sides,
+    triangles,
+    elevation,
+    slope: pitch > 1e-9 ? Math.tan(pitch) : 0,
+    rx,
+    rz,
+    d0: Number.isFinite(d0) ? d0 : 0,
+    thickness: Math.max(0, options.thickness ?? 0),
+    frames: (options.frames ?? []).filter(
+      (fr) => fr.width > 1e-9 && fr.ring > 0 && fr.ring <= holes.length,
+    ),
+    frameOuter: new Float64Array(flat.length),
+    minX,
+    minZ,
+    maxX,
+    maxZ,
+  }
+  for (const frame of f.frames) {
+    offsetRing(f, frame.ring, frame.width, f.frameOuter)
+    for (let i = f.rings[frame.ring]!; i < f.rings[frame.ring + 1]!; i++) {
+      const x = f.frameOuter[i * 2]!
+      const z = f.frameOuter[i * 2 + 1]!
+      if (x < f.minX) f.minX = x
+      if (x > f.maxX) f.maxX = x
+      if (z < f.minZ) f.minZ = z
+      if (z > f.maxZ) f.maxZ = z
+    }
+  }
+  return f
 }
 
-function clipTriangle(
-  f: FloorShape,
-  t: number,
+/** One ring of a slab as a slab of its own on the same surface, `drop` below it (a hatch, a pane). */
+export function ringShape(f: FloorShape, ring: number, thickness: number, drop = 0): FloorShape {
+  const start = f.rings[ring]!
+  const end = f.rings[ring + 1]!
+  const points = f.points.slice(start * 2, end * 2)
+  const count = end - start
+  let minX = Infinity
+  let minZ = Infinity
+  let maxX = -Infinity
+  let maxZ = -Infinity
+  for (let i = 0; i < count; i++) {
+    const x = points[i * 2]!
+    const z = points[i * 2 + 1]!
+    if (x < minX) minX = x
+    if (x > maxX) maxX = x
+    if (z < minZ) minZ = z
+    if (z > maxZ) maxZ = z
+  }
+  return {
+    points,
+    rings: Uint32Array.of(0, count),
+    sides: Int8Array.of(polygon.signedArea(points, 0, count) > 0 ? -1 : 1),
+    triangles: Uint32Array.from(polygon.triangulate(points)),
+    elevation: f.elevation - drop,
+    slope: f.slope,
+    rx: f.rx,
+    rz: f.rz,
+    d0: f.d0,
+    thickness,
+    frames: [],
+    frameOuter: new Float64Array(0),
+    minX,
+    minZ,
+    maxX,
+    maxZ,
+  }
+}
+
+/** Unit normal of ring edge i → j pointing out of the slab (away from its material), into `out`. */
+function edgeNormal(f: FloorShape, ring: number, i: number, j: number, out: Float64Array): void {
+  const p = f.points
+  const dx = p[j * 2]! - p[i * 2]!
+  const dz = p[j * 2 + 1]! - p[i * 2 + 1]!
+  const l = Math.sqrt(dx * dx + dz * dz) || 1
+  const sgn = f.sides[ring]!
+  out[0] = (-dz / l) * sgn
+  out[1] = (dx / l) * sgn
+}
+
+/** A ring's points moved `width` onto the slab (away from the hole), mitred at each corner. */
+function offsetRing(f: FloorShape, ring: number, width: number, out: Float64Array): void {
+  const start = f.rings[ring]!
+  const end = f.rings[ring + 1]!
+  const count = end - start
+  const a = new Float64Array(2)
+  const b = new Float64Array(2)
+  for (let k = 0; k < count; k++) {
+    const i = start + k
+    const prev = start + ((k + count - 1) % count)
+    const next = start + ((k + 1) % count)
+    edgeNormal(f, ring, prev, i, a)
+    edgeNormal(f, ring, i, next, b)
+    // Onto the slab is the opposite of out of it. The offset lines meet at
+    // (n1 + n2) / (1 + n1·n2), capped where a corner is sharp.
+    const d = Math.max(0.25, 1 + a[0]! * b[0]! + a[1]! * b[1]!)
+    out[i * 2] = f.points[i * 2]! - ((a[0]! + b[0]!) / d) * width
+    out[i * 2 + 1] = f.points[i * 2 + 1]! - ((a[1]! + b[1]!) / d) * width
+  }
+}
+
+/** Clips triangle (a, b, c) to a chunk square into `s.a`. Returns its point count (0: nothing). */
+function clipTri(
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  cx: number,
+  cz: number,
   minX: number,
   minZ: number,
   maxX: number,
@@ -647,54 +837,257 @@ function clipTriangle(
   s: ClipScratch,
 ): number {
   const tri = s.tri
-  const pts = f.points
-  for (let k = 0; k < 3; k++) {
-    const i = f.triangles[t + k]! * 2
-    tri[k * 2] = pts[i]!
-    tri[k * 2 + 1] = pts[i + 1]!
-  }
+  tri[0] = ax
+  tri[1] = az
+  tri[2] = bx
+  tri[3] = bz
+  tri[4] = cx
+  tri[5] = cz
   const n = polygon.clipToRect(tri, 3, minX, minZ, maxX, maxZ, s.a, s.b)
   if (n < 3 || Math.abs(polygon.signedArea(s.a, 0, n)) <= 1e-9) return 0
   return n
 }
 
-function forTriangleChunks(
-  f: FloorShape,
-  t: number,
+/** Clips segment a → b to a chunk square (Liang–Barsky) into `out`. Returns whether any is left. */
+function clipSegment(
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  minX: number,
+  minZ: number,
+  maxX: number,
+  maxZ: number,
+  out: Float64Array,
+): boolean {
+  const dx = bx - ax
+  const dz = bz - az
+  let t0 = 0
+  let t1 = 1
+  for (let k = 0; k < 4; k++) {
+    const p = k === 0 ? -dx : k === 1 ? dx : k === 2 ? -dz : dz
+    const q = k === 0 ? ax - minX : k === 1 ? maxX - ax : k === 2 ? az - minZ : maxZ - az
+    if (Math.abs(p) < 1e-12) {
+      if (q < 0) return false
+      continue
+    }
+    const t = q / p
+    if (p < 0) {
+      if (t > t1) return false
+      if (t > t0) t0 = t
+    } else {
+      if (t < t0) return false
+      if (t < t1) t1 = t
+    }
+  }
+  if ((t1 - t0) * Math.sqrt(dx * dx + dz * dz) <= 1e-9) return false
+  out[0] = ax + dx * t0
+  out[1] = az + dz * t0
+  out[2] = ax + dx * t1
+  out[3] = az + dz * t1
+  return true
+}
+
+function addTriangleChunks(
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  cx: number,
+  cz: number,
   size: number,
-  visit: (cx: number, cz: number) => void,
+  out: Set<number>,
+  s: ClipScratch,
 ): void {
-  const pts = f.points
-  let x0 = Infinity
-  let z0 = Infinity
-  let x1 = -Infinity
-  let z1 = -Infinity
-  for (let k = 0; k < 3; k++) {
-    const i = f.triangles[t + k]! * 2
-    const x = pts[i]!
-    const z = pts[i + 1]!
-    if (x < x0) x0 = x
-    if (x > x1) x1 = x
-    if (z < z0) z0 = z
-    if (z > z1) z1 = z
-  }
-  for (let cx = Math.floor(x0 / size); cx <= Math.floor(x1 / size); cx++)
-    for (let cz = Math.floor(z0 / size); cz <= Math.floor(z1 / size); cz++) visit(cx, cz)
+  const x0 = Math.floor(Math.min(ax, bx, cx) / size)
+  const x1 = Math.floor(Math.max(ax, bx, cx) / size)
+  const z0 = Math.floor(Math.min(az, bz, cz) / size)
+  const z1 = Math.floor(Math.max(az, bz, cz) / size)
+  for (let x = x0; x <= x1; x++)
+    for (let z = z0; z <= z1; z++) {
+      const key = chunkKey(x, z)
+      if (out.has(key)) continue
+      const n = clipTri(
+        ax,
+        az,
+        bx,
+        bz,
+        cx,
+        cz,
+        x * size,
+        z * size,
+        (x + 1) * size,
+        (z + 1) * size,
+        s,
+      )
+      if (n > 0) out.add(key)
+    }
 }
 
-/** Adds the keys of every chunk a floor's area overlaps to `out`. */
+/** Adds the keys of every chunk a slab's surface or frames overlap to `out`. */
 export function floorChunks(f: FloorShape, size: number, out: Set<number>, s: ClipScratch): void {
-  for (let t = 0; t < f.triangles.length; t += 3) {
-    forTriangleChunks(f, t, size, (cx, cz) => {
-      const key = chunkKey(cx, cz)
-      if (out.has(key)) return
-      if (clipTriangle(f, t, cx * size, cz * size, (cx + 1) * size, (cz + 1) * size, s) > 0)
-        out.add(key)
-    })
+  const p = f.points
+  const t = f.triangles
+  for (let k = 0; k < t.length; k += 3) {
+    const a = t[k]! * 2
+    const b = t[k + 1]! * 2
+    const c = t[k + 2]! * 2
+    addTriangleChunks(p[a]!, p[a + 1]!, p[b]!, p[b + 1]!, p[c]!, p[c + 1]!, size, out, s)
+  }
+  const o = f.frameOuter
+  for (const frame of f.frames) {
+    const start = f.rings[frame.ring]!
+    const end = f.rings[frame.ring + 1]!
+    for (let i = start; i < end; i++) {
+      const pi = i * 2
+      const pj = (i + 1 < end ? i + 1 : start) * 2
+      addTriangleChunks(p[pi]!, p[pi + 1]!, p[pj]!, p[pj + 1]!, o[pj]!, o[pj + 1]!, size, out, s)
+      addTriangleChunks(p[pi]!, p[pi + 1]!, o[pj]!, o[pj + 1]!, o[pi]!, o[pi + 1]!, size, out, s)
+    }
   }
 }
 
-/** Emits a floor's part inside one chunk square, facing up, with u, v = x, z. */
+/** Adds every chunk segment a → b touches, edges included (a face on a chunk line draws in both). */
+function addSegmentChunks(
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  size: number,
+  out: Set<number>,
+): void {
+  for (let x = Math.floor(Math.min(ax, bx) / size); x <= Math.floor(Math.max(ax, bx) / size); x++)
+    for (let z = Math.floor(Math.min(az, bz) / size); z <= Math.floor(Math.max(az, bz) / size); z++)
+      if (clipSegment(ax, az, bx, bz, x * size, z * size, (x + 1) * size, (z + 1) * size, seg))
+        out.add(chunkKey(x, z))
+}
+
+/**
+ * Adds the chunks a slab's ring covers to `out`: the hole's area, its rim and its frame. Moving a
+ * cutout changes nothing drawn outside these, whatever the new triangulation (0067).
+ */
+export function ringChunks(
+  f: FloorShape,
+  ring: number,
+  size: number,
+  out: Set<number>,
+  s: ClipScratch,
+): void {
+  const start = f.rings[ring]!
+  const end = f.rings[ring + 1]!
+  const p = f.points
+  const tris = polygon.triangulate(p.subarray(start * 2, end * 2))
+  for (let k = 0; k < tris.length; k += 3) {
+    const a = (start + tris[k]!) * 2
+    const b = (start + tris[k + 1]!) * 2
+    const c = (start + tris[k + 2]!) * 2
+    addTriangleChunks(p[a]!, p[a + 1]!, p[b]!, p[b + 1]!, p[c]!, p[c + 1]!, size, out, s)
+  }
+  const frame = f.frames.some((fr) => fr.ring === ring)
+  const o = f.frameOuter
+  for (let i = start; i < end; i++) {
+    const pi = i * 2
+    const pj = (i + 1 < end ? i + 1 : start) * 2
+    addSegmentChunks(p[pi]!, p[pi + 1]!, p[pj]!, p[pj + 1]!, size, out)
+    if (!frame) continue
+    addTriangleChunks(p[pi]!, p[pi + 1]!, p[pj]!, p[pj + 1]!, o[pj]!, o[pj + 1]!, size, out, s)
+    addTriangleChunks(p[pi]!, p[pi + 1]!, o[pj]!, o[pj + 1]!, o[pi]!, o[pi + 1]!, size, out, s)
+    addSegmentChunks(o[pi]!, o[pi + 1]!, o[pj]!, o[pj + 1]!, size, out)
+  }
+}
+
+/**
+ * A slab surface's normal, u axis and bitangent sign (for its top face), and how much longer a
+ * metre along the slope is than across it, into `out`.
+ */
+function surfaceBasis(f: FloorShape, out: Float64Array): void {
+  const len = Math.sqrt(1 + f.slope * f.slope)
+  const nx = (-f.slope * f.rx) / len
+  const ny = 1 / len
+  const nz = (-f.slope * f.rz) / len
+  // u runs across the slope, v up it: flat, with the ridge along +z, u, v = x, z.
+  const tx = f.rz
+  const tz = -f.rx
+  // The bitangent points where an image's top is (−v), as on walls and flat floors.
+  const cx = ny * tz
+  const cy = nz * tx - nx * tz
+  const cz = -ny * tx
+  out[0] = nx
+  out[1] = ny
+  out[2] = nz
+  out[3] = tx
+  out[4] = tz
+  out[5] = -(cx * f.rx + cy * f.slope + cz * f.rz) >= 0 ? 1 : -1
+  out[6] = len
+}
+
+const basis = new Float64Array(7)
+const seg = new Float64Array(4)
+const edge = new Float64Array(2)
+
+/** A vertical quad over segment a → b, from `lo` to `hi` above the surface, facing (fx, fz). */
+function sideFace(
+  f: FloorShape,
+  m: MeshBuilder,
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  lo: number,
+  hi: number,
+  fx: number,
+  fz: number,
+): void {
+  const ya = slabY(f, ax, az)
+  const yb = slabY(f, bx, bz)
+  // u runs right as seen from the face, v down, as on wall caps.
+  const ua = ax * fz - az * fx
+  const ub = bx * fz - bz * fx
+  const first = m.vertexCount
+  m.vertex(ax, ya + lo, az, fx, 0, fz, ua, -(ya + lo), fz, 0, -fx, 1)
+  m.vertex(bx, yb + lo, bz, fx, 0, fz, ub, -(yb + lo), fz, 0, -fx, 1)
+  m.vertex(bx, yb + hi, bz, fx, 0, fz, ub, -(yb + hi), fz, 0, -fx, 1)
+  m.vertex(ax, ya + hi, az, fx, 0, fz, ua, -(ya + hi), fz, 0, -fx, 1)
+  m.fan(first, 4, fx, 0, fz)
+}
+
+/** The clipped polygon in `s.a` as a face `lift` above the surface, facing up or down. */
+function surfaceFace(
+  f: FloorShape,
+  m: MeshBuilder,
+  n: number,
+  lift: number,
+  up: boolean,
+  s: ClipScratch,
+): void {
+  const b = basis
+  const sgn = up ? 1 : -1
+  const first = m.vertexCount
+  for (let k = 0; k < n; k++) {
+    const x = s.a[k * 2]!
+    const z = s.a[k * 2 + 1]!
+    m.vertex(
+      x,
+      slabY(f, x, z) + lift,
+      z,
+      b[0]! * sgn,
+      b[1]! * sgn,
+      b[2]! * sgn,
+      x * b[3]! + z * b[4]!,
+      (x * f.rx + z * f.rz) * b[6]!,
+      b[3]!,
+      0,
+      b[4]!,
+      b[5]! * sgn,
+    )
+  }
+  m.fan(first, n, b[0]! * sgn, b[1]! * sgn, b[2]! * sgn)
+}
+
+/**
+ * Emits a slab's part inside one chunk square: its surface (u, v in metres along it) and, when
+ * thick, its underside, edges and hole rims. Frames go to `frame(k)`, for frame k of `f.frames`.
+ */
 export function emitFloor(
   f: FloorShape,
   minX: number,
@@ -703,21 +1096,210 @@ export function emitFloor(
   maxZ: number,
   m: MeshBuilder,
   s: ClipScratch,
+  frame?: (k: number) => MeshBuilder,
 ): boolean {
   if (f.maxX <= minX || f.minX >= maxX || f.maxZ <= minZ || f.minZ >= maxZ) return false
+  surfaceBasis(f, basis)
   let any = false
-  const y = f.elevation
-  for (let t = 0; t < f.triangles.length; t += 3) {
-    const n = clipTriangle(f, t, minX, minZ, maxX, maxZ, s)
+  const p = f.points
+  const t = f.triangles
+  const thick = f.thickness
+  for (let k = 0; k < t.length; k += 3) {
+    const a = t[k]! * 2
+    const b = t[k + 1]! * 2
+    const c = t[k + 2]! * 2
+    const n = clipTri(
+      p[a]!,
+      p[a + 1]!,
+      p[b]!,
+      p[b + 1]!,
+      p[c]!,
+      p[c + 1]!,
+      minX,
+      minZ,
+      maxX,
+      maxZ,
+      s,
+    )
     if (n === 0) continue
     any = true
-    const first = m.vertexCount
-    for (let k = 0; k < n; k++) {
-      const x = s.a[k * 2]!
-      const z = s.a[k * 2 + 1]!
-      m.vertex(x, y, z, 0, 1, 0, x, z, 1, 0, 0, 1)
+    surfaceFace(f, m, n, 0, true, s)
+    if (thick > 0) surfaceFace(f, m, n, -thick, false, s)
+  }
+  if (thick > 0) {
+    for (let r = 0; r + 1 < f.rings.length; r++) {
+      const start = f.rings[r]!
+      const end = f.rings[r + 1]!
+      for (let i = start; i < end; i++) {
+        const j = i + 1 < end ? i + 1 : start
+        const ax = p[i * 2]!
+        const az = p[i * 2 + 1]!
+        if (!clipSegment(ax, az, p[j * 2]!, p[j * 2 + 1]!, minX, minZ, maxX, maxZ, seg)) continue
+        any = true
+        edgeNormal(f, r, i, j, edge)
+        sideFace(f, m, seg[0]!, seg[1]!, seg[2]!, seg[3]!, -thick, 0, edge[0]!, edge[1]!)
+      }
     }
-    m.fan(first, n, 0, 1, 0)
+  }
+  if (!frame) return any
+  const o = f.frameOuter
+  for (let fi = 0; fi < f.frames.length; fi++) {
+    const fr = f.frames[fi]!
+    const fm = frame(fi)
+    const start = f.rings[fr.ring]!
+    const end = f.rings[fr.ring + 1]!
+    for (let i = start; i < end; i++) {
+      const j = i + 1 < end ? i + 1 : start
+      const pi = i * 2
+      const pj = j * 2
+      for (let half = 0; half < 2; half++) {
+        const n =
+          half === 0
+            ? clipTri(
+                p[pi]!,
+                p[pi + 1]!,
+                p[pj]!,
+                p[pj + 1]!,
+                o[pj]!,
+                o[pj + 1]!,
+                minX,
+                minZ,
+                maxX,
+                maxZ,
+                s,
+              )
+            : clipTri(
+                p[pi]!,
+                p[pi + 1]!,
+                o[pj]!,
+                o[pj + 1]!,
+                o[pi]!,
+                o[pi + 1]!,
+                minX,
+                minZ,
+                maxX,
+                maxZ,
+                s,
+              )
+        if (n === 0) continue
+        any = true
+        surfaceFace(f, fm, n, fr.depth, true, s)
+      }
+      if (fr.depth <= 1e-9) continue
+      // Its inside faces the hole; its outside faces back across the slab.
+      edgeNormal(f, fr.ring, i, j, edge)
+      const ix = edge[0]!
+      const iz = edge[1]!
+      if (clipSegment(p[pi]!, p[pi + 1]!, p[pj]!, p[pj + 1]!, minX, minZ, maxX, maxZ, seg))
+        sideFace(f, fm, seg[0]!, seg[1]!, seg[2]!, seg[3]!, 0, fr.depth, ix, iz)
+      if (clipSegment(o[pj]!, o[pj + 1]!, o[pi]!, o[pi + 1]!, minX, minZ, maxX, maxZ, seg))
+        sideFace(f, fm, seg[0]!, seg[1]!, seg[2]!, seg[3]!, 0, fr.depth, -ix, -iz)
+    }
   }
   return any
+}
+
+// ---------------------------------------------------------------------------
+// Polygon tests (cutouts, roofAt)
+
+/** Whether (x, z) is inside points `start` to `end` of a flat ring; on an edge counts as `edge`. */
+export function insideRing(
+  points: ArrayLike<number>,
+  start: number,
+  end: number,
+  x: number,
+  z: number,
+  edge: boolean,
+): boolean {
+  let inside = false
+  for (let i = start, j = end - 1; i < end; j = i++) {
+    const xi = points[i * 2]!
+    const zi = points[i * 2 + 1]!
+    const xj = points[j * 2]!
+    const zj = points[j * 2 + 1]!
+    const dx = xj - xi
+    const dz = zj - zi
+    const l2 = dx * dx + dz * dz
+    const cross = (x - xi) * dz - (z - zi) * dx
+    const dot = (x - xi) * dx + (z - zi) * dz
+    if (Math.abs(cross) <= 1e-9 * Math.sqrt(l2) && dot >= -1e-12 && dot <= l2 + 1e-12) return edge
+    if (zi > z !== zj > z && x < (dx * (z - zi)) / dz + xi) inside = !inside
+  }
+  return inside
+}
+
+function orient(ax: number, az: number, bx: number, bz: number, cx: number, cz: number): number {
+  const v = (bx - ax) * (cz - az) - (bz - az) * (cx - ax)
+  return Math.abs(v) <= 1e-12 ? 0 : v > 0 ? 1 : -1
+}
+
+function within(ax: number, az: number, bx: number, bz: number, x: number, z: number): boolean {
+  return (
+    Math.min(ax, bx) - 1e-12 <= x &&
+    x <= Math.max(ax, bx) + 1e-12 &&
+    Math.min(az, bz) - 1e-12 <= z &&
+    z <= Math.max(az, bz) + 1e-12
+  )
+}
+
+/** Whether segments a–b and c–d meet (touching counts). */
+function segmentsMeet(
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  cx: number,
+  cz: number,
+  dx: number,
+  dz: number,
+): boolean {
+  const o1 = orient(ax, az, bx, bz, cx, cz)
+  const o2 = orient(ax, az, bx, bz, dx, dz)
+  const o3 = orient(cx, cz, dx, dz, ax, az)
+  const o4 = orient(cx, cz, dx, dz, bx, bz)
+  if (o1 !== o2 && o3 !== o4) return true
+  return (
+    (o1 === 0 && within(ax, az, bx, bz, cx, cz)) ||
+    (o2 === 0 && within(ax, az, bx, bz, dx, dz)) ||
+    (o3 === 0 && within(cx, cz, dx, dz, ax, az)) ||
+    (o4 === 0 && within(cx, cz, dx, dz, bx, bz))
+  )
+}
+
+function ringsTouch(a: Float64Array, b: Float64Array): boolean {
+  const na = a.length / 2
+  const nb = b.length / 2
+  for (let i = 0; i < na; i++) {
+    const i2 = ((i + 1) % na) * 2
+    for (let j = 0; j < nb; j++) {
+      const j2 = ((j + 1) % nb) * 2
+      const meet = segmentsMeet(
+        a[i * 2]!,
+        a[i * 2 + 1]!,
+        a[i2]!,
+        a[i2 + 1]!,
+        b[j * 2]!,
+        b[j * 2 + 1]!,
+        b[j2]!,
+        b[j2 + 1]!,
+      )
+      if (meet) return true
+    }
+  }
+  return false
+}
+
+/** Whether ring `inner` (flat points) lies strictly inside ring `outer`, touching nowhere. */
+export function ringInside(inner: Float64Array, outer: Float64Array): boolean {
+  if (ringsTouch(inner, outer)) return false
+  return insideRing(outer, 0, outer.length / 2, inner[0]!, inner[1]!, false)
+}
+
+/** Whether two rings (flat points) overlap or touch. */
+export function ringsOverlap(a: Float64Array, b: Float64Array): boolean {
+  if (ringsTouch(a, b)) return true
+  return (
+    insideRing(b, 0, b.length / 2, a[0]!, a[1]!, true) ||
+    insideRing(a, 0, a.length / 2, b[0]!, b[1]!, true)
+  )
 }

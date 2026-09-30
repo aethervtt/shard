@@ -28,10 +28,21 @@ import {
   RenderLayers,
   RenderStats,
   screenToPlane,
+  Visibility,
   worldToScreen,
 } from '@aethervtt/shard-render'
 import { definePlugin } from '@aethervtt/shard-runtime'
-import { DoorLeaf, Floor, Opening, Structure, Wall } from '@aethervtt/shard-structure'
+import {
+  Cutout,
+  DoorLeaf,
+  Floor,
+  Level,
+  Opening,
+  Roof,
+  roofAt,
+  Structure,
+  Wall,
+} from '@aethervtt/shard-structure'
 import { brickMaterial } from '@aethervtt/shard-structure/fixtures'
 import { lookAt, Transform } from '@aethervtt/shard-transform'
 import { VectorShape } from '@aethervtt/shard-vector'
@@ -44,6 +55,9 @@ import { hudExtras } from './hud'
 // clicking the floor), click a door to swing it. Name labels are DOM, placed by worldToScreen.
 // The east wing's straight walls and the yard's round tower and garden wall share one procedural
 // brick material (0066), so the courses can be compared on straight, arc and Bézier walls.
+// Levels and roofs (0067): the tower has a deck on a second level, with a parapet and a hatch; the
+// hall and the east wing's two rooms have roofs, each hidden while a token stands under it. A
+// hidden roof keeps casting, so the moon only reaches a room through its windows.
 
 /** Layer 1 is shared; each view adds its own visuals' layer. */
 const SHARED = 1
@@ -64,6 +78,8 @@ interface WallDoc {
   material: string
   height?: number
   curve?: { kind: 'arc'; bow: number } | { kind: 'bezier'; c0: Vec2; c1: Vec2 }
+  /** The level it stands on (0067); the ground level when absent. */
+  level?: string
 }
 interface OpeningDoc {
   id: string
@@ -80,6 +96,8 @@ interface FloorDoc {
   points: Vec2[]
   material: string
   elevation?: number
+  thickness?: number
+  level?: string
 }
 interface TokenDoc {
   id: string
@@ -120,6 +138,15 @@ function initialTable(): Table {
       curve: { kind: 'arc', bow: -r * (1 - Math.SQRT1_2) },
     }),
   )
+  // Its deck, a level up: a parapet on the same arcs.
+  const parapet = corners.map(
+    (a, i): WallDoc => ({
+      ...w(`tower-top-${i}`, a, corners[(i + 1) % 4]!, 'brick'),
+      curve: { kind: 'arc', bow: -r * (1 - Math.SQRT1_2) },
+      height: 1,
+      level: 'tower-top',
+    }),
+  )
   const towerFloor: Vec2[] = []
   for (let i = 0; i < 32; i++) {
     const t = (i / 32) * Math.PI * 2
@@ -137,6 +164,7 @@ function initialTable(): Table {
       w('east-mid', [3, 1.5], [15, 1.5], 'brick'),
       w('south', [-15, 9], [15, 9]),
       ...tower,
+      ...parapet,
       {
         ...w('garden', [-4, 8], [2, 3], 'brick'),
         height: 1.2,
@@ -244,6 +272,14 @@ function initialTable(): Table {
         material: 'plank',
       },
       { id: 'tower', rev: 0, points: towerFloor, material: 'flag', elevation: 0.02 },
+      {
+        id: 'tower-deck',
+        rev: 0,
+        points: towerFloor,
+        material: 'plank',
+        thickness: 0.2,
+        level: 'tower-top',
+      },
     ],
     tokens: [
       { id: 'ranger', rev: 0, name: 'Ranger', x: -9.75, z: -5.25, color: [0.2, 0.6, 0.25, 1] },
@@ -269,6 +305,10 @@ interface Demo {
   fog: Entity
   selected: string | undefined
   hovered: string | undefined
+  /** The tower's upper level, its deck's hatch, and the roofs. */
+  towerTop: Entity
+  hatch: Entity
+  roofs: Entity[]
   labels: Map<string, HTMLElement>
   /** Map pan (x, z) and zoom; Tabletop orbit. */
   pan: Vec2
@@ -294,7 +334,11 @@ function gridGeometry(d: Demo): GridGeometry {
   return { kind: mode.kind, orientation: mode.orientation, size: mode.size, offset: [0, 0] }
 }
 
-function mirrors(world: World, materials: Map<string, AssetRef<'Material'>>) {
+function mirrors(
+  world: World,
+  materials: Map<string, AssetRef<'Material'>>,
+  levels: Map<string, Entity>,
+) {
   const meshes = world.resource(Meshes)
   const disc = meshes.add(cylinder({ radius: 0.62, height: 0.04, segments: 40 }), 'demo:disc')
   const standee = meshes.add(capsule({ radius: 0.32, height: 1.7 }), 'demo:standee')
@@ -314,6 +358,7 @@ function mirrors(world: World, materials: Map<string, AssetRef<'Material'>>) {
         height: d.height ?? 2.8,
         thickness: 0.3,
         material: materials.get(d.material) ?? null,
+        level: (d.level && levels.get(d.level)) || null,
       }),
   })
   const openings = createMirror<OpeningDoc>(world, {
@@ -343,7 +388,9 @@ function mirrors(world: World, materials: Map<string, AssetRef<'Material'>>) {
       w.set(e, Floor, {
         points: d.points,
         elevation: d.elevation ?? 0,
+        thickness: d.thickness ?? 0,
         material: materials.get(d.material) ?? null,
+        level: (d.level && levels.get(d.level)) || null,
       }),
   })
   const tokenMaterials = new Map<string, AssetRef<'Material'>>()
@@ -462,6 +509,21 @@ function outline(world: World, d: Demo): void {
 }
 
 /** DOM labels over tokens: repositioned on CameraMoved and when a token moves, not every frame. */
+/** Hides each roof while a token stands under it (a host's rule; the engine answers roofAt). */
+const hideRoofs = defineSystem({
+  name: 'tabletop-demo/roofs',
+  run: (_, world) => {
+    const d = demos.get(world)
+    if (!d) return
+    for (const roof of d.roofs) {
+      let under = false
+      for (const t of d.table.tokens) if (roofAt(world, t.x, t.z, null) === roof) under = true
+      const mode = under ? 'hidden' : 'inherit'
+      if (world.get(roof, Visibility).mode !== mode) world.set(roof, Visibility, { mode })
+    }
+  },
+})
+
 const placeLabels = defineSystem({
   name: 'tabletop-demo/labels',
   setup: (world) => ({ moved: world.reader(CameraMoved), revs: new Map<string, number>() }),
@@ -504,9 +566,47 @@ function spawnScene(world: World): Demo {
     mat('plank', { baseColor: [0.42, 0.3, 0.18, 1], roughness: 0.7 }),
     mat('moss', { baseColor: [0.2, 0.34, 0.18, 1], roughness: 0.9 }),
     mat('ink', { baseColor: [0.05, 0.05, 0.06, 1], roughness: 0.5 }),
+    mat('slate', { baseColor: [0.2, 0.22, 0.26, 1], roughness: 0.8 }),
   ])
   refs.set('brick', brickMaterial(world))
-  const m = mirrors(world, refs)
+  // The tower's deck stands on the ground floor's walls.
+  const towerTop = world.spawn([Level, { index: 1, elevation: 2.8, height: 2.4 }], Visibility)
+  const m = mirrors(world, refs, new Map([['tower-top', towerTop]]))
+  // Roofs: single slopes, the east wing's two rising to meet over its middle wall.
+  const roof = (points: Vec2[], ridge: Vec2) =>
+    world.spawn(
+      [Roof, { points, height: 2.8, pitch: 18, ridge, material: refs.get('slate')! }],
+      Visibility,
+    )
+  const roofs = [
+    roof(
+      [
+        [-15.3, -9.3],
+        [3, -9.3],
+        [3, 0.3],
+        [-15.3, 0.3],
+      ],
+      [0, 1],
+    ),
+    roof(
+      [
+        [3, -9.3],
+        [15.3, -9.3],
+        [15.3, 1.5],
+        [3, 1.5],
+      ],
+      [0, 1],
+    ),
+    roof(
+      [
+        [3, 1.5],
+        [15.3, 1.5],
+        [15.3, 9.3],
+        [3, 9.3],
+      ],
+      [0, -1],
+    ),
+  ]
   const table = initialTable()
   // Props: barrels, crates and pillars (they cast shadows and hide the bands behind them).
   const meshes = world.resource(Meshes)
@@ -686,6 +786,9 @@ function spawnScene(world: World): Demo {
     fog,
     selected: undefined,
     hovered: undefined,
+    towerTop,
+    hatch: -1 as Entity,
+    roofs,
     labels: new Map(),
     pan: [0, 0],
     orthoHeight: 20,
@@ -696,11 +799,27 @@ function spawnScene(world: World): Demo {
     drawCount: 0,
   }
   sync(d)
+  // A hatch in the deck, hinged on the edge nearest the tower's centre.
+  d.hatch = world.spawn([
+    Cutout,
+    {
+      host: d.floors.entity('tower-deck')!,
+      points: [
+        [-11.9, 5.5],
+        [-10.9, 5.5],
+        [-10.9, 6.5],
+        [-11.9, 6.5],
+      ],
+      kind: 'hatch',
+      hinge: 0,
+      frameMaterial: refs.get('wood')!,
+    },
+  ])
   placeCameras(world, d)
   return d
 }
 
-type Action = 'view' | 'grid' | 'fog' | 'doors' | 'wall' | 'draw'
+type Action = 'view' | 'grid' | 'fog' | 'doors' | 'wall' | 'draw' | 'level' | 'hatch'
 
 function act(world: World, d: Demo, action: Action): void {
   if (action === 'view') setView(world, d, d.view === 'map' ? 'tabletop' : 'map')
@@ -726,6 +845,13 @@ function act(world: World, d: Demo, action: Action): void {
       material: 'brick',
     })
     sync(d)
+  } else if (action === 'level') {
+    // Show this level and below: hiding the tower's deck is one Visibility write, no rebuild.
+    const v = world.get(d.towerTop, Visibility)
+    world.set(d.towerTop, Visibility, { mode: v.mode === 'hidden' ? 'inherit' : 'hidden' })
+  } else if (action === 'hatch') {
+    const c = world.get(d.hatch, Cutout)
+    world.set(d.hatch, Cutout, { state: c.state === 'open' ? 'closed' : 'open' })
   } else if (action === 'draw') {
     const i = d.drawCount++
     const points: Vec2[] = []
@@ -868,7 +994,7 @@ export const tabletopDemoPlugin = definePlugin({
   name: 'tabletop-demo',
   dependencies: ['structure', 'grid', 'vector', 'render/outline'],
   build(app) {
-    app.addSystems(Update, placeLabels)
+    app.addSystems(Update, placeLabels, hideRoofs)
   },
   ready(app) {
     const world = app.world
@@ -883,6 +1009,7 @@ export const tabletopDemoPlugin = definePlugin({
         `view      ${d.view}   grid ${GRID_MODES[d.gridMode] ? `${GRID_MODES[d.gridMode]!.kind} ${GRID_MODES[d.gridMode]!.kind === 'hex' ? GRID_MODES[d.gridMode]!.orientation : ''}` : 'off'}`,
         `structure ${s.walls} walls, ${s.openings} openings, ${s.chunks} chunks, ${s.meshes} meshes`,
         `last edit ${s.lastCompile.chunksRebuilt} chunks rebuilt in ${s.lastCompile.ms.toFixed(2)} ms`,
+        `levels    tower deck ${w.get(d.towerTop, Visibility).mode === 'hidden' ? 'hidden' : 'shown'}, hatch ${w.get(d.hatch, Cutout).state}, roofs ${d.roofs.filter((e) => w.get(e, Visibility).mode === 'hidden').length}/${d.roofs.length} hidden`,
         `uploads   ${f.sceneBytes} B scene, ${f.bytes.view} B view (last frame)`,
         `recent    ${stats.recent.sceneBytes} B scene, ${stats.recent.shadowMapsRendered} shadow maps (60 frames)`,
         `selected  ${d.selected ?? '—'} (click a token; click the floor to move it; click a door)`,

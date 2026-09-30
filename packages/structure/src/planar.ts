@@ -16,11 +16,15 @@ export interface PlanarWall {
   bow?: number
   c0?: readonly [number, number]
   c1?: readonly [number, number]
+  /** The level it stands on (0067); none or null is the ground level. */
+  level?: string | null
 }
 
 export interface PlanarOptions {
   /** Chord tolerance for curved walls: StructureSettings.curveTolerance. Default 0.01. */
   tolerance?: number
+  /** Only this level's walls (null: the ground level), each segment tagged with it (0067). */
+  level?: string | null
 }
 
 export interface PlanarOpening {
@@ -45,13 +49,15 @@ export interface Segment {
   b: [number, number]
   sight: Channel
   movement: Channel
+  /** Its wall's level: present when the wall names one or `level` was asked for (0067). */
+  level?: string | null
 }
 
 /**
  * Splits walls into barrier segments: solid spans block both channels; an opening's span carries
  * its own channels, and an open door's carries neither. Openings sort by offset, then id; offsets
  * are arc lengths on curved walls. A curved span becomes one segment per sample interval: the
- * first keeps the span's id, the rest append `~1`, `~2`, …
+ * first keeps the span's id, the rest append `~1`, `~2`, … With `level`, only that level's walls.
  */
 export function planarBarriers(
   walls: readonly PlanarWall[],
@@ -66,7 +72,11 @@ export function planarBarriers(
     else byWall.set(opening.wall, [opening])
   }
   const out: Segment[] = []
+  const only = options.level
   for (const wall of walls) {
+    const level = wall.level ?? null
+    if (only !== undefined && level !== only) continue
+    const tagged = only !== undefined || wall.level !== undefined
     const curved = wall.shape === 'arc' || wall.shape === 'bezier'
     const line = curved ? sampleWall(wall, tolerance) : undefined
     const dx = wall.b[0] - wall.a[0]
@@ -86,6 +96,7 @@ export function planarBarriers(
         : [span(wall, length, from, to, id, sight, movement)]
       for (const piece of pieces) {
         if (openingId !== undefined) piece.openingId = openingId
+        if (tagged) piece.level = level
         out.push(piece)
       }
     }

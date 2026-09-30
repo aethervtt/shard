@@ -79,6 +79,7 @@ const LOD_UNSET: u32 = 0xffu;
 const FLAG_VISIBLE: u32 = 1u;
 const FLAG_CASTER: u32 = 2u;
 const FLAG_RANGE: u32 = 8u;
+const FLAG_SHADOW_ONLY: u32 = 128u;
 const FLAG_SKINNED: u32 = 32u;
 const VIEW_CASTERS: u32 = 1u;
 const VIEW_UPDATE_LOD: u32 = 2u;
@@ -161,8 +162,13 @@ fn cull(@builtin(global_invocation_id) id: vec3u) {
   let inst = instances[s];
   if (inst.batch == NO_BATCH) { return; }
   var mask = FLAG_VISIBLE;
-  if ((view.flags & VIEW_CASTERS) != 0u) { mask |= FLAG_CASTER; }
-  if ((inst.flags & mask) != mask) { return; }
+  var flags = inst.flags;
+  if ((view.flags & VIEW_CASTERS) != 0u) {
+    mask |= FLAG_CASTER;
+    // Hidden meshes that still cast (ShadowWhenHidden, 0067).
+    if ((flags & FLAG_SHADOW_ONLY) != 0u) { flags |= FLAG_VISIBLE; }
+  }
+  if ((flags & mask) != mask) { return; }
   // Render layers (0057) ride in flags bits 8–23.
   if ((((inst.flags >> 8u) & 0xffffu) & view.layers) == 0u) { return; }
   var b = inst.batch;

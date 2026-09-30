@@ -1,8 +1,8 @@
-import { type AssetRef, defineSchema, PostUpdate } from '@aethervtt/shard-core'
+import { type AssetRef, Derived, defineSchema, PostUpdate } from '@aethervtt/shard-core'
 import { box } from '@aethervtt/shard-mesh'
 import { MaterialAsset, Materials, Meshes } from '@aethervtt/shard-render'
 import { type AppMethod, definePlugin } from '@aethervtt/shard-runtime'
-import { TransformSystems } from '@aethervtt/shard-transform'
+import { Transform, TransformSystems } from '@aethervtt/shard-transform'
 import {
   compileStructure,
   FRAME_KEY,
@@ -12,9 +12,12 @@ import {
   swingDoors,
 } from './compile'
 import {
+  Cutout,
   DoorLeaf,
   Floor,
+  Level,
   Opening,
+  Roof,
   StructureChunk,
   StructureSettings,
   Wall,
@@ -25,7 +28,7 @@ export const structureMethods: AppMethod[] = [
   {
     name: 'structure.describe',
     description:
-      'Structure: wall, opening, floor and chunk counts, the chunk grid, pieces per chunk, and the last compile (its dirty chunks and time).',
+      'Structure: wall, opening, floor, roof, cutout, level and chunk counts, the groups (ground, levels, roofs: their chunks, meshes and whether hidden), the chunk grid, pieces per chunk, and the last compile (its dirty chunks and time).',
     params: defineSchema('structure/DescribeParams', {}),
     handler: ({ world }) => world.resource(Structure).describe(),
   },
@@ -46,18 +49,33 @@ function leafBox() {
 
 /**
  * Walls, openings and floors (0055): compiled into chunked, per-material meshes that rebuild only
- * where an edit lands, door leaves that swing without rebuilding anything, and window panes.
- * Needs `forwardPlugin` (render/forward).
+ * where an edit lands, door leaves that swing without rebuilding anything, and window panes. Levels,
+ * roofs and cutouts (0067): each level and roof is a group whose meshes are its children, so hiding
+ * one is a Visibility write. Needs `forwardPlugin` (render/forward).
  */
 export const structurePlugin = definePlugin({
   name: 'structure',
   dependencies: ['render/forward', 'core/transform'],
-  provides: [Wall, Opening, Floor, StructureChunk, DoorLeaf, WindowPane, StructureSettings],
+  provides: [
+    Wall,
+    Opening,
+    Floor,
+    Level,
+    Roof,
+    Cutout,
+    StructureChunk,
+    DoorLeaf,
+    WindowPane,
+    StructureSettings,
+  ],
   build(app) {
     const world = app.world
     world.initResource(StructureSettings)
     const state = new StructureState(world)
     world.insertResource(Structure, state)
+    // The ground level's group: pieces without a Level are its children (0067).
+    state.ground = world.spawn(Transform, Derived)
+    state.groupSlot(state.ground)
     observeRemovals(world, state)
     app.addSystems(PostUpdate, swingDoors.after(compileStructure).before(TransformSystems))
     app.addSystems(PostUpdate, compileStructure.before(TransformSystems))

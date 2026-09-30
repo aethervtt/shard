@@ -39,6 +39,16 @@ export const NotShadowCaster = defineComponent(
   { description: 'Tag: this mesh casts no shadows.' },
 )
 
+/**
+ * Tag: while hidden (Visibility), this mesh still casts shadows. A hidden roof keeps its interior
+ * dark (0067): camera views skip it, shadow views draw it.
+ */
+export const ShadowWhenHidden = defineComponent(
+  'render/ShadowWhenHidden',
+  {},
+  { description: 'Tag: while hidden, this mesh still casts shadows (camera views skip it).' },
+)
+
 export const NotShadowReceiver = defineComponent(
   'render/NotShadowReceiver',
   {},
@@ -182,6 +192,8 @@ export const InstanceFlags = {
   Skinned: 32,
   /** Morphed: the vertex stage adds morph target deltas. */
   Morph: 64,
+  /** Hidden, but drawn in shadow views (ShadowWhenHidden); Visible is off. */
+  ShadowOnly: 128,
 } as const
 
 /** Record value for "no batch". LOD slots store `LOD_BIT | lodSet`. */
@@ -453,7 +465,7 @@ export class InstanceStore {
    * 8–23 of the record's flags word, where the GPU culler reads it.
    */
   layers = new Uint16Array(0)
-  /** Ground key per slot, (band, order) packed; NaN off the ground (0057). */
+  /** Ground key per slot, (level, band, order) packed; NaN off the ground (0057, 0067). */
   groundKeys = new Float64Array(0)
   readonly lodSets: LodSet[] = []
   private readonly lodByKey = new Map<string, LodSet>()
@@ -586,7 +598,7 @@ export class InstanceStore {
   }
 
   /**
-   * A slot's ground key (0057): `groundKey(band, order)`, or NaN off the ground. Returns whether
+   * A slot's ground key (0057): `groundKey(band, order, level)`, or NaN off the ground. Returns whether
    * it moved on or off the ground (its batch must be resolved again).
    */
   setGround(slot: number, key: number): boolean {
@@ -623,10 +635,9 @@ export class InstanceStore {
       b[0] = b[1] = b[2] = Number.POSITIVE_INFINITY
       b[3] = b[4] = b[5] = Number.NEGATIVE_INFINITY
       const sphere = scratchSphere
-      const need = InstanceFlags.Visible | InstanceFlags.Caster
       for (let s = 0; s < this.high; s++) {
         const a = this.batchOf[s]!
-        if (a === -1 || (this.u32[s * INSTANCE_FLOATS + 13]! & need) !== need) continue
+        if (a === -1 || !casts(this.u32[s * INSTANCE_FLOATS + 13]!)) continue
         const batch = this.batches[a >= 0 ? a : this.lodSets[-2 - a]!.batches[0]!]!
         if (batch.transparent || batch.ground) continue
         sphereOfSlot(sphere, this, s, this.u32[s * INSTANCE_FLOATS + 13]!, batch.mesh.bounds)
@@ -782,11 +793,10 @@ export class InstanceStore {
    * `deforming`.
    */
   movedCasterIn(planes: Float32Array): boolean {
-    const need = InstanceFlags.Visible | InstanceFlags.Caster
     const sphere = scratchSphere
     for (let i = 0; i < this.lastMovedCount; i++) {
       const slot = this.lastMoved[i]!
-      if (slot >= this.high || (this.flags[slot]! & need) !== need) continue
+      if (slot >= this.high || !casts(this.flags[slot]!)) continue
       const a = this.batchOf[slot]!
       if (a === -1) continue
       const batch = this.batches[a >= 0 ? a : this.lodSets[-2 - a]!.batches[0]!]!
@@ -1075,13 +1085,15 @@ export class InstanceStore {
     const f = this.f32
     const u32 = this.u32
     const mask = InstanceFlags.Visible | params.require
+    // Shadow views also draw hidden ShadowWhenHidden meshes.
+    const shadowOnly = (params.require & InstanceFlags.Caster) !== 0 ? InstanceFlags.ShadowOnly : 0
     const eye = params.eye
     const sphere = scratchSphere
     for (let s = 0; s < this.high; s++) {
       const assignment = this.batchOf[s]!
       if (assignment === -1) continue
       const flags = u32[s * INSTANCE_FLOATS + 13]!
-      if ((flags & mask) !== mask) {
+      if (((flags & shadowOnly ? flags | InstanceFlags.Visible : flags) & mask) !== mask) {
         if ((flags & InstanceFlags.Visible) === 0) list.hidden++
         continue
       }
@@ -1304,7 +1316,7 @@ export class InstanceStore {
     }
   }
 
-  /** Sorts this cull's ground instances by (band, order), then batch; runs of a batch share a draw. */
+  /** Sorts this cull's ground instances by (level, band, order), then batch; runs of a batch share a draw. */
   private packGround(list: DrawList): void {
     list.length = 0
     list.cullView = -1
@@ -1448,7 +1460,8 @@ export class InstanceStore {
     // LOD-set slots aren't members; big batches aren't worth the walk.
     if (n === 0 || n !== batch.count || n > 8) return true
     for (let i = 0; i < n; i++) {
-      if (this.u32[batch.members[i]! * INSTANCE_FLOATS + 13]! & InstanceFlags.Visible) return true
+      const flags = this.u32[batch.members[i]! * INSTANCE_FLOATS + 13]!
+      if (flags & (InstanceFlags.Visible | InstanceFlags.ShadowOnly)) return true
     }
     return false
   }
@@ -1635,9 +1648,20 @@ function tableChanged(table: Table, since: number): boolean {
   )
 }
 
-/** A ground key: band, then order, both as exact integers in one float64 (0057). */
-export function groundKey(band: number, order: number): number {
-  return (band + 32768) * 4294967296 + (order + 2147483648)
+/** Whether a slot's flags make it a shadow caster: visible (or ShadowOnly) and a caster. */
+function casts(flags: number): boolean {
+  return (
+    (flags & InstanceFlags.Caster) !== 0 &&
+    (flags & (InstanceFlags.Visible | InstanceFlags.ShadowOnly)) !== 0
+  )
+}
+
+/**
+ * Ground draw order: level (−16..15, 0067), then band, then order. Exact in a double: 5 + 16 + 32
+ * bits.
+ */
+export function groundKey(band: number, order: number, level = 0): number {
+  return (level + 16) * 281474976710656 + (band + 32768) * 4294967296 + (order + 2147483648)
 }
 
 let zeros = new Uint32Array(1024)
@@ -1720,10 +1744,12 @@ export const prepareInstances = defineSystem({
       const dataY = hasData ? table.column(InstanceData, 'y') : undefined
       const dataChanged = hasData ? table.changedTicks(InstanceData) : zeroTicks(n)
       const vis = table.column(ComputedVisibility, 'visible')
+      const hiddenFlag = table.has(ShadowWhenHidden) ? InstanceFlags.ShadowOnly : 0
       const layerMasks = table.has(RenderLayers) ? table.column(RenderLayers, 'mask') : undefined
       const hasGround = table.has(GroundLayer)
       const bands = hasGround ? table.column(GroundLayer, 'band') : undefined
       const orders = hasGround ? table.column(GroundLayer, 'order') : undefined
+      const levels = hasGround ? table.column(GroundLayer, 'level') : undefined
       const deformed = table.has(SkinnedMesh) || table.has(MorphWeights)
       if (deformed && !deforms) warnNoDeforms(world)
       const tableFlags =
@@ -1750,13 +1776,13 @@ export const prepareInstances = defineSystem({
         const o = slot * INSTANCE_FLOATS
         const visible = vis[i] !== 0
         if (!visible) hidden++
-        const flags = tableFlags | (visible ? InstanceFlags.Visible : 0)
+        const flags = tableFlags | (visible ? InstanceFlags.Visible : hiddenFlag)
         const oldFlags = slotFlags[slot]!
         if (fresh || gChanged[i]! > since) store.moveSlot(slot, g, i * 12, fresh)
         store.setLayers(slot, layerMasks ? layerMasks[i]! : 1)
         const onOffGround = store.setGround(
           slot,
-          hasGround ? groundKey(bands![i]!, orders![i]!) : Number.NaN,
+          hasGround ? groundKey(bands![i]!, orders![i]!, levels![i]!) : Number.NaN,
         )
         if (
           fresh ||
@@ -1781,7 +1807,10 @@ export const prepareInstances = defineSystem({
           u32[o + 13] = (flags | (store.layers[slot]! << LAYER_SHIFT)) >>> 0
           slotFlags[slot] = flags
           store.markDirty(slot)
-          if ((oldFlags ^ flags) & (InstanceFlags.Visible | InstanceFlags.Caster))
+          if (
+            (oldFlags ^ flags) &
+            (InstanceFlags.Visible | InstanceFlags.Caster | InstanceFlags.ShadowOnly)
+          )
             store.shadowEpoch++
         }
         if (fresh || rangeChanged[i]! > since) {

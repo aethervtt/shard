@@ -189,6 +189,7 @@ export {
   MorphWeights,
   NotShadowCaster,
   NotShadowReceiver,
+  ShadowWhenHidden,
   SkinnedMesh,
   selectLod,
   VisibilityRange,

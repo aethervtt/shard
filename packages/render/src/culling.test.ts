@@ -25,6 +25,7 @@ import {
   Mesh3d,
   MeshMaterial,
   NotShadowCaster,
+  ShadowWhenHidden,
   selectLod,
   VisibilityRange,
 } from './instances'
@@ -373,6 +374,44 @@ describe('GPU culling', () => {
       expect((await visibleIn()).camera, 'before start').toBe(false)
     }
   })
+  it('draws a hidden ShadowWhenHidden mesh in shadow views only', async () => {
+    for (const gpuCull of [true, false]) {
+      const { app, world, material, cameraAt } = await scene(48, 32)
+      world.resource(Culler).enabled = gpuCull
+      const mesh = world.resource(Meshes).add(cube({ size: 1 }))
+      const roof = world.spawn(
+        [Mesh3d, { mesh }],
+        [MeshMaterial, { material }],
+        [Transform, {}],
+        ShadowWhenHidden,
+      )
+      const plain = world.spawn(
+        [Mesh3d, { mesh }],
+        [MeshMaterial, { material }],
+        [Transform, { translation: [2, 0, 0] }],
+      )
+      world.spawn(
+        [DirectionalLight, { illuminance: 2000, shadows: true }],
+        [Transform, { rotation: q(-0.9, 0.6, 0) }],
+      )
+      const cam = cameraAt([1, 2, 8], [1, 0, 0])
+      const name = `camera:${cam}`
+      const drawnIn = async (e: number) => {
+        await settle(app, 3)
+        const slot = slotOf(world, e)
+        const sets = gpuCull ? await gpuSets(world, name) : cpuSets(world, name)
+        return { camera: sets.camera.has(slot), shadow: sets.cascades.some((c) => c.has(slot)) }
+      }
+      expect(await drawnIn(roof), 'shown').toEqual({ camera: true, shadow: true })
+      world.set(roof, Visibility, { mode: 'hidden' })
+      world.set(plain, Visibility, { mode: 'hidden' })
+      expect(await drawnIn(roof), 'hidden, still casting').toEqual({ camera: false, shadow: true })
+      expect(await drawnIn(plain), 'hidden').toEqual({ camera: false, shadow: false })
+      world.set(roof, Visibility, { mode: 'inherit' })
+      expect(await drawnIn(roof), 'shown again').toEqual({ camera: true, shadow: true })
+    }
+  })
+
   it("shows LOD levels as tints, and freezes the camera's cull for inspection", async () => {
     const { app, world, material, cameraAt } = await scene(96, 48)
     const meshes = world.resource(Meshes)

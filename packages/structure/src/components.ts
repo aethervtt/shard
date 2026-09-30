@@ -1,8 +1,38 @@
 import { defineComponent, defineResource, defineTag, t } from '@aethervtt/shard-core'
+import { Transform } from '@aethervtt/shard-transform'
 
 // Walls, openings and floors (0055), in world units (metres by convention). A host converts its
 // own coordinates with one fixed visual scale; game distance ("5 ft per square") never places
 // anything.
+
+const LEVEL_FIELD = {
+  level: t.entity({
+    description:
+      'The Level it stands on (0067). Empty is the ground level; elevation is relative to the level.',
+  }),
+}
+
+export const Level = defineComponent(
+  'structure/Level',
+  {
+    index: t.i8({
+      min: -16,
+      max: 15,
+      description:
+        'Stacking order: a cellar is -1, the ground level 0. Use it as the GroundLayer.level of what stands on the level.',
+    }),
+    elevation: t.f32({
+      unit: 'm',
+      description: "Where the level's floor stands (y). Pieces on it are placed relative to it.",
+    }),
+    height: t.f32({ default: 3, min: 0, unit: 'm', description: 'Floor to ceiling.' }),
+  },
+  {
+    description:
+      'A level (0067): its walls, floors and roofs compile into its own group of chunk meshes, children of this entity, so Visibility on it hides the level without a rebuild.',
+    requires: [Transform],
+  },
+)
 
 export const WALL_SHAPES = ['straight', 'arc', 'bezier'] as const
 
@@ -13,7 +43,8 @@ export const Wall = defineComponent(
     b: t.vec2({ description: 'End of the centreline, (x, z) in world units.' }),
     height: t.f32({ default: 3, min: 0, unit: 'm', description: 'Height above elevation.' }),
     thickness: t.f32({ default: 0.2, min: 0, unit: 'm', description: 'Full thickness.' }),
-    elevation: t.f32({ unit: 'm', description: 'Where the wall stands (y).' }),
+    elevation: t.f32({ unit: 'm', description: 'Where the wall stands (y), above its level.' }),
+    ...LEVEL_FIELD,
     material: t.handle('Material', { description: 'Surface material. Empty uses a plain grey.' }),
     shape: t.enum(WALL_SHAPES, {
       description: 'straight; arc (bowed by bow); bezier (a cubic through c0 and c1).',
@@ -94,20 +125,107 @@ export const Floor = defineComponent(
       description:
         'Outline, (x, z) in world units: a simple polygon of 3 to 256 points, either winding.',
     }),
-    elevation: t.f32({ unit: 'm', description: 'Height of the floor (y).' }),
+    elevation: t.f32({ unit: 'm', description: 'Height of the floor (y), above its level.' }),
+    thickness: t.f32({
+      min: 0,
+      unit: 'm',
+      description:
+        'Slab thickness below the surface: 0 draws the top only; more adds the underside, the edges and the rims of its cutouts.',
+    }),
     material: t.handle('Material', { description: 'Surface material. Empty uses a plain grey.' }),
+    ...LEVEL_FIELD,
   },
-  { description: 'A flat floor polygon, triangulated once per edit and clipped into chunks.' },
+  {
+    description:
+      'A flat floor polygon, triangulated once per edit (with its cutouts as holes) and clipped into chunks.',
+  },
+)
+
+export const Roof = defineComponent(
+  'structure/Roof',
+  {
+    points: t.list(t.vec2, {
+      description: 'Footprint, (x, z): a simple polygon of 3 to 256 points, either winding.',
+    }),
+    height: t.f32({
+      default: 3,
+      min: 0,
+      unit: 'm',
+      description: "The eaves' height above its level's elevation.",
+    }),
+    pitch: t.f32({
+      min: 0,
+      max: 80,
+      unit: 'deg',
+      description: '0 is flat; more is one slope rising toward ridge from the lowest point.',
+    }),
+    ridge: t.vec2({ default: [0, 1], description: 'The direction the slope rises, (x, z).' }),
+    thickness: t.f32({ default: 0.2, min: 0, unit: 'm', description: 'Measured straight down.' }),
+    material: t.handle('Material', { description: 'Surface material. Empty uses a plain grey.' }),
+    shadowWhenHidden: t.bool({
+      default: true,
+      description: 'While hidden (Visibility), it still casts shadows, keeping the interior dark.',
+    }),
+    ...LEVEL_FIELD,
+  },
+  {
+    description:
+      'A roof (0067): its own group of chunk meshes, children of this entity, so it hides alone and nothing under it rebuilds.',
+    requires: [Transform],
+  },
+)
+
+export const CUTOUT_KINDS = ['hole', 'hatch', 'skylight'] as const
+
+export const Cutout = defineComponent(
+  'structure/Cutout',
+  {
+    host: t.entity({ description: 'The Floor or Roof it cuts.' }),
+    points: t.list(t.vec2, {
+      description: 'The hole, (x, z): a simple polygon inside its host, either winding.',
+    }),
+    kind: t.enum(CUTOUT_KINDS, {
+      description: 'hole (a gap), hatch (a leaf that swings up) or skylight (glass).',
+    }),
+    frameWidth: t.f32({
+      default: 0.06,
+      min: 0,
+      unit: 'm',
+      description: 'Width of the frame around the hole, on the host surface.',
+    }),
+    frameDepth: t.f32({
+      default: 0.03,
+      min: 0,
+      unit: 'm',
+      description: 'How far the frame stands above the host surface.',
+    }),
+    frameMaterial: t.handle('Material', {
+      description: 'Frame and hatch leaf material. Empty uses the built-in wood (structure:frame).',
+    }),
+    hinge: t.u16({
+      description:
+        'Hatches: the outline edge the leaf hangs from (edge i runs from point i to i + 1).',
+    }),
+    state: t.enum(DOOR_STATES, {
+      description: 'Hatches: a change swings the leaf and rebuilds no geometry.',
+    }),
+  },
+  { description: 'A hole, hatch or skylight cut into a floor or a roof (0067).' },
 )
 
 export const StructureChunk = defineComponent(
   'structure/Chunk',
   {
+    group: t.entity({
+      readonly: true,
+      description: 'The group it belongs to: a Level, a Roof, or the ground level.',
+    }),
     x: t.i32({ readonly: true, description: 'Chunk column (x / chunkSize).' }),
     z: t.i32({ readonly: true, description: 'Chunk row (z / chunkSize).' }),
   },
   {
-    description: "One chunk's geometry in one material, rebuilt by structure compile.",
+    description:
+      "One group's geometry in one chunk and one material, rebuilt by structure compile.",
     serialize: false,
     save: false,
   },
@@ -116,7 +234,10 @@ export const StructureChunk = defineComponent(
 export const DoorLeaf = defineComponent(
   'structure/DoorLeaf',
   {
-    opening: t.entity({ readonly: true, description: 'The door this leaf belongs to.' }),
+    opening: t.entity({
+      readonly: true,
+      description: 'The Opening (a door or window) or Cutout (a hatch or skylight) it belongs to.',
+    }),
     angle: t.f32({ readonly: true, description: 'How far open, 0 (closed) to 1 (open).' }),
   },
   {

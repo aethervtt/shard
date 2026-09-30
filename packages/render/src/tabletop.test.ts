@@ -9,7 +9,7 @@ import { MaterialAsset, Materials, Meshes, RenderTargets } from './assets'
 import { Camera3d, Exposure } from './camera'
 import { Culler } from './culling'
 import { readBuffer } from './debug-views'
-import { Mesh3d, MeshMaterial } from './instances'
+import { groundKey, Mesh3d, MeshMaterial } from './instances'
 import { GroundLayer, RenderLayers } from './layers'
 import { tabletopFalloff } from './lights'
 import { defineMaterial } from './materials'
@@ -148,6 +148,43 @@ describe('ground bands', () => {
       ground: { bands: Record<string, number> }
     }
     expect(described.ground.bands).toEqual({ 20: 1, 30: 1, 40: 1 })
+    expect(world.resource(Gpu).errors).toEqual([])
+    await r.app.dispose()
+    r.target.destroy()
+  })
+})
+
+describe('ground levels', () => {
+  it('sort level first: a lower level never draws over an upper one, whatever its band', async () => {
+    const r = await tabletop()
+    const { world, meshes, flat } = r
+    const quad = meshes.add(plane({ size: 1 }))
+    const layer = (band: number, level: number, color: [number, number, number], scale: number) =>
+      world.spawn(
+        [Mesh3d, { mesh: quad }],
+        [MeshMaterial, { material: flat(color) }],
+        [GroundLayer, { band, level }],
+        [Transform, { scale: [scale, 1, scale] }],
+      )
+    // A token on the ground level (band 40) under an upper level's lowest band (10), and the
+    // ground level's fog (50) under both.
+    layer(40, 0, [0, 0, 1], 2)
+    layer(10, 1, [1, 0, 0], 4)
+    layer(50, 0, [0, 1, 0], 6)
+    const cam = camera(world, r.ref, [0, 16, 0.0001], [0, 0, 0])
+    await settle(r.app)
+    const image = await renderView(r.app, `camera:${cam}`)
+    expect(dominant(pixel(image, 48, 32)), 'centre').toBe('r')
+    expect(dominant(pixel(image, 48 - 14, 32)), 'ring').toBe('g')
+    // Keys stay exact at the extremes.
+    const keys = [
+      groundKey(32767, 2147483647, -16),
+      groundKey(-32768, -2147483648, -15),
+      groundKey(32767, 2147483647, 14),
+      groundKey(-32768, -2147483648, 15),
+      groundKey(-32768, -2147483647, 15),
+    ]
+    for (let i = 1; i < keys.length; i++) expect(keys[i]!).toBeGreaterThan(keys[i - 1]!)
     expect(world.resource(Gpu).errors).toEqual([])
     await r.app.dispose()
     r.target.destroy()
