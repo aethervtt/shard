@@ -77,6 +77,7 @@ export {
   ViewLightList,
 } from './clusters'
 export { Culler, cullGround, GpuCuller, readVisibleSlots, visibleSlots } from './culling'
+export { DATA_WIDTH, DataStore, type DataStoreOptions, flushDataStores } from './data-store'
 export {
   captureShadowMap,
   DEBUG_VIEWS,

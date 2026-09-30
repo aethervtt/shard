@@ -24,9 +24,20 @@ export {
   uploadCategory,
 } from './ledger'
 export {
+  type GraphicsSupport,
+  type ProbeGraphicsOptions,
   type ProbeWebGpuOptions,
+  probeGraphics,
   probeWebGpu,
   type WebGpuSupport,
   type WebGpuUnsupportedReason,
 } from './probe'
 export { Surface, type SurfaceAlpha, type SurfaceOptions } from './surface'
+export {
+  capabilitiesOf,
+  type GpuBackendName,
+  type GpuCapabilities,
+  type GpuTier,
+  type GraphicsReason,
+  isCoreDevice,
+} from './tier'

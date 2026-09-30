@@ -99,6 +99,9 @@ Every engine error is a `ShardError` with one of these codes.
 | `gltf/invalid` | @aethervtt/shard-gltf | Only glTF 2.0 files are supported. |
 | `gltf/tangents-unavailable` | @aethervtt/shard-gltf |  |
 | `gltf/unsupported-extension` | @aethervtt/shard-gltf |  |
+| `gpu-webgl2/naga-crashed` | @aethervtt/shard-gpu-webgl2 | Report the shader: naga should return an error, not crash. |
+| `gpu-webgl2/naga-load-failed` | @aethervtt/shard-gpu-webgl2 | packages/gpu-webgl2/wasm must be served with the app (rebuild with `pnpm build:wasm`). |
+| `gpu-webgl2/translate` | @aethervtt/shard-gpu-webgl2 |  |
 | `gpu/duplicate-surface` | @aethervtt/shard-gpu | Share the Surface itself (renderPlugin({ gpu, surface })), or remove it first. |
 | `gpu/missing-feature` | @aethervtt/shard-gpu |  |
 | `gpu/no-adapter` | @aethervtt/shard-gpu |  |
@@ -290,7 +293,9 @@ Every engine error is a `ShardError` with one of these codes.
 | `schema/unknown-preset` | @aethervtt/shard-core |  |
 | `schema/unresolved-entity` | @aethervtt/shard-core | Entity paths are resolved by the scene loader; check the path exists. |
 | `shader/bake-version` | @aethervtt/shard-shader | Bake again with this version of Shard. |
+| `shader/baseline-data` | @aethervtt/shard-shader |  |
 | `shader/compile` | @aethervtt/shard-shader |  |
+| `shader/data-misplaced` | @aethervtt/shard-shader | @data @group(2) @binding(0) var<storage, read> name: array<T>; |
 | `shader/hook-signature-mismatch` | @aethervtt/shard-shader |  |
 | `shader/invalid-path` | @aethervtt/shard-shader | Use lowercase `package::dir::name`, e.g. `project::water`. |
 | `shader/link` | @aethervtt/shard-shader |  |

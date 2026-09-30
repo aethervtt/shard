@@ -6,4 +6,5 @@ export function testFiles(patterns?: string[]): {
   include: string[]
   passWithNoTests?: boolean
   retry?: number
+  setupFiles?: string[]
 }

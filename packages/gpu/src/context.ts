@@ -12,6 +12,14 @@ import {
   textureCategory,
 } from './ledger'
 import { Surface, type SurfaceAlpha, type SurfaceOptions } from './surface'
+import {
+  capabilitiesOf,
+  type GpuBackendName,
+  type GpuCapabilities,
+  type GpuTier,
+  type GraphicsReason,
+  isCoreDevice,
+} from './tier'
 
 export interface CreateGpuContextOptions {
   /** A canvas to add as the first surface. Omit for a device only (headless, or surfaces later). */
@@ -35,6 +43,12 @@ export interface CreateGpuContextOptions {
    * context gives up (`status: 'failed'`). Default 3 tries, 1 s apart.
    */
   recovery?: { attempts?: number; intervalMs?: number }
+  /**
+   * `'baseline'` runs the baseline tier (0064) even where the full one would: on WebGPU, a
+   * compatibility-mode device. Omitted, the device decides: `full` on a core WebGPU device,
+   * `baseline` on a compatibility-mode one (asked for only when no core adapter is found).
+   */
+  tier?: 'baseline'
 }
 
 /** Whether the device works: `lost` between a loss and its replacement, `failed` if that gave up. */
@@ -75,6 +89,17 @@ export class GpuContext {
   device: GPUDevice
   readonly format: GPUTextureFormat
   readonly features: ReadonlySet<string>
+  /** The graphics API the device runs on (0064). */
+  readonly backend: GpuBackendName
+  /**
+   * The tier the engine runs at (0064): `full` on a core WebGPU device, `baseline` on anything
+   * else that runs the baseline subset. Kept across device replacement.
+   */
+  readonly tier: GpuTier
+  /** What the device can do, as far as the tiers care. */
+  capabilities: GpuCapabilities
+  /** Why better options were skipped while opening the device (no core adapter, say). */
+  readonly reasons: readonly GraphicsReason[]
   readonly pipelines: PipelineCache
   readonly layouts: LayoutCache
   /** Increments when the device is replaced. */
@@ -107,12 +132,17 @@ export class GpuContext {
     adapter: GPUAdapter,
     device: GPUDevice,
     format: GPUTextureFormat,
+    opened: { backend?: GpuBackendName; tier?: GpuTier; reasons?: GraphicsReason[] } = {},
   ) {
     this.options = options
     this.adapter = adapter
     this.device = device
     this.format = format
     this.features = new Set(device.features as unknown as Iterable<string>)
+    this.backend = opened.backend ?? 'webgpu'
+    this.tier = opened.tier ?? (isCoreDevice(device) ? 'full' : 'baseline')
+    this.capabilities = capabilitiesOf(device, this.backend)
+    this.reasons = opened.reasons ?? []
     this.pipelines = new PipelineCache(this)
     this.layouts = new LayoutCache(this)
     this.attach(device)
@@ -294,9 +324,11 @@ export class GpuContext {
   }
 
   private async replaceDevice(): Promise<void> {
-    const { adapter, device } = await requestDevice(this.options)
+    // The same tier as before: the engine's pipelines and data layouts were made for it.
+    const { adapter, device } = await openDevice(this.options, this.tier)
     this.adapter = adapter
     this.device = device
+    this.capabilities = capabilitiesOf(device, this.backend)
     // Everything counted lived on the old device.
     this.ledger.clear()
     this.shared_.clear()
@@ -399,18 +431,58 @@ function textureWriteBytes(data: unknown, layout: GPUTexelCopyBufferLayout, size
   return Math.min(total, perRow * rows)
 }
 
-async function requestDevice(options: CreateGpuContextOptions) {
+export interface OpenedDevice {
+  adapter: GPUAdapter
+  device: GPUDevice
+  backend: GpuBackendName
+  tier: GpuTier
+  reasons: GraphicsReason[]
+}
+
+/**
+ * The device for `options`: a core WebGPU device through exactly the request Shard has always made,
+ * else a compatibility-mode one (the baseline tier, 0064). `keep` replaces a lost device at the
+ * tier it had: a core device isn't swapped for a compatibility one mid-session, or back.
+ */
+export async function openDevice(
+  options: CreateGpuContextOptions,
+  keep?: GpuTier,
+): Promise<OpenedDevice> {
   const gpu = options.gpu ?? (globalThis.navigator as Navigator | undefined)?.gpu
   if (!gpu) {
     throw new ShardError('gpu/unsupported', 'WebGPU is not available in this environment', {
       hint: 'Use a browser or webview with WebGPU, or pass `gpu` (e.g. from the `webgpu` package in Node).',
     })
   }
-  const adapter = await gpu.requestAdapter({
-    powerPreference: options.powerPreference ?? 'high-performance',
-  })
+  const powerPreference = options.powerPreference ?? 'high-performance'
+  const reasons: GraphicsReason[] = []
+  const baseline = options.tier === 'baseline' || keep === 'baseline'
+  if (!baseline) {
+    const adapter = await gpu.requestAdapter({ powerPreference })
+    if (adapter) {
+      const device = await requestDevice(adapter, options)
+      return { adapter, device, backend: 'webgpu', tier: tierOf(device, false), reasons }
+    }
+    if (keep === 'full') throw new ShardError('gpu/no-adapter', 'No WebGPU adapter was found')
+    reasons.push({
+      backend: 'webgpu',
+      code: 'no-core-adapter',
+      message: 'No core WebGPU adapter; asking for a compatibility-mode one',
+    })
+  }
+  // A compatibility-mode device: one that enforces its stricter rules, since it's asked for
+  // without `core-features-and-limits` (a browser without the mode answers with a core adapter).
+  const adapter = await gpu.requestAdapter({ featureLevel: 'compatibility', powerPreference })
   if (!adapter) throw new ShardError('gpu/no-adapter', 'No WebGPU adapter was found')
+  const device = await requestDevice(adapter, options)
+  return { adapter, device, backend: 'webgpu', tier: tierOf(device, baseline), reasons }
+}
 
+function tierOf(device: GPUDevice, baseline: boolean): GpuTier {
+  return baseline || !isCoreDevice(device) ? 'baseline' : 'full'
+}
+
+async function requestDevice(adapter: GPUAdapter, options: CreateGpuContextOptions) {
   const missing = (options.requiredFeatures ?? []).filter((f) => !adapter.features.has(f))
   if (missing.length > 0) {
     throw new ShardError(
@@ -426,17 +498,19 @@ async function requestDevice(options: CreateGpuContextOptions) {
       ...(options.compressedTextures === false ? [] : COMPRESSED_TEXTURE_FEATURES),
     ].filter((f, i, all) => all.indexOf(f) === i && adapter.features.has(f)),
   ]
-  const device = await adapter.requestDevice({ label: 'shard', requiredFeatures })
-  return { adapter, device }
+  return adapter.requestDevice({ label: 'shard', requiredFeatures })
 }
 
-/** A device, plus a first surface when `options.canvas` is given. */
+/**
+ * A device, plus a first surface when `options.canvas` is given. On WebGPU without a core adapter
+ * it opens a compatibility-mode device and runs the baseline tier (`gpu.tier`, 0064).
+ */
 export async function createGpuContext(options: CreateGpuContextOptions = {}): Promise<GpuContext> {
   const start = performance.now()
-  const { adapter, device } = await requestDevice(options)
+  const opened = await openDevice(options)
   const gpu = options.gpu ?? (globalThis.navigator as Navigator).gpu
   const format = gpu.getPreferredCanvasFormat()
-  const result = new GpuContext(options, adapter, device, format)
+  const result = new GpuContext(options, opened.adapter, opened.device, format, opened)
   result.deviceMs = performance.now() - start
   if (options.canvas) result.addSurface(options.canvas, { alpha: options.alpha })
   return result

@@ -706,6 +706,16 @@ importers:
         specifier: 0.6.1
         version: 0.6.1
 
+  packages/gpu-webgl2:
+    dependencies:
+      '@aethervtt/shard-core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+
   packages/grid:
     dependencies:
       '@aethervtt/shard-core':

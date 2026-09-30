@@ -196,7 +196,7 @@ export class MaterialPipelines {
     }
     const module = library.module(gpu, request)
     if (!module && type.name !== 'render/StandardMaterial') {
-      const error = library.failure(request)
+      const error = library.failure(request, gpu)
       if (error) this.failedTypes.set(type, { version: type.version, error })
     }
     this.modules.set(key, module)

@@ -407,6 +407,18 @@ export function describeRender(world: World) {
     recentErrors: gpu.errors.slice(-5).map((e) => e.toJSON()),
     features: describeFeatures(world),
     health: world.tryResource(RenderHealth) ?? { state: 'ok', issues: [] },
+    // The API and tier the device runs (0064), what it can do, and why a better option was skipped.
+    backend: gpu.backend,
+    tier: gpu.tier,
+    capabilities: gpu.capabilities,
+    limits: {
+      maxTextureDimension2D: gpu.device.limits.maxTextureDimension2D,
+      maxColorAttachments: gpu.device.limits.maxColorAttachments,
+      maxSampledTexturesPerShaderStage: gpu.device.limits.maxSampledTexturesPerShaderStage,
+      maxInterStageShaderVariables: gpu.device.limits.maxInterStageShaderVariables,
+      maxUniformBufferBindingSize: gpu.device.limits.maxUniformBufferBindingSize,
+    },
+    reasons: gpu.reasons,
   }
   const sections: Record<string, unknown> = {}
   for (const [name, fn] of world.tryResource(RenderDescribers) ?? []) sections[name] = fn(world)

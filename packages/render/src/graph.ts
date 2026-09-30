@@ -1,5 +1,6 @@
 import { ShardError, type World } from '@aethervtt/shard-core'
 import type { GpuContext } from '@aethervtt/shard-gpu'
+import { flushDataStores } from './data-store'
 import { TexturePool } from './pool'
 import { BYTES_PER_TEXEL, toFloats } from './readback'
 import type { RenderTarget } from './target'
@@ -590,6 +591,8 @@ export class RenderGraph {
 
     this.captures = this.captures.filter((c) => !readbacks.some((r) => r.capture === c))
     this.timer.resolve(encoder)
+    // Baseline data textures written this frame (0064): uploaded before the work that reads them.
+    flushDataStores(this.gpu)
     device.queue.submit([encoder.finish()])
     this.timer.readback(world)
     for (const fn of submitted) fn()
