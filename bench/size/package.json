@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@aethervtt/shard-core": "workspace:*",
+    "@aethervtt/shard-dice": "workspace:*",
     "@aethervtt/shard-gpu": "workspace:*",
     "@aethervtt/shard-mesh": "workspace:*",
     "@aethervtt/shard-physics": "workspace:*",

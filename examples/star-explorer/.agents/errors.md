@@ -52,11 +52,35 @@ Every engine error is a `ShardError` with one of these codes.
 | `assets/unknown-type` | @aethervtt/shard-assets | Define it (project.dataAsset) before loading its files. |
 | `audio/decode-failed` | @aethervtt/shard-audio | Re-import the file (shard import --json). |
 | `audio/invalid-duck` | @aethervtt/shard-audio | by is the share of gain taken away: 0.3 plays the bus at 70%. |
+| `audio/invalid-range` | @aethervtt/shard-audio |  |
 | `audio/no-plugin` | @aethervtt/shard-audio | Add "audio" to plugins in shard.json (or app.addPlugin(audioPlugin())). |
 | `audio/unknown-bus` | @aethervtt/shard-audio |  |
 | `audio/unsupported-format` | @aethervtt/shard-audio | Audio clips are WAV (PCM or float), Ogg Vorbis, Ogg Opus, MP3, or FLAC. |
 | `data/extends-cycle` | @aethervtt/shard-assets | Point "$extends" at a file that does not extend this one. |
 | `data/extends-type-mismatch` | @aethervtt/shard-assets |  |
+| `dice/attachment-budget` | @aethervtt/shard-dice | Draw fewer vertices, or split the effect. |
+| `dice/busy` | @aethervtt/shard-dice | Queue rolls in the host, dismiss this one, or pass { replace: true }. |
+| `dice/device-lost` | @aethervtt/shard-dice | The renderer recreates the device; roll again. |
+| `dice/disposed` | @aethervtt/shard-dice |  |
+| `dice/failed` | @aethervtt/shard-dice |  |
+| `dice/family-field-clash` | @aethervtt/shard-dice | Give the field another name: the dice fields are shared by every family. |
+| `dice/invalid-definition` | @aethervtt/shard-dice |  |
+| `dice/invalid-family` | @aethervtt/shard-dice | Give a WGSL `surface` snippet, or a `shader` module overriding pbr_input. |
+| `dice/invalid-glyph` | @aethervtt/shard-dice | Glyph paths are SVG path data (M, L, H, V, C, S, Q, T, A, Z). |
+| `dice/invalid-recipe` | @aethervtt/shard-dice |  |
+| `dice/invalid-roll` | @aethervtt/shard-dice | Pass the tray the camera shows, e.g. { halfWidth: 5.4, halfDepth: 3.15 }. |
+| `dice/invalid-skin` | @aethervtt/shard-dice |  |
+| `dice/invalid-value` | @aethervtt/shard-dice | The host decides the result; pass one the die has. |
+| `dice/layout-missing-value` | @aethervtt/shard-dice |  |
+| `dice/recipe-bounds` | @aethervtt/shard-dice |  |
+| `dice/registry-conflict` | @aethervtt/shard-dice | Give the new attachment its own name. |
+| `dice/reserved-param` | @aethervtt/shard-dice | Dropped dice, fades and results are the presentation’s; the mark atlas is baked from the layout. |
+| `dice/thumbnail-failed` | @aethervtt/shard-dice |  |
+| `dice/unknown-die` | @aethervtt/shard-dice |  |
+| `dice/unknown-family` | @aethervtt/shard-dice | Families: dice/SolidDice, dice/ResinDice, dice/MetalDice, dice/GlassDice, and those the host defines with defineDiceFamily. |
+| `dice/unknown-layout` | @aethervtt/shard-dice |  |
+| `dice/unknown-recipe` | @aethervtt/shard-dice |  |
+| `dice/unknown-skin` | @aethervtt/shard-dice | Load the skin (or add it to DiceSkin.store) first. |
 | `ecs/dead-entity` | @aethervtt/shard-core | It was despawned, or the id is stale. Check world.isAlive(entity) first. |
 | `ecs/entity-limit` | @aethervtt/shard-core | High-count data (particles, foliage, tiles) belongs in buffers, not entities. |
 | `ecs/missing-component` | @aethervtt/shard-core | Check world.has(entity, component) first, or use tryGet. |

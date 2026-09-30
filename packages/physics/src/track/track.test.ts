@@ -136,6 +136,32 @@ describe('recording', () => {
     expect(track.positions[track.steps * 3 + 1]).toBeLessThan(-2)
   })
 
+  it('applies damping from a phase: a rolling ball damped at step 1 stops sooner', async () => {
+    const rolling = () =>
+      ballScene({
+        bodies: [{ ...ballScene().bodies[0]!, translation: [-3, 0.5, 0], angular: [0, 0, -12] }],
+      })
+    const distance = async (damp: boolean) => {
+      const track = await recordTrack(rolling(), {
+        settle: (view) =>
+          view.step === 1 && damp
+            ? { damping: [{ body: 0, linear: 1, angular: 6 }] }
+            : view.step >= 120
+              ? 'done'
+              : 'continue',
+      })
+      return track.positions[track.steps * 3]! - track.positions[0]!
+    }
+    const free = await distance(false)
+    const damped = await distance(true)
+    expect(free).toBeGreaterThan(2)
+    expect(damped).toBeLessThan(free / 2)
+    const err = await rejection(
+      recordTrack(ballScene(), { settle: () => ({ damping: [{ body: 3, angular: 1 }] }) }),
+    )
+    expect(err.code).toBe('physics/track-scene')
+  })
+
   it('records contacts over a minimum force, deduplicated, with -1 for fixed colliders', async () => {
     const track = await recordTrack(goldenScene(), { contacts: golden.contacts })
     const c = track.contacts

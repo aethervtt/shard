@@ -11,6 +11,11 @@
       "js": 809647,
       "forbid": ["@aethervtt/shard-render", "@aethervtt/shard-gpu"]
     },
+    "dice-worker": {
+      "entry": 5698,
+      "js": 810415,
+      "forbid": ["@aethervtt/shard-render", "@aethervtt/shard-gpu"]
+    },
     "full": {
       "js": 3557437
     }

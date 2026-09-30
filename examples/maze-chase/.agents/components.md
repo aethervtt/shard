@@ -145,6 +145,8 @@ Brings along: `core/Transform`.
 | `bus` | string | `"sfx"` |  | The bus it mixes into (audio/Buses): master, music, sfx, ui, voice, or one the game adds. |
 | `volume` | number | `1` | ≥ 0 | Linear gain (1 = as recorded, 0.5 ≈ -6 dB). |
 | `pitch` | number | `1` | ≥ 0.01, ≤ 16 | Playback rate: 2 plays an octave up in half the time. |
+| `pitchRandom` | number[2] | `[1,1]` |  | Each start multiplies pitch by a factor picked in [min, max] (evenly in log space): [0.92, 1.08] keeps a repeated sound from sounding identical. [1, 1] is off. |
+| `volumeRandom` | number[2] | `[1,1]` |  | Each start multiplies volume by a factor picked in [min, max]. [1, 1] is off. |
 | `loop` | boolean | `false` |  | Loop (between the clip's loopStart and loopEnd) until stopped. |
 | `autoplay` | boolean | `true` |  | Start playing when the source is added. |
 | `playing` | boolean | `false` |  | Whether it plays. Set it to start (from startTime) or stop; cleared when a clip that doesn't loop ends (audio/AudioFinished). |
@@ -206,6 +208,192 @@ Brings along: `core/GlobalTransform`.
 | `rotation` | number[4] | `[0,0,0,1]` |  | Rotation relative to the parent, as a unit quaternion. |
 | `scale` | number[3] | `[1,1,1]` |  | Scale along local axes. |
 | `rotationEuler` | number[3] | | degrees | Scene files only: rotation as X, then Y, then Z degrees. |
+
+## `dice/DiceTray`
+
+The dice tray: invisible but for the shadows it catches and the contact blobs under blended dice (and every die in the large-pool tier).
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `shadowOpacity` | number | `0.55` | ≥ 0, ≤ 1 | Alpha of full shadow. |
+| `blobOpacity` | number | `0.6` | ≥ 0, ≤ 1 | Alpha of a contact blob under a resting die. |
+
+## `dice/Die`
+
+A die the dice table is presenting.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `index` | integer | `0` | ≥ 0, ≤ 255 | Its body in the roll (percentile dice are two bodies). |
+| `kind` | string | `""` |  | The roll die kind: d4 … d20, d100, percentile. |
+| `definition` | string | `""` |  | The die definition it shows. |
+| `value` | integer | `0` | ≥ 0, ≤ 65535 | The definition's value on top once landed. |
+| `label` | string | `""` |  | The printed mark on top. |
+| `dropped` | boolean | `false` |  | A dropped die: excluded from effects and attachments. |
+
+## `dice/GlassDice`
+
+Glass dice: clear bodies, bright rims, opaque marks.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `baseColor` | string or number[4] | `[0.8,0.8,0.8,1]` |  | Albedo (linear), alpha in w. |
+| `metallic` | number | `0` | ≥ 0, ≤ 1 | 0 for dielectrics, 1 for metals. |
+| `roughness` | number | `0.5` | ≥ 0, ≤ 1 | Microsurface roughness. |
+| `emissive` | string or number[4] | `"#ffffff"` |  | Emitted color (linear), scaled by emissiveLuminance. |
+| `emissiveLuminance` | number | `0` | ≥ 0, cd/m² | Emitted luminance. 0 = not emissive. |
+| `doubleSided` | boolean | `false` |  | Draw back faces too (no culling). |
+| `alphaMode` | `"opaque"` \| `"mask"` \| `"alpha"` \| `"additive"` \| `"premultiplied"` | `"opaque"` |  | opaque ignores alpha; mask discards pixels below alphaCutoff; alpha blends (transparent, drawn after opaque, sorted back to front); additive adds light (glows); premultiplied expects color already multiplied by alpha. |
+| `alphaCutoff` | number | `0.5` | ≥ 0, ≤ 1 | Alpha threshold for alphaMode "mask". |
+| `normalScale` | number | `1` |  | Strength of the normal map. |
+| `occlusionStrength` | number | `1` | ≥ 0, ≤ 1 | Strength of the occlusion map. |
+| `baseColorTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Albedo (sRGB), multiplied with baseColor. |
+| `metallicRoughnessTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | G = roughness, B = metallic (linear), multiplied with the factors. |
+| `normalTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Tangent-space normal map. |
+| `occlusionTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Ambient occlusion in R (linear). |
+| `emissiveTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Emission color (sRGB), multiplied with emissive. |
+| `marks` | null or Texture ref | `null` |  | The mark atlas (MSDF), baked by the package. |
+| `markColor` | string or number[4] | `[0.95,0.94,0.9,1]` |  | Mark ink (linear). |
+| `markEmissive` | number | `0` | ≥ 0, cd/m² | Glowing marks: luminance of the ink. |
+| `markRoughness` | number | `0.55` | ≥ 0, ≤ 1 | Roughness of the ink. |
+| `markMetallic` | number | `0` | ≥ 0, ≤ 1 | Metallic ink (gilded marks). |
+| `markDepth` | number | `0.6` | ≥ 0, ≤ 1 | How deep the marks are engraved: a bump taken from the distance field. 0 prints them. |
+| `edgeColor` | string or number[4] | `[0.5,0.5,0.5,1]` |  | Color the chamfer blends toward. |
+| `edgeMix` | number | `0.3` | ≥ 0, ≤ 1 | How much of edgeColor the chamfer takes. |
+| `droppedColor` | string or number[4] | `[0.34,0.38,0.43,1]` |  | The dropped look's tone: dropped dice fade toward it. |
+| `dropped` | number | `0` | ≥ 0, ≤ 1 | Blend toward the dropped look: desaturated, 0.62 opacity, rougher, no transmission. |
+| `fade` | number | `1` | ≥ 0, ≤ 1 | Opacity for blended dice fading in. |
+| `result` | number | `0` | ≥ 0, ≤ 1 | 0 while tumbling, 1 once landed: result-reactive families light the face on top. |
+| `resultTime` | number | `0` | s | The shader clock (globals.time) when the dice landed: reactions animate from globals.time − resultTime once result is above 0. |
+| `glassClarity` | number | `0.8` | ≥ 0, ≤ 1 | How clear the body is face-on. |
+| `glassSparkle` | number | `0.5` | ≥ 0, ≤ 1 | Inner glints as the die turns. |
+
+## `dice/MetalDice`
+
+Metal dice: brushed, worn bright at the edges, enamel marks.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `baseColor` | string or number[4] | `[0.8,0.8,0.8,1]` |  | Albedo (linear), alpha in w. |
+| `metallic` | number | `0` | ≥ 0, ≤ 1 | 0 for dielectrics, 1 for metals. |
+| `roughness` | number | `0.5` | ≥ 0, ≤ 1 | Microsurface roughness. |
+| `emissive` | string or number[4] | `"#ffffff"` |  | Emitted color (linear), scaled by emissiveLuminance. |
+| `emissiveLuminance` | number | `0` | ≥ 0, cd/m² | Emitted luminance. 0 = not emissive. |
+| `doubleSided` | boolean | `false` |  | Draw back faces too (no culling). |
+| `alphaMode` | `"opaque"` \| `"mask"` \| `"alpha"` \| `"additive"` \| `"premultiplied"` | `"opaque"` |  | opaque ignores alpha; mask discards pixels below alphaCutoff; alpha blends (transparent, drawn after opaque, sorted back to front); additive adds light (glows); premultiplied expects color already multiplied by alpha. |
+| `alphaCutoff` | number | `0.5` | ≥ 0, ≤ 1 | Alpha threshold for alphaMode "mask". |
+| `normalScale` | number | `1` |  | Strength of the normal map. |
+| `occlusionStrength` | number | `1` | ≥ 0, ≤ 1 | Strength of the occlusion map. |
+| `baseColorTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Albedo (sRGB), multiplied with baseColor. |
+| `metallicRoughnessTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | G = roughness, B = metallic (linear), multiplied with the factors. |
+| `normalTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Tangent-space normal map. |
+| `occlusionTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Ambient occlusion in R (linear). |
+| `emissiveTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Emission color (sRGB), multiplied with emissive. |
+| `marks` | null or Texture ref | `null` |  | The mark atlas (MSDF), baked by the package. |
+| `markColor` | string or number[4] | `[0.95,0.94,0.9,1]` |  | Mark ink (linear). |
+| `markEmissive` | number | `0` | ≥ 0, cd/m² | Glowing marks: luminance of the ink. |
+| `markRoughness` | number | `0.55` | ≥ 0, ≤ 1 | Roughness of the ink. |
+| `markMetallic` | number | `0` | ≥ 0, ≤ 1 | Metallic ink (gilded marks). |
+| `markDepth` | number | `0.6` | ≥ 0, ≤ 1 | How deep the marks are engraved: a bump taken from the distance field. 0 prints them. |
+| `edgeColor` | string or number[4] | `[0.5,0.5,0.5,1]` |  | Color the chamfer blends toward. |
+| `edgeMix` | number | `0.3` | ≥ 0, ≤ 1 | How much of edgeColor the chamfer takes. |
+| `droppedColor` | string or number[4] | `[0.34,0.38,0.43,1]` |  | The dropped look's tone: dropped dice fade toward it. |
+| `dropped` | number | `0` | ≥ 0, ≤ 1 | Blend toward the dropped look: desaturated, 0.62 opacity, rougher, no transmission. |
+| `fade` | number | `1` | ≥ 0, ≤ 1 | Opacity for blended dice fading in. |
+| `result` | number | `0` | ≥ 0, ≤ 1 | 0 while tumbling, 1 once landed: result-reactive families light the face on top. |
+| `resultTime` | number | `0` | s | The shader clock (globals.time) when the dice landed: reactions animate from globals.time − resultTime once result is above 0. |
+| `metalWear` | number | `0.6` | ≥ 0, ≤ 1 | Polished, brighter edges. |
+| `metalGrain` | number | `0.4` | ≥ 0, ≤ 1 | Brushed streaks in the roughness. |
+
+## `dice/ResinDice`
+
+Resin dice: a tonal depth fake, swirl, glowing thin edges, a lit result face.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `baseColor` | string or number[4] | `[0.8,0.8,0.8,1]` |  | Albedo (linear), alpha in w. |
+| `metallic` | number | `0` | ≥ 0, ≤ 1 | 0 for dielectrics, 1 for metals. |
+| `roughness` | number | `0.5` | ≥ 0, ≤ 1 | Microsurface roughness. |
+| `emissive` | string or number[4] | `"#ffffff"` |  | Emitted color (linear), scaled by emissiveLuminance. |
+| `emissiveLuminance` | number | `0` | ≥ 0, cd/m² | Emitted luminance. 0 = not emissive. |
+| `doubleSided` | boolean | `false` |  | Draw back faces too (no culling). |
+| `alphaMode` | `"opaque"` \| `"mask"` \| `"alpha"` \| `"additive"` \| `"premultiplied"` | `"opaque"` |  | opaque ignores alpha; mask discards pixels below alphaCutoff; alpha blends (transparent, drawn after opaque, sorted back to front); additive adds light (glows); premultiplied expects color already multiplied by alpha. |
+| `alphaCutoff` | number | `0.5` | ≥ 0, ≤ 1 | Alpha threshold for alphaMode "mask". |
+| `normalScale` | number | `1` |  | Strength of the normal map. |
+| `occlusionStrength` | number | `1` | ≥ 0, ≤ 1 | Strength of the occlusion map. |
+| `baseColorTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Albedo (sRGB), multiplied with baseColor. |
+| `metallicRoughnessTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | G = roughness, B = metallic (linear), multiplied with the factors. |
+| `normalTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Tangent-space normal map. |
+| `occlusionTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Ambient occlusion in R (linear). |
+| `emissiveTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Emission color (sRGB), multiplied with emissive. |
+| `marks` | null or Texture ref | `null` |  | The mark atlas (MSDF), baked by the package. |
+| `markColor` | string or number[4] | `[0.95,0.94,0.9,1]` |  | Mark ink (linear). |
+| `markEmissive` | number | `0` | ≥ 0, cd/m² | Glowing marks: luminance of the ink. |
+| `markRoughness` | number | `0.55` | ≥ 0, ≤ 1 | Roughness of the ink. |
+| `markMetallic` | number | `0` | ≥ 0, ≤ 1 | Metallic ink (gilded marks). |
+| `markDepth` | number | `0.6` | ≥ 0, ≤ 1 | How deep the marks are engraved: a bump taken from the distance field. 0 prints them. |
+| `edgeColor` | string or number[4] | `[0.5,0.5,0.5,1]` |  | Color the chamfer blends toward. |
+| `edgeMix` | number | `0.3` | ≥ 0, ≤ 1 | How much of edgeColor the chamfer takes. |
+| `droppedColor` | string or number[4] | `[0.34,0.38,0.43,1]` |  | The dropped look's tone: dropped dice fade toward it. |
+| `dropped` | number | `0` | ≥ 0, ≤ 1 | Blend toward the dropped look: desaturated, 0.62 opacity, rougher, no transmission. |
+| `fade` | number | `1` | ≥ 0, ≤ 1 | Opacity for blended dice fading in. |
+| `result` | number | `0` | ≥ 0, ≤ 1 | 0 while tumbling, 1 once landed: result-reactive families light the face on top. |
+| `resultTime` | number | `0` | s | The shader clock (globals.time) when the dice landed: reactions animate from globals.time − resultTime once result is above 0. |
+| `resinDeep` | string or number[4] | `[0.02,0.18,0.2,1]` |  | The deep tone, looking into the body. |
+| `resinGlow` | string or number[4] | `[0.3,0.9,0.82,1]` |  | The light tone, at thin edges. |
+| `resinDepth` | number | `0.85` | ≥ 0, ≤ 1 | How much of the tones replace baseColor. |
+| `resinSwirl` | number | `0.55` | ≥ 0, ≤ 1 | Swirl through the pour. |
+| `resinScale` | number | `2.4` | ≥ 0.1 | Swirl size, per unit of die radius. |
+| `resinLight` | number | `2600` | ≥ 0, cd/m² | Light at thin edges. |
+| `resinResultGlow` | number | `3000` | ≥ 0, cd/m² | Glow of the marks on top once landed. |
+| `resinOpacity` | number | `1` | ≥ 0.2, ≤ 1 | Below 1, the resin is see-through: its material blends (no shadow; a contact blob instead). |
+
+## `dice/RollRequest`
+
+Plays a dice roll when spawned; removed once the table takes it.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `roll` | any | `null` |  | A DiceRoll: { id, dice: [{ kind, value, skin: { guid } }], seed, tray, motion, … }. |
+| `replace` | boolean | `false` |  | Dismiss a roll that is playing instead of waiting for it. |
+
+## `dice/SolidDice`
+
+Solid dice: an opaque body, optional flecks.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `baseColor` | string or number[4] | `[0.8,0.8,0.8,1]` |  | Albedo (linear), alpha in w. |
+| `metallic` | number | `0` | ≥ 0, ≤ 1 | 0 for dielectrics, 1 for metals. |
+| `roughness` | number | `0.5` | ≥ 0, ≤ 1 | Microsurface roughness. |
+| `emissive` | string or number[4] | `"#ffffff"` |  | Emitted color (linear), scaled by emissiveLuminance. |
+| `emissiveLuminance` | number | `0` | ≥ 0, cd/m² | Emitted luminance. 0 = not emissive. |
+| `doubleSided` | boolean | `false` |  | Draw back faces too (no culling). |
+| `alphaMode` | `"opaque"` \| `"mask"` \| `"alpha"` \| `"additive"` \| `"premultiplied"` | `"opaque"` |  | opaque ignores alpha; mask discards pixels below alphaCutoff; alpha blends (transparent, drawn after opaque, sorted back to front); additive adds light (glows); premultiplied expects color already multiplied by alpha. |
+| `alphaCutoff` | number | `0.5` | ≥ 0, ≤ 1 | Alpha threshold for alphaMode "mask". |
+| `normalScale` | number | `1` |  | Strength of the normal map. |
+| `occlusionStrength` | number | `1` | ≥ 0, ≤ 1 | Strength of the occlusion map. |
+| `baseColorTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Albedo (sRGB), multiplied with baseColor. |
+| `metallicRoughnessTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | G = roughness, B = metallic (linear), multiplied with the factors. |
+| `normalTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Tangent-space normal map. |
+| `occlusionTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Ambient occlusion in R (linear). |
+| `emissiveTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Emission color (sRGB), multiplied with emissive. |
+| `marks` | null or Texture ref | `null` |  | The mark atlas (MSDF), baked by the package. |
+| `markColor` | string or number[4] | `[0.95,0.94,0.9,1]` |  | Mark ink (linear). |
+| `markEmissive` | number | `0` | ≥ 0, cd/m² | Glowing marks: luminance of the ink. |
+| `markRoughness` | number | `0.55` | ≥ 0, ≤ 1 | Roughness of the ink. |
+| `markMetallic` | number | `0` | ≥ 0, ≤ 1 | Metallic ink (gilded marks). |
+| `markDepth` | number | `0.6` | ≥ 0, ≤ 1 | How deep the marks are engraved: a bump taken from the distance field. 0 prints them. |
+| `edgeColor` | string or number[4] | `[0.5,0.5,0.5,1]` |  | Color the chamfer blends toward. |
+| `edgeMix` | number | `0.3` | ≥ 0, ≤ 1 | How much of edgeColor the chamfer takes. |
+| `droppedColor` | string or number[4] | `[0.34,0.38,0.43,1]` |  | The dropped look's tone: dropped dice fade toward it. |
+| `dropped` | number | `0` | ≥ 0, ≤ 1 | Blend toward the dropped look: desaturated, 0.62 opacity, rougher, no transmission. |
+| `fade` | number | `1` | ≥ 0, ≤ 1 | Opacity for blended dice fading in. |
+| `result` | number | `0` | ≥ 0, ≤ 1 | 0 while tumbling, 1 once landed: result-reactive families light the face on top. |
+| `resultTime` | number | `0` | s | The shader clock (globals.time) when the dice landed: reactions animate from globals.time − resultTime once result is above 0. |
+| `fleck` | number | `0.25` | ≥ 0, ≤ 1 | How many flecks show in the body. |
+| `fleckColor` | string or number[4] | `"#ffffff"` |  | Fleck color (linear). |
+| `fleckScale` | number | `16` | ≥ 1 | Fleck density, per unit of die radius. |
 
 ## `maze-chase/Enemy`
 

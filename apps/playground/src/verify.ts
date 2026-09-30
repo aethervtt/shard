@@ -10,9 +10,11 @@
 // only the documents that changed while away. `?fault=keep-token` and `?fault=keep-scene` break
 // the player's projection on purpose, so a plan can show that its checks catch it.
 
-import { type AssetRef, defineComponent, type Entity, quat, t } from '@aethervtt/shard-core'
+import { type AssetRef, defineComponent, type Entity, t } from '@aethervtt/shard-core'
+import { DICE_SKINS, type DiceRoll, DiceTable, dicePlugin } from '@aethervtt/shard-dice'
+import { diceWorker } from '@aethervtt/shard-dice/worker'
 import { createGpuContext } from '@aethervtt/shard-gpu'
-import { cube, cylinder, plane } from '@aethervtt/shard-mesh'
+import { cylinder, plane } from '@aethervtt/shard-mesh'
 import { createWebPerformance } from '@aethervtt/shard-platform-web'
 import {
   AmbientLight,
@@ -27,7 +29,6 @@ import {
   MeshMaterial,
   NotShadowCaster,
   renderPlugin,
-  ShadowCatcher,
 } from '@aethervtt/shard-render'
 import { App, animationFrameRunner, FrameDemand } from '@aethervtt/shard-runtime'
 import { Texture, Textures } from '@aethervtt/shard-texture'
@@ -443,7 +444,12 @@ const normalize = (a: Vec3): Vec3 => {
   return [a[0] / l, a[1] / l, a[2] / l]
 }
 
-// --- the dice: a transparent surface (0052) --------------------------------------------------------------
+// --- the dice: a transparent surface (0052) with the dice table (0054) ------------------------------------
+
+// `?focus=dice`: the dice surface covers the page, as a VTT's dice overlay does, and its app records
+// the scenario's metrics (the page API records from the first app that has them).
+const focusDice = params.get('focus') === 'dice'
+if (focusDice) diceCanvas.style.cssText = 'right: 0; bottom: 0; width: 100%; height: 100%;'
 
 const dice = new App().addPlugin(
   TransformPlugin,
@@ -453,60 +459,46 @@ const dice = new App().addPlugin(
     owner: 'dice',
   }),
   forwardPlugin(),
+  ...(focusDice ? [metricsPlugin({ performance: createWebPerformance(), renderer: 'shard' })] : []),
+  // Dice stay on the table until the next roll: captures see them at rest.
+  dicePlugin({ worker: diceWorker, restMs: 1e9 }),
 )
 await dice.init()
-{
-  const d = dice.world
-  d.resource(AmbientLight).brightness = 300
-  d.spawn(
-    [DirectionalLight, { illuminance: 20_000, shadows: true }],
-    [Transform, { rotation: lookAt([-3, 8, 2], [0, 0, 0]) }],
-  )
-  d.spawn(
-    [Mesh3d, { mesh: d.resource(Meshes).add(plane({ size: 12 })) }],
-    [
-      MeshMaterial,
-      { material: d.resource(Materials).add(new MaterialAsset({ opacity: 0.55 }, ShadowCatcher)) },
-    ],
-    NotShadowCaster,
-    Transform,
-  )
-  const faces: Color[] = [
-    [0.85, 0.2, 0.25, 1],
-    [0.95, 0.8, 0.3, 1],
-  ]
-  faces.forEach((color, i) => {
-    d.spawn(
-      [Mesh3d, { mesh: d.resource(Meshes).add(cube({ size: 0.9 })) }],
-      [
-        MeshMaterial,
-        {
-          material: d
-            .resource(Materials)
-            .add(new MaterialAsset({ baseColor: color, roughness: 0.35 })),
-        },
-      ],
-      [
-        Transform,
-        {
-          translation: [i * 1.6 - 0.8, 0.45, 0],
-          rotation: quat.fromEuler([0, 0, 0, 1], 0, 25 + i * 30, 0) as [
-            number,
-            number,
-            number,
-            number,
-          ],
-        },
-      ],
-    )
-  })
-  const diceEye: Vec3 = [0, 5, 5]
-  d.spawn(
-    [Camera3d, { fovY: 40, clearColor: [0, 0, 0, 0] }],
-    [Exposure, { ev100: 13 }],
-    [Transform, { translation: diceEye, rotation: lookAt(diceEye, [0, 0.3, 0]) }],
-  )
+const diceTable = dice.world.resource(DiceTable)
+void diceTable.tracks().ready()
+
+const KINDS = ['d20', 'd6', 'd8', 'd12', 'd10', 'd4', 'd100'] as const
+const SKINS = [
+  DICE_SKINS.ivory,
+  DICE_SKINS.teal,
+  DICE_SKINS.brass,
+  DICE_SKINS.obsidian,
+  DICE_SKINS.frost,
+  DICE_SKINS.ember,
+]
+
+/** A roll of `count` mixed dice, values from the seed's position in the cycle. */
+function mixedRoll(id: string, count: number): DiceRoll {
+  return {
+    id,
+    dice: Array.from({ length: count }, (_, i) => {
+      const kind = KINDS[i % KINDS.length]!
+      const sides = kind === 'd100' ? 100 : Number(kind.slice(1))
+      return { kind, value: ((i * 7) % sides) + 1, skin: SKINS[i % SKINS.length]! }
+    }),
+  }
 }
+
+// At rest from the start: two dice on a fixed tray, placed (reduced motion), for the static shots.
+void diceTable.play({
+  id: 'verify-start',
+  motion: 'reduced',
+  tray: { halfWidth: 1.7, halfDepth: 1.15 },
+  dice: [
+    { kind: 'd20', value: 20, skin: DICE_SKINS.obsidian },
+    { kind: 'd6', value: 5, skin: DICE_SKINS.ivory },
+  ],
+})
 
 // --- steps and probes for plans ---------------------------------------------------------------------------
 
@@ -521,6 +513,11 @@ function change(doc: string): void {
 }
 
 const steps: Record<string, (args: unknown) => unknown> = {
+  /** Rolls `count` mixed dice (default 32) with physics; the capture waits until they rest. */
+  roll(args) {
+    const { count = 32, seed = 'verify-roll' } = (args ?? {}) as { count?: number; seed?: string }
+    void diceTable.play({ ...mixedRoll(seed, count), seed }, { replace: true })
+  },
   move(args) {
     const { name, to } = args as { name: string; to: Vec2 }
     const doc = session.pieces.get(name)
@@ -557,6 +554,24 @@ const steps: Record<string, (args: unknown) => unknown> = {
   },
 }
 
+function diceProbe() {
+  const d = diceTable.describe() as {
+    phase: string
+    dice: { value: number; shown: number | null; placed: string | null }[]
+    track: { settled: boolean } | null
+    lastError: { code: string } | null
+  }
+  return {
+    phase: d.phase,
+    count: d.dice.length,
+    asked: d.dice.map((x) => x.value),
+    shown: d.dice.map((x) => x.shown),
+    placed: d.dice.filter((x) => x.placed).length,
+    settled: d.track?.settled ?? null,
+    error: d.lastError?.code ?? null,
+  }
+}
+
 function probe() {
   const names: string[] = []
   const scenes: Record<string, string> = {}
@@ -589,6 +604,8 @@ function probe() {
     fresh: { entities: fresh, positions: positions(fresh), fog: fogCells().length },
     // Documents re-applied at the last reconnect, and how many changed while away (0055).
     mirror: lastReconnect,
+    // The dice table (0054): where the roll is, and whether every die shows what was asked.
+    dice: diceProbe(),
   }
 }
 
@@ -600,7 +617,11 @@ void table.run()
 void dice.run()
 table.markUsable()
 dice.markUsable()
-installCapturePage([table, dice], { apply: (state) => applyView(state), steps, probe })
+installCapturePage(focusDice ? [dice, table] : [table, dice], {
+  apply: (state) => applyView(state),
+  steps,
+  probe,
+})
 
 Object.assign(globalThis, { table, dice, session, probe })
 

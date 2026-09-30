@@ -21,6 +21,7 @@ const FIXTURES = {
   'renderer-min': join(here, 'fixtures/renderer-min'),
   'three-min': join(here, 'fixtures/three-min'),
   'physics-track': join(here, 'fixtures/physics-track'),
+  'dice-worker': join(here, 'fixtures/dice-worker'),
   full: join(repo, 'apps/playground'),
 }
 

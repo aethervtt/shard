@@ -18,6 +18,7 @@ type PluginLike = { name: string; provides?: readonly object[] }
 const PLUGINS: Record<string, (m: Mod) => PluginLike[]> = {
   animation: (m) => [m.animationPlugin as PluginLike],
   audio: (m) => [(m.audioPlugin as () => PluginLike)()],
+  dice: (m) => [(m.dicePlugin as () => PluginLike)()],
   gltf: (m) => [m.gltfPlugin as PluginLike],
   input: (m) => [(m.inputPlugin as () => PluginLike)()],
   nav: (m) => [m.navPlugin as PluginLike, m.navGridPlugin as PluginLike],

@@ -1,0 +1,39 @@
+{
+  "url": "http://localhost:5180/verify.html",
+  "fixture": "verify-dice",
+  "browsers": ["chromium"],
+  "dpr": [1],
+  "viewport": [1320, 720],
+  "canvas": "#dice",
+  "conditions": { "renderScale": { "mode": "fixed", "scale": 1 } },
+  "clients": [{ "name": "main", "query": { "focus": "dice" } }],
+  "steps": [
+    {
+      "name": "landed-32",
+      "run": "roll",
+      "args": { "count": 32, "seed": "verify-landed" },
+      "capture": true,
+      "expect": {
+        "main": {
+          "dice.phase": { "equals": "rest" },
+          "dice.count": { "equals": 32 },
+          "dice.shown": { "sameAs": "dice.asked" },
+          "dice.error": { "equals": null }
+        }
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "dice-32",
+      "steps": [{ "name": "roll", "args": { "count": 32, "seed": "verify-measured" } }],
+      "seconds": 1
+    }
+  ],
+  "thresholds": {
+    "dice-32": {
+      "frameTime.p95": { "max": 20 },
+      "longTasks.maxMs": { "max": 100 }
+    }
+  }
+}

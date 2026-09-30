@@ -25,6 +25,7 @@ export {
   TRACK_CHUNK_MS,
   TRACK_CHUNK_STEPS,
   type TrackContactOptions,
+  type TrackDamping,
   type TrackPhase,
   trackCancelled,
 } from './record'
