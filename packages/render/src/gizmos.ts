@@ -1,10 +1,12 @@
 import { defineResource, defineSystem, mat4, type World } from '@aethervtt/shard-core'
-import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
+import type { GpuContext } from '@aethervtt/shard-gpu'
 import { Time } from '@aethervtt/shard-runtime'
+import { DataStore, dataEntry } from './data-store'
 import { ForwardStateResource } from './forward'
 import { LABEL_FONT, labelAtlas, labelWidth } from './gizmo-font'
 import { type NodeContext, type NodeDescriptor, RenderPhase, type RenderView } from './graph'
 import { Gpu, Shaders } from './plugin'
+import { depthReadEntry } from './tier'
 import { cameraOf } from './view'
 
 /**
@@ -646,8 +648,8 @@ export const beginGizmos = defineSystem({
 
 interface GizmoGpu {
   generation: number
-  lines: GpuBuffer
-  glyphs: GpuBuffer
+  lines: DataStore
+  glyphs: DataStore
   atlas: GPUTexture
   layouts: { view: GPUBindGroupLayout; data: GPUBindGroupLayout }
   pipelines: Map<string, GPURenderPipeline>
@@ -682,12 +684,9 @@ function gizmoGpu(world: World, gpu: GpuContext): GizmoGpu {
   const glyphData = new Float32Array(GLYPH_FLOATS * 256)
   r.gpu = {
     generation: gpu.generation,
-    lines: new GpuBuffer(gpu, { label: 'gizmos/lines', usage: GPUBufferUsage.STORAGE, size: 4096 }),
-    glyphs: new GpuBuffer(gpu, {
-      label: 'gizmos/glyphs',
-      usage: GPUBufferUsage.STORAGE,
-      size: 4096,
-    }),
+    // Read by the vertex stage: data textures on baseline (0064).
+    lines: new DataStore(gpu, { label: 'gizmos/lines', size: 4096 }),
+    glyphs: new DataStore(gpu, { label: 'gizmos/glyphs', size: 4096 }),
     atlas,
     layouts: {
       view: gpu.layouts.bindGroupLayout({
@@ -697,9 +696,9 @@ function gizmoGpu(world: World, gpu: GpuContext): GizmoGpu {
       data: gpu.layouts.bindGroupLayout({
         label: 'gizmos/data',
         entries: [
-          { binding: 0, visibility: V, buffer: { type: 'read-only-storage' } },
-          { binding: 1, visibility: V, buffer: { type: 'read-only-storage' } },
-          { binding: 2, visibility: F, texture: { sampleType: 'depth' } },
+          dataEntry(gpu, 0, V),
+          dataEntry(gpu, 1, V),
+          depthReadEntry(gpu, 2, F),
           { binding: 3, visibility: F, texture: { sampleType: 'float' } },
         ],
       }),
@@ -918,11 +917,11 @@ export function gizmoNode(world: World): NodeDescriptor {
           gpu,
           r,
           `data/${ctx.view.name}`,
-          `${idOf(r.lines.buffer)}/${idOf(r.glyphs.buffer)}/${idOf(depth)}/${idOf(r.atlas)}`,
+          `${r.lines.version}/${r.glyphs.version}/${idOf(depth)}/${idOf(r.atlas)}`,
           r.layouts.data,
           () => [
-            { binding: 0, resource: { buffer: r.lines.buffer } },
-            { binding: 1, resource: { buffer: r.glyphs.buffer } },
+            { binding: 0, resource: r.lines.resource() },
+            { binding: 1, resource: r.glyphs.resource() },
             { binding: 2, resource: depth.createView() },
             { binding: 3, resource: r.atlas.createView() },
           ],

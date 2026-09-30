@@ -15,6 +15,7 @@ import { Graph, Views } from './plugin'
 import { AutoExposure, cocParams, hasEffect, needsPrepass, PostEffect } from './post'
 import {
   beginPass,
+  depthTex,
   forwardView,
   HDR,
   idOf,
@@ -84,11 +85,11 @@ function ssaoNode(phase: number, deferred: boolean): NodeDescriptor {
         layouts = {
           gtao: gpu.layouts.bindGroupLayout({
             label: 'ssao/gtao',
-            entries: [uniform(0), tex(1, 'depth'), tex(2, 'unfilterable-float'), uniform(3)],
+            entries: [uniform(0), depthTex(gpu, 1), tex(2, 'unfilterable-float'), uniform(3)],
           }),
           up: gpu.layouts.bindGroupLayout({
             label: 'ssao/upsample',
-            entries: [uniform(0), tex(1, 'depth'), uniform(3), tex(4, 'unfilterable-float')],
+            entries: [uniform(0), depthTex(gpu, 1), uniform(3), tex(4, 'unfilterable-float')],
           }),
         }
       }
@@ -188,7 +189,7 @@ function fogNode(): NodeDescriptor {
         layoutGen = gpu.generation
         layout = gpu.layouts.bindGroupLayout({
           label: 'fog',
-          entries: [tex(0, 'unfilterable-float'), tex(1, 'depth'), uniform(2)],
+          entries: [tex(0, 'unfilterable-float'), depthTex(gpu, 1), uniform(2)],
         })
       }
       const alpha = v.cam.alphaOutput
@@ -263,7 +264,7 @@ function taaNode(): NodeDescriptor {
           entries: [
             uniform(0),
             tex(1, 'unfilterable-float'),
-            tex(2, 'depth'),
+            depthTex(gpu, 2),
             tex(3, 'unfilterable-float'),
             tex(4),
             sampler(5),
@@ -373,7 +374,7 @@ function motionBlurNode(): NodeDescriptor {
           entries: [
             uniform(0),
             tex(1),
-            tex(2, 'depth'),
+            depthTex(gpu, 2),
             tex(3, 'unfilterable-float'),
             uniform(4),
             sampler(5),
@@ -442,7 +443,7 @@ function dofNode(): NodeDescriptor {
         layoutGen = gpu.generation
         layout = gpu.layouts.bindGroupLayout({
           label: 'dof',
-          entries: [uniform(0), tex(1), tex(2, 'depth'), uniform(3), tex(4), sampler(5)],
+          entries: [uniform(0), tex(1), depthTex(gpu, 2), uniform(3), tex(4), sampler(5)],
         })
       }
       const prepare = cache.render(ctx, 'dof/prepare', 'shard::post::dof', 'prepare', [layout], HDR)

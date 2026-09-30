@@ -14,6 +14,12 @@ import { ShardError } from '@aethervtt/shard-core'
 /** Bumps when the baseline rewrite's output changes: baked baseline code from before goes stale. */
 export const BASELINE_REWRITE_VERSION = 1
 
+/**
+ * Width of a data texture in texels (0064): element bytes at byte offset b sit in texel b / 16, a
+ * row holding this many. The rewrite's loaders and the engine's data textures agree on it.
+ */
+export const DATA_TEXTURE_WIDTH = 1024
+
 /** A storage declaration marked `@data`, as collected before linking. */
 export interface DataDeclaration {
   /** The module that declared it, for errors. */

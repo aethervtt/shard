@@ -22,6 +22,7 @@ import {
   type Plugin,
 } from '@aethervtt/shard-runtime'
 import { type ShaderBake, ShaderLibrary } from '@aethervtt/shard-shader'
+import { loadDataTextures, releaseDataStores } from './data-store'
 import { describeFeatures, RenderFeatures } from './features'
 import { type CapturedBuffer, type CapturedImage, RenderGraph, type RenderView } from './graph'
 import { healthSystem, RenderHealth, RenderHealthChanged, RenderHealthReports } from './health'
@@ -290,6 +291,8 @@ export function renderPlugin(options: RenderPluginOptions = {}): Plugin {
       const gpu = given ?? (await createGpuContext({ features: options.features }))
       state.gpu = gpu
       state.ownsDevice = !given
+      // The baseline tier's data textures (0064), before any plugin makes a DataStore.
+      if (gpu.tier === 'baseline') await loadDataTextures()
       // After the await, so outside the app's scope: count what's made here against it explicitly.
       gpu.withOwner(state.owner, () => {
         app.insertResource(Gpu, gpu)
@@ -332,6 +335,7 @@ export function renderPlugin(options: RenderPluginOptions = {}): Plugin {
       const gpu = state.gpu
       if (!gpu) return
       // The app's buffers and textures, wherever they were made: nodes, pools, uploads, targets.
+      releaseDataStores(gpu, state.owner)
       gpu.release(state.owner)
       if (state.ownsDevice) gpu.destroy()
     },

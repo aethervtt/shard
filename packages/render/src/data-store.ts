@@ -1,19 +1,20 @@
+import { ShardError } from '@aethervtt/shard-core'
 import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
+import { DATA_TEXTURE_WIDTH } from '@aethervtt/shard-shader'
+import type { DataTexture } from './baseline/data-texture'
 
 // Engine data a vertex or fragment shader reads by index (instances, lights, sprite records), one
 // binding on either tier (0064):
 //
 // - full: today's storage buffer, written as always (this is a thin wrapper over GpuBuffer);
-// - baseline, `texture`: an rgba32uint data texture the baseline rewrite reads through generated
-//   loaders. Texel k holds bytes [16k, 16k + 16) of what the storage buffer would hold, 1,024
-//   texels a row, and the last texel holds the byte length (for `arrayLength`). Writes land in a
-//   CPU copy and upload before the frame's submit as at most three row spans;
+// - baseline, `texture`: an rgba32uint data texture (baseline/data-texture.ts, loaded only on a
+//   baseline device) holding the same bytes, read by the baseline rewrite's generated loaders;
 // - baseline, `uniform`: a uniform buffer, for `@data(uniform)` declarations.
 //
-// The shader side is a `@data` declaration at the same binding (see shader/baseline/data.ts).
+// The shader side is a `@data` declaration at the same binding (see shader/data-marks.ts).
 
-/** Texels per row of a data texture (matches the baseline rewrite's loaders). */
-export const DATA_WIDTH = 1024
+/** Texels per row of a data texture (the baseline rewrite's loaders read the same). */
+export const DATA_WIDTH = DATA_TEXTURE_WIDTH
 
 export interface DataStoreOptions {
   label: string
@@ -25,13 +26,44 @@ export interface DataStoreOptions {
   kind?: 'texture' | 'uniform'
 }
 
-const stores = new WeakMap<GpuContext, DataStore[]>()
+let dataTextures: typeof import('./baseline/data-texture') | undefined
+
+/**
+ * Loads the baseline tier's data textures, once. The render plugin does it as it opens a baseline
+ * device, before anything makes a DataStore; so does code that makes one on its own device.
+ */
+export async function loadDataTextures(): Promise<void> {
+  dataTextures ??= await import('./baseline/data-texture')
+}
+
+/**
+ * The layout entry a DataStore of `kind` binds with on this device's tier, for layouts made
+ * before (or without) the store: storage on the full tier, a data texture or a uniform block on
+ * baseline.
+ */
+export function dataEntry(
+  gpu: GpuContext,
+  binding: number,
+  visibility: GPUShaderStageFlags,
+  kind: 'texture' | 'uniform' = 'texture',
+  type: GPUBufferBindingType = 'read-only-storage',
+): GPUBindGroupLayoutEntry {
+  if (gpu.tier !== 'baseline') return { binding, visibility, buffer: { type } }
+  if (kind === 'uniform') return { binding, visibility, buffer: { type: 'uniform' } }
+  return { binding, visibility, texture: { sampleType: 'uint', viewDimension: '2d' } }
+}
+
+/**
+ * Forgets the data textures `owner` made on `gpu` (an app's render plugin, as it disposes): the
+ * ledger destroys their textures, so they must not flush again.
+ */
+export function releaseDataStores(gpu: GpuContext, owner: string): void {
+  dataTextures?.releaseDataTextures(gpu, owner)
+}
 
 /** Uploads what every baseline data texture of `gpu` was written this frame. Before the submit. */
 export function flushDataStores(gpu: GpuContext): void {
-  const list = stores.get(gpu)
-  if (!list) return
-  for (let i = 0; i < list.length; i++) list[i]!.flush()
+  dataTextures?.flushDataTextures(gpu)
 }
 
 /**
@@ -42,62 +74,55 @@ export function flushDataStores(gpu: GpuContext): void {
 export class DataStore {
   readonly label: string
   readonly kind: 'texture' | 'uniform'
+  /** Who its GPU objects count against (`gpu.owner` when it was made). */
+  readonly owner: string
   /** The texture form: the baseline tier's `@data` binding. */
   readonly textured: boolean
   private readonly gpu: GpuContext
   private readonly buffer: GpuBuffer | undefined
-  private texture: GPUTexture | undefined
-  private view: GPUTextureView | undefined
-  private mirror = new Uint8Array(0)
-  private size: number
-  private rows = 0
-  private generation = -1
-  private textureVersion = 0
-  private dirtyStart = Number.POSITIVE_INFINITY
-  private dirtyEnd = 0
-  // Reused upload descriptors: flushing allocates nothing.
-  private readonly destination: GPUTexelCopyTextureInfo & { origin: { x: number; y: number } }
-  private readonly layout = { offset: 0, bytesPerRow: DATA_WIDTH * 16 }
-  private readonly extent = { width: 0, height: 0 }
+  private readonly texture: DataTexture | undefined
 
   constructor(gpu: GpuContext, options: DataStoreOptions) {
     this.gpu = gpu
     this.label = options.label
+    this.owner = gpu.owner
     this.kind = options.kind ?? 'texture'
-    this.size = align16(Math.max(16, options.size ?? 256))
+    const size = align16(Math.max(16, options.size ?? 256))
     this.textured = gpu.tier === 'baseline' && this.kind === 'texture'
-    this.destination = { texture: undefined as unknown as GPUTexture, origin: { x: 0, y: 0 } }
-    if (!this.textured) {
-      this.buffer = new GpuBuffer(gpu, {
-        label: options.label,
-        usage:
-          gpu.tier === 'baseline'
-            ? GPUBufferUsage.UNIFORM
-            : GPUBufferUsage.STORAGE | (options.usage ?? 0),
-        size: this.size,
-      })
+    if (this.textured) {
+      if (!dataTextures) {
+        throw new ShardError(
+          'render/data-textures-not-loaded',
+          `DataStore "${options.label}" needs the baseline tier's data textures, which aren't loaded`,
+          { hint: 'Await loadDataTextures() before making DataStores on a baseline device.' },
+        )
+      }
+      this.texture = new dataTextures.DataTexture(gpu, options.label, size)
       return
     }
-    this.mirror = new Uint8Array(this.size)
-    let list = stores.get(gpu)
-    if (!list) {
-      list = []
-      stores.set(gpu, list)
-    }
-    list.push(this)
+    this.buffer = new GpuBuffer(gpu, {
+      label: options.label,
+      usage:
+        gpu.tier === 'baseline'
+          ? GPUBufferUsage.UNIFORM
+          : GPUBufferUsage.STORAGE | (options.usage ?? 0),
+      size,
+    })
   }
 
   /** Bumps whenever the GPU object changes: bind groups made on the old one rebuild. */
   get version(): number {
-    this.checkGeneration()
-    return this.buffer ? this.buffer.version : this.textureVersion
+    return this.buffer ? this.buffer.version : this.texture!.currentVersion
   }
 
   get byteLength(): number {
-    return this.buffer ? this.buffer.byteLength : this.size
+    return this.buffer ? this.buffer.byteLength : this.texture!.size
   }
 
-  /** The buffer, on the tiers that bind one (full, and baseline uniform blocks). */
+  /**
+   * The buffer, on the tiers that bind one (full, and baseline uniform blocks): for full-tier
+   * passes that read or write it as storage (GPU culling).
+   */
   get gpuBuffer(): GPUBuffer {
     if (!this.buffer) throw new Error(`${this.label} is a data texture on this tier`)
     return this.buffer.buffer
@@ -105,17 +130,7 @@ export class DataStore {
 
   /** Grows to at least `bytes`. Returns true if the GPU object was replaced. */
   ensureCapacity(bytes: number): boolean {
-    if (this.buffer) return this.buffer.ensureCapacity(bytes)
-    this.checkGeneration()
-    if (bytes <= this.size) return false
-    let size = this.size
-    while (size < bytes) size *= 2
-    const mirror = new Uint8Array(size)
-    mirror.set(this.mirror)
-    this.mirror = mirror
-    this.size = size
-    this.recreate()
-    return true
+    return this.buffer ? this.buffer.ensureCapacity(bytes) : this.texture!.ensureCapacity(bytes)
   }
 
   /** Writes a TypedArray (or a slice of it, in elements) at a byte offset, growing if needed. */
@@ -125,22 +140,8 @@ export class DataStore {
     start = 0,
     count?: number,
   ): void {
-    if (this.buffer) {
-      this.buffer.write(data, byteOffset, start, count)
-      return
-    }
-    const bytesPerElement = (data as unknown as { BYTES_PER_ELEMENT: number }).BYTES_PER_ELEMENT
-    const elements = count ?? data.length - start
-    const bytes = elements * bytesPerElement
-    this.ensureCapacity(byteOffset + bytes)
-    if (elements === 0) return
-    this.checkGeneration()
-    this.mirror.set(
-      new Uint8Array(data.buffer, data.byteOffset + start * bytesPerElement, bytes),
-      byteOffset,
-    )
-    if (byteOffset < this.dirtyStart) this.dirtyStart = byteOffset
-    if (byteOffset + bytes > this.dirtyEnd) this.dirtyEnd = byteOffset + bytes
+    if (this.buffer) this.buffer.write(data, byteOffset, start, count)
+    else this.texture!.write(data, byteOffset, start, count)
   }
 
   /** The bind group layout entry for this binding on this tier. */
@@ -149,87 +150,22 @@ export class DataStore {
     visibility: GPUShaderStageFlags,
     type: GPUBufferBindingType = 'read-only-storage',
   ): GPUBindGroupLayoutEntry {
-    if (this.textured) {
-      return { binding, visibility, texture: { sampleType: 'uint', viewDimension: '2d' } }
-    }
-    if (this.gpu.tier === 'baseline') return { binding, visibility, buffer: { type: 'uniform' } }
-    return { binding, visibility, buffer: { type } }
+    return dataEntry(this.gpu, binding, visibility, this.kind, type)
   }
 
   /** What the bind group binds. Rebuild bind groups when `version` changes. */
   resource(): GPUBindingResource {
-    if (this.buffer) return { buffer: this.buffer.buffer }
-    this.checkGeneration()
-    return this.view!
+    return this.buffer ? { buffer: this.buffer.buffer } : this.texture!.resource()
   }
 
   /** Uploads the rows written since the last flush (data textures; the rest write through). */
   flush(): void {
-    if (this.dirtyEnd <= this.dirtyStart) return
-    this.checkGeneration()
-    const first = Math.floor(this.dirtyStart / 16)
-    const last = Math.ceil(this.dirtyEnd / 16) // exclusive
-    this.dirtyStart = Number.POSITIVE_INFINITY
-    this.dirtyEnd = 0
-    const row0 = Math.floor(first / DATA_WIDTH)
-    const row1 = Math.floor((last - 1) / DATA_WIDTH)
-    if (row0 === row1) {
-      this.upload(first % DATA_WIDTH, row0, last - first, 1)
-      return
-    }
-    // A partial first row, whole rows between, a partial last row.
-    this.upload(first % DATA_WIDTH, row0, DATA_WIDTH - (first % DATA_WIDTH), 1)
-    if (row1 > row0 + 1) this.upload(0, row0 + 1, DATA_WIDTH, row1 - row0 - 1)
-    this.upload(0, row1, last - row1 * DATA_WIDTH, 1)
+    this.texture?.flush()
   }
 
   destroy(): void {
     this.buffer?.destroy()
     this.texture?.destroy()
-    const list = stores.get(this.gpu)
-    const i = list ? list.indexOf(this) : -1
-    if (i !== -1) list!.splice(i, 1)
-  }
-
-  private upload(x: number, y: number, width: number, height: number): void {
-    this.destination.texture = this.texture!
-    this.destination.origin.x = x
-    this.destination.origin.y = y
-    this.layout.offset = (y * DATA_WIDTH + x) * 16
-    this.extent.width = width
-    this.extent.height = height
-    this.gpu.device.queue.writeTexture(this.destination, this.mirror, this.layout, this.extent)
-  }
-
-  /** A texture for the current size (plus the length texel), everything uploaded again. */
-  private recreate(): void {
-    this.texture?.destroy()
-    const texels = this.size / 16 + 1
-    this.rows = Math.ceil(texels / DATA_WIDTH)
-    // The mirror covers whole rows, so row uploads never read past its end.
-    if (this.mirror.byteLength < this.rows * DATA_WIDTH * 16) {
-      const mirror = new Uint8Array(this.rows * DATA_WIDTH * 16)
-      mirror.set(this.mirror)
-      this.mirror = mirror
-    }
-    new Uint32Array(this.mirror.buffer, (this.rows * DATA_WIDTH - 1) * 16, 4)[0] = this.size
-    this.texture = this.gpu.device.createTexture({
-      label: this.label,
-      size: [DATA_WIDTH, this.rows],
-      format: 'rgba32uint',
-      // COPY_SRC: tools and tests read a data texture back.
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC,
-    })
-    this.view = this.texture.createView()
-    this.generation = this.gpu.generation
-    this.textureVersion++
-    this.dirtyStart = 0
-    this.dirtyEnd = this.rows * DATA_WIDTH * 16
-  }
-
-  /** After device loss (or on first use) the texture is made again from the CPU copy. */
-  private checkGeneration(): void {
-    if (this.generation !== this.gpu.generation) this.recreate()
   }
 }
 

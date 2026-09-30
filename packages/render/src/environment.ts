@@ -402,6 +402,8 @@ export function runEnvironmentWork(ctx: NodeContext): void {
   const gpu = ctx.gpu
   const store = world.resource(Environments)
   if (store.ranFrame === store.frame) return
+  // Compute: the full tier's. Baseline prefilters with fragment passes (baseline/environment.ts).
+  if (gpu.tier === 'baseline') return
   if (store.pending.length === 0 && store.lutReady) {
     store.ranFrame = store.frame
     return
@@ -515,7 +517,7 @@ export function runEnvironmentWork(ctx: NodeContext): void {
               mipLevelCount: 1,
             }),
           },
-          { binding: 1, resource: { buffer: env.sh.buffer } },
+          { binding: 1, resource: { buffer: env.sh.gpuBuffer } },
         ],
       }),
     )

@@ -138,6 +138,7 @@ export class MaterialPipelines {
     if (revision !== this.revision) {
       this.revision = revision
       this.failedTypes.clear()
+      this.warm.clear()
     }
     if (frame === this.frame) return
     this.frame = frame
@@ -254,6 +255,20 @@ export class MaterialPipelines {
   /** A compiled pipeline under `key` (unique per pass, type, and variant), if there is one. */
   cached(key: number): GPURenderPipeline | undefined {
     return this.pipelines.get(key)
+  }
+
+  /**
+   * Per (pass, sample count) slot of CPU-culled lists: the batch structure version and device
+   * generation whose pipelines were all asked for and compiled (forward's warmPipelines).
+   */
+  private readonly warm = new Map<number, number>()
+
+  warmed(slot: number, structure: number, generation: number): boolean {
+    return this.warm.get(slot) === structure * 1024 + (generation % 1024)
+  }
+
+  markWarmed(slot: number, structure: number, generation: number): void {
+    this.warm.set(slot, structure * 1024 + (generation % 1024))
   }
 
   /** The last pipeline that compiled under each key, with the layout it was made for. */

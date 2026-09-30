@@ -203,7 +203,7 @@ uploads (0022). Material hooks (0020) use the accessors too.
 | Feature | Full tier | Baseline tier |
 |---|---|---|
 | Instances, visible list | Storage + GPU culling, indirect draws | Data texture + CPU culling (exists), direct draws |
-| Light clusters | Compute | Built on the CPU, uploaded as a texture; `LightBudget.baselineMax` (default 128) |
+| Light clusters | Compute | Built on the CPU into a 128-bit mask per cluster over a per-view uniform array of lights; `LightingSettings.baselineMaxLights` (default and most 128) keeps the nearest, and `render/light-budget` reports the rest |
 | Shadows | Render passes | The same |
 | Skinning, morph targets | Storage | Data textures |
 | Sprites, tilemaps, text, UI | Storage in 6 sprite and 1 UI shader | Data textures |

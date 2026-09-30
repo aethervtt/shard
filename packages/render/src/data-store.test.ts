@@ -2,13 +2,20 @@ import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { ShaderLibrary } from '@aethervtt/shard-shader'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { DATA_WIDTH, DataStore, flushDataStores } from './data-store'
+import {
+  DATA_WIDTH,
+  DataStore,
+  flushDataStores,
+  loadDataTextures,
+  releaseDataStores,
+} from './data-store'
 
 let full: GpuContext
 let compat: GpuContext
 beforeAll(async () => {
   full = await createNodeGpuContext()
   compat = await createNodeGpuContext({ tier: 'baseline', recovery: { intervalMs: 10 } })
+  await loadDataTextures()
 })
 afterAll(() => {
   full.destroy()
@@ -17,7 +24,7 @@ afterAll(() => {
 
 /** The texels of a data texture, as bytes. */
 async function readTexture(gpu: GpuContext, store: DataStore): Promise<Uint8Array> {
-  const texture = (store as unknown as { texture: GPUTexture }).texture
+  const texture = (store as unknown as { texture: { texture: GPUTexture } }).texture.texture
   const rows = texture.height
   const buffer = gpu.device.createBuffer({
     size: rows * DATA_WIDTH * 16,
@@ -89,7 +96,7 @@ describe('DataStore (0064)', () => {
       queue.writeTexture = writeTexture
     }
     const bytes = await readTexture(compat, store)
-    const texture = (store as unknown as { texture: GPUTexture }).texture
+    const texture = (store as unknown as { texture: { texture: GPUTexture } }).texture.texture
     expect(texture.width).toBe(DATA_WIDTH)
     const lastTexel = new Uint32Array(bytes.buffer, bytes.byteLength - 16, 4)
     expect(lastTexel[0]).toBe(store.byteLength)
@@ -102,11 +109,14 @@ describe('DataStore (0064)', () => {
     store.write(data)
     flushDataStores(compat)
     const v0 = store.version
+    // Past its size but within the uploaded row: the mirror is a whole row by now.
+    store.write(new Uint32Array([7]), 400)
     store.write(new Uint32Array([42]), 20_000)
     expect(store.version).toBeGreaterThan(v0)
     flushDataStores(compat)
     let bytes = await readTexture(compat, store)
     expect(new Uint32Array(bytes.buffer, 0, 64)).toEqual(data)
+    expect(new Uint32Array(bytes.buffer, 400, 1)[0]).toBe(7)
     expect(new Uint32Array(bytes.buffer, 20_000, 1)[0]).toBe(42)
     const v1 = store.version
     compat.simulateDeviceLoss()
@@ -116,6 +126,22 @@ describe('DataStore (0064)', () => {
     bytes = await readTexture(compat, store)
     expect(new Uint32Array(bytes.buffer, 0, 64)).toEqual(data)
     store.destroy()
+  })
+
+  it("stops flushing an owner's stores once they're released, as a disposed app's are", async () => {
+    const errors = compat.errors.length
+    const store = compat.withOwner('test/app', () => new DataStore(compat, { label: 'test/owned' }))
+    expect(store.owner).toBe('test/app')
+    store.write(new Uint32Array([1, 2, 3]))
+    flushDataStores(compat)
+    // The app disposes: its render plugin forgets its stores, then the ledger destroys their objects.
+    store.write(new Uint32Array([4]))
+    releaseDataStores(compat, 'test/app')
+    expect(compat.release('test/app')).toBeGreaterThan(0)
+    flushDataStores(compat)
+    compat.device.queue.submit([])
+    await compat.device.queue.onSubmittedWorkDone()
+    expect(compat.errors.slice(errors)).toEqual([])
   })
 
   it('feeds @data and @data(uniform) declarations on a compatibility device, pixel for pixel', async () => {

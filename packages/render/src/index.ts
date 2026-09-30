@@ -77,7 +77,13 @@ export {
   ViewLightList,
 } from './clusters'
 export { Culler, cullGround, GpuCuller, readVisibleSlots, visibleSlots } from './culling'
-export { DATA_WIDTH, DataStore, type DataStoreOptions, flushDataStores } from './data-store'
+export {
+  DATA_WIDTH,
+  DataStore,
+  type DataStoreOptions,
+  dataEntry,
+  flushDataStores,
+} from './data-store'
 export {
   captureShadowMap,
   DEBUG_VIEWS,
@@ -431,6 +437,7 @@ export {
   type OffscreenTargetOptions,
   type RenderTarget,
 } from './target'
+export { bindingDimension, depthReadEntry } from './tier'
 export { GpuTimer } from './timer'
 export {
   type CameraData,

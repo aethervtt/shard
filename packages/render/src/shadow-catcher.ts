@@ -12,7 +12,7 @@ export const SHADOW_CATCHER_SHADERS: Record<string, string> = {
   'shard::pbr::catcher': `
 import shard::view::view;
 import shard::pbr::types::VertexOutput;
-import shard::pbr::lights::{ lights, clusters, directional, light_falloff, LIGHT_SPOT, NO_SHADOW, CLUSTER_COUNT, MAX_PER_CLUSTER };
+import shard::pbr::lights::{ lights, clusters, cluster_bits, next_light, directional, light_falloff, LIGHT_SPOT, NO_SHADOW, CLUSTER_COUNT, MAX_PER_CLUSTER };
 import shard::pbr::shadows::{ directional_shadow, spot_shadow, point_shadow };
 import shard::pbr::lighting::cluster_of;
 
@@ -40,7 +40,35 @@ fn shadow_visibility(in: VertexOutput) -> f32 {
     lit += e * directional_shadow(p, n, view_depth, in.clip.xy);
   }
   let cluster = cluster_of(in.clip, view_depth);
-  if (cluster >= 0) {
+  // Baseline (0064): the cluster's bits; keep the body in step with the loop below.
+  @if(BASELINE) if (cluster >= 0) {
+    var mask = cluster_bits[cluster];
+    var index = 0u;
+    while (next_light(&mask, &index)) {
+      let light = lights[index];
+      if (light.shadow == NO_SHADOW) { continue; }
+      let to_light = light.position - p;
+      let d2 = max(dot(to_light, to_light), 1e-4);
+      let d = sqrt(d2);
+      let l = to_light / d;
+      var attenuation = light_falloff(light, d, d2);
+      if (light.kind == LIGHT_SPOT) {
+        let spot = clamp(dot(-l, light.direction) * light.spot_scale + light.spot_offset, 0.0, 1.0);
+        attenuation *= spot * spot;
+      }
+      let e = max(dot(n, l), 0.0) * attenuation * brightest(light.color);
+      if (e <= 0.0) { continue; }
+      var shadow = 1.0;
+      if (light.kind == LIGHT_SPOT) {
+        shadow = spot_shadow(light.shadow, p, n, light.position, light.shadow_bias, light.shadow_normal_bias, light.shadow_softness, in.clip.xy);
+      } else {
+        shadow = point_shadow(light.shadow, p, n, light.shadow_bias, light.shadow_normal_bias, light.shadow_softness, in.clip.xy);
+      }
+      total += e;
+      lit += e * shadow;
+    }
+  }
+  @if(!BASELINE) if (cluster >= 0) {
     let count = clusters[cluster];
     let base = CLUSTER_COUNT + u32(cluster) * MAX_PER_CLUSTER;
     for (var k = 0u; k < count; k++) {

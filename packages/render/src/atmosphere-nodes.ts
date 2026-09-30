@@ -13,6 +13,7 @@ import { ForwardStateResource, sceneColor } from './forward'
 import { type NodeContext, type NodeDescriptor, RenderPhase, type RenderView } from './graph'
 import { Gpu, Graph, Shaders, Views } from './plugin'
 import { hasEffect, PostEffect } from './post'
+import { depthReadEntry } from './tier'
 import { type CameraData, cameraOf } from './view'
 
 /** Atmospheres whose LUTs stay on the GPU at once (layers of the LUT arrays). */
@@ -413,7 +414,7 @@ function layouts(gpu: GpuContext, s: AtmosphereGpu): Record<string, GPUBindGroup
       label: 'atmosphere/composite',
       entries: [
         { binding: 0, visibility: F, texture: { sampleType: 'unfilterable-float' } },
-        { binding: 1, visibility: F, texture: { sampleType: 'depth' } },
+        depthReadEntry(gpu, 1, F),
         uniform(2, F),
         array(3, F),
         array(4, F),

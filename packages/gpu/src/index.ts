@@ -11,6 +11,7 @@ export { type GpuErrorListener, toShardError } from './errors'
 export { descriptorKey } from './key'
 export {
   bufferCategory,
+  DATA_TEXTURE_PREFIX,
   type GpuMemory,
   type GpuMemoryCategory,
   type GpuStats,

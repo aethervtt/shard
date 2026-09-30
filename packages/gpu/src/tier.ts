@@ -17,6 +17,11 @@ export interface GpuCapabilities {
   maxTextureDimension2D: number
   maxColorAttachments: number
   maxUniformBufferBindingSize: number
+  /**
+   * The most samples an HDR scene target (`rgba16float`) takes: 4, or 1 where float targets can't
+   * multisample (some compatibility-mode devices and WebGL2 implementations).
+   */
+  hdrSampleCount: 1 | 4
 }
 
 /** Why a better option was skipped: `{ backend: 'webgpu', code: 'no-adapter', … }`. */
@@ -36,7 +41,11 @@ export function isCoreDevice(device: GPUDevice): boolean {
   return device.limits.maxStorageBuffersInVertexStage === undefined
 }
 
-export function capabilitiesOf(device: GPUDevice, backend: GpuBackendName): GpuCapabilities {
+export function capabilitiesOf(
+  device: GPUDevice,
+  backend: GpuBackendName,
+  hdrSampleCount: 1 | 4 = 4,
+): GpuCapabilities {
   const limits = device.limits
   const core = backend === 'webgpu' && isCoreDevice(device)
   const perStage = limits.maxStorageBuffersPerShaderStage
@@ -52,5 +61,25 @@ export function capabilitiesOf(device: GPUDevice, backend: GpuBackendName): GpuC
     maxTextureDimension2D: limits.maxTextureDimension2D,
     maxColorAttachments: limits.maxColorAttachments,
     maxUniformBufferBindingSize: limits.maxUniformBufferBindingSize,
+    hdrSampleCount,
   }
+}
+
+/**
+ * Whether `rgba16float` targets multisample 4×: always on a core device (checked without asking
+ * it anything), else found by creating one in an error scope.
+ */
+export async function probeHdrSampleCount(device: GPUDevice): Promise<1 | 4> {
+  if (isCoreDevice(device)) return 4
+  device.pushErrorScope('validation')
+  const texture = device.createTexture({
+    label: 'shard/msaa-probe',
+    size: [1, 1],
+    format: 'rgba16float',
+    sampleCount: 4,
+    usage: GPUTextureUsage.RENDER_ATTACHMENT,
+  })
+  const error = await device.popErrorScope()
+  texture.destroy()
+  return error ? 1 : 4
 }

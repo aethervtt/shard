@@ -2,9 +2,8 @@ import type { ShardError } from '@aethervtt/shard-core'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { collectData, DATA_TEXTURE_WIDTH } from '../data-marks'
 import { ShaderLibrary } from '../library'
-import { collectData } from './data'
-import { DATA_TEXTURE_WIDTH } from './rewrite'
 
 let gpu: GpuContext
 let compat: GpuContext
@@ -190,7 +189,7 @@ ${FLATTEN}
     expect(linked.bindings).toEqual([{ group: 0, binding: 0, name: 'records', as: 'data-texture' }])
   })
 
-  it('reads arrays of 4- and 8-byte elements, and answers arrayLength', async () => {
+  it('reads arrays of 4- and 8-byte elements, answers arrayLength, and leaves same-named members alone', async () => {
     const library = new ShaderLibrary()
     library.register(
       'test::small',
@@ -205,10 +204,13 @@ ${FLATTEN}
       'test::pairs',
       `@data @group(0) @binding(0) var<storage, read> pairs: array<vec2f>;
 @group(0) @binding(1) var<storage, read_write> out_words: array<u32>;
+struct Count { pairs: u32 }
 @compute @workgroup_size(1) fn main(@builtin(workgroup_id) id: vec3u) {
   out_words[id.x * 3u] = bitcast<u32>(pairs[id.x].x);
   out_words[id.x * 3u + 1u] = bitcast<u32>(pairs[id.x].y);
-  out_words[id.x * 3u + 2u] = arrayLength(&pairs);
+  var count: Count;
+  count.pairs = arrayLength(&pairs);
+  out_words[id.x * 3u + 2u] = count.pairs;
 }`,
     )
     const n = 50

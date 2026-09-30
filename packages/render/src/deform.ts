@@ -1,5 +1,6 @@
-import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
+import type { GpuContext } from '@aethervtt/shard-gpu'
 import type { Mesh } from '@aethervtt/shard-mesh'
+import { DataStore } from './data-store'
 
 /**
  * Per-slot deform record, 12 words (mirrors `Deform` in `shard::mesh` and `shard::cull`):
@@ -51,9 +52,9 @@ export class DeformStore {
   private vertexWords = 0
   private wasted = 0
   readonly meshes = new Map<Mesh, MeshDeform>()
-  readonly recordBuffer: GpuBuffer
-  readonly poseBuffer: GpuBuffer
-  readonly vertexBuffer: GpuBuffer
+  readonly recordBuffer: DataStore
+  readonly poseBuffer: DataStore
+  readonly vertexBuffer: DataStore
   private recordLo = Number.POSITIVE_INFINITY
   private recordHi = -1
   private vertexDirty = true
@@ -64,14 +65,10 @@ export class DeformStore {
   constructor(gpu: GpuContext) {
     this.gpu = gpu
     this.generation = gpu.generation
-    const usage = GPUBufferUsage.STORAGE
-    this.recordBuffer = new GpuBuffer(gpu, {
-      label: 'deform/records',
-      usage,
-      size: DEFORM_BYTES * 256,
-    })
-    this.poseBuffer = new GpuBuffer(gpu, { label: 'deform/poses', usage, size: 16 * 1024 })
-    this.vertexBuffer = new GpuBuffer(gpu, { label: 'deform/vertices', usage, size: 4096 })
+    // Read by the vertex stage: storage on the full tier, data textures on baseline (0064).
+    this.recordBuffer = new DataStore(gpu, { label: 'deform/records', size: DEFORM_BYTES * 256 })
+    this.poseBuffer = new DataStore(gpu, { label: 'deform/poses', size: 16 * 1024 })
+    this.vertexBuffer = new DataStore(gpu, { label: 'deform/vertices', size: 4096 })
   }
 
   /** Slots the record array holds. */

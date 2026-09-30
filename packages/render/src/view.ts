@@ -24,7 +24,7 @@ import {
   PixelPerfectPath,
   pixelPerfectLayout,
 } from './pixel-perfect'
-import { Views, Window } from './plugin'
+import { Gpu, Views, Window } from './plugin'
 import {
   antialiasingOf,
   CORE_EFFECTS,
@@ -126,6 +126,8 @@ export interface CameraData {
    */
   alphaOutput: boolean
   msaa: number
+  /** MSAA was asked for, but the device can't multisample HDR targets (0064): `msaa` is 1. */
+  msaaCapped: boolean
   curve: number
   dither: boolean
   /** Culled draws of this camera, rebuilt each frame. */
@@ -322,6 +324,7 @@ export const extractCameras = defineSystem({
     const deferredInstalled = world.hasResource(DeferredPath)
     const pixelInstalled = world.hasResource(PixelPerfectPath)
     const lensInstalled = world.hasResource(LensPath)
+    const maxSamples = world.resource(Gpu).capabilities.hdrSampleCount
     for (const table of q.tables) {
       const projection = table.column(Camera3d, 'projection')
       const fovY = table.column(Camera3d, 'fovY')
@@ -384,6 +387,7 @@ export const extractCameras = defineSystem({
             clear: { r: 0, g: 0, b: 0, a: 1 },
             alphaOutput: false,
             msaa: 1,
+            msaaCapped: false,
             curve: 1,
             dither: true,
             draws: createDrawList(),
@@ -521,7 +525,9 @@ export const extractCameras = defineSystem({
         const aa = antialiasingOf(table, i)
         // The default follows the display, not the render scale, so the scale can't flip it.
         const dense = settings.msaaMaxPixelRatio > 0 && cam.pixelRatio >= settings.msaaMaxPixelRatio
-        cam.msaa = cam.deferred ? 1 : aa < 0 ? (dense ? 1 : settings.msaa) : aa === 3 ? 4 : 1
+        const msaa = cam.deferred ? 1 : aa < 0 ? (dense ? 1 : settings.msaa) : aa === 3 ? 4 : 1
+        cam.msaa = Math.min(msaa, maxSamples)
+        cam.msaaCapped = cam.msaa < msaa
         cam.curve = curve ? curve[i]! : TONEMAP_CURVES.indexOf(DEFAULT_CURVE)
         cam.dither = dither ? dither[i] !== 0 : true
         cam.frames++

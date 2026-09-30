@@ -184,7 +184,7 @@ export async function probeGraphics(options: ProbeGraphicsOptions = {}): Promise
     const support: GraphicsSupport = {
       backend: opened.backend,
       tier: opened.tier,
-      capabilities: capabilitiesOf(opened.device, opened.backend),
+      capabilities: capabilitiesOf(opened.device, opened.backend, opened.hdrSampleCount),
       reasons: opened.reasons,
       adapter: {
         vendor: info?.vendor ?? '',

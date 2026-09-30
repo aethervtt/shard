@@ -1,7 +1,9 @@
 import { defineResource, type Entity } from '@aethervtt/shard-core'
-import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
+import type { GpuContext } from '@aethervtt/shard-gpu'
 import type { Texture } from '@aethervtt/shard-texture'
 import type { CameraAtmosphere } from './atmosphere-state'
+import { DataStore } from './data-store'
+import { bindingDimension } from './tier'
 import type { CameraData } from './view'
 
 // What the forward pass binds for image-based lighting: each camera's prefiltered environment, or
@@ -25,7 +27,8 @@ export class Environment {
   specular: GPUTexture
   specularView: GPUTextureView
   sourceView: GPUTextureView
-  readonly sh: GpuBuffer
+  /** SH9 of the diffuse irradiance: `@data(uniform)` in the forward shader. */
+  readonly sh: DataStore
   /** 'pending' until the GPU has prefiltered the current key. */
   state: 'pending' | 'ready' = 'pending'
   /** How many times it's been (re)baked or prefiltered. */
@@ -48,26 +51,35 @@ export class Environment {
       size: [this.size, this.size, 6],
       format: 'rgba16float',
       mipLevelCount: mips,
+      // Written by compute on the full tier; rendered face by face on baseline (0064).
       usage:
         GPUTextureUsage.TEXTURE_BINDING |
-        GPUTextureUsage.STORAGE_BINDING |
+        (gpu.tier === 'full'
+          ? GPUTextureUsage.STORAGE_BINDING
+          : GPUTextureUsage.RENDER_ATTACHMENT) |
         GPUTextureUsage.COPY_SRC,
+      ...bindingDimension(gpu, 'cube'),
     })
     this.specular = gpu.device.createTexture({
       label: `environment/${kind}/specular`,
       size: [SPECULAR_SIZE, SPECULAR_SIZE, 6],
       format: 'rgba16float',
       mipLevelCount: SPECULAR_MIPS,
+      // Written by compute on the full tier; rendered face by face on baseline (0064).
       usage:
         GPUTextureUsage.TEXTURE_BINDING |
-        GPUTextureUsage.STORAGE_BINDING |
+        (gpu.tier === 'full'
+          ? GPUTextureUsage.STORAGE_BINDING
+          : GPUTextureUsage.RENDER_ATTACHMENT) |
         GPUTextureUsage.COPY_SRC,
+      ...bindingDimension(gpu, 'cube'),
     })
     this.sourceView = this.source.createView({ dimension: 'cube' })
     this.specularView = this.specular.createView({ dimension: 'cube' })
-    this.sh = new GpuBuffer(gpu, {
+    this.sh = new DataStore(gpu, {
       label: `environment/${kind}/sh`,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+      kind: 'uniform',
+      usage: GPUBufferUsage.COPY_SRC,
       size: 9 * 16,
     })
   }
@@ -101,7 +113,7 @@ export class EnvironmentStore {
   lutReady = false
   emptyCube: GPUTexture | undefined
   emptyView: GPUTextureView | undefined
-  emptySh: GpuBuffer | undefined
+  emptySh: DataStore | undefined
   sampler: GPUSampler | undefined
   generation = -1
   frame = 0
@@ -118,7 +130,10 @@ export class EnvironmentStore {
       label: 'environment/brdf-lut',
       size: [LUT_SIZE, LUT_SIZE],
       format: 'rgba16float',
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING,
+      // Computed on the full tier; drawn by a fragment pass on baseline (0064).
+      usage:
+        GPUTextureUsage.TEXTURE_BINDING |
+        (gpu.tier === 'full' ? GPUTextureUsage.STORAGE_BINDING : GPUTextureUsage.RENDER_ATTACHMENT),
     })
     this.lutReady = false
     this.emptyCube = gpu.device.createTexture({
@@ -126,11 +141,12 @@ export class EnvironmentStore {
       size: [1, 1, 6],
       format: 'rgba16float',
       usage: GPUTextureUsage.TEXTURE_BINDING,
+      ...bindingDimension(gpu, 'cube'),
     })
     this.emptyView = this.emptyCube.createView({ dimension: 'cube' })
-    this.emptySh = new GpuBuffer(gpu, {
+    this.emptySh = new DataStore(gpu, {
       label: 'environment/empty-sh',
-      usage: GPUBufferUsage.STORAGE,
+      kind: 'uniform',
       size: 9 * 16,
     })
     this.sampler = gpu.device.createSampler({

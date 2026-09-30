@@ -18,6 +18,7 @@ import {
   variantBlend,
   variantCull,
 } from './material-pipelines'
+import { bindingDimension } from './tier'
 import type { CameraData } from './view'
 
 export const MAX_CASCADES = 4
@@ -124,6 +125,7 @@ export class Cascades {
           GPUTextureUsage.RENDER_ATTACHMENT |
           GPUTextureUsage.TEXTURE_BINDING |
           GPUTextureUsage.COPY_SRC,
+        ...bindingDimension(gpu, '2d-array'),
       })
       this.size = size
       this.generation = gpu.generation
@@ -351,6 +353,7 @@ export class LocalShadows {
           GPUTextureUsage.RENDER_ATTACHMENT |
           GPUTextureUsage.TEXTURE_BINDING |
           GPUTextureUsage.COPY_SRC,
+        ...bindingDimension(gpu, '2d-array'),
       })
     if (fresh || !this.spotTexture || spotLayers > this.spotLayers) {
       this.spotTexture?.destroy()

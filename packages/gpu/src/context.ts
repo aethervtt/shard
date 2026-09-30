@@ -2,7 +2,9 @@ import { ShardError } from '@aethervtt/shard-core'
 import { LayoutCache, PipelineCache } from './caches'
 import { type GpuErrorListener, toShardError } from './errors'
 import {
+  blockOf,
   bufferCategory,
+  DATA_TEXTURE_PREFIX,
   type GpuMemory,
   type GpuStats,
   type GpuUploads,
@@ -19,6 +21,7 @@ import {
   type GpuTier,
   type GraphicsReason,
   isCoreDevice,
+  probeHdrSampleCount,
 } from './tier'
 
 export interface CreateGpuContextOptions {
@@ -132,7 +135,12 @@ export class GpuContext {
     adapter: GPUAdapter,
     device: GPUDevice,
     format: GPUTextureFormat,
-    opened: { backend?: GpuBackendName; tier?: GpuTier; reasons?: GraphicsReason[] } = {},
+    opened: {
+      backend?: GpuBackendName
+      tier?: GpuTier
+      reasons?: GraphicsReason[]
+      hdrSampleCount?: 1 | 4
+    } = {},
   ) {
     this.options = options
     this.adapter = adapter
@@ -141,7 +149,7 @@ export class GpuContext {
     this.features = new Set(device.features as unknown as Iterable<string>)
     this.backend = opened.backend ?? 'webgpu'
     this.tier = opened.tier ?? (isCoreDevice(device) ? 'full' : 'baseline')
-    this.capabilities = capabilitiesOf(device, this.backend)
+    this.capabilities = capabilitiesOf(device, this.backend, opened.hdrSampleCount)
     this.reasons = opened.reasons ?? []
     this.pipelines = new PipelineCache(this)
     this.layouts = new LayoutCache(this)
@@ -325,10 +333,10 @@ export class GpuContext {
 
   private async replaceDevice(): Promise<void> {
     // The same tier as before: the engine's pipelines and data layouts were made for it.
-    const { adapter, device } = await openDevice(this.options, this.tier)
+    const { adapter, device, hdrSampleCount } = await openDevice(this.options, this.tier)
     this.adapter = adapter
     this.device = device
-    this.capabilities = capabilitiesOf(device, this.backend)
+    this.capabilities = capabilitiesOf(device, this.backend, hdrSampleCount)
     // Everything counted lived on the old device.
     this.ledger.clear()
     this.shared_.clear()
@@ -368,7 +376,8 @@ export class GpuContext {
     }
     device.createTexture = (descriptor) => {
       const texture = createTexture(descriptor)
-      const category = textureCategory(descriptor.usage)
+      const data = descriptor.label?.startsWith(DATA_TEXTURE_PREFIX) === true
+      const category = data ? 'storage' : textureCategory(descriptor.usage)
       ledger.track(texture, this.owner, true, textureBytes(descriptor), category, descriptor.label)
       return texture
     }
@@ -382,7 +391,7 @@ export class GpuContext {
     }
     queue.writeTexture = (destination, data, layout, size) => {
       writeTexture(destination, data, layout, size as GPUExtent3D)
-      ledger.upload(destination.texture, textureWriteBytes(data, layout, size))
+      ledger.upload(destination.texture, textureWriteBytes(destination.texture, data, layout, size))
     }
     if (copyExternal) {
       queue.copyExternalImageToTexture = (source, destination, size) => {
@@ -421,14 +430,21 @@ function extent(size: unknown): [number, number, number] {
   return [d.width, d.height ?? 1, d.depthOrArrayLayers ?? 1]
 }
 
-/** Bytes a `writeTexture` call copies: the rows it reads, capped by the data's size. */
-function textureWriteBytes(data: unknown, layout: GPUTexelCopyBufferLayout, size: unknown): number {
+/**
+ * Bytes a `writeTexture` call copies: the texels of its extent, capped by the data's size (not
+ * `bytesPerRow` a row: a narrow write into a wide layout copies only its texels).
+ */
+function textureWriteBytes(
+  texture: GPUTexture,
+  data: unknown,
+  layout: GPUTexelCopyBufferLayout,
+  size: unknown,
+): number {
   const [w, h, d] = extent(size)
   const bytes = ArrayBuffer.isView(data) ? data.byteLength : (data as ArrayBuffer).byteLength
   const total = bytes - (layout.offset ?? 0)
-  const rows = (layout.rowsPerImage ?? h) * d
-  const perRow = layout.bytesPerRow ?? w * 4
-  return Math.min(total, perRow * rows)
+  const [bw, bh, blockBytes] = blockOf(texture.format)
+  return Math.min(total, Math.ceil(w / bw) * Math.ceil(h / bh) * blockBytes * d)
 }
 
 export interface OpenedDevice {
@@ -437,6 +453,8 @@ export interface OpenedDevice {
   backend: GpuBackendName
   tier: GpuTier
   reasons: GraphicsReason[]
+  /** See `GpuCapabilities.hdrSampleCount`. */
+  hdrSampleCount: 1 | 4
 }
 
 /**
@@ -461,7 +479,15 @@ export async function openDevice(
     const adapter = await gpu.requestAdapter({ powerPreference })
     if (adapter) {
       const device = await requestDevice(adapter, options)
-      return { adapter, device, backend: 'webgpu', tier: tierOf(device, false), reasons }
+      const hdrSampleCount = await probeHdrSampleCount(device)
+      return {
+        adapter,
+        device,
+        backend: 'webgpu',
+        tier: tierOf(device, false),
+        reasons,
+        hdrSampleCount,
+      }
     }
     if (keep === 'full') throw new ShardError('gpu/no-adapter', 'No WebGPU adapter was found')
     reasons.push({
@@ -475,7 +501,15 @@ export async function openDevice(
   const adapter = await gpu.requestAdapter({ featureLevel: 'compatibility', powerPreference })
   if (!adapter) throw new ShardError('gpu/no-adapter', 'No WebGPU adapter was found')
   const device = await requestDevice(adapter, options)
-  return { adapter, device, backend: 'webgpu', tier: tierOf(device, baseline), reasons }
+  const hdrSampleCount = await probeHdrSampleCount(device)
+  return {
+    adapter,
+    device,
+    backend: 'webgpu',
+    tier: tierOf(device, baseline),
+    reasons,
+    hdrSampleCount,
+  }
 }
 
 function tierOf(device: GPUDevice, baseline: boolean): GpuTier {

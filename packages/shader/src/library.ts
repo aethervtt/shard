@@ -1,8 +1,8 @@
 import { ShardError } from '@aethervtt/shard-core'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import type { FileChangeEvent, Platform } from '@aethervtt/shard-platform'
-import { BASELINE_REWRITE_VERSION, collectData, type DataDeclaration } from './baseline/data'
 import type { RetargetedBinding } from './baseline/rewrite'
+import { BASELINE_REWRITE_VERSION, collectData, type DataDeclaration } from './data-marks'
 import { applyHooks, findHooks } from './hooks'
 
 /**

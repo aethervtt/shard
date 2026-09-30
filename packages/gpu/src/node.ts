@@ -24,10 +24,15 @@ export function nodeGpu(): GPU {
   return create(options) as GPU
 }
 
+/**
+ * A device through Dawn. `SHARD_TIER=baseline` runs every one at the baseline tier (0064), on a
+ * compatibility-mode device: the whole suite, checked against what baseline can do.
+ */
 export function createNodeGpuContext(
   options: Omit<CreateGpuContextOptions, 'gpu'> = {},
 ): Promise<GpuContext> {
-  return createGpuContext({ ...options, gpu: nodeGpu() })
+  const tier = options.tier ?? (process.env.SHARD_TIER === 'baseline' ? 'baseline' : undefined)
+  return createGpuContext({ ...options, tier, gpu: nodeGpu() })
 }
 
 /** What a headless canvas's WebGPU context was told, for tests to check. */

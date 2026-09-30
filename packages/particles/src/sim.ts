@@ -13,6 +13,7 @@ import {
   type CameraData,
   ComputedVisibility,
   cameraOf,
+  depthReadEntry,
   ForwardStateResource,
   Gpu,
   GpuAssetsResource,
@@ -695,7 +696,7 @@ function caches(world: World, gpu: GpuContext): Caches {
         entries: [
           { binding: 0, visibility: F, texture: { sampleType: 'float' } },
           { binding: 1, visibility: F, sampler: { type: 'filtering' } },
-          { binding: 2, visibility: F, texture: { sampleType: 'depth' } },
+          depthReadEntry(gpu, 2, F),
         ],
       }),
       view: gpu.layouts.bindGroupLayout({

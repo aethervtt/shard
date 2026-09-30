@@ -22,7 +22,7 @@ import {
 } from './instances'
 import { MAX_OUTLINE_STYLES, OUTLINE_OCCLUSION, Outline, OutlinePath } from './outline'
 import { Graph, RenderDescribers, RenderSet, Shaders, Views } from './plugin'
-import { beginPass, idOf, PostCache, tex, uniform } from './post-common'
+import { beginPass, depthTex, idOf, PostCache, tex, uniform } from './post-common'
 import { registerShaders } from './shaders'
 import { cameraOf } from './view'
 
@@ -419,7 +419,7 @@ function outlineNode(world: World): NodeDescriptor {
           entries: [
             uniform(0),
             tex(1, 'unfilterable-float'),
-            tex(2, 'depth'),
+            depthTex(gpu, 2),
             uniform(3),
             tex(4, 'unfilterable-float'),
           ],

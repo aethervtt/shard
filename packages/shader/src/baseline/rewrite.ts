@@ -1,6 +1,6 @@
 import { ShardError } from '@aethervtt/shard-core'
+import { DATA_TEXTURE_WIDTH, type DataDeclaration } from '../data-marks'
 import type { SourceLocation } from '../library'
-import type { DataDeclaration } from './data'
 import {
   attribute,
   type Declaration,
@@ -23,9 +23,6 @@ import {
 // - `@interpolate(flat)` becomes `flat, either`, as compatibility mode requires.
 // - Builtins GLSL ES 3.00 lacks are polyfilled.
 // - Storage a vertex or fragment entry point reaches that isn't `@data` is an error, located.
-
-/** Width of a data texture in texels: element k's bytes sit at texel byteOffset / 16. */
-export const DATA_TEXTURE_WIDTH = 1024
 
 /** What a binding becomes on baseline, for the engine's bind group layouts. */
 export interface RetargetedBinding {
@@ -136,13 +133,21 @@ export function rewriteForBaseline(
             tokens[i - 3]!.text === 'arrayLength' &&
             tokens[i + 1]!.text === ')'
           ) {
-            edits.push({ start: tokens[i - 3]!.start, end: tokens[i + 1]!.end, text: `${marked.count}u` })
+            edits.push({
+              start: tokens[i - 3]!.start,
+              end: tokens[i + 1]!.end,
+              text: `${marked.count}u`,
+            })
           }
         }
       } else {
         // `var<storage, read>` → `var<uniform>`.
         const close = matching(tokens, varToken + 1)
-        edits.push({ start: tokens[varToken]!.start, end: tokens[close]!.end, text: 'var<uniform>' })
+        edits.push({
+          start: tokens[varToken]!.start,
+          end: tokens[close]!.end,
+          text: 'var<uniform>',
+        })
       }
       bindings.push({ group, binding, name: d.name, as: 'uniform' })
       continue
@@ -159,10 +164,8 @@ export function rewriteForBaseline(
     bindings.push({ group, binding, name: d.name, as: 'data-texture' })
     rejectShadowing(tokens, decls, d, fail)
     let lengthUsed = false
-    for (let i = 0; i < tokens.length; i++) {
-      if (i >= d.first && i <= d.last) continue
+    for (const i of usesOf(tokens, decls, d)) {
       const t = tokens[i]!
-      if (t.kind !== 'ident' || t.text !== d.name || tokens[i - 1]?.text === '.') continue
       if (tokens[i + 1]?.text === '[') {
         const close = matching(tokens, i + 1)
         edits.push({ start: t.start, end: tokens[i + 1]!.end, text: `${d.name}_at(u32(` })
@@ -215,6 +218,8 @@ export function rewriteForBaseline(
     if (!floatType) continue // multisampled depth has its own baseline path (a resolved copy)
     const calls = callsOn(tokens, d)
     if (calls.some((c) => /Compare/.test(c.fn))) continue // a shadow map: stays depth
+    // Used any other way (passed to a function that may compare it): stays depth too.
+    if (usesOf(tokens, decls, d).length !== calls.length) continue
     const typeStart = code.indexOf(kind, d.start)
     edits.push({ start: typeStart, end: typeStart + kind.length, text: floatType })
     for (const c of calls) {
@@ -269,6 +274,25 @@ export function rewriteForBaseline(
   if (reverseBits) tail.push(REVERSE_BITS)
 
   return { ...apply(code, edits, tail), bindings }
+}
+
+/**
+ * Where a global is named: every token with its name outside its own declaration, member accesses
+ * (`in.name`) and struct bodies, where the same name is a member's.
+ */
+function usesOf(tokens: readonly Token[], decls: readonly Declaration[], d: Declaration): number[] {
+  const out: number[] = []
+  let s = 0
+  const structs = decls.filter((x) => x.keyword === 'struct')
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i]!
+    if (t.kind !== 'ident' || t.text !== d.name || tokens[i - 1]?.text === '.') continue
+    if (i >= d.first && i <= d.last) continue
+    while (s < structs.length && structs[s]!.last < i) s++
+    if (s < structs.length && structs[s]!.first <= i) continue
+    out.push(i)
+  }
+  return out
 }
 
 /** Globals a vertex or fragment entry point reaches, through the functions it calls. */
