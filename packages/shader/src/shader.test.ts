@@ -331,6 +331,19 @@ override fn shard::pbr::material::pbr_input(uv: vec2f) -> PbrInput { var p = bas
     off()
   })
 
+  it('wgslLayout leaves host-only fields (gpu: false) out of the struct', () => {
+    const Host = defineComponent('test/HostOnly', {
+      a: t.f32,
+      cached: t.bool({ gpu: false }),
+      b: t.vec4,
+    })
+    const layout = wgslLayout(Host)
+    const plain = wgslLayout(defineComponent('test/Plain', { a: t.f32, b: t.vec4 }))
+    expect(layout.wgsl).not.toContain('cached')
+    expect(layout.wgsl.replace('HostOnly', 'Plain')).toBe(plain.wgsl)
+    expect(layout.size).toBe(plain.size)
+  })
+
   it('wgslLayout matches WGSL alignment, verified on the GPU', async () => {
     const Probe = defineComponent('test/Probe', {
       a: t.f32,

@@ -16,6 +16,8 @@ import {
   type CameraData,
   Cameras,
   ComputedVisibility,
+  DataStore,
+  dataEntry,
   defineOverlay,
   Gpu,
   type NodeContext,
@@ -97,6 +99,45 @@ export function lightCircle(
   return px + rp > 0 && px - rp < width && py + rp > 0 && py - rp < height
 }
 
+/**
+ * Bins light circles into 16×16-pixel tiles, like the GPU, in its layout: per tile TILE_STRIDE
+ * u32s, the full count, then up to 64 light indices. Allocates nothing.
+ */
+export function binLightsInto(
+  circles: Float32Array,
+  count: number,
+  tilesX: number,
+  tilesY: number,
+  out: Uint32Array,
+): void {
+  for (let t = 0; t < tilesX * tilesY; t++) out[t * TILE_STRIDE] = 0
+  // Light by light, over the tiles its circle's box can reach: indices land in ascending order, as
+  // the GPU's per-tile loop leaves them.
+  for (let i = 0; i < count; i++) {
+    const cx = circles[i * 4]!
+    const cy = circles[i * 4 + 1]!
+    const r = circles[i * 4 + 2]!
+    // One tile of slack below: a circle that only touches a tile's edge still reaches it.
+    const x0 = Math.max(0, Math.floor((cx - r) / TILE_PIXELS) - 1)
+    const x1 = Math.min(tilesX - 1, Math.floor((cx + r) / TILE_PIXELS))
+    const y0 = Math.max(0, Math.floor((cy - r) / TILE_PIXELS) - 1)
+    const y1 = Math.min(tilesY - 1, Math.floor((cy + r) / TILE_PIXELS))
+    for (let ty = y0; ty <= y1; ty++) {
+      const ly = ty * TILE_PIXELS
+      const qy = Math.min(Math.max(cy, ly), ly + TILE_PIXELS) - cy
+      for (let tx = x0; tx <= x1; tx++) {
+        const lx = tx * TILE_PIXELS
+        const qx = Math.min(Math.max(cx, lx), lx + TILE_PIXELS) - cx
+        if (qx * qx + qy * qy > r * r) continue
+        const base = (ty * tilesX + tx) * TILE_STRIDE
+        const n = out[base]!
+        if (n < TILE_MAX) out[base + 1 + n] = i
+        out[base] = n + 1
+      }
+    }
+  }
+}
+
 /** Bins light circles into 16×16-pixel tiles, like the GPU: a full count and up to 64 indices. */
 export function binLightsCpu(
   circles: Float32Array,
@@ -104,23 +145,14 @@ export function binLightsCpu(
   tilesX: number,
   tilesY: number,
 ): { counts: Uint32Array; indices: Uint32Array } {
-  const counts = new Uint32Array(tilesX * tilesY)
-  const indices = new Uint32Array(tilesX * tilesY * TILE_MAX)
-  for (let t = 0; t < tilesX * tilesY; t++) {
-    const lx = (t % tilesX) * TILE_PIXELS
-    const ly = Math.floor(t / tilesX) * TILE_PIXELS
-    let n = 0
-    for (let i = 0; i < count; i++) {
-      const cx = circles[i * 4]!
-      const cy = circles[i * 4 + 1]!
-      const r = circles[i * 4 + 2]!
-      const qx = Math.min(Math.max(cx, lx), lx + TILE_PIXELS) - cx
-      const qy = Math.min(Math.max(cy, ly), ly + TILE_PIXELS) - cy
-      if (qx * qx + qy * qy > r * r) continue
-      if (n < TILE_MAX) indices[t * TILE_MAX + n] = i
-      n++
-    }
-    counts[t] = n
+  const tiles = tilesX * tilesY
+  const packed = new Uint32Array(tiles * TILE_STRIDE)
+  binLightsInto(circles, count, tilesX, tilesY, packed)
+  const counts = new Uint32Array(tiles)
+  const indices = new Uint32Array(tiles * TILE_MAX)
+  for (let t = 0; t < tiles; t++) {
+    counts[t] = packed[t * TILE_STRIDE]!
+    indices.set(packed.subarray(t * TILE_STRIDE + 1, (t + 1) * TILE_STRIDE), t * TILE_MAX)
   }
   return { counts, indices }
 }
@@ -138,8 +170,27 @@ export function shadowRowCpu(
   count: number,
   out: Float32Array,
 ): Float32Array {
-  out.fill(FAR, 0, SHADOW_RES)
   const bits = new Uint32Array(segments.buffer, segments.byteOffset, segments.length)
+  writeShadowRow(lx, ly, radius, layers, segments, bits, count, out, 0)
+  return out
+}
+
+/**
+ * One light's shadow row written into `out` from `at`: shadowRowCpu's math, allocating nothing.
+ * `bits` views `segments` as u32 (their layer masks).
+ */
+export function writeShadowRow(
+  lx: number,
+  ly: number,
+  radius: number,
+  layers: number,
+  segments: Float32Array,
+  bits: Uint32Array,
+  count: number,
+  out: Float32Array,
+  at: number,
+): void {
+  out.fill(FAR, at, at + SHADOW_RES)
   const step = (Math.PI * 2) / SHADOW_RES
   for (let s = 0; s < count; s++) {
     const o = s * SEGMENT_FLOATS
@@ -175,12 +226,11 @@ export function shadowRowCpu(
       if (Math.abs(den) < 1e-12) continue
       const t = (ax * ey - ay * ex) / den
       if (t <= 0) continue
-      const w = ((k % SHADOW_RES) + SHADOW_RES) % SHADOW_RES
+      const w = at + (((k % SHADOW_RES) + SHADOW_RES) % SHADOW_RES)
       const v = Math.fround(t + pen)
       if (v < out[w]!) out[w] = v
     }
   }
-  return out
 }
 
 /** How lit a point is by a shadow row: the fragment shader's `shadow2d`, on the CPU. */
@@ -578,7 +628,10 @@ export class LightView2d {
     this.segmentBits = new Uint32Array(s.buffer)
   }
 
-  /** Uploads what changed. Segments go up only when the selection or an occluder changed. */
+  /**
+   * Uploads what changed. Segments go up only when the selection or an occluder changed. On
+   * baseline the tiles, shadow rows and coarse bins are made here on the CPU (baseline/lights2d.ts).
+   */
   upload(gpu: GpuContext, segmentKey: number): void {
     let g = this.gpu
     if (!g || g.generation !== gpu.generation) g = this.gpu = createViewGpu(gpu, this.name)
@@ -606,19 +659,29 @@ export class LightView2d {
       g.segments.write(this.segments, 0, 0, this.segmentCount * SEGMENT_FLOATS)
       bytes += this.segmentCount * SEGMENT_FLOATS * 4
     }
+    if (baseline && gpu.tier === 'baseline')
+      bytes += baseline.lightOnCpu(this, g, segmentKey !== this.segmentKey)
     this.segmentKey = segmentKey
     this.uploadedBytes = bytes
   }
 }
 
-interface ViewGpu {
+let baseline: typeof import('./baseline/lights2d') | undefined
+
+/** Loads the baseline tier's CPU lighting (0064), once: the sprite plugin does, on a baseline device. */
+export async function loadBaselineLighting(): Promise<void> {
+  baseline ??= await import('./baseline/lights2d')
+}
+
+export interface ViewGpu {
   generation: number
   uniform: GpuBuffer
-  lights: GpuBuffer
+  /** What the fragment stage reads: storage on the full tier, data textures on baseline (0064). */
+  lights: DataStore
   circles: GpuBuffer
-  tiles: GpuBuffer
-  shadowMap: GpuBuffer
-  shadowCoarse: GpuBuffer
+  tiles: DataStore
+  shadowMap: DataStore
+  shadowCoarse: DataStore
   segments: GpuBuffer
   shadowed: GpuBuffer
   computeGroup?: { key: string; group: GPUBindGroup }
@@ -630,14 +693,16 @@ function createViewGpu(gpu: GpuContext, name: string): ViewGpu {
   const storage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
   const buffer = (label: string, size: number, usage: number = storage) =>
     new GpuBuffer(gpu, { label: `${name}/lights2d/${label}`, usage, size })
+  const data = (label: string, size: number) =>
+    new DataStore(gpu, { label: `${name}/lights2d/${label}`, usage: GPUBufferUsage.COPY_SRC, size })
   return {
     generation: gpu.generation,
     uniform: buffer('view', 48, GPUBufferUsage.UNIFORM),
-    lights: buffer('lights', LIGHT2D_FLOATS * 4 * 64),
+    lights: data('lights', LIGHT2D_FLOATS * 4 * 64),
     circles: buffer('circles', 16 * 64),
-    tiles: buffer('tiles', TILE_STRIDE * 4 * 1024),
-    shadowMap: buffer('shadow-map', SHADOW_RES * 4 * 4),
-    shadowCoarse: buffer('shadow-coarse', COARSE_RES * 8 * 4),
+    tiles: data('tiles', TILE_STRIDE * 4 * 1024),
+    shadowMap: data('shadow-map', SHADOW_RES * 4 * 4),
+    shadowCoarse: data('shadow-coarse', COARSE_RES * 8 * 4),
     segments: buffer('segments', SEGMENT_FLOATS * 4 * 256),
     shadowed: buffer('shadowed', MAX_SHADOWED * 4),
   }
@@ -1051,10 +1116,10 @@ function layoutsOf(gpu: GpuContext): Lights2dGpu {
       label: 'lights2d/shade',
       entries: [
         { binding: 0, visibility: F, buffer: { type: 'uniform' } },
-        { binding: 1, visibility: F, buffer: read },
-        { binding: 2, visibility: F, buffer: read },
-        { binding: 3, visibility: F, buffer: read },
-        { binding: 4, visibility: F, buffer: read },
+        dataEntry(gpu, 1, F),
+        dataEntry(gpu, 2, F),
+        dataEntry(gpu, 3, F),
+        dataEntry(gpu, 4, F),
       ],
     }),
     pipelines: new Map(),
@@ -1088,7 +1153,7 @@ export function litView(world: World, view: string): LightView2d | undefined {
 /** The group-3 bind group of a lit view's sprite and tilemap draws. */
 export function lights2dGroup(gpu: GpuContext, view: LightView2d): GPUBindGroup {
   const g = view.gpu!
-  const key = `${idOf(g.uniform.buffer)}/${idOf(g.lights.buffer)}/${idOf(g.tiles.buffer)}/${idOf(g.shadowMap.buffer)}/${idOf(g.shadowCoarse.buffer)}`
+  const key = `${idOf(g.uniform.buffer)}/${dataKey(g.lights)}/${dataKey(g.tiles)}/${dataKey(g.shadowMap)}/${dataKey(g.shadowCoarse)}`
   if (!g.renderGroup || g.renderGroup.key !== key) {
     g.renderGroup = {
       key,
@@ -1097,15 +1162,20 @@ export function lights2dGroup(gpu: GpuContext, view: LightView2d): GPUBindGroup 
         layout: layoutsOf(gpu).render,
         entries: [
           { binding: 0, resource: { buffer: g.uniform.buffer } },
-          { binding: 1, resource: { buffer: g.lights.buffer } },
-          { binding: 2, resource: { buffer: g.tiles.buffer } },
-          { binding: 3, resource: { buffer: g.shadowMap.buffer } },
-          { binding: 4, resource: { buffer: g.shadowCoarse.buffer } },
+          { binding: 1, resource: g.lights.resource() },
+          { binding: 2, resource: g.tiles.resource() },
+          { binding: 3, resource: g.shadowMap.resource() },
+          { binding: 4, resource: g.shadowCoarse.resource() },
         ],
       }),
     }
   }
   return g.renderGroup.group
+}
+
+/** A DataStore's bind group key: which store, and which GPU object it has now. */
+function dataKey(d: DataStore): string {
+  return `${idOf(d)}:${d.version}`
 }
 
 function computePipeline(ctx: NodeContext, entry: string): GPUComputePipeline | undefined {
@@ -1137,7 +1207,9 @@ export function lights2dNode(world: World): NodeDescriptor {
   return {
     kind: 'compute',
     phase: RenderPhase.Sprites - 10,
-    enabled: (view: RenderView) => litView(world, view.name) !== undefined,
+    // Compute is the full tier's: baseline lights on the CPU as it uploads (LightView2d.upload).
+    enabled: (view: RenderView) =>
+      litView(world, view.name) !== undefined && world.resource(Gpu).tier === 'full',
     writes: ['lights2d'],
     run: (ctx) => {
       const view = litView(ctx.world, ctx.view.name)
@@ -1148,7 +1220,7 @@ export function lights2dNode(world: World): NodeDescriptor {
       const coarse = computePipeline(ctx, 'coarse')
       if (!bin || !clear || !shadows || !coarse) return
       const g = view.gpu!
-      const key = `${idOf(g.uniform.buffer)}/${idOf(g.lights.buffer)}/${idOf(g.circles.buffer)}/${idOf(g.tiles.buffer)}/${idOf(g.shadowMap.buffer)}/${idOf(g.segments.buffer)}/${idOf(g.shadowed.buffer)}/${idOf(g.shadowCoarse.buffer)}`
+      const key = `${idOf(g.uniform.buffer)}/${idOf(g.lights.gpuBuffer)}/${idOf(g.circles.buffer)}/${idOf(g.tiles.gpuBuffer)}/${idOf(g.shadowMap.gpuBuffer)}/${idOf(g.segments.buffer)}/${idOf(g.shadowed.buffer)}/${idOf(g.shadowCoarse.gpuBuffer)}`
       if (!g.computeGroup || g.computeGroup.key !== key) {
         g.computeGroup = {
           key,
@@ -1157,13 +1229,13 @@ export function lights2dNode(world: World): NodeDescriptor {
             layout: layoutsOf(ctx.gpu).compute,
             entries: [
               { binding: 0, resource: { buffer: g.uniform.buffer } },
-              { binding: 1, resource: { buffer: g.lights.buffer } },
+              { binding: 1, resource: { buffer: g.lights.gpuBuffer } },
               { binding: 2, resource: { buffer: g.circles.buffer } },
-              { binding: 3, resource: { buffer: g.tiles.buffer } },
-              { binding: 4, resource: { buffer: g.shadowMap.buffer } },
+              { binding: 3, resource: { buffer: g.tiles.gpuBuffer } },
+              { binding: 4, resource: { buffer: g.shadowMap.gpuBuffer } },
               { binding: 5, resource: { buffer: g.segments.buffer } },
               { binding: 6, resource: { buffer: g.shadowed.buffer } },
-              { binding: 7, resource: { buffer: g.shadowCoarse.buffer } },
+              { binding: 7, resource: { buffer: g.shadowCoarse.gpuBuffer } },
             ],
           }),
         }

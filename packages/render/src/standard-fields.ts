@@ -51,6 +51,8 @@ export const STANDARD_FIELDS = {
   }),
   doubleSided: t.bool({ description: 'Draw back faces too (no culling).' }),
   deferUntilReady: t.bool({
+    // The asset layer reads it; shaders don't.
+    gpu: false,
     description:
       "Baseline tier (0064): while a texture it binds waits for a copy in its slot's color space, skip its draws instead of showing the slot's loading fallback.",
   }),

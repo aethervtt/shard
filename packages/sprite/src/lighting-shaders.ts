@@ -58,11 +58,11 @@ struct Segment2d {
 import shard::sprite::light2d::types::{ Light2d, Lighting2dView, TILE_PIXELS, TILE_STRIDE, TILE_MAX, SHADOW_RES, COARSE_RES, COARSE_SPAN, TAU, PI };
 
 @group(3) @binding(0) var<uniform> light_view: Lighting2dView;
-@group(3) @binding(1) var<storage, read> lights: array<Light2d>;
-@group(3) @binding(2) var<storage, read> light_tiles: array<u32>;
-@group(3) @binding(3) var<storage, read> shadow_map: array<u32>;
+@data @group(3) @binding(1) var<storage, read> lights: array<Light2d>;
+@data @group(3) @binding(2) var<storage, read> light_tiles: array<u32>;
+@data @group(3) @binding(3) var<storage, read> shadow_map: array<u32>;
 /** Per row, per 32 angles: the nearest and farthest occluder distance. */
-@group(3) @binding(4) var<storage, read> shadow_coarse: array<vec2f>;
+@data @group(3) @binding(4) var<storage, read> shadow_coarse: array<vec2f>;
 
 /** Min and max over the coarse bin holding continuous bin coordinate x. */
 fn coarse_at(row: u32, x: f32) -> vec2f {

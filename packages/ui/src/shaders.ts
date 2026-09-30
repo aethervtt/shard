@@ -30,7 +30,7 @@ struct Quad {
 }
 
 @group(0) @binding(0) var<uniform> ui_view: UiView;
-@group(0) @binding(1) var<storage, read> quads: array<Quad>;
+@data @group(0) @binding(1) var<storage, read> quads: array<Quad>;
 @group(1) @binding(0) var ui_texture: texture_2d<f32>;
 @group(1) @binding(1) var ui_sampler: sampler;
 

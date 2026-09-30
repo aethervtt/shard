@@ -574,9 +574,10 @@ function variantKey(request: LinkRequest): string {
   return `${request.root}|${defines.join(',')}|${(request.overrides ?? []).join(',')}`
 }
 
+/** The modules a source imports, conditional imports (`@if(LIT) import …`) included. */
 function importsOf(source: string): string[] {
   const out: string[] = []
-  for (const m of source.matchAll(/^\s*import\s+([^;]+);/gm)) {
+  for (const m of source.matchAll(/^\s*(?:@\w+\s*\([^)]*\)\s*)*import\s+([^;]+);/gm)) {
     const spec = m[1]!.replace(/\s+/g, '')
     const braced = /^(.*?)::\{(.*)\}$/.exec(spec)
     if (braced) {

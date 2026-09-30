@@ -21,6 +21,7 @@
     "@aethervtt/shard-audio": "workspace:*",
     "@aethervtt/shard-core": "workspace:*",
     "@aethervtt/shard-gpu": "workspace:*",
+    "@aethervtt/shard-gpu-webgl2": "workspace:*",
     "@aethervtt/shard-nav": "workspace:*",
     "@aethervtt/shard-node": "workspace:*",
     "@aethervtt/shard-noise": "workspace:*",

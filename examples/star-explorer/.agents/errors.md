@@ -298,6 +298,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `shader/baseline-data` | @aethervtt/shard-shader |  |
 | `shader/compile` | @aethervtt/shard-shader |  |
 | `shader/data-misplaced` | @aethervtt/shard-shader | @data @group(2) @binding(0) var<storage, read> name: array<T>; |
+| `shader/fragment-kernel` | @aethervtt/shard-shader | Only image kernels run as fragment passes: one storage texture, stored at the invocation id. |
 | `shader/hook-signature-mismatch` | @aethervtt/shard-shader |  |
 | `shader/invalid-path` | @aethervtt/shard-shader | Use lowercase `package::dir::name`, e.g. `project::water`. |
 | `shader/link` | @aethervtt/shard-shader |  |

@@ -38,6 +38,9 @@ importers:
       '@aethervtt/shard-gpu':
         specifier: workspace:*
         version: link:../../packages/gpu
+      '@aethervtt/shard-gpu-webgl2':
+        specifier: workspace:*
+        version: link:../../packages/gpu-webgl2
       '@aethervtt/shard-nav':
         specifier: workspace:*
         version: link:../../packages/nav

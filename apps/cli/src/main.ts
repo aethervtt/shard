@@ -32,7 +32,7 @@ const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; 
   },
   validate: {
     run: validate,
-    help: 'validate                        manifest and every scene; all errors',
+    help: 'validate [--tier baseline]       manifest and every scene; all errors (baseline: drawn on the fallback tier)',
   },
   import: {
     run: importCommand,
@@ -148,6 +148,7 @@ export async function main(argv: string[]): Promise<number> {
         row: { type: 'string', multiple: true },
         encoding: { type: 'string' },
         atlas: { type: 'string' },
+        tier: { type: 'string' },
         help: { type: 'boolean', short: 'h' },
       },
     })

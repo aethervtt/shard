@@ -83,6 +83,7 @@ export {
   type DataStoreOptions,
   dataEntry,
   flushDataStores,
+  loadDataTextures,
 } from './data-store'
 export {
   captureShadowMap,
@@ -131,10 +132,13 @@ export { environmentPlugin } from './environment-plugin'
 export {
   addRenderFeatures,
   type BaselineStrategy,
+  clearUnsupported,
   describeFeatures,
   featureOfNode,
   type RenderFeature,
   RenderFeatures,
+  reportUnsupported,
+  unsupportedNodes,
 } from './features'
 export {
   type ForwardPluginOptions,

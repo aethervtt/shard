@@ -23,7 +23,7 @@ import { compareGolden, pngBytes, settle } from '@aethervtt/shard-render/testing
 import { App, LogResource } from '@aethervtt/shard-runtime'
 import { Texture, Textures } from '@aethervtt/shard-texture'
 import { Transform, TransformPlugin } from '@aethervtt/shard-transform'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, onTestFinished } from 'vitest'
 import { TextureAtlas, TextureAtlases } from './atlas'
 import { SpriteAnimation, SpriteAnimationEvent, SpriteClip, SpriteClips } from './clip'
 import { spritePlugin } from './plugin'
@@ -37,6 +37,22 @@ beforeAll(async () => {
   gpu = await createNodeGpuContext()
 })
 afterAll(() => gpu.destroy())
+
+/** The baseline tier (0064) on a compatibility device: goldens marked for it hold there too. */
+let compat: GpuContext | undefined
+const TIERS = ['full', 'baseline'] as const
+
+/** Runs the rest of this test on `tier`'s device (`gpu` is swapped back when it finishes). */
+async function onTier(tier: (typeof TIERS)[number]): Promise<void> {
+  if (tier === 'full') return
+  compat ??= await createNodeGpuContext({ tier: 'baseline' })
+  const saved = gpu
+  gpu = compat
+  onTestFinished(() => {
+    gpu = saved
+  })
+}
+afterAll(() => compat?.destroy())
 
 const here = dirname(fileURLToPath(import.meta.url))
 const roots: string[] = []
@@ -90,39 +106,41 @@ function solid(world: World, rgba: number[], size = 4, checker?: number[]) {
 }
 
 describe('sprites', () => {
-  it('sort by layer, then depth (golden image of overlapping sprites)', async () => {
-    const { app, world, camera } = await scene(96, 96)
-    const red = solid(world, [255, 40, 40, 255])
-    const green = solid(world, [40, 255, 40, 255])
-    const blue = solid(world, [40, 80, 255, 200])
-    // Spawned in the opposite of their draw order: layer beats depth, depth beats spawn order.
-    world.spawn(
-      [Sprite, { texture: blue, size: [4, 4], layer: 2 }],
-      [Transform, { translation: [1.5, 1.5, -5] }],
-    )
-    world.spawn(
-      [Sprite, { texture: green, size: [4, 4], layer: 1 }],
-      [Transform, { translation: [0, 0, 3] }],
-    )
-    world.spawn(
-      [Sprite, { texture: red, size: [4, 4], layer: 1 }],
-      [Transform, { translation: [-1.5, -1.5, 1] }],
-    )
-    const cam = camera(10)
-    await settle(app)
-    const shot = captureView(world, `camera:${cam}`)
-    app.update(1 / 60)
-    const image = await shot
-    expect(compareGolden(here, 'sprites-sorted', image).mean).toBeLessThan(1.5)
-    const at = (x: number, y: number) => [
-      ...image.data.slice((y * 96 + x) * 4, (y * 96 + x) * 4 + 3),
-    ]
-    // Green (z 3) over red (z 1) in layer 1; translucent blue (layer 2) over both.
-    expect(at(40, 52)[1]).toBeGreaterThan(200) // green over red
-    const overlap = at(48, 44)
-    expect(overlap[2]).toBeGreaterThan(overlap[0]!) // blue on top
-    expect(world.resource(LogResource).errors()).toEqual([])
-  })
+  for (const tier of TIERS)
+    it(`sort by layer, then depth (golden image of overlapping sprites, ${tier} tier)`, async () => {
+      await onTier(tier)
+      const { app, world, camera } = await scene(96, 96)
+      const red = solid(world, [255, 40, 40, 255])
+      const green = solid(world, [40, 255, 40, 255])
+      const blue = solid(world, [40, 80, 255, 200])
+      // Spawned in the opposite of their draw order: layer beats depth, depth beats spawn order.
+      world.spawn(
+        [Sprite, { texture: blue, size: [4, 4], layer: 2 }],
+        [Transform, { translation: [1.5, 1.5, -5] }],
+      )
+      world.spawn(
+        [Sprite, { texture: green, size: [4, 4], layer: 1 }],
+        [Transform, { translation: [0, 0, 3] }],
+      )
+      world.spawn(
+        [Sprite, { texture: red, size: [4, 4], layer: 1 }],
+        [Transform, { translation: [-1.5, -1.5, 1] }],
+      )
+      const cam = camera(10)
+      await settle(app)
+      const shot = captureView(world, `camera:${cam}`)
+      app.update(1 / 60)
+      const image = await shot
+      expect(compareGolden(here, 'sprites-sorted', image).mean).toBeLessThan(1.5)
+      const at = (x: number, y: number) => [
+        ...image.data.slice((y * 96 + x) * 4, (y * 96 + x) * 4 + 3),
+      ]
+      // Green (z 3) over red (z 1) in layer 1; translucent blue (layer 2) over both.
+      expect(at(40, 52)[1]).toBeGreaterThan(200) // green over red
+      const overlap = at(48, 44)
+      expect(overlap[2]).toBeGreaterThan(overlap[0]!) // blue on top
+      expect(world.resource(LogResource).errors()).toEqual([])
+    })
 
   it('keeps drawing earlier sprites after the record buffer grows', async () => {
     const { app, world, camera } = await scene(32, 32)

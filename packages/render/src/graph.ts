@@ -1,6 +1,7 @@
 import { ShardError, type World } from '@aethervtt/shard-core'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { flushDataStores } from './data-store'
+import { unsupportedNodes } from './features'
 import { TexturePool } from './pool'
 import { BYTES_PER_TEXEL, toFloats } from './readback'
 import type { RenderTarget } from './target'
@@ -351,11 +352,12 @@ export class RenderGraph {
     return this.resolveFor(undefined)
   }
 
-  private resolveFor(view: RenderView | undefined): ResolvedGraph {
+  /** `off`: nodes that don't run on this device (features the baseline tier doesn't support). */
+  private resolveFor(view: RenderView | undefined, off?: ReadonlySet<string>): ResolvedGraph {
     let key = ''
     const enabled = new Map<string, NodeDescriptor>()
     for (const [name, node] of this.nodes) {
-      const on = !view || !node.enabled || node.enabled(view)
+      const on = (!view || !node.enabled || node.enabled(view)) && !off?.has(name)
       key += on ? '1' : '0'
       if (on) enabled.set(name, node)
     }
@@ -451,8 +453,10 @@ export class RenderGraph {
     this.viewData.clear()
     for (const v of sorted) this.viewData.set(v.name, v.data)
 
+    // Features the baseline tier doesn't support don't run on it (0064).
+    const off = this.gpu.tier === 'baseline' ? unsupportedNodes(world) : undefined
     for (const view of sorted) {
-      const resolved = this.resolveFor(view)
+      const resolved = this.resolveFor(view, off)
       const order = resolved.order
       this.lastByView.set(view.name, resolved)
       const textures = new Map<string, GPUTexture>()

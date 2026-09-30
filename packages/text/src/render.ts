@@ -11,6 +11,8 @@ import {
   type CameraData,
   ComputedVisibility,
   cameraOf,
+  DataStore,
+  dataEntry,
   GpuAssetsResource,
   type NodeContext,
   type NodeDescriptor,
@@ -90,8 +92,9 @@ export class TextStore {
   textCount = 0
   readonly groups: GlyphGroup[] = []
   groupCount = 0
-  readonly glyphBuffer: GpuBuffer
-  readonly textBuffer: GpuBuffer
+  /** Storage on the full tier, data textures on baseline (0064). */
+  readonly glyphBuffer: DataStore
+  readonly textBuffer: DataStore
   /** Layouts redone this frame, and characters nothing could draw. */
   relayouts = 0
   missing = 0
@@ -102,9 +105,8 @@ export class TextStore {
   dirtyGlyphs = true
 
   constructor(gpu: GpuContext) {
-    const storage = GPUBufferUsage.STORAGE
-    this.glyphBuffer = new GpuBuffer(gpu, { label: 'text/glyphs', usage: storage, size: 4096 })
-    this.textBuffer = new GpuBuffer(gpu, { label: 'text/records', usage: storage, size: 4096 })
+    this.glyphBuffer = new DataStore(gpu, { label: 'text/glyphs', size: 4096 })
+    this.textBuffer = new DataStore(gpu, { label: 'text/records', size: 4096 })
   }
 
   beginFrame(): void {
@@ -443,10 +445,7 @@ function caches(ctx: NodeContext): TextCaches {
       }),
       data: gpu.layouts.bindGroupLayout({
         label: 'text/data',
-        entries: [
-          { binding: 0, visibility: V | F, buffer: { type: 'read-only-storage' } },
-          { binding: 1, visibility: V | F, buffer: { type: 'read-only-storage' } },
-        ],
+        entries: [dataEntry(gpu, 0, V | F), dataEntry(gpu, 1, V | F)],
       }),
       page: gpu.layouts.bindGroupLayout({
         label: 'text/page',
@@ -565,11 +564,11 @@ function drawText(ctx: NodeContext, space: number): void {
     group(
       ctx,
       'text/data',
-      `${idOf(store.glyphBuffer.buffer)}/${idOf(store.textBuffer.buffer)}`,
+      `${idOf(store.glyphBuffer)}:${store.glyphBuffer.version}/${idOf(store.textBuffer)}:${store.textBuffer.version}`,
       c.layouts!.data,
       () => [
-        { binding: 0, resource: { buffer: store.glyphBuffer.buffer } },
-        { binding: 1, resource: { buffer: store.textBuffer.buffer } },
+        { binding: 0, resource: store.glyphBuffer.resource() },
+        { binding: 1, resource: store.textBuffer.resource() },
       ],
     ),
   )

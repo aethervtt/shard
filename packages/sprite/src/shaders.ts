@@ -116,8 +116,8 @@ struct SpriteRecord {
   _pad1: u32,
 }
 
-@group(1) @binding(0) var<storage, read> sprites: array<SpriteRecord>;
-@group(1) @binding(1) var<storage, read> order: array<u32>;
+@data @group(1) @binding(0) var<storage, read> sprites: array<SpriteRecord>;
+@data @group(1) @binding(1) var<storage, read> order: array<u32>;
 
 @vertex fn vs(@builtin(vertex_index) v: u32, @builtin(instance_index) i: u32) -> SpriteOutput {
   let s = sprites[order[i]];
@@ -193,10 +193,10 @@ struct TilemapParams {
   chunks: vec4u,
 }
 
-@group(1) @binding(0) var<storage, read> tiles: array<u32>;
-@group(1) @binding(1) var<storage, read> visible_chunks: array<u32>;
-@group(1) @binding(2) var<storage, read> regions: array<vec4f>;
-@group(1) @binding(3) var<storage, read> remap: array<u32>;
+@data @group(1) @binding(0) var<storage, read> tiles: array<u32>;
+@data @group(1) @binding(1) var<storage, read> visible_chunks: array<u32>;
+@data @group(1) @binding(2) var<storage, read> regions: array<vec4f>;
+@data @group(1) @binding(3) var<storage, read> remap: array<u32>;
 @group(1) @binding(4) var<uniform> map: TilemapParams;
 
 /**

@@ -23,7 +23,7 @@ import {
 } from '@aethervtt/shard-runtime'
 import { type ShaderBake, ShaderLibrary } from '@aethervtt/shard-shader'
 import { loadDataTextures, releaseDataStores } from './data-store'
-import { describeFeatures, RenderFeatures } from './features'
+import { checkUnsupportedFeatures, describeFeatures, RenderFeatures } from './features'
 import { type CapturedBuffer, type CapturedImage, RenderGraph, type RenderView } from './graph'
 import { healthSystem, RenderHealth, RenderHealthChanged, RenderHealthReports } from './health'
 import { registerEngineShaders } from './shaders'
@@ -128,6 +128,15 @@ const markMissing = defineSystem({
   name: 'render/mark-missing',
   description: 'Puts MissingAsset on entities that reference an asset showing a fallback.',
   run: (_, world) => world.tryResource(AssetServerResource)?.markMissing(),
+})
+
+const checkUnsupported = defineSystem({
+  name: 'render/check-unsupported',
+  description:
+    "On the baseline tier: reports render features the scene uses that it can't run (render/feature-unsupported).",
+  run: (_, world) => {
+    if (world.tryResource(Gpu)?.tier === 'baseline') checkUnsupportedFeatures(world)
+  },
 })
 
 const execute = defineSystem({
@@ -274,6 +283,7 @@ export function renderPlugin(options: RenderPluginOptions = {}): Plugin {
           Last,
           begin.inSet(RenderSet.Begin),
           markMissing.inSet(RenderSet.Begin).after(begin),
+          checkUnsupported.inSet(RenderSet.Begin).after(begin),
           execute.inSet(RenderSet.Graph),
           healthSystem({ status: () => state.gpu?.status ?? 'ok' })
             .inSet(RenderSet.Graph)

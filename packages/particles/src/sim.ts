@@ -13,6 +13,9 @@ import {
   type CameraData,
   ComputedVisibility,
   cameraOf,
+  clearUnsupported,
+  DataStore,
+  dataEntry,
   depthReadEntry,
   ForwardStateResource,
   Gpu,
@@ -22,6 +25,7 @@ import {
   type NodeDescriptor,
   RenderPhase,
   type RenderView,
+  reportUnsupported,
   Shaders,
   Views,
 } from '@aethervtt/shard-render'
@@ -51,9 +55,14 @@ export interface EmitterState {
   def: EmitterDef
   key: string
   capacity: number
-  particles: GpuBuffer
+  /** Storage on the full tier, a data texture on baseline (0064). */
+  particles: DataStore
   /** CPU backend: the particles, uploaded whole each frame. */
   cpu: Float32Array | undefined
+  /** `cpu` as u32 (seeds). */
+  cpuBits: Uint32Array | undefined
+  /** CPU backend, sorted emitters: order-preserving key bits and slot, packed per particle. */
+  cpuSort: Float64Array | undefined
   sim: GpuBuffer
   draw: GpuBuffer
   counter: GPUBuffer
@@ -72,7 +81,7 @@ export interface EmitterState {
   lastSpawn: number
   /** Sorting (alpha, small enough): keys, order, and per-step uniforms. */
   sort:
-    | { keys: GPUBuffer; order: GPUBuffer; steps: GPUBuffer; count: number; n: number }
+    | { keys: GPUBuffer; order: DataStore; steps: GPUBuffer; count: number; n: number }
     | undefined
   /** Simulated this frame (culled emitters may pause or step less often). */
   simulate: boolean
@@ -94,6 +103,8 @@ export interface SystemState {
   seed: number
   local: boolean
   cpu: boolean
+  /** The CPU backend because the device runs the baseline tier (0064), not by choice. */
+  forced: boolean
   model: Float32Array
   /** Bounding sphere (world) of the system, for culling. */
   center: Float32Array
@@ -147,9 +158,27 @@ const cpuParticle: CpuParticle = {
   seed: 0,
 }
 
+/** A random unit direction from the seed's streams k0 and k0 + 1, into `out`. */
+function randomDirection(seed: number, k0: number, out: Float32Array): void {
+  const z = rand(seed, k0) * 2 - 1
+  const phi = 6.2831853 * rand(seed, k0 + 1)
+  const r = Math.sqrt(Math.max(1 - z * z, 0))
+  out[0] = r * Math.cos(phi)
+  out[1] = z
+  out[2] = r * Math.sin(phi)
+}
+
+function mixRange(r: [number, number], t: number): number {
+  return r[0] + (r[1] - r[0]) * t
+}
+
+const spawnDirection = new Float32Array(3)
+
 /** Spawn and update in TypeScript, with the same formulas and random streams as the shaders. */
 function simulateCpu(e: EmitterState, sys: SystemState, dt: number): void {
   const d = e.cpu!
+  if (!e.cpuBits || e.cpuBits.buffer !== d.buffer) e.cpuBits = new Uint32Array(d.buffer)
+  const u = e.cpuBits
   const def = e.def
   const s = def.shape
   const init = def.init
@@ -163,17 +192,15 @@ function simulateCpu(e: EmitterState, sys: SystemState, dt: number): void {
     let dx = 0
     let dy = 1
     let dz = 0
-    const dir = (k0: number) => {
-      const z = rand(seed, k0) * 2 - 1
-      const phi = 6.2831853 * rand(seed, k0 + 1)
-      const r = Math.sqrt(Math.max(1 - z * z, 0))
-      dx = r * Math.cos(phi)
-      dy = z
-      dz = r * Math.sin(phi)
+    if (s.type === 'point' || s.type === 'sphere') {
+      randomDirection(seed, 6, spawnDirection)
+      dx = spawnDirection[0]!
+      dy = spawnDirection[1]!
+      dz = spawnDirection[2]!
     }
-    if (s.type === 'point') dir(6)
-    else if (s.type === 'sphere') {
-      dir(6)
+    if (s.type === 'point') {
+      // The direction alone.
+    } else if (s.type === 'sphere') {
       const r = s.radius * rand(seed, 9) ** 0.3333333
       px = dx * r
       py = dy * r
@@ -192,8 +219,7 @@ function simulateCpu(e: EmitterState, sys: SystemState, dt: number): void {
       py = (rand(seed, 7) - 0.5) * s.size[1]
       pz = (rand(seed, 8) - 0.5) * s.size[2]
     }
-    const mix = (r: [number, number], t: number) => r[0] + (r[1] - r[0]) * t
-    const speed = mix(init.speed, rand(seed, 1))
+    const speed = mixRange(init.speed, rand(seed, 1))
     const p = cpuParticle
     p.pos[0] = px
     p.pos[1] = py
@@ -201,7 +227,7 @@ function simulateCpu(e: EmitterState, sys: SystemState, dt: number): void {
     p.vel[0] = dx * speed
     p.vel[1] = dy * speed
     p.vel[2] = dz * speed
-    p.life = Math.max(mix(init.lifetime, rand(seed, 2)), 1e-3)
+    p.life = Math.max(mixRange(init.lifetime, rand(seed, 2)), 1e-3)
     p.seed = seed
     p.rotSpeed = 0
     for (const m of def.update) MODULES[m.module as string]!.cpuInit?.(m, p)
@@ -223,15 +249,14 @@ function simulateCpu(e: EmitterState, sys: SystemState, dt: number): void {
     d[o + 3] = 0
     d.set(p.vel, o + 4)
     d[o + 7] = p.life
-    d[o + 8] = mix(init.size, rand(seed, 3))
-    d[o + 9] = (mix(init.rotation, rand(seed, 4)) * Math.PI) / 180
+    d[o + 8] = mixRange(init.size, rand(seed, 3))
+    d[o + 9] = (mixRange(init.rotation, rand(seed, 4)) * Math.PI) / 180
     d[o + 10] = p.rotSpeed
-    new Uint32Array(d.buffer, (o + 11) * 4, 1)[0] = seed
+    u[o + 11] = seed
     const c = rand(seed, 5)
     for (let a = 0; a < 4; a++)
       d[o + 12 + a] = init.color[0][a]! + (init.color[1][a]! - init.color[0][a]!) * c
   }
-  const u = new Uint32Array(d.buffer)
   let alive = 0
   for (let i = 0; i < e.capacity; i++) {
     const o = i * PARTICLE_FLOATS
@@ -289,9 +314,9 @@ function createEmitter(
     capacity: def.capacity,
     particles: keep
       ? previous.particles
-      : new GpuBuffer(gpu, {
+      : new DataStore(gpu, {
           label,
-          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+          usage: GPUBufferUsage.COPY_SRC,
           size: def.capacity * PARTICLE_BYTES,
         }),
     cpu: cpu
@@ -299,6 +324,8 @@ function createEmitter(
         ? previous.cpu
         : new Float32Array(def.capacity * PARTICLE_FLOATS)
       : undefined,
+    cpuBits: undefined,
+    cpuSort: cpu && sortable ? new Float64Array(def.capacity) : undefined,
     sim:
       previous?.sim ??
       new GpuBuffer(gpu, { label: `${label}/sim`, usage: GPUBufferUsage.UNIFORM, size: SIM_BYTES }),
@@ -340,11 +367,7 @@ function createEmitter(
             size: n * 4,
             usage: GPUBufferUsage.STORAGE,
           }),
-          order: gpu.device.createBuffer({
-            label: `${label}/order`,
-            size: n * 4,
-            usage: GPUBufferUsage.STORAGE,
-          }),
+          order: new DataStore(gpu, { label: `${label}/order`, size: n * 4 }),
           steps: gpu.device.createBuffer({
             label: `${label}/steps`,
             size: (steps + 1) * 256,
@@ -442,7 +465,9 @@ export const prepareParticles = defineSystem({
         const entity = table.entities[i]!
         const effect = effects.get(effectRefs[i] as AssetRef<'ParticleEffect'>)
         if (!effect || !vis[i]) continue
-        const cpu = backends[i] === 1
+        // Baseline has no compute (0064): its systems run the CPU backend whatever they ask for.
+        const forced = gpu.tier === 'baseline' && backends[i] !== 1
+        const cpu = backends[i] === 1 || forced
         let sys = store.systems.get(entity)
         if (!sys || sys.effect !== effect || sys.version !== effect.version || sys.cpu !== cpu) {
           const old = sys
@@ -464,6 +489,7 @@ export const prepareParticles = defineSystem({
             seed: seeds[i]!,
             local: spaces[i] === 1,
             cpu,
+            forced,
             model: new Float32Array(16),
             center: new Float32Array(3),
             radius: reach(effect),
@@ -535,6 +561,7 @@ export const prepareParticles = defineSystem({
             e.particles.write(e.cpu)
             e.spawned += e.spawnCount
             e.backlog = 0
+            if (e.sort && e.cpuSort && cam) sortCpu(e, sys, cam.view)
           }
         }
       }
@@ -543,8 +570,96 @@ export const prepareParticles = defineSystem({
       if (sys.seen !== store.frame) store.systems.delete(entity)
     }
     world.tryResource(FrameDemand)?.set('particles', live)
+    if (gpu.tier === 'baseline') reportCpuOnly(world, store)
   },
 })
+
+const keyFloat = new Float32Array(1)
+const keyBits = new Uint32Array(keyFloat.buffer)
+
+/**
+ * The CPU backend's depth sort, as the GPU's: by view-space z, far first, dead slots last. Each
+ * slot packs its key's order-preserving bits above its index into one float64, so a plain numeric
+ * sort orders them: no comparator, nothing allocated.
+ */
+function sortCpu(e: EmitterState, sys: SystemState, view: Float32Array): void {
+  const d = e.cpu!
+  const packed = e.cpuSort!
+  const m = sys.model
+  for (let i = 0; i < e.capacity; i++) {
+    const o = i * PARTICLE_FLOATS
+    let key = 3.0e38
+    if (d[o + 7]! > 0 && d[o + 3]! < d[o + 7]!) {
+      let x = d[o]!
+      let y = d[o + 1]!
+      let z = d[o + 2]!
+      // Local-space particles sort in world, as the GPU's key pass puts them.
+      if (sys.local) {
+        const wx = m[0]! * x + m[4]! * y + m[8]! * z + m[12]!
+        const wy = m[1]! * x + m[5]! * y + m[9]! * z + m[13]!
+        const wz = m[2]! * x + m[6]! * y + m[10]! * z + m[14]!
+        x = wx
+        y = wy
+        z = wz
+      }
+      key = view[2]! * x + view[6]! * y + view[10]! * z + view[14]!
+    }
+    keyFloat[0] = key
+    const bits = keyBits[0]!
+    // Negative floats sort reversed as bits: flip them all; positive ones get the top bit.
+    const ordered = bits & 0x80000000 ? ~bits >>> 0 : (bits | 0x80000000) >>> 0
+    packed[i] = ordered * 65536 + i
+  }
+  packed.sort()
+  const order = sortScratch(e.capacity)
+  for (let i = 0; i < e.capacity; i++) order[i] = packed[i]! % 65536
+  e.sort!.order.write(order, 0, 0, e.capacity)
+}
+
+let orderScratch = new Uint32Array(1024)
+function sortScratch(n: number): Uint32Array {
+  if (orderScratch.length < n) orderScratch = new Uint32Array(n)
+  return orderScratch
+}
+
+const reportedModules = new WeakMap<World, Set<string>>()
+const usedModules = new Set<string>()
+
+/**
+ * On the baseline tier (0064) systems run the CPU backend, which skips update modules that only
+ * the GPU runs (depth collision): each one in use is reported as `render/feature-unsupported`,
+ * and cleared once nothing uses it. Reports change only when that does.
+ */
+function reportCpuOnly(world: World, store: ParticleStore): void {
+  let reported = reportedModules.get(world)
+  if (!reported) {
+    reported = new Set()
+    reportedModules.set(world, reported)
+  }
+  usedModules.clear()
+  for (const sys of store.systems.values()) {
+    if (!sys.forced) continue
+    for (const e of sys.emitters) {
+      for (const m of e.def.update) {
+        if (!MODULES[m.module as string]!.cpu) usedModules.add(m.module as string)
+      }
+    }
+  }
+  for (const name of usedModules) {
+    if (reported.has(name)) continue
+    reported.add(name)
+    reportUnsupported(
+      world,
+      `particles/${name}`,
+      `The particle module "${name}" runs on the GPU backend only; the baseline tier runs particles on the CPU, without it`,
+    )
+  }
+  for (const name of reported) {
+    if (usedModules.has(name)) continue
+    reported.delete(name)
+    clearUnsupported(world, `particles/${name}`)
+  }
+}
 
 /** Whether a burst will still fire: one with cycles left, or repeating forever. */
 function burstPending(e: EmitterState): boolean {
@@ -625,7 +740,7 @@ interface Caches {
   groups: Map<string, { key: string; group: GPUBindGroup }>
   white?: GPUTexture
   noDepth?: GPUTexture
-  noOrder?: GPUBuffer
+  noOrder?: DataStore
   sampler?: GPUSampler
 }
 
@@ -686,9 +801,9 @@ function caches(world: World, gpu: GpuContext): Caches {
       data: gpu.layouts.bindGroupLayout({
         label: 'particles/data',
         entries: [
-          { binding: 0, visibility: V, buffer: { type: 'read-only-storage' } },
+          dataEntry(gpu, 0, V),
           { binding: 1, visibility: V | F, buffer: { type: 'uniform' } },
-          { binding: 2, visibility: V, buffer: { type: 'read-only-storage' } },
+          dataEntry(gpu, 2, V),
         ],
       }),
       texture: gpu.layouts.bindGroupLayout({
@@ -724,11 +839,7 @@ function caches(world: World, gpu: GpuContext): Caches {
       format: 'depth32float',
       usage: GPUTextureUsage.TEXTURE_BINDING,
     })
-    c.noOrder = gpu.device.createBuffer({
-      label: 'particles/no-order',
-      size: 16,
-      usage: GPUBufferUsage.STORAGE,
-    })
+    c.noOrder = new DataStore(gpu, { label: 'particles/no-order', size: 16 })
     c.sampler = gpu.device.createSampler({
       label: 'particles',
       magFilter: 'linear',
@@ -817,11 +928,12 @@ function sortPipelines(ctx: NodeContext, c: Caches) {
 }
 
 /** Spawn, update, and (alpha emitters) depth sort, for the primary camera's view. */
-export function simulateNode(): NodeDescriptor {
+export function simulateNode(world: World): NodeDescriptor {
   return {
     kind: 'raw',
     phase: RenderPhase.Resolve + 10,
-    enabled: (view) => cameraOf(view) !== undefined,
+    // Compute is the full tier's: on baseline every system runs the CPU backend in prepare.
+    enabled: (view) => cameraOf(view) !== undefined && world.resource(Gpu).tier === 'full',
     reads: ['depth'],
     sideEffects: true,
     run: (ctx) => {
@@ -845,10 +957,10 @@ export function simulateNode(): NodeDescriptor {
               gpu,
               c,
               `sim/${sys.entity}/${e.def.name}`,
-              `${idOf(e.particles.buffer)}/${idOf(e.sim.buffer)}/${idOf(depth)}`,
+              `${idOf(e.particles.gpuBuffer)}/${idOf(e.sim.buffer)}/${idOf(depth)}`,
               c.layouts!.sim,
               () => [
-                { binding: 0, resource: { buffer: e.particles.buffer } },
+                { binding: 0, resource: { buffer: e.particles.gpuBuffer } },
                 { binding: 1, resource: { buffer: e.sim.buffer } },
                 { binding: 2, resource: depth.createView() },
                 { binding: 3, resource: { buffer: e.counter } },
@@ -913,13 +1025,13 @@ function sortEmitter(
       gpu,
       c,
       `sort/${sys.entity}/${e.def.name}/${i}`,
-      `${idOf(e.particles.buffer)}/${idOf(viewBuffer)}/${idOf(s.keys)}`,
+      `${idOf(e.particles.gpuBuffer)}/${idOf(viewBuffer)}/${idOf(s.keys)}`,
       c.layouts!.sort,
       () => [
         { binding: 0, resource: { buffer: viewBuffer } },
-        { binding: 10, resource: { buffer: e.particles.buffer } },
+        { binding: 10, resource: { buffer: e.particles.gpuBuffer } },
         { binding: 11, resource: { buffer: s.keys } },
-        { binding: 12, resource: { buffer: s.order } },
+        { binding: 12, resource: { buffer: s.order.gpuBuffer } },
         { binding: 13, resource: { buffer: s.steps, offset: i * 256, size: 16 } },
         // The draw uniform starts with the model matrix: particles in local space sort in world.
         {
@@ -1068,12 +1180,12 @@ export function drawNode(): NodeDescriptor {
               gpu,
               c,
               `data/${sys.entity}/${e.def.name}`,
-              `${idOf(e.particles.buffer)}/${idOf(e.draw.buffer)}/${idOf(order)}`,
+              `${idOf(e.particles)}:${e.particles.version}/${idOf(e.draw.buffer)}/${idOf(order)}:${order.version}`,
               c.layouts!.data,
               () => [
-                { binding: 0, resource: { buffer: e.particles.buffer } },
+                { binding: 0, resource: e.particles.resource() },
                 { binding: 1, resource: { buffer: e.draw.buffer } },
-                { binding: 2, resource: { buffer: order } },
+                { binding: 2, resource: order.resource() },
               ],
             ),
           )
@@ -1114,13 +1226,15 @@ export function drawNode(): NodeDescriptor {
 
 /** Reads an emitter's particle buffer (tests: determinism, CPU vs GPU). */
 export async function readParticles(gpu: GpuContext, e: EmitterState): Promise<Float32Array> {
+  // A data texture on baseline (0064): the CPU backend's particles are what it holds.
+  if (e.particles.textured) return e.cpu!.slice(0, e.capacity * PARTICLE_FLOATS)
   const size = e.capacity * PARTICLE_BYTES
   const staging = gpu.device.createBuffer({
     size,
     usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
   })
   const encoder = gpu.device.createCommandEncoder()
-  encoder.copyBufferToBuffer(e.particles.buffer, 0, staging, 0, size)
+  encoder.copyBufferToBuffer(e.particles.gpuBuffer, 0, staging, 0, size)
   gpu.device.queue.submit([encoder.finish()])
   await staging.mapAsync(GPUMapMode.READ)
   const out = new Float32Array(staging.getMappedRange().slice(0))
@@ -1164,6 +1278,7 @@ export function describeParticles(world: World) {
     systems: [...store.systems.values()].map((sys) => ({
       entity: sys.entity,
       backend: sys.cpu ? 'cpu' : 'gpu',
+      ...(sys.forced ? { backendReason: 'the baseline tier has no compute' } : {}),
       emitters: sys.emitters.map((e) => ({
         name: e.def.name,
         alive: e.alive,

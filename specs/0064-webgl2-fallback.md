@@ -224,9 +224,13 @@ written for baseline.
 
 Limits are per tier: a baseline limit never applies on the full tier. From this spec on, every
 render feature declares a baseline strategy or `baseline: 'unsupported'`, and a registry test
-enforces it. `shard validate` translates every registered module, material and manifest variant
-for baseline and fails on raw `var<storage>` in vertex or fragment code, on sampled single-layer
-views, and on anything naga can't translate. Each failure names the module and line.
+enforces it. `shard validate --tier baseline` (and every `shard validate` of a project whose
+manifest sets `"graphics": { "baseline": "required" }`) draws each of the project's scenes headless on a
+compatibility-mode device, so every variant they use links with `BASELINE` and passes the rewrite
+and the device's rules, and translates every entry point with naga. It fails on raw `var<storage>` in
+vertex or fragment code, on sampled single-layer views, on anything naga can't translate, and on
+features the tier can't run; each failure names the module and line, or the scene. Plain
+`shard validate` stays GPU-free and fast.
 
 ### Staging
 
