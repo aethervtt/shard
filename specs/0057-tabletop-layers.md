@@ -1,6 +1,6 @@
 # 0057 — Tabletop layers: grids, drawings, tokens, outlines, and ground order
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@aethervtt/shard-render`, `@aethervtt/shard-grid` (new), `@aethervtt/shard-vector` (new),
   `@aethervtt/shard-core` (`polygon`, shared with 0055)
 - **Depends on:** 0007, 0018, 0022, 0024, 0027, 0055

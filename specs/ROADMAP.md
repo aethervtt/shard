@@ -122,16 +122,18 @@ foundations), then 0054 dice with 0063. The table follows: 0055, 0057, 0060, 005
 Aether. Already done outside a spec: `Camera3d.active` (0007) and `probeWebGpu` (0061). The WebGL2
 fallback (0064) runs in parallel, in three stages, and doesn't block the WebGPU replacement. New
 tabletop shaders use its `shard::data` accessors once stage 1 lands. Dice entrances and screen
-effects (0065) build on 0054 and 0063 once 0054 is implemented.
+effects (0065) build on 0054 and 0063 once 0054 is implemented. Structure grows after 0055: curved
+walls (0066) and groups (0067), then surface variation (0068), per-view visibility and cutaways
+(0070), and interior lighting (0069).
 
 | Spec | Title | Status |
 |---|---|---|
 | [0052](0052-embedding.md) | Embedding (transparent surfaces, shared devices, on-demand frames, teardown) | implemented |
 | [0053](0053-deterministic-physics-tracks.md) | Deterministic physics and recorded tracks (worker, cancellation) | implemented |
 | [0054](0054-dice.md) | Dice (definitions, layouts, skins, tracks, landing on a supplied result) | implemented |
-| [0055](0055-host-scenes-structure.md) | Host-driven scenes and incremental structure (mirror, chunks, upload accounting) | accepted |
+| [0055](0055-host-scenes-structure.md) | Host-driven scenes and incremental structure (mirror, chunks, upload accounting) | implemented |
 | [0056](0056-modular-builds-size.md) | Modular builds and size budgets (no import side effects, feature plugins, three baseline) | implemented |
-| [0057](0057-tabletop-layers.md) | Tabletop layers (ground bands, render layers, grids, vector shapes, outlines) | accepted |
+| [0057](0057-tabletop-layers.md) | Tabletop layers (ground bands, render layers, grids, vector shapes, outlines) | implemented |
 | [0058](0058-projected-fog.md) | Projected fog (ordered regions, feathered masks, world-space composite) | accepted |
 | [0059](0059-tabletop-tilemaps.md) | Tilemaps on the tabletop, and diffable tile data | accepted |
 | [0060](0060-camera-controls-gestures.md) | Camera controls, gestures, and object drag | accepted |
@@ -140,7 +142,8 @@ effects (0065) build on 0054 and 0063 once 0054 is implemented.
 | [0063](0063-lens-fields.md) | Screen-space lens fields (bounded post displacement from published fields) | implemented |
 | [0064](0064-webgl2-fallback.md) | WebGL2 fallback and the baseline tier (one API, backend chosen at startup; staged, off the critical path) | accepted |
 | [0065](0065-dice-entrances.md) | Dice entrances and screen effects (a result arriving through a host scene instead of a tumble; typed effects the table draws) | implemented |
-| [0066](0066-curved-walls.md) | Curved walls and structure materials (arcs, Béziers, one subdivision for drawing and barriers; textured, normal-mapped walls) | accepted |
-| [0067](0067-structure-groups.md) | Structure groups: levels, roofs and cutouts (hide a level or a roof without a rebuild; stairwells, hatches, skylights) | accepted |
+| [0066](0066-curved-walls.md) | Curved walls and structure materials (arcs, Béziers, one subdivision for drawing and barriers; textured, normal-mapped walls) | implemented |
+| [0067](0067-structure-groups.md) | Structure groups: levels, roofs and cutouts (hide a level or a roof without a rebuild; stairwells, hatches, skylights) | implemented |
 | [0068](0068-surface-variation.md) | Surface variation and contact shade (repetition-breaking variation any material can use; noisy fake AO where walls meet walls and floors) | accepted |
 | [0069](0069-interior-lighting.md) | Interior lighting (sky visibility from the plan, spill through openings, lights blocked by walls) | accepted |
+| [0070](0070-view-visibility-cutaways.md) | Per-view visibility and cutaways (hide entities from one camera; cut roofs and walls open around reveal points) | draft |

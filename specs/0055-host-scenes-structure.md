@@ -1,6 +1,6 @@
 # 0055 — Host-driven scenes and incremental structure
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@aethervtt/shard-mirror` (new), `@aethervtt/shard-structure` (new), `@aethervtt/shard-render`, `@aethervtt/shard-gpu`,
   `@aethervtt/shard-core` (polygon math)
 - **Depends on:** 0001, 0007, 0018, 0022, 0052

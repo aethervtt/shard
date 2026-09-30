@@ -1,6 +1,6 @@
 # 0067 — Structure groups: levels, roofs and cutouts
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@aethervtt/shard-structure`, `@aethervtt/shard-render`
 - **Depends on:** 0055, 0057, 0066
 
