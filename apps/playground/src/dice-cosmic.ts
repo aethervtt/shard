@@ -4,26 +4,15 @@
 // (0063); on a natural 1 it collapses. All of it is host code: families, a material, an attachment.
 // Nothing here is in @aethervtt/shard-dice, which is the point.
 
-import { type AssetRef, type Entity, quat, t, type World } from '@aethervtt/shard-core'
+import { type AssetRef, t, type World } from '@aethervtt/shard-core'
 import {
   type DiceAttachmentContext,
-  DiceTable,
   defineDiceAttachment,
   defineDiceFamily,
+  spawnDiceWindow,
 } from '@aethervtt/shard-dice'
-import { plane } from '@aethervtt/shard-mesh'
-import {
-  defineMaterial,
-  MaterialAsset,
-  Materials,
-  Mesh3d,
-  Meshes,
-  MeshMaterial,
-  NotShadowCaster,
-  NotShadowReceiver,
-} from '@aethervtt/shard-render'
+import { defineMaterial, MaterialAsset, Materials, MeshMaterial } from '@aethervtt/shard-render'
 import { Time } from '@aethervtt/shard-runtime'
-import { Transform } from '@aethervtt/shard-transform'
 
 /** An sRGB hex color as linear RGBA, for field defaults. */
 function hex(s: string): [number, number, number, number] {
@@ -355,19 +344,7 @@ override fn shade(in: VertexOutput) -> vec4f {
 }`,
 }
 
-// --- windows facing the camera -----------------------------------------------------------------------
-
-/** One window mesh per world: a quad in its x–z plane, ±1 across. */
-const windows = new WeakMap<World, AssetRef<'Mesh'>>()
-
-function windowMesh(w: World): AssetRef<'Mesh'> {
-  let mesh = windows.get(w)
-  if (!mesh) {
-    mesh = w.resource(Meshes).add(plane({ size: 2 })) as AssetRef<'Mesh'>
-    windows.set(w, mesh)
-  }
-  return mesh
-}
+// --- shared materials, and the die's own colors ---------------------------------------------------------
 
 /** Materials a world's windows share, by name: they differ only by when they opened and colors. */
 const shared = new WeakMap<World, Map<string, AssetRef<'Material'>>>()
@@ -390,72 +367,6 @@ function sharedMaterial(
   }
   w.resource(Materials).get(ref)?.set(set)
   return ref
-}
-
-interface WindowPlacement {
-  /** Center, in die radii from the die's center: x right, y up on screen. */
-  x: number
-  y: number
-  /** Size in die radii. */
-  width: number
-  height: number
-  /** Turn on screen, radians counter-clockwise. */
-  turn: number
-  /** How far toward the camera past the die's center, in die radii (0: at its depth). */
-  lift: number
-}
-
-/**
- * Spawns a window facing the dice camera over a landed die. A window lifted toward the camera is
- * moved along the line from the camera and scaled by how much nearer it got, so it covers the
- * pixels it would at the die's depth: windows at different depths line up wherever the die is.
- */
-function spawnWindow(
-  ctx: DiceAttachmentContext,
-  material: AssetRef<'Material'>,
-  at: WindowPlacement,
-): Entity {
-  const w = ctx.world
-  const camera = w.resource(DiceTable).camera
-  const { rotation: cam, translation: eye } = w.get(camera, Transform)
-  const [qx, qy, qz, qw] = cam
-  // The camera's right and up, in the world.
-  const right = [1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy + qw * qz), 2 * (qx * qz - qw * qy)]
-  const up = [2 * (qx * qy - qw * qz), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz + qw * qx)]
-  const die = w.get(ctx.die, Transform).translation
-  const s = ctx.scale
-  const px = die[0]! + (right[0]! * at.x + up[0]! * at.y) * s - eye[0]!
-  const py = die[1]! + (right[1]! * at.x + up[1]! * at.y) * s - eye[1]!
-  const pz = die[2]! + (right[2]! * at.x + up[2]! * at.y) * s - eye[2]!
-  const dx = die[0]! - eye[0]!
-  const dy = die[1]! - eye[1]!
-  const dz = die[2]! - eye[2]!
-  const d = Math.sqrt(dx * dx + dy * dy + dz * dz)
-  const f = Math.max(0.05, (d - at.lift * s) / d)
-  // The window's +y to the camera's +z (its −z reads up on screen), turned on screen.
-  const face = quat.multiply(
-    [0, 0, 0, 1],
-    cam,
-    quat.multiply(
-      [0, 0, 0, 1],
-      quat.fromEuler([0, 0, 0, 1], 0, 0, at.turn),
-      quat.fromEuler([0, 0, 0, 1], Math.PI / 2, 0, 0),
-    ),
-  ) as [number, number, number, number]
-  return w.spawn(
-    [Mesh3d, { mesh: windowMesh(w) }],
-    [MeshMaterial, { material }],
-    NotShadowCaster,
-    NotShadowReceiver,
-    [
-      Transform,
-      {
-        translation: [eye[0]! + px * f, eye[1]! + py * f, eye[2]! + pz * f],
-        rotation: face,
-        scale: [(at.width / 2) * s * f, 1, (at.height / 2) * s * f],
-      },
-    ],
-  )
 }
 
 /** A field of the die's own material (the skin's), for effects that take its colors. */
@@ -492,8 +403,8 @@ export function defineAccretionAttachment(): void {
       )
       // Past the die's top toward the camera: the near band draws over the die.
       return [
-        spawnWindow(ctx, back, { ...window, lift: 0 }),
-        spawnWindow(ctx, front, { ...window, lift: 1.05 }),
+        spawnDiceWindow(ctx, back, { ...window, lift: 0 }),
+        spawnDiceWindow(ctx, front, { ...window, lift: 1.05 }),
       ]
     },
     update(ctx, s) {
@@ -754,7 +665,7 @@ export function definePulsarAttachment(): void {
         () => new MaterialAsset({}, PulsarBeam),
         triumphColors(ctx),
       )
-      return [spawnWindow(ctx, beam, { x: 0, y: 0, width: 2.8, height: 7, turn: 0, lift: 0 })]
+      return [spawnDiceWindow(ctx, beam, { x: 0, y: 0, width: 2.8, height: 7, turn: 0, lift: 0 })]
     },
   })
 }
@@ -781,9 +692,9 @@ export function defineQuasarAttachment(): void {
       // Aether's jet leans −0.27 rad from the die: its window's center sits 3.15 up that way.
       const lean = -0.27
       return [
-        spawnWindow(ctx, far, { ...window, lift: 0 }),
-        spawnWindow(ctx, near, { ...window, lift: 1.05 }),
-        spawnWindow(ctx, jet, {
+        spawnDiceWindow(ctx, far, { ...window, lift: 0 }),
+        spawnDiceWindow(ctx, near, { ...window, lift: 1.05 }),
+        spawnDiceWindow(ctx, jet, {
           x: -3.15 * Math.sin(lean),
           y: 3.15 * Math.cos(lean),
           width: 1.55,
