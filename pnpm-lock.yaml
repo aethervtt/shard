@@ -135,6 +135,9 @@ importers:
       '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@aethervtt/shard-dice':
+        specifier: workspace:*
+        version: link:../../packages/dice
       '@aethervtt/shard-gltf':
         specifier: workspace:*
         version: link:../../packages/gltf
@@ -275,6 +278,9 @@ importers:
       '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@aethervtt/shard-dice':
+        specifier: workspace:*
+        version: link:../../packages/dice
       '@aethervtt/shard-gpu':
         specifier: workspace:*
         version: link:../../packages/gpu
@@ -512,6 +518,64 @@ importers:
       gl-matrix:
         specifier: ^3.4.4
         version: 3.4.4
+
+  packages/dice:
+    dependencies:
+      '@aethervtt/shard-assets':
+        specifier: workspace:*
+        version: link:../assets
+      '@aethervtt/shard-audio':
+        specifier: workspace:*
+        version: link:../audio
+      '@aethervtt/shard-core':
+        specifier: workspace:*
+        version: link:../core
+      '@aethervtt/shard-gpu':
+        specifier: workspace:*
+        version: link:../gpu
+      '@aethervtt/shard-mesh':
+        specifier: workspace:*
+        version: link:../mesh
+      '@aethervtt/shard-particles':
+        specifier: workspace:*
+        version: link:../particles
+      '@aethervtt/shard-physics':
+        specifier: workspace:*
+        version: link:../physics
+      '@aethervtt/shard-protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@aethervtt/shard-render':
+        specifier: workspace:*
+        version: link:../render
+      '@aethervtt/shard-runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@aethervtt/shard-text':
+        specifier: workspace:*
+        version: link:../text
+      '@aethervtt/shard-texture':
+        specifier: workspace:*
+        version: link:../texture
+      '@aethervtt/shard-transform':
+        specifier: workspace:*
+        version: link:../transform
+    devDependencies:
+      '@aethervtt/shard-platform-node':
+        specifier: workspace:*
+        version: link:../platform-node
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+      '@webgpu/types':
+        specifier: ^0.1.74
+        version: 0.1.74
+      tsx:
+        specifier: ^4.23.15
+        version: 4.23.15
+      webgpu:
+        specifier: 0.6.1
+        version: 0.6.1
 
   packages/gltf:
     dependencies:
@@ -947,6 +1011,9 @@ importers:
       '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
+      '@aethervtt/shard-dice':
+        specifier: workspace:*
+        version: link:../dice
       '@aethervtt/shard-gltf':
         specifier: workspace:*
         version: link:../gltf

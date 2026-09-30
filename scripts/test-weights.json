@@ -15,6 +15,8 @@
     "packages/terrain/src/density.test.ts": 58,
     "packages/gltf/src/textured.test.ts": 51,
     "packages/physics/src/physics.test.ts": 102,
+    "packages/dice/src/table.test.ts": 120,
+    "packages/dice/src/track.test.ts": 25,
     "packages/render/src/post.test.ts": 51,
     "packages/render/src/large-world.test.ts": 48,
     "packages/render/src/materials.test.ts": 42,

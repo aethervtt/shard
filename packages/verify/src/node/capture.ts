@@ -246,7 +246,7 @@ async function runSteps(
       }
     }
     for (const client of clients) {
-      await client.page.evaluate(() => window.__shardCapture!.idle())
+      await client.page.evaluate((ms) => window.__shardCapture!.idle(ms), plan.timeoutMs)
       const expectations = step.expect?.[client.plan.name]
       if (expectations) {
         const probe = await client.page.evaluate(() => window.__shardCapture!.probe())
@@ -277,7 +277,7 @@ async function takeShot(
 ): Promise<CapturedShot> {
   const page = client.page
   if (shot.state) await page.evaluate((s) => window.__shardCapture!.apply(s), shot.state)
-  await page.evaluate(() => window.__shardCapture!.idle())
+  await page.evaluate((ms) => window.__shardCapture!.idle(ms), plan.timeoutMs)
   const scope = shot.scope ?? plan.scope
   let png: Uint8Array
   let width: number

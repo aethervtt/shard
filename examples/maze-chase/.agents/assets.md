@@ -104,6 +104,36 @@ Files: `*.jointmap.json`
 
 No import settings.
 
+## `data/die`
+
+Files: `*.die.json`
+
+No import settings.
+
+## `data/dice-effect`
+
+Files: `*.dice-effect.json`
+
+No import settings.
+
+## `data/dice-layout`
+
+Files: `*.dice-layout.json`
+
+No import settings.
+
+## `particles`
+
+Files: `*.particles.json`
+
+No import settings.
+
+## `data/dice-skin`
+
+Files: `*.dice-skin.json`
+
+No import settings.
+
 ## `gltf`
 
 Files: `*.gltf`, `*.glb`
@@ -146,12 +176,6 @@ No import settings.
 ## `data/tilemap`
 
 Files: `*.tilemap.json`
-
-No import settings.
-
-## `particles`
-
-Files: `*.particles.json`
 
 No import settings.
 

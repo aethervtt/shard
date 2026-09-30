@@ -253,6 +253,31 @@ export class GpuAssets {
     this.meshes.delete(mesh)
   }
 
+  /** Frees a texture's GPU copy now (it's uploaded again if it's used later). */
+  releaseTexture(texture: Texture): void {
+    const gt = this.textures.get(texture)
+    if (!gt) return
+    if (gt.generation === this.gpu.generation) {
+      gt.texture.destroy()
+      this.memory.textures--
+      this.memory.textureBytes -= gt.bytes
+    }
+    this.textures.delete(texture)
+  }
+
+  /** Frees a material's uniform buffers now (they're made again if it's drawn later). */
+  releaseMaterial(material: MaterialAsset): void {
+    const gm = this.materials.get(material)
+    if (!gm) return
+    if (gm.generation === this.gpu.generation) {
+      gm.buffer.destroy()
+      gm.textureBuffer.destroy()
+      gm.ownBuffer?.destroy()
+    }
+    this.materials.delete(material)
+    this.ready.delete(material)
+  }
+
   /** Uploads a texture (all levels) on first use and when its version changes. */
   texture(texture: Texture): GpuTexture | undefined {
     const gpu = this.gpu

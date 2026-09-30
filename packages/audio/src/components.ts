@@ -32,6 +32,15 @@ export const AudioSource = defineComponent(
       max: 16,
       description: 'Playback rate: 2 plays an octave up in half the time.',
     }),
+    pitchRandom: t.vec2({
+      default: [1, 1],
+      description:
+        'Each start multiplies pitch by a factor picked in [min, max] (evenly in log space): [0.92, 1.08] keeps a repeated sound from sounding identical. [1, 1] is off.',
+    }),
+    volumeRandom: t.vec2({
+      default: [1, 1],
+      description: 'Each start multiplies volume by a factor picked in [min, max]. [1, 1] is off.',
+    }),
     loop: t.bool({ description: "Loop (between the clip's loopStart and loopEnd) until stopped." }),
     autoplay: t.bool({ default: true, description: 'Start playing when the source is added.' }),
     playing: t.bool({

@@ -36,6 +36,17 @@ export interface TrackPhase {
   disableGroups?: string[]
   /** Wake every body. */
   wake?: true
+  /**
+   * New damping for these bodies (by index), from the next step: a rolling ball that should
+   * settle as soon as a die would, say. A rule can ramp it by returning a phase each step.
+   */
+  damping?: TrackDamping[]
+}
+
+export interface TrackDamping {
+  body: number
+  linear?: number
+  angular?: number
 }
 
 export type SettleResult = 'continue' | 'done' | TrackPhase
@@ -281,6 +292,18 @@ export async function recordTrack(
       }
       for (const name of changed) {
         for (const c of inGroup.get(name)!) c.setCollisionGroups(groups.get(name)!)
+      }
+      for (const d of phase.damping ?? []) {
+        const body = bodies[d.body]
+        if (!body || !Number.isInteger(d.body)) {
+          throw new ShardError(
+            'physics/track-scene',
+            `A settle phase at step ${step} damps body ${d.body}; the track has ${n}`,
+            { path: 'bodies' },
+          )
+        }
+        if (d.linear !== undefined) body.setLinearDamping(d.linear)
+        if (d.angular !== undefined) body.setAngularDamping(d.angular)
       }
       if (phase.wake) for (const body of bodies) body.wakeUp()
     }

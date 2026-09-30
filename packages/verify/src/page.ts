@@ -33,9 +33,14 @@ function settled(app: App): boolean {
 async function idleApp(app: App, deadline: number): Promise<void> {
   for (;;) {
     if (performance.now() > deadline) {
-      throw new ShardError('verify/idle-timeout', 'The app never went idle for the capture', {
-        hint: `Still holding frames: ${app.world.resource(FrameDemand).held().join(', ') || 'nothing'}; pipelines compiling: ${app.world.tryResource(Gpu)?.pipelines.pending ?? 0}.`,
-      })
+      // What it's waiting on goes in the message: through page.evaluate, only the message arrives.
+      const held = app.world.resource(FrameDemand).held().join(', ') || 'nothing'
+      const compiling = app.world.tryResource(Gpu)?.pipelines.pending ?? 0
+      throw new ShardError(
+        'verify/idle-timeout',
+        `The app never went idle for the capture (holding frames: ${held}; pipelines compiling: ${compiling})`,
+        { hint: "Holding nothing: it was slow, not stuck; raise the plan's timeoutMs." },
+      )
     }
     if (loading(app) || !settled(app)) {
       await sleep(16)

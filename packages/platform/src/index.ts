@@ -226,6 +226,11 @@ export interface AudioBackend {
   readonly state: AudioContextState
   /** Returns an id for `update` and `stop`. */
   play(voice: AudioVoiceDesc): number
+  /**
+   * Gets a clip ready to play (a browser decodes it), so its first play starts on time instead of
+   * starting late into the clip. Optional: backends with nothing to prepare leave it out.
+   */
+  preload?(clip: AudioClipSource): void
   update(voice: number, params: AudioVoiceParams): void
   /** Stops a voice, fading out over `fade` seconds (default: at once). */
   stop(voice: number, fade?: number): void

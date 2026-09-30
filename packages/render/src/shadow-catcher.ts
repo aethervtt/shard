@@ -9,24 +9,24 @@ import { Shaders } from './plugin'
 import { registerShaders } from './shaders'
 
 export const SHADOW_CATCHER_SHADERS: Record<string, string> = {
-  'shard::material::shadow_catcher': `
+  'shard::pbr::catcher': `
 import shard::view::view;
 import shard::pbr::types::VertexOutput;
 import shard::pbr::lights::{ lights, clusters, directional, LIGHT_SPOT, NO_SHADOW, CLUSTER_COUNT, MAX_PER_CLUSTER };
 import shard::pbr::shadows::{ directional_shadow, spot_shadow, point_shadow };
 import shard::pbr::lighting::cluster_of;
-import material::shadow_catcher::ShadowCatcher;
 
 const FLAG_RECEIVER: u32 = 4u;
 
 fn brightest(c: vec3f) -> f32 { return max(c.r, max(c.g, c.b)); }
 
 /**
- * No color; alpha opacity × (1 − visibility). Visibility is the light of every shadow-casting light
- * that reaches the surface with shadows, over the light without them (1 when none cast shadows).
+ * How much of the shadow-casting light reaches the surface: the light of every shadow-casting
+ * light with shadows, over that light without them. 1 when none cast shadows, or when the mesh
+ * doesn't receive them. Shadow catchers (and the dice tray, 0054) turn 1 − this into alpha.
  */
-override fn shade(in: VertexOutput) -> vec4f {
-  if ((in.flags & FLAG_RECEIVER) == 0u) { return vec4f(0.0); }
+fn shadow_visibility(in: VertexOutput) -> f32 {
+  if ((in.flags & FLAG_RECEIVER) == 0u) { return 1.0; }
   let n = normalize(in.world_normal);
   let p = in.world_position;
   let view_depth = -(view.view * vec4f(p, 1.0)).z;
@@ -69,8 +69,16 @@ override fn shade(in: VertexOutput) -> vec4f {
       lit += e * shadow;
     }
   }
-  let visibility = select(1.0, lit / total, total > 0.0);
-  return vec4f(0.0, 0.0, 0.0, ShadowCatcher.opacity * (1.0 - visibility));
+  return select(1.0, lit / total, total > 0.0);
+}`,
+  'shard::material::shadow_catcher': `
+import shard::pbr::types::VertexOutput;
+import shard::pbr::catcher::shadow_visibility;
+import material::shadow_catcher::ShadowCatcher;
+
+/** No color; alpha opacity × (1 − visibility) over every shadow-casting light. */
+override fn shade(in: VertexOutput) -> vec4f {
+  return vec4f(0.0, 0.0, 0.0, ShadowCatcher.opacity * (1.0 - shadow_visibility(in)));
 }`,
 }
 

@@ -105,13 +105,18 @@ every body's pose each step, including step 0. After each step it calls `settle`
 before the next step:
 
 ```ts
-interface TrackPhase { groups?: { [name: string]: TrackGroup }; disableGroups?: string[]; wake?: true }
+interface TrackPhase {
+  groups?: { [name: string]: TrackGroup }; disableGroups?: string[]; wake?: true
+  damping?: { body: number; linear?: number; angular?: number }[]   // from the next step
+}
 ```
 
 A disabled group collides with nothing; `groups` gives groups new layers and masks. Dice use a
 phase for their "cocked die" cleanup: walls disabled, the dice group's mask without the dice layer
 (no die-to-die contacts), all bodies woken. Only disabling groups couldn't express "dice stop
-touching each other but still touch the floor", hence `groups`. The world is freed in `finally`.
+touching each other but still touch the floor", hence `groups`. `damping` sets bodies' damping;
+a rule can ramp it by returning a phase each step (0054 settles its d100 ball that way). The world
+is freed in `finally`.
 
 Contacts come from Rapier's contact force events on body colliders, over `minForce`. A pair seen
 touching within `dedupeSteps` of the last time is the same contact; `a < b`, and `b` is -1 for a

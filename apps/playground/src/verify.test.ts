@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import { timeout, timingMode } from '@aethervtt/shard-core/test-env'
 import {
   type CapturePlan,
+  checkThresholds,
   parsePlan,
   perfRecordJsonSchema,
   type RgbaImage,
@@ -333,6 +334,42 @@ describe.skipIf(skip)('browser performance records (0062)', () => {
       }
     },
     timeout(60_000),
+  )
+})
+
+describe.skipIf(skip)('dice in the browser (0054)', () => {
+  it(
+    'plays 32 dice to rest in the fixture, each showing its value, a canvas capture keeping alpha, the record within the plan',
+    async () => {
+      const p = fromFile('dice.json')
+      const run = await capture(p)
+      expect(run.failures).toEqual([])
+      // The landed roll, canvas scope: the page shows through wherever no die or shadow is.
+      const image = await png(run.dir, 'chromium/main/landed-32@1x')
+      let clear = 0
+      let solid = 0
+      let partial = 0
+      for (let i = 3; i < image.data.length; i += 4) {
+        const a = image.data[i]!
+        if (a === 0) clear++
+        else if (a === 255) solid++
+        else partial++
+      }
+      expect(clear).toBeGreaterThan(image.width * image.height * 0.6)
+      expect(solid).toBeGreaterThan(2000)
+      expect(partial).toBeGreaterThan(500)
+      const [record] = run.records
+      expect(record!.scenario).toBe('dice-32')
+      // Frames all through its second; how many is timing (CI's software GPU draws about 30).
+      expect(record!.frameTime.n).toBeGreaterThan(timingMode === 'bench' ? 60 : 0)
+      // Frame time and long tasks are timing: the plan's thresholds hold under pnpm bench (CI
+      // renders on the CPU).
+      if (timingMode === 'bench') {
+        const check = checkThresholds(run.records, p.thresholds)
+        expect(check.breaches).toEqual([])
+      }
+    },
+    timeout(180_000),
   )
 })
 

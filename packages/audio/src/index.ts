@@ -5,6 +5,8 @@ export {
   isSoundPlaying,
   type PlaySoundOptions,
   playSound,
+  preloadSound,
+  type SoundRange,
   setBus,
   stopSound,
 } from './api'

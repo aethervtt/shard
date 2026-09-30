@@ -65,6 +65,9 @@ describe('PipelineCache', () => {
 
   it('counts the wall time pipelines were compiling (0062)', async () => {
     const before = gpu.pipelines.busyMs()
+    // From before the first compile starts: creating the second's module takes a few ms on a
+    // software GPU, and the first is compiling all the while.
+    const start = performance.now()
     gpu.pipelines.render(pipelineDescriptor('busy-a'))
     gpu.pipelines.compute({
       label: 'busy-b',
@@ -74,7 +77,6 @@ describe('PipelineCache', () => {
         entryPoint: 'main',
       },
     })
-    const start = performance.now()
     await gpu.pipelines.whenIdle()
     const elapsed = performance.now() - start
     const busy = gpu.pipelines.busyMs() - before

@@ -5,6 +5,7 @@ import {
   defineSystem,
   type Entity,
   findComponent,
+  Rng,
   ShardError,
   type World,
 } from '@aethervtt/shard-core'
@@ -46,6 +47,9 @@ export interface Voice {
   bus: string
   volume: number
   pitch: number
+  /** A source's random factors, picked when its voice starts (pitchRandom, volumeRandom). */
+  pitchScale: number
+  volumeScale: number
   loop: boolean
   priority: number
   spatial: boolean
@@ -160,6 +164,8 @@ export interface AudioStateValue {
   countStamp: number
   /** Voices ended since the last compaction. */
   ended: number
+  /** Picks pitch and volume in ranges: the app's GlobalRng stream 'audio', so replays repeat. */
+  rng: Rng
 }
 
 const LOG_LIMIT = 4096
@@ -168,7 +174,7 @@ export const AudioState = defineResource<AudioStateValue>('audio/State', {
   description: 'Voices, the backend, bus gains, and the audio log. Internal: use audio.describe.',
 })
 
-export function createAudioState(backend: AudioBackend): AudioStateValue {
+export function createAudioState(backend: AudioBackend, rng = new Rng(0)): AudioStateValue {
   return {
     backend,
     voices: [],
@@ -190,7 +196,18 @@ export function createAudioState(backend: AudioBackend): AudioStateValue {
     clipCounts: new Map(),
     countStamp: 0,
     ended: 0,
+    rng,
   }
+}
+
+/**
+ * A value in [min, max]: uniform in log space for pitch (a range as far below 1 as above sounds
+ * even), uniform for volume. min ≥ max gives min.
+ */
+export function pickInRange(rng: Rng, min: number, max: number, log: boolean): number {
+  if (!(max > min)) return min
+  const u = rng.float()
+  return log && min > 0 ? min * (max / min) ** u : min + (max - min) * u
 }
 
 /** The world's audio state; throws if the audio plugin isn't added. */
@@ -214,6 +231,8 @@ export function newVoice(state: AudioStateValue, entity: Entity | null, frame: n
     bus: 'sfx',
     volume: 1,
     pitch: 1,
+    pitchScale: 1,
+    volumeScale: 1,
     loop: false,
     priority: 128,
     spatial: false,
@@ -496,6 +515,8 @@ export const updateAudio = defineSystem({
       const busCol = table.column(AudioSource, 'bus')
       const volume = table.column(AudioSource, 'volume')
       const pitch = table.column(AudioSource, 'pitch')
+      const pitchRandom = table.column(AudioSource, 'pitchRandom')
+      const volumeRandom = table.column(AudioSource, 'volumeRandom')
       const loop = table.column(AudioSource, 'loop')
       const autoplay = table.column(AudioSource, 'autoplay')
       const playing = table.column(AudioSource, 'playing')
@@ -528,13 +549,16 @@ export const updateAudio = defineSystem({
           voice = newVoice(state, entity, frame)
           voice.ref = ref
           voice.time = startTime[row]!
+          // Each start picks its factors; the voice keeps them while it plays (loops included).
+          voice.pitchScale = rangeFactor(state.rng, pitchRandom, row, true)
+          voice.volumeScale = rangeFactor(state.rng, volumeRandom, row, false)
           state.voices.push(voice)
           state.byEntity.set(entity, voice)
         }
         voice.seen = frame
         voice.bus = (busCol[row] as string | undefined) || 'sfx'
-        voice.volume = volume[row]!
-        voice.pitch = pitch[row]!
+        voice.volume = volume[row]! * voice.volumeScale
+        voice.pitch = Math.max(0.01, pitch[row]! * voice.pitchScale)
         voice.loop = loop[row] === 1
         voice.priority = priority[row]!
         voice.spatial = spatial[row] === 1
@@ -756,6 +780,14 @@ export const updateAudio = defineSystem({
 })
 
 const DEFAULT_DUCK_TRIGGER = ['voice']
+
+/** A factor from a source's [min, max] column (either order; [1, 1] is off). */
+function rangeFactor(rng: Rng, column: ArrayLike<number>, row: number, log: boolean): number {
+  const a = column[row * 2]!
+  const b = column[row * 2 + 1]!
+  const min = Math.max(log ? 0.01 : 0, Math.min(a, b))
+  return pickInRange(rng, min, Math.max(min, a, b), log)
+}
 
 function sameClip(a: AssetRef | null, b: AssetRef | null | undefined): boolean {
   if (!a || !b) return a === (b ?? null)

@@ -47,7 +47,7 @@ export const Manifest = defineSchema(
     plugins: t.list(t.string, {
       default: ['render/forward', 'input'],
       description:
-        'Engine plugins to enable, by name: render, render/forward, sprite, text, particles, animation, physics3d, physics2d, input, audio, ui, nav, nav/grid, core/transform.',
+        'Engine plugins to enable, by name: render, render/forward, sprite, text, particles, animation, physics3d, physics2d, input, audio, ui, nav, nav/grid, dice, core/transform.',
     }),
   },
   { description: 'shard.json: the project manifest.' },
@@ -111,6 +111,7 @@ export const BUILTIN_PLUGINS = {
     'navigation on NavGrids only, without loading the Recast WASM (includes core/transform)',
   terrain:
     'planets: Planet cube-sphere terrain from noise graphs with LOD, geomorphing, oceans, biomes, collider chunks around characters, navmeshes on the surface; terrain.* methods (includes core/transform; add render/forward to draw it, physics3d for colliders)',
+  dice: 'the dice table (0054): dice skins, face layouts and effect recipes as data, dice.play and dice.describe, dice/RollRequest in scenes; tracks record on the calling thread (includes render/forward)',
   'core/transform': 'Transform and hierarchy propagation',
 } as const
 

@@ -239,6 +239,11 @@ export function createWebAudioBackend(options: { context?: AudioContext } = {}):
       return id
     },
 
+    preload(clip) {
+      // Streamed clips play through a media element: nothing to decode ahead.
+      if (!clip.stream) decode(clip).catch((err: ShardError) => backend.onError?.(err))
+    },
+
     update(id, params) {
       const v = voices.get(id)
       if (!v) return

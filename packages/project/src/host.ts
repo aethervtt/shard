@@ -1,6 +1,8 @@
 import { animationPlugin } from '@aethervtt/shard-animation'
 // Also registers the audio importer and the AudioClip asset type for every project host.
 import { audioPlugin } from '@aethervtt/shard-audio'
+// Also registers the dice data types (skins, layouts, recipes, definitions) for every project host.
+import { dicePlugin } from '@aethervtt/shard-dice'
 import { gltfPlugin } from '@aethervtt/shard-gltf'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { inputPlugin } from '@aethervtt/shard-input'
@@ -48,7 +50,13 @@ export interface BuildAppOptions {
 export function buildApp(options: BuildAppOptions): App {
   const { manifest } = options
   const names = new Set(manifest.plugins)
-  if (names.has('sprite') || names.has('text') || names.has('particles') || names.has('animation'))
+  if (
+    names.has('sprite') ||
+    names.has('text') ||
+    names.has('particles') ||
+    names.has('animation') ||
+    names.has('dice')
+  )
     names.add('render/forward')
   if (names.has('render/forward')) {
     names.add('render')
@@ -82,6 +90,7 @@ export function buildApp(options: BuildAppOptions): App {
   if (names.has('text')) app.addPlugin(textPlugin)
   if (names.has('particles')) app.addPlugin(particlesPlugin)
   if (names.has('animation')) app.addPlugin(animationPlugin)
+  if (names.has('dice')) app.addPlugin(dicePlugin())
   if (names.has('physics3d')) app.addPlugin(physics3dPlugin())
   if (names.has('physics2d')) app.addPlugin(physics2dPlugin())
   if (names.has('input')) app.addPlugin(inputPlugin({ source: options.inputSource }))

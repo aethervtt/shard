@@ -58,6 +58,7 @@ so "did the laser play, where, and how loud" has to be something it can query.
 AudioSource {
   clip: handle('AudioClip'), bus: string = 'sfx'
   volume: f32 = 1 (linear), pitch: f32 = 1, loop: bool, autoplay: bool = true, playing: bool
+  pitchRandom: vec2 = [1, 1], volumeRandom: vec2 = [1, 1]   // factors picked in [min, max] per start
   spatial: bool = true, minDistance: f32 = 1, maxDistance: f32 = 100,
   rolloff: 'inverse' | 'linear' | 'exponential', rolloffFactor: f32 = 1
   panning: 'hrtf' | 'equal-power', doppler: f32 = 0, priority: u8 = 128, startTime: f32
@@ -73,6 +74,17 @@ AudioConfig (resource): { maxVoices = 64, maxVoicesPerClip = 8, speedOfSound = 3
   an `AudioListener` it sits at the origin facing -Z.
 - `playSound(world, clip, options)` returns a voice id (`stopSound`, `isSoundPlaying`); `clip` is a
   ref, a path, or an `AudioClip` made in code. A clip still loading starts when it arrives.
+- **Variation** (as Godot's random pitch): a sound played over and over (footsteps, impacts,
+  shots) shouldn't sound identical. `playSound`'s `pitch` and `volume` take a `[min, max]` range
+  instead of a number, and each play picks one: pitch evenly in log space (so `[0.8, 1.25]` is as
+  likely below 1 as above), volume evenly. A source's `pitchRandom` and `volumeRandom` are factor
+  ranges on its `pitch` and `volume`, picked each time it starts and kept while it plays. The picks
+  come from the app's `GlobalRng` stream `audio`, so a replay (and a loaded save) picks the same.
+  A range that isn't one (min above max, pitch at or below 0, volume below 0) throws
+  `audio/invalid-range`.
+- `preloadSound(world, clip)` gets a clip ready before its first play (a browser decodes it), so
+  a sound that must land on its moment isn't started late into the clip. Backends that decode
+  implement `preload`; the headless one records the clip ids (`preloaded`).
 - `duck(world, 'music', { by: 0.7, attack: 0.1, release: 0.5, when: 'voice' })` lowers a bus while
   any voice plays on the `when` buses (default `voice`), for dialogue over music. `by` is the share
   of gain taken away (0.7 plays music at 30%). The rule is stored on the bus in `AudioBuses`, so
@@ -89,6 +101,7 @@ interface AudioBackend {                          // in @aethervtt/shard-platfor
   readonly kind: string
   readonly state: 'running' | 'suspended' | 'closed' | 'headless'
   play(voice: AudioVoiceDesc): number             // clip, bus, loop, offset, spatial (PannerNode params)
+  preload?(clip: AudioClipSource): void           // decode ahead of the first play (optional)
   update(voice: number, params: AudioVoiceParams): void   // gain, pitch, x, y, z
   stop(voice: number, fade?: number): void
   setListener(matrix: ArrayLike<number>): void    // affine 3x4, as GlobalTransform
@@ -136,7 +149,7 @@ interface AudioBackend {                          // in @aethervtt/shard-platfor
   read it with `game.audioLog()`. MCP: `audio_describe`, `audio_log`.
 - **Errors:** `audio/decode-failed`, `audio/unsupported-format`, `audio/unknown-bus` (a source on
   an unknown bus is logged once and mixed on master; `playSound` throws), `audio/invalid-duck`,
-  `audio/no-plugin`.
+  `audio/invalid-range`, `audio/no-plugin`.
 
 ## Decisions
 
@@ -166,6 +179,9 @@ interface AudioBackend {                          // in @aethervtt/shard-platfor
 - [x] In a browser (`#audio` playground demo), a source orbiting the camera pans audibly, and
       `audio.describe` matches the headless values for the same scene.
 - [x] A gameplay test asserts that firing plays `laser.ogg` at the ship's position.
+- [x] One-shots with pitch and volume ranges pick within them, pitch evenly in log space, the same
+      under the same seed; a source picks new factors each start and keeps them while it plays;
+      a range that isn't one throws `audio/invalid-range`. `preloadSound` reaches the backend.
 
 ## Open questions
 

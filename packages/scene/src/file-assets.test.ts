@@ -143,6 +143,8 @@ describe('file assets in scenes', () => {
   })
 
   it('hot reloads a changed material within two frames, keeping its guid', async () => {
+    // Red again, so a retry starts where the first attempt did.
+    writeMaterial({ baseColor: '#c0392b', roughness: 0.4 })
     const { app, assets } = await start()
     const { entities } = loadScene(app.world, scene, { id: 'main' })
     await whenSceneReady(app.world, 'main')
@@ -151,14 +153,18 @@ describe('file assets in scenes', () => {
     const [r0, b0] = redBlue(await capture(app, camera))
     const guid = assets.resolve('materials/hull.material.json')!.guid
 
+    let imported!: () => void
     const scanned = new Promise<void>((resolve) => {
-      void assets
-        .watch({ debounceMs: 20, onScan: (r) => r.imported.length > 0 && resolve() })
-        .then((stop) => scanned.finally(stop))
+      imported = resolve
     })
-    await new Promise((r) => setTimeout(r, 20))
+    // Watching before the edit: on a busy runner, setting the watch up can outlast any fixed wait.
+    const stop = await assets.watch({
+      debounceMs: 20,
+      onScan: (r) => r.imported.length > 0 && imported(),
+    })
     writeMaterial({ baseColor: '#2e86de', roughness: 0.4 })
     await scanned
+    stop()
     // Two frames is the spec budget, held under `pnpm bench` (serial). In parallel `pnpm test` and
     // CI runs the reload's own load can take longer, so only the reload itself is checked there.
     let took = 0
