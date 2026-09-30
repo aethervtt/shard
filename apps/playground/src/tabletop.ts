@@ -38,9 +38,9 @@ import { VectorShape } from '@aethervtt/shard-vector'
 import { hudExtras } from './hud'
 
 // A small VTT table (0055, 0057): a host's documents mirrored onto the engine, drawn two ways.
-// The Map view is orthographic and top-down with flat token discs; the Tabletop view is a
-// perspective orbit with standees. Walls, doors, windows and floors compile into chunks; grid,
-// drawings, discs and fog stack in ground bands. Click a token to select it (and move it by
+// The Map view is orthographic, tilted 10° off top-down so wall faces show, with flat token discs;
+// the Tabletop view is a perspective orbit with standees. Walls, doors, windows and floors compile
+// into chunks; grid, drawings, discs and fog stack in ground bands. Click a token to select it (and move it by
 // clicking the floor), click a door to swing it. Name labels are DOM, placed by worldToScreen.
 // The east wing's straight walls and the yard's round tower and garden wall share one procedural
 // brick material (0066), so the courses can be compared on straight, arc and Bézier walls.
@@ -51,7 +51,8 @@ const MAP = 2
 const TABLETOP = 4
 /** One grid cell: 1.5 m. */
 const CELL = 1.5
-const TOP_DOWN: [number, number, number, number] = [-Math.SQRT1_2, 0, 0, Math.SQRT1_2]
+/** The Map view's pitch: 10° off straight down, the camera south of what it looks at. */
+const MAP_PITCH = (80 * Math.PI) / 180
 
 type Vec2 = [number, number]
 
@@ -410,7 +411,13 @@ function edit<T extends { id: string; rev: number }>(
 }
 
 function placeCameras(world: World, d: Demo): void {
-  world.set(d.map, Transform, { translation: [d.pan[0], 40, d.pan[1]], rotation: TOP_DOWN })
+  const at: [number, number, number] = [d.pan[0], 0, d.pan[1]]
+  const mapEye: [number, number, number] = [
+    d.pan[0],
+    Math.sin(MAP_PITCH) * 40,
+    d.pan[1] + Math.cos(MAP_PITCH) * 40,
+  ]
+  world.set(d.map, Transform, { translation: mapEye, rotation: lookAt(mapEye, at) })
   world.set(d.map, Camera3d, { orthoHeight: d.orthoHeight })
   const p = (d.pitch * Math.PI) / 180
   const y = (d.yaw * Math.PI) / 180
@@ -796,7 +803,9 @@ function wireInput(world: World, d: Demo): void {
         const c = Math.cos(yaw)
         const s = Math.sin(yaw)
         d.pan[0] -= (dx * c + dy * s) * perPx
-        d.pan[1] -= (dy * c - dx * s) * perPx
+        // The map's ground is foreshortened along z by its pitch.
+        const along = d.view === 'map' ? 1 / Math.sin(MAP_PITCH) : 1
+        d.pan[1] -= (dy * c - dx * s) * perPx * along
       } else {
         d.yaw -= dx * 0.3
         d.pitch = Math.min(88, Math.max(12, d.pitch + dy * 0.2))
