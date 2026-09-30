@@ -92,6 +92,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `ecs/missing-component` | @aethervtt/shard-core | Check world.has(entity, component) first, or use tryGet. |
 | `ecs/missing-resource` | @aethervtt/shard-core | Insert it with insertResource, or add the plugin that provides it. |
 | `ecs/no-resource-init` | @aethervtt/shard-core | Use insertResource with a value instead. |
+| `fog/invalid-regions` | @aethervtt/shard-fog | { rev, regions: [{ op: "hide" \| "reveal", strength?, feather?, shape }] } with shapes rect, polygon, multipolygon or brush. |
 | `gltf/accessor-out-of-range` | @aethervtt/shard-gltf | The file is truncated or its byteOffset/count are wrong. |
 | `gltf/buffer-missing` | @aethervtt/shard-gltf | Keep .bin files next to the .gltf, under the same name the file references. |
 | `gltf/invalid` | @aethervtt/shard-gltf | Only glTF 2.0 files are supported. |
@@ -347,7 +348,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `ui/unknown-node` | @aethervtt/shard-ui | Pass an entity id or a scene path of a node under a UiRoot (ui.describe lists them). |
 | `ui/unknown-state` | @aethervtt/shard-ui |  |
 | `ui/unknown-style` | @aethervtt/shard-ui | Add it to the root's *.theme.json styles, or fix UiNode.style (ui.describe shows each node's). |
-| `vector/invalid-geometry` | @aethervtt/shard-vector | geometry is { kind: 'pen' \| 'line' \| 'rect' \| 'ellipse' \| 'cone' \| 'polygon', ... } in local (x, z) units. |
+| `vector/invalid-geometry` | @aethervtt/shard-vector | A region shape is { kind: 'rect' \| 'polygon' \| 'multipolygon' \| 'brush', ... } in world (x, z). |
 | `verify/approval-needs-reason` | @aethervtt/shard-verify | Say why it looks the way it does: shard approve <shot> --reason "Shadows are softer since 0058". |
 | `verify/idle-timeout` | @aethervtt/shard-verify | Holding nothing: it was slow, not stuck; raise the plan's timeoutMs. |
 | `verify/invalid-json` | @aethervtt/shard-verify |  |

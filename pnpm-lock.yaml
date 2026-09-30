@@ -144,6 +144,9 @@ importers:
       '@aethervtt/shard-dice':
         specifier: workspace:*
         version: link:../../packages/dice
+      '@aethervtt/shard-fog':
+        specifier: workspace:*
+        version: link:../../packages/fog
       '@aethervtt/shard-gltf':
         specifier: workspace:*
         version: link:../../packages/gltf
@@ -591,6 +594,46 @@ importers:
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
+      webgpu:
+        specifier: 0.6.1
+        version: 0.6.1
+
+  packages/fog:
+    dependencies:
+      '@aethervtt/shard-assets':
+        specifier: workspace:*
+        version: link:../assets
+      '@aethervtt/shard-core':
+        specifier: workspace:*
+        version: link:../core
+      '@aethervtt/shard-gpu':
+        specifier: workspace:*
+        version: link:../gpu
+      '@aethervtt/shard-render':
+        specifier: workspace:*
+        version: link:../render
+      '@aethervtt/shard-runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@aethervtt/shard-vector':
+        specifier: workspace:*
+        version: link:../vector
+    devDependencies:
+      '@aethervtt/shard-mesh':
+        specifier: workspace:*
+        version: link:../mesh
+      '@aethervtt/shard-protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@aethervtt/shard-transform':
+        specifier: workspace:*
+        version: link:../transform
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+      '@webgpu/types':
+        specifier: ^0.1.74
+        version: 0.1.74
       webgpu:
         specifier: 0.6.1
         version: 0.6.1
@@ -1073,6 +1116,9 @@ importers:
       '@aethervtt/shard-dice':
         specifier: workspace:*
         version: link:../dice
+      '@aethervtt/shard-fog':
+        specifier: workspace:*
+        version: link:../fog
       '@aethervtt/shard-gltf':
         specifier: workspace:*
         version: link:../gltf
@@ -1357,6 +1403,9 @@ importers:
       '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
+      '@aethervtt/shard-fog':
+        specifier: workspace:*
+        version: link:../fog
       '@aethervtt/shard-grid':
         specifier: workspace:*
         version: link:../grid

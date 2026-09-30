@@ -6,6 +6,7 @@ import {
   type Owner,
   type World,
 } from '@aethervtt/shard-core'
+import { FogLayer, FogRegionsStore, fogPlugin } from '@aethervtt/shard-fog'
 import { Grid, gridPlugin } from '@aethervtt/shard-grid'
 import { box, cylinder, plane } from '@aethervtt/shard-mesh'
 import {
@@ -28,8 +29,8 @@ import { Floor, Opening, structurePlugin, Wall } from '@aethervtt/shard-structur
 import { lookAt, Transform } from '@aethervtt/shard-transform'
 import { VectorShape, vectorPlugin } from '@aethervtt/shard-vector'
 
-// The tabletop parity fixture (0057): floor, tiles, grid, drawings, flat tokens, fog, walls and
-// props on one scene, seen by a Map camera (flat token discs) and a Tabletop camera (standees).
+// The tabletop parity fixture (0057): floor, tiles, grid, drawings, flat tokens, projected fog (0058),
+// walls and props on one scene, seen by a Map camera (flat token discs) and a Tabletop camera (standees).
 // Node goldens, the playground's pages and 0064's baseline and WebGL2 runs all draw this scene.
 
 /** Render layers: 1 is shared; each view adds its own visuals' layer. */
@@ -37,7 +38,7 @@ export const PARITY_LAYERS = { shared: 1, map: 2, tabletop: 4 } as const
 
 /** What the fixture adds beyond the renderer (`renderPlugin`, `forwardPlugin`, `TransformPlugin`). */
 export function parityPlugins(): Plugin[] {
-  return [structurePlugin, gridPlugin, vectorPlugin]
+  return [structurePlugin, gridPlugin, vectorPlugin, fogPlugin]
 }
 
 export interface ParityScene {
@@ -209,36 +210,45 @@ export function spawnParity(world: World, options: ParityOptions = {}): ParitySc
     )
     tokens.push(root)
   }
-  // Fog (band 50): the same tessellator, a dark fill over the east side.
-  spawn(
-    [
-      VectorShape,
+  // Projected fog (0058): a hidden region with a revealed hole over the east side, and one over
+  // the northeast prop, which it covers to its top.
+  const fog = world.resource(FogRegionsStore).add({
+    rev: 1,
+    regions: [
       {
-        geometry: {
+        op: 'hide',
+        strength: 0.75,
+        feather: 0.3,
+        shape: {
           kind: 'polygon',
           outer: [
-            [0, 0],
-            [4, 0],
-            [4, 6],
-            [0, 6],
+            [5.5, -3],
+            [9.5, -3],
+            [9.5, 3],
+            [5.5, 3],
           ],
           holes: [
             [
-              [1, 2],
-              [3, 2],
-              [3, 4],
-              [1, 4],
+              [6.5, -1],
+              [8.5, -1],
+              [8.5, 1],
+              [6.5, 1],
             ],
           ],
         },
-        fill: [0, 0, 0, 1],
-        fillOpacity: 0.75,
-        strokeWidth: 0,
+      },
+      {
+        op: 'hide',
+        strength: 0.75,
+        feather: 0.3,
+        shape: { kind: 'rect', x: 7.5, y: 5.5, w: 2.2, h: 2 },
       },
     ],
-    [GroundLayer, { band: 50 }],
-    [Transform, { translation: [5.5, 0, -3] }],
-  )
+  }) as AssetRef<'FogRegions'>
+  spawn([
+    FogLayer,
+    { base: 'revealed', extent: { min: [-10, -8], max: [10, 8] }, texelSize: 0.05, regions: fog },
+  ])
   // Props: boxes and a pillar.
   const propMat = mat([0.3, 0.5, 0.35, 1])
   for (const [x, z, s] of [

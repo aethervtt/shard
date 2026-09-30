@@ -69,6 +69,7 @@
     "packages/structure/src/structure.test.ts": 240,
     "packages/render/src/tabletop.test.ts": 60,
     "packages/grid/src/grid.test.ts": 90,
-    "packages/scenes/src/parity.test.ts": 60
+    "packages/scenes/src/parity.test.ts": 60,
+    "packages/fog/src/fog.test.ts": 60
   }
 }

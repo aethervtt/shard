@@ -17,6 +17,7 @@
     "@aethervtt/shard-audio": "workspace:*",
     "@aethervtt/shard-core": "workspace:*",
     "@aethervtt/shard-dice": "workspace:*",
+    "@aethervtt/shard-fog": "workspace:*",
     "@aethervtt/shard-gltf": "workspace:*",
     "@aethervtt/shard-gpu": "workspace:*",
     "@aethervtt/shard-grid": "workspace:*",

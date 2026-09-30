@@ -135,6 +135,7 @@ export function pickNode(world: World): NodeDescriptor {
       drawMaterials(ctx, state, pv, cam, cam.transparent, PASS_PICK)
       // Ground bands last, in band order: at their floor's depth, the topmost band wins.
       drawMaterials(ctx, state, pv, cam, cam.ground, PASS_PICK_GROUND)
+      drawMaterials(ctx, state, pv, cam, cam.overlay, PASS_PICK_GROUND)
       for (const draw of picking.drawers.values()) draw(ctx, cam)
       if (ctx.gpu.pipelines.skipped > skipped) picking.incomplete.add(ctx.view.name)
     },

@@ -1,6 +1,7 @@
 import { animationPlugin } from '@aethervtt/shard-animation'
 import { audioPlugin } from '@aethervtt/shard-audio'
 import { ShardError } from '@aethervtt/shard-core'
+import { fogPlugin } from '@aethervtt/shard-fog'
 import { gltfPlugin } from '@aethervtt/shard-gltf'
 import { gridPlugin } from '@aethervtt/shard-grid'
 import { inputPlugin } from '@aethervtt/shard-input'
@@ -212,6 +213,7 @@ if (demo === 'galaxy') {
     structurePlugin,
     gridPlugin,
     vectorPlugin,
+    fogPlugin,
     hudPlugin,
     tabletopDemoPlugin,
   )

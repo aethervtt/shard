@@ -902,7 +902,7 @@ Brings along: `core/Transform`.
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `band` | integer or `"tiles"` \| `"grid"` \| `"drawings"` \| `"tokens-flat"` \| `"fog"` \| `"overlay"` | `30` |  | Stacking band: tiles 10, grid 20, drawings 30, tokens-flat 40, fog 50, overlay 60. Higher draws over lower. Presets: tiles, grid, drawings, tokens-flat, fog, overlay. |
+| `band` | integer or `"tiles"` \| `"grid"` \| `"drawings"` \| `"tokens-flat"` \| `"fog"` \| `"overlay"` | `30` |  | Stacking band: tiles 10, grid 20, drawings 30, tokens-flat 40, fog 50, overlay 60. Higher draws over lower. Bands from 60 up draw after transparent objects and projected fog. Presets: tiles, grid, drawings, tokens-flat, fog, overlay. |
 | `order` | integer | `0` | ≥ -2147483648, ≤ 2147483647 | Order within the band: higher draws over lower. |
 | `level` | integer | `0` | ≥ -16, ≤ 15 | Structure level index (0067): ground layers sort by level first, so a lower level never draws over an upper one. 0 is the ground level. |
 

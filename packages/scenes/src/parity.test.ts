@@ -2,9 +2,11 @@ import { writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { AssetRef } from '@aethervtt/shard-core'
+import { FogSettings } from '@aethervtt/shard-fog'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import {
+  captureBuffer,
   forwardPlugin,
   Gpu,
   OffscreenTarget,
@@ -78,6 +80,61 @@ describe('tabletop parity fixture', () => {
         expect(compareGolden(here, name, image).mean, name).toBeLessThan(1.5)
       }
     }
+    expect(world.resource(Gpu).errors).toEqual([])
+    await app.dispose()
+    target.destroy()
+  })
+})
+
+describe('projected fog on the parity fixture (0058)', () => {
+  it('covers a prop inside a hidden region to its top, with the same footprint in the Map view', {
+    timeout: 120_000,
+  }, async () => {
+    const { app, target, scene } = await parity()
+    const world = app.world
+    // How much fog takes off a point: its brightness with fog over its brightness without.
+    const ratios = async (view: 'map' | 'tabletop', points: [number, number, number][]) => {
+      const cam = view === 'map' ? scene.map : scene.tabletop
+      showParityView(world, scene, view)
+      poseParityCamera(world, scene, view, 55)
+      // Linear HDR, before the tonemap: fog takes a fixed fraction off there.
+      const shot = async () => {
+        await settle(app)
+        const pending = captureBuffer(world, `camera:${cam}`, 'hdr')
+        app.update(1 / 60)
+        const b = await pending
+        return { width: b.width, data: b.data }
+      }
+      world.patchResource(FogSettings, { viewerOpacity: 1 })
+      const fogged = await shot()
+      world.patchResource(FogSettings, { viewerOpacity: 0 })
+      const clear = await shot()
+      world.patchResource(FogSettings, { viewerOpacity: 1 })
+      return points.map((p) => {
+        const css = [0, 0]
+        expect(worldToScreen(world, cam, p, css)).toBe(true)
+        const [x, y] = [Math.floor(css[0]!), Math.floor(css[1]!)]
+        const lum = (px: number[]) => px[0]! + px[1]! + px[2]!
+        return lum(pixel(fogged, x, y)) / Math.max(1, lum(pixel(clear, x, y)))
+      })
+    }
+    // The prop's top, and floor points in the fog, in its hole, and in the open.
+    const propTop: [number, number, number] = [8.5, 1.2, 6.5]
+    const floor: [number, number, number][] = [
+      [9, 0, -2.5],
+      [7.5, 0, 0],
+      [-4, 0, -6],
+    ]
+    const [top] = await ratios('tabletop', [propTop])
+    // Hidden at strength 0.75: a quarter of the light is left, at the top as on the floor.
+    expect(Math.abs(top! - 0.25), 'the prop top is fogged').toBeLessThan(0.05)
+    const tabletop = await ratios('tabletop', floor)
+    const map = await ratios('map', floor)
+    expect(Math.abs(tabletop[0]! - 0.25)).toBeLessThan(0.05)
+    expect(tabletop[1]!).toBeGreaterThan(0.98)
+    expect(tabletop[2]!).toBeGreaterThan(0.98)
+    for (let i = 0; i < floor.length; i++)
+      expect(Math.abs(map[i]! - tabletop[i]!), `point ${i}`).toBeLessThan(0.02)
     expect(world.resource(Gpu).errors).toEqual([])
     await app.dispose()
     target.destroy()

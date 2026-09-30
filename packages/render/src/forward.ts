@@ -318,7 +318,7 @@ export const forwardQueue = defineSystem({
       if (gpuCull) {
         culler.add(store, cam.draws, params, culler.lodCamera(cam.entity), forwardOnly)
         cullTransparent(store, cam.transparent, params, cam.forward)
-        cullGround(store, cam.ground, params)
+        cullGround(store, cam.ground, params, cam.overlay)
       } else {
         store.cullCpu(
           cam.draws,
@@ -329,6 +329,7 @@ export const forwardQueue = defineSystem({
           forwardOnly,
           false,
           cam.ground,
+          cam.overlay,
         )
       }
       // Nearest first within each pipeline and material: the depth test culls overdraw.
@@ -949,6 +950,28 @@ function groundNode(state: ForwardState) {
       const pv = state.views.get(ctx.view.name)
       if (!pv) return
       drawMaterials(ctx, state, pv, cam, cam.ground, PASS_GROUND)
+    },
+  }
+}
+
+/**
+ * Ground bands from the overlay band up (0058): after transparent objects and projected fog, so fog
+ * never covers selection rings, pings or templates. Only in views that have some.
+ */
+function overlayNode(state: ForwardState) {
+  return {
+    kind: 'render' as const,
+    phase: RenderPhase.Overlay3d,
+    enabled: (view: RenderView) => (cameraOf(view)?.overlay.length ?? 0) > 0,
+    reads: ['clusters', 'shadow-cascades', 'shadow-local', 'environment', 'culled', 'ssao'],
+    writes: ['scene-color', 'hdr'],
+    color: (view: RenderView) => sceneColor(view),
+    depth: { resource: 'scene-depth', readOnly: true },
+    run: (ctx: NodeContext) => {
+      const cam = cameraOf(ctx.view)!
+      const pv = state.views.get(ctx.view.name)
+      if (!pv) return
+      drawMaterials(ctx, state, pv, cam, cam.overlay, PASS_GROUND)
     },
   }
 }
@@ -1611,7 +1634,13 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       addRenderFeatures(app.world, {
         name: 'render/forward',
         description: 'Opaque, ground and transparent mesh passes, and the MSAA depth resolve.',
-        nodes: ['forward-opaque', 'forward-ground', 'forward-transparent', 'depth-resolve'],
+        nodes: [
+          'forward-opaque',
+          'forward-ground',
+          'forward-transparent',
+          'forward-overlay',
+          'depth-resolve',
+        ],
         baseline: {
           strategy:
             'Instances, visibility and deform data in data textures; MSAA depth from a single-sample depth prepass',
@@ -1641,6 +1670,7 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       graph.addNode('shadows/local', localShadowNode(state))
       graph.addNode('forward-opaque', forwardNode(state))
       graph.addNode('forward-ground', groundNode(state))
+      graph.addNode('forward-overlay', overlayNode(state))
       graph.addNode('forward-transparent', transparentNode(state))
       graph.addNode('depth-resolve', depthResolveNode())
       addDisplayNodes(app.world)

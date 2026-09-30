@@ -180,6 +180,10 @@ first frame. The helpers use that same unjittered projection, so they agree with
 
 A host repositions its DOM handles on `CameraMoved` and on its own edits, not every frame.
 
+Since 0058, bands from `overlay` (60) up draw in their own pass after the transparent phase and
+projected fog (`RenderPhase.Overlay3d`), so fog never covers selection rings, pings or templates.
+The other bands stay in the ground phase.
+
 ### Baseline tier (0064)
 
 Every pass here is a render pass, and outlines' jump flood is a chain of fragment passes. The

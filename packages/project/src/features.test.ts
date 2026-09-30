@@ -1,4 +1,5 @@
 import { dicePlugin } from '@aethervtt/shard-dice'
+import { fogPlugin } from '@aethervtt/shard-fog'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { particlesPlugin } from '@aethervtt/shard-particles'
 import {
@@ -38,6 +39,7 @@ describe('render features', () => {
         particlesPlugin,
         terrainPlugin(),
         dicePlugin(),
+        fogPlugin,
       )
       await app.init()
       const features = [...app.world.resource(RenderFeatures).values()]

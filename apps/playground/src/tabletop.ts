@@ -6,6 +6,7 @@ import {
   Update,
   type World,
 } from '@aethervtt/shard-core'
+import { FogLayer, FogRegionsStore } from '@aethervtt/shard-fog'
 import { cellAt, cellCenter, Grid, type GridGeometry } from '@aethervtt/shard-grid'
 import { box, capsule, cylinder } from '@aethervtt/shard-mesh'
 import { createMirror, type Mirror } from '@aethervtt/shard-mirror'
@@ -722,12 +723,16 @@ function spawnScene(world: World): Demo {
     ],
     [Transform, { translation: [-9.75, 0, -5.25] }],
   )
-  // Fog over the unexplored east wing, with the lit window bay cut out.
-  const fog = world.spawn(
-    [
-      VectorShape,
+  // Projected fog (0058) over the unexplored east wing, with the lit window bay revealed: it covers
+  // floors, walls and props alike, in both views.
+  const fogRegions = world.resource(FogRegionsStore).add({
+    rev: 1,
+    regions: [
       {
-        geometry: {
+        op: 'hide',
+        strength: 0.82,
+        feather: 0.4,
+        shape: {
           kind: 'polygon',
           outer: [
             [3, -9],
@@ -744,14 +749,18 @@ function spawnScene(world: World): Demo {
             ],
           ],
         },
-        fill: [0.02, 0.02, 0.04, 1],
-        fillOpacity: 0.82,
-        strokeWidth: 0,
       },
     ],
-    [GroundLayer, { band: 50 }],
-    Transform,
-  )
+  }) as AssetRef<'FogRegions'>
+  const fog = world.spawn([
+    FogLayer,
+    {
+      base: 'revealed',
+      extent: { min: [-16, -12], max: [16, 12] },
+      color: [0.02, 0.02, 0.04, 1],
+      regions: fogRegions,
+    },
+  ])
   const map = world.spawn(
     [
       Camera3d,
@@ -825,8 +834,8 @@ function act(world: World, d: Demo, action: Action): void {
   if (action === 'view') setView(world, d, d.view === 'map' ? 'tabletop' : 'map')
   else if (action === 'grid') setGrid(world, d, d.gridMode + 1)
   else if (action === 'fog') {
-    const v = world.get(d.fog, VectorShape)
-    world.set(d.fog, VectorShape, { fillOpacity: v.fillOpacity > 0 ? 0 : 0.82 })
+    const v = world.get(d.fog, FogLayer)
+    world.set(d.fog, FogLayer, { opacity: v.opacity > 0 ? 0 : 1 })
   } else if (action === 'doors') {
     for (const o of [...d.table.openings])
       if (o.kind === 'door')

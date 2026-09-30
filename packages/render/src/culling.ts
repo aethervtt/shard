@@ -548,8 +548,13 @@ export function cullTransparent(
 }
 
 /** The CPU ground list (0057) of a view the GPU culls. */
-export function cullGround(store: InstanceStore, list: DrawList, params: CullParams): void {
-  store.cullGroundMembers(list, params)
+export function cullGround(
+  store: InstanceStore,
+  list: DrawList,
+  params: CullParams,
+  overlay?: DrawList,
+): void {
+  store.cullGroundMembers(list, params, overlay)
 }
 
 /**

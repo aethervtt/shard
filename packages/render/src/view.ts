@@ -136,6 +136,8 @@ export interface CameraData {
   forwardOnly: DrawList
   /** Ground draws (0057): coplanar bands in (band, order) order, after opaque geometry. */
   ground: DrawList
+  /** Ground draws from the overlay band up: after transparent objects and projected fog (0058). */
+  overlay: DrawList
   /** Render layers this camera draws (Camera3d.layers). */
   layers: number
   /** Renders through the G-buffer (RenderPath deferred). */
@@ -388,6 +390,7 @@ export const extractCameras = defineSystem({
             transparent: createDrawList(),
             forwardOnly: createDrawList(),
             ground: createDrawList(),
+            overlay: createDrawList(),
             layers: 0xffffffff,
             deferred: false,
             gbufferDebug: -1,

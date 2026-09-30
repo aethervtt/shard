@@ -16,7 +16,7 @@ import { GlobalTransform, Transform } from '@aethervtt/shard-transform'
 import { MaterialAsset, Materials, Meshes } from './assets'
 import { DEFORM_WORDS, DeformStore } from './deform'
 import { GpuAssetsResource } from './gpu-assets'
-import { GroundLayer, RenderLayers } from './layers'
+import { GroundLayer, OVERLAY_BAND, RenderLayers } from './layers'
 import { isTransparent } from './materials'
 import { ComputedVisibility, Visibility } from './visibility'
 
@@ -1069,6 +1069,7 @@ export class InstanceStore {
     forwardOnly?: DrawList,
     transparentOnly = false,
     ground?: DrawList,
+    overlay?: DrawList,
   ): void {
     if (bounds) {
       bounds[0] = bounds[1] = bounds[2] = Number.POSITIVE_INFINITY
@@ -1203,7 +1204,7 @@ export class InstanceStore {
     }
     this.pack(list)
     if (transparent) this.packTransparent(transparent)
-    if (ground) this.packGround(ground)
+    if (ground) this.packGround(ground, overlay)
     if (forwardOnly) {
       // Opaque materials the G-buffer can't take, drawn forward after deferred lighting.
       for (const batch of this.batches) {
@@ -1253,7 +1254,7 @@ export class InstanceStore {
    * Ground-only CPU cull over ground batches' members (0057), for views the GPU culls: the ground
    * list is always built on the CPU, in (band, order) order.
    */
-  cullGroundMembers(list: DrawList, params: CullParams): void {
+  cullGroundMembers(list: DrawList, params: CullParams, overlay?: DrawList): void {
     this.groundCount = 0
     const u32 = this.u32
     const sphere = scratchSphere
@@ -1270,7 +1271,7 @@ export class InstanceStore {
         this.pushGround(s, batch.index)
       }
     }
-    this.packGround(list)
+    this.packGround(list, overlay)
   }
 
   private pushGround(entry: number, batch: number): void {
@@ -1324,10 +1325,18 @@ export class InstanceStore {
     }
   }
 
-  /** Sorts this cull's ground instances by (level, band, order), then batch; runs of a batch share a draw. */
-  private packGround(list: DrawList): void {
+  /**
+   * Sorts this cull's ground instances by (level, band, order), then batch; runs of a batch share a
+   * draw. With `overlay`, bands from OVERLAY_BAND up go there instead (0058).
+   */
+  private packGround(list: DrawList, overlay?: DrawList): void {
     list.length = 0
     list.cullView = -1
+    if (overlay) {
+      overlay.length = 0
+      overlay.cullView = -1
+      overlay.visible = 0
+    }
     const n = this.groundCount
     list.visible = n
     if (n === 0) return
@@ -1340,16 +1349,25 @@ export class InstanceStore {
     order.sort((a, b) => keys[a]! - keys[b]! || batches[a]! - batches[b]! || slots[a]! - slots[b]!)
     this.reserve(n)
     let item: DrawItem | undefined
+    let into = list
     for (let k = 0; k < n; k++) {
       const i = order[k]!
       const batch = this.batches[batches[i]!]!
+      if (overlay && into === list && bandOfKey(keys[i]!) >= OVERLAY_BAND) {
+        into = overlay
+        item = undefined
+      }
       if (!item || item.batch !== batch) {
-        item = this.item(list, batch)
+        item = this.item(into, batch)
         item.first = this.visibleCount
         item.count = 0
       }
       this.visible[this.visibleCount++] = slots[i]!
       item.count++
+      if (into === overlay) {
+        overlay.visible++
+        list.visible--
+      }
     }
   }
 
@@ -1670,6 +1688,11 @@ function casts(flags: number): boolean {
  */
 export function groundKey(band: number, order: number, level = 0): number {
   return (level + 16) * 281474976710656 + (band + 32768) * 4294967296 + (order + 2147483648)
+}
+
+/** The band of a ground key. */
+function bandOfKey(key: number): number {
+  return (Math.floor(key / 4294967296) % 65536) - 32768
 }
 
 let zeros = new Uint32Array(1024)

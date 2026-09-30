@@ -116,6 +116,10 @@ export const RenderPhase = {
   Ground: 420,
   Sprites: 450,
   Transparent: 500,
+  /** Projected fog's composite (0058): after transparent objects, before the overlay band. */
+  Fog: 520,
+  /** Ground bands from the overlay band up, over fog (0058). */
+  Overlay3d: 530,
   Effects3d: 550,
   Resolve: 600,
   Post: 700,
