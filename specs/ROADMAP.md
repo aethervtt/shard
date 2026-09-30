@@ -142,3 +142,5 @@ effects (0065) build on 0054 and 0063 once 0054 is implemented.
 | [0065](0065-dice-entrances.md) | Dice entrances and screen effects (a result arriving through a host scene instead of a tumble; typed effects the table draws) | implemented |
 | [0066](0066-curved-walls.md) | Curved walls and structure materials (arcs, Béziers, one subdivision for drawing and barriers; textured, normal-mapped walls) | accepted |
 | [0067](0067-structure-groups.md) | Structure groups: levels, roofs and cutouts (hide a level or a roof without a rebuild; stairwells, hatches, skylights) | accepted |
+| [0068](0068-surface-variation.md) | Surface variation and contact shade (repetition-breaking variation any material can use; noisy fake AO where walls meet walls and floors) | accepted |
+| [0069](0069-interior-lighting.md) | Interior lighting (sky visibility from the plan, spill through openings, lights blocked by walls) | accepted |
