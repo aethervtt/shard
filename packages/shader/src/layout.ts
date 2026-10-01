@@ -61,7 +61,8 @@ export function wgslLayout<F extends Fields>(def: ComponentDef<F>): WgslLayout<F
   let structAlign = 4
   for (const { name, field, storage } of def.layout) {
     // Object fields (asset handles, structs, strings) aren't GPU data: they're bound, not packed.
-    if (storage === 'object') continue
+    // Nor are host-only fields (`gpu: false`).
+    if (storage === 'object' || field.options.gpu === false) continue
     const t = TYPES[field.kind]
     if (!t) {
       throw new ShardError(

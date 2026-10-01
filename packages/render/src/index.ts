@@ -78,6 +78,14 @@ export {
 } from './clusters'
 export { Culler, cullGround, GpuCuller, readVisibleSlots, visibleSlots } from './culling'
 export {
+  DATA_WIDTH,
+  DataStore,
+  type DataStoreOptions,
+  dataEntry,
+  flushDataStores,
+  loadDataTextures,
+} from './data-store'
+export {
   captureShadowMap,
   DEBUG_VIEWS,
   type DebugView,
@@ -124,10 +132,13 @@ export { environmentPlugin } from './environment-plugin'
 export {
   addRenderFeatures,
   type BaselineStrategy,
+  clearUnsupported,
   describeFeatures,
   featureOfNode,
   type RenderFeature,
   RenderFeatures,
+  reportUnsupported,
+  unsupportedNodes,
 } from './features'
 export {
   type ForwardPluginOptions,
@@ -430,7 +441,18 @@ export {
   type OffscreenTargetOptions,
   type RenderTarget,
 } from './target'
+export { bindingDimension, depthReadEntry } from './tier'
 export { GpuTimer } from './timer'
+export {
+  addShaderVariantSource,
+  type MaterialVariantEntry,
+  materialVariants,
+  type ShaderVariantManifest,
+  type ShaderVariantSource,
+  ShaderVariantSources,
+  showToCamera,
+  showVariants,
+} from './variants'
 export {
   type CameraData,
   CameraMoved,

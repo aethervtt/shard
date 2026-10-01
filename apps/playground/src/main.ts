@@ -10,7 +10,7 @@ import { particlesPlugin } from '@aethervtt/shard-particles'
 import { physics2dPlugin, physics3dPlugin } from '@aethervtt/shard-physics'
 import { createDomInputSource, createIndexedDbStorage } from '@aethervtt/shard-platform-web'
 import { connectToHub, createProtocolServer, DEFAULT_HUB_PORT } from '@aethervtt/shard-protocol'
-import { describeRender, forwardPlugin, renderPlugin } from '@aethervtt/shard-render'
+import { describeRender, forwardPlugin, pick, renderPlugin } from '@aethervtt/shard-render'
 import { materialNoisePlugin } from '@aethervtt/shard-render/noise'
 import { App, animationFrameRunner } from '@aethervtt/shard-runtime'
 import { savePlugin } from '@aethervtt/shard-save'
@@ -25,6 +25,7 @@ import { animationDemoPlugin } from './animation'
 import { animgraphDemoPlugin } from './animgraph'
 import { atmosphereDemoPlugin } from './atmosphere'
 import { audioDemoPlugin, webAudio } from './audio'
+import { addBackendSelect, graphicsOptions, unsupportedOverlayPlugin } from './backend'
 import { characterDemoPlugin, characterPlanetDemoPlugin } from './character'
 import { character2dDemoPlugin } from './character2d'
 import { crowdPlugin } from './crowd'
@@ -60,7 +61,11 @@ const demo = DEMOS.find((d) => location.hash === `#${d}`) ?? 'scene'
 document.body.dataset.demo = demo
 
 applyResolution(canvas)
-const app = new App().addPlugin(renderPlugin({ canvas, features: ['timestamp-query'] }))
+addBackendSelect(document.getElementById('panel') as HTMLElement)
+const app = new App().addPlugin(
+  renderPlugin({ canvas, features: ['timestamp-query'], ...graphicsOptions() }),
+  unsupportedOverlayPlugin,
+)
 if (demo === 'galaxy') {
   app.addPlugin(galaxyPlugin({ stars: 100_000, seed: 7 }))
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-change]')) {
@@ -228,7 +233,16 @@ window.addEventListener('hashchange', () => location.reload())
 
 // Exposed for poking at from the devtools console, and for demos.test.ts: `started` once the app
 // runs, `error` if it couldn't.
-const playground = { demo, started: false, error: undefined as string | undefined }
+const playground = {
+  demo,
+  started: false,
+  error: undefined as string | undefined,
+  /** What's under a pixel of the main view: for tests comparing backends (0064). */
+  pick: async (x: number, y: number) => {
+    const hit = await pick(app.world, undefined, x, y)
+    return hit && { entity: hit.entity, path: hit.path, distance: hit.distance }
+  },
+}
 Object.assign(globalThis, { app, describe: () => describeRender(app.world), playground })
 
 /**

@@ -2,6 +2,7 @@ import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
 import { ForwardStateResource, type ViewGpu } from './forward'
 import type { NodeContext } from './graph'
 import { Shaders } from './plugin'
+import { depthReadEntry } from './tier'
 import { type CameraData, cameraOf } from './view'
 
 // Plumbing shared by the display stage (tonemap, upscale) and the post effects.
@@ -23,6 +24,8 @@ export const tex = (binding: number, sampleType: GPUTextureSampleType = 'float')
   visibility: F(),
   texture: { sampleType },
 })
+/** Depth read without comparison, in the fragment stage (a float texture on baseline, 0064). */
+export const depthTex = (gpu: GpuContext, binding: number) => depthReadEntry(gpu, binding, F())
 export const uniform = (binding: number, visibility = F()) => ({
   binding,
   visibility,

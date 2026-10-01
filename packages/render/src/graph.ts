@@ -1,5 +1,7 @@
 import { ShardError, type World } from '@aethervtt/shard-core'
 import type { GpuContext } from '@aethervtt/shard-gpu'
+import { flushDataStores } from './data-store'
+import { unsupportedNodes } from './features'
 import { TexturePool } from './pool'
 import { BYTES_PER_TEXEL, toFloats } from './readback'
 import type { RenderTarget } from './target'
@@ -350,11 +352,12 @@ export class RenderGraph {
     return this.resolveFor(undefined)
   }
 
-  private resolveFor(view: RenderView | undefined): ResolvedGraph {
+  /** `off`: nodes that don't run on this device (features the baseline tier doesn't support). */
+  private resolveFor(view: RenderView | undefined, off?: ReadonlySet<string>): ResolvedGraph {
     let key = ''
     const enabled = new Map<string, NodeDescriptor>()
     for (const [name, node] of this.nodes) {
-      const on = !view || !node.enabled || node.enabled(view)
+      const on = (!view || !node.enabled || node.enabled(view)) && !off?.has(name)
       key += on ? '1' : '0'
       if (on) enabled.set(name, node)
     }
@@ -450,8 +453,10 @@ export class RenderGraph {
     this.viewData.clear()
     for (const v of sorted) this.viewData.set(v.name, v.data)
 
+    // Features the baseline tier doesn't support don't run on it (0064).
+    const off = this.gpu.tier === 'baseline' ? unsupportedNodes(world) : undefined
     for (const view of sorted) {
-      const resolved = this.resolveFor(view)
+      const resolved = this.resolveFor(view, off)
       const order = resolved.order
       this.lastByView.set(view.name, resolved)
       const textures = new Map<string, GPUTexture>()
@@ -486,15 +491,22 @@ export class RenderGraph {
               ? size
               : [Math.max(1, Math.ceil(vw / size.divide)), Math.max(1, Math.ceil(vh / size.divide))]
         const format = perView(desc.format, view)
+        const sampleCount = perView(desc.sampleCount ?? 1, view)
+        let usage =
+          (desc.usage ?? GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING) |
+          GPUTextureUsage.COPY_SRC
+        // Nothing samples a multisampled target on the baseline tier (GLSL ES 3.00 can't, so
+        // readers take depth from the prepass): attachments only, which WebGL2 keeps as
+        // renderbuffers (0064).
+        if (sampleCount > 1 && this.gpu.tier === 'baseline')
+          usage &= ~GPUTextureUsage.TEXTURE_BINDING
         t = this.pool.acquire({
           label: `${view.name}/${canonical}`,
           format: format === 'view' ? view.target.format : format,
           size: px,
-          sampleCount: perView(desc.sampleCount ?? 1, view),
+          sampleCount,
           mipLevelCount: perView(desc.mipLevelCount ?? 1, view),
-          usage:
-            (desc.usage ?? GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING) |
-            GPUTextureUsage.COPY_SRC,
+          usage,
         })
         textures.set(canonical, t)
         return t
@@ -590,6 +602,8 @@ export class RenderGraph {
 
     this.captures = this.captures.filter((c) => !readbacks.some((r) => r.capture === c))
     this.timer.resolve(encoder)
+    // Baseline data textures written this frame (0064): uploaded before the work that reads them.
+    flushDataStores(this.gpu)
     device.queue.submit([encoder.finish()])
     this.timer.readback(world)
     for (const fn of submitted) fn()

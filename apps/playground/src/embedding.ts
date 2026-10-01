@@ -68,6 +68,7 @@ import {
 import { lookAt, Transform, TransformPlugin } from '@aethervtt/shard-transform'
 // The 0053 golden track: Node records it in the physics tests; this page records it in Chromium.
 import golden from '../../../packages/physics/src/track/golden.json'
+import { addBackendSelect, backendLine, graphicsOptions } from './backend'
 
 const tableCanvas = document.getElementById('table') as HTMLCanvasElement
 const diceCanvas = document.getElementById('dice') as HTMLCanvasElement
@@ -87,7 +88,8 @@ const q = (x: number, y: number, z: number) =>
 // Dev builds check that host code wakes the app when it writes a resource (0052).
 const runner = () => animationFrameRunner({ mode: 'on-demand', checkResourceWrites: true })
 
-const gpu: GpuContext = await createGpuContext()
+addBackendSelect(document.getElementById('bar') as HTMLElement, 'end')
+const gpu: GpuContext = await createGpuContext(graphicsOptions())
 
 // --- FPS: when each app's frames ran ------------------------------------------------------------
 
@@ -753,6 +755,7 @@ setInterval(() => {
   lastRaf = rafCalls
   lastAt = now
   hud.textContent = [
+    backendLine(gpu),
     `rAF calls/s: ${perSecond.toFixed(0)}`,
     line('table', table),
     line('dice', dice?.app),

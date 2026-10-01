@@ -93,6 +93,11 @@ import shard::pbr::standard::material;
   let p = pbr_input(surface_of(in));
   @if(MASK) if (p.alpha < material.alphaCutoff) { discard; }
   return prepass_output(in, p.normal);
+}
+
+/** Baseline (0064): depth alone, for what reads depth when the scene is multisampled. */
+@if(BASELINE) @fragment fn fs_depth(in: PrepassVertex) {
+  @if(MASK) if (pbr_input(surface_of(in)).alpha < material.alphaCutoff) { discard; }
 }`,
 
   'shard::prepass::plain': `
@@ -113,7 +118,10 @@ import shard::prepass::common::{ PrepassVertex, PrepassOutput, prepass_vertex, p
 /** Materials with their own shading: the geometric normal. */
 @fragment fn fs(in: PrepassVertex) -> PrepassOutput {
   return prepass_output(in, normalize(in.world_normal));
-}`,
+}
+
+/** Baseline (0064): depth alone. */
+@if(BASELINE) @fragment fn fs_depth(in: PrepassVertex) {}`,
 
   'shard::post::fog': `
 import shard::view::view;

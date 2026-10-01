@@ -35,6 +35,7 @@ import { Texture, Textures } from '@aethervtt/shard-texture'
 import { lookAt, Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { metricsPlugin } from '@aethervtt/shard-verify/metrics'
 import { installCapturePage } from '@aethervtt/shard-verify/page'
+import { graphicsOptions } from './backend'
 
 type Vec2 = [number, number]
 type Vec3 = [number, number, number]
@@ -100,7 +101,8 @@ const Piece = defineComponent('playground/Piece', {
   scene: t.string(),
 })
 
-const gpu = await createGpuContext({ features: ['timestamp-query'] })
+// `?backend=` picks the API, as on every playground page (0064).
+const gpu = await createGpuContext({ features: ['timestamp-query'], ...graphicsOptions() })
 const runner = () => animationFrameRunner({ mode: 'on-demand' })
 
 // --- textures -----------------------------------------------------------------------------------------

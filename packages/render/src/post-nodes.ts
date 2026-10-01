@@ -15,6 +15,7 @@ import { Graph, Views } from './plugin'
 import { AutoExposure, cocParams, hasEffect, needsPrepass, PostEffect } from './post'
 import {
   beginPass,
+  depthTex,
   forwardView,
   HDR,
   idOf,
@@ -84,11 +85,11 @@ function ssaoNode(phase: number, deferred: boolean): NodeDescriptor {
         layouts = {
           gtao: gpu.layouts.bindGroupLayout({
             label: 'ssao/gtao',
-            entries: [uniform(0), tex(1, 'depth'), tex(2, 'unfilterable-float'), uniform(3)],
+            entries: [uniform(0), depthTex(gpu, 1), tex(2, 'unfilterable-float'), uniform(3)],
           }),
           up: gpu.layouts.bindGroupLayout({
             label: 'ssao/upsample',
-            entries: [uniform(0), tex(1, 'depth'), uniform(3), tex(4, 'unfilterable-float')],
+            entries: [uniform(0), depthTex(gpu, 1), uniform(3), tex(4, 'unfilterable-float')],
           }),
         }
       }
@@ -188,7 +189,7 @@ function fogNode(): NodeDescriptor {
         layoutGen = gpu.generation
         layout = gpu.layouts.bindGroupLayout({
           label: 'fog',
-          entries: [tex(0, 'unfilterable-float'), tex(1, 'depth'), uniform(2)],
+          entries: [tex(0, 'unfilterable-float'), depthTex(gpu, 1), uniform(2)],
         })
       }
       const alpha = v.cam.alphaOutput
@@ -263,7 +264,7 @@ function taaNode(): NodeDescriptor {
           entries: [
             uniform(0),
             tex(1, 'unfilterable-float'),
-            tex(2, 'depth'),
+            depthTex(gpu, 2),
             tex(3, 'unfilterable-float'),
             tex(4),
             sampler(5),
@@ -373,7 +374,7 @@ function motionBlurNode(): NodeDescriptor {
           entries: [
             uniform(0),
             tex(1),
-            tex(2, 'depth'),
+            depthTex(gpu, 2),
             tex(3, 'unfilterable-float'),
             uniform(4),
             sampler(5),
@@ -442,7 +443,7 @@ function dofNode(): NodeDescriptor {
         layoutGen = gpu.generation
         layout = gpu.layouts.bindGroupLayout({
           label: 'dof',
-          entries: [uniform(0), tex(1), tex(2, 'depth'), uniform(3), tex(4), sampler(5)],
+          entries: [uniform(0), tex(1), depthTex(gpu, 2), uniform(3), tex(4), sampler(5)],
         })
       }
       const prepare = cache.render(ctx, 'dof/prepare', 'shard::post::dof', 'prepare', [layout], HDR)
@@ -678,7 +679,30 @@ export function histogramEv(bins: Uint32Array): number | undefined {
   return weight > 0 ? sum / weight : undefined
 }
 
-function autoExposureNode(): NodeDescriptor {
+/**
+ * Records a metered EV that landed: the newest reading wins, older ones that land late don't.
+ */
+function landReading(
+  meters: Map<Entity, ExposureState>,
+  entity: Entity,
+  index: number,
+  ev: number | undefined,
+): void {
+  const m = meters.get(entity)
+  if (m && ev !== undefined && index > m.reading) {
+    m.metered = ev
+    m.reading = index
+    m.readings++
+  }
+}
+
+/**
+ * Auto exposure's meter: a GPU histogram read back a frame or two late. On baseline (0064), without
+ * compute, a small meter image binned into the same histogram on the CPU (baseline/exposure.ts).
+ */
+function autoExposureNode(
+  baseline: typeof import('./baseline/exposure') | undefined,
+): NodeDescriptor {
   const cache = new PostCache()
   let layout: GPUBindGroupLayout | undefined
   let layoutGen = -1
@@ -686,7 +710,9 @@ function autoExposureNode(): NodeDescriptor {
     string,
     { histogram: GPUBuffer; readbacks: GPUBuffer[]; busy: boolean[]; generation: number }
   >()
+  const meterViews = new Map<string, import('./baseline/exposure').MeterView>()
   const zero = new Uint32Array(256)
+  const bins = new Uint32Array(256)
   return {
     kind: 'raw',
     phase: RenderPhase.Post + 50,
@@ -697,6 +723,63 @@ function autoExposureNode(): NodeDescriptor {
       const v = forwardView(ctx)
       if (!v) return
       const gpu = ctx.gpu
+      if (baseline) {
+        const layout = baseline.meterLayout(gpu)
+        const pipeline = cache.render(
+          ctx,
+          'post/exposure-meter',
+          'shard::post::baseline::meter',
+          'main',
+          [layout],
+          [{ format: 'rg16float' }],
+        )
+        if (!pipeline) return
+        let m = meterViews.get(ctx.view.name)
+        if (!m || m.generation !== gpu.generation) {
+          m = baseline.meterView(gpu, ctx.view.name, METER_READBACKS)
+          meterViews.set(ctx.view.name, m)
+        }
+        const input = ctx.texture('post-hdr')
+        const key = `${idOf(input)}/${v.pv.uniform.version}`
+        if (!m.group || m.groupKey !== key) {
+          m.groupKey = key
+          m.group = gpu.device.createBindGroup({
+            label: `${ctx.view.name}/exposure`,
+            layout,
+            entries: [
+              { binding: 0, resource: { buffer: v.pv.uniform.buffer } },
+              { binding: 1, resource: input.createView() },
+              { binding: 2, resource: { buffer: m.params } },
+            ],
+          })
+        }
+        scratch[0] = METER_MIN_EV
+        scratch[1] = METER_BINS_PER_EV
+        scratch[2] = v.cam.post.exposure.metering
+        scratch[3] = 0
+        const k = baseline.renderMeter(ctx, m, pipeline, m.group, scratch.subarray(0, 4))
+        if (k === undefined) return
+        const meters = ctx.world.resource(ExposureMeters)
+        const entity = v.cam.entity
+        const meter = meters.get(entity)
+        const index = meter ? ++meter.submitted : 0
+        const readback = m.readbacks[k]!
+        const busy = m.busy
+        ctx.afterSubmit(() => {
+          readback.mapAsync(GPUMapMode.READ).then(
+            () => {
+              baseline.binMeter(readback.getMappedRange(), METER_MIN_EV, METER_BINS_PER_EV, bins)
+              readback.unmap()
+              busy[k] = false
+              landReading(meters, entity, index, histogramEv(bins))
+            },
+            () => {
+              busy[k] = false
+            },
+          )
+        })
+        return
+      }
       const C = GPUShaderStage.COMPUTE
       if (!layout || layoutGen !== gpu.generation) {
         layoutGen = gpu.generation
@@ -781,12 +864,7 @@ function autoExposureNode(): NodeDescriptor {
             const ev = histogramEv(new Uint32Array(readback.getMappedRange().slice(0)))
             readback.unmap()
             busy[k] = false
-            const m = meters.get(entity)
-            if (m && ev !== undefined && index > m.reading) {
-              m.metered = ev
-              m.reading = index
-              m.readings++
-            }
+            landReading(meters, entity, index, ev)
           },
           () => {
             busy[k] = false
@@ -859,7 +937,8 @@ export const POST_NODES = [
 const halfSize = { divide: 2 }
 
 /** Adds the prepass, SSAO, and the post chain to the graph. */
-export function addPostNodes(world: World): void {
+/** The post chain's nodes. `baseline`: the baseline tier's exposure meter (0064), when on one. */
+export function addPostNodes(world: World, baseline?: typeof import('./baseline/exposure')): void {
   const graph = world.resource(Graph)
   world.initResource(ExposureMeters)
   graph.declare({ name: 'prepass-normal', format: 'rgba16float' })
@@ -899,7 +978,9 @@ export function addPostNodes(world: World): void {
     name: 'render/auto-exposure',
     description: 'Automatic exposure from a luminance histogram.',
     nodes: ['post/exposure'],
-    baseline: { strategy: 'A log-luminance mip chain averaged to one texel and read back' },
+    baseline: {
+      strategy: 'A 64×36 meter image read back and binned into the same histogram on the CPU',
+    },
   })
   graph.addNode('prepass', prepassNode)
   graph.addNode('ssao', ssaoNode(RenderPhase.Prepass + 50, false))
@@ -909,7 +990,7 @@ export function addPostNodes(world: World): void {
   graph.addNode('post/motion-blur', motionBlurNode())
   graph.addNode('post/dof', dofNode())
   graph.addNode('post/bloom', bloomNode())
-  graph.addNode('post/exposure', autoExposureNode())
+  graph.addNode('post/exposure', autoExposureNode(baseline))
 }
 
 // --- describe ----------------------------------------------------------------------------------

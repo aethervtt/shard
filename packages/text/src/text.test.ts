@@ -19,7 +19,7 @@ import {
 import { compareGolden, settle } from '@aethervtt/shard-render/testing'
 import { App, LogResource } from '@aethervtt/shard-runtime'
 import { lookAt, Transform, TransformPlugin } from '@aethervtt/shard-transform'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, onTestFinished } from 'vitest'
 import { fontFromBytes } from './build'
 import { ScreenText, Text } from './components'
 import type { Font } from './font'
@@ -35,6 +35,22 @@ beforeAll(async () => {
   font = fontFromBytes(inter, { charset: 'latin' })
 })
 afterAll(() => gpu.destroy())
+
+/** The baseline tier (0064) on a compatibility device: goldens marked for it hold there too. */
+let compat: GpuContext | undefined
+const TIERS = ['full', 'baseline'] as const
+
+/** Runs the rest of this test on `tier`'s device (`gpu` is swapped back when it finishes). */
+async function onTier(tier: (typeof TIERS)[number]): Promise<void> {
+  if (tier === 'full') return
+  compat ??= await createNodeGpuContext({ tier: 'baseline' })
+  const saved = gpu
+  gpu = compat
+  onTestFinished(() => {
+    gpu = saved
+  })
+}
+afterAll(() => compat?.destroy())
 
 /** Budgets hold under `pnpm bench` (serial); `pnpm test` checks correctness only. */
 
@@ -108,37 +124,42 @@ describe('text rendering', () => {
     }
   })
 
-  it('renders world text at 60° to the camera, with outline and shadow (golden images)', async () => {
-    const { world, fontRef, camera, shoot } = await scene(384, 192)
-    world.spawn(
-      [
-        Text,
-        {
-          value: 'Scanner 7',
-          font: fontRef,
-          size: 1.2,
-          color: [1, 0.85, 0.3, 1],
-          outline: { width: 0.03, color: [0.05, 0.1, 0.4, 1] },
-          shadow: { offset: [0.05, -0.05], softness: 0.3, color: [0, 0, 0, 0.8] },
-        },
-      ],
-      [Transform, { rotation: quat.fromEuler([0, 0, 0, 1], 0, (60 * Math.PI) / 180, 0) as never }],
-    )
-    const image = await shoot(camera())
-    expect(compareGolden(here, 'text-world-60deg', image).mean).toBeLessThan(1.5)
-    // Fill, outline, and shadow colors are all present.
-    let fill = 0
-    let outline = 0
-    for (let p = 0; p < image.data.length; p += 4) {
-      const [r, g, b] = [image.data[p]!, image.data[p + 1]!, image.data[p + 2]!]
-      // sRGB: fill (1, 0.85, 0.3) is about (255, 237, 149); outline (0.05, 0.1, 0.4) (63, 89, 170).
-      if (r > 220 && g > 200 && b < 190) fill++
-      if (b > 120 && r < 100 && g < 120) outline++
-    }
-    expect(fill).toBeGreaterThan(100)
-    expect(outline).toBeGreaterThan(50)
-    expect(world.resource(LogResource).errors()).toEqual([])
-  })
+  for (const tier of TIERS)
+    it(`renders world text at 60° to the camera, with outline and shadow (golden images, ${tier} tier)`, async () => {
+      await onTier(tier)
+      const { world, fontRef, camera, shoot } = await scene(384, 192)
+      world.spawn(
+        [
+          Text,
+          {
+            value: 'Scanner 7',
+            font: fontRef,
+            size: 1.2,
+            color: [1, 0.85, 0.3, 1],
+            outline: { width: 0.03, color: [0.05, 0.1, 0.4, 1] },
+            shadow: { offset: [0.05, -0.05], softness: 0.3, color: [0, 0, 0, 0.8] },
+          },
+        ],
+        [
+          Transform,
+          { rotation: quat.fromEuler([0, 0, 0, 1], 0, (60 * Math.PI) / 180, 0) as never },
+        ],
+      )
+      const image = await shoot(camera())
+      expect(compareGolden(here, 'text-world-60deg', image).mean).toBeLessThan(1.5)
+      // Fill, outline, and shadow colors are all present.
+      let fill = 0
+      let outline = 0
+      for (let p = 0; p < image.data.length; p += 4) {
+        const [r, g, b] = [image.data[p]!, image.data[p + 1]!, image.data[p + 2]!]
+        // sRGB: fill (1, 0.85, 0.3) is about (255, 237, 149); outline (0.05, 0.1, 0.4) (63, 89, 170).
+        if (r > 220 && g > 200 && b < 190) fill++
+        if (b > 120 && r < 100 && g < 120) outline++
+      }
+      expect(fill).toBeGreaterThan(100)
+      expect(outline).toBeGreaterThan(50)
+      expect(world.resource(LogResource).errors()).toEqual([])
+    })
 
   it('billboards face the camera', async () => {
     const { world, fontRef, camera, shoot } = await scene(160, 80)

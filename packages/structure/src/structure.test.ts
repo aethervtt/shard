@@ -3,7 +3,9 @@ import { fileURLToPath } from 'node:url'
 import type { Entity } from '@aethervtt/shard-core'
 import { allocationChecks, budget, gcWindow, timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
+import { createGpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
+import { FakeGl } from '@aethervtt/shard-gpu-webgl2/testing'
 import {
   Cameras,
   Culler,
@@ -150,6 +152,35 @@ describe('structure on the shadow-stress fixture', () => {
     expect(stats.lastFrame.sceneBytes).toBe(SLOT_BYTES)
     expect(stats.lastFrame.chunksRebuilt).toBe(0)
     await r.dispose()
+  })
+
+  it('on WebGL2 (0064) too: a token move uploads one instance record to the data texture', {
+    timeout: timeout(60_000),
+  }, async () => {
+    // The shim over a fake context: nothing rasterizes, but every upload is counted as on a GPU.
+    const webgl2 = await createGpuContext({
+      backend: 'webgl2',
+      webgl2: { context: new FakeGl().context, persist: false },
+    })
+    try {
+      const r = await rig(webgl2)
+      const docs = shadowStress()
+      r.host.sync(docs)
+      r.look([10, 30, 30], [10, 0, 8])
+      await still(r)
+      const stats = r.app.world.resource(RenderStats)
+      expect(stats.lastFrame.sceneBytes).toBe(0)
+      const token = docs.tokens[0]!
+      docs.tokens[0] = { ...token, rev: token.rev + 1, x: token.x + 70 }
+      expect(r.host.sync(docs)).toMatchObject({ applied: 1, spawned: 0, removed: 0 })
+      r.frame()
+      expect(stats.lastFrame.bytes.instances).toBe(SLOT_BYTES)
+      expect(stats.lastFrame.sceneBytes).toBe(SLOT_BYTES)
+      expect(webgl2.errors).toEqual([])
+      await r.dispose()
+    } finally {
+      webgl2.destroy()
+    }
   })
 
   it('a door toggle rebuilds no chunk; each frame of its swing writes only the leaf', {

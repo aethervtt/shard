@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { checkExpectations } from './expect'
+import { clientUrl } from './node/capture'
 import { parsePlan } from './plan'
 
 describe('parsePlan (0062)', () => {
@@ -59,6 +60,22 @@ describe('parsePlan (0062)', () => {
           }),
         ],
       }),
+    )
+  })
+})
+
+describe('backends in plans (0064)', () => {
+  it("asks the page for the plan's backend, and accepts only known ones", () => {
+    const plan = parsePlan({ url: 'http://localhost:5180/verify.html#table', backend: 'webgl2' })
+    expect(plan.backend).toBe('webgl2')
+    expect(clientUrl(plan.url, { name: 'gm', role: 'gm' }, plan.backend)).toBe(
+      'http://localhost:5180/verify.html?backend=webgl2&role=gm#table',
+    )
+    // Unset, the page picks.
+    expect(parsePlan({ url: 'http://x/' }).backend).toBeUndefined()
+    expect(clientUrl('http://x/', { name: 'main' })).toBe('http://x/')
+    expect(() => parsePlan({ url: 'http://x/', backend: 'vulkan' })).toThrow(
+      expect.objectContaining({ code: 'verify/invalid-plan' }),
     )
   })
 })

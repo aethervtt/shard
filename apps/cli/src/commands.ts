@@ -54,6 +54,7 @@ import {
 } from '@aethervtt/shard-sprite'
 import { localizationKeysIn, validateLocalization } from '@aethervtt/shard-text'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
+import { type BaselineReport, validateBaseline } from './baseline'
 import { Hub, localTarget, type ProtocolTarget } from './hub'
 import { createMcpServer } from './mcp'
 import { EXIT, errorJson, formatError, type Output } from './output'
@@ -143,7 +144,7 @@ export async function init({ out, args, flags }: CommandContext): Promise<number
 
 // --- validate --------------------------------------------------------------------
 
-export async function validate({ out, project }: CommandContext): Promise<number> {
+export async function validate({ out, project, flags }: CommandContext): Promise<number> {
   const platform = createNodePlatform({ root: project })
   let manifestJson: unknown
   try {
@@ -164,6 +165,11 @@ export async function validate({ out, project }: CommandContext): Promise<number
     warnings: string[]
     /** Assets that would draw a fallback at runtime (0061): sources that failed to import. */
     fallbacks: string[]
+    /**
+     * The baseline tier (0064), with `--tier baseline` or `graphics.baseline: "required"`: the
+     * scenes drawn on a compatibility-mode device, and their shaders translated for WebGL2.
+     */
+    baseline?: BaselineReport
   } = {
     valid: true,
     manifest: manifestErrors.map((e) => e.toJSON()),
@@ -246,12 +252,21 @@ export async function validate({ out, project }: CommandContext): Promise<number
     for (const { source, errors } of await validateTilemaps(world, placing)) {
       for (const e of errors) report.assets.push({ ...e.toJSON(), source })
     }
+    // The baseline tier (0064): opt in on the command line, or require it in the manifest.
+    const tier = flags.tier === undefined ? undefined : String(flags.tier)
+    if (tier !== undefined && tier !== 'baseline' && tier !== 'full') {
+      throw new ShardError('cli/usage', `--tier is baseline or full, not "${tier}"`)
+    }
+    if (tier === 'baseline' || (tier === undefined && manifest.graphics.baseline === 'required')) {
+      report.baseline = await validateBaseline(project, await listScenes(project))
+    }
   }
   const problems =
     report.manifest.length +
     report.assets.length +
     Object.values(report.scenes).reduce((n, e) => n + e.length, 0) +
-    Object.values(report.prefabs).reduce((n, e) => n + e.length, 0)
+    Object.values(report.prefabs).reduce((n, e) => n + e.length, 0) +
+    (report.baseline?.problems.length ?? 0)
   report.valid = problems === 0
   const lines = [report.valid ? 'Valid.' : `${problems} problem(s):`]
   for (const e of report.manifest as { code: string; path?: string; message: string }[])
@@ -280,6 +295,14 @@ export async function validate({ out, project }: CommandContext): Promise<number
         `  ${scene}${e.path ?? ''}: [${e.code}] ${e.message}${e.hint ? `\n      hint: ${e.hint}` : ''}`,
       )
     }
+  }
+  if (report.baseline) {
+    const b = report.baseline
+    lines.push(
+      `  baseline tier: ${b.scenes.length} scene(s), ${b.variants} shader variant(s), ${b.entryPoints} entry point(s) translated`,
+    )
+    for (const p of b.problems)
+      lines.push(`  baseline${p.path ? ` ${p.path}` : ''}: [${p.code}] ${p.message}`)
   }
   out.result(report, lines.join('\n'))
   return report.valid ? EXIT.ok : EXIT.failed

@@ -99,6 +99,11 @@ Every engine error is a `ShardError` with one of these codes.
 | `gltf/invalid` | @aethervtt/shard-gltf | Only glTF 2.0 files are supported. |
 | `gltf/tangents-unavailable` | @aethervtt/shard-gltf |  |
 | `gltf/unsupported-extension` | @aethervtt/shard-gltf |  |
+| `gpu-webgl2/lost` | @aethervtt/shard-gpu-webgl2 |  |
+| `gpu-webgl2/naga-crashed` | @aethervtt/shard-gpu-webgl2 | Report the shader: naga should return an error, not crash. |
+| `gpu-webgl2/naga-load-failed` | @aethervtt/shard-gpu-webgl2 | packages/gpu-webgl2/wasm must be served with the app (rebuild with `pnpm build:wasm`). |
+| `gpu-webgl2/translate` | @aethervtt/shard-gpu-webgl2 |  |
+| `gpu-webgl2/unsupported` | @aethervtt/shard-gpu-webgl2 |  |
 | `gpu/duplicate-surface` | @aethervtt/shard-gpu | Share the Surface itself (renderPlugin({ gpu, surface })), or remove it first. |
 | `gpu/missing-feature` | @aethervtt/shard-gpu |  |
 | `gpu/no-adapter` | @aethervtt/shard-gpu |  |
@@ -221,6 +226,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `render/atmosphere-inside-ground` | @aethervtt/shard-render | Give it a positive thickness (Earth 60 000 m). |
 | `render/bad-vector` | @aethervtt/shard-render |  |
 | `render/capture-format` | @aethervtt/shard-render |  |
+| `render/data-textures-not-loaded` | @aethervtt/shard-render | Await loadDataTextures() before making DataStores on a baseline device. |
 | `render/disposed` | @aethervtt/shard-render |  |
 | `render/duplicate-node` | @aethervtt/shard-render |  |
 | `render/feature-missing` | @aethervtt/shard-render | Add materialNoisePlugin from '@aethervtt/shard-render/noise'. |
@@ -236,10 +242,14 @@ Every engine error is a `ShardError` with one of these codes.
 | `render/not-ready` | @aethervtt/shard-render | Await app.init() so the render plugin can create the GPU device. |
 | `render/registry-conflict` | @aethervtt/shard-render | Two definitions (two apps or bundles) share the name. Rename one, or share the definition. |
 | `render/surface-device` | @aethervtt/shard-render | Pass the GpuContext the surface was added to (surface.gpu), or omit gpu. |
+| `render/texture-color-space-mismatch` | @aethervtt/shard-render | Set its usage to match the slot in its .meta, and the copy goes. |
 | `render/too-many-joints` | @aethervtt/shard-gltf | Split the mesh, or remove helper bones before exporting. |
 | `render/unknown-buffer` | @aethervtt/shard-render |  |
 | `render/unknown-camera` | @aethervtt/shard-render | Pass a Camera3d entity that has rendered at least one frame. |
 | `render/unknown-material-type` | @aethervtt/shard-render |  |
+| `render/unknown-variant-source` | @aethervtt/shard-render |  |
+| `render/variant-entry` | @aethervtt/shard-render |  |
+| `render/variant-material` | @aethervtt/shard-render |  |
 | `render/which-atmosphere` | @aethervtt/shard-render | Pass entity: an entity with render/Atmosphere. |
 | `retarget/unmapped-root` | @aethervtt/shard-animation | Add it to the joint map (*.jointmap.json): { "joints": { "<source>": "<target>" } }. |
 | `runtime/disposed` | @aethervtt/shard-runtime | Create a new App; a disposed one has released its GPU objects and listeners. |
@@ -290,7 +300,10 @@ Every engine error is a `ShardError` with one of these codes.
 | `schema/unknown-preset` | @aethervtt/shard-core |  |
 | `schema/unresolved-entity` | @aethervtt/shard-core | Entity paths are resolved by the scene loader; check the path exists. |
 | `shader/bake-version` | @aethervtt/shard-shader | Bake again with this version of Shard. |
+| `shader/baseline-data` | @aethervtt/shard-shader |  |
 | `shader/compile` | @aethervtt/shard-shader |  |
+| `shader/data-misplaced` | @aethervtt/shard-shader | @data @group(2) @binding(0) var<storage, read> name: array<T>; |
+| `shader/fragment-kernel` | @aethervtt/shard-shader | Only image kernels run as fragment passes: one storage texture, stored at the invocation id. |
 | `shader/hook-signature-mismatch` | @aethervtt/shard-shader |  |
 | `shader/invalid-path` | @aethervtt/shard-shader | Use lowercase `package::dir::name`, e.g. `project::water`. |
 | `shader/link` | @aethervtt/shard-shader |  |

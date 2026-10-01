@@ -40,7 +40,7 @@ export const particlesPlugin = definePlugin({
         strategy: 'CPU simulation and depth sort for every system; particles in data textures',
       },
     })
-    graph.addNode('particles/simulate', simulateNode())
+    graph.addNode('particles/simulate', simulateNode(app.world))
     graph.addNode('particles', drawNode())
     app.world.initResource(RenderDescribers).set('particles', (w) => describeParticles(w))
   },

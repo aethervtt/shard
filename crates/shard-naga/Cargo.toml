@@ -1,0 +1,14 @@
+[package]
+name = "shard-naga"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "WGSL to GLSL ES 3.00 for Shard's WebGL2 backend (0064): naga, as a small wasm module."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+
+[dependencies]
+naga = { version = "=30.0.1", default-features = false, features = ["wgsl-in", "glsl-out"] }

@@ -12,6 +12,8 @@ import {
   type CameraData,
   ComputedVisibility,
   cameraOf,
+  DataStore,
+  dataEntry,
   Gpu,
   GpuAssetsResource,
   GroundLayer,
@@ -112,8 +114,8 @@ export class SpriteStore {
   /** Bytes of sprite records uploaded this frame. */
   uploadedBytes = 0
   sorts = 0
-  readonly records: GpuBuffer
-  readonly orderBuffer: GpuBuffer
+  readonly records: DataStore
+  readonly orderBuffer: DataStore
   private orderUploaded = true
   /** Hidden sprites per ECS table id, from the last visit. */
   readonly tableSeen: number[] = []
@@ -123,13 +125,9 @@ export class SpriteStore {
   constructor(gpu: GpuContext) {
     this.gpu = gpu
     this.generation = gpu.generation
-    const storage = GPUBufferUsage.STORAGE
-    this.records = new GpuBuffer(gpu, {
-      label: 'sprites',
-      usage: storage,
-      size: SPRITE_BYTES * 256,
-    })
-    this.orderBuffer = new GpuBuffer(gpu, { label: 'sprites/order', usage: storage, size: 1024 })
+    // Storage on the full tier, data textures on baseline (0064).
+    this.records = new DataStore(gpu, { label: 'sprites', size: SPRITE_BYTES * 256 })
+    this.orderBuffer = new DataStore(gpu, { label: 'sprites/order', size: 1024 })
     this.grow(256)
   }
 
@@ -640,7 +638,7 @@ export function observeSpriteRemovals(world: World): void {
 // --- tilemaps ----------------------------------------------------------------------------------
 
 interface LayerGpu {
-  buffer: GpuBuffer
+  buffer: DataStore
   chunksX: number
   chunksY: number
   cursor: number
@@ -654,9 +652,9 @@ interface TilemapGpu {
   version: number
   chunkSize: number
   layers: LayerGpu[]
-  regions: GpuBuffer
+  regions: DataStore
   regionKey: string
-  remap: GpuBuffer
+  remap: DataStore
   remapData: Uint32Array
   /** Tile id → atlas region + 1, before animation. */
   baseRemap: Uint32Array
@@ -741,9 +739,8 @@ function syncTilemaps(world: World): void {
           const chunksX = Math.ceil(l.width / cs)
           const chunksY = Math.ceil(l.height / cs)
           return {
-            buffer: new GpuBuffer(gpu, {
+            buffer: new DataStore(gpu, {
               label: `tilemap/${entity}/${i}`,
-              usage: GPUBufferUsage.STORAGE,
               size: Math.max(16, chunksX * chunksY * cs * cs * 4),
             }),
             chunksX,
@@ -758,20 +755,9 @@ function syncTilemaps(world: World): void {
           }
         }),
         regions:
-          map?.regions ??
-          new GpuBuffer(gpu, {
-            label: `tilemap/${entity}/regions`,
-            usage: GPUBufferUsage.STORAGE,
-            size: 256,
-          }),
+          map?.regions ?? new DataStore(gpu, { label: `tilemap/${entity}/regions`, size: 256 }),
         regionKey: '',
-        remap:
-          map?.remap ??
-          new GpuBuffer(gpu, {
-            label: `tilemap/${entity}/remap`,
-            usage: GPUBufferUsage.STORAGE,
-            size: 256,
-          }),
+        remap: map?.remap ?? new DataStore(gpu, { label: `tilemap/${entity}/remap`, size: 256 }),
         remapData: new Uint32Array(0),
         baseRemap: new Uint32Array(0),
         layer: 0,
@@ -1009,7 +995,7 @@ interface DrawCaches {
   flatNormal?: GPUTextureView
   pipelines: Map<string, GPURenderPipeline>
   groups: Map<string, { key: string; group: GPUBindGroup }>
-  views: Map<string, { uniform: GpuBuffer; chunks: GpuBuffer }>
+  views: Map<string, { uniform: GpuBuffer; chunks: DataStore }>
   batchParams: Map<SpriteBatch, GpuBuffer>
   samplers?: { linear: GPUSampler; nearest: GPUSampler }
 }
@@ -1037,6 +1023,11 @@ function idOf(o: object): number {
   return id
 }
 
+/** A DataStore's bind group key: which store, and which GPU object it has now. */
+function dataKey(d: DataStore): string {
+  return `${idOf(d)}:${d.version}`
+}
+
 function check(ctx: NodeContext): DrawCaches {
   const gpu = ctx.gpu
   const caches = ctx.world.initResource(SpriteDrawCaches)
@@ -1053,11 +1044,8 @@ function check(ctx: NodeContext): DrawCaches {
   if (!caches.layouts) {
     const V = GPUShaderStage.VERTEX
     const F = GPUShaderStage.FRAGMENT
-    const storage = (binding: number) => ({
-      binding,
-      visibility: V,
-      buffer: { type: 'read-only-storage' as const },
-    })
+    // Storage on the full tier, a data texture on baseline (0064).
+    const storage = (binding: number) => dataEntry(gpu, binding, V)
     caches.layouts = {
       view: gpu.layouts.bindGroupLayout({
         label: 'sprites/view',
@@ -1213,11 +1201,7 @@ function viewGroup(ctx: NodeContext, cam: CameraData): GPUBindGroup {
         usage: GPUBufferUsage.UNIFORM,
         size: 96,
       }),
-      chunks: new GpuBuffer(gpu, {
-        label: `${ctx.view.name}/tilemap-chunks`,
-        usage: GPUBufferUsage.STORAGE,
-        size: 1024,
-      }),
+      chunks: new DataStore(gpu, { label: `${ctx.view.name}/tilemap-chunks`, size: 1024 }),
     }
     c.views.set(ctx.view.name, v)
   }
@@ -1386,13 +1370,13 @@ function drawSpace(ctx: NodeContext, space: number): void {
         group(
           ctx,
           `${ctx.view.name}/tilemap/${d.map.entity}/${d.layer}`,
-          `${idOf(layer.buffer.buffer)}/${idOf(v.chunks.buffer)}/${idOf(d.map.regions.buffer)}/${idOf(d.map.remap.buffer)}/${idOf(layer.params.buffer)}`,
+          `${dataKey(layer.buffer)}/${dataKey(v.chunks)}/${dataKey(d.map.regions)}/${dataKey(d.map.remap)}/${idOf(layer.params.buffer)}`,
           c.layouts!.tilemap,
           () => [
-            { binding: 0, resource: { buffer: layer.buffer.buffer } },
-            { binding: 1, resource: { buffer: v.chunks.buffer } },
-            { binding: 2, resource: { buffer: d.map.regions.buffer } },
-            { binding: 3, resource: { buffer: d.map.remap.buffer } },
+            { binding: 0, resource: layer.buffer.resource() },
+            { binding: 1, resource: v.chunks.resource() },
+            { binding: 2, resource: d.map.regions.resource() },
+            { binding: 3, resource: d.map.remap.resource() },
             { binding: 4, resource: { buffer: layer.params.buffer } },
           ],
         ),
@@ -1445,11 +1429,11 @@ function drawSpace(ctx: NodeContext, space: number): void {
         group(
           ctx,
           'sprites/records',
-          `${idOf(store.records.buffer)}/${idOf(store.orderBuffer.buffer)}`,
+          `${dataKey(store.records)}/${dataKey(store.orderBuffer)}`,
           c.layouts!.sprites,
           () => [
-            { binding: 0, resource: { buffer: store.records.buffer } },
-            { binding: 1, resource: { buffer: store.orderBuffer.buffer } },
+            { binding: 0, resource: store.records.resource() },
+            { binding: 1, resource: store.orderBuffer.resource() },
           ],
         ),
       )
@@ -1487,11 +1471,11 @@ export function drawSpritePicks(ctx: NodeContext, cam: CameraData): void {
       group(
         ctx,
         'sprites/records',
-        `${idOf(store.records.buffer)}/${idOf(store.orderBuffer.buffer)}`,
+        `${dataKey(store.records)}/${dataKey(store.orderBuffer)}`,
         c.layouts!.sprites,
         () => [
-          { binding: 0, resource: { buffer: store.records.buffer } },
-          { binding: 1, resource: { buffer: store.orderBuffer.buffer } },
+          { binding: 0, resource: store.records.resource() },
+          { binding: 1, resource: store.orderBuffer.resource() },
         ],
       ),
     )

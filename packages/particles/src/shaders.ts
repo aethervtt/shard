@@ -226,9 +226,9 @@ struct Draw {
   mode: vec4u,
 }
 
-@group(1) @binding(0) var<storage, read> particles: array<Particle>;
+@data @group(1) @binding(0) var<storage, read> particles: array<Particle>;
 @group(1) @binding(1) var<uniform> draw: Draw;
-@group(1) @binding(2) var<storage, read> order: array<u32>;
+@data @group(1) @binding(2) var<storage, read> order: array<u32>;
 @group(2) @binding(0) var sprite: texture_2d<f32>;
 @group(2) @binding(1) var sprite_sampler: sampler;
 @group(2) @binding(2) var scene_depth: texture_depth_2d;

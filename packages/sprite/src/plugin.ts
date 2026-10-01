@@ -24,7 +24,7 @@ import {
 } from './ground'
 import * as lightingModule from './lighting'
 import * as lights2dModule from './lights2d'
-import { lights2dNode, prepareLights2d } from './lights2d'
+import { lights2dNode, loadBaselineLighting, prepareLights2d } from './lights2d'
 import { tilemapMethods } from './methods'
 import * as renderModule from './render'
 import {
@@ -108,5 +108,7 @@ export const spritePlugin = definePlugin({
     const picking = world.initResource(Picking)
     picking.drawers.set('sprites', drawSpritePicks)
     picking.detailers.set('tiles', tileDetail)
+    // The baseline tier's CPU lighting (0064): loaded only on a baseline device, before a frame.
+    if (world.resource(Gpu).tier === 'baseline') return loadBaselineLighting()
   },
 })

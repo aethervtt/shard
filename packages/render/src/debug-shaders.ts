@@ -40,7 +40,7 @@ struct Line {
   bits: u32,
 }
 
-@group(1) @binding(0) var<storage, read> lines: array<Line>;
+@data @group(1) @binding(0) var<storage, read> lines: array<Line>;
 
 struct LineOutput {
   @builtin(position) clip: vec4f,
@@ -116,7 +116,7 @@ struct Glyph {
   _pad1: u32,
 }
 
-@group(1) @binding(1) var<storage, read> glyphs: array<Glyph>;
+@data @group(1) @binding(1) var<storage, read> glyphs: array<Glyph>;
 @group(1) @binding(3) var atlas: texture_2d<f32>;
 
 struct GlyphOutput {

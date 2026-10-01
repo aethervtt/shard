@@ -67,6 +67,11 @@ export interface FieldOptions<V> {
    * resolves to the number on load. The JSON Schema lists the names as alternatives.
    */
   presets?: Readonly<Record<string, number>>
+  /**
+   * `false`: data only the host reads, kept out of GPU structs (`wgslLayout`), so adding such a
+   * field changes no shader.
+   */
+  gpu?: boolean
 }
 
 /** A reference to an asset. `guid` is the identity; `path` is for readers. */

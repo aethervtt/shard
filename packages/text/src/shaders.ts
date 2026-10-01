@@ -42,8 +42,8 @@ struct TextRecord {
 }
 
 @group(0) @binding(0) var<uniform> text_view: TextView;
-@group(1) @binding(0) var<storage, read> glyphs: array<Glyph>;
-@group(1) @binding(1) var<storage, read> texts: array<TextRecord>;
+@data @group(1) @binding(0) var<storage, read> glyphs: array<Glyph>;
+@data @group(1) @binding(1) var<storage, read> texts: array<TextRecord>;
 @group(2) @binding(0) var atlas: texture_2d<f32>;
 @group(2) @binding(1) var atlas_sampler: sampler;
 

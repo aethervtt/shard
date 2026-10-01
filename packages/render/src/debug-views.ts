@@ -210,8 +210,12 @@ export function describeLighting(world: World) {
       })),
       clusters: {
         grid: [16, 9, 24],
-        maxLightsPerCluster: pv.clusters.latest.maxLightsPerCluster,
-        overflows: pv.clusters.latest.overflows,
+        // GPU clustering's stats; baseline bins on the CPU and drops lights past its budget.
+        maxLightsPerCluster: pv.clusters?.latest.maxLightsPerCluster ?? null,
+        overflows: pv.clusters?.latest.overflows ?? 0,
+        baselineLights: pv.baseline
+          ? { packed: pv.baseline.count, dropped: pv.baseline.dropped }
+          : null,
       },
       cascades: pv.cascades.count,
       cascadeSplits: [...pv.cascades.splits.subarray(0, pv.cascades.count)],

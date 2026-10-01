@@ -128,7 +128,7 @@ export const fogPlugin = definePlugin({
       enabled: (view) => cameraOf(view) !== undefined && state.active.length > 0,
       run: (ctx) => encodeMasks(ctx, state),
     })
-    graph.addNode('fog/composite', compositeNode(state))
+    graph.addNode('fog/composite', compositeNode(state, world.resource(Gpu).tier))
     world.initResource(RenderDescribers).set('fog', describeFog)
   },
 })

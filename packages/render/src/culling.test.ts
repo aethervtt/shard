@@ -30,11 +30,11 @@ import {
   VisibilityRange,
 } from './instances'
 import { DirectionalLight, SpotLight } from './lights'
-import { describeRender, Gpu, renderPlugin, Views } from './plugin'
+import { captureView, describeRender, Gpu, renderPlugin, Views } from './plugin'
 import { ShadowsResource } from './shadows'
 import { forwardPlugin } from './standard'
 import { OffscreenTarget } from './target'
-import { compareGolden, renderView, settle } from './testing'
+import { compareGolden, pixel, renderView, settle } from './testing'
 import { cameraOf } from './view'
 import { Visibility } from './visibility'
 
@@ -494,5 +494,27 @@ describe('draw lists', () => {
     }
     const order = Array.from({ length: draws.length }, (_, i) => depthOf(i))
     expect(order).toEqual([10, 20, 30, 40, 60, 80])
+  })
+
+  it('draws a batch culled on the CPU the first frame it comes into view', async () => {
+    // The baseline tier (0064) always culls on the CPU, which draws only what's in view: the
+    // pipelines of what isn't are asked for ahead, so nothing pops in a few frames late.
+    const { app, world, material, cameraAt } = await scene()
+    world.resource(Culler).enabled = false
+    world.spawn(
+      [Mesh3d, { mesh: world.resource(Meshes).add(cube({ size: 2 })) }],
+      [MeshMaterial, { material }],
+      [Transform, { translation: [0, 0, 6] }],
+    )
+    const cam = cameraAt([0, 0, 0], [0, 0, -1])
+    await settle(app)
+    const view = world.resource(Views).list.find((v) => cameraOf(v)?.entity === cam)!
+    expect(cameraOf(view)!.draws.length).toBe(0)
+    world.set(cam, Transform, { translation: [0, 0, 0], rotation: lookAt([0, 0, 0], [0, 0, 6]) })
+    const shot = captureView(world, `camera:${cam}`)
+    app.update(1 / 60)
+    const image = await shot
+    expect(cameraOf(view)!.draws.length).toBe(1)
+    expect(pixel(image, 48, 32)).not.toEqual(pixel(image, 2, 2))
   })
 })

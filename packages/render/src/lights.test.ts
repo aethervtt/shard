@@ -8,8 +8,14 @@ import { App, LogResource } from '@aethervtt/shard-runtime'
 import { lookAt, Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { MaterialAsset, Materials, Meshes, RenderTargets } from './assets'
+import { BASELINE_MAX_LIGHTS, baselineViewLights, binBaselineLights } from './baseline/lights'
 import { Camera3d, Exposure } from './camera'
-import { CLUSTER_COUNT, clusterLightsCpu, MAX_LIGHTS_PER_CLUSTER } from './clusters'
+import {
+  CLUSTER_COUNT,
+  clusterLightsCpu,
+  MAX_LIGHTS_PER_CLUSTER,
+  VIEW_LIGHT_FLOATS,
+} from './clusters'
 import { captureShadowMap, readBuffer, setDebugView } from './debug-views'
 import { ForwardStateResource } from './forward'
 import { Mesh3d, MeshMaterial, NotShadowCaster, NotShadowReceiver } from './instances'
@@ -150,7 +156,7 @@ describe('lights', () => {
     const gpuData = new Uint32Array(
       await readBuffer(
         gpu,
-        pv.clusters.clusters.buffer,
+        pv.clusters!.clusters.buffer,
         CLUSTER_COUNT * (1 + MAX_LIGHTS_PER_CLUSTER) * 4,
       ),
     )
@@ -171,6 +177,109 @@ describe('lights', () => {
     expect(pv.lightList.count).toBeGreaterThan(50)
     expect(total).toBeGreaterThan(500)
     expect(mismatches).toBe(0)
+  })
+
+  it('bins the same lights into each cluster on baseline, as a bitmask of the nearest 128 (0064)', async () => {
+    const { app, world, targetRef } = await scene(160, 90)
+    stage(world)
+    const rng = new Rng(9)
+    for (let i = 0; i < 200; i++) {
+      const pos: [number, number, number] = [
+        rng.range(-10, 10),
+        rng.range(0.2, 4),
+        rng.range(-12, 6),
+      ]
+      if (i % 4 === 0) {
+        world.spawn(
+          [
+            SpotLight,
+            {
+              intensity: 600,
+              range: rng.range(2, 6),
+              outerAngle: rng.range(15, 60),
+              innerAngle: 10,
+            },
+          ],
+          [Transform, { translation: pos, rotation: q(rng.range(-1.5, 0), rng.range(0, 6), 0) }],
+        )
+      } else {
+        world.spawn(
+          [PointLight, { intensity: 200, range: rng.range(1, 4) }],
+          [Transform, { translation: pos }],
+        )
+      }
+    }
+    for (const [eye, at, ortho] of [
+      [[0, 3, 8], [0, 0.5, -2], false],
+      [[4, 12, 2], [0, 0, -3], true],
+    ] as const) {
+      const cam = world.spawn(
+        [
+          Camera3d,
+          ortho
+            ? { target: targetRef, projection: 'orthographic', orthoHeight: 14, far: 60 }
+            : { target: targetRef, fovY: 60 },
+        ],
+        [Exposure, { ev100: 0 }],
+        [Transform, { translation: [...eye], rotation: lookAt([...eye], [...at]) }],
+      )
+      await settle(app)
+      const pv = world.resource(ForwardStateResource).views.get(`camera:${cam}`)!
+      const camera = world.resource(Cameras).get(cam)!
+      const cpu = clusterLightsCpu(pv.lightList, camera, 0)
+      const v = baselineViewLights(gpu, 'test')
+      binBaselineLights(
+        v,
+        pv.lightList,
+        world.resource(Lights).data,
+        camera,
+        0,
+        BASELINE_MAX_LIGHTS,
+      )
+      expect(v.count).toBe(Math.min(BASELINE_MAX_LIGHTS, pv.lightList.count))
+      expect(v.dropped).toBe(pv.lightList.count - v.count)
+      const kept = new Set(Array.from(v.slots.subarray(0, v.count)))
+      // The ones kept are the nearest: none dropped is nearer than the farthest kept.
+      const list = pv.lightList
+      const distanceOf = (i: number) => {
+        const o = 4 + i * VIEW_LIGHT_FLOATS
+        const [x, y, z, r] = [
+          list.data[o]!,
+          list.data[o + 1]!,
+          list.data[o + 2]!,
+          list.data[o + 3]!,
+        ]
+        return Math.max(0, Math.sqrt(x * x + y * y + z * z) - r)
+      }
+      let farthestKept = 0
+      let nearestDropped = Number.POSITIVE_INFINITY
+      for (let i = 0; i < list.count; i++) {
+        const slot = list.u32[4 + i * VIEW_LIGHT_FLOATS + 8]!
+        if (kept.has(slot)) farthestKept = Math.max(farthestKept, distanceOf(i))
+        else nearestDropped = Math.min(nearestDropped, distanceOf(i))
+      }
+      if (v.dropped > 0) expect(nearestDropped).toBeGreaterThanOrEqual(farthestKept - 1 / 256)
+      let bits = 0
+      let mismatches = 0
+      for (let c = 0; c < CLUSTER_COUNT; c++) {
+        const expected = new Set<number>()
+        for (let k = 0; k < cpu.counts[c]!; k++) {
+          const slot = cpu.indices[c * MAX_LIGHTS_PER_CLUSTER + k]!
+          if (kept.has(slot)) expected.add(slot)
+        }
+        const got = new Set<number>()
+        for (let k = 0; k < v.count; k++) {
+          if (v.words[c * 4 + (k >> 5)]! & (1 << (k & 31))) got.add(v.slots[k]!)
+        }
+        bits += got.size
+        if (got.size !== expected.size || [...got].some((s) => !expected.has(s))) mismatches++
+      }
+      expect(bits, ortho ? 'orthographic' : 'perspective').toBeGreaterThan(100)
+      expect(mismatches, ortho ? 'orthographic' : 'perspective').toBe(0)
+      v.lights.destroy()
+      v.bits.destroy()
+      world.despawn(cam)
+    }
   })
 
   it('renders 256 point lights as a golden image', async () => {

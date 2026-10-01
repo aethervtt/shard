@@ -12,6 +12,7 @@ import { definePlugin, LogResource, type Plugin, Time } from '@aethervtt/shard-r
 import { setTextureCapabilities, Textures } from '@aethervtt/shard-texture'
 import { TransformSystems } from '@aethervtt/shard-transform'
 import {
+  type MaterialAsset,
   MaterialAssetType,
   MaterialImporter,
   Materials,
@@ -22,6 +23,7 @@ import {
   StandardMaterial,
 } from './assets'
 import { Atmospheres } from './atmosphere-state'
+import type { BaselineViewLights } from './baseline/lights'
 import { applyPhysicalCameras, Camera3d, Exposure, PhysicalCamera } from './camera'
 import {
   CLUSTER_COUNT,
@@ -32,12 +34,13 @@ import {
   ViewLightList,
 } from './clusters'
 import { Culler, cullGround, cullTransparent, GpuCuller } from './culling'
+import { DataStore, dataEntry } from './data-store'
 import { addDisplayNodes } from './display-nodes'
 import { Environments, environmentParams } from './environment-state'
 import { addRenderFeatures } from './features'
 import { GpuAssets, GpuAssetsResource } from './gpu-assets'
 import { type ColorAttachment, type NodeContext, RenderPhase, type RenderView } from './graph'
-import { MaterialFallbacks } from './health'
+import { clearHealthIssue, MaterialFallbacks, raiseHealthIssue } from './health'
 import {
   type CullParams,
   DeformPath,
@@ -126,6 +129,8 @@ import {
 } from './shadows'
 import { SkinAssetType, Skins } from './skin-asset'
 import { GpuMemory, RenderCounters, RenderStats } from './stats'
+import { bindingDimension } from './tier'
+import { addShaderVariantSource, materialVariants, ShaderVariantSources } from './variants'
 import {
   type CameraData,
   CameraMoved,
@@ -147,8 +152,12 @@ export interface ViewGpu {
   /** This frame's SSAO texture, when the camera has Ssao. */
   ao: GPUTexture | undefined
   lightList: ViewLightList
-  clusters: ClusterBuffers
-  shadowData: GpuBuffer
+  /** GPU clustering's buffers (full tier). */
+  clusters: ClusterBuffers | undefined
+  /** Packed lights and cluster bits, binned on the CPU (baseline, 0064). */
+  baseline: BaselineViewLights | undefined
+  /** Shadow cascades, spot and point matrices: `@data(uniform)`. */
+  shadowData: DataStore
   cascades: Cascades
   bindGroup: GPUBindGroup | undefined
   bound: string
@@ -183,6 +192,8 @@ export interface ForwardState {
   globals: GpuBuffer
   globalsData: Float32Array
   pipelines: MaterialPipelines
+  /** The baseline tier's strategies (0064), loaded only on a baseline device. */
+  baseline: typeof import('./baseline/lights') | undefined
   /** G-buffer color targets (the emissive format depends on the device). */
   gbufferTargets: GPUColorTargetState[]
   /** Whether GPU culling ran this frame (the cull node reads it). */
@@ -388,7 +399,20 @@ export const forwardQueue = defineSystem({
       const pv = viewGpu(gpu, state, view.name)
       pv.ao = undefined // the SSAO node sets it when it runs
       pv.lightList.build(cam, lights.records, lights.high)
-      pv.clusters.upload(pv.lightList, cam, settings.clusterFar)
+      if (pv.clusters) pv.clusters.upload(pv.lightList, cam, settings.clusterFar)
+      else {
+        const b = pv.baseline!
+        state.baseline!.binBaselineLights(
+          b,
+          pv.lightList,
+          lights.data,
+          cam,
+          settings.clusterFar,
+          settings.baselineMaxLights,
+        )
+        if (b.dropped !== b.reported)
+          reportLightBudget(world, view.name, b, settings.baselineMaxLights)
+      }
       const sun = lights.shadowSun
       if (sun) {
         fitCascades(pv.cascades, cam, sun, settings.cascadeMapSize, (v, planes, box) =>
@@ -444,10 +468,11 @@ function viewGpu(gpu: GpuContext, state: ForwardState, name: string): ViewGpu {
         size: viewLayout.size,
       }),
       lightList: new ViewLightList(),
-      clusters: new ClusterBuffers(gpu, name),
-      shadowData: new GpuBuffer(gpu, {
+      clusters: state.baseline ? undefined : new ClusterBuffers(gpu, name),
+      baseline: state.baseline?.baselineViewLights(gpu, name),
+      shadowData: new DataStore(gpu, {
         label: `${name}/shadows`,
-        usage: GPUBufferUsage.STORAGE,
+        kind: 'uniform',
         size: SHADOW_DATA_FLOATS * 4,
       }),
       cascades: new Cascades(),
@@ -604,6 +629,11 @@ export const PASS_PICK = 7
 export const PASS_GROUND = 9
 /** Picking ground bands: they share their floor's depth, so equal depth passes. */
 export const PASS_PICK_GROUND = 11
+/**
+ * Baseline (0064): opaque depth alone, single-sampled, drawn with the prepass's vertex stage. It
+ * stands in for resolving multisampled depth, which GLSL ES 3.00 can't read.
+ */
+export const PASS_DEPTH = 13
 /** Depth bias of ground draws against the floor under them (float depth ULPs, and slope). */
 const GROUND_DEPTH_BIAS = 8
 const GROUND_SLOPE_BIAS = 2
@@ -649,114 +679,15 @@ export function drawMaterials(
   for (let d = 0; d < draws.length; d++) {
     const item = draws.items[d]!
     const own = item.batch.material
+    if (!inPass(own.type, pass)) continue
     // A type whose shader or pipeline failed draws with the standard pipeline instead (0061).
     const fallback = state.pipelines.failing(own.type)
     const material = fallback ? state.pipelines.proxy(own) : own
-    const type = material.type
-    const variant = materialVariant(material)
-    const blend = variantBlend(variant)
-    const gbuffer = pass === PASS_GBUFFER
-    const prepass = pass === PASS_PREPASS
-    const pick = pass === PASS_PICK || pass === PASS_PICK_GROUND
-    const ground = pass === PASS_GROUND || pass === PASS_PICK_GROUND
-    // The G-buffer only takes standard lighting; anything else draws forward.
-    if (gbuffer && !own.type.standard) continue
-    // Picks go through types that aren't pick targets (a grid's lines).
-    if (pick && !own.type.pickable) continue
-    // The G-buffer, the prepass, and picking are always single-sampled.
-    const msaa = gbuffer || prepass || pick ? 1 : cam.msaa
-    const key = ((pass * 1024 + typeOrdinal(type)) * 16 + variant) * 8 + msaa
-    let pipeline = state.pipelines.cached(key)
+    const pipeline = materialPipeline(ctx, state, cam, store, assets, material, pass, true)
     if (!pipeline) {
-      const premultiply = blend === 'premultiplied'
-      const mask = blend === 'mask'
-      // Module slots: forward 0–7 (opaque 48–55), shadows 8, G-buffer 16–23, prepass 32–38, pick 40.
-      const opaque = !gbuffer && !prepass && !pick && !isTransparent(blend)
-      const slot = pick
-        ? 40
-        : prepass
-          ? 32 + (type.standard ? 0 : 4) + (mask ? 2 : 0)
-          : (gbuffer ? 16 : opaque ? 48 : 0) +
-            (type.standard ? 0 : 4) +
-            (premultiply ? 1 : 0) +
-            (mask ? 2 : 0)
-      const module = state.pipelines.module(
-        ctx.world,
-        gpu,
-        type,
-        slot,
-        pick
-          ? 'shard::pick'
-          : prepass
-            ? type.standard
-              ? 'shard::prepass'
-              : 'shard::prepass::plain'
-            : gbuffer
-              ? 'shard::pbr::gbuffer_pass'
-              : type.standard
-                ? 'shard::pbr::forward'
-                : 'shard::unlit::forward',
-        // Only what the slot tells apart: the prepass and picking don't premultiply.
-        FORWARD_DEFINES[
-          pick
-            ? 0
-            : prepass
-              ? mask
-                ? 2
-                : 0
-              : (premultiply ? 1 : 0) | (mask ? 2 : 0) | (opaque ? 4 : 0)
-        ],
-      )
-      if (!module) {
-        // It just failed: draw this item again, through the fallback.
-        if (!fallback && state.pipelines.failing(type)) d--
-        else gpu.pipelines.skipped++ // a draw waiting on its shader is a skipped draw too
-        continue
-      }
-      const transparent = isTransparent(blend) && !pick
-      pipeline = state.pipelines.create(
-        gpu,
-        key,
-        {
-          label: `${pick ? 'pick' : prepass ? 'prepass' : gbuffer ? 'gbuffer' : ground ? 'ground' : 'forward'}/${type.name}/${blend}/x${msaa}/${variantCull(variant)}`,
-          layout: materialLayout(gpu, state, assets, type, store),
-          vertex: { module, entryPoint: 'vs', buffers: VERTEX_BUFFERS },
-          fragment: {
-            module,
-            entryPoint: 'fs',
-            targets: pick
-              ? PICK_TARGETS
-              : prepass
-                ? PREPASS_TARGETS
-                : gbuffer
-                  ? state.gbufferTargets
-                  : [{ format: 'rgba16float', blend: blendState(blend) }],
-          },
-          primitive: {
-            topology: 'triangle-list',
-            cullMode: variantCull(variant),
-            frontFace: 'ccw',
-          },
-          depthStencil: {
-            format: 'depth32float',
-            // Ground bands never write depth (so they never fight); picking them writes it, so the
-            // nearest band wins at equal depth.
-            depthWriteEnabled: pick || (!transparent && !ground),
-            depthCompare: transparent || ground ? 'greater-equal' : 'greater',
-            // Ground bands lie on their floor: a few ULPs and a slope term keep them in front of it
-            // at any angle (reversed Z: toward the camera). Bands don't write depth, so they never
-            // fight each other; the order does that.
-            depthBias: ground ? GROUND_DEPTH_BIAS : 0,
-            depthBiasSlopeScale: ground ? GROUND_SLOPE_BIAS : 0,
-          },
-          multisample: { count: msaa },
-        },
-        type,
-      )
-      if (!pipeline) {
-        if (!fallback && state.pipelines.failing(type)) d--
-        continue
-      }
+      // It just failed: draw this item again, through the fallback.
+      if (!fallback && state.pipelines.failing(own.type)) d--
+      continue
     }
     const mat = assets.material(ctx.world, material)
     if (!mat?.bindGroup) continue
@@ -794,7 +725,174 @@ export function drawMaterials(
       renderPass.draw(gm.count, item.count, 0, item.first)
     }
   }
+  if (draws.cullView < 0) warmPipelines(ctx, state, cam, store, assets, pass)
   return switches
+}
+
+/** Whether a material type draws in `pass`: the G-buffer takes standard lighting, picks pickable types. */
+function inPass(type: MaterialType, pass: number): boolean {
+  if (pass === PASS_GBUFFER) return type.standard
+  if (pass === PASS_PICK || pass === PASS_PICK_GROUND) return type.pickable
+  return true
+}
+
+/**
+ * The pipeline that draws `material` in `pass` for this camera, asked for on a miss: undefined
+ * while its shader or pipeline compiles, or when either failed (the caller draws the fallback).
+ * `draw`: a skipped draw counts in `gpu.pipelines.skipped`.
+ */
+function materialPipeline(
+  ctx: NodeContext,
+  state: ForwardState,
+  cam: CameraData,
+  store: InstanceStore,
+  assets: GpuAssets,
+  material: MaterialAsset,
+  pass: number,
+  draw: boolean,
+): GPURenderPipeline | undefined {
+  const gpu = ctx.gpu
+  const type = material.type
+  const variant = materialVariant(material)
+  const blend = variantBlend(variant)
+  const gbuffer = pass === PASS_GBUFFER
+  const depthOnly = pass === PASS_DEPTH
+  const prepass = pass === PASS_PREPASS || depthOnly
+  const pick = pass === PASS_PICK || pass === PASS_PICK_GROUND
+  const ground = pass === PASS_GROUND || pass === PASS_PICK_GROUND
+  // The G-buffer, the prepass, and picking are always single-sampled.
+  const msaa = gbuffer || prepass || pick ? 1 : cam.msaa
+  const key = ((pass * 1024 + typeOrdinal(type)) * 16 + variant) * 8 + msaa
+  let pipeline = state.pipelines.cached(key)
+  if (!pipeline) {
+    const premultiply = blend === 'premultiplied'
+    const mask = blend === 'mask'
+    // Module slots: forward 0–7 (opaque 48–55), shadows 8, G-buffer 16–23, prepass 32–38, pick 40.
+    const opaque = !gbuffer && !prepass && !pick && !isTransparent(blend)
+    const slot = pick
+      ? 40
+      : prepass
+        ? 32 + (type.standard ? 0 : 4) + (mask ? 2 : 0)
+        : (gbuffer ? 16 : opaque ? 48 : 0) +
+          (type.standard ? 0 : 4) +
+          (premultiply ? 1 : 0) +
+          (mask ? 2 : 0)
+    const module = state.pipelines.module(
+      ctx.world,
+      gpu,
+      type,
+      slot,
+      pick
+        ? 'shard::pick'
+        : prepass
+          ? type.standard
+            ? 'shard::prepass'
+            : 'shard::prepass::plain'
+          : gbuffer
+            ? 'shard::pbr::gbuffer_pass'
+            : type.standard
+              ? 'shard::pbr::forward'
+              : 'shard::unlit::forward',
+      // Only what the slot tells apart: the prepass and picking don't premultiply.
+      FORWARD_DEFINES[
+        pick
+          ? 0
+          : prepass
+            ? mask
+              ? 2
+              : 0
+            : (premultiply ? 1 : 0) | (mask ? 2 : 0) | (opaque ? 4 : 0)
+      ],
+    )
+    if (!module) {
+      // A draw waiting on its shader is a skipped draw too (one that just failed draws again,
+      // through the fallback).
+      if (draw && !state.pipelines.failing(type)) gpu.pipelines.skipped++
+      return undefined
+    }
+    const transparent = isTransparent(blend) && !pick
+    pipeline = state.pipelines.create(
+      gpu,
+      key,
+      {
+        label: `${pick ? 'pick' : prepass ? 'prepass' : gbuffer ? 'gbuffer' : ground ? 'ground' : 'forward'}/${type.name}/${blend}/x${msaa}/${variantCull(variant)}`,
+        layout: materialLayout(gpu, state, assets, type, store),
+        vertex: { module, entryPoint: 'vs', buffers: VERTEX_BUFFERS },
+        fragment: {
+          module,
+          entryPoint: depthOnly ? 'fs_depth' : 'fs',
+          targets: pick
+            ? PICK_TARGETS
+            : depthOnly
+              ? []
+              : prepass
+                ? PREPASS_TARGETS
+                : gbuffer
+                  ? state.gbufferTargets
+                  : [{ format: 'rgba16float', blend: blendState(blend) }],
+        },
+        primitive: {
+          topology: 'triangle-list',
+          cullMode: variantCull(variant),
+          frontFace: 'ccw',
+        },
+        depthStencil: {
+          format: 'depth32float',
+          // Ground bands never write depth (so they never fight); picking them writes it, so the
+          // nearest band wins at equal depth.
+          depthWriteEnabled: pick || (!transparent && !ground),
+          depthCompare: transparent || ground ? 'greater-equal' : 'greater',
+          // Ground bands lie on their floor: a few ULPs and a slope term keep them in front of it
+          // at any angle (reversed Z: toward the camera). Bands don't write depth, so they never
+          // fight each other; the order does that.
+          depthBias: ground ? GROUND_DEPTH_BIAS : 0,
+          depthBiasSlopeScale: ground ? GROUND_SLOPE_BIAS : 0,
+        },
+        multisample: { count: msaa },
+      },
+      type,
+    )
+    if (!pipeline) return undefined
+  }
+  return pipeline
+}
+
+/**
+ * Culled on the CPU, a list holds only what's in view, so a batch's pipeline would first be asked
+ * for as it comes into view, and it would be missing while that compiles (GPU culling draws every
+ * batch). Asks for the pipelines and material of every batch the list could hold instead, once per
+ * change to the batches: a steady frame does one lookup.
+ */
+function warmPipelines(
+  ctx: NodeContext,
+  state: ForwardState,
+  cam: CameraData,
+  store: InstanceStore,
+  assets: GpuAssets,
+  pass: number,
+): void {
+  const slot = pass * 8 + cam.msaa
+  if (state.pipelines.warmed(slot, store.structureVersion, ctx.gpu.generation)) return
+  const ground = pass === PASS_GROUND || pass === PASS_PICK_GROUND
+  const batches = store.batches
+  for (let i = 0; i < batches.length; i++) {
+    const batch = batches[i]!
+    if (batch.count === 0 || batch.ground !== ground) continue
+    if (pass === PASS_TRANSPARENT ? !batch.transparent : batch.transparent && pass !== PASS_PICK) {
+      continue
+    }
+    // Deferred views draw forward only what the G-buffer can't take.
+    if (pass === PASS_OPAQUE && cam.deferred && batch.deferrable) continue
+    const own = batch.material
+    if (!inPass(own.type, pass)) continue
+    const material = state.pipelines.failing(own.type) ? state.pipelines.proxy(own) : own
+    materialPipeline(ctx, state, cam, store, assets, material, pass, false)
+    assets.material(ctx.world, material)
+  }
+  // Done once nothing asked for is still compiling; until then, every frame asks again.
+  if (ctx.gpu.pipelines.pending === 0) {
+    state.pipelines.markWarmed(slot, store.structureVersion, ctx.gpu.generation)
+  }
 }
 
 function recordSwitches(ctx: NodeContext, switches: number): void {
@@ -804,6 +902,21 @@ function recordSwitches(ctx: NodeContext, switches: number): void {
 
 export const isCamera = (view: RenderView) => cameraOf(view) !== undefined
 const msaaOf = (view: RenderView) => cameraOf(view)?.msaa ?? 1
+
+/** Baseline (0064): raises `render/light-budget` while a view has more lights than it shades. */
+function reportLightBudget(world: World, view: string, b: BaselineViewLights, max: number): void {
+  b.reported = b.dropped
+  if (b.dropped === 0) {
+    clearHealthIssue(world, 'render/light-budget', view)
+    return
+  }
+  raiseHealthIssue(world, {
+    code: 'render/light-budget',
+    severity: 'degraded',
+    ref: view,
+    message: `${b.inView} point and spot lights are in view, over the baseline tier's ${Math.min(max, 128)}: the ${b.dropped} farthest aren't shaded`,
+  })
+}
 
 /** A 1×1 white texture: "no occlusion" where a pass samples SSAO. */
 function whiteTexture(gpu: GpuContext, state: ForwardState): GPUTexture {
@@ -828,6 +941,7 @@ function emptyShadow(gpu: GpuContext, state: ForwardState): GPUTexture {
         size: [1, 1, 1],
         format: 'depth32float',
         usage: GPUTextureUsage.TEXTURE_BINDING,
+        ...bindingDimension(gpu, '2d-array'),
       }),
       generation: gpu.generation,
     }
@@ -887,17 +1001,21 @@ export function viewBindGroup(
   const source = baked?.sourceView ?? envs.emptyView!
   const sh = baked?.sh ?? envs.emptySh!
   const ao = pv.ao ?? whiteTexture(gpu, state)
-  const key = `${idOf(ao)}/${gpu.generation}/${pv.uniform.version}/${lights.buffer.version}/${pv.clusters.clusters.version}/${lights.directional.version}/${pv.shadowData.version}/${idOf(cascades)}/${idOf(spots)}/${idOf(points)}/${baked ? idOf(baked.source) : 0}/${sh.version}/${state.globals.version}`
+  // Lights and clusters: the store's buffer and GPU clusters, or (baseline) the view's packed ones.
+  const b = pv.baseline
+  const lightsVersion = b ? b.lights.version : lights.buffer.version
+  const clustersVersion = b ? b.bits.version : pv.clusters!.clusters.version
+  const key = `${idOf(ao)}/${gpu.generation}/${pv.uniform.version}/${lightsVersion}/${clustersVersion}/${lights.directional.version}/${pv.shadowData.version}/${idOf(cascades)}/${idOf(spots)}/${idOf(points)}/${baked ? idOf(baked.source) : 0}/${sh.version}/${state.globals.version}`
   if (!pv.bindGroup || pv.bound !== key) {
     pv.bindGroup = gpu.device.createBindGroup({
       label: 'forward/view',
       layout: state.layouts.view,
       entries: [
         { binding: 0, resource: { buffer: pv.uniform.buffer } },
-        { binding: 1, resource: { buffer: lights.buffer.buffer } },
-        { binding: 2, resource: { buffer: pv.clusters.clusters.buffer } },
-        { binding: 3, resource: { buffer: lights.directional.buffer } },
-        { binding: 4, resource: { buffer: pv.shadowData.buffer } },
+        { binding: 1, resource: b ? b.lights.resource() : { buffer: lights.buffer.buffer } },
+        { binding: 2, resource: b ? b.bits.resource() : { buffer: pv.clusters!.clusters.buffer } },
+        { binding: 3, resource: lights.directional.resource() },
+        { binding: 4, resource: pv.shadowData.resource() },
         { binding: 5, resource: cascades.createView({ dimension: '2d-array' }) },
         { binding: 6, resource: spots.createView({ dimension: '2d-array' }) },
         { binding: 7, resource: points.createView({ dimension: '2d-array' }) },
@@ -905,7 +1023,7 @@ export function viewBindGroup(
         { binding: 9, resource: specular },
         { binding: 10, resource: envs.lut!.createView() },
         { binding: 11, resource: envs.sampler! },
-        { binding: 12, resource: { buffer: sh.buffer } },
+        { binding: 12, resource: sh.resource() },
         { binding: 13, resource: source },
         { binding: 14, resource: { buffer: state.globals.buffer } },
         { binding: 15, resource: ao.createView() },
@@ -1002,11 +1120,12 @@ function clusterNode(state: ForwardState) {
   return {
     kind: 'raw' as const,
     phase: RenderPhase.Setup,
-    enabled: isCamera,
+    // Baseline bins on the CPU (baseline/lights.ts): no compute.
+    enabled: (view: RenderView) => isCamera(view) && !state.baseline,
     writes: ['clusters'],
     run: (ctx: NodeContext) => {
       const pv = state.views.get(ctx.view.name)
-      if (!pv) return
+      if (!pv?.clusters) return
       const gpu = ctx.gpu
       const module = ctx.world.resource(Shaders).module(gpu, { root: 'shard::lighting::cluster' })
       if (!module) {
@@ -1288,14 +1407,38 @@ export function sceneColor(view: RenderView, clear?: GPUColor): readonly ColorAt
   return [{ resource: 'scene-color', clear, resolve: msaa ? 'hdr' : undefined }]
 }
 
+/**
+ * Baseline (0064): single-sample depth for passes that read `depth` when the scene is
+ * multisampled, since GLSL ES 3.00 can't read multisampled textures. Opaque geometry is drawn a
+ * second time, depth only, before the scene; nothing draws it unless a pass reads `depth`.
+ */
+function depthPrepassNode(state: ForwardState) {
+  return {
+    kind: 'render' as const,
+    phase: RenderPhase.Prepass,
+    enabled: (view: RenderView) => state.baseline !== undefined && msaaOf(view) > 1,
+    reads: ['culled'],
+    writes: ['depth'],
+    depth: { resource: 'depth', clear: 0 },
+    run: (ctx: NodeContext) => {
+      const pv = state.views.get(ctx.view.name)
+      const cam = cameraOf(ctx.view)
+      if (!pv || !cam) return
+      drawMaterials(ctx, state, pv, cam, cam.draws, PASS_DEPTH)
+      if (cam.deferred) drawMaterials(ctx, state, pv, cam, cam.forwardOnly, PASS_DEPTH)
+    },
+  }
+}
+
 /** Single-sample depth from MSAA depth (sample 0), for passes that read depth. */
-function depthResolveNode() {
+function depthResolveNode(state: ForwardState) {
   let bindGroups = new WeakMap<GPUTexture, GPUBindGroup>()
   let generation = -1
   return {
     kind: 'render' as const,
     phase: RenderPhase.Resolve,
-    enabled: (view: RenderView) => msaaOf(view) > 1,
+    // Baseline draws `depth` in its own prepass instead (depthPrepassNode).
+    enabled: (view: RenderView) => state.baseline === undefined && msaaOf(view) > 1,
     reads: ['scene-depth'],
     writes: ['depth'],
     depth: { resource: 'depth', clear: 0 },
@@ -1356,11 +1499,6 @@ export interface ForwardPluginOptions {
 /** Bind group and pipeline layouts, created per device (after a device loss they're rebuilt). */
 function createLayouts(gpu: GpuContext, assets: GpuAssets, store: InstanceStore): Layouts {
   const F = GPUShaderStage.FRAGMENT
-  const storage = (binding: number) => ({
-    binding,
-    visibility: F,
-    buffer: { type: 'read-only-storage' as const },
-  })
   const depthArray = (binding: number) => ({
     binding,
     visibility: F,
@@ -1370,10 +1508,12 @@ function createLayouts(gpu: GpuContext, assets: GpuAssets, store: InstanceStore)
     label: 'forward/view',
     entries: [
       { binding: 0, visibility: GPUShaderStage.VERTEX | F, buffer: { type: 'uniform' } },
-      storage(1),
-      storage(2),
-      storage(3),
-      storage(4),
+      // Storage on the full tier; on baseline (0064) lights, directional lights, shadow data and SH
+      // are uniform blocks and the cluster bits a data texture.
+      dataEntry(gpu, 1, F, 'uniform'),
+      dataEntry(gpu, 2, F, 'texture'),
+      dataEntry(gpu, 3, F, 'uniform'),
+      dataEntry(gpu, 4, F, 'uniform'),
       depthArray(5),
       depthArray(6),
       depthArray(7),
@@ -1381,7 +1521,7 @@ function createLayouts(gpu: GpuContext, assets: GpuAssets, store: InstanceStore)
       { binding: 9, visibility: F, texture: { sampleType: 'float', viewDimension: 'cube' } },
       { binding: 10, visibility: F, texture: { sampleType: 'float' } },
       { binding: 11, visibility: F, sampler: { type: 'filtering' } },
-      storage(12),
+      dataEntry(gpu, 12, F, 'uniform'),
       { binding: 13, visibility: F, texture: { sampleType: 'float', viewDimension: 'cube' } },
       { binding: 14, visibility: GPUShaderStage.VERTEX | F, buffer: { type: 'uniform' } },
       { binding: 15, visibility: F, texture: { sampleType: 'float' } },
@@ -1524,10 +1664,14 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       // screen effects
       ScreenEffects,
       ScreenEffectHandlers,
+      // shard shaders bake (0064)
+      ShaderVariantSources,
     ],
     dependencies: ['render', 'core/transform'],
     build(app) {
       const w = app.world
+      // shaders.variants.json's { "material": … } entries (0064's bake).
+      addShaderVariantSource(w, materialVariants)
       w.initResource(Meshes)
       w.initResource(Skins)
       w.initResource(Materials)
@@ -1563,119 +1707,138 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
           upload.inSet(RenderSet.Upload),
         )
     },
-    ready(app) {
+    async ready(app) {
       const gpu = app.world.resource(Gpu)
-      // Basis textures transcode to what this device can sample.
-      setTextureCapabilities({
-        bc: gpu.features.has('texture-compression-bc'),
-        astc: gpu.features.has('texture-compression-astc'),
-        etc2: gpu.features.has('texture-compression-etc2'),
-      })
-      const assets = new GpuAssets(gpu, app.world.initResource(GpuMemory))
-      assets.counts = app.world.initResource(RenderStats).current
-      const store = new InstanceStore(gpu)
-      app.insertResource(GpuAssetsResource, assets)
-      unwatch.set(app, assets.watch(assetServer(app.world)))
-      // owners.describe(owner).gpu: the GPU objects behind the assets it leases (0061).
-      app.world.owners.addDescriber('gpu', (owner) => {
-        const server = assetServer(app.world)
-        const total = { buffers: 0, textures: 0, bytes: 0 }
-        for (const path of server.leasesOf(owner)) {
-          const item = server.item(path)
-          const o = assets.objectsOf(item)
-          total.buffers += o.buffers
-          total.textures += o.textures
-          total.bytes += o.bytes
+      // The baseline tier's strategies (0064): loaded only on a baseline device.
+      const [baseline, baselineTextures] =
+        gpu.tier === 'baseline'
+          ? await Promise.all([import('./baseline/lights'), import('./baseline/textures')])
+          : [undefined, undefined]
+      // Past that await the app's scopes are left: re-enter them, so what's made counts against it.
+      app.scoped(() => {
+        // Basis textures transcode to what this device can sample.
+        setTextureCapabilities({
+          bc: gpu.features.has('texture-compression-bc'),
+          astc: gpu.features.has('texture-compression-astc'),
+          etc2: gpu.features.has('texture-compression-etc2'),
+        })
+        const assets = new GpuAssets(gpu, app.world.initResource(GpuMemory))
+        if (baselineTextures) {
+          assets.baseline = baselineTextures
+          app.world.initResource(RenderDescribers).set('twins', () => assets.describeTwins())
         }
-        return total
+        assets.counts = app.world.initResource(RenderStats).current
+        const store = new InstanceStore(gpu)
+        app.insertResource(GpuAssetsResource, assets)
+        unwatch.set(app, assets.watch(assetServer(app.world)))
+        // owners.describe(owner).gpu: the GPU objects behind the assets it leases (0061).
+        app.world.owners.addDescriber('gpu', (owner) => {
+          const server = assetServer(app.world)
+          const total = { buffers: 0, textures: 0, bytes: 0 }
+          for (const path of server.leasesOf(owner)) {
+            const item = server.item(path)
+            const o = assets.objectsOf(item)
+            total.buffers += o.buffers
+            total.textures += o.textures
+            total.bytes += o.bytes
+          }
+          return total
+        })
+        app.insertResource(Instances, store)
+        app.insertResource(Culler, new GpuCuller(gpu))
+        app.insertResource(
+          Lights,
+          new LightStore(gpu, app.world.resource(LightingSettings).maxLights),
+        )
+        app.insertResource(ShadowsResource, {
+          local: new LocalShadows(),
+          uniforms: new ShadowPassUniforms(gpu),
+        })
+        const state: ForwardState = {
+          views: new Map(),
+          viewBytes: new DataView(new ArrayBuffer(viewLayout.size)),
+          shadowFloats: new Float32Array(SHADOW_DATA_FLOATS),
+          layouts: createLayouts(gpu, assets, store),
+          layoutGeneration: gpu.generation,
+          emptyShadow: undefined,
+          white: undefined,
+          shadowSampler: undefined,
+          frame: 0,
+          warned: { budget: '', overflow: '' },
+          globals: new GpuBuffer(gpu, {
+            label: 'globals',
+            usage: GPUBufferUsage.UNIFORM,
+            size: 16,
+          }),
+          globalsData: new Float32Array(4),
+          pipelines: new MaterialPipelines(),
+          baseline,
+          cullerActive: false,
+          gbufferTargets: [
+            { format: 'rgba8unorm-srgb' },
+            { format: 'rgba16float' },
+            { format: gbufferEmissiveFormat(gpu) },
+          ],
+        }
+        app.insertResource(MaterialFallbacks, {
+          count: () => state.pipelines.failureCount,
+          list: () => state.pipelines.failures(),
+        })
+        // Batches draw grouped by material type and variant, so pipeline switches stay rare.
+        store.batchKey = (b) => typeOrdinal(b.material.type) * 16 + materialVariant(b.material)
+        app.insertResource(State, state)
+        const graph = app.world.resource(Graph)
+        graph.declare({ name: 'scene-color', format: 'rgba16float', sampleCount: msaaOf })
+        graph.declare({ name: 'scene-depth', format: 'depth32float', sampleCount: msaaOf })
+        graph.declare({ name: 'hdr', format: 'rgba16float' })
+        graph.declare({ name: 'depth', format: 'depth32float' })
+        graph.declare({ name: 'ldr', format: 'view' })
+        addRenderFeatures(app.world, {
+          name: 'render/forward',
+          description: 'Opaque, ground and transparent mesh passes, and the MSAA depth resolve.',
+          nodes: [
+            'forward-opaque',
+            'forward-ground',
+            'forward-transparent',
+            'forward-overlay',
+            'depth-resolve',
+            'depth-prepass',
+          ],
+          baseline: {
+            strategy:
+              'Instances, visibility and deform data in data textures; MSAA depth from a single-sample depth prepass',
+          },
+        })
+        addRenderFeatures(app.world, {
+          name: 'render/culling',
+          description: 'GPU frustum, range and LOD culling with indirect draws.',
+          nodes: ['instance-cull'],
+          baseline: { strategy: 'CPU culling and direct draws' },
+        })
+        addRenderFeatures(app.world, {
+          name: 'render/light-clusters',
+          description: 'Clustered light binning (Forward+).',
+          nodes: ['light-clusters'],
+          baseline: { strategy: 'CPU binning into a 128-light bitmask texture' },
+        })
+        addRenderFeatures(app.world, {
+          name: 'render/shadows',
+          description: 'Cascaded directional shadows, and spot and point shadow layers.',
+          nodes: ['shadows/cascades', 'shadows/local'],
+          baseline: { strategy: 'The same render passes' },
+        })
+        graph.addNode('instance-cull', cullNode(state))
+        graph.addNode('light-clusters', clusterNode(state))
+        graph.addNode('shadows/cascades', cascadeNode(state))
+        graph.addNode('shadows/local', localShadowNode(state))
+        graph.addNode('forward-opaque', forwardNode(state))
+        graph.addNode('forward-ground', groundNode(state))
+        graph.addNode('forward-overlay', overlayNode(state))
+        graph.addNode('forward-transparent', transparentNode(state))
+        graph.addNode('depth-resolve', depthResolveNode(state))
+        graph.addNode('depth-prepass', depthPrepassNode(state))
+        addDisplayNodes(app.world)
       })
-      app.insertResource(Instances, store)
-      app.insertResource(Culler, new GpuCuller(gpu))
-      app.insertResource(
-        Lights,
-        new LightStore(gpu, app.world.resource(LightingSettings).maxLights),
-      )
-      app.insertResource(ShadowsResource, {
-        local: new LocalShadows(),
-        uniforms: new ShadowPassUniforms(gpu),
-      })
-      const state: ForwardState = {
-        views: new Map(),
-        viewBytes: new DataView(new ArrayBuffer(viewLayout.size)),
-        shadowFloats: new Float32Array(SHADOW_DATA_FLOATS),
-        layouts: createLayouts(gpu, assets, store),
-        layoutGeneration: gpu.generation,
-        emptyShadow: undefined,
-        white: undefined,
-        shadowSampler: undefined,
-        frame: 0,
-        warned: { budget: '', overflow: '' },
-        globals: new GpuBuffer(gpu, { label: 'globals', usage: GPUBufferUsage.UNIFORM, size: 16 }),
-        globalsData: new Float32Array(4),
-        pipelines: new MaterialPipelines(),
-        cullerActive: false,
-        gbufferTargets: [
-          { format: 'rgba8unorm-srgb' },
-          { format: 'rgba16float' },
-          { format: gbufferEmissiveFormat(gpu) },
-        ],
-      }
-      app.insertResource(MaterialFallbacks, {
-        count: () => state.pipelines.failureCount,
-        list: () => state.pipelines.failures(),
-      })
-      // Batches draw grouped by material type and variant, so pipeline switches stay rare.
-      store.batchKey = (b) => typeOrdinal(b.material.type) * 16 + materialVariant(b.material)
-      app.insertResource(State, state)
-      const graph = app.world.resource(Graph)
-      graph.declare({ name: 'scene-color', format: 'rgba16float', sampleCount: msaaOf })
-      graph.declare({ name: 'scene-depth', format: 'depth32float', sampleCount: msaaOf })
-      graph.declare({ name: 'hdr', format: 'rgba16float' })
-      graph.declare({ name: 'depth', format: 'depth32float' })
-      graph.declare({ name: 'ldr', format: 'view' })
-      addRenderFeatures(app.world, {
-        name: 'render/forward',
-        description: 'Opaque, ground and transparent mesh passes, and the MSAA depth resolve.',
-        nodes: [
-          'forward-opaque',
-          'forward-ground',
-          'forward-transparent',
-          'forward-overlay',
-          'depth-resolve',
-        ],
-        baseline: {
-          strategy:
-            'Instances, visibility and deform data in data textures; MSAA depth from a single-sample depth prepass',
-        },
-      })
-      addRenderFeatures(app.world, {
-        name: 'render/culling',
-        description: 'GPU frustum, range and LOD culling with indirect draws.',
-        nodes: ['instance-cull'],
-        baseline: { strategy: 'CPU culling and direct draws' },
-      })
-      addRenderFeatures(app.world, {
-        name: 'render/light-clusters',
-        description: 'Clustered light binning (Forward+).',
-        nodes: ['light-clusters'],
-        baseline: { strategy: 'CPU binning into a 128-light bitmask texture' },
-      })
-      addRenderFeatures(app.world, {
-        name: 'render/shadows',
-        description: 'Cascaded directional shadows, and spot and point shadow layers.',
-        nodes: ['shadows/cascades', 'shadows/local'],
-        baseline: { strategy: 'The same render passes' },
-      })
-      graph.addNode('instance-cull', cullNode(state))
-      graph.addNode('light-clusters', clusterNode(state))
-      graph.addNode('shadows/cascades', cascadeNode(state))
-      graph.addNode('shadows/local', localShadowNode(state))
-      graph.addNode('forward-opaque', forwardNode(state))
-      graph.addNode('forward-ground', groundNode(state))
-      graph.addNode('forward-overlay', overlayNode(state))
-      graph.addNode('forward-transparent', transparentNode(state))
-      graph.addNode('depth-resolve', depthResolveNode())
-      addDisplayNodes(app.world)
     },
     dispose(app) {
       unwatch.get(app)?.()

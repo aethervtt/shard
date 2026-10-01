@@ -50,6 +50,12 @@ export const STANDARD_FIELDS = {
     description: 'Emitted luminance. 0 = not emissive.',
   }),
   doubleSided: t.bool({ description: 'Draw back faces too (no culling).' }),
+  deferUntilReady: t.bool({
+    // The asset layer reads it; shaders don't.
+    gpu: false,
+    description:
+      "Baseline tier (0064): while a texture it binds waits for a copy in its slot's color space, skip its draws instead of showing the slot's loading fallback.",
+  }),
   alphaMode: t.enum(['opaque', 'mask', 'alpha', 'additive', 'premultiplied'], {
     description:
       'opaque ignores alpha; mask discards pixels below alphaCutoff; alpha blends (transparent, drawn after opaque, sorted back to front); additive adds light (glows); premultiplied expects color already multiplied by alpha.',

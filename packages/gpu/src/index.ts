@@ -1,16 +1,21 @@
+export type { BakedTranslations } from '@aethervtt/shard-gpu-webgl2'
 export { GpuBuffer, type GpuBufferOptions } from './buffer'
 export { LayoutCache, PipelineCache } from './caches'
 export {
   type CreateGpuContextOptions,
   createGpuContext,
   type DeviceLostInfo,
+  type GpuBackendChoice,
   GpuContext,
   type GpuStatus,
+  type ShaderCacheStats,
+  type Webgl2ContextOptions,
 } from './context'
 export { type GpuErrorListener, toShardError } from './errors'
 export { descriptorKey } from './key'
 export {
   bufferCategory,
+  DATA_TEXTURE_PREFIX,
   type GpuMemory,
   type GpuMemoryCategory,
   type GpuStats,
@@ -24,9 +29,20 @@ export {
   uploadCategory,
 } from './ledger'
 export {
+  type GraphicsSupport,
+  type ProbeGraphicsOptions,
   type ProbeWebGpuOptions,
+  probeGraphics,
   probeWebGpu,
   type WebGpuSupport,
   type WebGpuUnsupportedReason,
 } from './probe'
 export { Surface, type SurfaceAlpha, type SurfaceOptions } from './surface'
+export {
+  capabilitiesOf,
+  type GpuBackendName,
+  type GpuCapabilities,
+  type GpuTier,
+  type GraphicsReason,
+  isCoreDevice,
+} from './tier'

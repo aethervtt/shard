@@ -1,5 +1,7 @@
-// Every playground demo in real Chromium: it starts, draws something, and reports no GPU errors or
-// page errors. Needs Playwright's Chromium and a WebGPU adapter (see browser-tests.ts).
+// Every playground demo in real Chromium, on WebGPU and on WebGL2 (0064): it starts, draws
+// something, and reports no GPU errors or page errors. On WebGL2 (the baseline tier) its health is
+// ok, or names exactly what the tier can't run. Needs Playwright's Chromium, with a WebGPU adapter
+// and WebGL2 (see browser-tests.ts).
 
 import { timeout } from '@aethervtt/shard-core/test-env'
 import { browserLaunch, decodePng } from '@aethervtt/shard-verify/node'
@@ -10,16 +12,31 @@ import {
   type PlaygroundServer,
   servePlayground,
   webGpuUnavailable,
+  webgl2Unavailable,
 } from './browser-tests'
 import { DEMOS } from './demos'
 
 const server: PlaygroundServer = await servePlayground()
 const skip = await webGpuUnavailable(`${server.base}/`)
 checkRequired('Playground demo', skip)
+const skipGl = await webgl2Unavailable(`${server.base}/`)
+checkRequired('Playground WebGL2 demo', skipGl)
+
+/**
+ * What each demo reports on the baseline tier, beyond ok: features it can't run there (compute, or
+ * storage read in shaders), and lights past the tier's 128. Every other demo's health is ok.
+ */
+const BASELINE_ISSUES: Record<string, string[]> = {
+  galaxy: ['render/feature-unsupported playground/galaxy'],
+  terrain: ['render/feature-unsupported terrain'],
+  atmosphere: ['render/feature-unsupported terrain'],
+  lights: ['render/light-budget camera:1'],
+  deferred: ['render/light-budget camera:0'],
+}
 
 let browser: Browser
 beforeAll(async () => {
-  if (!skip) browser = await chromium.launch(browserLaunch('chromium', 1))
+  if (!skip || !skipGl) browser = await chromium.launch(browserLaunch('chromium', 1))
 })
 afterAll(async () => {
   await browser?.close()
@@ -31,13 +48,24 @@ interface DemoRun {
   pageErrors: string[]
   gpuErrors: string[]
   colors: number
+  backend: string
+  tier: string
+  reasons: string[]
+  /** RenderHealth's state, and its degraded issues as `code ref`. */
+  health: string
+  issues: string[]
 }
 
 /**
  * Opens a demo, waits for it to start and for its pipelines to finish compiling (or `settleMs` to
  * pass: some demos stream work forever), then reads its GPU errors and what the canvas shows.
  */
-async function run(page: Page, demo: string, settleMs: number): Promise<DemoRun> {
+async function run(
+  page: Page,
+  demo: string,
+  settleMs: number,
+  backend?: 'webgl2',
+): Promise<DemoRun> {
   const pageErrors: string[] = []
   page.on('pageerror', (err) => pageErrors.push(err.message))
   page.on('console', (message) => {
@@ -46,7 +74,7 @@ async function run(page: Page, demo: string, settleMs: number): Promise<DemoRun>
       pageErrors.push(message.text())
     }
   })
-  await page.goto(`${server.base}/#${demo}`)
+  await page.goto(`${server.base}/${backend ? `?backend=${backend}` : ''}#${demo}`)
   await page.waitForFunction(() => {
     const p = (globalThis as { playground?: { started: boolean; error?: string } }).playground
     return p?.started || p?.error !== undefined
@@ -58,9 +86,16 @@ async function run(page: Page, demo: string, settleMs: number): Promise<DemoRun>
         pipelinesCompiling: number
         drawsSkipped: number
         recentErrors: { code: string; message: string }[]
+        backend: string
+        tier: string
+        reasons: { code: string }[]
+        health: { state: string; issues: { code: string; ref?: string; severity: string }[] }
       }
     }
-    if (g.playground.error !== undefined) return { error: g.playground.error, gpuErrors: [] }
+    const none = { backend: '', tier: '', reasons: [], health: '', issues: [] }
+    if (g.playground.error !== undefined) {
+      return { error: g.playground.error, gpuErrors: [], ...none }
+    }
     const end = performance.now() + ms
     let quiet = 0
     let frames = 0
@@ -71,8 +106,20 @@ async function run(page: Page, demo: string, settleMs: number): Promise<DemoRun>
       const d = g.describe()
       quiet = d.pipelinesCompiling === 0 && d.drawsSkipped === 0 ? quiet + 1 : 0
     }
-    const errors = g.describe().recentErrors.map((e) => `${e.code}: ${e.message}`)
-    return { error: undefined, gpuErrors: errors }
+    const d = g.describe()
+    const errors = d.recentErrors.map((e) => `${e.code}: ${e.message}`)
+    return {
+      error: undefined,
+      gpuErrors: errors,
+      backend: d.backend,
+      tier: d.tier,
+      reasons: d.reasons.map((r) => r.code),
+      health: d.health.state,
+      issues: d.health.issues
+        .filter((i) => i.severity === 'degraded')
+        .map((i) => `${i.code} ${i.ref ?? ''}`)
+        .sort(),
+    }
   }, settleMs)
   // The page, clipped to the viewport: an element screenshot first waits for two frames in which
   // the element doesn't move, which a heavy demo on a software GPU may not give it in time.
@@ -112,4 +159,55 @@ describe.skipIf(skip)('playground demos on WebGPU', () => {
       timeout(90_000),
     )
   }
+})
+
+describe.skipIf(skipGl)('playground demos on WebGL2 (0064)', () => {
+  for (const demo of DEMOS) {
+    const expected = BASELINE_ISSUES[demo] ?? []
+    it(
+      `${demo} starts on the baseline tier, draws, and reports ${expected.length ? expected.join(', ') : 'ok'}`,
+      async () => {
+        const context = await browser.newContext({ viewport: { width: 640, height: 360 } })
+        try {
+          // D3D11 (ANGLE on Windows) compiles heavy shaders through FXC: seconds each, the first visit.
+          const result = await run(await context.newPage(), demo, 60_000, 'webgl2')
+          expect(result.error).toBeUndefined()
+          expect(result.pageErrors).toEqual([])
+          expect(result.gpuErrors).toEqual([])
+          expect([result.backend, result.tier]).toEqual(['webgl2', 'baseline'])
+          expect(result.issues).toEqual(expected)
+          expect(result.health).toBe(expected.length ? 'degraded' : 'ok')
+          // A feature that can't run here draws nothing, and says so instead.
+          if (!expected.some((i) => i.startsWith('render/feature-unsupported'))) {
+            expect(result.colors).toBeGreaterThan(8)
+          }
+        } finally {
+          await context.close()
+        }
+      },
+      timeout(150_000),
+    )
+  }
+
+  it(
+    "'auto' without WebGPU picks WebGL2, and says why",
+    async () => {
+      const context = await browser.newContext({ viewport: { width: 640, height: 360 } })
+      try {
+        const page = await context.newPage()
+        await page.addInitScript(() => {
+          Object.defineProperty(Navigator.prototype, 'gpu', { get: () => undefined })
+        })
+        const result = await run(page, 'scene', 30_000)
+        expect(result.error).toBeUndefined()
+        expect([result.backend, result.tier]).toEqual(['webgl2', 'baseline'])
+        expect(result.reasons).toEqual(['no-webgpu'])
+        expect(result.health).toBe('ok')
+        expect(result.colors).toBeGreaterThan(8)
+      } finally {
+        await context.close()
+      }
+    },
+    timeout(90_000),
+  )
 })

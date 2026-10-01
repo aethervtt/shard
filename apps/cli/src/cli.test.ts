@@ -23,6 +23,7 @@ import { createMcpServer } from './mcp'
 const here = dirname(fileURLToPath(import.meta.url))
 const bin = resolve(here, '../bin/shard.mjs')
 const example = resolve(here, '../../../examples/star-explorer')
+const mazeChase = resolve(here, '../../../examples/maze-chase')
 
 function shard(args: string[], cwd = example) {
   const r = spawnSync(process.execPath, [bin, ...args], { cwd, encoding: 'utf8', timeout: 180_000 })
@@ -56,6 +57,36 @@ describe('commands', () => {
     expect(shard(['init', join(dir, 'my-game')], dir).code).toBe(2) // not empty
     rmSync(dir, { recursive: true, force: true })
   })
+
+  it('validate --tier baseline draws every scene on a compatibility device and translates its shaders', () => {
+    // The explorer's planet needs compute: reported by name, and the run fails.
+    const r = shard(['validate', '--tier', 'baseline', '--json'])
+    expect(r.code).toBe(1)
+    const { baseline } = r.json() as {
+      baseline: {
+        scenes: string[]
+        variants: number
+        entryPoints: number
+        problems: { code: string; message: string; path?: string }[]
+      }
+    }
+    expect(baseline.scenes).toContain('scenes/planet.scene.json')
+    expect(baseline.variants).toBeGreaterThan(5)
+    expect(baseline.entryPoints).toBeGreaterThan(baseline.variants)
+    expect(baseline.problems).toEqual([
+      expect.objectContaining({
+        code: 'render/feature-unsupported',
+        path: 'scenes/planet.scene.json',
+        message: expect.stringContaining('terrain'),
+      }),
+    ])
+    // A project without such features validates at the baseline tier.
+    expect(shard(['validate', '--tier', 'baseline', '--json'], mazeChase).json()).toMatchObject({
+      valid: true,
+      baseline: { problems: [] },
+    })
+    expect(shard(['validate', '--tier', 'fast']).code).toBe(3)
+  }, 300_000)
 
   it('validate passes on the example and lists every error in a broken scene (exit 1)', () => {
     expect(shard(['validate', '--json']).json()).toMatchObject({ valid: true })

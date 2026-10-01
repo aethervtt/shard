@@ -655,6 +655,19 @@ export class App {
     })
   }
 
+  /**
+   * Runs `fn` inside the app's scopes, as build and ready hooks run. For the part of an async ready
+   * hook after its first await, which runs outside them: what it makes counts against the app.
+   */
+  scoped<T>(fn: () => T): T {
+    const n = this.enter()
+    try {
+      return fn()
+    } finally {
+      this.exit(n)
+    }
+  }
+
   /** Enters every scope; returns how many, for the matching `exit`. */
   private enter(): number {
     const n = this.scopes.length

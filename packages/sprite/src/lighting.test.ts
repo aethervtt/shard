@@ -20,7 +20,7 @@ import {
   renderPlugin,
   Tonemapping,
 } from '@aethervtt/shard-render'
-import { compareGolden, pngBytes, settle } from '@aethervtt/shard-render/testing'
+import { compareGolden, pngBytes, settle, watchBaseline } from '@aethervtt/shard-render/testing'
 import { App, LogResource } from '@aethervtt/shard-runtime'
 import { Texture, Textures } from '@aethervtt/shard-texture'
 import { Transform, TransformPlugin } from '@aethervtt/shard-transform'
@@ -107,20 +107,29 @@ describe('2D lighting on the CPU', () => {
 })
 
 let gpu: GpuContext
+/** The baseline tier (0064) on a compatibility device: the goldens below hold there too. */
+let compat: GpuContext
 beforeAll(async () => {
   gpu = await createNodeGpuContext()
+  compat = await createNodeGpuContext({ tier: 'baseline' })
 })
-afterAll(() => gpu.destroy())
+afterAll(() => {
+  gpu.destroy()
+  compat.destroy()
+})
+
+const TIERS = ['full', 'baseline'] as const
+const deviceOf = (tier: (typeof TIERS)[number]) => (tier === 'full' ? gpu : compat)
 
 const roots: string[] = []
 afterAll(() => {
   for (const r of roots) rmSync(r, { recursive: true, force: true })
 })
 
-async function scene(width = 96, height = 96, root?: string) {
+async function scene(width = 96, height = 96, root?: string, device = gpu) {
   const app = new App().addPlugin(
     TransformPlugin,
-    renderPlugin({ gpu, windowView: false }),
+    renderPlugin({ gpu: device, windowView: false }),
     forwardPlugin({ msaa: 1 }),
     spritePlugin,
   )
@@ -131,7 +140,7 @@ async function scene(width = 96, height = 96, root?: string) {
       .scan()
     if (report.failed.length) throw new Error(JSON.stringify(report.failed))
   }
-  const target = new OffscreenTarget(gpu, { label: 'lights2d', width, height })
+  const target = new OffscreenTarget(device, { label: 'lights2d', width, height })
   const targetRef = app.world.resource(RenderTargets).add(target, 'lights2d')
   const camera = (height = 10, lighting?: Record<string, unknown>) =>
     app.world.spawn(
@@ -257,93 +266,103 @@ describe('2D lighting', () => {
     expect(at(dark, 30 + 31, 50)).toEqual([0, 0, 0])
   })
 
-  it('lights a normal-mapped sprite from the side, and a flipped one from the same side (golden image)', async () => {
-    const { app, world, camera } = await scene(128, 64)
-    const tex = solid(world, [220, 220, 220, 255])
-    const normal = dome(world)
-    for (const [x, flipX] of [
-      [-2.5, false],
-      [2.5, true],
-    ] as const) {
+  for (const tier of TIERS)
+    it(`lights a normal-mapped sprite from the side, and a flipped one from the same side (golden image, ${tier} tier)`, async () => {
+      const found = tier === 'baseline' ? watchBaseline(compat) : undefined
+      const { app, world, camera } = await scene(128, 64, undefined, deviceOf(tier))
+      const tex = solid(world, [220, 220, 220, 255])
+      const normal = dome(world)
+      for (const [x, flipX] of [
+        [-2.5, false],
+        [2.5, true],
+      ] as const) {
+        world.spawn(
+          [Sprite, { texture: tex, size: [4, 4], flipX }],
+          [SpriteLighting, { normal }],
+          [Transform, { translation: [x, 0, 0] }],
+        )
+      }
       world.spawn(
-        [Sprite, { texture: tex, size: [4, 4], flipX }],
-        [SpriteLighting, { normal }],
-        [Transform, { translation: [x, 0, 0] }],
+        [PointLight2d, { radius: 40, height: 0.3, falloff: 1, intensity: 1.5 }],
+        [Transform, { translation: [-14, 0, 0] }],
       )
-    }
-    world.spawn(
-      [PointLight2d, { radius: 40, height: 0.3, falloff: 1, intensity: 1.5 }],
-      [Transform, { translation: [-14, 0, 0] }],
-    )
-    const cam = camera(8, { ambient: [0.05, 0.05, 0.05, 1] })
-    const image = await shot(app, `camera:${cam}`)
-    expect(compareGolden(here, 'lights2d-normals', image).mean).toBeLessThan(1.5)
-    // 8 pixels per unit: sprite centers at x = 44 and 84, each 32 wide.
-    for (const cx of [44, 84]) {
-      const left = lum(at(image, cx - 10, 32))
-      const right = lum(at(image, cx + 10, 32))
-      expect(left, `sprite at ${cx}`).toBeGreaterThan(right + 40)
-    }
-    expect(world.resource(Gpu).errors).toEqual([])
-  })
-
-  it('casts hard and soft shadows from a box, keeping its lit face lit (golden images)', async () => {
-    const results: Record<string, Awaited<ReturnType<typeof shot>>> = {}
-    for (const softness of [0, 0.8]) {
-      const { app, world, camera } = await scene(160, 96)
-      const floor = solid(world, [180, 180, 180, 255])
-      const wall = solid(world, [120, 90, 70, 255])
-      world.spawn(
-        [Sprite, { texture: floor, size: [20, 12] }],
-        [Transform, { translation: [0, 0, -1] }],
-      )
-      world.spawn(
-        [Sprite, { texture: wall, size: [1, 1] }],
-        [LightOccluder2d, { shape: 'box', size: [1, 1], lightPenetration: 0.25 }],
-        [Transform, { translation: [-2, 0, 0] }],
-      )
-      world.spawn(
-        [PointLight2d, { radius: 14, falloff: 0.5, intensity: 1, shadows: true, softness }],
-        [Transform, { translation: [-5, 0, 0] }],
-      )
-      const cam = camera(6, { ambient: [0.1, 0.1, 0.1, 1] })
+      const cam = camera(8, { ambient: [0.05, 0.05, 0.05, 1] })
       const image = await shot(app, `camera:${cam}`)
-      results[softness] = image
-      expect(
-        compareGolden(here, softness ? 'lights2d-shadow-soft' : 'lights2d-shadow-hard', image).mean,
-      ).toBeLessThan(1.5)
-      const lights = describeRender(world).sprites as {
-        lighting: { views: Record<string, { shadowed: number; segments: number }> }
+      expect(compareGolden(here, 'lights2d-normals', image).mean).toBeLessThan(1.5)
+      // 8 pixels per unit: sprite centers at x = 44 and 84, each 32 wide.
+      for (const cx of [44, 84]) {
+        const left = lum(at(image, cx - 10, 32))
+        const right = lum(at(image, cx + 10, 32))
+        expect(left, `sprite at ${cx}`).toBeGreaterThan(right + 40)
       }
-      expect(lights.lighting.views[`camera:${cam}`]!.shadowed).toBe(1)
-      expect(lights.lighting.views[`camera:${cam}`]!.segments).toBe(4)
-      expect(world.resource(LogResource).errors()).toEqual([])
-    }
-    const hard = results[0]!
-    // 16 px per unit; the view spans x ∈ [-5, 5], y ∈ [-3, 3]. Wall at x ∈ [-2.5, -1.5], y ∈
-    // [-0.5, 0.5]: the shadow's edge rises to y = 1 at x = 0 and y = 1.9 at x = 4.5.
-    const px = (x: number) => Math.round((x + 5) * 16)
-    const py = (y: number) => Math.round((3 - y) * 16)
-    const behind = lum(at(hard, px(2), py(0)))
-    const beside = lum(at(hard, px(-1), py(2.6)))
-    expect(beside).toBeGreaterThan(behind + 40)
-    // The wall's face toward the light is lit; its far side is in its own shadow.
-    expect(lum(at(hard, px(-2.4), py(0)))).toBeGreaterThan(lum(at(hard, px(-1.6), py(0))) + 20)
-    // Soft penumbras widen away from the occluder: count partly lit pixels down a column.
-    const penumbra = (image: typeof hard, x: number) => {
-      const lit = lum(at(image, px(x), py(2.9)))
-      const dark = lum(at(image, px(x), py(0)))
-      let n = 0
-      for (let y = 0; y < 96; y++) {
-        const v = lum(at(image, px(x), y))
-        if (v > dark + (lit - dark) * 0.1 && v < dark + (lit - dark) * 0.9) n++
+      expect(world.resource(Gpu).errors).toEqual([])
+      expect(world.resource(Gpu).tier).toBe(tier)
+      expect(found?.computePasses ?? 0).toBe(0)
+      expect(found?.renderStorage ?? []).toEqual([])
+    })
+
+  for (const tier of TIERS)
+    it(`casts hard and soft shadows from a box, keeping its lit face lit (golden images, ${tier} tier)`, async () => {
+      const found = tier === 'baseline' ? watchBaseline(compat) : undefined
+      const results: Record<string, Awaited<ReturnType<typeof shot>>> = {}
+      for (const softness of [0, 0.8]) {
+        const { app, world, camera } = await scene(160, 96, undefined, deviceOf(tier))
+        const floor = solid(world, [180, 180, 180, 255])
+        const wall = solid(world, [120, 90, 70, 255])
+        world.spawn(
+          [Sprite, { texture: floor, size: [20, 12] }],
+          [Transform, { translation: [0, 0, -1] }],
+        )
+        world.spawn(
+          [Sprite, { texture: wall, size: [1, 1] }],
+          [LightOccluder2d, { shape: 'box', size: [1, 1], lightPenetration: 0.25 }],
+          [Transform, { translation: [-2, 0, 0] }],
+        )
+        world.spawn(
+          [PointLight2d, { radius: 14, falloff: 0.5, intensity: 1, shadows: true, softness }],
+          [Transform, { translation: [-5, 0, 0] }],
+        )
+        const cam = camera(6, { ambient: [0.1, 0.1, 0.1, 1] })
+        const image = await shot(app, `camera:${cam}`)
+        results[softness] = image
+        expect(
+          compareGolden(here, softness ? 'lights2d-shadow-soft' : 'lights2d-shadow-hard', image)
+            .mean,
+        ).toBeLessThan(1.5)
+        const lights = describeRender(world).sprites as {
+          lighting: { views: Record<string, { shadowed: number; segments: number }> }
+        }
+        expect(lights.lighting.views[`camera:${cam}`]!.shadowed).toBe(1)
+        expect(lights.lighting.views[`camera:${cam}`]!.segments).toBe(4)
+        expect(world.resource(LogResource).errors()).toEqual([])
       }
-      return n
-    }
-    const soft = results[0.8]!
-    expect(penumbra(soft, 4.5)).toBeGreaterThan(penumbra(soft, 0))
-    expect(penumbra(soft, 0)).toBeGreaterThan(penumbra(hard, 0))
-  })
+      const hard = results[0]!
+      // 16 px per unit; the view spans x ∈ [-5, 5], y ∈ [-3, 3]. Wall at x ∈ [-2.5, -1.5], y ∈
+      // [-0.5, 0.5]: the shadow's edge rises to y = 1 at x = 0 and y = 1.9 at x = 4.5.
+      const px = (x: number) => Math.round((x + 5) * 16)
+      const py = (y: number) => Math.round((3 - y) * 16)
+      const behind = lum(at(hard, px(2), py(0)))
+      const beside = lum(at(hard, px(-1), py(2.6)))
+      expect(beside).toBeGreaterThan(behind + 40)
+      // The wall's face toward the light is lit; its far side is in its own shadow.
+      expect(lum(at(hard, px(-2.4), py(0)))).toBeGreaterThan(lum(at(hard, px(-1.6), py(0))) + 20)
+      // Soft penumbras widen away from the occluder: count partly lit pixels down a column.
+      const penumbra = (image: typeof hard, x: number) => {
+        const lit = lum(at(image, px(x), py(2.9)))
+        const dark = lum(at(image, px(x), py(0)))
+        let n = 0
+        for (let y = 0; y < 96; y++) {
+          const v = lum(at(image, px(x), y))
+          if (v > dark + (lit - dark) * 0.1 && v < dark + (lit - dark) * 0.9) n++
+        }
+        return n
+      }
+      const soft = results[0.8]!
+      expect(penumbra(soft, 4.5)).toBeGreaterThan(penumbra(soft, 0))
+      expect(penumbra(soft, 0)).toBeGreaterThan(penumbra(hard, 0))
+      expect(found?.computePasses ?? 0).toBe(0)
+      expect(found?.renderStorage ?? []).toEqual([])
+    })
 
   it('bins and shadows on the GPU exactly like the CPU references', async () => {
     const { app, world, camera } = await scene(160, 96)
@@ -369,7 +388,7 @@ describe('2D lighting', () => {
     expect(view.segmentCount).toBeGreaterThan(20)
     const tiles = view.tilesX * view.tilesY
     const gpuTiles = new Uint32Array(
-      await readBuffer(gpu, view.gpu!.tiles.buffer, tiles * TILE_STRIDE * 4),
+      await readBuffer(gpu, view.gpu!.tiles.gpuBuffer, tiles * TILE_STRIDE * 4),
     )
     const cpu = binLightsCpu(view.circles, view.count, view.tilesX, view.tilesY)
     let mismatches = 0
@@ -381,7 +400,7 @@ describe('2D lighting', () => {
     }
     expect(mismatches).toBe(0)
     const rows = new Float32Array(
-      await readBuffer(gpu, view.gpu!.shadowMap.buffer, view.shadowedCount * SHADOW_RES * 4),
+      await readBuffer(gpu, view.gpu!.shadowMap.gpuBuffer, view.shadowedCount * SHADOW_RES * 4),
     )
     const row = new Float32Array(SHADOW_RES)
     let off = 0

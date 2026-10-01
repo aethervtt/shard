@@ -1,6 +1,7 @@
-import { GpuBuffer } from '@aethervtt/shard-gpu'
+import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
 import {
   cameraOf,
+  depthReadEntry,
   type NodeDescriptor,
   RenderPhase,
   type RenderView,
@@ -112,7 +113,13 @@ interface ViewState {
 
 const uniformData = new Float32Array(UNIFORM_FLOATS)
 
-export function compositeNode(state: FogState): NodeDescriptor {
+/**
+ * Reads the scene's depth: multisampled `scene-depth` itself on the full tier, and on baseline
+ * (0064), which can't read multisampled textures, `depth` (drawn by the forward depth prepass).
+ */
+export function compositeNode(state: FogState, tier: GpuContext['tier']): NodeDescriptor {
+  const baseline = tier === 'baseline'
+  const source = baseline ? 'depth' : 'scene-depth'
   const views = new Map<string, ViewState>()
   let generation = -1
   let layout: GPUBindGroupLayout | undefined
@@ -124,7 +131,7 @@ export function compositeNode(state: FogState): NodeDescriptor {
     kind: 'render',
     phase: RenderPhase.Fog,
     enabled: (view: RenderView) => cameraOf(view) !== undefined && state.active.length > 0,
-    reads: ['scene-depth'],
+    reads: [source],
     writes: ['scene-color', 'hdr'],
     color: (view: RenderView) => sceneColor(view),
     run: (ctx) => {
@@ -143,11 +150,14 @@ export function compositeNode(state: FogState): NodeDescriptor {
             visibility: GPUShaderStage.FRAGMENT,
             texture: { sampleType: 'float' as const },
           })),
-          {
-            binding: 6,
-            visibility: GPUShaderStage.FRAGMENT,
-            texture: { sampleType: 'depth', multisampled: msaa },
-          },
+          // Single-sample depth is read as a float texture on baseline (0064).
+          msaa
+            ? {
+                binding: 6,
+                visibility: GPUShaderStage.FRAGMENT,
+                texture: { sampleType: 'depth', multisampled: true },
+              }
+            : depthReadEntry(gpu, 6, GPUShaderStage.FRAGMENT),
         ]
         layout = gpu.layouts.bindGroupLayout({ label: 'fog/composite', entries: entries(false) })
         layoutMsaa = gpu.layouts.bindGroupLayout({
@@ -168,9 +178,9 @@ export function compositeNode(state: FogState): NodeDescriptor {
           usage: GPUTextureUsage.TEXTURE_BINDING,
         })
       }
-      const msaa = cam.msaa > 1
+      const msaa = cam.msaa > 1 && !baseline
       const alpha = cam.alphaOutput
-      const key = `${msaa ? 'msaa' : 'single'}/${alpha ? 'alpha' : 'opaque'}`
+      const key = `${msaa ? 'msaa' : 'single'}/${alpha ? 'alpha' : 'opaque'}/${cam.msaa}`
       let pipeline = pipelines.get(key)
       if (!pipeline) {
         const shaders = ctx.world.resource(Shaders)
@@ -227,7 +237,7 @@ export function compositeNode(state: FogState): NodeDescriptor {
       }
       writeUniform(ctx.world, state, cam)
       v.uniform.write(uniformData)
-      const depth = ctx.texture('scene-depth')
+      const depth = ctx.texture(source)
       const layers = state.active
       const b = v.bound
       let stale = b[0] !== v.uniform.version || b[1] !== depth || b[6] !== msaa

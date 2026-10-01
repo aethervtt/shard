@@ -11,8 +11,16 @@ import {
   type World,
 } from '@aethervtt/shard-core'
 import { GpuBuffer } from '@aethervtt/shard-gpu'
-import { Gpu, Graph, RenderSet, VIEW_TARGET, Window } from '@aethervtt/shard-render'
+import {
+  addRenderFeatures,
+  Gpu,
+  Graph,
+  RenderSet,
+  VIEW_TARGET,
+  Window,
+} from '@aethervtt/shard-render'
 import { definePlugin, FixedTime, Time } from '@aethervtt/shard-runtime'
+import { backendLine, healthLines } from './backend'
 import galaxyWgsl from './galaxy.wgsl?raw'
 
 // --- data --------------------------------------------------------------------
@@ -216,6 +224,8 @@ const hud = defineSystem({
       `stars    ${world.entityCount.toLocaleString()}`,
       `target   ${world.resource(Population).target.toLocaleString()}`,
       `fps      ${fps.toFixed(0)}`,
+      backendLine(world.resource(Gpu)),
+      ...healthLines(world),
       '',
       ...rows,
     ].join('\n')
@@ -258,6 +268,15 @@ export function galaxyPlugin(options: { stars: number; seed: number }) {
       }
       app.insertResource(GalaxyGpuResource, g)
 
+      // The stars are read from storage buffers in the vertex shader: the full tier only. On the
+      // baseline tier (0064) the graph skips the node and the page says why.
+      addRenderFeatures(app.world, {
+        name: 'playground/galaxy',
+        description: '100k stars, read from storage buffers in the vertex stage.',
+        nodes: ['galaxy'],
+        baseline: 'unsupported',
+        components: [Position],
+      })
       app.world.resource(Graph).addNode('galaxy', {
         kind: 'render',
         writes: [VIEW_TARGET],

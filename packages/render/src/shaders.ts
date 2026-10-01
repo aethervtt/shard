@@ -96,9 +96,9 @@ const FLAG_VISIBLE: u32 = 1u;
 const FLAG_CASTER: u32 = 2u;
 const FLAG_RECEIVER: u32 = 4u;
 
-@group(2) @binding(0) var<storage, read> instances: array<Instance>;
+@data @group(2) @binding(0) var<storage, read> instances: array<Instance>;
 /** The view's culled slots; a draw's instance_index indexes this. */
-@group(2) @binding(1) var<storage, read> visible: array<u32>;
+@data @group(2) @binding(1) var<storage, read> visible: array<u32>;
 
 /** Visible-list entries: slot in the low 28 bits, LOD level in the top 4. */
 const SLOT_MASK: u32 = 0x0fffffffu;
@@ -117,7 +117,7 @@ fn instance_world(inst: Instance, position: vec3f) -> vec3f {
 }
 
 /** Last frame's transform of each slot (three affine rows), for motion vectors. */
-@group(2) @binding(2) var<storage, read> previous: array<vec4f>;
+@data @group(2) @binding(2) var<storage, read> previous: array<vec4f>;
 
 /** Where an object-space position was last frame, in world space. */
 fn previous_world(instance_index: u32, position: vec3f) -> vec3f {
@@ -190,9 +190,9 @@ struct Deform {
 const FLAG_SKINNED: u32 = 32u;
 const FLAG_MORPH: u32 = 64u;
 
-@group(2) @binding(3) var<storage, read> deforms: array<Deform>;
-@group(2) @binding(4) var<storage, read> poses: array<vec4f>;
-@group(2) @binding(5) var<storage, read> deform_data: array<u32>;
+@data @group(2) @binding(3) var<storage, read> deforms: array<Deform>;
+@data @group(2) @binding(4) var<storage, read> poses: array<vec4f>;
+@data @group(2) @binding(5) var<storage, read> deform_data: array<u32>;
 
 struct Deformed {
   position: vec3f,
@@ -489,10 +489,29 @@ const CLUSTER_Z: u32 = 24u;
 const CLUSTER_COUNT: u32 = 3456u;
 const MAX_PER_CLUSTER: u32 = 128u;
 
-@group(0) @binding(1) var<storage, read> lights: array<Light>;
+@data(uniform, 128) @group(0) @binding(1) var<storage, read> lights: array<Light>;
 /** counts[CLUSTER_COUNT], then MAX_PER_CLUSTER light indices per cluster. */
-@group(0) @binding(2) var<storage, read> clusters: array<u32>;
-@group(0) @binding(3) var<storage, read> directional: DirectionalLights;`,
+@if(!BASELINE) @group(0) @binding(2) var<storage, read> clusters: array<u32>;
+/** Baseline (0064): a bit per packed light, 128 per cluster. */
+@if(BASELINE) @data @group(0) @binding(2) var<storage, read> cluster_bits: array<vec4u>;
+@data(uniform) @group(0) @binding(3) var<storage, read> directional: DirectionalLights;
+
+/**
+ * Baseline (0064): takes the lowest light left in \`mask\` (a cluster's bits) into \`index\`;
+ * false once none are left.
+ */
+@if(BASELINE) fn next_light(mask: ptr<function, vec4u>, index: ptr<function, u32>) -> bool {
+  for (var w = 0u; w < 4u; w++) {
+    let word = (*mask)[w];
+    if (word != 0u) {
+      let lowest = word & (~word + 1u);
+      (*mask)[w] = word ^ lowest;
+      *index = w * 32u + u32(round(log2(f32(lowest))));
+      return true;
+    }
+  }
+  return false;
+}`,
 
   'shard::pbr::shadows': `
 import shard::color::ign;
@@ -517,7 +536,7 @@ struct ShadowData {
   spot_params: array<vec4f, 8>,
 }
 
-@group(0) @binding(4) var<storage, read> shadows: ShadowData;
+@data(uniform) @group(0) @binding(4) var<storage, read> shadows: ShadowData;
 @group(0) @binding(5) var cascade_maps: texture_depth_2d_array;
 @group(0) @binding(6) var spot_maps: texture_depth_2d_array;
 @group(0) @binding(7) var point_maps: texture_depth_2d_array;
@@ -621,7 +640,7 @@ fn point_shadow(index: u32, world: vec3f, n: vec3f, bias: f32, normal_bias: f32,
 import shard::view::view;
 import shard::pbr::types::PbrInput;
 import shard::pbr::brdf::{ PI, d_ggx, v_smith_ggx_correlated, f_schlick };
-import shard::pbr::lights::{ lights, clusters, directional, light_falloff, LIGHT_SPOT, NO_SHADOW, CLUSTER_X, CLUSTER_Y, CLUSTER_Z, CLUSTER_COUNT, MAX_PER_CLUSTER };
+import shard::pbr::lights::{ lights, clusters, cluster_bits, next_light, directional, light_falloff, LIGHT_SPOT, NO_SHADOW, CLUSTER_X, CLUSTER_Y, CLUSTER_Z, CLUSTER_COUNT, MAX_PER_CLUSTER };
 import shard::pbr::shadows::{ directional_shadow, spot_shadow, point_shadow, cascade_index };
 import shard::pbr::environment::environment_light;
 
@@ -687,7 +706,37 @@ fn apply_lighting(p: PbrInput, world_position: vec3f, frag_coord: vec4f, flags: 
   // Point and spot lights from this fragment's cluster: intensity (cd) / d² × window.
   let cluster = cluster_of(frag_coord, view_depth);
   var count = 0u;
-  if (cluster >= 0) {
+  @if(BASELINE) if (cluster >= 0) {
+    // The cluster's lights, lowest first; keep the body in step with the loop below.
+    var mask = cluster_bits[cluster];
+    var index = 0u;
+    while (next_light(&mask, &index)) {
+      count++;
+      let light = lights[index];
+      let to_light = light.position - world_position;
+      let d2 = max(dot(to_light, to_light), 1e-4);
+      let d = sqrt(d2);
+      let l = to_light / d;
+      var attenuation = light_falloff(light, d, d2);
+      if (light.kind == LIGHT_SPOT) {
+        let cd = dot(-l, light.direction);
+        let spot = clamp(cd * light.spot_scale + light.spot_offset, 0.0, 1.0);
+        attenuation *= spot * spot;
+      }
+      if (attenuation <= 0.0) { continue; }
+      if (receives && light.shadow != NO_SHADOW) {
+        if (light.kind == LIGHT_SPOT) {
+          attenuation *= spot_shadow(light.shadow, world_position, n, light.position, light.shadow_bias, light.shadow_normal_bias, light.shadow_softness, frag_coord.xy);
+        } else {
+          attenuation *= point_shadow(light.shadow, world_position, n, light.shadow_bias, light.shadow_normal_bias, light.shadow_softness, frag_coord.xy);
+        }
+      }
+      let a_light = clamp(a + light.radius / (2.0 * d), 0.0, 1.0);
+      let norm = (a / a_light) * (a / a_light);
+      color += brdf(n, v, l, a_light, diffuse_color, f0, norm) * light.color * attenuation;
+    }
+  }
+  @if(!BASELINE) if (cluster >= 0) {
     count = clusters[cluster];
     let base = CLUSTER_COUNT + u32(cluster) * MAX_PER_CLUSTER;
     for (var k = 0u; k < count; k++) {
@@ -1001,7 +1050,7 @@ import shard::pbr::types::PbrInput;
 @group(0) @binding(10) var env_lut: texture_2d<f32>;
 @group(0) @binding(11) var env_sampler: sampler;
 /** SH9, convolved with the cosine lobe and divided by π: dot with the basis = irradiance / π. */
-@group(0) @binding(12) var<storage, read> env_sh: array<vec4f, 9>;
+@data(uniform) @group(0) @binding(12) var<storage, read> env_sh: array<vec4f, 9>;
 @group(0) @binding(13) var env_source: texture_cube<f32>;
 
 const ENV_SPECULAR_MIPS: f32 = 5.0;

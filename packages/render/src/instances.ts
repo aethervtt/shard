@@ -8,12 +8,13 @@ import {
   t,
   type World,
 } from '@aethervtt/shard-core'
-import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
+import type { GpuBuffer, GpuContext } from '@aethervtt/shard-gpu'
 import type { Mesh } from '@aethervtt/shard-mesh'
 import { DevMode, LogResource } from '@aethervtt/shard-runtime'
 import { toHalf } from '@aethervtt/shard-texture'
 import { GlobalTransform, Transform } from '@aethervtt/shard-transform'
 import { MaterialAsset, Materials, Meshes } from './assets'
+import { DataStore } from './data-store'
 import { DEFORM_WORDS, DeformStore } from './deform'
 import { GpuAssetsResource } from './gpu-assets'
 import { GroundLayer, OVERLAY_BAND, RenderLayers } from './layers'
@@ -452,7 +453,7 @@ export class InstanceStore {
   private lastMoved = new Uint32Array(64)
   private lastMovedCount = 0
   private frame = 1
-  readonly prevBuffer: GpuBuffer
+  readonly prevBuffer: DataStore
   private readonly free: number[] = []
   /** Slots waiting for their mesh or material to load. */
   readonly pending = new Set<number>()
@@ -493,8 +494,8 @@ export class InstanceStore {
   /** Visible slot lists of every CPU-culled view this frame, concatenated. */
   visible = new Uint32Array(1024)
   visibleCount = 0
-  readonly instanceBuffer: GpuBuffer
-  readonly visibleBuffer: GpuBuffer
+  readonly instanceBuffer: DataStore
+  readonly visibleBuffer: DataStore
   private generation: number
   private readonly gpu: GpuContext
   bindGroup: GPUBindGroup | undefined
@@ -511,23 +512,12 @@ export class InstanceStore {
   constructor(gpu: GpuContext) {
     this.gpu = gpu
     this.generation = gpu.generation
-    this.instanceBuffer = new GpuBuffer(gpu, {
-      label: 'instances',
-      usage: GPUBufferUsage.STORAGE,
-      size: INSTANCE_BYTES * 256,
-    })
-    this.prevBuffer = new GpuBuffer(gpu, {
-      label: 'instances/previous',
-      usage: GPUBufferUsage.STORAGE,
-      size: PREV_BYTES * 256,
-    })
-    this.visibleBuffer = new GpuBuffer(gpu, {
-      label: 'instances/visible',
-      usage: GPUBufferUsage.STORAGE,
-      size: 4 * 1024,
-    })
-    this.layout = createInstanceLayout(gpu)
+    // What the vertex stage reads: storage on the full tier, data textures on baseline (0064).
+    this.instanceBuffer = new DataStore(gpu, { label: 'instances', size: INSTANCE_BYTES * 256 })
+    this.prevBuffer = new DataStore(gpu, { label: 'instances/previous', size: PREV_BYTES * 256 })
+    this.visibleBuffer = new DataStore(gpu, { label: 'instances/visible', size: 4 * 1024 })
     this.deform = new DeformStore(gpu)
+    this.layout = createInstanceLayout(gpu, this)
     this.grow(256)
   }
 
@@ -976,7 +966,7 @@ export class InstanceStore {
     if (this.generation !== this.gpu.generation) {
       // A new device: the buffer is empty again.
       this.generation = this.gpu.generation
-      this.layout = createInstanceLayout(this.gpu)
+      this.layout = createInstanceLayout(this.gpu, this)
       this.bindGroup = undefined
       this.gpuBindGroup = undefined
       this.dirtyLo = 0
@@ -1565,17 +1555,17 @@ export class InstanceStore {
     }
   }
 
-  private createBindGroup(label: string, visible: GPUBuffer): GPUBindGroup {
+  private createBindGroup(label: string, visible: GPUBindingResource): GPUBindGroup {
     return this.gpu.device.createBindGroup({
       label,
       layout: this.layout,
       entries: [
-        { binding: 0, resource: { buffer: this.instanceBuffer.buffer } },
-        { binding: 1, resource: { buffer: visible } },
-        { binding: 2, resource: { buffer: this.prevBuffer.buffer } },
-        { binding: 3, resource: { buffer: this.deform.recordBuffer.buffer } },
-        { binding: 4, resource: { buffer: this.deform.poseBuffer.buffer } },
-        { binding: 5, resource: { buffer: this.deform.vertexBuffer.buffer } },
+        { binding: 0, resource: this.instanceBuffer.resource() },
+        { binding: 1, resource: visible },
+        { binding: 2, resource: this.prevBuffer.resource() },
+        { binding: 3, resource: this.deform.recordBuffer.resource() },
+        { binding: 4, resource: this.deform.poseBuffer.resource() },
+        { binding: 5, resource: this.deform.vertexBuffer.resource() },
       ],
     })
   }
@@ -1589,14 +1579,14 @@ export class InstanceStore {
     const deformKey = `${d.recordBuffer.version}/${d.poseBuffer.version}/${d.vertexBuffer.version}`
     const key = `${this.instanceBuffer.version}/${this.visibleBuffer.version}/${this.prevBuffer.version}/${deformKey}/${this.gpu.generation}`
     if (!this.bindGroup || this.bound !== key) {
-      this.bindGroup = this.createBindGroup('instances', this.visibleBuffer.buffer)
+      this.bindGroup = this.createBindGroup('instances', this.visibleBuffer.resource())
       this.bound = key
     }
     const g = this.gpuVisible
     if (g) {
       const gkey = `${this.instanceBuffer.version}/${g.version}/${this.prevBuffer.version}/${deformKey}/${this.gpu.generation}`
       if (!this.gpuBindGroup || this.gpuBound !== gkey) {
-        this.gpuBindGroup = this.createBindGroup('instances/gpu-culled', g.buffer)
+        this.gpuBindGroup = this.createBindGroup('instances/gpu-culled', { buffer: g.buffer })
         this.gpuBound = gkey
       }
     }
@@ -1630,25 +1620,20 @@ function idOf(o: object): number {
   return id
 }
 
-export function createInstanceLayout(gpu: GpuContext): GPUBindGroupLayout {
+/** The instances bind group's layout: storage on the full tier, data textures on baseline. */
+export function createInstanceLayout(gpu: GpuContext, store: InstanceStore): GPUBindGroupLayout {
+  const VF = GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT
+  const V = GPUShaderStage.VERTEX
   return gpu.layouts.bindGroupLayout({
     label: 'instances',
     entries: [
-      {
-        binding: 0,
-        visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-        buffer: { type: 'read-only-storage' },
-      },
-      {
-        binding: 1,
-        visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-        buffer: { type: 'read-only-storage' },
-      },
-      { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
+      store.instanceBuffer.layoutEntry(0, VF),
+      store.visibleBuffer.layoutEntry(1, VF),
+      store.prevBuffer.layoutEntry(2, V),
       // Deform records, poses (joint matrices, morph weights), and per-vertex deform data.
-      { binding: 3, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
-      { binding: 4, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
-      { binding: 5, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
+      store.deform.recordBuffer.layoutEntry(3, V),
+      store.deform.poseBuffer.layoutEntry(4, V),
+      store.deform.vertexBuffer.layoutEntry(5, V),
     ],
   })
 }

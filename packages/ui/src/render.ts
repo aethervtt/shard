@@ -10,7 +10,9 @@ import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
 import {
   addRenderFeatures,
   cameraOf,
+  DataStore,
   DebugOverlays,
+  dataEntry,
   defineOverlay,
   Gpu,
   GpuAssetsResource,
@@ -65,7 +67,8 @@ export class UiRenderStore {
   count = 0
   draws: UiDraw[] = []
   drawCount = 0
-  readonly buffer: GpuBuffer
+  /** Storage on the full tier, a data texture on baseline (0064). */
+  readonly buffer: DataStore
   /** Root visual versions the records were built from. */
   private built = new Map<Entity, number>()
   overlay = false
@@ -75,11 +78,7 @@ export class UiRenderStore {
   totalUploads = 0
 
   constructor(gpu: GpuContext) {
-    this.buffer = new GpuBuffer(gpu, {
-      label: 'ui/quads',
-      usage: GPUBufferUsage.STORAGE,
-      size: QUAD_FLOATS * 4 * 64,
-    })
+    this.buffer = new DataStore(gpu, { label: 'ui/quads', size: QUAD_FLOATS * 4 * 64 })
   }
 
   /** Whether any root changed since the records were built. */
@@ -656,7 +655,7 @@ function caches(ctx: NodeContext): UiCaches {
         label: 'ui/view',
         entries: [
           { binding: 0, visibility: V, buffer: { type: 'uniform' } },
-          { binding: 1, visibility: V | F, buffer: { type: 'read-only-storage' } },
+          dataEntry(gpu, 1, V | F),
         ],
       }),
       texture: gpu.layouts.bindGroupLayout({
@@ -782,11 +781,11 @@ function drawUi(ctx: NodeContext): void {
     group(
       ctx,
       `${ctx.view.name}/ui-view`,
-      `${idOf(u.buffer)}/${idOf(store.buffer.buffer)}`,
+      `${idOf(u.buffer)}/${idOf(store.buffer)}:${store.buffer.version}`,
       c.layouts!.view,
       () => [
         { binding: 0, resource: { buffer: u.buffer } },
-        { binding: 1, resource: { buffer: store.buffer.buffer } },
+        { binding: 1, resource: store.buffer.resource() },
       ],
     ),
   )

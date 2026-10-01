@@ -316,7 +316,7 @@ describe('procedural sky', () => {
     const bakes = env.bakes
     // A rough sphere's ambient is the SH irradiance; read it for an upward normal.
     const skyIrradiance = async () => {
-      const sh = new Float32Array(await readBuffer(gpu, env.sh.buffer, 9 * 16))
+      const sh = new Float32Array(await readBuffer(gpu, env.sh.gpuBuffer, 9 * 16))
       // Band 0 plus band 1's y term (normal = +Y): Y00 = 0.282095, Y1-1 = 0.488603 · y.
       return [0, 1, 2].map((c) => sh[c]! * 0.282095 + sh[4 + c]! * 0.488603)
     }
