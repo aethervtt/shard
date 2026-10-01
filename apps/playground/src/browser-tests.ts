@@ -46,6 +46,26 @@ export async function webGpuUnavailable(url: string): Promise<string | undefined
   }
 }
 
+/** Why Chromium can't run WebGL2 pages here (0064: float render targets too), or undefined. */
+export async function webgl2Unavailable(url: string): Promise<string | undefined> {
+  try {
+    const browser = await chromium.launch(browserLaunch('chromium', 1))
+    try {
+      const page = await browser.newPage()
+      await page.goto(url)
+      const ok = await page.evaluate(() => {
+        const gl = document.createElement('canvas').getContext('webgl2')
+        return !!gl?.getExtension('EXT_color_buffer_float')
+      })
+      return ok ? undefined : 'Chromium has no WebGL2 with float render targets here'
+    } finally {
+      await browser.close()
+    }
+  } catch (err) {
+    return (err as Error).message.split('\n')[0]
+  }
+}
+
 /** Throws when browser tests are required but can't run; otherwise warns that they skip. */
 export function checkRequired(suite: string, reason: string | undefined): void {
   if (!reason) return

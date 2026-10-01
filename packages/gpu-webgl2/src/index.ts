@@ -1,4 +1,13 @@
 export {
+  type BakedTranslations,
+  NAGA_VERSION,
+  SHIM_VERSION,
+  type ShaderCacheStats,
+  Translator,
+  type TranslatorOptions,
+  translationKey,
+} from './cache'
+export {
   BufferUsage,
   ColorWrite,
   installGpuConstants,
@@ -6,7 +15,7 @@ export {
   ShaderStage,
   TextureUsage,
 } from './constants'
-export type { Translate, Webgl2AdapterInfo, Webgl2Caps, Webgl2Device } from './device'
+export type { Webgl2AdapterInfo, Webgl2Caps, Webgl2Device } from './device'
 export { unsupported } from './errors'
 export {
   createWebgl2Gpu,

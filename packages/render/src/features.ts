@@ -118,7 +118,7 @@ export function checkUnsupportedFeatures(world: World): void {
       reportUnsupported(
         world,
         f.name,
-        `${f.name} (${f.description}) needs compute, which the baseline tier doesn't have: it draws nothing here`,
+        `${f.name} (${f.description}) runs on the full tier only (WebGPU with compute and storage in shaders): it draws nothing here`,
       )
     } else {
       state.reported.delete(f.name)

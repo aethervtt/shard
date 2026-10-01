@@ -491,15 +491,22 @@ export class RenderGraph {
               ? size
               : [Math.max(1, Math.ceil(vw / size.divide)), Math.max(1, Math.ceil(vh / size.divide))]
         const format = perView(desc.format, view)
+        const sampleCount = perView(desc.sampleCount ?? 1, view)
+        let usage =
+          (desc.usage ?? GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING) |
+          GPUTextureUsage.COPY_SRC
+        // Nothing samples a multisampled target on the baseline tier (GLSL ES 3.00 can't, so
+        // readers take depth from the prepass): attachments only, which WebGL2 keeps as
+        // renderbuffers (0064).
+        if (sampleCount > 1 && this.gpu.tier === 'baseline')
+          usage &= ~GPUTextureUsage.TEXTURE_BINDING
         t = this.pool.acquire({
           label: `${view.name}/${canonical}`,
           format: format === 'view' ? view.target.format : format,
           size: px,
-          sampleCount: perView(desc.sampleCount ?? 1, view),
+          sampleCount,
           mipLevelCount: perView(desc.mipLevelCount ?? 1, view),
-          usage:
-            (desc.usage ?? GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING) |
-            GPUTextureUsage.COPY_SRC,
+          usage,
         })
         textures.set(canonical, t)
         return t

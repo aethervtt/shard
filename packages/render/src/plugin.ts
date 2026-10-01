@@ -10,9 +10,11 @@ import {
 } from '@aethervtt/shard-core'
 import {
   createGpuContext,
+  type GpuBackendChoice,
   type GpuContext,
   type Surface,
   type SurfaceAlpha,
+  type Webgl2ContextOptions,
 } from '@aethervtt/shard-gpu'
 import {
   definePlugin,
@@ -25,7 +27,13 @@ import { type ShaderBake, ShaderLibrary } from '@aethervtt/shard-shader'
 import { loadDataTextures, releaseDataStores } from './data-store'
 import { checkUnsupportedFeatures, describeFeatures, RenderFeatures } from './features'
 import { type CapturedBuffer, type CapturedImage, RenderGraph, type RenderView } from './graph'
-import { healthSystem, RenderHealth, RenderHealthChanged, RenderHealthReports } from './health'
+import {
+  healthSystem,
+  RenderHealth,
+  RenderHealthChanged,
+  RenderHealthReports,
+  raiseHealthIssue,
+} from './health'
 import { registerEngineShaders } from './shaders'
 import { GpuMemory, RenderCounters, RenderStats } from './stats'
 import type { RenderTarget } from './target'
@@ -98,6 +106,18 @@ export interface RenderPluginOptions {
    */
   target?: RenderTarget
   features?: GPUFeatureName[]
+  /**
+   * The graphics API, when the plugin makes the device (0064). 'auto' (default): WebGPU where it
+   * works, else WebGL2 on the baseline tier. 'webgpu' or 'webgl2' insist on one.
+   */
+  backend?: GpuBackendChoice
+  /** WebGL2 settings, for tests and tools (the 'minimum' profile, GL error checks). */
+  webgl2?: Webgl2ContextOptions
+  /**
+   * 'baseline' runs the baseline tier even where the full one would (on WebGPU, a
+   * compatibility-mode device), when the plugin makes the device.
+   */
+  tier?: 'baseline'
   /** An existing shader library to share (e.g. a preview rendering the game's own shaders). */
   shaders?: ShaderLibrary
   /**
@@ -133,9 +153,25 @@ const markMissing = defineSystem({
 const checkUnsupported = defineSystem({
   name: 'render/check-unsupported',
   description:
-    "On the baseline tier: reports render features the scene uses that it can't run (render/feature-unsupported).",
-  run: (_, world) => {
-    if (world.tryResource(Gpu)?.tier === 'baseline') checkUnsupportedFeatures(world)
+    "On the baseline tier: reports render features the scene uses that it can't run (render/feature-unsupported), and WebGL2 shaders translated at load (render/shader-cache-miss).",
+  setup: () => ({ misses: 0 }),
+  run: (state, world) => {
+    const gpu = world.tryResource(Gpu)
+    if (gpu?.tier !== 'baseline') return
+    checkUnsupportedFeatures(world)
+    // WebGL2: shader stages naga translated this session, as no bake or earlier session had them.
+    const cache = gpu.shaderCache()
+    if (!cache || cache.misses.length === state.misses) return
+    state.misses = cache.misses.length
+    let ms = 0
+    for (const m of cache.misses) ms += m.ms
+    const load =
+      cache.nagaLoadMs === undefined ? '' : `, ${cache.nagaLoadMs.toFixed(0)} ms to load it`
+    raiseHealthIssue(world, {
+      code: 'render/shader-cache-miss',
+      severity: 'info',
+      message: `${state.misses} shader stage${state.misses === 1 ? '' : 's'} translated to GLSL at load (${ms.toFixed(0)} ms in naga${load}): \`shard shaders bake\` ships them translated`,
+    })
   },
 })
 
@@ -298,7 +334,18 @@ export function renderPlugin(options: RenderPluginOptions = {}): Plugin {
           hint: 'Pass the GpuContext the surface was added to (surface.gpu), or omit gpu.',
         })
       }
-      const gpu = given ?? (await createGpuContext({ features: options.features }))
+      // A device the plugin makes gets the canvas as its first surface: on WebGL2 it lives on
+      // that canvas and presents straight into it.
+      const gpu =
+        given ??
+        (await createGpuContext({
+          features: options.features,
+          backend: options.backend,
+          webgl2: options.webgl2,
+          tier: options.tier,
+          canvas: options.canvas,
+          alpha: options.alpha,
+        }))
       state.gpu = gpu
       state.ownsDevice = !given
       // The baseline tier's data textures (0064), before any plugin makes a DataStore.
@@ -315,7 +362,10 @@ export function renderPlugin(options: RenderPluginOptions = {}): Plugin {
       app.insertResource(Shaders, shaders)
       const surface =
         options.surface ??
-        (options.canvas ? gpu.addSurface(options.canvas, { alpha: options.alpha }) : undefined)
+        (options.canvas
+          ? (gpu.surfaces.find((s) => s.canvas === options.canvas) ??
+            gpu.addSurface(options.canvas, { alpha: options.alpha }))
+          : undefined)
       state.surface = surface
       if (surface) {
         app.insertResource(Window, surface)
@@ -425,6 +475,8 @@ export function describeRender(world: World) {
     backend: gpu.backend,
     tier: gpu.tier,
     capabilities: gpu.capabilities,
+    // WebGL2: where shader translations came from, and what naga translated this session.
+    shaderCache: gpu.shaderCache(),
     limits: {
       maxTextureDimension2D: gpu.device.limits.maxTextureDimension2D,
       maxColorAttachments: gpu.device.limits.maxColorAttachments,

@@ -1,6 +1,7 @@
 import { defineSystem, ProfilerResource, Update, type World } from '@aethervtt/shard-core'
-import { RenderScale, RenderStats } from '@aethervtt/shard-render'
+import { Gpu, RenderScale, RenderStats } from '@aethervtt/shard-render'
 import { DisplayRate, definePlugin, Time } from '@aethervtt/shard-runtime'
+import { backendLine, healthLines } from './backend'
 
 /** Extra HUD lines a demo adds (e.g. physics body counts), read each refresh. */
 export const hudExtras: ((world: World) => string[])[] = []
@@ -49,6 +50,8 @@ const hud = defineSystem({
       `render    ${Math.round(canvas.width * k)}x${Math.round(canvas.height * k)}   ${k.toFixed(2)} ${scale?.mode ?? ''}${scale?.signal && scale.signal !== 'none' ? ` (${scale.signal})` : ''}`,
       `display   ${display ? `${display.hz} Hz (${display.source})` : '?'}   budget ${scale ? scale.budgetMs.toFixed(1) : '?'} ms`,
       `gpu frame ${gpuFrame.toFixed(2)} ms`,
+      backendLine(world.resource(Gpu)),
+      ...healthLines(world),
       stats
         ? `${view}: ${stats.visible} visible, ${stats.culled} culled, ${stats.drawCalls} draws`
         : 'no camera view',

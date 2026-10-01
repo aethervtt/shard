@@ -18,7 +18,10 @@ import {
 // - `@data` storage declarations (collected before linking) become data textures, `texture_2d<u32>`
 //   read through generated loaders that fetch the texels an element covers and pull its fields out
 //   at the storage layout's byte offsets, so the engine uploads the same bytes either way.
-//   `@data(uniform)` ones become uniform blocks, which the storage layout must match.
+//   `@data(uniform)` ones become uniform blocks, which the storage layout must match. An array of
+//   structs (or matrices) in one becomes 16-byte words read through the same kind of loader: ANGLE
+//   on Direct3D copies a struct array out of a uniform block whole, and FXC can take minutes to
+//   compile a shader that then indexes the copy.
 // - Depth textures read without comparison become float textures (naga can't `textureLoad` depth).
 // - `@interpolate(flat)` becomes `flat, either`, as compatibility mode requires.
 // - Builtins GLSL ES 3.00 lacks are polyfilled.
@@ -118,7 +121,57 @@ export function rewriteForBaseline(
           'Pad its arrays to 16-byte strides, or declare it @data (a data texture).',
         )
       }
-      if (runtime && type.kind === 'array') {
+      const element = sized.kind === 'array' ? sized.element : undefined
+      if (
+        sized.kind === 'array' &&
+        sized.count !== undefined &&
+        element &&
+        (element.kind === 'struct' || element.kind === 'matrix' || element.kind === 'array')
+      ) {
+        // Words, and a loader: `name[i]` → `name_at(u32(i))`.
+        const words = (sized.count * layouts.stride(sized, 'storage')) / 16
+        edits.push({
+          start: tokens[varToken]!.start,
+          end: d.end,
+          text: `var<uniform> ${d.name}: array<vec4<u32>, ${words}>;`,
+        })
+        rejectShadowing(tokens, decls, d, fail)
+        for (const i of usesOf(tokens, decls, d)) {
+          const t = tokens[i]!
+          if (tokens[i + 1]?.text === '[') {
+            const close = matching(tokens, i + 1)
+            edits.push({ start: t.start, end: tokens[i + 1]!.end, text: `${d.name}_at(u32(` })
+            edits.push({ start: tokens[close]!.start, end: tokens[close]!.end, text: '))' })
+          } else if (
+            tokens[i - 1]?.text === '&' &&
+            tokens[i - 2]?.text === '(' &&
+            tokens[i - 3]?.text === 'arrayLength' &&
+            tokens[i + 1]?.text === ')'
+          ) {
+            edits.push({
+              start: tokens[i - 3]!.start,
+              end: tokens[i + 1]!.end,
+              text: `${sized.count}u`,
+            })
+          } else {
+            fail(
+              'shader/baseline-data',
+              `@data(uniform) "${d.name}" is used other than by index or arrayLength`,
+              t.start,
+              'Read one element at a time: name[i].',
+            )
+          }
+        }
+        tail.push(
+          loader(
+            d.name,
+            sized as WgslType & { kind: 'array' },
+            layouts,
+            false,
+            (k) => `${d.name}[${k}]`,
+          ),
+        )
+      } else if (runtime && type.kind === 'array') {
         edits.push({
           start: tokens[varToken]!.start,
           end: d.end,
@@ -194,7 +247,15 @@ export function rewriteForBaseline(
         'Read one element at a time: name[i].',
       )
     }
-    tail.push(loader(d.name, array, layouts, lengthUsed))
+    tail.push(
+      loader(
+        d.name,
+        array,
+        layouts,
+        lengthUsed,
+        (k) => `textureLoad(${d.name}, shard_data_coord(${k}), 0)`,
+      ),
+    )
     coordNeeded = true
   }
   if (coordNeeded) {
@@ -365,7 +426,8 @@ function callsOn(tokens: readonly Token[], d: Declaration) {
 }
 
 /**
- * `NAME_at(i)`: element i, from the texels it covers, fields at their storage offsets.
+ * `NAME_at(i)`: element i, from the 16-byte words it covers (`fetch(k)` reads word k: a texel of
+ * a data texture, or an element of a uniform array), fields at their storage offsets.
  * `NAME_len()`: the element count, from the byte length the data store keeps in the last texel.
  */
 function loader(
@@ -373,6 +435,7 @@ function loader(
   array: WgslType & { kind: 'array' },
   layouts: Layouts,
   withLength: boolean,
+  fetch: (k: string) => string,
 ): string {
   const stride = layouts.stride(array, 'storage')
   const element = array.element
@@ -383,7 +446,7 @@ function loader(
     const texels = stride / 16
     lines.push(`  let b = i * ${texels}u;`)
     for (let k = 0; k < texels; k++) {
-      lines.push(`  let t${k} = textureLoad(${name}, shard_data_coord(b + ${k}u), 0);`)
+      lines.push(`  let t${k} = ${fetch(`b + ${k}u`)};`)
     }
     word = (byte) => `t${byte >> 4}.${'xyzw'[(byte & 15) >> 2]}`
   } else {
@@ -394,7 +457,7 @@ function loader(
   const body = `${lines.join('\n')}\n  return ${read(element, 0, word, layouts)};`
   let out = `fn ${name}_at(i: u32) -> ${canonical(element)} {\n${body}\n}`
   if (stride % 16 !== 0) {
-    out += `\nfn ${name}_word(byte: u32) -> u32 {\n  return textureLoad(${name}, shard_data_coord(byte / 16u), 0)[(byte % 16u) / 4u];\n}`
+    out += `\nfn ${name}_word(byte: u32) -> u32 {\n  return ${fetch('byte / 16u')}[(byte % 16u) / 4u];\n}`
   }
   if (withLength) {
     out += `\nfn ${name}_len() -> u32 {\n  let d = vec2i(textureDimensions(${name}));\n  return textureLoad(${name}, d - vec2i(1, 1), 0).x / ${stride}u;\n}`

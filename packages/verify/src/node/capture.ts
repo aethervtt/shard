@@ -105,7 +105,7 @@ export async function runCapture(plan: CapturePlan, options: CaptureOptions): Pr
       try {
         const run = await runSession(plan, name, dpr, browser, options.out, log)
         if (typeof run === 'string') {
-          const reason = run === 'no-webgpu' ? 'no WebGPU in this build' : 'no WebGPU adapter'
+          const reason = UNAVAILABLE[run]
           manifest.skipped.push({ browser: name, reason })
           log(`${name}: skipped (${reason})`)
           continue browsers
@@ -136,6 +136,15 @@ interface SessionResult {
   recordFiles: string[]
 }
 
+type Unavailable = 'no-webgpu' | 'no-adapter' | 'no-webgl2' | 'no-graphics'
+
+const UNAVAILABLE: Record<Unavailable, string> = {
+  'no-webgpu': 'no WebGPU in this build',
+  'no-adapter': 'no WebGPU adapter',
+  'no-webgl2': 'no WebGL2 with float render targets',
+  'no-graphics': 'neither WebGPU nor WebGL2',
+}
+
 /** One browser at one DPR: every client, its shots, the steps, and the scenarios. */
 async function runSession(
   plan: CapturePlan,
@@ -144,7 +153,7 @@ async function runSession(
   instance: Browser,
   out: string,
   log: (message: string) => void,
-): Promise<SessionResult | 'no-webgpu' | 'no-adapter'> {
+): Promise<SessionResult | Unavailable> {
   const result: SessionResult = { shots: [], steps: [], records: [], recordFiles: [] }
   const clients: Client[] = []
   try {
@@ -158,11 +167,22 @@ async function runSession(
       clients.push({ plan: client, context, page })
       const errors: string[] = []
       page.on('pageerror', (err) => errors.push(err.message))
-      await page.goto(clientUrl(plan.url, client))
-      // As probeWebGpu tells them apart: no API at all (Playwright's WebKit on Windows), or no adapter.
-      const gpu = await page.evaluate(async () =>
-        !navigator.gpu ? 'no-webgpu' : (await navigator.gpu.requestAdapter()) ? 'ok' : 'no-adapter',
-      )
+      await page.goto(clientUrl(plan.url, client, plan.backend))
+      // What the plan's backend needs (0064). WebGPU as probeWebGpu tells them apart: no API at all
+      // (Playwright's WebKit on Windows), or no adapter. WebGL2 needs float render targets.
+      const gpu = await page.evaluate(async (backend) => {
+        const webgpu = !navigator.gpu
+          ? 'no-webgpu'
+          : (await navigator.gpu.requestAdapter())
+            ? 'ok'
+            : 'no-adapter'
+        const gl = document.createElement('canvas').getContext('webgl2')
+        const webgl2 = gl?.getExtension('EXT_color_buffer_float') ? 'ok' : 'no-webgl2'
+        gl?.getExtension('WEBGL_lose_context')?.loseContext()
+        if (backend === 'webgl2') return webgl2
+        if (backend === 'auto') return webgpu === 'ok' || webgl2 === 'ok' ? 'ok' : 'no-graphics'
+        return webgpu
+      }, plan.backend)
       if (gpu !== 'ok') return gpu
       await page
         .waitForFunction(() => window.__shardReady === true, undefined, { timeout: plan.timeoutMs })
@@ -311,9 +331,10 @@ async function takeShot(
   }
 }
 
-/** The plan's URL with the client's role and query parameters. */
-export function clientUrl(url: string, client: PlanClient): string {
+/** The plan's URL with the backend it asks for, and the client's role and query parameters. */
+export function clientUrl(url: string, client: PlanClient, backend?: string): string {
   const u = new URL(url)
+  if (backend) u.searchParams.set('backend', backend)
   if (client.role) u.searchParams.set('role', client.role)
   for (const [key, value] of Object.entries(client.query ?? {})) u.searchParams.set(key, value)
   return u.toString()

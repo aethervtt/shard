@@ -24,6 +24,11 @@ type CompatTextureDescriptor = GPUTextureDescriptor & {
 export class Webgl2Buffer {
   readonly id = nextId++
   readonly size: number
+  /**
+   * What GL holds: uniform buffers round up to 16 bytes, so a std140 block (rounded up to 16) can
+   * always be bound over a WGSL struct (which isn't).
+   */
+  readonly allocated: number
   readonly usage: number
   readonly label: string
   readonly gl: WebGLBuffer | null
@@ -49,6 +54,10 @@ export class Webgl2Buffer {
   constructor(device: Webgl2Device, descriptor: GPUBufferDescriptor) {
     this.device = device
     this.size = descriptor.size
+    this.allocated =
+      descriptor.usage & BufferUsage.UNIFORM
+        ? Math.ceil(descriptor.size / 16) * 16
+        : descriptor.size
     this.usage = descriptor.usage
     this.label = descriptor.label ?? ''
     this.index = (descriptor.usage & BufferUsage.INDEX) !== 0
@@ -61,7 +70,7 @@ export class Webgl2Buffer {
     }
     gl.bindBuffer(target, this.gl)
     const hint = descriptor.usage & BufferUsage.MAP_READ ? GL.STREAM_READ : GL.DYNAMIC_DRAW
-    gl.bufferData(target, this.size, hint)
+    gl.bufferData(target, this.allocated, hint)
     gl.bindBuffer(target, null)
     if (descriptor.mappedAtCreation) {
       throw unsupported('create a buffer mapped at creation', 'Write it with queue.writeBuffer.')

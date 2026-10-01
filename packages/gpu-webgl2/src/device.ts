@@ -1,12 +1,12 @@
 import { ShardError } from '@aethervtt/shard-core'
 import { Webgl2BindGroup, Webgl2BindGroupLayout, Webgl2PipelineLayout } from './binding'
+import type { ShaderCacheStats, Translator } from './cache'
 import { CommandStream, type Webgl2CommandBuffer, Webgl2CommandEncoder } from './commands'
 import { BufferUsage, MapMode } from './constants'
 import { Copier } from './copies'
 import { ShimError, unsupported } from './errors'
 import { FramebufferCache } from './fbo'
 import { CLIP, GL } from './gl'
-import type { GlslStage, GlslTranslation } from './naga'
 import { Webgl2RenderPipeline, Webgl2ShaderModule } from './pipeline'
 import { Webgl2Queue } from './queue'
 import { Replayer } from './replay'
@@ -51,9 +51,6 @@ export interface Webgl2Caps {
   compression: { bc: boolean; astc: boolean; etc2: boolean }
 }
 
-/** One WGSL entry point to GLSL ES 3.00, synchronously: naga is loaded, or the cache has it. */
-export type Translate = (code: string, entry: string, stage: GlslStage) => GlslTranslation
-
 export interface Webgl2AdapterInfo {
   vendor: string
   architecture: string
@@ -72,8 +69,8 @@ export interface Webgl2DeviceOptions {
   features: ReadonlySet<string>
   limits: Readonly<Record<string, number>>
   info: Webgl2AdapterInfo
-  /** Gets translation ready (loads naga, or the baked cache). */
-  prepare: () => Promise<Translate>
+  /** WGSL to GLSL: memory, a baked set, IndexedDB, then naga. */
+  translator: Translator
   extensions: Webgl2Extensions
 }
 
@@ -115,8 +112,6 @@ export class Webgl2Device extends EventTarget {
   private readonly encoders: Webgl2CommandEncoder[] = []
   private readonly fences: { sync: WebGLSync | null; resolve: () => void }[] = []
   private polling = false
-  private translate: Translate | undefined
-  private preparing: Promise<Translate> | undefined
   private readonly touched: Webgl2Texture[] = []
   private readonly samples = new Map<number, number>()
   private readonly onContextLost = (event: Event) => {
@@ -193,20 +188,25 @@ export class Webgl2Device extends EventTarget {
   }
 
   /**
-   * Translates and links now. Before translation is ready (naga still loading), the pipeline is
-   * invalid and raises a validation error: the engine makes its pipelines asynchronously.
+   * Translates and links now, from translations already in memory (or the baked set). Otherwise
+   * the pipeline is invalid and raises a validation error: the engine makes its pipelines with
+   * createRenderPipelineAsync, which can load what it needs.
    */
   createRenderPipeline(descriptor: GPURenderPipelineDescriptor): Webgl2RenderPipeline {
     const pipeline = new Webgl2RenderPipeline(this, descriptor)
-    if (!this.translate) {
+    const t = this.options.translator
+    const { vertex, fragment } = pipeline.stages()
+    const v = t.cached(vertex.code, vertex.entry, 'vertex')
+    const f = fragment && t.cached(fragment.code, fragment.entry, 'fragment')
+    if (!v || (fragment && !f)) {
       this.raise(
         'validation',
-        `"${pipeline.label}" was made before shader translation was ready: use createRenderPipelineAsync`,
+        `"${pipeline.label}" has no translation yet: make it with createRenderPipelineAsync`,
       )
       return pipeline
     }
     try {
-      pipeline.build(this.translate)
+      pipeline.build(v, f)
       pipeline.finish()
     } catch (err) {
       this.raise('validation', (err as Error).message)
@@ -218,9 +218,14 @@ export class Webgl2Device extends EventTarget {
     descriptor: GPURenderPipelineDescriptor,
   ): Promise<Webgl2RenderPipeline> {
     const pipeline = new Webgl2RenderPipeline(this, descriptor)
-    const translate = await this.translator()
+    const t = this.options.translator
+    const { vertex, fragment } = pipeline.stages()
+    const [v, f] = await Promise.all([
+      t.translate(vertex.code, vertex.entry, 'vertex'),
+      fragment ? t.translate(fragment.code, fragment.entry, 'fragment') : undefined,
+    ])
     if (this.isLost) throw new ShardError('gpu-webgl2/lost', 'The device was lost')
-    pipeline.build(translate)
+    pipeline.build(v, f)
     while (!pipeline.linked()) await nextTask()
     pipeline.finish()
     return pipeline
@@ -291,7 +296,6 @@ export class Webgl2Device extends EventTarget {
 
   destroy(): void {
     if (this.isLost) return
-    this.canvas?.removeEventListener('webglcontextlost', this.onContextLost as EventListener)
     this.fbos.clear()
     this.copier.clear()
     this.lose('destroyed', 'The device was destroyed')
@@ -301,6 +305,8 @@ export class Webgl2Device extends EventTarget {
   private lose(reason: Webgl2DeviceLostInfo['reason'], message: string): void {
     if (this.isLost) return
     this.isLost = true
+    // A replacement device listens on this canvas now.
+    this.canvas?.removeEventListener('webglcontextlost', this.onContextLost as EventListener)
     for (const f of this.fences.splice(0)) f.resolve()
     this.resolveLost({ reason, message })
   }
@@ -490,22 +496,9 @@ export class Webgl2Device extends EventTarget {
     }
   }
 
-  /** Translation, once it's ready. */
-  private translator(): Promise<Translate> {
-    if (this.translate) return Promise.resolve(this.translate)
-    this.preparing ??= this.options.prepare().then((t) => {
-      this.translate = t
-      return t
-    })
-    this.preparing.catch(() => {
-      this.preparing = undefined
-    })
-    return this.preparing
-  }
-
-  /** @internal Loads translation now (devices load it before their first pipeline). */
-  prepare(): Promise<Translate> {
-    return this.translator()
+  /** Where translations came from, and what naga translated this session (0064). */
+  get shaderCache(): ShaderCacheStats {
+    return this.options.translator.stats
   }
 }
 

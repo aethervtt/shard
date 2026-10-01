@@ -14,7 +14,8 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@aethervtt/shard-core": "workspace:*"
+    "@aethervtt/shard-core": "workspace:*",
+    "@aethervtt/shard-gpu-webgl2": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^26.6.2",

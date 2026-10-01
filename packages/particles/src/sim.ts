@@ -174,6 +174,10 @@ function mixRange(r: [number, number], t: number): number {
 
 const spawnDirection = new Float32Array(3)
 
+/** The CPU versions of an emitter's update modules, resolved once a frame (not per particle). */
+const cpuSteps: NonNullable<(typeof MODULES)[string]['cpu']>[] = []
+const cpuStepParams: Record<string, unknown>[] = []
+
 /** Spawn and update in TypeScript, with the same formulas and random streams as the shaders. */
 function simulateCpu(e: EmitterState, sys: SystemState, dt: number): void {
   const d = e.cpu!
@@ -257,6 +261,15 @@ function simulateCpu(e: EmitterState, sys: SystemState, dt: number): void {
     for (let a = 0; a < 4; a++)
       d[o + 12 + a] = init.color[0][a]! + (init.color[1][a]! - init.color[0][a]!) * c
   }
+  let steps = 0
+  for (const m of def.update) {
+    const step = MODULES[m.module as string]!.cpu
+    if (!step) continue
+    cpuSteps[steps] = step
+    cpuStepParams[steps] = m
+    steps++
+  }
+  const time = sys.time
   let alive = 0
   for (let i = 0; i < e.capacity; i++) {
     const o = i * PARTICLE_FLOATS
@@ -276,10 +289,16 @@ function simulateCpu(e: EmitterState, sys: SystemState, dt: number): void {
     p.rot = d[o + 9]!
     p.rotSpeed = d[o + 10]!
     p.seed = u[o + 11]!
-    for (const m of def.update) MODULES[m.module as string]!.cpu?.(m, p, dt, sys.time)
-    for (let a = 0; a < 3; a++) d[o + a] = p.pos[a]! + p.vel[a]! * dt
+    for (let k = 0; k < steps; k++) cpuSteps[k]!(cpuStepParams[k]!, p, dt, time)
+    const vel = p.vel
+    const pos = p.pos
+    d[o] = pos[0]! + vel[0]! * dt
+    d[o + 1] = pos[1]! + vel[1]! * dt
+    d[o + 2] = pos[2]! + vel[2]! * dt
     d[o + 3] = p.age
-    d.set(p.vel, o + 4)
+    d[o + 4] = vel[0]!
+    d[o + 5] = vel[1]!
+    d[o + 6] = vel[2]!
     d[o + 9] = p.rot
     if (p.age < life) alive++
   }
@@ -628,7 +647,8 @@ const usedModules = new Set<string>()
 /**
  * On the baseline tier (0064) systems run the CPU backend, which skips update modules that only
  * the GPU runs (depth collision): each one in use is reported as `render/feature-unsupported`,
- * and cleared once nothing uses it. Reports change only when that does.
+ * and cleared once nothing uses it. Reports change only when that does. Render modules (color and
+ * size over life) run in the draw's shader on either backend.
  */
 function reportCpuOnly(world: World, store: ParticleStore): void {
   let reported = reportedModules.get(world)
@@ -641,7 +661,8 @@ function reportCpuOnly(world: World, store: ParticleStore): void {
     if (!sys.forced) continue
     for (const e of sys.emitters) {
       for (const m of e.def.update) {
-        if (!MODULES[m.module as string]!.cpu) usedModules.add(m.module as string)
+        const def = MODULES[m.module as string]!
+        if (def.update && !def.cpu) usedModules.add(m.module as string)
       }
     }
   }

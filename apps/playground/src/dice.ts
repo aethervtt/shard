@@ -58,6 +58,7 @@ import { Texture, Textures } from '@aethervtt/shard-texture'
 import { lookAt, Transform, TransformPlugin } from '@aethervtt/shard-transform'
 // 0054's golden roll: Node records its hash in the dice tests; this page records it in Chromium.
 import golden from '../../../packages/dice/src/golden.json'
+import { addBackendSelect, backendLine, graphicsOptions } from './backend'
 import {
   ACCRETION_SHADER,
   defineAccretionAttachment,
@@ -78,7 +79,8 @@ const diceCanvas = document.getElementById('dice') as HTMLCanvasElement
 const chat = document.getElementById('chat') as HTMLElement
 const hud = document.getElementById('hud') as HTMLElement
 
-const gpu = await createGpuContext()
+addBackendSelect(document.getElementById('bar') as HTMLElement, 'end')
+const gpu = await createGpuContext(graphicsOptions())
 const runner = () => animationFrameRunner({ mode: 'on-demand' })
 
 // --- the table: felt, a grid, a few minis; its camera bends under lens fields -------------------------
@@ -791,6 +793,7 @@ setInterval(() => {
   lastAt = now
   const demand = dice.world.resource(FrameDemand).held()
   hud.textContent = [
+    backendLine(gpu),
     `phase ${d.phase}${d.quality ? `   tier ${d.quality.tier} (${d.quality.reason})` : ''}`,
     d.track
       ? `track ${d.track.hash}  ${d.track.steps} steps  ${d.track.settled ? 'settled' : 'max steps'}  ${d.track.contacts} contacts  ${d.track.simulationMs} ms in the worker`

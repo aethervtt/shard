@@ -106,8 +106,10 @@ async function main() {
     .addPlugin(TransformPlugin, renderPlugin({ canvas }), forwardPlugin(), studioScene)
     .setRunner(animationFrameRunner())
   await app.init()
-  const info = app.world.resource(Gpu).adapter.info
-  status.textContent = `Shard Studio · WebGPU · ${info.vendor || 'unknown vendor'} · ${platform.name}`
+  // WebGPU where the webview has it, else WebGL2 (0064: WebKitGTK on Linux has no WebGPU).
+  const gpu = app.world.resource(Gpu)
+  const api = gpu.backend === 'webgl2' ? 'WebGL2' : 'WebGPU'
+  status.textContent = `Shard Studio · ${api} (${gpu.tier}) · ${gpu.adapter.info.vendor || 'unknown vendor'} · ${platform.name}`
   if (import.meta.env.VITE_SHARD_CAPTURE === '1') void selfCapture(app, platform)
   // VITE_SHARD_HUB=ws://127.0.0.1:7811 lets `shard serve` / `shard mcp --attach` drive Studio.
   const hub = import.meta.env.VITE_SHARD_HUB as string | undefined

@@ -574,7 +574,9 @@ export class Replayer {
           break
         }
       }
-      state.bindUniformBuffer(b.point, bound.buffer.gl, offset, bound.size)
+      // At least the GLSL block's size (std140 rounds it up), within what the buffer holds.
+      const size = Math.min(Math.max(bound.size, b.size), bound.buffer.allocated - offset)
+      state.bindUniformBuffer(b.point, bound.buffer.gl, offset, size)
     }
     const samplers = p.samplers
     for (let i = 0; i < samplers.length; i++) {

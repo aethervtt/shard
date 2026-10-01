@@ -128,7 +128,24 @@ describe('particles on the baseline tier (0064)', () => {
   it('reports a module only the GPU backend runs, and clears the report once it goes', {
     timeout: 60_000,
   }, async () => {
-    const s = await scene(compat, 'gpu', [{ module: 'gravity' }, { module: 'collision' }])
+    const s = await scene(compat, 'gpu', [
+      { module: 'gravity' },
+      { module: 'collision' },
+      {
+        module: 'color-over-life',
+        gradient: [
+          [0, [1, 1, 1, 1]],
+          [1, [1, 0, 0, 0]],
+        ],
+      },
+      {
+        module: 'size-over-life',
+        curve: [
+          [0, 1],
+          [1, 0],
+        ],
+      },
+    ])
     const issue = () =>
       s.world
         .resource(RenderHealth)
@@ -137,6 +154,11 @@ describe('particles on the baseline tier (0064)', () => {
         )
     expect(issue()?.severity).toBe('degraded')
     expect(issue()?.message).toContain('"collision"')
+    // Render modules run in the draw's shader on either backend: nothing to report.
+    const unsupported = s.world
+      .resource(RenderHealth)
+      .issues.filter((i) => i.code === 'render/feature-unsupported')
+    expect(unsupported.map((i) => i.ref)).toEqual(['particles/collision'])
     for (const [entity] of s.world.resource(Particles).systems) s.world.despawn(entity)
     await settle(s.app, 3)
     expect(issue()).toBeUndefined()

@@ -698,6 +698,9 @@ importers:
       '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
+      '@aethervtt/shard-gpu-webgl2':
+        specifier: workspace:*
+        version: link:../gpu-webgl2
     devDependencies:
       '@types/node':
         specifier: ^26.6.2

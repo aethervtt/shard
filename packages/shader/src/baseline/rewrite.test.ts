@@ -252,8 +252,13 @@ struct Count { pairs: u32 }
 @fragment fn fs() -> @location(0) vec4f { return lights[arrayLength(&lights) - 1u].color; }`,
     )
     const lights = await library.link({ root: 'test::lights', defines: { BASELINE: true } })
-    expect(lights.code).toContain('var<uniform> lights: array<Light, 128>;')
-    expect(lights.code).toContain('lights[128u - 1u]')
+    // An array of structs is 16-byte words and a loader: ANGLE on Direct3D copies a struct array
+    // out of a uniform block whole, and FXC can take minutes over the copy.
+    expect(lights.code).toContain('var<uniform> lights: array<vec4<u32>, 256>;')
+    expect(lights.code).toContain('lights_at(u32(128u - 1u)).color')
+    expect(lights.code).toContain('fn lights_at(i: u32) -> Light {')
+    expect(lights.code).toContain('let t1 = lights[b + 1u];')
+    expect(lights.bindings).toEqual([{ group: 0, binding: 0, name: 'lights', as: 'uniform' }])
     library.register(
       'test::unsized',
       `@data(uniform) @group(0) @binding(0) var<storage, read> things: array<vec4f>;

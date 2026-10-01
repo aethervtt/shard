@@ -1,13 +1,13 @@
+import { Translator } from './cache'
 import { installGpuConstants } from './constants'
 import {
-  type Translate,
   type Webgl2AdapterInfo,
   type Webgl2Caps,
   Webgl2Device,
   type Webgl2Extensions,
 } from './device'
 import { GL } from './gl'
-import { type GlslTranslation, loadNaga } from './naga'
+import type { Naga } from './naga'
 
 // The entry point: a `GPU` whose adapter and device run on WebGL2. `createGpuContext` imports this
 // module only when WebGPU isn't there (0064), so a WebGPU session never loads it.
@@ -27,25 +27,39 @@ export interface Webgl2GpuOptions {
   profile?: 'native' | 'minimum'
   /** Checks GL errors after every submit. A round trip to the GPU process: for dev and tests. */
   checkErrors?: boolean
-  /** How WGSL becomes GLSL. Default: naga, loaded on the first pipeline, with a cache in memory. */
-  prepare?: (clipControl: boolean) => Promise<Translate>
+  /**
+   * A baked translation set (`shard shaders bake`), fetched on the first pipeline: with every
+   * shader in it, naga never loads.
+   */
+  shaders?: string | URL
+  /** Keeps translations in IndexedDB across sessions. Default true where there is IndexedDB. */
+  persist?: boolean
+  /** Loads naga (tests count the loads). */
+  naga?: () => Promise<Naga>
 }
 
 export interface Webgl2Gpu {
   requestAdapter(options?: GPURequestAdapterOptions): Promise<Webgl2Adapter | null>
   getPreferredCanvasFormat(): GPUTextureFormat
   readonly wgslLanguageFeatures: ReadonlySet<string>
+  /** Why the last requestAdapter found none: 'no-webgl2', 'context-lost' or 'no-float-render-targets'. */
+  readonly unavailable: string | undefined
 }
 
 /** A WebGPU entry point over WebGL2 (0064). Installs the `GPU*` flag globals the engine reads. */
 export function createWebgl2Gpu(options: Webgl2GpuOptions = {}): Webgl2Gpu {
   installGpuConstants()
+  let unavailable: string | undefined
   return {
     wgslLanguageFeatures: new Set<string>(),
+    get unavailable() {
+      return unavailable
+    },
     getPreferredCanvasFormat: () => 'rgba8unorm',
     requestAdapter(request) {
       const opened = openContext(options, request?.powerPreference)
-      return Promise.resolve(opened ? new Webgl2Adapter(opened, options) : null)
+      unavailable = typeof opened === 'string' ? opened : undefined
+      return Promise.resolve(typeof opened === 'string' ? null : new Webgl2Adapter(opened, options))
     },
   }
 }
@@ -64,18 +78,20 @@ interface Opened {
   owns: boolean
 }
 
+/** The context, or why there's none. */
 function openContext(
   options: Webgl2GpuOptions,
   powerPreference?: GPUPowerPreference,
-): Opened | null {
+): Opened | string {
   if (options.context) {
-    if (webgl2Unavailable(options.context)) return null
+    const why = webgl2Unavailable(options.context)
+    if (why) return why
     const canvas =
       options.canvas ?? (options.context.canvas as HTMLCanvasElement | OffscreenCanvas | undefined)
     return { gl: options.context, canvas, owns: false }
   }
   const canvas = options.canvas ?? detachedCanvas()
-  if (!canvas) return null
+  if (!canvas) return 'no-webgl2'
   const gl = canvas.getContext('webgl2', {
     alpha: true,
     antialias: false,
@@ -85,7 +101,8 @@ function openContext(
     preserveDrawingBuffer: false,
     powerPreference: powerPreference === 'low-power' ? 'low-power' : 'high-performance',
   }) as WebGL2RenderingContext | null
-  if (webgl2Unavailable(gl)) return null
+  const why = webgl2Unavailable(gl)
+  if (why) return why
   return { gl: gl!, canvas, owns: !options.canvas }
 }
 
@@ -127,7 +144,6 @@ export class Webgl2Adapter {
     if (!opened) return Promise.reject(new Error('This adapter has already made its device'))
     this.opened = undefined
     const caps = this.caps
-    const prepare = this.options.prepare
     const device = new Webgl2Device(opened.gl, caps, {
       label: descriptor.label,
       canvas: opened.canvas,
@@ -136,25 +152,15 @@ export class Webgl2Adapter {
       features: new Set<string>(descriptor.requiredFeatures ?? []),
       limits: this.limits,
       info: this.info,
-      prepare: prepare ? () => prepare(caps.clipControl) : () => nagaTranslator(caps.clipControl),
+      translator: new Translator({
+        clipControl: caps.clipControl,
+        baked: this.options.shaders,
+        persist: this.options.persist,
+        naga: this.options.naga,
+      }),
       extensions: this.extensions,
     })
     return Promise.resolve(device)
-  }
-}
-
-/** naga, with translations kept in memory for the session. */
-async function nagaTranslator(clipControl: boolean): Promise<Translate> {
-  const naga = await loadNaga()
-  const cache = new Map<string, GlslTranslation>()
-  return (code, entry, stage) => {
-    const key = `${stage}\n${entry}\n${code}`
-    let hit = cache.get(key)
-    if (!hit) {
-      hit = naga.translate(code, entry, stage, { clipControl })
-      cache.set(key, hit)
-    }
-    return hit
   }
 }
 

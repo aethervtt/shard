@@ -4,8 +4,11 @@ export {
   type CreateGpuContextOptions,
   createGpuContext,
   type DeviceLostInfo,
+  type GpuBackendChoice,
   GpuContext,
   type GpuStatus,
+  type ShaderCacheStats,
+  type Webgl2ContextOptions,
 } from './context'
 export { type GpuErrorListener, toShardError } from './errors'
 export { descriptorKey } from './key'

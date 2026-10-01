@@ -461,6 +461,54 @@ describe('the WebGL2 device: drawing', () => {
     expect(draw.enabled.has(GL.CULL_FACE)).toBe(true)
   })
 
+  it('binds a uniform struct as the 16-byte block std140 makes of it', async () => {
+    // WGSL lets an 8-byte struct bind as 8 bytes; GLSL rounds its block up to 16, and WebGL fails
+    // a draw with less bound.
+    const { device, fake } = await open({ blockSizes: { Small: 16 } })
+    const module = device.createShaderModule({
+      code: `struct Small { seed: f32, relief: f32 }
+@group(0) @binding(0) var<uniform> small: Small;
+@vertex fn vs(@builtin(vertex_index) v: u32) -> @builtin(position) vec4f { return vec4f(f32(v) * small.seed, 0.0, 0.0, 1.0); }
+@fragment fn fs() -> @location(0) vec4f { return vec4f(small.relief); }`,
+    })
+    const layout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: {} },
+      ],
+    })
+    const pipeline = await device.createRenderPipelineAsync({
+      layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
+      vertex: { module },
+      fragment: { module, targets: [{ format: 'rgba8unorm' }] },
+    })
+    const small = device.createBuffer({
+      size: 8,
+      usage: BufferUsage.UNIFORM | BufferUsage.COPY_DST,
+    })
+    expect((small as unknown as Webgl2Buffer).allocated).toBe(16)
+    const group = device.createBindGroup({
+      layout,
+      entries: [{ binding: 0, resource: { buffer: small } }],
+    })
+    const target = device.createTexture({
+      size: [2, 2],
+      format: 'rgba8unorm',
+      usage: TextureUsage.RENDER_ATTACHMENT,
+    })
+    const encoder = device.createCommandEncoder()
+    const p = encoder.beginRenderPass({
+      colorAttachments: [{ view: target.createView(), loadOp: 'clear', storeOp: 'store' }],
+    })
+    p.setPipeline(pipeline)
+    p.setBindGroup(0, group)
+    p.draw(3)
+    p.end()
+    device.queue.submit([encoder.finish()])
+    expect([...fake.draws.at(-1)!.blocks.values()]).toEqual([
+      { buffer: (small as unknown as Webgl2Buffer).gl, offset: 0, size: 16 },
+    ])
+  })
+
   it('moves attribute pointers by base vertex and first instance, and hands the shader its instance index', async () => {
     const { device, fake } = await open()
     const s = await scene(device)

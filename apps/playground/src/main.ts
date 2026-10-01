@@ -25,6 +25,7 @@ import { animationDemoPlugin } from './animation'
 import { animgraphDemoPlugin } from './animgraph'
 import { atmosphereDemoPlugin } from './atmosphere'
 import { audioDemoPlugin, webAudio } from './audio'
+import { addBackendSelect, graphicsOptions, unsupportedOverlayPlugin } from './backend'
 import { characterDemoPlugin, characterPlanetDemoPlugin } from './character'
 import { character2dDemoPlugin } from './character2d'
 import { crowdPlugin } from './crowd'
@@ -60,7 +61,11 @@ const demo = DEMOS.find((d) => location.hash === `#${d}`) ?? 'scene'
 document.body.dataset.demo = demo
 
 applyResolution(canvas)
-const app = new App().addPlugin(renderPlugin({ canvas, features: ['timestamp-query'] }))
+addBackendSelect(document.getElementById('panel') as HTMLElement)
+const app = new App().addPlugin(
+  renderPlugin({ canvas, features: ['timestamp-query'], ...graphicsOptions() }),
+  unsupportedOverlayPlugin,
+)
 if (demo === 'galaxy') {
   app.addPlugin(galaxyPlugin({ stars: 100_000, seed: 7 }))
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-change]')) {

@@ -27,11 +27,22 @@ export class Webgl2ShaderModule {
   }
 }
 
+/** One stage's WGSL and entry point. */
+export interface StageSource {
+  code: string
+  entry: string
+}
+
 /** A uniform block of the program, and the group binding that feeds it. */
 export interface ProgramBlock {
   group: number
   binding: number
   point: number
+  /**
+   * The block's size in GLSL (std140 rounds a block up to 16 bytes; WGSL doesn't round a uniform
+   * struct): a draw fails unless at least this much is bound.
+   */
+  size: number
 }
 
 /** A combined sampler of the program: its texture unit, texture binding and sampler binding. */
@@ -261,24 +272,23 @@ export class Webgl2RenderPipeline {
     )
   }
 
-  /** Translates both stages and links the program. Throws what naga or the driver reports. */
-  build(
-    translate: (code: string, entry: string, stage: 'vertex' | 'fragment') => GlslTranslation,
-  ): WebGLProgram {
+  /** The WGSL and entry point of each stage, to translate. */
+  stages(): { vertex: StageSource; fragment: StageSource | undefined } {
     const d = this.descriptor
-    const gl = this.device.gl
-    const vsModule = d.vertex.module as unknown as Webgl2ShaderModule
-    const vsEntry = d.vertex.entryPoint ?? entryOf(vsModule.code, 'vertex')
-    const v = translate(vsModule.code, vsEntry, 'vertex')
-    let f: GlslTranslation | undefined
-    if (d.fragment) {
-      const fsModule = d.fragment.module as unknown as Webgl2ShaderModule
-      f = translate(
-        fsModule.code,
-        d.fragment.entryPoint ?? entryOf(fsModule.code, 'fragment'),
-        'fragment',
-      )
+    const vs = d.vertex.module as unknown as Webgl2ShaderModule
+    const fs = d.fragment?.module as unknown as Webgl2ShaderModule | undefined
+    return {
+      vertex: { code: vs.code, entry: d.vertex.entryPoint ?? entryOf(vs.code, 'vertex') },
+      fragment:
+        fs && d.fragment
+          ? { code: fs.code, entry: d.fragment.entryPoint ?? entryOf(fs.code, 'fragment') }
+          : undefined,
     }
+  }
+
+  /** Compiles both stages' GLSL and starts linking the program. */
+  build(v: GlslTranslation, f: GlslTranslation | undefined): WebGLProgram {
+    const gl = this.device.gl
     const program = gl.createProgram()!
     const shader = (type: number, source: string) => {
       const s = gl.createShader(type)!
@@ -333,11 +343,19 @@ export class Webgl2RenderPipeline {
       const index = gl.getUniformBlockIndex(program, u.name)
       if (index === 0xffffffff) continue // optimized out
       const key = `${u.group}:${u.binding}`
+      const size = gl.getActiveUniformBlockParameter(
+        program,
+        index,
+        GL.UNIFORM_BLOCK_DATA_SIZE,
+      ) as number
       let point = points.get(key)
       if (point === undefined) {
         point = points.size
         points.set(key, point)
-        this.blocks.push({ group: u.group, binding: u.binding, point })
+        this.blocks.push({ group: u.group, binding: u.binding, point, size })
+      } else {
+        const block = this.blocks[point]!
+        block.size = Math.max(block.size, size)
       }
       gl.uniformBlockBinding(program, index, point)
     }

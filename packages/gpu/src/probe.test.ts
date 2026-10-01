@@ -94,7 +94,8 @@ describe('probeGraphics and tiers (0064)', () => {
     const none = { requestAdapter: async () => null } as unknown as GPU
     const result = await probeGraphics({ gpu: none })
     expect(result).toMatchObject({ backend: 'none', tier: 'none', capabilities: undefined })
-    expect(result.reasons.map((r) => r.code)).toEqual(['no-adapter'])
+    // WebGPU has no adapter, and Node has no canvas for WebGL2.
+    expect(result.reasons.map((r) => r.code)).toEqual(['no-adapter', 'no-webgl2'])
     const hung = { requestAdapter: () => new Promise(() => {}) } as unknown as GPU
     expect((await probeGraphics({ gpu: hung, timeoutMs: 20 })).reasons[0]!.code).toBe('timeout')
   })

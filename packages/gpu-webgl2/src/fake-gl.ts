@@ -201,6 +201,8 @@ export interface FakeGlOptions {
   samples?: Record<number, number[]>
   /** Links pending this many polls of COMPLETION_STATUS_KHR. */
   linkPolls?: number
+  /** UNIFORM_BLOCK_DATA_SIZE by block name prefix (default 0: whatever is bound). */
+  blockSizes?: Record<string, number>
 }
 
 export class FakeGl {
@@ -1066,6 +1068,15 @@ export class FakeGl {
       p.blockIndices.set(name, index)
     }
     return index
+  }
+  getActiveUniformBlockParameter(p: FakeProgram, index: number): number {
+    for (const [name, i] of p.blockIndices) {
+      if (i !== index) continue
+      for (const [prefix, size] of Object.entries(this.options.blockSizes ?? {})) {
+        if (name.startsWith(prefix)) return size
+      }
+    }
+    return 0
   }
   uniformBlockBinding(p: FakeProgram, index: number, point: number): void {
     p.blockPoints.set(index, point)

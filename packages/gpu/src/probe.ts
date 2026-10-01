@@ -1,5 +1,5 @@
 import { ShardError } from '@aethervtt/shard-core'
-import { openDevice } from './context'
+import { type GpuBackendChoice, openDevice, type Webgl2ContextOptions } from './context'
 import {
   capabilitiesOf,
   type GpuBackendName,
@@ -140,6 +140,10 @@ function unsupported(
 export interface ProbeGraphicsOptions {
   /** The WebGPU entry point. Defaults to `navigator.gpu`; in Node pass the `webgpu` package's. */
   gpu?: GPU
+  /** Which backends to try, as `createGpuContext` has it. Default 'auto'. */
+  backend?: GpuBackendChoice
+  /** WebGL2 settings (a fake context, in tests). */
+  webgl2?: Webgl2ContextOptions
   /** `'baseline'`: classify the device the baseline tier would get (a compatibility-mode one). */
   tier?: 'baseline'
   powerPreference?: GPUPowerPreference
@@ -172,6 +176,8 @@ export async function probeGraphics(options: ProbeGraphicsOptions = {}): Promise
     gpu: options.gpu,
     tier: options.tier,
     powerPreference: options.powerPreference,
+    backend: options.backend,
+    webgl2: options.webgl2,
   })
   try {
     const opened = await Promise.race([opening, timeout])
@@ -196,6 +202,16 @@ export async function probeGraphics(options: ProbeGraphicsOptions = {}): Promise
     return support
   } catch (err) {
     const error = err instanceof ShardError ? err : undefined
+    // Every backend tried says why, when they all failed.
+    if (error?.details?.length) {
+      return none(
+        error.details.map((d) => ({
+          backend: d.path as GpuBackendName,
+          code: d.code.replace(/^gpu\//, ''),
+          message: d.message,
+        })),
+      )
+    }
     return none([
       {
         backend: 'webgpu',

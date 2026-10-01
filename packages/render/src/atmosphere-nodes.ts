@@ -398,34 +398,48 @@ function layouts(gpu: GpuContext, s: AtmosphereGpu): Record<string, GPUBindGroup
       viewDimension,
     },
   })
+  // The compute passes' layouts (storage textures) are the full tier's: baseline renders its LUTs
+  // with fragment passes that have their own (0064), and WebGL2 can't make these at all.
+  const computeLayouts: Record<string, GPUBindGroupLayout> =
+    gpu.tier === 'full'
+      ? {
+          transmittance: gpu.layouts.bindGroupLayout({
+            label: 'atmosphere/transmittance',
+            entries: [uniform(0, C), storage(1, '2d')],
+          }),
+          multiscatter: gpu.layouts.bindGroupLayout({
+            label: 'atmosphere/multiscatter',
+            entries: [uniform(0, C), array(1, C), filtering(2, C), storage(3, '2d')],
+          }),
+          skyView: gpu.layouts.bindGroupLayout({
+            label: 'atmosphere/sky-view',
+            entries: [uniform(0, C), array(1, C), array(2, C), filtering(3, C), storage(4, '2d')],
+          }),
+          aerial: gpu.layouts.bindGroupLayout({
+            label: 'atmosphere/aerial',
+            entries: [
+              uniform(0, C),
+              array(1, C),
+              array(2, C),
+              filtering(3, C),
+              storage(4, '3d'),
+              storage(5, '3d'),
+            ],
+          }),
+          bake: gpu.layouts.bindGroupLayout({
+            label: 'atmosphere/bake',
+            entries: [
+              uniform(0, C),
+              array(1, C),
+              array(2, C),
+              filtering(3, C),
+              storage(4, '2d-array'),
+            ],
+          }),
+        }
+      : {}
   s.layouts = {
-    transmittance: gpu.layouts.bindGroupLayout({
-      label: 'atmosphere/transmittance',
-      entries: [uniform(0, C), storage(1, '2d')],
-    }),
-    multiscatter: gpu.layouts.bindGroupLayout({
-      label: 'atmosphere/multiscatter',
-      entries: [uniform(0, C), array(1, C), filtering(2, C), storage(3, '2d')],
-    }),
-    skyView: gpu.layouts.bindGroupLayout({
-      label: 'atmosphere/sky-view',
-      entries: [uniform(0, C), array(1, C), array(2, C), filtering(3, C), storage(4, '2d')],
-    }),
-    aerial: gpu.layouts.bindGroupLayout({
-      label: 'atmosphere/aerial',
-      entries: [
-        uniform(0, C),
-        array(1, C),
-        array(2, C),
-        filtering(3, C),
-        storage(4, '3d'),
-        storage(5, '3d'),
-      ],
-    }),
-    bake: gpu.layouts.bindGroupLayout({
-      label: 'atmosphere/bake',
-      entries: [uniform(0, C), array(1, C), array(2, C), filtering(3, C), storage(4, '2d-array')],
-    }),
+    ...computeLayouts,
     composite: gpu.layouts.bindGroupLayout({
       label: 'atmosphere/composite',
       entries: [
