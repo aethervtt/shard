@@ -11,6 +11,7 @@ import {
 import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
 import { GlobalTransform, Transform } from '@aethervtt/shard-transform'
 import { LightPresets } from './camera'
+import { DataStore } from './data-store'
 
 /** Luminous power presets in lumens, for point and spot lights. */
 export const LuminousPowerPresets = {
@@ -217,10 +218,16 @@ export interface LightingSettingsValue {
   shadowMapSize: number
   maxShadowedPoints: number
   maxShadowedSpots: number
+  /**
+   * Baseline tier (0064): the point and spot lights a view shades, the nearest first; at most 128.
+   * Past it the farthest go unshaded, and `render/light-budget` says how many.
+   */
+  baselineMaxLights: number
 }
 
 export const LightingSettings = defineResource<LightingSettingsValue>('render/LightingSettings', {
-  description: 'Light and shadow budgets: light buffer size, cluster range, shadow map sizes.',
+  description:
+    "Light and shadow budgets: light buffer size, cluster range, shadow map sizes, and the baseline tier's lights per view.",
   hostWritable: true,
   init: () => ({
     maxLights: 1024,
@@ -229,6 +236,7 @@ export const LightingSettings = defineResource<LightingSettingsValue>('render/Li
     shadowMapSize: 1024,
     maxShadowedPoints: 4,
     maxShadowedSpots: 8,
+    baselineMaxLights: 128,
   }),
 })
 
@@ -281,7 +289,8 @@ export class LightStore {
   uploadedBytes = 0
   readonly buffer: GpuBuffer
   /** Directional lights: count + up to 4 × (direction, shadow cascade flag, color × lux, disk radius). */
-  readonly directional: GpuBuffer
+  /** Directional lights: `@data(uniform)`, a uniform block on baseline. */
+  readonly directional: DataStore
   readonly directionalData = new Float32Array(4 + MAX_DIRECTIONAL * 8)
   readonly directionalU32 = new Uint32Array(this.directionalData.buffer)
   /** What the directional buffer holds, so an unchanged frame writes nothing (0055). */
@@ -315,9 +324,9 @@ export class LightStore {
       usage: GPUBufferUsage.STORAGE,
       size: capacity * LIGHT_FLOATS * 4,
     })
-    this.directional = new GpuBuffer(gpu, {
+    this.directional = new DataStore(gpu, {
       label: 'lights/directional',
-      usage: GPUBufferUsage.STORAGE,
+      kind: 'uniform',
       size: this.directionalData.byteLength,
     })
   }
@@ -406,12 +415,15 @@ export class LightStore {
         lights++
         if (runStart < 0) runStart = s
       } else if (runStart >= 0) {
-        this.buffer.write(
-          this.data,
-          runStart * LIGHT_FLOATS * 4,
-          runStart * LIGHT_FLOATS,
-          (s - runStart) * LIGHT_FLOATS,
-        )
+        // On baseline each view binds its own packed copy (baseline/lights.ts), not this buffer.
+        if (this.gpu.tier === 'full') {
+          this.buffer.write(
+            this.data,
+            runStart * LIGHT_FLOATS * 4,
+            runStart * LIGHT_FLOATS,
+            (s - runStart) * LIGHT_FLOATS,
+          )
+        }
         runStart = -1
       }
     }

@@ -44,6 +44,16 @@ export const Manifest = defineSchema(
       },
       { description: 'Generators (0042): output cache limits.' },
     ),
+    graphics: t.struct(
+      {
+        baseline: t.enum(['optional', 'required'], {
+          default: 'optional',
+          description:
+            "required: the project must run at the baseline tier (WebGPU compatibility mode, WebGL2), and shard validate checks it. optional: what the tier can't run is reported when it runs.",
+        }),
+      },
+      { description: 'Graphics tiers (0064).' },
+    ),
     plugins: t.list(t.string, {
       default: ['render/forward', 'input'],
       description:

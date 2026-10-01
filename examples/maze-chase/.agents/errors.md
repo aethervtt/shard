@@ -43,6 +43,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `assets/load-failed` | @aethervtt/shard-assets |  |
 | `assets/move-target-exists` | @aethervtt/shard-assets |  |
 | `assets/no-listing` | @aethervtt/shard-assets | Import on a host with file listing (the CLI, the dev server, Studio). |
+| `assets/no-source` | @aethervtt/shard-assets | Only assets imported from project files can be written back. |
 | `assets/not-found` | @aethervtt/shard-assets | Check the path; it starts at the project root, e.g. "data/weapons/laser.weapon.json". |
 | `assets/not-loaded` | @aethervtt/shard-assets |  |
 | `assets/outside-roots` | @aethervtt/shard-assets |  |
@@ -56,6 +57,10 @@ Every engine error is a `ShardError` with one of these codes.
 | `audio/no-plugin` | @aethervtt/shard-audio | Add "audio" to plugins in shard.json (or app.addPlugin(audioPlugin())). |
 | `audio/unknown-bus` | @aethervtt/shard-audio |  |
 | `audio/unsupported-format` | @aethervtt/shard-audio | Audio clips are WAV (PCM or float), Ogg Vorbis, Ogg Opus, MP3, or FLAC. |
+| `core/owner-invalid` | @aethervtt/shard-core | An Owner is a grant from host code; it cannot be constructed or copied. |
+| `core/owner-not-authorable` | @aethervtt/shard-core | Ownership is a grant from host code: spawn with world.owners.spawn(owner, ...) or world.owners.adopt(owner, entity). |
+| `core/owner-quota` | @aethervtt/shard-core |  |
+| `core/owner-released` | @aethervtt/shard-core | Create a new owner; a released one holds nothing and accepts nothing. |
 | `data/extends-cycle` | @aethervtt/shard-assets | Point "$extends" at a file that does not extend this one. |
 | `data/extends-type-mismatch` | @aethervtt/shard-assets |  |
 | `dice/attachment-budget` | @aethervtt/shard-dice | Draw fewer vertices, split the effect, or raise it with setDiceBudgets first. |
@@ -88,15 +93,22 @@ Every engine error is a `ShardError` with one of these codes.
 | `ecs/missing-component` | @aethervtt/shard-core | Check world.has(entity, component) first, or use tryGet. |
 | `ecs/missing-resource` | @aethervtt/shard-core | Insert it with insertResource, or add the plugin that provides it. |
 | `ecs/no-resource-init` | @aethervtt/shard-core | Use insertResource with a value instead. |
+| `fog/invalid-regions` | @aethervtt/shard-fog | { rev, regions: [{ op: "hide" \| "reveal", strength?, feather?, shape }] } with shapes rect, polygon, multipolygon or brush. |
 | `gltf/accessor-out-of-range` | @aethervtt/shard-gltf | The file is truncated or its byteOffset/count are wrong. |
 | `gltf/buffer-missing` | @aethervtt/shard-gltf | Keep .bin files next to the .gltf, under the same name the file references. |
 | `gltf/invalid` | @aethervtt/shard-gltf | Only glTF 2.0 files are supported. |
 | `gltf/tangents-unavailable` | @aethervtt/shard-gltf |  |
 | `gltf/unsupported-extension` | @aethervtt/shard-gltf |  |
+| `gpu-webgl2/lost` | @aethervtt/shard-gpu-webgl2 |  |
+| `gpu-webgl2/naga-crashed` | @aethervtt/shard-gpu-webgl2 | Report the shader: naga should return an error, not crash. |
+| `gpu-webgl2/naga-load-failed` | @aethervtt/shard-gpu-webgl2 | packages/gpu-webgl2/wasm must be served with the app (rebuild with `pnpm build:wasm`). |
+| `gpu-webgl2/translate` | @aethervtt/shard-gpu-webgl2 |  |
+| `gpu-webgl2/unsupported` | @aethervtt/shard-gpu-webgl2 |  |
 | `gpu/duplicate-surface` | @aethervtt/shard-gpu | Share the Surface itself (renderPlugin({ gpu, surface })), or remove it first. |
 | `gpu/missing-feature` | @aethervtt/shard-gpu |  |
 | `gpu/no-adapter` | @aethervtt/shard-gpu |  |
 | `gpu/no-context` | @aethervtt/shard-gpu |  |
+| `gpu/recovery-failed` | @aethervtt/shard-gpu | Tell the user 3D is unavailable; reloading the page tries again. |
 | `gpu/unsupported` | @aethervtt/shard-gpu | Use a browser or webview with WebGPU, or pass `gpu` (e.g. from the `webgpu` package in Node). |
 | `ik/not-a-chain` | @aethervtt/shard-animation | Each joint must be an ancestor of the next (root → mid → tip; chain entries top first, above the joint). |
 | `ik/unknown-joint` | @aethervtt/shard-animation | Joint fields are paths under the IK entity or an ancestor (the model root): "Armature/Hips/UpLeg_L". animation_describe on the model lists what bound. |
@@ -110,6 +122,8 @@ Every engine error is a `ShardError` with one of these codes.
 | `mesh/invalid` | @aethervtt/shard-mesh | positions/normals: 3 per vertex, uvs/uvs1: 2, colors/tangents/joints/weights: 4; indices must be < vertex count. |
 | `mesh/invalid-artifact` | @aethervtt/shard-mesh | Re-import the source (`shard import --force`). |
 | `mesh/not-gpu` | @aethervtt/shard-mesh | Change a CPU mesh with update(). |
+| `mirror/duplicate-key` | @aethervtt/shard-mirror | Keys are the host ids of documents: each may appear once per list. |
+| `mirror/no-diff` | @aethervtt/shard-mirror | Pass rev: (doc) => doc.rev when documents carry a revision (cheapest), or equal(prev, next). |
 | `nav/bad-cache` | @aethervtt/shard-nav |  |
 | `nav/bake-failed` | @aethervtt/shard-nav | Check the NavSource geometry has upward faces flatter than maxSlope, wide enough for agentRadius. |
 | `nav/invalid-grid` | @aethervtt/shard-nav |  |
@@ -196,6 +210,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `protocol/invalid-components` | @aethervtt/shard-protocol |  |
 | `protocol/invalid-params` | @aethervtt/shard-protocol |  |
 | `protocol/invalid-position64` | @aethervtt/shard-protocol | Pass { "position64": [x, y, z], "grid": <grid> } together. |
+| `protocol/method-not-allowed` | @aethervtt/shard-protocol |  |
 | `protocol/no-files` | @aethervtt/shard-protocol |  |
 | `protocol/no-preview` | @aethervtt/shard-protocol | Previews exist for textures, materials, meshes, scenes, and types that register one. |
 | `protocol/no-renderer` | @aethervtt/shard-protocol |  |
@@ -205,11 +220,13 @@ Every engine error is a `ShardError` with one of these codes.
 | `protocol/unknown-debug-view` | @aethervtt/shard-protocol | Use 'clusters', 'cascades', 'lod', 'culling', 'none', or 'shadow-map:<light>'. |
 | `protocol/unknown-entity` | @aethervtt/shard-protocol | Pass an entity id from world.query, or a scene path like "ship/camera". |
 | `protocol/unknown-overlay` | @aethervtt/shard-protocol |  |
+| `protocol/unknown-owner` | @aethervtt/shard-protocol | owners.describe with no name lists every live owner. |
 | `protocol/unknown-resource` | @aethervtt/shard-protocol |  |
 | `protocol/unsettable-resource` | @aethervtt/shard-protocol | Only resources that are plain JSON objects can be set. |
 | `render/atmosphere-inside-ground` | @aethervtt/shard-render | Give it a positive thickness (Earth 60 000 m). |
 | `render/bad-vector` | @aethervtt/shard-render |  |
 | `render/capture-format` | @aethervtt/shard-render |  |
+| `render/data-textures-not-loaded` | @aethervtt/shard-render | Await loadDataTextures() before making DataStores on a baseline device. |
 | `render/disposed` | @aethervtt/shard-render |  |
 | `render/duplicate-node` | @aethervtt/shard-render |  |
 | `render/feature-missing` | @aethervtt/shard-render | Add materialNoisePlugin from '@aethervtt/shard-render/noise'. |
@@ -225,10 +242,14 @@ Every engine error is a `ShardError` with one of these codes.
 | `render/not-ready` | @aethervtt/shard-render | Await app.init() so the render plugin can create the GPU device. |
 | `render/registry-conflict` | @aethervtt/shard-render | Two definitions (two apps or bundles) share the name. Rename one, or share the definition. |
 | `render/surface-device` | @aethervtt/shard-render | Pass the GpuContext the surface was added to (surface.gpu), or omit gpu. |
+| `render/texture-color-space-mismatch` | @aethervtt/shard-render | Set its usage to match the slot in its .meta, and the copy goes. |
 | `render/too-many-joints` | @aethervtt/shard-gltf | Split the mesh, or remove helper bones before exporting. |
 | `render/unknown-buffer` | @aethervtt/shard-render |  |
 | `render/unknown-camera` | @aethervtt/shard-render | Pass a Camera3d entity that has rendered at least one frame. |
 | `render/unknown-material-type` | @aethervtt/shard-render |  |
+| `render/unknown-variant-source` | @aethervtt/shard-render |  |
+| `render/variant-entry` | @aethervtt/shard-render |  |
+| `render/variant-material` | @aethervtt/shard-render |  |
 | `render/which-atmosphere` | @aethervtt/shard-render | Pass entity: an entity with render/Atmosphere. |
 | `retarget/unmapped-root` | @aethervtt/shard-animation | Add it to the joint map (*.jointmap.json): { "joints": { "<source>": "<target>" } }. |
 | `runtime/disposed` | @aethervtt/shard-runtime | Create a new App; a disposed one has released its GPU objects and listeners. |
@@ -279,7 +300,10 @@ Every engine error is a `ShardError` with one of these codes.
 | `schema/unknown-preset` | @aethervtt/shard-core |  |
 | `schema/unresolved-entity` | @aethervtt/shard-core | Entity paths are resolved by the scene loader; check the path exists. |
 | `shader/bake-version` | @aethervtt/shard-shader | Bake again with this version of Shard. |
+| `shader/baseline-data` | @aethervtt/shard-shader |  |
 | `shader/compile` | @aethervtt/shard-shader |  |
+| `shader/data-misplaced` | @aethervtt/shard-shader | @data @group(2) @binding(0) var<storage, read> name: array<T>; |
+| `shader/fragment-kernel` | @aethervtt/shard-shader | Only image kernels run as fragment passes: one storage texture, stored at the invocation id. |
 | `shader/hook-signature-mismatch` | @aethervtt/shard-shader |  |
 | `shader/invalid-path` | @aethervtt/shard-shader | Use lowercase `package::dir::name`, e.g. `project::water`. |
 | `shader/link` | @aethervtt/shard-shader |  |
@@ -289,15 +313,22 @@ Every engine error is a `ShardError` with one of these codes.
 | `shader/unsupported-field` | @aethervtt/shard-shader | GPU structs take numbers, bools, enums, vectors, colors, and matrices. f64 fields are not allowed; object fields are skipped. |
 | `shader/watch-unsupported` | @aethervtt/shard-shader |  |
 | `sprite/atlas-too-large` | @aethervtt/shard-sprite | Raise maxSize, or split the images into several atlases. |
+| `sprite/bad-chunk` | @aethervtt/shard-sprite |  |
+| `sprite/bad-flag` | @aethervtt/shard-sprite | Flags are fx, fy and r90, joined by +. |
 | `sprite/duplicate-region` | @aethervtt/shard-sprite | Region names are unique within an atlas. |
 | `sprite/invalid-occluder` | @aethervtt/shard-sprite | Give polygons 3+ points without crossing edges, boxes a nonzero size, and collider occluders a cuboid, ball, capsule, or convex Collider. |
-| `sprite/invalid-tilemap` | @aethervtt/shard-sprite |  |
+| `sprite/invalid-tilemap` | @aethervtt/shard-sprite | Chunk keys are "cx,cy": the chunk column and row from the top left. |
 | `sprite/no-atlas` | @aethervtt/shard-sprite |  |
 | `sprite/no-layer` | @aethervtt/shard-sprite |  |
+| `sprite/no-palette` | @aethervtt/shard-sprite | Save it once with its atlas (tilemapToJson(data, { atlas })) to give it a palette. |
 | `sprite/no-texture` | @aethervtt/shard-sprite |  |
 | `sprite/not-a-tilemap` | @aethervtt/shard-sprite |  |
 | `sprite/tile-out-of-range` | @aethervtt/shard-sprite |  |
+| `sprite/tilemap-needs-atlas` | @aethervtt/shard-sprite | Its tiles are atlas regions: pass the atlas so they can be named (the palette). |
 | `sprite/tilemap-not-loaded` | @aethervtt/shard-sprite | Wait for its TilemapData asset, or create one with TilemapData.create. |
+| `sprite/unencodable-tile` | @aethervtt/shard-sprite | Region names in rows have no spaces, ":", "*" or "+". Save with encoding base64. |
+| `sprite/unknown-tile` | @aethervtt/shard-sprite | Rename it to a region the atlas has, or add the region to the atlas. |
+| `sprite/unknown-tilemap` | @aethervtt/shard-sprite | Name a *.tilemap.json asset by path or guid that a Tilemap in the world uses. |
 | `sprite/unsupported-image` | @aethervtt/shard-sprite |  |
 | `terrain/bad-direction` | @aethervtt/shard-terrain | Pass a direction from the planet’s center in its frame, e.g. the position of a point on it. |
 | `terrain/bad-points` | @aethervtt/shard-terrain | e.g. { "latlon": [[0, 0], [45, 90]] }, or { "directions": [[0, 1, 0]] } for the north pole. |
@@ -319,8 +350,10 @@ Every engine error is a `ShardError` with one of these codes.
 | `texture/invalid` | @aethervtt/shard-texture |  |
 | `texture/invalid-array` | @aethervtt/shard-texture |  |
 | `texture/normal-map-mismatch` | @aethervtt/shard-sprite | A normal-map companion must match its image pixel for pixel. |
+| `texture/nothing-to-pack` | @aethervtt/shard-texture | Without either, leave metallicRoughnessTexture empty: the scalar factors apply. |
 | `texture/transcoder-unavailable` | @aethervtt/shard-texture | Basis Universal ships in @aethervtt/shard-texture/vendor/basis; check the files are present. |
 | `texture/unsupported-format` | @aethervtt/shard-texture | Use a 2D image, a 2D array (*.texarray.json), or a cube map (6 faces). |
+| `texture/wrong-kind` | @aethervtt/shard-texture | Decode them as RGBA8 (kind "u8"). |
 | `transform/cell-outside-grid` | @aethervtt/shard-scene | Nest the entity directly under an entity with transform/Grid, or remove its GridCell. |
 | `transform/grid-cycle` | @aethervtt/shard-transform | Check the ChildOf chain of your Grid entities. |
 | `transform/multiple-origins` | @aethervtt/shard-scene | Keep one transform/FloatingOrigin per world, usually on the camera. |
@@ -336,6 +369,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `ui/unknown-node` | @aethervtt/shard-ui | Pass an entity id or a scene path of a node under a UiRoot (ui.describe lists them). |
 | `ui/unknown-state` | @aethervtt/shard-ui |  |
 | `ui/unknown-style` | @aethervtt/shard-ui | Add it to the root's *.theme.json styles, or fix UiNode.style (ui.describe shows each node's). |
+| `vector/invalid-geometry` | @aethervtt/shard-vector | A region shape is { kind: 'rect' \| 'polygon' \| 'multipolygon' \| 'brush', ... } in world (x, z). |
 | `verify/approval-needs-reason` | @aethervtt/shard-verify | Say why it looks the way it does: shard approve <shot> --reason "Shadows are softer since 0058". |
 | `verify/idle-timeout` | @aethervtt/shard-verify | Holding nothing: it was slow, not stuck; raise the plan's timeoutMs. |
 | `verify/invalid-json` | @aethervtt/shard-verify |  |

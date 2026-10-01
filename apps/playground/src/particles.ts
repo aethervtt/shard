@@ -1,5 +1,5 @@
 import { ParticleEffect, ParticleEffects, ParticleSystem } from '@aethervtt/shard-particles'
-import { Camera3d, Exposure } from '@aethervtt/shard-render'
+import { Camera3d, Exposure, Gpu } from '@aethervtt/shard-render'
 import { definePlugin } from '@aethervtt/shard-runtime'
 import { lookAt, Transform } from '@aethervtt/shard-transform'
 
@@ -7,7 +7,8 @@ const HUES = ['#ff7a2a', '#4aa3ff', '#9dff6a', '#ff5ad2']
 
 /**
  * 4 fountains of additive billboards, 250k alive each (1M total). `?count=` sets the particles
- * per fountain. Every particle is simulated and drawn on the GPU every frame.
+ * per fountain. Every particle is simulated and drawn on the GPU every frame. The baseline tier
+ * (0064) simulates on the CPU: 25k a fountain there.
  */
 export const particlesDemoPlugin = definePlugin({
   name: 'particles-demo',
@@ -15,7 +16,10 @@ export const particlesDemoPlugin = definePlugin({
   build() {},
   ready(app) {
     const world = app.world
-    const count = Number(new URLSearchParams(location.search).get('count') ?? 250_000)
+    const cpu = world.tryResource(Gpu)?.tier === 'baseline'
+    const count = Number(
+      new URLSearchParams(location.search).get('count') ?? (cpu ? 25_000 : 250_000),
+    )
     const lifetime = 2
     world.spawn(
       [Camera3d, { clearColor: [0.01, 0.01, 0.02, 1] }],

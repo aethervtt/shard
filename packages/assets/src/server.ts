@@ -3,16 +3,23 @@ import {
   allComponents,
   defineEvent,
   defineResource,
+  type Entity,
   isPlainObject,
   type JsonValue,
+  type Owner,
+  type OwnerQuota,
   ShardError,
   type World,
 } from '@aethervtt/shard-core'
 import type { Platform } from '@aethervtt/shard-platform'
-import { LogResource } from '@aethervtt/shard-runtime'
+import { DevMode, LogResource } from '@aethervtt/shard-runtime'
 import { randomGuid, sha256Hex } from './hash'
+import { MissingAsset } from './missing'
 import {
   type Artifact,
+  type AssetCost,
+  type AssetTypeDef,
+  allAssetTypes,
   findAssetType,
   findImporter,
   type ImportContext,
@@ -273,6 +280,15 @@ export class AssetServer {
   private readonly waits = new Map<string, string>()
   private readonly pins = new Map<string, Set<string>>()
   private readonly listeners = new Set<(event: AssetEventData) => void>()
+  private readonly unloadListeners = new Set<(entry: AssetEntry, item: unknown) => void>()
+  /** Guids whose store holds a fallback (0061), and that object. */
+  private readonly fallbacks = new Map<string, unknown>()
+  /** Bumped when the set of fallbacks changes; `markMissing` rescans then. */
+  private missingVersion = 0
+  private readonly marked = { version: -1, entities: -1, frames: 0, tagged: 0 }
+  /** Leases per owner (0061): guid → what it was charged (undefined until it loads). */
+  private readonly leases = new Map<Owner, Map<string, AssetCost | undefined>>()
+  private ownersHooked = false
   private claimedMoves = new Set<SourceRecord>()
   private indexLoaded = false
   private queue: Promise<unknown> = Promise.resolve()
@@ -483,13 +499,17 @@ export class AssetServer {
         return
       }
       entry.state = 'failed'
+      this.useFallback(entry, error)
       this.emit(entry, 'failed')
     }
     const set = (item: unknown) => {
       const store = this.world.initResource(type!.store)
-      const existing = store.byGuid(entry.guid)
+      // A fallback in the store is replaced, never updated in place.
+      const fallback = this.fallbacks.get(entry.guid)
+      const existing = fallback === undefined ? store.byGuid(entry.guid) : undefined
       if (reload && existing !== undefined && type!.update) type!.update(existing, item)
       else store.set(entry.guid, item)
+      if (fallback !== undefined) this.dropFallback(entry, fallback)
       entry.state = 'loaded'
       entry.error = undefined
       entry.version++
@@ -562,9 +582,12 @@ export class AssetServer {
         resolve: (p) => this.resolve(p.startsWith('#') ? `${base}${p}` : p),
       })
       const store = this.world.initResource(type.store)
-      const existing = store.byGuid(entry.guid)
+      // A fallback in the store is replaced, never updated in place.
+      const fallback = this.fallbacks.get(entry.guid)
+      const existing = fallback === undefined ? store.byGuid(entry.guid) : undefined
       if (existing !== undefined && type.update) type.update(existing, item)
       else store.set(entry.guid, item)
+      if (fallback !== undefined) this.dropFallback(entry, fallback)
       entry.state = 'loaded'
       entry.error = undefined
       entry.version++
@@ -585,9 +608,332 @@ export class AssetServer {
       }
       entry.state = 'failed'
       entry.error = error
+      this.useFallback(entry, error)
       this.emit(entry, 'failed')
       throw error
     }
+  }
+
+  // --- fallbacks (0061) -----------------------------------------------------------
+
+  /**
+   * Loads a failed asset again (the host's asset source decides retries). On success the store's
+   * fallback is replaced, and entities switch back without respawning; `MissingAsset` comes off
+   * them on the next `markMissing`.
+   */
+  retry(ref: AssetRef | string): Promise<void> {
+    const entry = this.entry(ref)
+    if (entry?.state === 'failed') {
+      entry.state = 'unloaded'
+      entry.error = undefined
+    }
+    return this.load(ref)
+  }
+
+  /** Whether the store holds a fallback for this asset. */
+  isFallback(ref: AssetRef | string): boolean {
+    const entry = this.entry(ref)
+    return entry !== undefined && this.fallbacks.has(entry.guid)
+  }
+
+  /** Assets whose stores hold fallbacks now, and why they failed. */
+  failed(): { path: string; guid: string; code: string; message: string }[] {
+    const out: { path: string; guid: string; code: string; message: string }[] = []
+    for (const guid of this.fallbacks.keys()) {
+      const entry = this.entries.get(guid)
+      if (!entry) continue
+      out.push({
+        path: entry.path,
+        guid,
+        code: entry.error?.code ?? 'assets/load-failed',
+        message: entry.error?.message ?? '',
+      })
+    }
+    return out
+  }
+
+  /** How many assets are showing fallbacks. */
+  get fallbackCount(): number {
+    return this.fallbacks.size
+  }
+
+  /**
+   * A stand-in for a ref nothing can load: its guid isn't in the catalog (a deleted file) or its
+   * runtime asset left the store. Makes a failed entry with the type's fallback in the store, so
+   * what references it draws the fallback, is marked, and counts in RenderHealth (0061).
+   */
+  missing(
+    ref: { readonly guid?: string | undefined; readonly path?: string | undefined },
+    type: string,
+  ): void {
+    const guid = ref.guid ?? (ref.path !== undefined ? `missing:${ref.path}` : undefined)
+    if (guid === undefined || this.entries.has(guid)) return
+    const assetType = findAssetType(type)
+    if (!assetType?.fallback || this.world.tryResource(assetType.store)?.has(guid)) return
+    const label = ref.path ?? guid
+    const error = new ShardError('assets/not-found', `No asset "${label}"`, {
+      path: ref.path,
+      hint: 'It was deleted or never imported. Restore it, or point to another asset.',
+    })
+    const entry: AssetEntry = {
+      guid,
+      path: label,
+      type,
+      label: '',
+      source: undefined,
+      state: 'failed',
+      error,
+      version: 0,
+    }
+    this.addEntry(entry)
+    this.useFallback(entry, error)
+    this.emit(entry, 'failed')
+  }
+
+  private useFallback(entry: AssetEntry, error: ShardError): void {
+    const type = findAssetType(entry.type)
+    if (!type?.fallback || this.fallbacks.has(entry.guid)) return
+    let item: unknown
+    try {
+      item = type.fallback({
+        guid: entry.guid,
+        path: entry.path,
+        error,
+        dev: this.world.tryResource(DevMode)?.enabled ?? false,
+        world: this.world,
+      })
+    } catch (err) {
+      this.world.tryResource(LogResource)?.error(err)
+      return
+    }
+    this.world.initResource(type.store).set(entry.guid, item)
+    this.fallbacks.set(entry.guid, item)
+    this.missingVersion++
+  }
+
+  private dropFallback(entry: AssetEntry, fallback: unknown): void {
+    this.fallbacks.delete(entry.guid)
+    this.missingVersion++
+    for (const listener of this.unloadListeners) listener(entry, fallback)
+  }
+
+  /**
+   * Puts `MissingAsset` on entities whose components reference an asset showing a fallback, and
+   * takes it off when none do. The render plugin runs it every frame: it rescans only when the
+   * fallbacks or the entity count changed, and once a second while any fallback remains (for an
+   * entity switched to a failed asset in place).
+   */
+  markMissing(): void {
+    const world = this.world
+    const m = this.marked
+    if (this.fallbacks.size === 0 && m.tagged === 0) return
+    const count = world.entityCount
+    m.frames++
+    if (m.version === this.missingVersion && m.entities === count && m.frames % 60 !== 0) return
+    m.version = this.missingVersion
+    m.entities = count
+    const found = new Map<Entity, string>()
+    if (this.fallbacks.size > 0) {
+      // Which fallback, if any, each referenced asset draws: its own, or one it uses (a material
+      // whose texture failed).
+      const failedFor = new Map<string, string | null>()
+      const failedIn = (guid: string): string | null => {
+        if (this.fallbacks.has(guid)) return guid
+        const known = failedFor.get(guid)
+        if (known !== undefined) return known
+        failedFor.set(guid, null) // cycles resolve to "fine"
+        let result: string | null = null
+        const [type, item] = this.itemOf(guid)
+        if (type?.references && item !== undefined) {
+          for (const ref of type.references(item)) {
+            const g = ref?.guid
+            if (typeof g !== 'string') continue
+            result = failedIn(g)
+            if (result !== null) break
+          }
+        }
+        failedFor.set(guid, result)
+        return result
+      }
+      let current = 0 as Entity
+      const visit = (value: unknown): void => {
+        if (value === null || typeof value !== 'object') return
+        if (Array.isArray(value)) {
+          for (const v of value) visit(v)
+          return
+        }
+        if (ArrayBuffer.isView(value)) return
+        const guid = (value as { guid?: unknown }).guid
+        if (typeof guid === 'string' && !found.has(current)) {
+          const failed = failedIn(guid)
+          if (failed !== null) found.set(current, failed)
+        }
+        for (const v of Object.values(value)) if (typeof v === 'object') visit(v)
+      }
+      for (const def of allComponents()) {
+        if (def === MissingAsset) continue
+        const objectFields = def.layout.filter((c) => c.storage === 'object')
+        if (objectFields.length === 0) continue
+        for (const table of world.query({ with: [def] }).tables) {
+          for (const { name } of objectFields) {
+            const column = table.column(def, name as never) as unknown as unknown[]
+            for (let i = 0; i < table.count; i++) {
+              current = table.entities[i]! as Entity
+              visit(column[i])
+            }
+          }
+        }
+      }
+    }
+    const stale: Entity[] = []
+    for (const table of world.query({ with: [MissingAsset] }).tables) {
+      for (let i = 0; i < table.count; i++) {
+        const e = table.entities[i]! as Entity
+        if (!found.has(e)) stale.push(e)
+      }
+    }
+    for (const e of stale) world.remove(e, MissingAsset)
+    for (const [e, guid] of found) {
+      const entry = this.entries.get(guid)
+      const value = {
+        ref: entry?.path ?? guid,
+        code: entry?.error?.code ?? 'assets/load-failed',
+        message: entry?.error?.message ?? '',
+      }
+      const had = world.tryGet(e, MissingAsset)
+      if (!had) world.add(e, MissingAsset, value)
+      else if (had.ref !== value.ref) world.set(e, MissingAsset, value)
+    }
+    m.tagged = found.size
+  }
+
+  /** The loaded object of an asset (or its fallback), by ref, path or guid. */
+  item(ref: AssetRef | string): unknown {
+    const guid = this.entry(ref)?.guid ?? (typeof ref === 'string' ? ref : ref.guid)
+    return guid === undefined ? undefined : this.itemOf(guid)[1]
+  }
+
+  /** An asset's type and object by guid: catalog entries, then runtime stores (`mem:` guids). */
+  private itemOf(guid: string): [AssetTypeDef | undefined, unknown] {
+    const entry = this.entries.get(guid)
+    if (entry) {
+      const type = findAssetType(entry.type)
+      return [type, type && this.world.tryResource(type.store)?.byGuid(guid)]
+    }
+    for (const type of allAssetTypes()) {
+      const item = this.world.tryResource(type.store)?.byGuid(guid)
+      if (item !== undefined) return [type, item]
+    }
+    return [undefined, undefined]
+  }
+
+  /**
+   * Called with an asset's object just before its store drops it (unloaded, or a fallback replaced
+   * by the real asset), so whoever made GPU copies of it frees them.
+   */
+  onUnload(listener: (entry: AssetEntry, item: unknown) => void): () => void {
+    this.unloadListeners.add(listener)
+    return () => this.unloadListeners.delete(listener)
+  }
+
+  // --- leases (0061) ----------------------------------------------------------------
+
+  /**
+   * Loads an asset for `owner` and keeps it loaded until the owner is released; then it unloads
+   * if no other owner leases it and nothing else references it. The lease counts the asset's cost
+   * (triangles, textures, bytes) against the owner's limits: one that doesn't fit fails with
+   * `core/owner-quota` and changes nothing. An asset still loading is charged when it arrives; if
+   * it doesn't fit then, the lease is dropped and the error logged.
+   */
+  lease<T extends string = string>(ref: AssetRef<T> | string, owner: Owner): AssetRef<T> {
+    const entry = this.entry(ref)
+    if (!entry) {
+      const label = typeof ref === 'string' ? ref : (ref.path ?? ref.guid)
+      throw new ShardError('assets/not-found', `No asset "${label}" in the catalog`, {
+        path: typeof ref === 'string' ? ref : ref.path,
+        hint: 'Check the path, or run `shard import` to import new files.',
+      })
+    }
+    this.hookOwners()
+    const owners = this.world.owners
+    owners.ensureCapacity(owner, 'entities', 0) // throws for a released or foreign owner
+    const out = { type: entry.type, guid: entry.guid, path: entry.path } as AssetRef<T>
+    let held = this.leases.get(owner)
+    if (held?.has(entry.guid)) return out
+    const cost = this.costOf(entry)
+    if (cost) this.charge(owner, cost)
+    else for (const q of COSTED) owners.ensureCapacity(owner, q, 1)
+    if (!held) {
+      held = new Map()
+      this.leases.set(owner, held)
+    }
+    held.set(entry.guid, cost)
+    this.pin(entry.guid, leaseKey(owner))
+    if (!cost) {
+      this.request(entry.guid).then(
+        () => this.chargeArrival(owner, entry),
+        () => {},
+      )
+    }
+    return out
+  }
+
+  /** Asset paths `owner` leases. */
+  leasesOf(owner: Owner): string[] {
+    return [...(this.leases.get(owner)?.keys() ?? [])].map((g) => this.entries.get(g)?.path ?? g)
+  }
+
+  /** Charges a lease whose asset was still loading when it was taken. */
+  private chargeArrival(owner: Owner, entry: AssetEntry): void {
+    const held = this.leases.get(owner)
+    if (!held?.has(entry.guid) || held.get(entry.guid)) return
+    const cost = this.costOf(entry)
+    if (!cost) return
+    try {
+      this.charge(owner, cost)
+      held.set(entry.guid, cost)
+    } catch (err) {
+      held.delete(entry.guid)
+      this.pins.get(leaseKey(owner))?.delete(entry.guid)
+      this.world.tryResource(LogResource)?.error(err)
+      this.unloadUnreachable([entry.guid])
+    }
+  }
+
+  /** Drops every lease `owner` holds (when it's released). */
+  private dropLeases(owner: Owner): void {
+    const held = this.leases.get(owner)
+    if (!held) return
+    this.leases.delete(owner)
+    this.unpin(leaseKey(owner))
+    for (const cost of held.values()) if (cost) this.refund(owner, cost)
+    this.unloadUnreachable([...held.keys()])
+  }
+
+  private hookOwners(): void {
+    if (this.ownersHooked) return
+    this.ownersHooked = true
+    this.world.owners.onRelease((owner) => this.dropLeases(owner))
+    this.world.owners.addDescriber('leases', (owner) => this.leasesOf(owner))
+  }
+
+  /** What leasing the loaded asset costs, or undefined while it isn't loaded (or is a fallback). */
+  private costOf(entry: AssetEntry): AssetCost | undefined {
+    if (entry.state !== 'loaded' || this.fallbacks.has(entry.guid)) return undefined
+    const type = findAssetType(entry.type)
+    const item = type && this.world.tryResource(type.store)?.byGuid(entry.guid)
+    if (item === undefined) return undefined
+    return type!.cost?.(item) ?? {}
+  }
+
+  private charge(owner: Owner, cost: AssetCost): void {
+    const owners = this.world.owners
+    for (const q of COSTED) owners.ensureCapacity(owner, q, cost[q] ?? 0)
+    for (const q of COSTED) if (cost[q]) owners.charge(owner, q, cost[q]!)
+  }
+
+  private refund(owner: Owner, cost: AssetCost): void {
+    for (const q of COSTED) if (cost[q]) this.world.owners.refund(owner, q, cost[q]!)
   }
 
   /** Whether `from` needs `guid` at runtime, directly or through its dependencies. */
@@ -667,6 +1013,31 @@ export class AssetServer {
    * not pinned, and not a dependency of something reachable. Returns the unloaded paths.
    */
   collect(): string[] {
+    const reachable = this.reachable()
+    const unloaded: string[] = []
+    for (const entry of this.entries.values()) {
+      if (entry.state !== 'loaded' || reachable.has(entry.guid)) continue
+      if (entry.source === undefined && !this.collectable.has(entry.guid)) continue
+      this.unloadEntry(entry)
+      unloaded.push(entry.path)
+    }
+    return unloaded
+  }
+
+  /** Unloads those of `guids` nothing reaches (a released owner's leases). */
+  private unloadUnreachable(guids: readonly string[]): void {
+    if (guids.length === 0) return
+    const reachable = this.reachable()
+    for (const guid of guids) {
+      const entry = this.entries.get(guid)
+      if (!entry || reachable.has(guid)) continue
+      if (entry.state !== 'loaded' && entry.state !== 'failed') continue
+      this.unloadEntry(entry)
+    }
+  }
+
+  /** Guids referenced by a component, pinned, or depended on by one that is. */
+  private reachable(): Set<string> {
     const reachable = new Set<string>()
     for (const set of this.pins.values()) for (const g of set) reachable.add(g)
     const visit = (value: unknown): void => {
@@ -705,14 +1076,7 @@ export class AssetServer {
         }
       }
     }
-    const unloaded: string[] = []
-    for (const entry of this.entries.values()) {
-      if (entry.state !== 'loaded' || reachable.has(entry.guid)) continue
-      if (entry.source === undefined && !this.collectable.has(entry.guid)) continue
-      this.unloadEntry(entry)
-      unloaded.push(entry.path)
-    }
-    return unloaded
+    return reachable
   }
 
   private unloadEntry(entry: AssetEntry): void {
@@ -720,7 +1084,11 @@ export class AssetServer {
     if (type) {
       const store = this.world.initResource(type.store)
       const item = store.byGuid(entry.guid)
-      if (item !== undefined) type.unload?.(item)
+      if (item !== undefined) {
+        for (const listener of this.unloadListeners) listener(entry, item)
+        if (!this.fallbacks.delete(entry.guid)) type.unload?.(item)
+        else this.missingVersion++
+      }
       store.delete(entry.guid)
     }
     entry.state = 'unloaded'
@@ -1566,6 +1934,33 @@ export class AssetServer {
   }
 
   /**
+   * Writes a data asset's source file from its JSON, edited in place (a tilemap, 0059): two-space
+   * indented, keeping the file's `$schema` (which importing drops). Returns the project path
+   * written. The next scan or watcher event reimports it as for any edit.
+   */
+  async writeSource(ref: AssetRef | string, json: Record<string, unknown>): Promise<string> {
+    const fs = this.requireWritable()
+    const entry = this.entry(ref)
+    const path = entry?.source
+    if (!entry || !path || entry.label !== '') {
+      throw new ShardError(
+        'assets/no-source',
+        `${typeof ref === 'string' ? ref : (ref.path ?? ref.guid)} has no source file`,
+        { hint: 'Only assets imported from project files can be written back.' },
+      )
+    }
+    let schema: unknown
+    try {
+      schema = (JSON.parse(await fs.readText(path)) as { $schema?: unknown }).$schema
+    } catch {
+      // Not there, or not JSON: written as given.
+    }
+    const body = schema !== undefined && !('$schema' in json) ? { $schema: schema, ...json } : json
+    await fs.writeText(path, `${JSON.stringify(body, null, 2)}\n`)
+    return path
+  }
+
+  /**
    * Moves a source and its `.meta`, then rewrites references to it in scene files and JSON data
    * assets. The guid is unchanged, so loaded assets stay loaded.
    */
@@ -1697,6 +2092,12 @@ export class AssetServer {
     }
   }
 }
+
+/** The quotas an asset's cost counts against (entities are counted by the owners themselves). */
+const COSTED: readonly Exclude<OwnerQuota, 'entities'>[] = ['triangles', 'textures', 'bytes']
+
+/** The pin that holds an owner's leases. */
+const leaseKey = (owner: Owner) => `lease:${owner.id}`
 
 export const AssetServerResource = defineResource<AssetServer>('assets/Server', {
   description: 'The asset database: catalog, imports, loading, hot reload.',

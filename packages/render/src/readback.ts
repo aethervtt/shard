@@ -16,7 +16,7 @@ export const BYTES_PER_TEXEL: Partial<Record<GPUTextureFormat, number>> = {
   depth32float: 4,
 }
 
-function halfToFloat(h: number): number {
+export function halfToFloat(h: number): number {
   const s = h & 0x8000 ? -1 : 1
   const e = (h >> 10) & 0x1f
   const f = h & 0x3ff

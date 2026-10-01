@@ -4,15 +4,17 @@ import {
   DefaultEnvironment,
   describeEnvironment,
   EnvironmentMap,
+  Environments,
   ProceduralSky,
   prepareEnvironments,
   runEnvironmentWork,
   Skybox,
 } from './environment'
 import { ENVIRONMENT_SHADERS } from './environment-shaders'
+import { addRenderFeatures } from './features'
 import { ForwardStateResource, isCamera, skyNode } from './forward'
 import { RenderPhase } from './graph'
-import { Graph, RenderDescribers, RenderSet, Shaders } from './plugin'
+import { Gpu, Graph, RenderDescribers, RenderSet, Shaders } from './plugin'
 import { registerShaders } from './shaders'
 
 /**
@@ -28,11 +30,27 @@ export const environmentPlugin = definePlugin({
     app.world.initResource(DefaultEnvironment)
     app.addSystems(Last, prepareEnvironments.inSet(RenderSet.Prepare))
   },
-  ready(app) {
+  async ready(app) {
     const world = app.world
+    // The baseline tier prefilters with fragment passes (0064): loaded only on a baseline device.
+    const baseline =
+      world.resource(Gpu).tier === 'baseline' ? await import('./baseline/environment') : undefined
     registerShaders(world.resource(Shaders), ENVIRONMENT_SHADERS)
+    if (baseline) {
+      registerShaders(world.resource(Shaders), baseline.BASELINE_ENVIRONMENT_SHADERS)
+      world.resource(Environments).baseline = baseline
+    }
     world.initResource(RenderDescribers).set('environment', (w) => describeEnvironment(w))
     const graph = world.resource(Graph)
+    addRenderFeatures(world, {
+      name: 'render/environment',
+      description:
+        'Image-based lighting: cube conversion, specular prefilter, SH irradiance, BRDF LUT; and the sky.',
+      nodes: ['environment', 'sky'],
+      baseline: {
+        strategy: 'Prefilter, SH and BRDF LUT as fragment passes into the cube faces and mips',
+      },
+    })
     graph.addNode('environment', {
       kind: 'raw',
       phase: RenderPhase.Setup,

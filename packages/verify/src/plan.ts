@@ -25,6 +25,11 @@ export interface CapturePlan {
   fixture: string
   /** What records name the renderer, when the page doesn't say. */
   renderer?: string
+  /**
+   * The graphics API the page is asked for (0064), as `?backend=`. Unset, the page picks. A browser
+   * without it skips the plan: no WebGPU skips a 'webgpu' plan, not a 'webgl2' one.
+   */
+  backend?: 'auto' | 'webgpu' | 'webgl2'
   conditions: PlanConditions
   /** Default tolerance for every shot. */
   tolerance: Tolerance
@@ -189,6 +194,7 @@ export function capturePlanJsonSchema(): JsonSchema {
       canvas: { type: 'string', minLength: 1 },
       fixture: { type: 'string', minLength: 1 },
       renderer: { type: 'string', minLength: 1 },
+      backend: { enum: ['auto', 'webgpu', 'webgl2'] },
       conditions: {
         type: 'object',
         additionalProperties: false,
@@ -286,6 +292,7 @@ export function parsePlan(json: unknown, file?: string): CapturePlan {
     canvas: raw.canvas ?? 'canvas',
     fixture: raw.fixture ?? `${url.pathname}${url.hash}`,
     renderer: raw.renderer,
+    backend: raw.backend,
     conditions: raw.conditions ?? {},
     tolerance: raw.tolerance ?? {},
     clients: raw.clients ?? [{ name: 'main' }],

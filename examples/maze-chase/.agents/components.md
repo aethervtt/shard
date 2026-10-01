@@ -125,6 +125,18 @@ Two-bone IK (legs, arms): puts tip on target by rotating root and mid, bending t
 | `weight` | number | `1` | ≥ 0, ≤ 1 | How much the solution counts: slerps each joint from its animated rotation. |
 | `tipRotation` | number | `0` | ≥ 0, ≤ 1 | How much the tip takes the target's world rotation (1 for feet FootPlacement aligns to the ground). 0: the tip keeps its animated local rotation. |
 
+## `assets/MissingAsset`
+
+This entity shows a fallback for an asset that failed to load (0061). assets.retry(ref) reloads it.
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `ref` | string | `""` |  | The asset path (or guid) that failed. |
+| `code` | string | `""` |  | The load error's code, such as assets/load-failed. |
+| `message` | string | `""` |  | The load error's message. |
+
 ## `audio/AudioListener`
 
 Where the player hears from: put it on the camera. The first one found is used; without one, the world origin looking down -Z.
@@ -196,6 +208,17 @@ _Computed by the engine; never written in scene files._
 |---|---|---|---|---|
 | `matrix` | number[12] | `[1,0,0,0,0,1,0,0,0,0,1,0]` |  | World matrix (top three rows, row by row), relative to the floating origin. Computed from Transform each frame. |
 
+## `core/OwnedBy`
+
+Who owns this entity (0061). Only host code holding the Owner writes it (world.owners.spawn / adopt); children take their parent's owner. Never in scene files.
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `owner` | integer | `0` | ≥ 0, ≤ 4294967295 | The owner id; world.owners.nameOf(entity) gives its name. |
+| `inherited` | boolean | `false` |  | Set when the entity took its parent's owner. |
+
 ## `core/Transform`
 
 Local transform. Y is up, -Z is forward. In 2D, translation.z orders layers and rotation is around Z.
@@ -243,6 +266,7 @@ Glass dice: clear bodies, bright rims, opaque marks.
 | `emissive` | string or number[4] | `"#ffffff"` |  | Emitted color (linear), scaled by emissiveLuminance. |
 | `emissiveLuminance` | number | `0` | ≥ 0, cd/m² | Emitted luminance. 0 = not emissive. |
 | `doubleSided` | boolean | `false` |  | Draw back faces too (no culling). |
+| `deferUntilReady` | boolean | `false` |  | Baseline tier (0064): while a texture it binds waits for a copy in its slot's color space, skip its draws instead of showing the slot's loading fallback. |
 | `alphaMode` | `"opaque"` \| `"mask"` \| `"alpha"` \| `"additive"` \| `"premultiplied"` | `"opaque"` |  | opaque ignores alpha; mask discards pixels below alphaCutoff; alpha blends (transparent, drawn after opaque, sorted back to front); additive adds light (glows); premultiplied expects color already multiplied by alpha. |
 | `alphaCutoff` | number | `0.5` | ≥ 0, ≤ 1 | Alpha threshold for alphaMode "mask". |
 | `normalScale` | number | `1` |  | Strength of the normal map. |
@@ -280,6 +304,7 @@ Metal dice: brushed, worn bright at the edges, enamel marks.
 | `emissive` | string or number[4] | `"#ffffff"` |  | Emitted color (linear), scaled by emissiveLuminance. |
 | `emissiveLuminance` | number | `0` | ≥ 0, cd/m² | Emitted luminance. 0 = not emissive. |
 | `doubleSided` | boolean | `false` |  | Draw back faces too (no culling). |
+| `deferUntilReady` | boolean | `false` |  | Baseline tier (0064): while a texture it binds waits for a copy in its slot's color space, skip its draws instead of showing the slot's loading fallback. |
 | `alphaMode` | `"opaque"` \| `"mask"` \| `"alpha"` \| `"additive"` \| `"premultiplied"` | `"opaque"` |  | opaque ignores alpha; mask discards pixels below alphaCutoff; alpha blends (transparent, drawn after opaque, sorted back to front); additive adds light (glows); premultiplied expects color already multiplied by alpha. |
 | `alphaCutoff` | number | `0.5` | ≥ 0, ≤ 1 | Alpha threshold for alphaMode "mask". |
 | `normalScale` | number | `1` |  | Strength of the normal map. |
@@ -317,6 +342,7 @@ Resin dice: a tonal depth fake, swirl, glowing thin edges, a lit result face.
 | `emissive` | string or number[4] | `"#ffffff"` |  | Emitted color (linear), scaled by emissiveLuminance. |
 | `emissiveLuminance` | number | `0` | ≥ 0, cd/m² | Emitted luminance. 0 = not emissive. |
 | `doubleSided` | boolean | `false` |  | Draw back faces too (no culling). |
+| `deferUntilReady` | boolean | `false` |  | Baseline tier (0064): while a texture it binds waits for a copy in its slot's color space, skip its draws instead of showing the slot's loading fallback. |
 | `alphaMode` | `"opaque"` \| `"mask"` \| `"alpha"` \| `"additive"` \| `"premultiplied"` | `"opaque"` |  | opaque ignores alpha; mask discards pixels below alphaCutoff; alpha blends (transparent, drawn after opaque, sorted back to front); additive adds light (glows); premultiplied expects color already multiplied by alpha. |
 | `alphaCutoff` | number | `0.5` | ≥ 0, ≤ 1 | Alpha threshold for alphaMode "mask". |
 | `normalScale` | number | `1` |  | Strength of the normal map. |
@@ -369,6 +395,7 @@ Solid dice: an opaque body, optional flecks.
 | `emissive` | string or number[4] | `"#ffffff"` |  | Emitted color (linear), scaled by emissiveLuminance. |
 | `emissiveLuminance` | number | `0` | ≥ 0, cd/m² | Emitted luminance. 0 = not emissive. |
 | `doubleSided` | boolean | `false` |  | Draw back faces too (no culling). |
+| `deferUntilReady` | boolean | `false` |  | Baseline tier (0064): while a texture it binds waits for a copy in its slot's color space, skip its draws instead of showing the slot's loading fallback. |
 | `alphaMode` | `"opaque"` \| `"mask"` \| `"alpha"` \| `"additive"` \| `"premultiplied"` | `"opaque"` |  | opaque ignores alpha; mask discards pixels below alphaCutoff; alpha blends (transparent, drawn after opaque, sorted back to front); additive adds light (glows); premultiplied expects color already multiplied by alpha. |
 | `alphaCutoff` | number | `0.5` | ≥ 0, ≤ 1 | Alpha threshold for alphaMode "mask". |
 | `normalScale` | number | `1` |  | Strength of the normal map. |
@@ -798,6 +825,7 @@ Brings along: `core/Transform`, `render/Exposure`.
 | `clearColor` | string or number[4] | `[0.0056,0.0065,0.0091,1]` |  | Background (linear). |
 | `target` | null or RenderTarget ref | `null` |  | Offscreen target, or null for the window. |
 | `active` | boolean | `true` |  | Renders when true. An inactive camera keeps its settings and transform but draws nothing. |
+| `layers` | integer | `65535` | ≥ 0, ≤ 65535 | Render layers this camera draws (0057): a renderable draws if its RenderLayers mask shares a bit. Default: all. |
 
 ## `render/ColorGrading`
 
@@ -852,6 +880,7 @@ Brings along: `core/Transform`.
 | `shadowBias` | number | `0.02` | ≥ 0, m | Moves receivers toward the light before the depth test. Fixes acne. |
 | `shadowNormalBias` | number | `1.5` | ≥ 0 | Moves receivers along their normal, in shadow-map texels. Fixes acne at grazing angles. |
 | `shadowSoftness` | number | `0` | ≥ 0 | PCF filter radius in texels beyond the base 3x3 (0 = 3x3). Softer edges. |
+| `shadowUpdate` | `"always"` \| `"on-change"` | `"always"` |  | always: shadow maps redraw every frame. on-change: they redraw only when the light or the camera's cascade fit moved, or a shadow caster inside them changed (0055); a still scene draws none. |
 | `cascades` | object | `{"count":4,"maxDistance":150,"splitLambda":0.8}` |  | How cascaded shadow maps divide the view. |
 | `angularDiameter` | number | `0.53` | ≥ 0, ≤ 30, deg | The sun disk's size in an atmosphere's sky (the Sun 0.53°). 0: no disk. Illuminance is at the top of the atmosphere. |
 
@@ -887,6 +916,18 @@ Brings along: `render/Camera3d`.
 | `start` | number | `0` | ≥ 0, m | Clear distance from the camera. |
 | `sunScattering` | number | `0.5` | ≥ 0, ≤ 1 | Glow toward the sun (forward scattering). |
 | `mode` | `"default"` \| `"add"` | `"default"` |  | default: fog for flat scenes, ignored inside a planet's Atmosphere (render/fog-with-atmosphere); add: extra ground fog on top of the atmosphere's haze. |
+
+## `render/GroundLayer`
+
+Draws a mesh in the ground phase: coplanar layers in a fixed order, hidden by walls and props, never z-fighting.
+
+Brings along: `core/Transform`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `band` | integer or `"tiles"` \| `"grid"` \| `"drawings"` \| `"tokens-flat"` \| `"fog"` \| `"overlay"` | `30` |  | Stacking band: tiles 10, grid 20, drawings 30, tokens-flat 40, fog 50, overlay 60. Higher draws over lower. Bands from 60 up draw after transparent objects and projected fog. Presets: tiles, grid, drawings, tokens-flat, fog, overlay. |
+| `order` | integer | `0` | ≥ -2147483648, ≤ 2147483647 | Order within the band: higher draws over lower. |
+| `level` | integer | `0` | ≥ -16, ≤ 15 | Structure level index (0067): ground layers sort by level first, so a lower level never draws over an upper one. 0 is the ground level. |
 
 ## `render/InstanceData`
 
@@ -980,6 +1021,16 @@ Tag: shadows are not applied to this mesh.
 
 Tag (no fields).
 
+## `render/Outline`
+
+Outlines a renderable, or every renderable under this entity. Selection and hover are two Outlines with different colors; the host sets and clears them.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `color` | string or number[4] | `[1,0.78,0.2,1]` |  | Outline color (linear), with alpha. |
+| `width` | number | `2` | ≥ 0, ≤ 32, px | Width in CSS pixels, outside the silhouette, at any zoom and display density. |
+| `occluded` | `"hide"` \| `"show"` \| `"dim"` | `"hide"` |  | Where something hides the outlined object: hide the outline there, show it anyway, or dim it. |
+
 ## `render/PhysicalCamera`
 
 Photographic camera settings. When present, they set Exposure (and fovY).
@@ -1005,7 +1056,7 @@ Crisp pixel art on an orthographic camera: renders at one texel per pixel (Camer
 
 ## `render/PointLight`
 
-Light emitted equally in all directions, in lumens (intensity lm / 4π candela), with physical inverse-square falloff windowed to zero at range.
+Light emitted equally in all directions, in lumens (intensity lm / 4π candela), with physical inverse-square falloff windowed to zero at range, or tabletop falloff (bright, then dim to range).
 
 Brings along: `core/Transform`.
 
@@ -1019,6 +1070,9 @@ Brings along: `core/Transform`.
 | `shadowBias` | number | `0.02` | ≥ 0, m | Moves receivers toward the light before the depth test. Fixes acne. |
 | `shadowNormalBias` | number | `1` | ≥ 0 | Moves receivers along their normal, in shadow-map texels. Fixes acne at grazing angles. |
 | `shadowSoftness` | number | `0` | ≥ 0 | PCF filter radius in texels beyond the base 3x3 (0 = 3x3). Softer edges. |
+| `shadowUpdate` | `"always"` \| `"on-change"` | `"always"` |  | always: shadow maps redraw every frame. on-change: they redraw only when the light or the camera's cascade fit moved, or a shadow caster inside them changed (0055); a still scene draws none. |
+| `falloff` | `"physical"` \| `"tabletop"` | `"physical"` |  | physical: inverse square, windowed to zero at range. tabletop (0057): full intensity inside bright, then linear to zero at range (a VTT light's bright and dim radii). |
+| `bright` | number | `0` | ≥ 0, m | Tabletop falloff: the radius of full intensity. Past it, light fades linearly to zero at range. |
 
 ## `render/ProceduralSky`
 
@@ -1031,6 +1085,14 @@ An Earth sky seen from 10 m above the ground wherever the camera is: an Atmosphe
 | `mie` | number | `1` | ≥ 0 | Multiplies aerosol (white haze) scattering. |
 | `groundAlbedo` | string or number[4] | `[0.3,0.3,0.3,1]` |  | Ground below the horizon. |
 | `sunDiskSize` | number | `1` | ≥ 0 | Sun disk size, as a multiple of the DirectionalLight's angularDiameter (the Sun's 0.53°). 0 hides the disk. |
+
+## `render/RenderLayers`
+
+Per-view visuals: a token keeps its Transform on a root, and each child visual (a flat disc, a standee) carries the layer of the camera that shows it.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `mask` | integer | `1` | ≥ 0, ≤ 65535 | Layer bits, 16 layers (1 is layer 1). A camera draws it if any bit is also in its layers. |
 
 ## `render/RenderPath`
 
@@ -1047,6 +1109,12 @@ Invisible except for the shadows it receives: under a camera clearing to alpha 0
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `opacity` | number | `0.6` | ≥ 0, ≤ 1 | Alpha of full shadow. Partial shadow (penumbra, one of two lights) is less. |
+
+## `render/ShadowWhenHidden`
+
+Tag: while hidden, this mesh still casts shadows (camera views skip it).
+
+Tag (no fields).
 
 ## `render/SkinnedMesh`
 
@@ -1083,6 +1151,7 @@ Brings along: `core/Transform`.
 | `shadowBias` | number | `0.02` | ≥ 0, m | Moves receivers toward the light before the depth test. Fixes acne. |
 | `shadowNormalBias` | number | `1` | ≥ 0 | Moves receivers along their normal, in shadow-map texels. Fixes acne at grazing angles. |
 | `shadowSoftness` | number | `0` | ≥ 0 | PCF filter radius in texels beyond the base 3x3 (0 = 3x3). Softer edges. |
+| `shadowUpdate` | `"always"` \| `"on-change"` | `"always"` |  | always: shadow maps redraw every frame. on-change: they redraw only when the light or the camera's cascade fit moved, or a shadow caster inside them changed (0055); a still scene draws none. |
 | `innerAngle` | number | `30` | ≥ 0, ≤ 89, deg | Full brightness inside this angle from the axis. |
 | `outerAngle` | number | `45` | ≥ 0.1, ≤ 89.9, deg | No light outside this angle from the axis. |
 
@@ -1110,6 +1179,7 @@ The standard PBR material (GGX). A material asset, not an entity component.
 | `emissive` | string or number[4] | `"#ffffff"` |  | Emitted color (linear), scaled by emissiveLuminance. |
 | `emissiveLuminance` | number | `0` | ≥ 0, cd/m² | Emitted luminance. 0 = not emissive. |
 | `doubleSided` | boolean | `false` |  | Draw back faces too (no culling). |
+| `deferUntilReady` | boolean | `false` |  | Baseline tier (0064): while a texture it binds waits for a copy in its slot's color space, skip its draws instead of showing the slot's loading fallback. |
 | `alphaMode` | `"opaque"` \| `"mask"` \| `"alpha"` \| `"additive"` \| `"premultiplied"` | `"opaque"` |  | opaque ignores alpha; mask discards pixels below alphaCutoff; alpha blends (transparent, drawn after opaque, sorted back to front); additive adds light (glows); premultiplied expects color already multiplied by alpha. |
 | `alphaCutoff` | number | `0.5` | ≥ 0, ≤ 1 | Alpha threshold for alphaMode "mask". |
 | `normalScale` | number | `1` |  | Strength of the normal map. |
@@ -1146,6 +1216,7 @@ Tonemapping for a camera. Without it, cameras use the default curve with ditheri
 | `prevViewProj` | number[16] | `[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]` |  |  |
 | `jitter` | number[4] | `[0,0,0,0]` |  |  |
 | `sunTransmittance` | number[16] | `[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]` |  |  |
+| `pixelScale` | number[4] | `[0,0,0,0]` |  |  |
 
 ## `render/Vignette`
 
@@ -1340,9 +1411,45 @@ _Computed by the engine; never written in scene files._
 |---|---|---|---|---|
 | `slot` | integer | `0` | ≥ 0, ≤ 4294967295 | Slot + 1 (0 = none yet). |
 
+## `sprite/TileChunk`
+
+A ground tilemap's chunk mesh: spawned and kept by the sprite plugin.
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `tilemap` | null or integer or string | `null` |  | The Tilemap this chunk belongs to. |
+| `layer` | integer | `0` | ≥ 0, ≤ 65535 | Layer index in the tilemap data. |
+| `chunk` | integer | `0` | ≥ 0, ≤ 4294967295 | Chunk index: cy · chunks across + cx. |
+
+## `sprite/TileLit`
+
+Lit ground tiles (a Tilemap on a GroundLayer, lit: 3d or 2d).
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `baseColor` | string or number[4] | `[0.8,0.8,0.8,1]` |  | Albedo (linear), alpha in w. |
+| `metallic` | number | `0` | ≥ 0, ≤ 1 | 0 for dielectrics, 1 for metals. |
+| `roughness` | number | `0.5` | ≥ 0, ≤ 1 | Microsurface roughness. |
+| `emissive` | string or number[4] | `"#ffffff"` |  | Emitted color (linear), scaled by emissiveLuminance. |
+| `emissiveLuminance` | number | `0` | ≥ 0, cd/m² | Emitted luminance. 0 = not emissive. |
+| `doubleSided` | boolean | `false` |  | Draw back faces too (no culling). |
+| `deferUntilReady` | boolean | `false` |  | Baseline tier (0064): while a texture it binds waits for a copy in its slot's color space, skip its draws instead of showing the slot's loading fallback. |
+| `alphaMode` | `"opaque"` \| `"mask"` \| `"alpha"` \| `"additive"` \| `"premultiplied"` | `"opaque"` |  | opaque ignores alpha; mask discards pixels below alphaCutoff; alpha blends (transparent, drawn after opaque, sorted back to front); additive adds light (glows); premultiplied expects color already multiplied by alpha. |
+| `alphaCutoff` | number | `0.5` | ≥ 0, ≤ 1 | Alpha threshold for alphaMode "mask". |
+| `normalScale` | number | `1` |  | Strength of the normal map. |
+| `occlusionStrength` | number | `1` | ≥ 0, ≤ 1 | Strength of the occlusion map. |
+| `baseColorTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Albedo (sRGB), multiplied with baseColor. |
+| `metallicRoughnessTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | G = roughness, B = metallic (linear), multiplied with the factors. |
+| `normalTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Tangent-space normal map. |
+| `occlusionTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Ambient occlusion in R (linear). |
+| `emissiveTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Emission color (sRGB), multiplied with emissive. |
+| `atlas` | null or Texture ref | `null` |  | The tile atlas. |
+
 ## `sprite/Tilemap`
 
-Tile layers drawn over the entity's XY plane: tile (x, y) covers [x, x+1] × [−y−1, −y] tile sizes, rows going down from the top.
+Tile layers drawn over the entity's XY plane: tile (x, y) covers [x, x+1] × [−y−1, −y] tile sizes, rows going down from the top. With a GroundLayer (0059), they draw in the ground phase among the tabletop's bands (lay them flat with tilemapOnGround).
 
 Brings along: `core/Transform`, `render/Visibility`.
 
@@ -1353,7 +1460,15 @@ Brings along: `core/Transform`, `render/Visibility`.
 | `tileSize` | number[2] | `[1,1]` | m | World size of one tile. |
 | `chunkSize` | integer | `32` | ≥ 4, ≤ 256 | Tiles per chunk side: chunks are the unit of culling and re-upload. |
 | `layer` | integer | `0` | ≥ -32768, ≤ 32767 | Draw-order band, like Sprite.layer (tilemaps draw first in a band). |
-| `lit` | boolean | `true` |  | Lit by 2D lights under a Lighting2d camera. |
+| `lit` | `"2d"` \| `"3d"` \| `"none"` | `"2d"` |  | 2d: lit by 2D lights under a Lighting2d camera. 3d: lit by 3D lights and shadows like a floor. none: drawn as the atlas is. On the ground (with a GroundLayer) there are no 2D lights: 2d and 3d both light it like a floor. |
+
+## `sprite/TileUnlit`
+
+Unlit ground tiles (a Tilemap on a GroundLayer, lit: none).
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `atlas` | null or Texture ref | `null` |  | The tile atlas. |
 
 ## `terrain/Chunk`
 
@@ -1379,6 +1494,7 @@ Planet ocean: a lit transparent surface with scrolling wave normals.
 | `emissive` | string or number[4] | `"#ffffff"` |  | Emitted color (linear), scaled by emissiveLuminance. |
 | `emissiveLuminance` | number | `0` | ≥ 0, cd/m² | Emitted luminance. 0 = not emissive. |
 | `doubleSided` | boolean | `false` |  | Draw back faces too (no culling). |
+| `deferUntilReady` | boolean | `false` |  | Baseline tier (0064): while a texture it binds waits for a copy in its slot's color space, skip its draws instead of showing the slot's loading fallback. |
 | `alphaMode` | `"opaque"` \| `"mask"` \| `"alpha"` \| `"additive"` \| `"premultiplied"` | `"opaque"` |  | opaque ignores alpha; mask discards pixels below alphaCutoff; alpha blends (transparent, drawn after opaque, sorted back to front); additive adds light (glows); premultiplied expects color already multiplied by alpha. |
 | `alphaCutoff` | number | `0.5` | ≥ 0, ≤ 1 | Alpha threshold for alphaMode "mask". |
 | `normalScale` | number | `1` |  | Strength of the normal map. |
@@ -1447,6 +1563,7 @@ Planet terrain: biome blending and triplanar texture-array layers, with geomorph
 | `emissive` | string or number[4] | `"#ffffff"` |  | Emitted color (linear), scaled by emissiveLuminance. |
 | `emissiveLuminance` | number | `0` | ≥ 0, cd/m² | Emitted luminance. 0 = not emissive. |
 | `doubleSided` | boolean | `false` |  | Draw back faces too (no culling). |
+| `deferUntilReady` | boolean | `false` |  | Baseline tier (0064): while a texture it binds waits for a copy in its slot's color space, skip its draws instead of showing the slot's loading fallback. |
 | `alphaMode` | `"opaque"` \| `"mask"` \| `"alpha"` \| `"additive"` \| `"premultiplied"` | `"opaque"` |  | opaque ignores alpha; mask discards pixels below alphaCutoff; alpha blends (transparent, drawn after opaque, sorted back to front); additive adds light (glows); premultiplied expects color already multiplied by alpha. |
 | `alphaCutoff` | number | `0.5` | ≥ 0, ≤ 1 | Alpha threshold for alphaMode "mask". |
 | `normalScale` | number | `1` |  | Strength of the normal map. |

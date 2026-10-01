@@ -11,7 +11,7 @@ import { AtmosphereGpuResource, addAtmosphereNodes, uploadAtmospheres } from './
 import { ATMOSPHERE_SHADERS } from './atmosphere-shaders'
 import { Atmospheres } from './atmosphere-state'
 import { extractLights } from './lights'
-import { RenderDescribers, RenderSet, Shaders } from './plugin'
+import { Gpu, RenderDescribers, RenderSet, Shaders } from './plugin'
 import { registerShaders } from './shaders'
 import { extractCameras } from './view'
 
@@ -33,13 +33,23 @@ export const atmospherePlugin = definePlugin({
     )
     app.addMethod(...atmosphereMethods)
   },
-  ready(app) {
+  async ready(app) {
+    // The baseline tier's fragment passes (0064): loaded only on a baseline device.
+    const baseline =
+      app.world.resource(Gpu).tier === 'baseline'
+        ? await import('./baseline/atmosphere')
+        : undefined
     registerShaders(app.world.resource(Shaders), ATMOSPHERE_SHADERS)
+    if (baseline) registerShaders(app.world.resource(Shaders), baseline.BASELINE_ATMOSPHERE_SHADERS)
     app.world
       .initResource(RenderDescribers)
       .set('atmosphere', (world) =>
         describeAtmospheres(world, world.tryResource(ProfilerResource)?.all()),
       )
     addAtmosphereNodes(app.world)
+    if (baseline) {
+      app.world.resource(AtmosphereGpuResource).baseline = baseline
+      baseline.installAtmosphereBaseline()
+    }
   },
 })

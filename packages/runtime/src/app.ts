@@ -26,7 +26,15 @@ import { Log, LogResource } from './log'
 import type { Plugin } from './plugin'
 import type { Runner } from './runners'
 import { OnEnter, OnExit, type StateDef } from './state'
-import { DisplayRate, FixedTime, type FixedTimeData, GlobalRng, Time, type TimeData } from './time'
+import {
+  DevMode,
+  DisplayRate,
+  FixedTime,
+  type FixedTimeData,
+  GlobalRng,
+  Time,
+  type TimeData,
+} from './time'
 
 export interface AppOptions {
   /** FixedUpdate rate. Default 60. */
@@ -37,6 +45,12 @@ export interface AppOptions {
   now?: () => number
   /** Seed for the `GlobalRng` resource. Default 0. */
   seed?: number
+  /**
+   * A development build: missing assets show loudly (checkers), and dev-only checks and issues
+   * run (shader cache misses, color-space mismatches, GL error checks). Read it from `DevMode`.
+   * Default false.
+   */
+  dev?: boolean
 }
 
 export interface AppDescription {
@@ -177,6 +191,7 @@ export class App {
     this.now = options.now ?? (() => performance.now())
     this.world.insertResource(ProfilerResource, this.profiler)
     this.world.insertResource(GlobalRng, new Rng(options.seed ?? 0))
+    this.world.insertResource(DevMode, { enabled: options.dev ?? false })
     const log = new Log()
     log.now = () => this.world.tryResource(Time)?.elapsed ?? 0
     this.world.insertResource(LogResource, log)
@@ -638,6 +653,19 @@ export class App {
     throw new ShardError('runtime/disposed', 'This app was disposed', {
       hint: 'Create a new App; a disposed one has released its GPU objects and listeners.',
     })
+  }
+
+  /**
+   * Runs `fn` inside the app's scopes, as build and ready hooks run. For the part of an async ready
+   * hook after its first await, which runs outside them: what it makes counts against the app.
+   */
+  scoped<T>(fn: () => T): T {
+    const n = this.enter()
+    try {
+      return fn()
+    } finally {
+      this.exit(n)
+    }
   }
 
   /** Enters every scope; returns how many, for the matching `exit`. */

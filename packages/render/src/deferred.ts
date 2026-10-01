@@ -1,6 +1,7 @@
 import { ShardError, type World } from '@aethervtt/shard-core'
 import { GpuBuffer } from '@aethervtt/shard-gpu'
 import { Culler } from './culling'
+import { addRenderFeatures } from './features'
 import {
   drawMaterials,
   ForwardStateResource,
@@ -13,6 +14,7 @@ import {
 import type { CapturedImage, NodeContext, RenderView } from './graph'
 import { RenderPhase } from './graph'
 import { Gpu, Graph, RenderDescribers, Shaders, Views } from './plugin'
+import { depthReadEntry } from './tier'
 import { type CameraData, Cameras, cameraOf } from './view'
 
 /** G-buffer channels a capture can show. */
@@ -109,7 +111,7 @@ function lightingNode() {
             { binding: 0, visibility: F, texture: { sampleType: 'float' } },
             { binding: 1, visibility: F, texture: { sampleType: 'unfilterable-float' } },
             { binding: 2, visibility: F, texture: { sampleType: 'float' } },
-            { binding: 3, visibility: F, texture: { sampleType: 'depth' } },
+            depthReadEntry(gpu, 3, F),
           ],
         })
         layoutGeneration = gpu.generation
@@ -310,7 +312,9 @@ export function describeDeferred(world: World) {
           forwardMeshes: cam.forwardOnly.visible + cam.transparent.visible,
           forwardReasons: forwardReason(cam, world),
         }
-      : { path: 'forward', msaa: cam.msaa }
+      : cam.msaaCapped
+        ? { path: 'forward', msaa: cam.msaa, msaaLimit: "the device can't multisample rgba16float" }
+        : { path: 'forward', msaa: cam.msaa }
   }
   return { views }
 }
@@ -325,6 +329,20 @@ export function addDeferredNodes(app: { world: World }): void {
   graph.declare({ name: 'gbuffer0', format: 'rgba8unorm-srgb' })
   graph.declare({ name: 'gbuffer1', format: 'rgba16float' })
   graph.declare({ name: 'gbuffer2', format: gbufferEmissiveFormat(gpu) })
+  addRenderFeatures(app.world, {
+    name: 'render/deferred',
+    description: 'The deferred path: G-buffer, lighting, and forward-only materials.',
+    nodes: [
+      'deferred-gbuffer',
+      'gbuffer-fill',
+      'deferred-lighting',
+      'deferred-forward',
+      'gbuffer-debug',
+    ],
+    baseline: {
+      strategy: 'The same passes, reading lights and clusters through the baseline accessors',
+    },
+  })
   graph.addNode('deferred-gbuffer', gbufferNode)
   graph.addNode('gbuffer-fill', gbufferFillNode)
   graph.addNode('deferred-lighting', lightingNode())

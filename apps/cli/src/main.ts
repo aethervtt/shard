@@ -17,11 +17,13 @@ import {
   screenshot,
   serve,
   testCommand,
+  tiles,
   track,
   validate,
 } from './commands'
 import { dev } from './dev'
 import { createOutput, EXIT, errorJson, formatError } from './output'
+import { shaders } from './shaders-command'
 import { approve, capture, compare, perfCheck } from './verify'
 
 const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; help: string }> = {
@@ -31,13 +33,17 @@ const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; 
   },
   validate: {
     run: validate,
-    help: 'validate                        manifest and every scene; all errors',
+    help: 'validate [--tier baseline]       manifest and every scene; all errors (baseline: drawn on the fallback tier)',
   },
   import: {
     run: importCommand,
     help: 'import [--force]                import new and changed assets; list failures',
   },
   mv: { run: mv, help: 'mv <from> <to>                  move an asset and rewrite references' },
+  tiles: {
+    run: tiles,
+    help: 'tiles read|edit <asset> [--layer l] [--chunk cx,cy] [--rect x,y,w,h] [--cell x,y=name] [--fill x,y,w,h=name] [--row r]; tiles <asset> --encoding rows|base64 [--atlas a]',
+  },
   check: {
     run: check,
     help: 'check                           type-check the project; file:line:col',
@@ -58,6 +64,10 @@ const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; 
   bake: {
     run: bake,
     help: 'bake nav [--scene p] [--force]  bake navmeshes into .shard/cache/nav',
+  },
+  shaders: {
+    run: shaders,
+    help: 'shaders bake [--manifest f] [--out f]   WebGL2 translations into .shard/shaders/webgl2.json',
   },
   track: {
     run: track,
@@ -135,6 +145,16 @@ export async function main(argv: string[]): Promise<number> {
         plan: { type: 'string' },
         by: { type: 'string' },
         headed: { type: 'boolean' },
+        layer: { type: 'string' },
+        chunk: { type: 'string' },
+        rect: { type: 'string' },
+        cell: { type: 'string', multiple: true },
+        fill: { type: 'string' },
+        row: { type: 'string', multiple: true },
+        encoding: { type: 'string' },
+        atlas: { type: 'string' },
+        tier: { type: 'string' },
+        manifest: { type: 'string' },
         help: { type: 'boolean', short: 'h' },
       },
     })

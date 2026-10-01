@@ -1,5 +1,12 @@
 import { Last } from '@aethervtt/shard-core'
-import { Gpu, Graph, RenderDescribers, RenderSet, Shaders } from '@aethervtt/shard-render'
+import {
+  addRenderFeatures,
+  Gpu,
+  Graph,
+  RenderDescribers,
+  RenderSet,
+  Shaders,
+} from '@aethervtt/shard-render'
 import { definePlugin } from '@aethervtt/shard-runtime'
 import * as componentsModule from './components'
 import * as importerModule from './importer'
@@ -35,6 +42,12 @@ export const textPlugin = definePlugin({
     for (const [path, source] of Object.entries(TEXT_SHADERS))
       shaders.register(path, source, `engine:${path}`)
     const graph = world.resource(Graph)
+    addRenderFeatures(world, {
+      name: 'text',
+      description: 'MSDF text in the world and on screen.',
+      nodes: ['text', 'text/screen'],
+      baseline: { strategy: 'Glyph and text records in data textures' },
+    })
     graph.addNode('text', textNode(world))
     graph.addNode('text/screen', screenTextNode(world))
     world.initResource(RenderDescribers).set('text', (w) => describeText(w))

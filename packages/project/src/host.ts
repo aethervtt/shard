@@ -4,7 +4,7 @@ import { audioPlugin } from '@aethervtt/shard-audio'
 // Also registers the dice data types (skins, layouts, recipes, definitions) for every project host.
 import { dicePlugin } from '@aethervtt/shard-dice'
 import { gltfPlugin } from '@aethervtt/shard-gltf'
-import type { GpuContext } from '@aethervtt/shard-gpu'
+import type { BakedTranslations, GpuContext } from '@aethervtt/shard-gpu'
 import { inputPlugin } from '@aethervtt/shard-input'
 // Also registers the navgrid importer and the NavGridData asset type for every project host.
 import { loadNavCache, Nav, navGridPlugin, navPlugin } from '@aethervtt/shard-nav'
@@ -36,6 +36,11 @@ export interface BuildAppOptions {
   canvas?: HTMLCanvasElement | OffscreenCanvas
   /** Headless stand-in for the window (CLI screenshots). */
   target?: RenderTarget
+  /**
+   * The project's baked WebGL2 translations (`shard shaders bake`), or their URL: on WebGL2, the
+   * shaders they cover load without naga (0064). WebGPU never reads them.
+   */
+  webgl2Shaders?: string | URL | BakedTranslations
   inputSource?: InputSource
   /** Where sound goes (`platform.audio`). Without one, audio records voices (headless). */
   audio?: AudioBackend
@@ -78,7 +83,12 @@ export function buildApp(options: BuildAppOptions): App {
   if (names.has('core/transform')) app.addPlugin(TransformPlugin)
   if (names.has('render')) {
     app.addPlugin(
-      renderPlugin({ gpu: options.gpu, canvas: options.canvas, target: options.target }),
+      renderPlugin({
+        gpu: options.gpu,
+        canvas: options.canvas,
+        target: options.target,
+        webgl2: options.webgl2Shaders ? { shaders: options.webgl2Shaders } : undefined,
+      }),
     )
   }
   if (names.has('render/forward')) {

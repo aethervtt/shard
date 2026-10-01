@@ -14,6 +14,7 @@ import {
 } from '@aethervtt/shard-core'
 import { writeKtx2 } from '@aethervtt/shard-texture'
 import { buildFont, type FontBuild } from './build'
+import { builtinFont } from './fallback-font'
 import { Font, type FontMetricsJson } from './font'
 import { FontSource } from './source'
 
@@ -219,4 +220,6 @@ export const FontAssetType = defineAssetType<Font>('Font', {
     // Fallback settings may have changed.
     existing.linker?.link()
   },
+  // A font that failed to load draws with the built-in one (0061).
+  fallback: () => builtinFont(),
 })

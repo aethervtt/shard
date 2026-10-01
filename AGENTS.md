@@ -33,6 +33,7 @@ takes `--json`:
 ```sh
 shard validate                        # manifest, assets, and scenes; lists every error
 shard import / shard mv <from> <to>   # import changed asset files / move one, fixing references
+shard tiles read|edit <asset>         # tilemap cells by name (0059); tiles <asset> --encoding rows|base64
 shard check                           # type-check the project's scripts
 shard dev                             # play it in a browser; saves hot reload in place
 shard run --frames 600                # headless run, prints a deterministic world hash
@@ -40,6 +41,7 @@ shard screenshot scenes/main.scene.json --out shot.png
 shard test                            # gameplay tests in tests/*.test.ts
 shard track scene.json --out t.bin    # record a physics track (0053) headless; prints its hash
 shard bench structure                 # the structure fixtures (0055) against their budgets
+shard shaders bake                    # WebGL2 translations of every scene's shaders (0064)
 shard capture plan.json               # real-browser shots, checked steps, perf records (0062)
 shard compare / shard approve <shot> --reason "…" / shard perf-check <records> --plan plan.json
 shard docs                            # regenerate AGENTS.md block, .agents/, .shard/schemas
@@ -67,8 +69,18 @@ with `relative`, never a `/` prefix. `SHARD_DAWN_OPTIONS` (`;`-separated) passes
 GPU contexts: `adapter=Microsoft Basic Render Driver` renders on WARP locally, as CI's Windows job does.
 Vendored third-party code (`**/vendor`) and test fixtures (`**/fixtures`) aren't linted or edited.
 The playground's browser tests (0062) need `pnpm exec playwright install chromium` and a WebGPU
-adapter; without them they skip locally. CI runs them in their own job, on Mesa's software Vulkan
-driver. Its `verify.html` fixture and `plans/` are what `shard capture` runs against.
+adapter; without them they skip locally. CI runs them in their own workflow (`browser.yml`), on
+Mesa's software Vulkan driver. Its `verify.html` fixture and `plans/` are what `shard capture` runs
+against.
+The WebGL2 fallback (0064): every playground page takes `?backend=auto|webgpu|webgl2` (the Backend
+dropdown), `?tier=baseline` to run the baseline tier on WebGPU, and `?gl=minimum` to hold WebGL2 to
+its floor. The browser tests run a curated set of demos on both backends (`demos.test.ts`), and
+every demo with `SHARD_DEMOS=all`: nightly in CI, or from the Actions tab for any branch. A
+baseline path only one demo takes belongs in the curated set. In Node, `SHARD_TIER=baseline` runs a
+package's GPU tests on Dawn's compatibility mode, and `@aethervtt/shard-gpu-webgl2/testing`'s fake
+context runs the shim itself. naga is `crates/shard-naga`, committed as
+`packages/gpu-webgl2/wasm/shard_naga.wasm`: rebuilding it (`pnpm build:wasm`) needs
+`rustup target add wasm32-unknown-unknown`.
 
 ## Rules
 
@@ -86,6 +98,10 @@ driver. Its `verify.html` fixture and `plans/` are what `shard capture` runs aga
   WGSL, and is added to `forwardPlugin()`. Its scene components stay in core, which logs
   `render/feature-missing` when the plugin is absent. Nothing registers on import. Heavy
   dependencies load with `import()`. `pnpm size --check` guards `renderer-min`.
+- **Two tiers** (spec 0064). Vertex and fragment shaders read engine arrays through `@data`
+  declarations, never a raw `var<storage>`; a render feature registers a baseline strategy or
+  `baseline: 'unsupported'` (`addRenderFeatures`); baseline-only code lives in `src/baseline/` and
+  loads with `import()`. Full-tier WGSL stays byte-identical: `node scripts/wgsl-identity.mjs`.
 - **Hot paths don't allocate.** In per-frame code (systems, render, ECS iteration): no closures,
   no array/object literals, no `for…of` over iterators that allocate. Use TypedArrays and reuse
   scratch objects. Add a benchmark when you touch a hot path.

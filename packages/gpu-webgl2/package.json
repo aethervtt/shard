@@ -1,0 +1,23 @@
+{
+  "name": "@aethervtt/shard-gpu-webgl2",
+  "version": "0.0.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/fake-gl.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@aethervtt/shard-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "@webgpu/types": "^0.1.74"
+  }
+}

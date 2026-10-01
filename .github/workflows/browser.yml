@@ -1,0 +1,76 @@
+# The playground's browser tests in real Chromium on a software GPU: 0062's captures and plans, and
+# 0064's WebGL2 backend. CI calls this on every push with a curated set of demos (demos.test.ts);
+# every night, and on demand from the Actions tab for any branch, it runs every demo on both
+# backends.
+name: Browser sweep
+
+on:
+  workflow_call:
+    inputs:
+      demos:
+        description: Which playground demos run on both backends (curated or all)
+        type: string
+        default: curated
+  workflow_dispatch:
+    inputs:
+      demos:
+        description: Which playground demos run on both backends
+        type: choice
+        options: [all, curated]
+        default: all
+  schedule:
+    - cron: '0 5 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    # A scheduled run has no inputs: it runs every demo.
+    name: Browser tests ${{ matrix.shard }}/3 (software GPU, ${{ inputs.demos || 'all' }} demos)
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ (inputs.demos || 'all') == 'all' && 60 || 30 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Vitest splits the test files across the runners: one each today, every one of them minutes
+        # long on a software GPU.
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      # WebGPU in Chromium through Mesa's software Vulkan driver (lavapipe), with the browser headed
+      # under a virtual display: how three.js runs its WebGPU tests on hosted runners.
+      - name: Install a software Vulkan driver and a virtual display
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers xvfb
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install Chromium
+        run: pnpm --filter @aethervtt/shard-playground exec playwright install --with-deps chromium
+
+      # 0062's criteria in real Chromium (apps/playground/src/verify.test.ts), and 0064's on WebGL2:
+      # the demos on both backends, the fixture's plans with backend webgl2, context loss, picking
+      # across backends and the zero-cost network log (webgl2.test.ts). SHARD_BROWSER_TESTS:
+      # a missing adapter fails the job instead of skipping the tests. Timing checks hold under
+      # `pnpm bench` only, as everywhere else in CI.
+      - name: Run the browser tests
+        run: xvfb-run -a pnpm --filter @aethervtt/shard-playground test --shard=${{ matrix.shard }}/3
+        env:
+          SHARD_CI: '1'
+          SHARD_BROWSER_TESTS: required
+          SHARD_BROWSER_HEADED: '1'
+          SHARD_DEMOS: ${{ inputs.demos || 'all' }}
+          VK_DRIVER_FILES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json

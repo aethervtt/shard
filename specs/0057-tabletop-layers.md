@@ -64,7 +64,9 @@ Any `Mesh3d` can be ground: its (mesh, material) batch is kept apart from the sa
 ground, the GPU culler leaves it to the CPU, and each view builds its ground list on the CPU in
 `(band, order)` order, one draw per run of a batch. `RenderPhase.Ground` (420) comes after the sky,
 which draws wherever no depth was written. Ground draws cast no shadows, and picking draws them
-last with `greater-equal`, so the topmost band wins a click.
+last with `greater-equal`, so the topmost band wins a click. Material types with `pickable: false`
+(a grid's lines) let the click through (0059), and the picked point is the band's surface, without
+the depth bias below.
 
 A band lies exactly on its floor, and two meshes at one height don't interpolate the same depth to
 the last bit, so ground pipelines carry a small depth bias (a few float ULPs plus a slope term)
@@ -179,6 +181,10 @@ A camera moves when its unjittered view-projection, display size or pixel ratio 
 first frame. The helpers use that same unjittered projection, so they agree with what the GPU drew.
 
 A host repositions its DOM handles on `CameraMoved` and on its own edits, not every frame.
+
+Since 0058, bands from `overlay` (60) up draw in their own pass after the transparent phase and
+projected fog (`RenderPhase.Overlay3d`), so fog never covers selection rings, pings or templates.
+The other bands stay in the ground phase.
 
 ### Baseline tier (0064)
 

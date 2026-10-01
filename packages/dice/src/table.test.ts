@@ -20,6 +20,7 @@ import {
   OffscreenTarget,
   RenderStats,
   renderPlugin,
+  showVariants,
 } from '@aethervtt/shard-render'
 import { settle } from '@aethervtt/shard-render/testing'
 import { App, FrameDemand } from '@aethervtt/shard-runtime'
@@ -604,6 +605,40 @@ describe('the dice table (0054)', () => {
     expect(thumb.png?.subarray(1, 4)).toEqual(new Uint8Array([80, 78, 71]))
     expect(gpu.surfaces.length).toBe(surfaces)
     await r.app.dispose()
+  })
+})
+
+describe('dice shader variants (0064)', () => {
+  it('shows a skin as each kind, opaque and blended, for a shader bake', {
+    timeout: timeout(60_000),
+  }, async () => {
+    const r = await rig()
+    // Pipelines asked for, cached or not (earlier tests on this device made some already).
+    const labels = new Set<string>()
+    const render = gpu.pipelines.render.bind(gpu.pipelines)
+    gpu.pipelines.render = (d) => {
+      labels.add(d.label ?? '')
+      return render(d)
+    }
+    try {
+      const shown = await showVariants(r.app, {
+        dice: { skins: [DICE_SKINS.brass.guid!], kinds: ['d6', 'd20'] },
+      })
+      expect(shown).toBe(4)
+      // The family drawn both ways: an opaque pipeline and a blended one.
+      const forward = [...labels].filter((l) => l.startsWith('forward/') && l.includes('Dice'))
+      expect(forward.some((l) => l.includes('/opaque/'))).toBe(true)
+      expect(forward.some((l) => !l.includes('/opaque/'))).toBe(true)
+      await expect(
+        showVariants(r.app, { dice: { skins: ['nope'], kinds: ['d6'] } }),
+      ).rejects.toThrow()
+      expect(() => showVariants(r.app, { rocks: {} })).toThrow(
+        expect.objectContaining({ code: 'render/unknown-variant-source' }),
+      )
+    } finally {
+      gpu.pipelines.render = render
+      await r.app.dispose()
+    }
   })
 })
 

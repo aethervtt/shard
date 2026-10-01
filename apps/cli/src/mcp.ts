@@ -13,6 +13,7 @@ import { ProjectMethodParams } from '@aethervtt/shard-project'
 import { METHODS } from '@aethervtt/shard-protocol'
 import { atmosphereMethods } from '@aethervtt/shard-render'
 import { saveMethods } from '@aethervtt/shard-save'
+import { tilemapMethods } from '@aethervtt/shard-sprite'
 import { terrainMethods } from '@aethervtt/shard-terrain'
 import { localeMethods } from '@aethervtt/shard-text'
 import { uiMethods } from '@aethervtt/shard-ui'
@@ -69,6 +70,7 @@ const PLUGIN_METHODS = [
   ...terrainMethods,
   ...atmosphereMethods,
   ...metricsMethods,
+  ...tilemapMethods,
 ]
 
 /** The protocol method's parameter schema, as an MCP input schema. */
@@ -375,6 +377,16 @@ export const TOOLS: Tool[] = [
     'sample_atmosphere',
     'atmosphere.sample',
     'Sky radiance (cd/m²) and transmittance through a planet’s atmosphere toward a direction, from the renderer’s model on the CPU: is the sky still blue at 40 km, how dark is it at dusk, how much of the star field shows through. Defaults to the first camera’s position and its primary atmosphere. Example: { "direction": [0, 1, 0] }, or { "position": [0, 40000, 0], "direction": [0, 1, 0] }.',
+  ),
+  forward(
+    'tilemap_read',
+    'tilemap.read',
+    'A tilemap layer\'s cells as text rows: space-separated runs of name[:flags][*count], "." for empty, flags fx/fy/r90 joined by +. Tiles are palette names (atlas regions). Read the whole layer by chunk, one chunk, or a rect. Example: { "asset": "assets/dungeon.tilemap.json", "layer": "ground", "rect": { "x": 0, "y": 0, "w": 8, "h": 4 } }.',
+  ),
+  forward(
+    'tilemap_edit',
+    'tilemap.edit',
+    'Edits a tilemap layer by tile name: cells, a filled rect, or a chunk\'s rows (as tilemap_read returns them). The live game updates at once, re-uploading only the touched chunks; save: true also writes the file in its own encoding (a one-tile edit is a one-line diff). Example: { "asset": "assets/dungeon.tilemap.json", "layer": "ground", "cells": [{ "x": 3, "y": 2, "tile": "water" }], "save": true }.',
   ),
   {
     name: 'terrain_map',

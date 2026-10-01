@@ -133,6 +133,12 @@ export interface ProtocolServerOptions {
   platform?: Platform
   /** Extra methods from the host (e.g. `project.reload`), added to the built-in ones. */
   methods?: readonly MethodDef[]
+  /**
+   * The only methods this server answers (0061): everything else, `subscribe` included, fails with
+   * `protocol/method-not-allowed`. A host that forwards requests from hosted mods passes the few
+   * it allows; omit it for agents and tools, which get every method.
+   */
+  allow?: readonly string[]
 }
 
 const ERROR = { parse: -32700, invalid: -32600, notFound: -32601, params: -32602, shard: -32000 }
@@ -150,12 +156,37 @@ function resolveEntity(world: World, ref: unknown): Entity {
   })
 }
 
-function requireComponent(name: string): ComponentDef {
+function knownComponent(name: string): ComponentDef {
   const def = findComponent(name)
   if (!def) {
     throw new ShardError('protocol/unknown-component', `Unknown component "${name}"`, {
       hint: 'schema.list returns every component name.',
     })
+  }
+  return def
+}
+
+function requireOwner(world: World, name: string) {
+  const owner = world.owners.find(name)
+  if (!owner) {
+    throw new ShardError('protocol/unknown-owner', `No live owner "${name}"`, {
+      hint: 'owners.describe with no name lists every live owner.',
+    })
+  }
+  return owner
+}
+
+/** A component a protocol write may name: ownership is a grant from host code (0061). */
+function requireComponent(name: string): ComponentDef {
+  const def = knownComponent(name)
+  if (def.hostOnly) {
+    throw new ShardError(
+      'core/owner-not-authorable',
+      `"${name}" can't be written through the protocol`,
+      {
+        hint: 'Ownership comes from host code holding an Owner (world.owners).',
+      },
+    )
   }
   return def
 }
@@ -459,7 +490,7 @@ export const METHODS: MethodDef[] = [
     params: s('SchemaGetParams', {
       name: t.string({ required: true, description: 'Component name, e.g. "render/Camera3d".' }),
     }),
-    handler: (_, p) => requireComponent(p.name as string).jsonSchema(),
+    handler: (_, p) => knownComponent(p.name as string).jsonSchema(),
   },
   {
     name: 'world.stats',
@@ -558,6 +589,28 @@ export const METHODS: MethodDef[] = [
     },
   },
   {
+    name: 'owners.describe',
+    description:
+      'Owners (0061). With a name: its usage (entities, triangles, textures, bytes), limits, child owners, asset leases and GPU objects. Without: every live owner.',
+    params: s('OwnersDescribeParams', { name: t.string() }),
+    handler: ({ world }, p) =>
+      p.name
+        ? world.owners.describe(requireOwner(world, p.name as string))
+        : { owners: world.owners.list() },
+  },
+  {
+    name: 'owners.release',
+    description:
+      'Releases an owner and its child owners: despawns their entities, drops their asset leases (unloading assets nobody else leases, with their GPU objects).',
+    params: s('OwnersReleaseParams', { name: t.string({ required: true }) }),
+    handler: ({ world }, p) => {
+      const owner = requireOwner(world, p.name as string)
+      const entities = world.owners.describe(owner).usage.entities
+      world.owners.release(owner)
+      return { released: owner.name, entities }
+    },
+  },
+  {
     name: 'entity.despawn',
     description: 'Despawns an entity (and its children unless recursive is false).',
     params: s('DespawnParams', { entity: entityRef(), recursive: t.bool({ default: true }) }),
@@ -590,6 +643,15 @@ export const METHODS: MethodDef[] = [
     params: s('ResourceSetParams', { name: t.string({ required: true }), value: t.json() }),
     handler: ({ world }, p) => {
       const def = findResource(p.name as string)
+      if (def?.hostOnly) {
+        throw new ShardError(
+          'core/owner-not-authorable',
+          `Resource "${p.name}" is written by the host only`,
+          {
+            hint: 'Host code sets it; the protocol can read it with resource.get.',
+          },
+        )
+      }
       const current = def && world.tryResource(def)
       if (!def || !isPlainObject(current)) {
         throw new ShardError(
@@ -1209,12 +1271,16 @@ export function createProtocolServer(
   byName.set(subscribe.name, subscribe)
   // Methods plugins contributed (physics, audio, ...). Looked up per request: plugins can add
   // them after the server starts, and a project reload replaces the project's own.
+  const allow = options.allow ? new Set(options.allow) : undefined
   const lookup = (name: string): MethodDef | undefined =>
-    byName.get(name) ?? app.methods.find((m) => m.name === name)
+    allow && !allow.has(name)
+      ? undefined
+      : (byName.get(name) ?? app.methods.find((m) => m.name === name))
+  const allowed = (m: MethodDef) => !allow || allow.has(m.name)
 
-  return {
+  const server: ProtocolServer = {
     get methods() {
-      return [...byName.values(), ...app.methods.filter((m) => !byName.has(m.name))]
+      return [...byName.values(), ...app.methods.filter((m) => !byName.has(m.name))].filter(allowed)
     },
     async handle(request) {
       const id = request.id ?? null
@@ -1224,13 +1290,21 @@ export function createProtocolServer(
       if (request?.jsonrpc !== '2.0' || typeof request.method !== 'string') {
         return reply({ error: { code: ERROR.invalid, message: 'Invalid JSON-RPC request' } })
       }
+      if (allow && !allow.has(request.method)) {
+        const err = new ShardError(
+          'protocol/method-not-allowed',
+          `"${request.method}" isn't allowed on this server`,
+          { hint: `This host allows: ${[...allow].join(', ')}.` },
+        )
+        return reply({ error: { code: ERROR.shard, message: err.message, data: err.toJSON() } })
+      }
       const method = lookup(request.method)
       if (!method) {
         return reply({
           error: {
             code: ERROR.notFound,
             message: `Unknown method "${request.method}"`,
-            data: { methods: [...byName.keys(), ...app.methods.map((m) => m.name)] },
+            data: { methods: server.methods.map((m) => m.name) },
           },
         })
       }
@@ -1277,4 +1351,5 @@ export function createProtocolServer(
       listeners.clear()
     },
   }
+  return server
 }

@@ -275,3 +275,108 @@ export function torus(
   }
   return b.build()
 }
+
+/**
+ * A box with chamfered edges and corners: the stand-in for a mesh that failed to load (0061).
+ * `bevel` is the chamfer width, clamped below half the smallest side.
+ */
+export function bevelBox(
+  options: { x?: number; y?: number; z?: number; bevel?: number } = {},
+): Mesh {
+  const h = [(options.x ?? 1) / 2, (options.y ?? 1) / 2, (options.z ?? 1) / 2]
+  const bevel = Math.min(options.bevel ?? 0.08, Math.min(h[0]!, h[1]!, h[2]!) * 0.9)
+  const inner = h.map((v) => v - bevel)
+  const b = new Builder()
+  const unit = (v: number[]) => {
+    const l = Math.hypot(v[0]!, v[1]!, v[2]!)
+    return v.map((c) => c / l)
+  }
+  /** A flat polygon (a fan), wound counter-clockwise seen from outside along `n`. */
+  const polygon = (points: number[][], n: number[]) => {
+    const [a, c, d] = [points[0]!, points[1]!, points[2]!]
+    const e1 = [c[0]! - a[0]!, c[1]! - a[1]!, c[2]! - a[2]!]
+    const e2 = [d[0]! - a[0]!, d[1]! - a[1]!, d[2]! - a[2]!]
+    const cross = [
+      e1[1]! * e2[2]! - e1[2]! * e2[1]!,
+      e1[2]! * e2[0]! - e1[0]! * e2[2]!,
+      e1[0]! * e2[1]! - e1[1]! * e2[0]!,
+    ]
+    const ordered =
+      cross[0]! * n[0]! + cross[1]! * n[1]! + cross[2]! * n[2]! < 0 ? [...points].reverse() : points
+    // Planar UVs from the two axes the face spans most.
+    const axis = n.map((c) => Math.abs(c)).indexOf(Math.max(...n.map((c) => Math.abs(c))))
+    const [ua, va] = axis === 0 ? [2, 1] : axis === 1 ? [0, 2] : [0, 1]
+    const ids = ordered.map((p) =>
+      b.vertex(p, n, [0.5 + p[ua]! / (2 * h[ua]!), 0.5 - p[va]! / (2 * h[va]!)]),
+    )
+    for (let i = 1; i + 1 < ids.length; i++) b.triangle(ids[0]!, ids[i]!, ids[i + 1]!)
+  }
+  const point = (axis: number[], value: number[]) => [0, 1, 2].map((k) => axis[k]! * value[k]!)
+  const signs = [-1, 1]
+  // Faces: each side, inset by the bevel.
+  for (let a = 0; a < 3; a++) {
+    for (const s of signs) {
+      const u = (a + 1) % 3
+      const v = (a + 2) % 3
+      const n = [0, 0, 0]
+      n[a] = s
+      const corners = [
+        [-1, -1],
+        [1, -1],
+        [1, 1],
+        [-1, 1],
+      ].map(([su, sv]) => {
+        const p = [0, 0, 0]
+        p[a] = s * h[a]!
+        p[u] = su! * inner[u]!
+        p[v] = sv! * inner[v]!
+        return p
+      })
+      polygon(corners, n)
+    }
+  }
+  // Edges: a quad between two neighboring faces.
+  for (let a = 0; a < 3; a++) {
+    const u = (a + 1) % 3
+    const v = (a + 2) % 3
+    for (const sa of signs) {
+      for (const su of signs) {
+        const n = [0, 0, 0]
+        n[a] = sa
+        n[u] = su
+        const quad = [-1, 1].flatMap((sv) => {
+          const p1 = [0, 0, 0]
+          p1[a] = sa * h[a]!
+          p1[u] = su * inner[u]!
+          p1[v] = sv * inner[v]!
+          const p2 = [0, 0, 0]
+          p2[a] = sa * inner[a]!
+          p2[u] = su * h[u]!
+          p2[v] = sv * inner[v]!
+          return [p1, p2]
+        })
+        polygon([quad[0]!, quad[1]!, quad[3]!, quad[2]!], unit(n))
+      }
+    }
+  }
+  // Corners: a triangle each.
+  for (const sx of signs) {
+    for (const sy of signs) {
+      for (const sz of signs) {
+        const s = [sx, sy, sz]
+        const tri = [0, 1, 2].map((k) =>
+          point(
+            s,
+            k === 0
+              ? [h[0]!, inner[1]!, inner[2]!]
+              : k === 1
+                ? [inner[0]!, h[1]!, inner[2]!]
+                : [inner[0]!, inner[1]!, h[2]!],
+          ),
+        )
+        polygon(tri, unit(s))
+      }
+    }
+  }
+  return b.build()
+}

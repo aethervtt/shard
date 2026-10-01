@@ -10,6 +10,7 @@ export {
   materialFields,
   materialFromJson,
   materialTypeOf,
+  missingMesh,
   RenderTargets,
   STANDARD_TYPE,
   StandardMaterial,
@@ -77,6 +78,14 @@ export {
 } from './clusters'
 export { Culler, cullGround, GpuCuller, readVisibleSlots, visibleSlots } from './culling'
 export {
+  DATA_WIDTH,
+  DataStore,
+  type DataStoreOptions,
+  dataEntry,
+  flushDataStores,
+  loadDataTextures,
+} from './data-store'
+export {
   captureShadowMap,
   DEBUG_VIEWS,
   type DebugView,
@@ -121,6 +130,17 @@ export {
 } from './environment'
 export { environmentPlugin } from './environment-plugin'
 export {
+  addRenderFeatures,
+  type BaselineStrategy,
+  clearUnsupported,
+  describeFeatures,
+  featureOfNode,
+  type RenderFeature,
+  RenderFeatures,
+  reportUnsupported,
+  unsupportedNodes,
+} from './features'
+export {
   type ForwardPluginOptions,
   type ForwardState,
   ForwardStateResource,
@@ -135,7 +155,7 @@ export {
   viewPixelScale,
 } from './forward'
 export { fxaaPlugin } from './fxaa'
-export { LABEL_FONT, labelWidth } from './gizmo-font'
+export { LABEL_FONT, labelAtlas, labelWidth } from './gizmo-font'
 export {
   GIZMO_LINE_FLOATS,
   type GizmoOptions,
@@ -167,6 +187,17 @@ export {
   type TransientTexture,
   VIEW_TARGET,
 } from './graph'
+export {
+  clearHealthIssue,
+  MaterialFallbacks,
+  RenderHealth,
+  RenderHealthChanged,
+  type RenderHealthIssue,
+  RenderHealthReports,
+  type RenderHealthState,
+  type RenderHealthValue,
+  raiseHealthIssue,
+} from './health'
 export {
   type Batch,
   createDrawList,
@@ -283,6 +314,8 @@ export {
 export { descendantPaths, entityName, findModelRoot } from './paths'
 export {
   type PickBlocker,
+  type PickDetail,
+  type PickDetailer,
   type PickDrawer,
   type PickHit,
   Picking,
@@ -408,7 +441,18 @@ export {
   type OffscreenTargetOptions,
   type RenderTarget,
 } from './target'
+export { bindingDimension, depthReadEntry } from './tier'
 export { GpuTimer } from './timer'
+export {
+  addShaderVariantSource,
+  type MaterialVariantEntry,
+  materialVariants,
+  type ShaderVariantManifest,
+  type ShaderVariantSource,
+  ShaderVariantSources,
+  showToCamera,
+  showVariants,
+} from './variants'
 export {
   type CameraData,
   CameraMoved,

@@ -4,6 +4,7 @@ import {
   defineResource,
   type Entity,
   type JsonValue,
+  type Owner,
   t,
 } from '@aethervtt/shard-core'
 import type { PrefabFile, SceneEntity, SceneFile } from './format'
@@ -30,6 +31,8 @@ export interface LoadedScene {
   loadedResources: Map<string, JsonValue>
   /** Guids of every asset the scene referenced, requested at load. */
   assets: Set<string>
+  /** Who it was loaded for (0061); releasing the owner unloads it. */
+  owner?: Owner
 }
 
 export const SceneIndex = defineResource<Map<string, LoadedScene>>('scene/Index', {
@@ -65,7 +68,15 @@ export const SceneAssetType = defineAssetType<SceneFile>('Scene', {
     }
     return resolve(artifact.json) as SceneFile
   },
+  // A model that failed to load spawns a beveled box in its place (0061).
+  fallback: () => ({ version: 1, entities: [MISSING_ENTITY] }),
 })
+
+/** The one entity a failed scene or prefab spawns: a 1 m box, drawn with the missing material. */
+const MISSING_ENTITY = {
+  name: 'missing',
+  components: { 'render/Mesh3d': { mesh: { path: 'procedural:missing-box' } } },
+}
 
 /** Prefabs by guid: the resolved tree (variants already flattened onto their base). */
 export const PrefabAssets = defineResource<AssetStore<PrefabFile, 'Prefab'>>('scene/PrefabAssets', {
@@ -76,6 +87,7 @@ export const PrefabAssets = defineResource<AssetStore<PrefabFile, 'Prefab'>>('sc
 export const PrefabAssetType = defineAssetType<PrefabFile>('Prefab', {
   store: PrefabAssets,
   load: (artifact) => artifact.json as unknown as PrefabFile,
+  fallback: () => ({ version: 1, root: MISSING_ENTITY }) as unknown as PrefabFile,
 })
 
 // --- instances -----------------------------------------------------------------------------------

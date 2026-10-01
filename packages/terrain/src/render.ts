@@ -12,6 +12,7 @@ import type { GpuContext } from '@aethervtt/shard-gpu'
 import { Mesh } from '@aethervtt/shard-mesh'
 import { computeOrigins } from '@aethervtt/shard-noise'
 import {
+  addRenderFeatures,
   Camera3d,
   Cameras,
   DebugOverlays,
@@ -41,7 +42,7 @@ import {
 } from '@aethervtt/shard-transform'
 import { chunkCenter, chunkIndices, chunkLayout } from './chunk'
 import { type ColliderChunk, collidersOf, skirtDepth } from './colliders'
-import { Chunk, TerrainBudget } from './components'
+import { Chunk, Planet, TerrainBudget } from './components'
 import { keyString } from './cube'
 import { Terrain } from './heights'
 import {
@@ -1539,6 +1540,13 @@ export function registerNode(app: App): void {
   for (const [path, source] of Object.entries(TERRAIN_SHADERS)) {
     app.world.resource(Shaders).register(path, source, '@aethervtt/shard-terrain')
   }
+  addRenderFeatures(app.world, {
+    name: 'terrain',
+    description: 'Planet terrain: GPU heights, chunk vertices and normal tiles.',
+    nodes: ['terrain/generate'],
+    baseline: 'unsupported',
+    components: [Planet],
+  })
   graph.addNode('terrain/generate', {
     kind: 'raw',
     phase: RenderPhase.Setup,

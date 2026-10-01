@@ -1,7 +1,7 @@
 import { PostUpdate } from '@aethervtt/shard-core'
 import { definePlugin } from '@aethervtt/shard-runtime'
 import { applyPhysicalCameras } from './camera'
-import { RenderDescribers, Shaders } from './plugin'
+import { Gpu, RenderDescribers, Shaders } from './plugin'
 import { PostEffect, PostFeatures } from './post'
 import { adaptExposure, addPostNodes, describePost, ExposureMeters } from './post-nodes'
 import { POST_SHADERS } from './post-shaders'
@@ -29,9 +29,13 @@ export const postPlugin = definePlugin({
     app.world.initResource(PostFeatures).effects |= POST_EFFECTS
     app.addSystems(PostUpdate, adaptExposure.after(applyPhysicalCameras))
   },
-  ready(app) {
+  async ready(app) {
+    // The baseline tier's exposure meter (0064): loaded only on a baseline device.
+    const baseline =
+      app.world.resource(Gpu).tier === 'baseline' ? await import('./baseline/exposure') : undefined
     registerShaders(app.world.resource(Shaders), POST_SHADERS)
+    if (baseline) registerShaders(app.world.resource(Shaders), baseline.BASELINE_EXPOSURE_SHADERS)
     app.world.initResource(RenderDescribers).set('post', (world) => describePost(world))
-    addPostNodes(app.world)
+    addPostNodes(app.world, baseline)
   },
 })

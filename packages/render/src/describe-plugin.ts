@@ -51,7 +51,10 @@ function describeGround(world: World) {
   })
   const views: Record<string, { instances: number; draws: number }> = {}
   for (const cam of world.resource(Cameras).values())
-    views[`camera:${cam.entity}`] = { instances: cam.ground.visible, draws: cam.ground.length }
+    views[`camera:${cam.entity}`] = {
+      instances: cam.ground.visible + cam.overlay.visible,
+      draws: cam.ground.length + cam.overlay.length,
+    }
   return { bands, views }
 }
 

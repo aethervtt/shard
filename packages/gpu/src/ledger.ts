@@ -58,10 +58,22 @@ export const Upload = {
   other: 7,
 } as const satisfies Record<UploadCategory, number>
 
-/** The upload category of a buffer or texture, from its label. Textures are always `textures`. */
+/**
+ * Labels data textures (0064): on the baseline tier, a `data:instances` texture holds what the
+ * `instances` storage buffer would, and counts as it would.
+ */
+export const DATA_TEXTURE_PREFIX = 'data:'
+
+/**
+ * The upload category of a buffer or texture, from its label. Textures are `textures`, except data
+ * textures, which count as the buffer they stand in for.
+ */
 export function uploadCategory(label: string | undefined, texture: boolean): number {
-  if (texture) return Upload.textures
-  const l = label ?? ''
+  let l = label ?? ''
+  if (texture) {
+    if (!l.startsWith(DATA_TEXTURE_PREFIX)) return Upload.textures
+    l = l.slice(DATA_TEXTURE_PREFIX.length)
+  }
   // A view's culled list is derived from the view, rewritten every frame it's culled on the CPU.
   if (l === 'instances/visible') return Upload.view
   if (l.startsWith('instances')) return Upload.instances
@@ -288,7 +300,8 @@ export class Ledger {
 }
 
 /** [block width, block height, bytes per block] for compressed formats; texels are 1×1 blocks. */
-function blockOf(format: GPUTextureFormat): [number, number, number] {
+/** A format's block width, height, and bytes per block (1×1 texels for uncompressed ones). */
+export function blockOf(format: GPUTextureFormat): [number, number, number] {
   if (format.startsWith('astc-')) {
     const [w, h] = format.slice(5).split(/[x-]/).map(Number)
     return [w!, h!, 16]

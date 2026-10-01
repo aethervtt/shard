@@ -1,6 +1,7 @@
 import { animationPlugin } from '@aethervtt/shard-animation'
 import { audioPlugin } from '@aethervtt/shard-audio'
 import { ShardError } from '@aethervtt/shard-core'
+import { fogPlugin } from '@aethervtt/shard-fog'
 import { gltfPlugin } from '@aethervtt/shard-gltf'
 import { gridPlugin } from '@aethervtt/shard-grid'
 import { inputPlugin } from '@aethervtt/shard-input'
@@ -9,7 +10,7 @@ import { particlesPlugin } from '@aethervtt/shard-particles'
 import { physics2dPlugin, physics3dPlugin } from '@aethervtt/shard-physics'
 import { createDomInputSource, createIndexedDbStorage } from '@aethervtt/shard-platform-web'
 import { connectToHub, createProtocolServer, DEFAULT_HUB_PORT } from '@aethervtt/shard-protocol'
-import { describeRender, forwardPlugin, renderPlugin } from '@aethervtt/shard-render'
+import { describeRender, forwardPlugin, pick, renderPlugin } from '@aethervtt/shard-render'
 import { materialNoisePlugin } from '@aethervtt/shard-render/noise'
 import { App, animationFrameRunner } from '@aethervtt/shard-runtime'
 import { savePlugin } from '@aethervtt/shard-save'
@@ -24,11 +25,13 @@ import { animationDemoPlugin } from './animation'
 import { animgraphDemoPlugin } from './animgraph'
 import { atmosphereDemoPlugin } from './atmosphere'
 import { audioDemoPlugin, webAudio } from './audio'
+import { addBackendSelect, graphicsOptions, unsupportedOverlayPlugin } from './backend'
 import { characterDemoPlugin, characterPlanetDemoPlugin } from './character'
 import { character2dDemoPlugin } from './character2d'
 import { crowdPlugin } from './crowd'
 import { dataDemoPlugin } from './data'
 import { deferredPlugin } from './deferred'
+import { DEMOS } from './demos'
 import { iblPlugin, skyPlugin } from './environment'
 import { fpsGraphPlugin } from './fps-graph'
 import { galaxyPlugin, Population } from './galaxy'
@@ -54,47 +57,15 @@ import { uiDemoPlugin } from './ui'
 
 const canvas = document.getElementById('viewport') as HTMLCanvasElement
 const hud = document.getElementById('hud') as HTMLElement
-const DEMOS = [
-  'scene',
-  'galaxy',
-  'lights',
-  'ibl',
-  'sky',
-  'deferred',
-  'crowd',
-  'post',
-  'lens',
-  'sprites',
-  'particles',
-  'physics',
-  'planet',
-  'physics2d',
-  'character',
-  'character-planet',
-  'character2d',
-  'prefabs',
-  'data',
-  'animation',
-  'animgraph',
-  'ik',
-  'audio',
-  'ui',
-  'nav',
-  'nav2d',
-  'save',
-  'lights2d',
-  'grids',
-  'noise',
-  'procgen',
-  'terrain',
-  'atmosphere',
-  'tabletop',
-] as const
 const demo = DEMOS.find((d) => location.hash === `#${d}`) ?? 'scene'
 document.body.dataset.demo = demo
 
 applyResolution(canvas)
-const app = new App().addPlugin(renderPlugin({ canvas, features: ['timestamp-query'] }))
+addBackendSelect(document.getElementById('panel') as HTMLElement)
+const app = new App().addPlugin(
+  renderPlugin({ canvas, features: ['timestamp-query'], ...graphicsOptions() }),
+  unsupportedOverlayPlugin,
+)
 if (demo === 'galaxy') {
   app.addPlugin(galaxyPlugin({ stars: 100_000, seed: 7 }))
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-change]')) {
@@ -247,6 +218,7 @@ if (demo === 'galaxy') {
     structurePlugin,
     gridPlugin,
     vectorPlugin,
+    fogPlugin,
     hudPlugin,
     tabletopDemoPlugin,
   )
@@ -259,8 +231,19 @@ app.addPlugin(fpsGraphPlugin)
 app.setRunner(animationFrameRunner())
 window.addEventListener('hashchange', () => location.reload())
 
-// Exposed for poking at from the devtools console.
-Object.assign(globalThis, { app, describe: () => describeRender(app.world) })
+// Exposed for poking at from the devtools console, and for demos.test.ts: `started` once the app
+// runs, `error` if it couldn't.
+const playground = {
+  demo,
+  started: false,
+  error: undefined as string | undefined,
+  /** What's under a pixel of the main view: for tests comparing backends (0064). */
+  pick: async (x: number, y: number) => {
+    const hit = await pick(app.world, undefined, x, y)
+    return hit && { entity: hit.entity, path: hit.path, distance: hit.distance }
+  },
+}
+Object.assign(globalThis, { app, describe: () => describeRender(app.world), playground })
 
 /**
  * With ?hub (or ?hub=ws://host:port), the page dials out to a protocol hub (`shard serve` or
@@ -277,11 +260,13 @@ async function start() {
       onStatus: (on) => console.info(`[shard] hub ${on ? 'connected' : 'disconnected'}: ${url}`),
     })
   }
+  playground.started = true
   await app.run()
 }
 
 start().catch((err: unknown) => {
   hud.textContent =
     err instanceof ShardError ? `${err.code}: ${err.message}` : `error: ${String(err)}`
+  playground.error = hud.textContent
   console.error(err)
 })

@@ -1,4 +1,5 @@
 import { definePlugin } from '@aethervtt/shard-runtime'
+import { addRenderFeatures } from './features'
 import { type NodeDescriptor, RenderPhase } from './graph'
 import { Graph, Shaders } from './plugin'
 import { hasEffect, PostEffect, PostFeatures } from './post'
@@ -65,6 +66,12 @@ export const fxaaPlugin = definePlugin({
     registerShaders(app.world.resource(Shaders), FXAA_SHADERS)
     const graph = app.world.resource(Graph)
     graph.declare({ name: 'fxaa-in', format: 'view' })
+    addRenderFeatures(app.world, {
+      name: 'render/fxaa',
+      description: 'Fast approximate anti-aliasing.',
+      nodes: ['post/fxaa'],
+      baseline: { strategy: 'The same fragment pass' },
+    })
     graph.addNode('post/fxaa', fxaaNode())
   },
 })

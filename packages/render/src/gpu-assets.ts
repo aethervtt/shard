@@ -1,9 +1,10 @@
-import { assetServer } from '@aethervtt/shard-assets'
+import { type AssetServer, AssetServerResource, assetServer } from '@aethervtt/shard-assets'
 import { defineResource, type World } from '@aethervtt/shard-core'
 import type { GpuContext } from '@aethervtt/shard-gpu'
-import type { Mesh } from '@aethervtt/shard-mesh'
-import { FORMAT_INFO, type Texture, Textures } from '@aethervtt/shard-texture'
-import { type MaterialAsset, STANDARD_TYPE, TEXTURE_SLOTS } from './assets'
+import { Mesh } from '@aethervtt/shard-mesh'
+import { FORMAT_INFO, Texture, Textures } from '@aethervtt/shard-texture'
+import { MaterialAsset, STANDARD_TYPE, TEXTURE_SLOTS } from './assets'
+import type { BaselineTexture } from './baseline/textures'
 import type { MaterialType } from './materials'
 import { materialLayout } from './shaders'
 import type { FrameCounts, GpuMemoryData } from './stats'
@@ -53,6 +54,8 @@ export interface GpuTexture {
   version: number
   generation: number
   bytes: number
+  /** Frees the texture and anything made from it (baseline twins); else `texture.destroy()`. */
+  destroy?(): void
 }
 
 /** Color slots read through the sRGB view; data slots through the linear one. */
@@ -102,6 +105,16 @@ export class GpuAssets {
   readonly gpu: GpuContext
   readonly memory: GpuMemoryData
   materialLayout: GPUBindGroupLayout
+  /**
+   * The baseline tier's texture strategy (0064), set on a baseline device: one format and one
+   * binding dimension per texture, and twins for slots that read it otherwise.
+   */
+  baseline: typeof import('./baseline/textures') | undefined
+  /** Uploaded this frame on baseline: their bytes go at the next frame (twins take them first). */
+  private readonly releaseLater: Texture[] = []
+  /** Asset guids of textures, for reloading one a twin needs. */
+  private readonly guids = new WeakMap<Texture, string>()
+  private world: World | undefined
 
   constructor(gpu: GpuContext, memory: GpuMemoryData) {
     this.gpu = gpu
@@ -113,6 +126,12 @@ export class GpuAssets {
   /** Call once per frame before drawing: rebuilds after device loss and resets readiness. */
   beginFrame(): void {
     this.ready.clear()
+    // Baseline: what uploaded last frame had its chance to twin from its bytes.
+    for (let i = 0; i < this.releaseLater.length; i++) {
+      const t = this.releaseLater[i]!
+      if (!t.keepCpu) t.levels = undefined
+    }
+    this.releaseLater.length = 0
     if (this.generation === this.gpu.generation) return
     this.generation = this.gpu.generation
     this.materialLayout = createMaterialLayout(this.gpu)
@@ -296,6 +315,48 @@ export class GpuAssets {
     return gm
   }
 
+  /**
+   * Frees GPU copies of assets as the asset server drops them: unloaded (an owner released, 0061),
+   * or a fallback replaced by the real asset. Returns the unsubscribe.
+   */
+  watch(server: AssetServer): () => void {
+    return server.onUnload((_, item) => {
+      if (item instanceof Texture) this.releaseTexture(item)
+      else if (item instanceof Mesh) this.releaseMesh(item)
+      else if (item instanceof MaterialAsset) this.releaseMaterial(item)
+    })
+  }
+
+  /** The GPU objects made for one asset object (a texture, mesh or material): owners.describe (0061). */
+  objectsOf(item: unknown): { buffers: number; textures: number; bytes: number } {
+    const out = { buffers: 0, textures: 0, bytes: 0 }
+    const gpu = this.gpu
+    if (item instanceof Texture) {
+      const gt = this.textures.get(item)
+      if (gt && gt.generation === gpu.generation) {
+        out.textures = 1
+        out.bytes = gt.bytes
+      }
+    } else if (item instanceof Mesh) {
+      const gm = this.meshes.get(item)
+      if (gm && gm.generation === gpu.generation && !gm.sharedVertices) {
+        const buffers = [gm.positions, gm.normals, gm.uvs, gm.uvs1, gm.tangents]
+        if (gm.indices && !gm.sharedIndices) buffers.push(gm.indices)
+        out.buffers = buffers.length
+        for (const b of buffers) out.bytes += b.size
+      }
+    } else if (item instanceof MaterialAsset) {
+      const gm = this.materials.get(item)
+      if (gm && gm.generation === gpu.generation) {
+        const buffers = [gm.buffer, gm.textureBuffer]
+        if (gm.ownBuffer) buffers.push(gm.ownBuffer)
+        out.buffers = buffers.length
+        for (const b of buffers) out.bytes += b.size
+      }
+    }
+    return out
+  }
+
   /** Frees a mesh's GPU buffers now (they're made again if it's drawn later). */
   releaseMesh(mesh: Mesh): void {
     const gm = this.meshes.get(mesh)
@@ -309,7 +370,8 @@ export class GpuAssets {
     const gt = this.textures.get(texture)
     if (!gt) return
     if (gt.generation === this.gpu.generation) {
-      gt.texture.destroy()
+      if (gt.destroy) gt.destroy()
+      else gt.texture.destroy()
       this.memory.textures--
       this.memory.textureBytes -= gt.bytes
     }
@@ -345,7 +407,16 @@ export class GpuAssets {
       this.memory.textures--
       this.memory.textureBytes -= existing.bytes
     }
-    existing?.texture.destroy()
+    if (existing?.destroy) existing.destroy()
+    else existing?.texture.destroy()
+    if (this.baseline) {
+      const out = new this.baseline.BaselineTexture(this.twinHost(), texture)
+      this.textures.set(texture, out)
+      this.memory.textures++
+      this.memory.textureBytes += out.bytes
+      if (!texture.keepCpu) this.releaseLater.push(texture)
+      return out
+    }
     const info = FORMAT_INFO[texture.format]
     // Storage-bindable (GPU-written) textures can't also offer an sRGB view.
     const srgbView = texture.gpuOnly ? undefined : info.srgbView
@@ -420,6 +491,15 @@ export class GpuAssets {
   defaultTextures() {
     const gpu = this.gpu
     if (this.defaults && this.defaults.white.generation === gpu.generation) return this.defaults
+    if (this.baseline) {
+      // One texture per format and dimension on baseline: twins of 1×1 textures kept in memory.
+      this.defaults = {
+        white: this.baseline.solidTexture(this.twinHost(), [255, 255, 255, 255]),
+        normal: this.baseline.solidTexture(this.twinHost(), [128, 128, 255, 255]),
+      }
+      this.samplers.clear()
+      return this.defaults
+    }
     const solid = (label: string, rgba: number[]): GpuTexture => {
       const texture = gpu.device.createTexture({
         label,
@@ -484,6 +564,7 @@ export class GpuAssets {
   }
 
   private resolveSlots(world: World, material: MaterialAsset): boolean {
+    this.world = world
     const store = world.tryResource(Textures)
     material.sync()
     const type = material.type
@@ -495,7 +576,7 @@ export class GpuAssets {
         this.ownTextures[i] = undefined
         continue
       }
-      const texture = store?.get(ref as { guid: string | undefined })
+      const texture = store?.get(ref as { guid: string | undefined }) ?? missingTexture(world, ref)
       if (!texture || !this.available(world, texture, ref)) return false
       this.ownTextures[i] = texture
     }
@@ -507,15 +588,25 @@ export class GpuAssets {
         this.slotTextures[i] = undefined
         continue
       }
-      const texture = store?.get(ref)
+      const texture = store?.get(ref) ?? missingTexture(world, ref)
       if (!texture || !this.available(world, texture, ref)) return false
       this.slotTextures[i] = texture
+    }
+    // Baseline (0064): a material that defers draws isn't ready while a slot waits for a twin.
+    if (this.baseline && (material.value as { deferUntilReady?: boolean }).deferUntilReady) {
+      for (let i = 0; i < 5; i++) {
+        const texture = this.slotTextures[i]
+        const g = texture ? this.texture(texture) : undefined
+        // Every texture is a BaselineTexture on baseline.
+        if (g && (g as BaselineTexture).waiting(SRGB_SLOT[i]!, false)) return false
+      }
     }
     return true
   }
 
   /** Whether a texture can be uploaded; if its pixels are gone (device loss), reloads it. */
   private available(world: World, texture: Texture, ref: { guid?: string }): boolean {
+    if (ref.guid) this.guids.set(texture, ref.guid)
     if (texture.levels || this.textures.has(texture)) return true
     // Released after upload and the device was lost (or never uploaded): reload the artifact.
     if (ref.guid && !this.reloading.has(ref.guid)) {
@@ -526,6 +617,39 @@ export class GpuAssets {
         .finally(() => this.reloading.delete(guid))
     }
     return false
+  }
+
+  private twins: import('./baseline/textures').Twins | undefined
+
+  /** What baseline textures ask of this asset layer: reloads, fallbacks, and twin accounting. */
+  private twinHost(): import('./baseline/textures').Twins {
+    const assets = this
+    this.twins ??= new this.baseline!.Twins({
+      gpu: this.gpu,
+      get world() {
+        return assets.world
+      },
+      guidOf: (texture) => this.guids.get(texture),
+      reload: (texture) => {
+        const guid = this.guids.get(texture)
+        const world = this.world
+        if (!guid || !world || this.reloading.has(guid)) return
+        this.reloading.add(guid)
+        void assetServer(world)
+          .reload(guid)
+          .finally(() => this.reloading.delete(guid))
+      },
+      white: () => this.defaultTextures().white,
+    })
+    return this.twins
+  }
+
+  /**
+   * Baseline (0064), `render.describe → twins`: the twins waiting for their bytes and how long
+   * they've waited, and the last ones made with their waits (0 when made from kept bytes).
+   */
+  describeTwins() {
+    return this.twins?.describe() ?? { pending: [], recent: [] }
   }
 
   /** The group-1 layout of a material type on this device. */
@@ -662,7 +786,7 @@ export class GpuAssets {
           })
         } else {
           const g = gm.ownBound[i] ?? defaults.white
-          entries.push({ binding: binding++, resource: g.linear })
+          entries.push({ binding: binding++, resource: type.colors.has(name) ? g.srgb : g.linear })
         }
         entries.push({ binding: binding++, resource: this.sampler('repeat', 'linear') })
       }
@@ -697,6 +821,18 @@ function standardEntries(): GPUBindGroupLayoutEntry[] {
 
 export function createMaterialLayout(gpu: GpuContext): GPUBindGroupLayout {
   return STANDARD_TYPE.bindGroupLayout(gpu, standardEntries())
+}
+
+/**
+ * A texture ref nothing can load (its guid unknown to the catalog, or its runtime texture gone)
+ * gets the fallback texture instead of holding its material back forever (0061).
+ */
+function missingTexture(world: World, ref: { guid?: string | undefined }): Texture | undefined {
+  if (ref.guid === undefined) return undefined
+  const server = world.tryResource(AssetServerResource)
+  if (!server || server.entry(ref.guid)) return undefined
+  server.missing(ref, 'Texture')
+  return world.tryResource(Textures)?.byGuid(ref.guid)
 }
 
 export const GpuAssetsResource = defineResource<GpuAssets>('render/GpuAssets', {

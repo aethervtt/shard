@@ -11,6 +11,7 @@ import {
   AmbientLight,
   Camera3d,
   DirectionalLight,
+  Gpu,
   LightPresets,
   MaterialAsset,
   Materials,
@@ -21,6 +22,7 @@ import {
 } from '@aethervtt/shard-render'
 import { definePlugin, Time } from '@aethervtt/shard-runtime'
 import { lookAt, Transform } from '@aethervtt/shard-transform'
+import { backendLine, healthLines } from './backend'
 
 /** Marks the hero objects that spin. */
 const Spin = defineComponent('scene/Spin', { speed: t.f32({ default: 1 }) })
@@ -84,6 +86,8 @@ const hud = defineSystem({
     state.el.textContent = [
       `entities  ${world.entityCount.toLocaleString()}`,
       `fps       ${fps.toFixed(0)}`,
+      backendLine(world.resource(Gpu)),
+      ...healthLines(world),
       stats
         ? `${view}: ${stats.visible} visible, ${stats.culled} culled, ${stats.drawCalls} draws`
         : 'no camera view',

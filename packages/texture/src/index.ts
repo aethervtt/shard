@@ -24,6 +24,7 @@ export { buildMips, type MipChain, type MipOptions, type TextureUsage, toHalf } 
 export { type PackItem, type PackResult, packRects, SkylinePacker } from './pack'
 export {
   FORMAT_INFO,
+  fallbackTexture,
   setTextureCapabilities,
   Texture,
   TextureAssetType,

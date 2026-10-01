@@ -91,7 +91,8 @@ export class GpuCuller {
 
   constructor(gpu: GpuContext) {
     this.gpu = gpu
-    this.supported = gpu.features.has('indirect-first-instance')
+    // GPU culling is compute: the full tier's (0064).
+    this.supported = gpu.tier === 'full' && gpu.features.has('indirect-first-instance')
     const storage = GPUBufferUsage.STORAGE
     this.viewBuffer = new GpuBuffer(gpu, { label: 'cull/views', usage: storage, size: 4096 })
     this.batchBuffer = new GpuBuffer(gpu, { label: 'cull/batches', usage: storage, size: 2048 })
@@ -374,7 +375,7 @@ export class GpuCuller {
             label: 'cull',
             layout,
             entries: [
-              { binding: 0, resource: { buffer: store.instanceBuffer.buffer } },
+              { binding: 0, resource: { buffer: store.instanceBuffer.gpuBuffer } },
               { binding: 1, resource: { buffer: this.batchBuffer.buffer } },
               { binding: 2, resource: { buffer: this.lodBuffer.buffer } },
               { binding: 3, resource: { buffer: this.viewBuffer.buffer } },
@@ -382,7 +383,7 @@ export class GpuCuller {
               { binding: 5, resource: { buffer: this.visible.buffer } },
               { binding: 6, resource: { buffer: this.lodState.buffer } },
               { binding: 7, resource: { buffer: params.buffer } },
-              { binding: 8, resource: { buffer: store.deform.recordBuffer.buffer } },
+              { binding: 8, resource: { buffer: store.deform.recordBuffer.gpuBuffer } },
             ],
           }),
         ),
@@ -548,8 +549,13 @@ export function cullTransparent(
 }
 
 /** The CPU ground list (0057) of a view the GPU culls. */
-export function cullGround(store: InstanceStore, list: DrawList, params: CullParams): void {
-  store.cullGroundMembers(list, params)
+export function cullGround(
+  store: InstanceStore,
+  list: DrawList,
+  params: CullParams,
+  overlay?: DrawList,
+): void {
+  store.cullGroundMembers(list, params, overlay)
 }
 
 /**

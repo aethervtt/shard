@@ -38,6 +38,7 @@ import {
   equal,
   expandAliases,
   type FlatEntity,
+  notAuthorable,
   rebase,
   resolveAssets,
   serializeComponents,
@@ -372,6 +373,10 @@ function applyOverrides(
         )
         continue
       }
+      if (def.hostOnly) {
+        report(key, notAuthorable(name, where))
+        continue
+      }
       if (!def.serializable || def === ChildOf) {
         report(
           key,
@@ -672,7 +677,8 @@ function stateOf(world: World): WorldInstances {
   let s = perWorld.get(world)
   if (!s) {
     const off = assetServer(world).onEvent((e) => {
-      if (e.kind !== 'loaded' && e.kind !== 'modified') return
+      // A failed model spawns its fallback; a retried one comes back as 'loaded'.
+      if (e.kind !== 'loaded' && e.kind !== 'modified' && e.kind !== 'failed') return
       const type = assetServer(world).entry(e.guid)?.type
       if (type === 'Scene' || type === 'Prefab') updateInstances(world)
     })
@@ -1088,7 +1094,8 @@ export function updateInstances(world: World): void {
           server.request(entry.guid)
           continue
         }
-        if (entry.state !== 'loaded') continue
+        // A failed model spawns its fallback (a box) until assets.retry brings it back (0061).
+        if (entry.state !== 'loaded' && !server.isFallback(entry.guid)) continue
         const state = s.states.get(entity)
         const o = overridesOf(value.overrides as JsonValue | undefined)
         if (

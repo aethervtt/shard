@@ -60,6 +60,15 @@ export class PipelineCache {
     await Promise.all(pending)
   }
 
+  /** Why the pipeline for `descriptor` failed, if it did (0061): callers draw a fallback instead. */
+  failure(
+    descriptor: GPURenderPipelineDescriptor | GPUComputePipelineDescriptor,
+  ): ShardError | undefined {
+    const key = descriptorKey(descriptor)
+    const state = this.render_.get(key) ?? this.compute_.get(key)
+    return state?.status === 'failed' ? state.error : undefined
+  }
+
   /** Errors from pipelines that failed to compile, by label. */
   failures(): ShardError[] {
     const out: ShardError[] = []
@@ -82,6 +91,8 @@ export class PipelineCache {
     const key = descriptorKey(descriptor)
     const state = map.get(key)
     if (state?.status === 'ready') return state.pipeline
+    // A failed pipeline never compiles: not a skipped draw, since callers draw a fallback (0061).
+    if (state?.status === 'failed') return undefined
     if (state) {
       this.skipped++
       return undefined

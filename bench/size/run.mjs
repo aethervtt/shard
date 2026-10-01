@@ -4,8 +4,12 @@
 //   pnpm size            print the table and write report.json
 //   pnpm size --json     print the report as JSON
 //   pnpm size --check    fail if a fixture's brotli size is over budgets.json by more than 2%
-//                        (--budgets <file> checks against another file), or if it bundles a
-//                        package its budget forbids
+//                        (--budgets <file> checks against another file), if it bundles a
+//                        package its budget forbids, or if baseline-only code reaches a chunk
+//                        a WebGPU session loads
+//
+// Chunks are `entry`, `lazy`, or `fallback`: lazy chunks holding only the baseline tier's code
+// (0064), which a WebGPU session never loads. `js` counts entry and lazy chunks; `fallback` apart.
 
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
@@ -35,6 +39,12 @@ function packageOf(id) {
     return workspace[1] === 'packages' ? `@aethervtt/shard-${workspace[2]}` : `apps/${workspace[2]}`
   const rel = relative(repo, path)
   return rel.startsWith('bench/') ? 'fixture' : rel.split('/')[0] || 'other'
+}
+
+/** Code only the baseline tier loads (0064): any package's `src/baseline/`, and the WebGL2 backend. */
+function baselineOnly(id) {
+  const path = id.replace(/^\0/, '').split('?')[0].replace(/\\/g, '/')
+  return /\/packages\/[^/]+\/src\/baseline\//.test(path) || /\/packages\/gpu-webgl2\//.test(path)
 }
 
 function sizes(bytes) {
@@ -77,15 +87,29 @@ async function measure(name, root) {
         ? 'wasm'
         : 'asset'
     const packages = {}
+    let fallback = false
+    const baseline = []
     if (isChunk) {
       const ids = out.moduleIds ?? Object.keys(out.modules ?? {})
       for (const id of ids) {
         const rendered = out.modules?.[id]?.renderedLength ?? 0
         const pkg = packageOf(id)
         packages[pkg] = (packages[pkg] ?? 0) + rendered
+        if (baselineOnly(id) && rendered > 0) baseline.push(id)
       }
+      // Only baseline code, apart from bundler glue that renders to nothing.
+      fallback =
+        kind === 'lazy' &&
+        baseline.length > 0 &&
+        ids.every((id) => baselineOnly(id) || (out.modules?.[id]?.renderedLength ?? 0) === 0)
     }
-    chunks.push({ file: out.fileName, kind, ...sizes(bytes), packages })
+    chunks.push({
+      file: out.fileName,
+      kind: fallback ? 'fallback' : kind,
+      ...sizes(bytes),
+      packages,
+      baseline,
+    })
   }
   chunks.sort((a, b) => b.brotli - a.brotli)
   const total = (kinds) =>
@@ -96,7 +120,8 @@ async function measure(name, root) {
     brotli: {
       entry: total(['entry']),
       js: total(['entry', 'lazy']),
-      all: total(['entry', 'lazy', 'wasm', 'asset']),
+      fallback: total(['fallback']),
+      all: total(['entry', 'lazy', 'fallback', 'wasm', 'asset']),
     },
   }
 }
@@ -112,7 +137,7 @@ if (args.has('--json')) {
 } else {
   for (const f of Object.values(report.fixtures)) {
     console.log(
-      `\n${f.name}: entry ${kb(f.brotli.entry)}, all JS ${kb(f.brotli.js)}, everything ${kb(f.brotli.all)} (brotli)`,
+      `\n${f.name}: entry ${kb(f.brotli.entry)}, all JS ${kb(f.brotli.js)}, baseline fallback ${kb(f.brotli.fallback)}, everything ${kb(f.brotli.all)} (brotli)`,
     )
     for (const c of f.chunks.slice(0, 8)) {
       const top = Object.entries(c.packages)
@@ -143,6 +168,14 @@ if (args.has('--check')) {
     }
     const bundled = new Set(report.fixtures[name].chunks.flatMap((c) => Object.keys(c.packages)))
     for (const pkg of forbid) if (bundled.has(pkg)) over.push(`${name} bundles ${pkg}`)
+  }
+  // Baseline code a WebGPU session would load belongs behind an import() of its own (0064).
+  for (const f of Object.values(report.fixtures)) {
+    for (const c of f.chunks) {
+      if (c.kind === 'fallback' || c.baseline.length === 0) continue
+      const files = c.baseline.map((id) => relative(repo, id.replace(/^\0/, '').split('?')[0]))
+      over.push(`${f.name}: baseline-only code in ${c.kind} chunk ${c.file}: ${files.join(', ')}`)
+    }
   }
   if (over.length > 0) {
     console.error(`\nOver budget:\n  ${over.join('\n  ')}`)

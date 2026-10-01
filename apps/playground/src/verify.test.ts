@@ -20,6 +20,7 @@ import { browserLaunch, decodePng, runCapture } from '@aethervtt/shard-verify/no
 import { chromium } from 'playwright'
 import { createServer, type ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { webgl2Unavailable } from './browser-tests'
 
 const root = join(import.meta.dirname, '..')
 let server: ViteDevServer
@@ -434,5 +435,77 @@ describe.skipIf(skip)('the visibility flow (0062)', () => {
       expect(run.failures.some((f) => f.step === 'out-of-vision')).toBe(false)
     },
     timeout(120_000),
+  )
+})
+
+// Stage 3 of 0064: the same fixture and plans on WebGL2. The plans ask the page for the backend
+// (`backend: 'webgl2'`, as ?backend=webgl2); one device draws both canvases, the table and the
+// transparent dice overlay, from a canvas of its own.
+const skipGl = await webgl2Unavailable(`${base}/verify.html`)
+if (skipGl && process.env.SHARD_BROWSER_TESTS === 'required') {
+  throw new Error(`0064 WebGL2 browser tests are required here, but can't run: ${skipGl}`)
+}
+
+describe.skipIf(skipGl)('the fixture on WebGL2 (0064)', () => {
+  const gl = (p: CapturePlan): CapturePlan => ({ ...p, backend: 'webgl2' })
+
+  it(
+    'captures the same PNG hash twice in a row, and fog shows the player less than the GM',
+    async () => {
+      const p = gl(
+        plan({
+          clients: [
+            { name: 'gm', role: 'gm' },
+            { name: 'player', role: 'player' },
+          ],
+          // The default view first (the fog check reads it), then a close map view.
+          shots: [
+            { name: 'canvas' },
+            { name: 'map-close', state: { view: 'map', zoom: 4, target: [-2.5, 0, 1.5] } },
+          ],
+        }),
+      )
+      const first = await capture(p)
+      const second = await capture(p)
+      const hashes = (run: typeof first) => run.manifest.shots.map((s) => [s.id, s.hash])
+      expect(hashes(second)).toEqual(hashes(first))
+      const gm = await png(first.dir, 'chromium/gm/canvas@1x')
+      const player = await png(first.dir, 'chromium/player/canvas@1x')
+      const at = (image: RgbaImage, x: number, y: number) =>
+        Array.from(image.data.subarray((y * image.width + x) * 4, (y * image.width + x) * 4 + 3))
+      const corner = at(gm, 200, 120).reduce((a, b) => a + b, 0)
+      expect(corner).toBeGreaterThan(30)
+      expect(at(player, 200, 120).reduce((a, b) => a + b, 0)).toBeLessThan(corner * 0.6)
+    },
+    timeout(180_000),
+  )
+
+  it(
+    'plays 32 dice to rest over the page, keeping the dice canvas transparent around them',
+    async () => {
+      const run = await capture(gl(fromFile('dice.json')))
+      expect(run.failures).toEqual([])
+      const image = await png(run.dir, 'chromium/main/landed-32@1x')
+      let clear = 0
+      let solid = 0
+      for (let i = 3; i < image.data.length; i += 4) {
+        const a = image.data[i]!
+        if (a === 0) clear++
+        else if (a === 255) solid++
+      }
+      expect(clear).toBeGreaterThan(image.width * image.height * 0.6)
+      expect(solid).toBeGreaterThan(2000)
+    },
+    timeout(240_000),
+  )
+
+  it(
+    'passes the visibility flow for a correct player',
+    async () => {
+      const run = await capture(gl(fromFile('visibility.json')))
+      expect(run.failures).toEqual([])
+      expect(run.manifest.shots.filter((s) => s.client === 'player')).toHaveLength(5)
+    },
+    timeout(180_000),
   )
 })

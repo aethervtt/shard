@@ -20,6 +20,16 @@ export {
   type TriggerEvent,
   type TriggerObserver,
 } from './observers'
+export {
+  OwnedBy,
+  Owner,
+  type OwnerDescription,
+  type OwnerLimits,
+  type OwnerQuota,
+  OwnerReleased,
+  Owners,
+  type OwnerUsage,
+} from './owners'
 export { Query, type QueryDescriptor } from './query'
 export { type ColumnOf, ComponentStorage, Table, type TickSource } from './table'
 export { type ComponentInit, World, type WorldStats } from './world'

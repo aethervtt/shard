@@ -1,0 +1,31 @@
+{
+  "name": "@aethervtt/shard-fog",
+  "version": "0.0.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@aethervtt/shard-assets": "workspace:*",
+    "@aethervtt/shard-core": "workspace:*",
+    "@aethervtt/shard-gpu": "workspace:*",
+    "@aethervtt/shard-render": "workspace:*",
+    "@aethervtt/shard-runtime": "workspace:*",
+    "@aethervtt/shard-vector": "workspace:*"
+  },
+  "devDependencies": {
+    "@aethervtt/shard-mesh": "workspace:*",
+    "@aethervtt/shard-protocol": "workspace:*",
+    "@aethervtt/shard-transform": "workspace:*",
+    "@types/node": "^26.6.2",
+    "@webgpu/types": "^0.1.74",
+    "webgpu": "0.6.1"
+  }
+}

@@ -39,6 +39,12 @@ export const GROUND_BANDS = {
 export type GroundBand = keyof typeof GROUND_BANDS
 
 /**
+ * Bands from this one up draw after the transparent phase and projected fog (0058), so fog never
+ * covers them: selection rings, pings, measurement templates.
+ */
+export const OVERLAY_BAND = GROUND_BANDS.overlay
+
+/**
  * Coplanar content on a floor, drawn after opaque geometry in `(band, order)` order with the depth
  * test on and depth writes off: walls and props in front hide it, and bands never fight each other.
  * Ground renderables cast no shadows.
@@ -50,7 +56,7 @@ export const GroundLayer = defineComponent(
       default: GROUND_BANDS.drawings,
       presets: GROUND_BANDS,
       description:
-        'Stacking band: tiles 10, grid 20, drawings 30, tokens-flat 40, fog 50, overlay 60. Higher draws over lower.',
+        'Stacking band: tiles 10, grid 20, drawings 30, tokens-flat 40, fog 50, overlay 60. Higher draws over lower. Bands from 60 up draw after transparent objects and projected fog.',
     }),
     order: t.i32({ description: 'Order within the band: higher draws over lower.' }),
     level: t.i8({

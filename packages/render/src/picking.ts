@@ -1,11 +1,12 @@
 import { defineResource, type Entity, mat4, ShardError, type World } from '@aethervtt/shard-core'
 import type { Mesh } from '@aethervtt/shard-mesh'
 import { GlobalTransform } from '@aethervtt/shard-transform'
-import { Meshes } from './assets'
+import { Materials, Meshes } from './assets'
+import { addRenderFeatures } from './features'
 import { drawMaterials, ForwardStateResource, PASS_PICK, PASS_PICK_GROUND } from './forward'
 import type { NodeContext, NodeDescriptor, RenderView } from './graph'
 import { RenderPhase } from './graph'
-import { Lod, Mesh3d } from './instances'
+import { Lod, Mesh3d, MeshMaterial } from './instances'
 import { DebugOverlays } from './overlays'
 import { Graph, Views } from './plugin'
 import { type CameraData, cameraOf } from './view'
@@ -21,7 +22,24 @@ export interface PickHit {
   normal: [number, number, number]
   /** Meters from the camera (from the ray origin, for raycasts). */
   distance: number
+  /**
+   * What within the entity was hit, when something knows (0059): a tilemap gives
+   * `{ kind: 'tile', layer, x, y, tile }`, the tile named as its palette names it.
+   */
+  detail?: PickDetail
 }
+
+/** Detail of a pick within an entity: `kind` says what the rest means. */
+export interface PickDetail {
+  kind: string
+  [key: string]: unknown
+}
+
+/**
+ * Turns a hit into detail about what within the entity it hit (a tile of a tilemap), or
+ * undefined when the hit isn't its kind. Runs for GPU picks and raycasts alike.
+ */
+export type PickDetailer = (world: World, hit: PickHit) => PickDetail | undefined
 
 interface PickRequest {
   x: number
@@ -48,6 +66,8 @@ export interface PickingState {
   pending: Map<string, PickRequest[]>
   drawers: Map<string, PickDrawer>
   blockers: Map<string, PickBlocker>
+  /** Detail for hits, by who adds it (tilemaps). */
+  detailers: Map<string, PickDetailer>
   /** Views whose pick pass skipped a draw (a pipeline still compiling): their picks wait a frame. */
   incomplete: Set<string>
 }
@@ -58,6 +78,7 @@ export const Picking = defineResource<PickingState>('render/Picking', {
     pending: new Map(),
     drawers: new Map(),
     blockers: new Map(),
+    detailers: new Map(),
     incomplete: new Set(),
   }),
 })
@@ -134,6 +155,7 @@ export function pickNode(world: World): NodeDescriptor {
       drawMaterials(ctx, state, pv, cam, cam.transparent, PASS_PICK)
       // Ground bands last, in band order: at their floor's depth, the topmost band wins.
       drawMaterials(ctx, state, pv, cam, cam.ground, PASS_PICK_GROUND)
+      drawMaterials(ctx, state, pv, cam, cam.overlay, PASS_PICK_GROUND)
       for (const draw of picking.drawers.values()) draw(ctx, cam)
       if (ctx.gpu.pipelines.skipped > skipped) picking.incomplete.add(ctx.view.name)
     },
@@ -219,13 +241,15 @@ export function pickReadbackNode(world: World): NodeDescriptor {
               const dx = position[0] - eye[0]!
               const dy = position[1] - eye[1]!
               const dz = position[2] - eye[2]!
-              r.resolve({
-                entity: entity as Entity,
-                path: w.isAlive(entity) ? name(w, entity) : undefined,
-                position,
-                normal: [n[0]!, n[1]!, n[2]!],
-                distance: Math.sqrt(dx * dx + dy * dy + dz * dz),
-              })
+              r.resolve(
+                withDetail(w, {
+                  entity: entity as Entity,
+                  path: w.isAlive(entity) ? name(w, entity) : undefined,
+                  position,
+                  normal: [n[0]!, n[1]!, n[2]!],
+                  distance: Math.sqrt(dx * dx + dy * dy + dz * dz),
+                }),
+              )
             })
             buffer.unmap()
             buffer.destroy()
@@ -247,6 +271,12 @@ export function addPickNodes(world: World): void {
   graph.declare({ name: 'pick-id', format: 'r32uint', usage })
   graph.declare({ name: 'pick-normal', format: 'rgba32float', usage })
   graph.declare({ name: 'pick-depth', format: 'depth32float' })
+  addRenderFeatures(world, {
+    name: 'render/picking',
+    description: 'Entity picking from id and normal targets, read back per request.',
+    nodes: ['picking', 'picking/readback'],
+    baseline: { strategy: 'The same targets, read back with copies' },
+  })
   graph.addNode('picking', pickNode(world))
   graph.addNode('picking/readback', pickReadbackNode(world))
 }
@@ -346,11 +376,15 @@ function worldBox(bb: ArrayLike<number>, m: Float32Array, out: Float32Array): vo
 
 function buildBvh(world: World, tick: number, tables: number): Bvh {
   const items: Item[] = []
+  const materials = world.tryResource(Materials)
   for (const table of world.query({ with: [Mesh3d, GlobalTransform, ComputedVisibility] }).tables) {
     const g = table.column(GlobalTransform, 'matrix') as unknown as Float32Array
     const vis = table.column(ComputedVisibility, 'visible')
+    const refs = table.has(MeshMaterial) ? table.column(MeshMaterial, 'material') : undefined
     for (let i = 0; i < table.count; i++) {
       if (!vis[i]) continue
+      // As on the GPU: types that aren't pick targets let the ray through.
+      if (refs && materials?.get(refs[i] as never)?.type.pickable === false) continue
       const entity = table.entities[i]!
       const mesh = meshOf(world, entity)
       if (!mesh) continue
@@ -589,5 +623,21 @@ export function raycast(
     }
   }
   hits.sort((a, b) => a.distance - b.distance)
-  return options.all ? hits : hits.slice(0, 1)
+  const out = options.all ? hits : hits.slice(0, 1)
+  for (const hit of out) withDetail(world, hit)
+  return out
+}
+
+/** Adds a registered detailer's detail to a hit (the first that knows its entity). */
+function withDetail(world: World, hit: PickHit): PickHit {
+  const detailers = world.tryResource(Picking)?.detailers
+  if (!detailers || detailers.size === 0 || !world.isAlive(hit.entity)) return hit
+  for (const detailer of detailers.values()) {
+    const detail = detailer(world, hit)
+    if (detail) {
+      hit.detail = detail
+      break
+    }
+  }
+  return hit
 }

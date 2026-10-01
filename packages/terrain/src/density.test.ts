@@ -54,7 +54,10 @@ async function chunks(width: number, height: number, pixelRatio: number) {
 }
 
 describe('terrain detail on high-density displays (spec 0051)', () => {
-  it('selects by CSS pixels: a 2× display gets the detail of a 1× one its CSS size', async () => {
+  // Three planets, two at 960×540: the multi-planet tests’ timeout, not the default.
+  it('selects by CSS pixels: a 2× display gets the detail of a 1× one its CSS size', {
+    timeout: timeout(240_000),
+  }, async () => {
     const css = await chunks(480, 270, 1)
     const retina = await chunks(960, 540, 2)
     const dense = await chunks(960, 540, 1)

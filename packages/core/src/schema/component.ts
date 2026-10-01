@@ -39,6 +39,12 @@ export interface ComponentOptions {
    * rebuilds itself, or that belongs to the session rather than the playthrough.
    */
   save?: boolean
+  /**
+   * Only host code holding a grant writes it (ownership, 0061). Scene files, prefabs and the
+   * protocol refuse it, and `world.add`, `set` and `remove` throw `core/owner-not-authorable`
+   * outside the grant. Implies `serialize: false`.
+   */
+  hostOnly?: boolean
 }
 
 export interface ComponentDef<F extends Fields = Fields> {
@@ -58,6 +64,8 @@ export interface ComponentDef<F extends Fields = Fields> {
   readonly serializable: boolean
   /** Whether saved games include it: serializable, and not `save: false`. */
   readonly saved: boolean
+  /** Written only by host code holding a grant (0061). */
+  readonly hostOnly: boolean
   defaults(): InferFields<F>
   serialize(value: InferFields<F>): JsonObject
   /** Validates, then converts. Throws the first validation error. */
@@ -171,8 +179,9 @@ function buildSchema<const F extends Fields>(
     version,
     layout,
     requires: options.requires ?? [],
-    serializable: options.serialize ?? true,
-    saved: (options.serialize ?? true) && (options.save ?? true),
+    serializable: !options.hostOnly && (options.serialize ?? true),
+    saved: !options.hostOnly && (options.serialize ?? true) && (options.save ?? true),
+    hostOnly: options.hostOnly ?? false,
     defaults: () => defaultsOf(fields),
     serialize: (value) => objectToJson(fields, value as Record<string, unknown>),
     deserialize(json, ctx) {

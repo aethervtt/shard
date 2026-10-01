@@ -1,3 +1,4 @@
+import { addRenderFeatures } from './features'
 // The display stage every 3D view runs (0051): HDR to display with grading and the tonemap curve,
 // then the render-scale upscale onto the target. Post effects are a separate plugin.
 
@@ -199,6 +200,12 @@ function upscaleNode(): NodeDescriptor {
 export function addDisplayNodes(world: World): void {
   const graph = world.resource(Graph)
   graph.declare({ name: 'display', format: 'view' })
+  addRenderFeatures(world, {
+    name: 'render/display',
+    description: 'Tonemapping and the upscale to the display.',
+    nodes: ['tonemap', 'post/upscale'],
+    baseline: { strategy: 'The same fragment passes' },
+  })
   graph.addNode('tonemap', tonemapNode())
   graph.addNode('post/upscale', upscaleNode())
 }

@@ -1,6 +1,6 @@
 # 0058 — Projected fog
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@aethervtt/shard-fog` (new), `@aethervtt/shard-vector`, `@aethervtt/shard-render`
 - **Depends on:** 0023, 0057
 
@@ -44,7 +44,7 @@ FogLayer {
   base: 'hidden' | 'revealed'
   extent: { min: vec2, max: vec2 }      // world XZ; outside it, the base applies
   texelSize: f32 = 0.05                 // metres per mask texel; clamped so the mask is ≤ 4096²
-  color: color = '#000000'
+  color: color = '#000000'              // (and to the device's texture limit)
   opacity: f32 = 1
   regions: handle('FogRegions')         // ordered, with a revision
 }
@@ -54,7 +54,7 @@ FogRegions {                             // data asset or resource-backed; the h
              shape: { kind: 'rect', x, y, w, h } | { kind: 'polygon', outer, holes }
                   | { kind: 'multipolygon', polygons } | { kind: 'brush', points, radius } }[]
 }
-FogSettings (resource) { compose: 'union', viewerOpacity: f32 = 1 }
+FogSettings (resource) { compose: 'union', viewerOpacity: f32 = 1, floor: f32 = 0 }
 ```
 
 For Aether, the vision layer is `base: 'hidden'` with the explored multipolygon (`reveal`,
@@ -73,20 +73,29 @@ where `c` is the region's coverage. Coverage comes from geometry, not from a blu
 tessellated by `@aethervtt/shard-vector` with a feather ring: an outer strip whose coverage ramps from 1 at
 the edge to 0 at `feather`, around holes too. Brushes are a chain of capsules of `radius` plus the
 ring. Every region's edge is soft by its own amount, with no blur pass and no bleed between
-regions.
+regions. A region's triangles can overlap (a brush's inner joins, a reflex corner's clamped miter),
+so each region draws with a stencil that lets a texel take only the region's first triangle there;
+core triangles (coverage 1) come first. A pass holds 255 regions, one stencil value each.
 
 **Incremental.** A layer remembers `(rev, count)` and a hash of the regions it last drew. If the
 new list extends the old one (the same prefix, a higher count), only the new regions draw onto the
 existing mask; that's the brush-painting case. Any other change redraws the layer: clear to the
-base, then all regions. Regions are tessellated once and cached by content, so a redraw is GPU
-work only. A layer whose regions didn't change costs nothing.
+base, then all regions. Regions are tessellated once and cached by content and texel size, into
+one GPU arena uploaded as meshes are added, so a redraw is draw calls only. Tessellation drops input
+points the outline doesn't need, keeping it within 1/255 of a texel of the given one, which no
+8-bit mask shows: a 1,000-point circle a few texels wide becomes about 100 points. A layer whose
+regions didn't change costs nothing.
 
 ### Composite
 
-A post pass after the transparent phase and before the `overlay` band (0057) reconstructs each
-pixel's world XZ from depth, samples every layer's mask, takes the union (`max`), and darkens by
-`max × opacity × viewerOpacity` toward `color`. Pixels with no depth (background) use the fog
-plane at floor height. Fog therefore reads as a column over each point of the map: in the
+A pass after the transparent phase (`RenderPhase.Fog`) reconstructs each pixel's world XZ from
+depth (sample 0 of the multisampled depth with MSAA), samples every layer's mask, takes the union
+(`max` of value × opacity, the strongest layer's color), and darkens by it × `viewerOpacity` toward
+that color. Pixels with no depth (background) use the floor plane at `FogSettings.floor`. The
+`overlay` band (0057) and every band above it moved to their own pass after the composite
+(`RenderPhase.Overlay3d`, only in views that have such content), since before this spec it drew in
+the ground phase, before fog could exist. Up to four layers compose (`MAX_FOG_LAYERS`); more are
+reported by `fog.describe` and don't compose. Fog therefore reads as a column over each point of the map: in the
 Tabletop view it covers the top of a prop as well as the floor under it, and it looks the same as
 the Map view from above. Selection outlines and overlay-band content draw after fog, so a GM's
 selection stays visible.
@@ -94,11 +103,17 @@ selection stays visible.
 ### API sketch
 
 ```ts
-import { fogPlugin, FogLayer, FogRegions, FogSettings } from '@aethervtt/shard-fog'
+import { fogPlugin, FogLayer, FogRegionsStore, FogSettings, setFogRegions } from '@aethervtt/shard-fog'
 const manual = world.resource(FogRegionsStore).add({ rev: 1, regions: [...] })
 world.spawn([FogLayer, { base: 'revealed', extent, regions: manual }])
+setFogRegions(world, manual, { rev: 2, regions: [...regions, stroke] })  // appends; wakes the app
 world.patchResource(FogSettings, { viewerOpacity: isGm ? 0.45 : 1 })   // wakes an idle app (0052)
 ```
+
+Shapes are tessellated by `featheredCoverage` in `@aethervtt/shard-vector`. `referenceMask` is a
+CPU raster of a layer made the way the GPU makes it (vertices snapped to 1/256 texel, the top-left
+rule, each region's value rounded to 8 bits before blending and after), which tests hold the masks
+to.
 
 ### Baseline tier (0064)
 
@@ -109,8 +124,8 @@ unchanged. The composite reads layer masks as textures, not storage.
 
 - `fog.describe`: layers, extents, mask sizes, region counts, and whether the last update was an
   append or a full redraw, with its GPU time.
-- `fog.sample { x, z }` returns each layer's value and the composite at a point, so a test can
-  check fog without reading pixels.
+- `fog.sample { x, z }` returns each layer's value (read from its mask, bilinear) and the
+  composite at a point, so a test can check fog without reading pixels.
 
 ## Decisions
 
@@ -123,21 +138,23 @@ unchanged. The composite reads layer masks as textures, not storage.
 
 ## Acceptance criteria
 
-- [ ] `fog.sample` inside a revealed polygon's hole returns the base; inside the polygon it returns
+- [x] `fog.sample` inside a revealed polygon's hole returns the base; inside the polygon it returns
       0; at `feather / 2` outside the edge it returns 0.5 ± 0.05.
-- [ ] Hide and reveal regions applied in list order match a CPU reference raster of 200 mixed
-      regions within 1/255 per texel.
-- [ ] Appending one brush stroke to 4,000 regions draws only that stroke (counted), in under 1 ms
-      of GPU time.
-- [ ] Changing only the vision polygons redraws the vision layer and leaves the manual mask
+- [x] Hide and reveal regions applied in list order match a CPU reference raster of 200 mixed
+      regions within 1/255 per texel, but for at most 0.1% of texels within 2/255: a driver may round
+      a borderline blend the other way (D3D allows it; WARP does), and the difference carries into
+      the regions drawn over it.
+- [x] Appending one brush stroke to 4,000 regions draws only that stroke (counted), in under 1 ms
+      of GPU time (bench, with timestamp queries).
+- [x] Changing only the vision polygons redraws the vision layer and leaves the manual mask
       untouched.
-- [ ] A redraw of 4,000 regions of 1,000 points each finishes in under 50 ms (bench).
-- [ ] In the Tabletop view, a prop standing inside a hidden region is covered to its top, and the
+- [x] A redraw of 4,000 regions of 1,000 points each finishes in under 50 ms (bench).
+- [x] In the Tabletop view, a prop standing inside a hidden region is covered to its top, and the
       Map view from above matches the Tabletop's fog footprint (golden captures).
-- [ ] `viewerOpacity` 0.45 over a hidden region darkens to 45% ± 1%. Selection outlines draw
-      unfogged.
-- [ ] A scene with no `FogLayer` has no fog pass in its graph.
-- [ ] While idle in on-demand mode, patching `viewerOpacity` or a layer's regions produces a frame
+- [x] `viewerOpacity` 0.45 over a hidden region darkens the pixel by 45% ± 1% (linear), with and
+      without MSAA. Selection outlines draw unfogged.
+- [x] A scene with no `FogLayer` has no fog pass in its graph.
+- [x] While idle in on-demand mode, patching `viewerOpacity` or a layer's regions produces a frame
       that shows the change; with no change, the fog costs no frames.
 
 ## Open questions

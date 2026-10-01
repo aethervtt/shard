@@ -120,8 +120,8 @@ off three.js. This runs alongside M8. Order: 0052, 0053 and 0061 first (the embe
 foundations), then 0054 dice with 0063. The table follows: 0055, 0057, 0060, 0058, 0059. 0056 and
 0062 measure the result throughout. The Aether adapter that maps its documents onto these lives in
 Aether. Already done outside a spec: `Camera3d.active` (0007) and `probeWebGpu` (0061). The WebGL2
-fallback (0064) runs in parallel, in three stages, and doesn't block the WebGPU replacement. New
-tabletop shaders use its `shard::data` accessors once stage 1 lands. Dice entrances and screen
+fallback (0064) ran in parallel, in three stages, without blocking the WebGPU replacement. Tabletop
+shaders read engine data through its `@data` declarations. Dice entrances and screen
 effects (0065) build on 0054 and 0063 once 0054 is implemented. Structure grows after 0055: curved
 walls (0066) and groups (0067), then surface variation (0068), per-view visibility and cutaways
 (0070), and interior lighting (0069).
@@ -134,13 +134,13 @@ walls (0066) and groups (0067), then surface variation (0068), per-view visibili
 | [0055](0055-host-scenes-structure.md) | Host-driven scenes and incremental structure (mirror, chunks, upload accounting) | implemented |
 | [0056](0056-modular-builds-size.md) | Modular builds and size budgets (no import side effects, feature plugins, three baseline) | implemented |
 | [0057](0057-tabletop-layers.md) | Tabletop layers (ground bands, render layers, grids, vector shapes, outlines) | implemented |
-| [0058](0058-projected-fog.md) | Projected fog (ordered regions, feathered masks, world-space composite) | accepted |
-| [0059](0059-tabletop-tilemaps.md) | Tilemaps on the tabletop, and diffable tile data | accepted |
+| [0058](0058-projected-fog.md) | Projected fog (ordered regions, feathered masks, world-space composite) | implemented |
+| [0059](0059-tabletop-tilemaps.md) | Tilemaps on the tabletop, and diffable tile data | implemented |
 | [0060](0060-camera-controls-gestures.md) | Camera controls, gestures, and object drag | accepted |
-| [0061](0061-ownership-recovery.md) | Ownership and failure recovery (owners, fallbacks, health) | accepted |
+| [0061](0061-ownership-recovery.md) | Ownership and failure recovery (owners, fallbacks, health) | implemented |
 | [0062](0062-browser-verification.md) | Browser captures, approvals, and performance records | implemented |
 | [0063](0063-lens-fields.md) | Screen-space lens fields (bounded post displacement from published fields) | implemented |
-| [0064](0064-webgl2-fallback.md) | WebGL2 fallback and the baseline tier (one API, backend chosen at startup; staged, off the critical path) | accepted |
+| [0064](0064-webgl2-fallback.md) | WebGL2 fallback and the baseline tier (one API, backend chosen at startup; staged, off the critical path) | implemented |
 | [0065](0065-dice-entrances.md) | Dice entrances and screen effects (a result arriving through a host scene instead of a tumble; typed effects the table draws) | implemented |
 | [0066](0066-curved-walls.md) | Curved walls and structure materials (arcs, Béziers, one subdivision for drawing and barriers; textured, normal-mapped walls) | implemented |
 | [0067](0067-structure-groups.md) | Structure groups: levels, roofs and cutouts (hide a level or a roof without a rebuild; stairwells, hatches, skylights) | implemented |

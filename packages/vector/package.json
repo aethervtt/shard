@@ -22,8 +22,6 @@
   },
   "devDependencies": {
     "@aethervtt/shard-gpu": "workspace:*",
-    "@aethervtt/shard-grid": "workspace:*",
-    "@aethervtt/shard-structure": "workspace:*",
     "@types/node": "^26.6.2",
     "@webgpu/types": "^0.1.74",
     "webgpu": "0.6.1"

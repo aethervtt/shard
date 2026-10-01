@@ -40,7 +40,7 @@ struct Line {
   bits: u32,
 }
 
-@group(1) @binding(0) var<storage, read> lines: array<Line>;
+@data @group(1) @binding(0) var<storage, read> lines: array<Line>;
 
 struct LineOutput {
   @builtin(position) clip: vec4f,
@@ -116,7 +116,7 @@ struct Glyph {
   _pad1: u32,
 }
 
-@group(1) @binding(1) var<storage, read> glyphs: array<Glyph>;
+@data @group(1) @binding(1) var<storage, read> glyphs: array<Glyph>;
 @group(1) @binding(3) var atlas: texture_2d<f32>;
 
 struct GlyphOutput {
@@ -178,6 +178,12 @@ struct PickVertex {
   @builtin(position) clip: vec4f,
   @location(0) normal: vec3f,
   @location(1) @interpolate(flat) entity: u32,
+  /**
+   * Clip z and w, interpolated perspective-correct: z / w is the surface's own depth. The
+   * fragment's position.z includes the depth bias ground bands draw with (0057), which would move
+   * a picked point toward the camera.
+   */
+  @location(2) zw: vec2f,
 }
 
 @vertex fn vs(
@@ -196,6 +202,7 @@ struct PickVertex {
   out.clip = view.viewProjNoJitter * vec4f(m.world_position, 1.0);
   out.normal = m.world_normal;
   out.entity = inst.entity;
+  out.zw = out.clip.zw;
   return out;
 }
 
@@ -203,7 +210,7 @@ struct PickVertex {
   var out: PickOutput;
   out.id = in.entity;
   let n = normalize(in.normal);
-  out.normal = vec4f(select(-n, n, front), in.clip.z);
+  out.normal = vec4f(select(-n, n, front), in.zw.x / in.zw.y);
   return out;
 }`,
 }

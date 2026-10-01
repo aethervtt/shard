@@ -10,6 +10,7 @@ component schemas, game code is ECS (components, systems) in `scripts/`.
 shard validate --json     # manifest, assets, scenes: every error with a path
 shard import --json       # import new and changed asset files
 shard mv <from> <to>      # move an asset and rewrite references to it
+shard tiles read <map>    # tilemap cells as rows; tiles edit <map> --cell x,y=name
 shard run --frames 600    # headless run
 shard screenshot scenes/main.scene.json --out shot.png
 shard test --json         # gameplay tests in tests/

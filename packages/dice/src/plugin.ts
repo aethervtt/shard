@@ -1,6 +1,7 @@
 import { type AssetRef, defineSystem, type Entity, Update } from '@aethervtt/shard-core'
 import type { TrackWorkerLike } from '@aethervtt/shard-physics/worker'
 import {
+  addShaderVariantSource,
   Camera3d,
   DirectionalLight,
   EnvironmentMap,
@@ -34,6 +35,7 @@ import { BUILTIN_SKINS, DICE_SKINS, DiceSkin, diceSkin } from './skin'
 import { studioEnvironment } from './studio'
 import { DiceTable, DiceTableState, ENTRANCE_WAIT_MS } from './table'
 import { DiceTray, TRAY_SHADERS } from './tray'
+import { diceVariants } from './variants'
 
 export interface DicePluginOptions {
   /** The dice camera: a top-down view of the tray, clearing to alpha 0 (0052). */
@@ -130,6 +132,8 @@ export function dicePlugin(options: DicePluginOptions = {}): Plugin {
       registerBuiltinDice()
       registerBuiltinGlyphs()
       const world = app.world
+      // shaders.variants.json's { "dice": … } entries (0064's bake).
+      addShaderVariantSource(world, diceVariants)
       world.initResource(DiceSkin.store)
       world.initResource(FaceLayout.store)
       world.initResource(DiceEffectRecipe.store)

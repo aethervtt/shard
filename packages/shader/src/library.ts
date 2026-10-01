@@ -1,6 +1,8 @@
 import { ShardError } from '@aethervtt/shard-core'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import type { FileChangeEvent, Platform } from '@aethervtt/shard-platform'
+import type { RetargetedBinding } from './baseline/rewrite'
+import { BASELINE_REWRITE_VERSION, collectData, type DataDeclaration } from './data-marks'
 import { applyHooks, findHooks } from './hooks'
 
 /**
@@ -36,6 +38,8 @@ export interface LinkedShader {
   code: string
   /** Maps a character offset in `code` back to the module that produced it. */
   locate(offset: number): SourceLocation | undefined
+  /** Baseline variants (0064): the bindings the rewrite retargeted, for the engine's layouts. */
+  bindings?: readonly RetargetedBinding[]
 }
 
 /** One linked variant, for `ShaderLibrary.preload`. */
@@ -71,6 +75,8 @@ interface VariantState {
   /** What it was last requested with, so a change can rebuild it before the next request. */
   gpu: GpuContext | undefined
   request: LinkRequest | undefined
+  /** Why the latest build failed, while it has; cleared by the next clean compile (0061). */
+  failed: ShardError | undefined
 }
 
 const PATH = /^[a-z_][a-z0-9_]*(::[a-z_][a-z0-9_]*)+$/
@@ -98,13 +104,21 @@ function lineColumn(text: string, offset: number): { line: number; column: numbe
  * under `shard::`, plugins under their own package, a project's `shaders/` folder under `project::`.
  */
 export class ShaderLibrary {
+  /** Module sources as they link: `@data` marks stripped (0064). */
   private readonly sources = new Map<string, string>()
+  /** Each module's `@data` declarations, for baseline variants. */
+  private readonly data = new Map<string, DataDeclaration[]>()
   /** Where each module came from, for error messages (a file path, or the module path). */
   private readonly origins = new Map<string, string>()
   private readonly linkCache = new Map<string, Promise<LinkedShader>>()
   private readonly variants = new Map<string, VariantState>()
   private readonly listeners = new Set<(paths: readonly string[]) => void>()
   private version = 0
+
+  /** Bumps whenever a module is registered or changes: what renderers compare to retry failures. */
+  get revision(): number {
+    return this.version
+  }
   private readonly preloaded = new Map<string, BakedShader>()
   /** Every variant linked or served from the bake, for `bake()`. */
   private readonly used = new Map<string, BakedShader>()
@@ -141,8 +155,11 @@ export class ShaderLibrary {
         hint: 'Use lowercase `package::dir::name`, e.g. `project::water`.',
       })
     }
-    if (this.sources.get(path) === source) return
-    this.sources.set(path, source)
+    const { code, data } = collectData(source, path)
+    if (this.sources.get(path) === code && sameData(this.data.get(path), data)) return
+    this.sources.set(path, code)
+    if (data.length > 0) this.data.set(path, data)
+    else this.data.delete(path)
     this.origins.set(path, origin ?? path)
     this.version++
     this.linkCache.clear()
@@ -251,10 +268,15 @@ export class ShaderLibrary {
    * the error is reported through the GPU context and the old module stays in use.
    */
   module(gpu: GpuContext, request: LinkRequest): GPUShaderModule | undefined {
+    // The baseline tier (0064) links every variant with BASELINE and rewrites it; the full tier
+    // asks for exactly what it always has.
+    if (gpu.tier === 'baseline' && !request.defines?.BASELINE) {
+      request = { ...request, defines: { ...request.defines, BASELINE: true } }
+    }
     const key = variantKey(request)
     let state = this.variants.get(key)
     if (!state) {
-      state = { good: undefined, pending: undefined, version: -1, gpu, request }
+      state = { good: undefined, pending: undefined, version: -1, gpu, request, failed: undefined }
       this.variants.set(key, state)
     }
     const s = state
@@ -275,27 +297,43 @@ export class ShaderLibrary {
         if (s.good?.code !== linked.code) {
           s.pending = linked.code
           const error = await compile(gpu, linked)
-          if (error) gpu.reportError(labelled(error, request.label))
-          else
+          if (error) {
+            s.failed = labelled(error, request.label)
+            gpu.reportError(s.failed)
+          } else {
+            s.failed = undefined
             s.good = {
               code: linked.code,
               module: moduleFor(gpu, linked),
               linked,
               generation: gpu.generation,
             }
-        }
+          }
+        } else s.failed = undefined
         s.pending = undefined
       },
       (err: unknown) => {
-        gpu.reportError(
-          labelled(
-            err instanceof ShardError ? err : new ShardError('shader/link', String(err)),
-            request.label,
-          ),
+        s.failed = labelled(
+          err instanceof ShardError ? err : new ShardError('shader/link', String(err)),
+          request.label,
         )
+        gpu.reportError(s.failed)
         s.pending = undefined
       },
     )
+  }
+
+  /**
+   * Why a variant has no module to give: its code failed to link or compile, and no earlier version
+   * compiled either. Undefined while it compiles, once it has a module, and for unknown variants.
+   * Renderers draw with a fallback then instead of skipping the draw forever (0061).
+   */
+  failure(request: LinkRequest, gpu?: GpuContext): ShardError | undefined {
+    if (gpu?.tier === 'baseline' && !request.defines?.BASELINE) {
+      request = { ...request, defines: { ...request.defines, BASELINE: true } }
+    }
+    const s = this.variants.get(variantKey(request))
+    return s && !s.good && s.pending === undefined ? s.failed : undefined
   }
 
   /** Waits until every variant requested through `module()` has finished compiling. */
@@ -323,16 +361,28 @@ export class ShaderLibrary {
     }
   }
 
-  /** Of the source of every module a variant links: its root's imports, and the overrides'. */
-  private hashOf(request: LinkRequest): string {
+  /** Every module a variant links: its root's imports, and the overrides'. */
+  private closureOf(request: LinkRequest): string[] {
     const imports = (p: string) => importsOf(this.sources.get(p) ?? '')
     const paths = new Set<string>()
     for (const root of [request.root, ...(request.overrides ?? [])])
       for (const p of closure(root, imports)) paths.add(p)
+    return [...paths].sort()
+  }
+
+  /**
+   * Of the source of every module a variant links. A baseline variant's also covers its `@data`
+   * declarations and the rewrite's version, which change its code and not its modules' text.
+   */
+  private hashOf(request: LinkRequest): string {
+    const paths = this.closureOf(request)
     let a = 0x811c9dc5
     let b = 0x9747b28c
-    for (const path of [...paths].sort()) {
-      const text = `${path}\n${this.sources.get(path) ?? ''}\n`
+    const baseline = request.defines?.BASELINE
+      ? `baseline ${BASELINE_REWRITE_VERSION} ${JSON.stringify(paths.map((p) => this.data.get(p) ?? []))}\n`
+      : ''
+    for (const path of [...paths, ...(baseline ? [''] : [])]) {
+      const text = path ? `${path}\n${this.sources.get(path) ?? ''}\n` : baseline
       for (let i = 0; i < text.length; i++) {
         const c = text.charCodeAt(i)
         a = Math.imul(a ^ c, 0x01000193)
@@ -413,30 +463,47 @@ export class ShaderLibrary {
       )
     }
 
-    const code = linked.dest
-    this.used.set(key, { key, hash, code })
     const origins = this.origins
+    const locate = (offset: number): SourceLocation | undefined => {
+      try {
+        const pos = linked.sourceMap.destToSrc(offset)
+        const srcPath = pos.src.path ?? ''
+        // Library files appear as `./<pkg>/<file>`; local ones as `./<file>`.
+        const match = /^\.\/([a-z_][a-z0-9_]*)\/(.*)$/.exec(srcPath)
+        const module =
+          fileToModule.get(`${root.pkg}|${srcPath}`) ??
+          (match ? fileToModule.get(`${match[1]}|./${match[2]}`) : undefined) ??
+          srcPath
+        const { line, column } = lineColumn(pos.src.text, pos.position)
+        return { module: origins.get(module) ?? module, line, column }
+      } catch {
+        return undefined
+      }
+    }
+    if (!request.defines?.BASELINE) {
+      const code = linked.dest
+      this.used.set(key, { key, hash, code })
+      return { key, code, locate }
+    }
+    // Baseline (0064): retarget engine data and what GLSL ES 3.00 lacks. Loaded only here.
+    const { rewriteForBaseline } = await import('./baseline/rewrite')
+    const data = this.closureOf(request).flatMap((p) => this.data.get(p) ?? [])
+    const rewritten = rewriteForBaseline(linked.dest, data, locate, request.label)
+    this.used.set(key, { key, hash, code: rewritten.code })
     return {
       key,
-      code,
-      locate(offset: number) {
-        try {
-          const pos = linked.sourceMap.destToSrc(offset)
-          const srcPath = pos.src.path ?? ''
-          // Library files appear as `./<pkg>/<file>`; local ones as `./<file>`.
-          const match = /^\.\/([a-z_][a-z0-9_]*)\/(.*)$/.exec(srcPath)
-          const module =
-            fileToModule.get(`${root.pkg}|${srcPath}`) ??
-            (match ? fileToModule.get(`${match[1]}|./${match[2]}`) : undefined) ??
-            srcPath
-          const { line, column } = lineColumn(pos.src.text, pos.position)
-          return { module: origins.get(module) ?? module, line, column }
-        } catch {
-          return undefined
-        }
-      },
+      code: rewritten.code,
+      locate: (offset) => locate(rewritten.toLinked(offset)),
+      bindings: rewritten.bindings,
     }
   }
+}
+
+function sameData(
+  a: readonly DataDeclaration[] | undefined,
+  b: readonly DataDeclaration[],
+): boolean {
+  return JSON.stringify(a ?? []) === JSON.stringify(b)
 }
 
 const moduleCache = new WeakMap<GpuContext, Map<string, GPUShaderModule>>()
@@ -507,9 +574,10 @@ function variantKey(request: LinkRequest): string {
   return `${request.root}|${defines.join(',')}|${(request.overrides ?? []).join(',')}`
 }
 
+/** The modules a source imports, conditional imports (`@if(LIT) import …`) included. */
 function importsOf(source: string): string[] {
   const out: string[] = []
-  for (const m of source.matchAll(/^\s*import\s+([^;]+);/gm)) {
+  for (const m of source.matchAll(/^\s*(?:@\w+\s*\([^)]*\)\s*)*import\s+([^;]+);/gm)) {
     const spec = m[1]!.replace(/\s+/g, '')
     const braced = /^(.*?)::\{(.*)\}$/.exec(spec)
     if (braced) {

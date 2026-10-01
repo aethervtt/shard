@@ -16,7 +16,14 @@
     },
     "test": {
       "dependsOn": ["^typecheck"],
-      "env": ["SHARD_BENCH", "SHARD_CI", "SHARD_DAWN_OPTIONS", "SHARD_TEST_SHARD"]
+      "env": [
+        "SHARD_BENCH",
+        "SHARD_CI",
+        "SHARD_DAWN_OPTIONS",
+        "SHARD_TEST_SHARD",
+        "SHARD_TIER",
+        "SHARD_WGSL_LOG"
+      ]
     },
     "dev": {
       "cache": false,

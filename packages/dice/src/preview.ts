@@ -33,6 +33,11 @@ export interface DiceThumbnailOptions {
   size?: number
   /** PNG bytes (straight alpha), or the GPU texture itself (yours to destroy). Default 'png'. */
   output?: 'png' | 'texture'
+  /**
+   * Draws it blended or opaque; default as its family draws a die at rest. Dropped dice and large
+   * pools draw some families the other way, so a shader bake (0064) shows both.
+   */
+  blended?: boolean
 }
 
 export interface DiceThumbnail {
@@ -76,7 +81,7 @@ export async function renderDiceThumbnail(
   const skinKey = options.skin.guid ?? options.skin.path ?? ''
   const entry = table.resources.acquire(g, skinKey, skin, die.kind, (r) => table.layout(r), {})
   const material = table.resources.material(entry, {
-    blended: table.resources.blendedByNature(entry),
+    blended: options.blended ?? table.resources.blendedByNature(entry),
     dropped: false,
   })
   // Somewhere nothing else is: every thumbnail in flight gets its own spot.

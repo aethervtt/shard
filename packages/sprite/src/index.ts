@@ -25,6 +25,17 @@ export {
   SpriteClips,
 } from './clip'
 export {
+  GROUND_TILE_SHADERS,
+  GroundTiles,
+  type GroundTilesState,
+  syncGroundTiles,
+  TileChunk,
+  TileLit,
+  TileUnlit,
+  tileDetail,
+  tilemapOnGround,
+} from './ground'
+export {
   Lighting2d,
   LightOccluder2d,
   layerBit,
@@ -54,6 +65,15 @@ export {
   TILE_STRIDE,
 } from './lights2d'
 export {
+  type EditTilesOptions,
+  editTiles,
+  findTilemapData,
+  type ReadTilesOptions,
+  readTiles,
+  type TileRect,
+  tilemapMethods,
+} from './methods'
+export {
   boxPolygon,
   capsulePolygon,
   circlePolygon,
@@ -70,6 +90,7 @@ export { spritePlugin } from './plugin'
 export {
   describeSprites,
   prepareSprites,
+  resolveTiles,
   SPRITE_FLOATS,
   type SpriteBatch,
   SpriteStore,
@@ -99,4 +120,17 @@ export {
   TilemapDataStore,
   TilemapDatas,
   tileAt,
+  tilemapToText,
+  tileNames,
+  unknownTiles,
 } from './tilemap'
+export {
+  type CellGrid,
+  chunkRows,
+  readChunkRows,
+  rectRows,
+  rowsCanName,
+  TILE_FLAG_NAMES,
+  type TileEncoding,
+} from './tilemap-format'
+export { validateTilemaps } from './validate'

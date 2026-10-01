@@ -35,7 +35,7 @@ import {
 import { Fonts } from '@aethervtt/shard-text'
 import { Texture, Textures } from '@aethervtt/shard-texture'
 import { Transform, TransformPlugin } from '@aethervtt/shard-transform'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, onTestFinished } from 'vitest'
 import { UiDefaults, UiImage, UiLayout } from './components'
 import { describeUi } from './methods'
 import { uiPlugin } from './plugin'
@@ -48,6 +48,22 @@ beforeAll(async () => {
   gpu = await createNodeGpuContext()
 })
 afterAll(() => gpu.destroy())
+
+/** The baseline tier (0064) on a compatibility device: goldens marked for it hold there too. */
+let compat: GpuContext | undefined
+const TIERS = ['full', 'baseline'] as const
+
+/** Runs the rest of this test on `tier`'s device (`gpu` is swapped back when it finishes). */
+async function onTier(tier: (typeof TIERS)[number]): Promise<void> {
+  if (tier === 'full') return
+  compat ??= await createNodeGpuContext({ tier: 'baseline' })
+  const saved = gpu
+  gpu = compat
+  onTestFinished(() => {
+    gpu = saved
+  })
+}
+afterAll(() => compat?.destroy())
 
 const W = 480
 const H = 270
@@ -202,30 +218,32 @@ async function hudScene(world3d = false) {
 }
 
 describe('UI rendering', () => {
-  it('renders a HUD prefab: rounded bordered panels, nine-slice image, wrapped text, clipped scroll (golden)', {
-    timeout: timeout(60_000),
-  }, async () => {
-    const { app, world, camera } = await hudScene()
-    await settle(app)
-    const shot = captureView(world, `camera:${camera}`)
-    app.update(1 / 60)
-    const image = await shot
-    expect(world.resource(Gpu).errors).toEqual([])
-    expect(world.resource(LogResource).errors()).toEqual([])
-    expect(compareGolden(here, 'hud', image).mean).toBeLessThan(1.5)
-    // The body wrapped, and the list clips its third item mid-way.
-    const body = world.get(findEntityByPath(world, 'hud/scanner/body')!, UiLayout)
-    expect(body.height).toBeGreaterThan(13 * 1.2 * 1.5)
-    const item3 = world.get(findEntityByPath(world, 'hud/scanner/list/item3')!, UiLayout)
-    expect(item3.clip[3]).toBeGreaterThan(0)
-    expect(item3.clip[3]).toBeLessThan(item3.height)
-    // Rounded corner: the panel's very corner pixel is background, its border is blue.
-    const panel = world.get(findEntityByPath(world, 'hud/scanner')!, UiLayout)
-    const corner = pixel(image, Math.round(panel.x), Math.round(panel.y))
-    expect(corner).toEqual(pixel(image, 2, 2))
-    const edge = pixel(image, Math.round(panel.x + panel.width / 2), Math.round(panel.y) + 1)
-    expect(edge[2]).toBeGreaterThan(150)
-  })
+  for (const tier of TIERS)
+    it(`renders a HUD prefab: rounded bordered panels, nine-slice image, wrapped text, clipped scroll (golden, ${tier} tier)`, {
+      timeout: timeout(60_000),
+    }, async () => {
+      await onTier(tier)
+      const { app, world, camera } = await hudScene()
+      await settle(app)
+      const shot = captureView(world, `camera:${camera}`)
+      app.update(1 / 60)
+      const image = await shot
+      expect(world.resource(Gpu).errors).toEqual([])
+      expect(world.resource(LogResource).errors()).toEqual([])
+      expect(compareGolden(here, 'hud', image).mean).toBeLessThan(1.5)
+      // The body wrapped, and the list clips its third item mid-way.
+      const body = world.get(findEntityByPath(world, 'hud/scanner/body')!, UiLayout)
+      expect(body.height).toBeGreaterThan(13 * 1.2 * 1.5)
+      const item3 = world.get(findEntityByPath(world, 'hud/scanner/list/item3')!, UiLayout)
+      expect(item3.clip[3]).toBeGreaterThan(0)
+      expect(item3.clip[3]).toBeLessThan(item3.height)
+      // Rounded corner: the panel's very corner pixel is background, its border is blue.
+      const panel = world.get(findEntityByPath(world, 'hud/scanner')!, UiLayout)
+      const corner = pixel(image, Math.round(panel.x), Math.round(panel.y))
+      expect(corner).toEqual(pixel(image, 2, 2))
+      const edge = pixel(image, Math.round(panel.x + panel.width / 2), Math.round(panel.y) + 1)
+      expect(edge[2]).toBeGreaterThan(150)
+    })
 
   it('uploads nothing on an unchanged frame', { timeout: timeout(60_000) }, async () => {
     const { app, world } = await hudScene()

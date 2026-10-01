@@ -1,3 +1,12 @@
+export {
+  type CoverageMesh,
+  type CoverageOptions,
+  type CoverageShape,
+  coverageBounds,
+  featheredCoverage,
+  parseCoverageShape,
+  type Ring,
+} from './coverage'
 export { vectorPlugin } from './plugin'
 export {
   STROKE_UNITS,

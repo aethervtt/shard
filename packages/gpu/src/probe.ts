@@ -1,4 +1,12 @@
 import { ShardError } from '@aethervtt/shard-core'
+import { type GpuBackendChoice, openDevice, type Webgl2ContextOptions } from './context'
+import {
+  capabilitiesOf,
+  type GpuBackendName,
+  type GpuCapabilities,
+  type GpuTier,
+  type GraphicsReason,
+} from './tier'
 
 export interface ProbeWebGpuOptions {
   /** The WebGPU entry point. Defaults to `navigator.gpu`; in Node pass the `webgpu` package's. */
@@ -127,4 +135,95 @@ function unsupported(
     features,
     missing,
   }
+}
+
+export interface ProbeGraphicsOptions {
+  /** The WebGPU entry point. Defaults to `navigator.gpu`; in Node pass the `webgpu` package's. */
+  gpu?: GPU
+  /** Which backends to try, as `createGpuContext` has it. Default 'auto'. */
+  backend?: GpuBackendChoice
+  /** WebGL2 settings (a fake context, in tests). */
+  webgl2?: Webgl2ContextOptions
+  /** `'baseline'`: classify the device the baseline tier would get (a compatibility-mode one). */
+  tier?: 'baseline'
+  powerPreference?: GPUPowerPreference
+  /** Gives up after this long: some drivers never answer. Default 5000 ms. */
+  timeoutMs?: number
+}
+
+/** What `probeGraphics` found: the backend and tier an app would get, and why not better (0064). */
+export interface GraphicsSupport {
+  backend: GpuBackendName | 'none'
+  tier: GpuTier | 'none'
+  /** Undefined when nothing opened. */
+  capabilities: GpuCapabilities | undefined
+  /** Why a better option was skipped, or why none opened. */
+  reasons: GraphicsReason[]
+  adapter?: { vendor: string; architecture: string; description: string }
+}
+
+/**
+ * Opens the device an app would get, the same way `createGpuContext` does, classifies it from what
+ * it can actually do, and destroys it again. Never throws: an honest `none` with reasons instead.
+ */
+export async function probeGraphics(options: ProbeGraphicsOptions = {}): Promise<GraphicsSupport> {
+  const timeoutMs = options.timeoutMs ?? 5000
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<'timeout'>((resolve) => {
+    timer = setTimeout(() => resolve('timeout'), timeoutMs)
+  })
+  const opening = openDevice({
+    gpu: options.gpu,
+    tier: options.tier,
+    powerPreference: options.powerPreference,
+    backend: options.backend,
+    webgl2: options.webgl2,
+  })
+  try {
+    const opened = await Promise.race([opening, timeout])
+    if (opened === 'timeout') {
+      // A late device isn't left open.
+      void opening.then((o) => o.device.destroy()).catch(() => {})
+      return none([{ backend: 'webgpu', code: 'timeout', message: MESSAGES.timeout }])
+    }
+    const info = opened.adapter.info
+    const support: GraphicsSupport = {
+      backend: opened.backend,
+      tier: opened.tier,
+      capabilities: capabilitiesOf(opened.device, opened.backend, opened.hdrSampleCount),
+      reasons: opened.reasons,
+      adapter: {
+        vendor: info?.vendor ?? '',
+        architecture: info?.architecture ?? '',
+        description: info?.description ?? '',
+      },
+    }
+    opened.device.destroy()
+    return support
+  } catch (err) {
+    const error = err instanceof ShardError ? err : undefined
+    // Every backend tried says why, when they all failed.
+    if (error?.details?.length) {
+      return none(
+        error.details.map((d) => ({
+          backend: d.path as GpuBackendName,
+          code: d.code.replace(/^gpu\//, ''),
+          message: d.message,
+        })),
+      )
+    }
+    return none([
+      {
+        backend: 'webgpu',
+        code: error?.code.replace(/^gpu\//, '') ?? 'device-failed',
+        message: error?.message ?? String(err),
+      },
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+function none(reasons: GraphicsReason[]): GraphicsSupport {
+  return { backend: 'none', tier: 'none', capabilities: undefined, reasons }
 }

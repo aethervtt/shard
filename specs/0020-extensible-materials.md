@@ -202,6 +202,10 @@ override fn pbr_input(in: VertexOutput) -> PbrInput {
   types that build their own surface (a stage holds 16 sampled textures; the shader must not call
   `standard_input`); and `Texture.gpu(...)`, a texture a compute pass fills through a storage
   binding (no CPU pixels, no sRGB view), bindable as a material field like any other.
+- Tilemaps on the ground (0059) added two options: `colors: [...]` names texture fields that hold
+  color, which then read through the sRGB view as `baseColorTexture` does (other fields read the
+  stored values); and `pickable: false`, for types whose draws aren't pick targets (a grid's lines):
+  GPU picks and raycasts go through them.
 
 ## Open questions
 

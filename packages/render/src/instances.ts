@@ -1,3 +1,4 @@
+import { AssetServerResource } from '@aethervtt/shard-assets'
 import {
   defineComponent,
   defineResource,
@@ -7,15 +8,16 @@ import {
   t,
   type World,
 } from '@aethervtt/shard-core'
-import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
+import type { GpuBuffer, GpuContext } from '@aethervtt/shard-gpu'
 import type { Mesh } from '@aethervtt/shard-mesh'
-import { LogResource } from '@aethervtt/shard-runtime'
+import { DevMode, LogResource } from '@aethervtt/shard-runtime'
 import { toHalf } from '@aethervtt/shard-texture'
 import { GlobalTransform, Transform } from '@aethervtt/shard-transform'
 import { MaterialAsset, Materials, Meshes } from './assets'
+import { DataStore } from './data-store'
 import { DEFORM_WORDS, DeformStore } from './deform'
 import { GpuAssetsResource } from './gpu-assets'
-import { GroundLayer, RenderLayers } from './layers'
+import { GroundLayer, OVERLAY_BAND, RenderLayers } from './layers'
 import { isTransparent } from './materials'
 import { ComputedVisibility, Visibility } from './visibility'
 
@@ -451,7 +453,7 @@ export class InstanceStore {
   private lastMoved = new Uint32Array(64)
   private lastMovedCount = 0
   private frame = 1
-  readonly prevBuffer: GpuBuffer
+  readonly prevBuffer: DataStore
   private readonly free: number[] = []
   /** Slots waiting for their mesh or material to load. */
   readonly pending = new Set<number>()
@@ -470,6 +472,13 @@ export class InstanceStore {
   readonly lodSets: LodSet[] = []
   private readonly lodByKey = new Map<string, LodSet>()
   readonly defaultMaterial = new MaterialAsset()
+  /**
+   * What stand-ins for failed meshes are drawn with (0061): matte gray, or magenta in a dev build
+   * (`DevMode`, read by prepareInstances).
+   */
+  readonly missingMaterial = new MaterialAsset({ baseColor: [0.5, 0.5, 0.5, 1], roughness: 1 })
+  /** A development build: the missing material turns magenta. */
+  dev = false
   /** Bytes of instance data uploaded this frame. */
   uploadedBytes = 0
   /** Slots with a batch and not hidden, and hidden ones: stats for GPU-culled views. */
@@ -485,8 +494,8 @@ export class InstanceStore {
   /** Visible slot lists of every CPU-culled view this frame, concatenated. */
   visible = new Uint32Array(1024)
   visibleCount = 0
-  readonly instanceBuffer: GpuBuffer
-  readonly visibleBuffer: GpuBuffer
+  readonly instanceBuffer: DataStore
+  readonly visibleBuffer: DataStore
   private generation: number
   private readonly gpu: GpuContext
   bindGroup: GPUBindGroup | undefined
@@ -503,23 +512,12 @@ export class InstanceStore {
   constructor(gpu: GpuContext) {
     this.gpu = gpu
     this.generation = gpu.generation
-    this.instanceBuffer = new GpuBuffer(gpu, {
-      label: 'instances',
-      usage: GPUBufferUsage.STORAGE,
-      size: INSTANCE_BYTES * 256,
-    })
-    this.prevBuffer = new GpuBuffer(gpu, {
-      label: 'instances/previous',
-      usage: GPUBufferUsage.STORAGE,
-      size: PREV_BYTES * 256,
-    })
-    this.visibleBuffer = new GpuBuffer(gpu, {
-      label: 'instances/visible',
-      usage: GPUBufferUsage.STORAGE,
-      size: 4 * 1024,
-    })
-    this.layout = createInstanceLayout(gpu)
+    // What the vertex stage reads: storage on the full tier, data textures on baseline (0064).
+    this.instanceBuffer = new DataStore(gpu, { label: 'instances', size: INSTANCE_BYTES * 256 })
+    this.prevBuffer = new DataStore(gpu, { label: 'instances/previous', size: PREV_BYTES * 256 })
+    this.visibleBuffer = new DataStore(gpu, { label: 'instances/visible', size: 4 * 1024 })
     this.deform = new DeformStore(gpu)
+    this.layout = createInstanceLayout(gpu, this)
     this.grow(256)
   }
 
@@ -968,7 +966,7 @@ export class InstanceStore {
     if (this.generation !== this.gpu.generation) {
       // A new device: the buffer is empty again.
       this.generation = this.gpu.generation
-      this.layout = createInstanceLayout(this.gpu)
+      this.layout = createInstanceLayout(this.gpu, this)
       this.bindGroup = undefined
       this.gpuBindGroup = undefined
       this.dirtyLo = 0
@@ -1061,6 +1059,7 @@ export class InstanceStore {
     forwardOnly?: DrawList,
     transparentOnly = false,
     ground?: DrawList,
+    overlay?: DrawList,
   ): void {
     if (bounds) {
       bounds[0] = bounds[1] = bounds[2] = Number.POSITIVE_INFINITY
@@ -1195,7 +1194,7 @@ export class InstanceStore {
     }
     this.pack(list)
     if (transparent) this.packTransparent(transparent)
-    if (ground) this.packGround(ground)
+    if (ground) this.packGround(ground, overlay)
     if (forwardOnly) {
       // Opaque materials the G-buffer can't take, drawn forward after deferred lighting.
       for (const batch of this.batches) {
@@ -1245,7 +1244,7 @@ export class InstanceStore {
    * Ground-only CPU cull over ground batches' members (0057), for views the GPU culls: the ground
    * list is always built on the CPU, in (band, order) order.
    */
-  cullGroundMembers(list: DrawList, params: CullParams): void {
+  cullGroundMembers(list: DrawList, params: CullParams, overlay?: DrawList): void {
     this.groundCount = 0
     const u32 = this.u32
     const sphere = scratchSphere
@@ -1262,7 +1261,7 @@ export class InstanceStore {
         this.pushGround(s, batch.index)
       }
     }
-    this.packGround(list)
+    this.packGround(list, overlay)
   }
 
   private pushGround(entry: number, batch: number): void {
@@ -1316,10 +1315,18 @@ export class InstanceStore {
     }
   }
 
-  /** Sorts this cull's ground instances by (level, band, order), then batch; runs of a batch share a draw. */
-  private packGround(list: DrawList): void {
+  /**
+   * Sorts this cull's ground instances by (level, band, order), then batch; runs of a batch share a
+   * draw. With `overlay`, bands from OVERLAY_BAND up go there instead (0058).
+   */
+  private packGround(list: DrawList, overlay?: DrawList): void {
     list.length = 0
     list.cullView = -1
+    if (overlay) {
+      overlay.length = 0
+      overlay.cullView = -1
+      overlay.visible = 0
+    }
     const n = this.groundCount
     list.visible = n
     if (n === 0) return
@@ -1332,16 +1339,25 @@ export class InstanceStore {
     order.sort((a, b) => keys[a]! - keys[b]! || batches[a]! - batches[b]! || slots[a]! - slots[b]!)
     this.reserve(n)
     let item: DrawItem | undefined
+    let into = list
     for (let k = 0; k < n; k++) {
       const i = order[k]!
       const batch = this.batches[batches[i]!]!
+      if (overlay && into === list && bandOfKey(keys[i]!) >= OVERLAY_BAND) {
+        into = overlay
+        item = undefined
+      }
       if (!item || item.batch !== batch) {
-        item = this.item(list, batch)
+        item = this.item(into, batch)
         item.first = this.visibleCount
         item.count = 0
       }
       this.visible[this.visibleCount++] = slots[i]!
       item.count++
+      if (into === overlay) {
+        overlay.visible++
+        list.visible--
+      }
     }
   }
 
@@ -1539,17 +1555,17 @@ export class InstanceStore {
     }
   }
 
-  private createBindGroup(label: string, visible: GPUBuffer): GPUBindGroup {
+  private createBindGroup(label: string, visible: GPUBindingResource): GPUBindGroup {
     return this.gpu.device.createBindGroup({
       label,
       layout: this.layout,
       entries: [
-        { binding: 0, resource: { buffer: this.instanceBuffer.buffer } },
-        { binding: 1, resource: { buffer: visible } },
-        { binding: 2, resource: { buffer: this.prevBuffer.buffer } },
-        { binding: 3, resource: { buffer: this.deform.recordBuffer.buffer } },
-        { binding: 4, resource: { buffer: this.deform.poseBuffer.buffer } },
-        { binding: 5, resource: { buffer: this.deform.vertexBuffer.buffer } },
+        { binding: 0, resource: this.instanceBuffer.resource() },
+        { binding: 1, resource: visible },
+        { binding: 2, resource: this.prevBuffer.resource() },
+        { binding: 3, resource: this.deform.recordBuffer.resource() },
+        { binding: 4, resource: this.deform.poseBuffer.resource() },
+        { binding: 5, resource: this.deform.vertexBuffer.resource() },
       ],
     })
   }
@@ -1563,14 +1579,14 @@ export class InstanceStore {
     const deformKey = `${d.recordBuffer.version}/${d.poseBuffer.version}/${d.vertexBuffer.version}`
     const key = `${this.instanceBuffer.version}/${this.visibleBuffer.version}/${this.prevBuffer.version}/${deformKey}/${this.gpu.generation}`
     if (!this.bindGroup || this.bound !== key) {
-      this.bindGroup = this.createBindGroup('instances', this.visibleBuffer.buffer)
+      this.bindGroup = this.createBindGroup('instances', this.visibleBuffer.resource())
       this.bound = key
     }
     const g = this.gpuVisible
     if (g) {
       const gkey = `${this.instanceBuffer.version}/${g.version}/${this.prevBuffer.version}/${deformKey}/${this.gpu.generation}`
       if (!this.gpuBindGroup || this.gpuBound !== gkey) {
-        this.gpuBindGroup = this.createBindGroup('instances/gpu-culled', g.buffer)
+        this.gpuBindGroup = this.createBindGroup('instances/gpu-culled', { buffer: g.buffer })
         this.gpuBound = gkey
       }
     }
@@ -1604,25 +1620,20 @@ function idOf(o: object): number {
   return id
 }
 
-export function createInstanceLayout(gpu: GpuContext): GPUBindGroupLayout {
+/** The instances bind group's layout: storage on the full tier, data textures on baseline. */
+export function createInstanceLayout(gpu: GpuContext, store: InstanceStore): GPUBindGroupLayout {
+  const VF = GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT
+  const V = GPUShaderStage.VERTEX
   return gpu.layouts.bindGroupLayout({
     label: 'instances',
     entries: [
-      {
-        binding: 0,
-        visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-        buffer: { type: 'read-only-storage' },
-      },
-      {
-        binding: 1,
-        visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-        buffer: { type: 'read-only-storage' },
-      },
-      { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
+      store.instanceBuffer.layoutEntry(0, VF),
+      store.visibleBuffer.layoutEntry(1, VF),
+      store.prevBuffer.layoutEntry(2, V),
       // Deform records, poses (joint matrices, morph weights), and per-vertex deform data.
-      { binding: 3, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
-      { binding: 4, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
-      { binding: 5, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
+      store.deform.recordBuffer.layoutEntry(3, V),
+      store.deform.poseBuffer.layoutEntry(4, V),
+      store.deform.vertexBuffer.layoutEntry(5, V),
     ],
   })
 }
@@ -1662,6 +1673,11 @@ function casts(flags: number): boolean {
  */
 export function groundKey(band: number, order: number, level = 0): number {
   return (level + 16) * 281474976710656 + (band + 32768) * 4294967296 + (order + 2147483648)
+}
+
+/** The band of a ground key. */
+function bandOfKey(key: number): number {
+  return (Math.floor(key / 4294967296) % 65536) - 32768
 }
 
 let zeros = new Uint32Array(1024)
@@ -1708,6 +1724,11 @@ export const prepareInstances = defineSystem({
     const assets = world.resource(GpuAssetsResource)
     assets.beginFrame()
     store.beginFrame()
+    const dev = world.tryResource(DevMode)?.enabled ?? false
+    if (dev !== store.dev) {
+      store.dev = dev
+      store.missingMaterial.set({ baseColor: dev ? [1, 0, 1, 1] : [0.5, 0.5, 0.5, 1] })
+    }
     const deforms = world.hasResource(DeformPath)
     const since = ctx.lastRunTick
     let hidden = 0
@@ -1825,9 +1846,21 @@ export const prepareInstances = defineSystem({
     store.settleMoved()
     store.hiddenCount = hidden
     store.drawableCount = rows - store.pending.size
-    // Retry slots whose assets weren't loaded.
+    // Retry slots whose assets weren't loaded. A ref nothing can load (its guid unknown, or its
+    // runtime asset gone) gets a stand-in, so it draws the fallback instead of waiting (0061).
     if (store.pending.size > 0) {
-      for (const slot of store.pending) resolveSlot(store, slot, meshes, materials)
+      const server = world.tryResource(AssetServerResource)
+      for (const slot of store.pending) {
+        if (server) {
+          const meshRef = store.meshRefs[slot]
+          if (meshRef?.guid !== undefined && !meshes.has(meshRef.guid))
+            server.missing(meshRef, 'Mesh')
+          const materialRef = store.materialRefs[slot]
+          if (materialRef?.guid !== undefined && !materials.has(materialRef.guid))
+            server.missing(materialRef, 'Material')
+        }
+        resolveSlot(store, slot, meshes, materials)
+      }
     }
     // A batch whose mesh or material left its store (unloaded) re-resolves its slots.
     for (const batch of store.batches) {
@@ -1886,9 +1919,17 @@ function resolveSlot(
   }
   store.pending.delete(slot)
   const ground = !Number.isNaN(store.groundKeys[slot]!)
+  // A failed mesh's stand-in draws with the missing material, whatever the entity asked for.
+  const drawn = mesh.missing ? store.missingMaterial : material
   store.assign(
     slot,
-    store.batchFor(mesh, material, meshRef?.guid, materialRef?.guid ?? undefined, ground).index,
+    store.batchFor(
+      mesh,
+      drawn,
+      meshRef?.guid,
+      mesh.missing ? undefined : (materialRef?.guid ?? undefined),
+      ground,
+    ).index,
   )
 }
 
