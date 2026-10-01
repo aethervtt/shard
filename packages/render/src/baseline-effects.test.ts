@@ -1,5 +1,5 @@
 import { writeFileSync } from 'node:fs'
-import { quat } from '@aethervtt/shard-core'
+import { type Entity, quat } from '@aethervtt/shard-core'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { plane, sphere } from '@aethervtt/shard-mesh'
@@ -127,9 +127,15 @@ function camera(
   )
 }
 
-type Setup = (s: Awaited<ReturnType<typeof scene>>) => number
+type Scene = Awaited<ReturnType<typeof scene>>
+type Setup = (s: Scene) => Entity
 
-async function compare(name: string, setup: Setup) {
+/** Renders `setup` on both tiers; `after` reads each scene once its image is captured. */
+async function compare(
+  name: string,
+  setup: Setup,
+  after?: (s: Scene, cam: Entity) => Promise<void>,
+) {
   const shots: Uint8Array[] = []
   const found = watchBaseline(compat)
   const errors = compat.errors.length
@@ -139,6 +145,7 @@ async function compare(name: string, setup: Setup) {
     await settle(s.app)
     const image = await renderView(s.app, `camera:${cam}`)
     shots.push(image.data)
+    await after?.(s, cam)
     if (process.env.SHARD_GOLDEN_OUT) {
       const out = `${process.env.SHARD_GOLDEN_OUT}/effects-${name}-${gpu.tier}.png`
       writeFileSync(out, pngBytes(image.data, W, H))
@@ -193,33 +200,40 @@ describe('the baseline tier’s effects on a compatibility device (0064)', () =>
     timeout: 120_000,
   }, async () => {
     const metered: number[] = []
-    const diff = await compare('post', ({ world, target }) => {
-      world.spawn(
-        [DirectionalLight, { illuminance: 30_000 }],
-        [Transform, { rotation: quat.fromEuler([0, 0, 0, 1], -0.9, 0.6, 0) as never }],
-      )
-      const cam = camera(
-        world,
-        target,
-        [
-          [Bloom, { intensity: 0.2 }],
-          [DepthOfField, { focusDistance: 3.5, maxBlur: 0.02 }],
-          [Ssao, { radius: 0.6, intensity: 1.2 }],
-          [Fog, { density: 0.04, heightFalloff: 0.3 }],
-          [AutoExposure, {}],
-        ],
-        12,
-      )
-      // Both tiers' meters, once they've read.
-      queueMicrotask(async () => {
-        for (let i = 0; i < 400 && !world.resource(ExposureMeters).get(cam)?.readings; i++) {
+    const diff = await compare(
+      'post',
+      ({ world, target }) => {
+        world.spawn(
+          [DirectionalLight, { illuminance: 30_000 }],
+          [Transform, { rotation: quat.fromEuler([0, 0, 0, 1], -0.9, 0.6, 0) as never }],
+        )
+        // Both tiers meter, but the bounds hold exposure at the camera's EV: how many frames each
+        // adapts before the capture depends on when its first reading lands (later on WARP), so
+        // an adapting exposure would make the images differ by timing, not by tier.
+        return camera(
+          world,
+          target,
+          [
+            [Bloom, { intensity: 0.2 }],
+            [DepthOfField, { focusDistance: 3.5, maxBlur: 0.02 }],
+            [Ssao, { radius: 0.6, intensity: 1.2 }],
+            [Fog, { density: 0.04, heightFalloff: 0.3 }],
+            [AutoExposure, { minEv: 12, maxEv: 12 }],
+          ],
+          12,
+        )
+      },
+      // Each tier's meter, from a reading issued after the capture: a frame that drew everything.
+      async ({ app, world }, cam) => {
+        const m = world.resource(ExposureMeters).get(cam)!
+        const captured = m.submitted
+        for (let i = 0; i < 200 && m.reading <= captured; i++) {
+          app.update(1 / 60)
           await new Promise((r) => setTimeout(r, 5))
         }
-        const m = world.resource(ExposureMeters).get(cam)
-        if (m?.metered !== undefined) metered.push(m.metered)
-      })
-      return cam
-    })
+        if (m.reading > captured && m.metered !== undefined) metered.push(m.metered)
+      },
+    )
     expect(diff).toBeLessThan(2)
     expect(metered).toHaveLength(2)
     // The same histogram meter over fewer pixels: within an eighth of an EV.
