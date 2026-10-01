@@ -403,7 +403,9 @@ there say so over the canvas. `?tier=baseline` previews the baseline tier on Web
 - [x] Every registered render feature declares a baseline strategy or `baseline: 'unsupported'`
       (registry test).
 - [x] Every playground demo runs on both backends with no GPU or page errors; on WebGL2 its health
-      is `ok` or names exactly what the tier can't run (`playground/src/demos.test.ts`).
+      is `ok` or names exactly what the tier can't run (`playground/src/demos.test.ts`). Each push
+      runs a curated set, a demo per path the baseline tier takes; the nightly sweep runs every
+      demo (`.github/workflows/browser.yml`, `SHARD_DEMOS=all`).
 
 ## Open questions
 

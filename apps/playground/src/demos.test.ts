@@ -1,7 +1,9 @@
-// Every playground demo in real Chromium, on WebGPU and on WebGL2 (0064): it starts, draws
+// The playground's demos in real Chromium, on WebGPU and on WebGL2 (0064): each starts, draws
 // something, and reports no GPU errors or page errors. On WebGL2 (the baseline tier) its health is
-// ok, or names exactly what the tier can't run. Needs Playwright's Chromium, with a WebGPU adapter
-// and WebGL2 (see browser-tests.ts).
+// ok, or names exactly what the tier can't run. Each push runs a curated set, a demo per path the
+// baseline tier takes; SHARD_DEMOS=all runs every demo (the nightly sweep,
+// .github/workflows/browser.yml). Needs Playwright's Chromium, with a WebGPU adapter and WebGL2
+// (see browser-tests.ts).
 
 import { timeout } from '@aethervtt/shard-core/test-env'
 import { browserLaunch, decodePng } from '@aethervtt/shard-verify/node'
@@ -14,7 +16,7 @@ import {
   webGpuUnavailable,
   webgl2Unavailable,
 } from './browser-tests'
-import { DEMOS } from './demos'
+import { DEMOS, type Demo } from './demos'
 
 const server: PlaygroundServer = await servePlayground()
 const skip = await webGpuUnavailable(`${server.base}/`)
@@ -33,6 +35,32 @@ const BASELINE_ISSUES: Record<string, string[]> = {
   lights: ['render/light-budget camera:1'],
   deferred: ['render/light-budget camera:0'],
 }
+
+/**
+ * The demos each push runs: one per path the baseline tier takes, on both backends, the paths the
+ * Node tests run on Dawn's compatibility mode included, since only here does a real driver compile
+ * the GLSL. A path only one demo takes otherwise breaks unseen until the nightly sweep.
+ */
+const CURATED: readonly Demo[] = [
+  'scene', // 10k instanced cubes, lit and shadowed: instance data textures, CPU culling
+  'lights', // clustered lights binned on the CPU, past the tier's 128
+  'ibl', // image-based lighting prefiltered into a cube map by fragment passes
+  'post', // bloom, depth of field, SSAO, fog and auto exposure: passes reading depth
+  'sky', // the atmosphere's LUTs, sky-view and froxels as fragment passes
+  'deferred', // the G-buffer and its lighting passes
+  'animation', // skinning and morph targets through the pose and deform data textures
+  'particles', // the CPU simulation and depth sort, through data textures
+  'lights2d', // sprites and a tilemap, lit by 2D lights binned on the CPU
+  'ui', // text and UI through data textures
+  'tabletop', // fog, the grid, drawings and tokens in ground bands
+  'terrain', // compute only: reports render/feature-unsupported
+]
+
+const which = process.env.SHARD_DEMOS || 'curated'
+if (which !== 'curated' && which !== 'all') {
+  throw new Error(`SHARD_DEMOS is curated or all, not "${which}"`)
+}
+const demos: readonly Demo[] = which === 'all' ? DEMOS : CURATED
 
 let browser: Browser
 beforeAll(async () => {
@@ -141,7 +169,7 @@ async function run(
 }
 
 describe.skipIf(skip)('playground demos on WebGPU', () => {
-  for (const demo of DEMOS) {
+  for (const demo of demos) {
     it(
       `${demo} starts, draws, and reports no errors`,
       async () => {
@@ -162,7 +190,7 @@ describe.skipIf(skip)('playground demos on WebGPU', () => {
 })
 
 describe.skipIf(skipGl)('playground demos on WebGL2 (0064)', () => {
-  for (const demo of DEMOS) {
+  for (const demo of demos) {
     const expected = BASELINE_ISSUES[demo] ?? []
     it(
       `${demo} starts on the baseline tier, draws, and reports ${expected.length ? expected.join(', ') : 'ok'}`,

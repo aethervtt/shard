@@ -69,11 +69,14 @@ with `relative`, never a `/` prefix. `SHARD_DAWN_OPTIONS` (`;`-separated) passes
 GPU contexts: `adapter=Microsoft Basic Render Driver` renders on WARP locally, as CI's Windows job does.
 Vendored third-party code (`**/vendor`) and test fixtures (`**/fixtures`) aren't linted or edited.
 The playground's browser tests (0062) need `pnpm exec playwright install chromium` and a WebGPU
-adapter; without them they skip locally. CI runs them in their own job, on Mesa's software Vulkan
-driver. Its `verify.html` fixture and `plans/` are what `shard capture` runs against.
+adapter; without them they skip locally. CI runs them in their own workflow (`browser.yml`), on
+Mesa's software Vulkan driver. Its `verify.html` fixture and `plans/` are what `shard capture` runs
+against.
 The WebGL2 fallback (0064): every playground page takes `?backend=auto|webgpu|webgl2` (the Backend
 dropdown), `?tier=baseline` to run the baseline tier on WebGPU, and `?gl=minimum` to hold WebGL2 to
-its floor; the browser tests run every demo on both backends. In Node, `SHARD_TIER=baseline` runs a
+its floor. The browser tests run a curated set of demos on both backends (`demos.test.ts`), and
+every demo with `SHARD_DEMOS=all`: nightly in CI, or from the Actions tab for any branch. A
+baseline path only one demo takes belongs in the curated set. In Node, `SHARD_TIER=baseline` runs a
 package's GPU tests on Dawn's compatibility mode, and `@aethervtt/shard-gpu-webgl2/testing`'s fake
 context runs the shim itself. naga is `crates/shard-naga`, committed as
 `packages/gpu-webgl2/wasm/shard_naga.wasm`: rebuilding it (`pnpm build:wasm`) needs

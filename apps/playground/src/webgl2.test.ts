@@ -195,15 +195,15 @@ describe.skipIf(noWebGpu || noWebgl2)('picking on both backends (0064)', () => {
           // The render scale pinned: left automatic it settles from the first frames' times, so
           // each load renders (and picks) at its own resolution.
           await open(page, `${server.base}/?backend=${backend}&scale=1#tabletop`)
-          return await page.evaluate(async (px) => {
+          // All at once: one pick pass answers them together, each pixel read back at its own
+          // offset of one buffer.
+          return await page.evaluate((px) => {
             const g = globalThis as unknown as {
               playground: { pick(x: number, y: number): Promise<Hit> }
             }
-            const out: Hit[] = []
-            for (const [x, y] of px) {
-              out.push(await g.playground.pick(x! * devicePixelRatio, y! * devicePixelRatio))
-            }
-            return out
+            return Promise.all(
+              px.map(([x, y]) => g.playground.pick(x! * devicePixelRatio, y! * devicePixelRatio)),
+            )
           }, pixels)
         } finally {
           await context.close()
