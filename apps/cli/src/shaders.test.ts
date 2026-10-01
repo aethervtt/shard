@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createGpuContext } from '@aethervtt/shard-gpu'
 import {
@@ -25,14 +25,15 @@ describe('shard shaders bake (0064)', () => {
   it('bakes every stage the scenes make, and a WebGL2 session with the bake never loads naga', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'shard-bake-'))
     try {
-      const out = relative(mazeChase, join(dir, 'webgl2.json'))
+      // Absolute, outside the project: on Windows CI another drive, which no relative path reaches.
+      const out = join(dir, 'webgl2.json')
       const report = await bakeShaders(mazeChase, await listScenes(mazeChase), { out })
       expect(report.failed).toEqual([])
       expect(report.scenes).toEqual(['scenes/main.scene.json'])
       expect(report.stages).toBeGreaterThan(4)
       // Every stage, with and without EXT_clip_control.
       expect(report.translations).toBe(report.stages * 2)
-      const set = JSON.parse(await readFile(join(mazeChase, out), 'utf8')) as BakedTranslations
+      const set = JSON.parse(await readFile(out, 'utf8')) as BakedTranslations
       expect(set).toMatchObject({
         format: 'shard-webgl2-glsl',
         naga: NAGA_VERSION,

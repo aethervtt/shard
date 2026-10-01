@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { type ShardError, ShardError as ShardErrorClass } from '@aethervtt/shard-core'
 import { GpuContext } from '@aethervtt/shard-gpu'
 import { nodeGpu } from '@aethervtt/shard-gpu/node'
@@ -26,7 +26,7 @@ export const DEFAULT_BAKE_OUT = '.shard/shaders/webgl2.json'
 export const VARIANT_MANIFEST = 'shaders.variants.json'
 
 export interface ShaderBakeReport {
-  /** Where the set was written, relative to the project. */
+  /** Where the set was written: relative to the project, or absolute, as given. */
   out: string
   scenes: string[]
   /** The manifest's entries and the variants they showed, if there was a manifest. */
@@ -155,7 +155,7 @@ export async function bakeShaders(
       }
       if (manifestFile) {
         const manifest = JSON.parse(
-          await readFile(join(root, manifestFile), 'utf8'),
+          await readFile(resolve(root, manifestFile), 'utf8'),
         ) as ShaderVariantManifest
         report.manifest = { file: manifestFile, entries: 0, variants: 0 }
         for (const entry of manifest.variants ?? []) {
@@ -213,7 +213,8 @@ export async function bakeShaders(
   }
   const json = JSON.stringify(set)
   report.bytes = Buffer.byteLength(json)
-  const file = join(root, out)
+  // resolve, not join: an absolute --out stays absolute rather than landing under the project.
+  const file = resolve(root, out)
   await mkdir(dirname(file), { recursive: true })
   await writeFile(file, json)
   return report
