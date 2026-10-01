@@ -75,10 +75,3 @@ Vulkan, and `shard run --frames 600` on a slow machine would pile up the same wa
 frames with `requestAnimationFrame`. Belongs with 0052's frame pacing: cap frames in flight (2 or 3)
 in the headless runner.
 
-## Dice on the baseline tier (0054, waiting on 0064)
-
-0054's "Baseline tier" section can't be built until 0064 exists: the large-pool tier's instanced
-draws becoming direct draws, and `shard validate` checking host dice families for baseline. What's
-ready: the built-in families read only the standard uniform, their own uniform and the mark atlas
-(no storage buffers, no compute), and particle bursts already use the CPU backend.
-

@@ -36,7 +36,7 @@ interface Described {
   stats: Record<string, { drawCalls: number }>
 }
 
-/** Opens a demo and waits until it runs, and a second more. */
+/** Opens a demo and waits until it runs and has settled. */
 async function open(page: Page, url: string): Promise<void> {
   const errors: string[] = []
   page.on('pageerror', (err) => errors.push(err.message))
@@ -63,10 +63,32 @@ async function open(page: Page, url: string): Promise<void> {
     () => (globalThis as { playground?: { error?: string } }).playground?.error,
   )
   expect(error).toBeUndefined()
-  // A second of frames: what the demo loads as it starts, it has loaded.
-  await page.evaluate(async () => {
-    for (let i = 0; i < 60; i++) await new Promise((resolve) => requestAnimationFrame(resolve))
-  })
+  // Settled: ten frames in a row with nothing loading and no pipeline compiling (WebGL2 can take
+  // seconds: Direct3D compiles heavy shaders slowly the first time).
+  await page.waitForFunction(
+    () => {
+      const g = globalThis as unknown as {
+        describe(): Described & {
+          pipelinesCompiling: number
+          drawsSkipped: number
+          health: { issues: { code: string }[] }
+        }
+        __quiet?: number
+        __frames?: number
+      }
+      const d = g.describe()
+      const busy =
+        d.pipelinesCompiling > 0 ||
+        d.drawsSkipped > 0 ||
+        d.health.issues.some((i) => i.code === 'render/loading')
+      g.__quiet = busy ? 0 : (g.__quiet ?? 0) + 1
+      g.__frames = (g.__frames ?? 0) + 1
+      // A second first: a demo spawns its cameras and asks for pipelines over its first frames.
+      return g.__frames >= 60 && g.__quiet >= 10
+    },
+    undefined,
+    { timeout: timeout(60_000), polling: 'raf' },
+  )
 }
 
 const describeRender = (page: Page) =>
@@ -154,7 +176,7 @@ describe.skipIf(noWebGpu || noWebgl2)('zero cost on WebGPU (0064)', () => {
 
 describe.skipIf(noWebGpu || noWebgl2)('picking on both backends (0064)', () => {
   it(
-    'picks the same thing at 100 random pixels, but for seams between neighbors',
+    'picks the same thing at 100 random pixels',
     async () => {
       let seed = 7
       const rand = () => {
@@ -170,7 +192,9 @@ describe.skipIf(noWebGpu || noWebgl2)('picking on both backends (0064)', () => {
         const context = await browser.newContext({ viewport: { width: 640, height: 360 } })
         try {
           const page = await context.newPage()
-          await open(page, `${server.base}/?backend=${backend}#tabletop`)
+          // The render scale pinned: left automatic it settles from the first frames' times, so
+          // each load renders (and picks) at its own resolution.
+          await open(page, `${server.base}/?backend=${backend}&scale=1#tabletop`)
           return await page.evaluate(async (px) => {
             const g = globalThis as unknown as {
               playground: { pick(x: number, y: number): Promise<Hit> }
@@ -187,24 +211,14 @@ describe.skipIf(noWebGpu || noWebgl2)('picking on both backends (0064)', () => {
       }
       const webgpu = await picks('webgpu')
       const webgl2 = await picks('webgl2')
-      let exact = 0
+      expect(webgpu.filter(Boolean).length).toBeGreaterThan(50)
       for (let i = 0; i < pixels.length; i++) {
         const a = webgpu[i]
         const b = webgl2[i]
-        if (a?.entity === b?.entity) {
-          exact++
-          if (a && b)
-            expect(Math.abs(a.distance - b.distance), `pixel ${pixels[i]}`).toBeLessThan(
-              0.01 * a.distance,
-            )
-          continue
-        }
-        // A pixel center on an edge between two surfaces (a seam, or a silhouette over what's
-        // behind): GL's y flip mirrors the fill rule, so it can go to the other one. Both still hit.
-        expect(a && b, `pixel ${pixels[i]}: ${JSON.stringify([a, b])}`).toBeTruthy()
+        const where = `pixel ${pixels[i]}: ${JSON.stringify([a, b])}`
+        expect(b?.entity, where).toBe(a?.entity)
+        if (a && b) expect(Math.abs(a.distance - b.distance), where).toBeLessThan(0.01 * a.distance)
       }
-      process.stdout.write(`picks agreeing exactly on WebGPU and WebGL2: ${exact}/100\n`)
-      expect(exact).toBeGreaterThanOrEqual(95)
     },
     timeout(180_000),
   )

@@ -137,7 +137,7 @@ jobs:
   browser:
     name: Browser tests (software GPU)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
@@ -163,7 +163,9 @@ jobs:
       - name: Install Chromium
         run: pnpm --filter @aethervtt/shard-playground exec playwright install --with-deps chromium
 
-      # 0062's criteria in real Chromium (apps/playground/src/verify.test.ts). SHARD_BROWSER_TESTS:
+      # 0062's criteria in real Chromium (apps/playground/src/verify.test.ts), and 0064's on WebGL2:
+      # every demo on both backends, the fixture's plans with backend webgl2, context loss, picking
+      # across backends and the zero-cost network log (webgl2.test.ts). SHARD_BROWSER_TESTS:
       # a missing adapter fails the job instead of skipping the tests. Timing checks hold under
       # `pnpm bench` only, as everywhere else in CI.
       - name: Run the browser tests
