@@ -1,6 +1,6 @@
 import { ShardError } from '@aethervtt/shard-core'
 import { Webgl2BindGroup, Webgl2BindGroupLayout, Webgl2PipelineLayout } from './binding'
-import type { ShaderCacheStats, Translator } from './cache'
+import type { BakedTranslations, ShaderCacheStats, Translator } from './cache'
 import { CommandStream, type Webgl2CommandBuffer, Webgl2CommandEncoder } from './commands'
 import { BufferUsage, MapMode } from './constants'
 import { Copier } from './copies'
@@ -499,6 +499,11 @@ export class Webgl2Device extends EventTarget {
   /** Where translations came from, and what naga translated this session (0064). */
   get shaderCache(): ShaderCacheStats {
     return this.options.translator.stats
+  }
+
+  /** The translations this device used, as a baked set (see `Translator.export`). */
+  exportShaders(): BakedTranslations {
+    return this.options.translator.export()
   }
 }
 

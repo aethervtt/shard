@@ -31,4 +31,5 @@ export {
   type Naga,
   type TranslateOptions,
 } from './naga'
+export { entryPointOf } from './pipeline'
 export { canvasContext, type Webgl2CanvasContext } from './present'

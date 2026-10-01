@@ -37,8 +37,8 @@ export interface ShaderCacheStats {
 export interface TranslatorOptions {
   /** EXT_clip_control is on: only y is flipped in the vertex stage. */
   clipControl: boolean
-  /** Where a baked set is served. */
-  baked?: string | URL
+  /** A baked set, or where it's served. */
+  baked?: string | URL | BakedTranslations
   /** Keeps translations in IndexedDB across sessions. Default true where there is IndexedDB. */
   persist?: boolean
   /** Loads naga. Tests stub it. */
@@ -118,6 +118,19 @@ export class Translator {
     this.options = options
   }
 
+  /**
+   * Every translation this session used, as a baked set: what a host records by running once on
+   * WebGL2, to ship (`webgl2.shaders`) so later sessions skip naga for them.
+   */
+  export(): BakedTranslations {
+    return {
+      format: 'shard-webgl2-glsl',
+      naga: NAGA_VERSION,
+      shim: SHIM_VERSION,
+      entries: Object.fromEntries(this.memory),
+    }
+  }
+
   /** From memory or the (already fetched) baked set; undefined otherwise. Never loads anything. */
   cached(code: string, entry: string, stage: GlslStage): GlslTranslation | undefined {
     const key = translationKey(code, entry, stage, this.options.clipControl)
@@ -164,13 +177,18 @@ export class Translator {
 
   /** Fetches the baked set once; a set for another naga or shim counts as none. */
   private loadBaked(): Promise<Record<string, GlslTranslation> | undefined> {
-    const url = this.options.baked
-    if (!url) return Promise.resolve(undefined)
+    const source = this.options.baked
+    if (!source) return Promise.resolve(undefined)
     this.bakedSet ??= (async () => {
       try {
-        const response = await fetch(url)
-        if (!response.ok) return undefined
-        const set = (await response.json()) as BakedTranslations
+        let set: BakedTranslations
+        if (typeof source === 'string' || source instanceof URL) {
+          const response = await fetch(source)
+          if (!response.ok) return undefined
+          set = (await response.json()) as BakedTranslations
+        } else {
+          set = source
+        }
         if (
           set.format !== 'shard-webgl2-glsl' ||
           set.naga !== NAGA_VERSION ||

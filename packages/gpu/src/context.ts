@@ -1,4 +1,5 @@
 import { ShardError } from '@aethervtt/shard-core'
+import type { BakedTranslations } from '@aethervtt/shard-gpu-webgl2'
 import { LayoutCache, PipelineCache } from './caches'
 import { type GpuErrorListener, toShardError } from './errors'
 import {
@@ -36,10 +37,10 @@ export interface Webgl2ContextOptions {
   /** A context to use as it is: tests pass a fake one. */
   context?: WebGL2RenderingContext
   /**
-   * Where a baked translation set is served (`shard shaders bake`): with every shader in it,
+   * A baked translation set (`shard shaders bake`), or where it's served: with every shader in it,
    * naga, the WGSL translator, never loads.
    */
-  shaders?: string | URL
+  shaders?: string | URL | BakedTranslations
   /** Keeps translations in IndexedDB across sessions. Default true where there is IndexedDB. */
   persist?: boolean
 }
@@ -237,6 +238,14 @@ export class GpuContext {
   /** WebGL2: where shader translations came from, and what naga translated (0064). */
   shaderCache(): ShaderCacheStats | undefined {
     return (this.device as { shaderCache?: ShaderCacheStats }).shaderCache
+  }
+
+  /**
+   * WebGL2: every shader translation this session used, as a baked set to ship as
+   * `webgl2.shaders` (0064). Undefined on WebGPU.
+   */
+  exportShaderCache(): BakedTranslations | undefined {
+    return (this.device as { exportShaders?: () => BakedTranslations }).exportShaders?.()
   }
 
   // --- accounting ----------------------------------------------------------------

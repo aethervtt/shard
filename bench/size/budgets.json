@@ -1,11 +1,11 @@
 {
   "version": 1,
-  "note": "Brotli bytes. Lower these by hand when a change shrinks a build; --check fails 2% over, when a fixture bundles a package its budget forbids, or when baseline-only code (0064) reaches a chunk a WebGPU session loads. `fallback` counts the chunks only the baseline tier loads.",
+  "note": "Brotli bytes. Lower these by hand when a change shrinks a build; --check fails 2% over, when a fixture bundles a package its budget forbids, or when baseline-only code (0064) reaches a chunk a WebGPU session loads. `fallback` counts the chunks only the baseline tier loads. renderer-min fallback: the WebGL2 shim (gpu-webgl2, ~22 KB) and the baseline strategies; naga (342 KB wasm) loads only on a translation-cache miss.",
   "fixtures": {
     "renderer-min": {
       "entry": 102884,
       "js": 158665,
-      "fallback": 8516
+      "fallback": 31100
     },
     "physics-track": {
       "entry": 4930,

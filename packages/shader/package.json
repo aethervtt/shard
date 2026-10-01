@@ -6,7 +6,8 @@
   "type": "module",
   "sideEffects": false,
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./fragment-kernel": "./src/baseline/fragment-kernel.ts"
   },
   "scripts": {
     "typecheck": "tsc -p .",

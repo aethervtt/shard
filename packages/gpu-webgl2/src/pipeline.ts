@@ -278,10 +278,10 @@ export class Webgl2RenderPipeline {
     const vs = d.vertex.module as unknown as Webgl2ShaderModule
     const fs = d.fragment?.module as unknown as Webgl2ShaderModule | undefined
     return {
-      vertex: { code: vs.code, entry: d.vertex.entryPoint ?? entryOf(vs.code, 'vertex') },
+      vertex: { code: vs.code, entry: d.vertex.entryPoint ?? entryPointOf(vs.code, 'vertex') },
       fragment:
         fs && d.fragment
-          ? { code: fs.code, entry: d.fragment.entryPoint ?? entryOf(fs.code, 'fragment') }
+          ? { code: fs.code, entry: d.fragment.entryPoint ?? entryPointOf(fs.code, 'fragment') }
           : undefined,
     }
   }
@@ -397,8 +397,8 @@ export class Webgl2RenderPipeline {
   }
 }
 
-/** The one entry point of a stage when the descriptor names none. */
-function entryOf(code: string, stage: 'vertex' | 'fragment'): string {
+/** The entry point a stage runs when the descriptor names none: the first of that stage. */
+export function entryPointOf(code: string, stage: 'vertex' | 'fragment'): string {
   const m = new RegExp(`@${stage}\\s+fn\\s+([A-Za-z_]\\w*)`).exec(code)
   if (!m) throw new Error(`No @${stage} entry point`)
   return m[1]!

@@ -1309,6 +1309,9 @@ importers:
         specifier: workspace:*
         version: link:../transform
     devDependencies:
+      '@aethervtt/shard-gpu-webgl2':
+        specifier: workspace:*
+        version: link:../gpu-webgl2
       '@aethervtt/shard-platform-node':
         specifier: workspace:*
         version: link:../platform-node
@@ -1564,6 +1567,9 @@ importers:
       '@aethervtt/shard-gpu':
         specifier: workspace:*
         version: link:../gpu
+      '@aethervtt/shard-gpu-webgl2':
+        specifier: workspace:*
+        version: link:../gpu-webgl2
       '@types/node':
         specifier: ^26.6.2
         version: 26.6.2

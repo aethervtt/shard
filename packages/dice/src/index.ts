@@ -220,4 +220,5 @@ export {
   unlandedDice,
 } from './track'
 export { DiceTray as DiceTrayMaterial, TRAY_SHADERS } from './tray'
+export { type DiceVariantEntry, diceVariants } from './variants'
 export { type DiceWindow, spawnDiceWindow } from './windows'

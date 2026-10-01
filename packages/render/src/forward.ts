@@ -130,6 +130,7 @@ import {
 import { SkinAssetType, Skins } from './skin-asset'
 import { GpuMemory, RenderCounters, RenderStats } from './stats'
 import { bindingDimension } from './tier'
+import { addShaderVariantSource, materialVariants, ShaderVariantSources } from './variants'
 import {
   type CameraData,
   CameraMoved,
@@ -1663,10 +1664,14 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       // screen effects
       ScreenEffects,
       ScreenEffectHandlers,
+      // shard shaders bake (0064)
+      ShaderVariantSources,
     ],
     dependencies: ['render', 'core/transform'],
     build(app) {
       const w = app.world
+      // shaders.variants.json's { "material": … } entries (0064's bake).
+      addShaderVariantSource(w, materialVariants)
       w.initResource(Meshes)
       w.initResource(Skins)
       w.initResource(Materials)

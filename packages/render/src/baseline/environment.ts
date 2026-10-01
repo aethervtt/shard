@@ -1,6 +1,6 @@
 import type { World } from '@aethervtt/shard-core'
 import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
-import { fragmentKernel } from '@aethervtt/shard-shader'
+import { fragmentKernel } from '@aethervtt/shard-shader/fragment-kernel'
 import { ENVIRONMENT_SHADERS } from '../environment-shaders'
 import type { Environment, EnvironmentStore } from '../environment-state'
 import { LUT_SIZE, SPECULAR_MIPS, SPECULAR_SIZE } from '../environment-state'

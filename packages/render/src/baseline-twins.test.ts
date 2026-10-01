@@ -2,8 +2,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { assetServer } from '@aethervtt/shard-assets'
-import type { GpuContext } from '@aethervtt/shard-gpu'
+import { createGpuContext, type GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
+import { FakeGl, type FakeTexture } from '@aethervtt/shard-gpu-webgl2/testing'
 import { plane } from '@aethervtt/shard-mesh'
 import { createNodePlatform } from '@aethervtt/shard-platform-node'
 import { App, DevMode, LogResource } from '@aethervtt/shard-runtime'
@@ -47,7 +48,7 @@ function swatch(rgb: [number, number, number]): Uint8Array {
  * by their names. Quads left to right: untextured, the swatch, the mask as a data map (uploading
  * it, then releasing its bytes), and one more slot for the test's material.
  */
-async function scene() {
+async function scene(gpu: GpuContext = compat) {
   const root = mkdtempSync(join(tmpdir(), 'shard-twins-'))
   roots.push(root)
   mkdirSync(join(root, 'assets'))
@@ -56,7 +57,7 @@ async function scene() {
   writeFileSync(join(root, 'assets/swatch.png'), bytes)
   const app = new App().addPlugin(
     TransformPlugin,
-    renderPlugin({ gpu: compat, windowView: false }),
+    renderPlugin({ gpu, windowView: false }),
     forwardPlugin({ msaa: 1 }),
   )
   await app.init()
@@ -86,7 +87,7 @@ async function scene() {
   at(1, new MaterialAsset({ ...flat, metallicRoughnessTexture: { texture: mask } }))
   const target = world
     .resource(RenderTargets)
-    .add(new OffscreenTarget(compat, { label: 'twins', width: 128, height: 32 }), 'twins')
+    .add(new OffscreenTarget(gpu, { label: 'twins', width: 128, height: 32 }), 'twins')
   const cam = world.spawn(
     [
       Camera3d,
@@ -195,5 +196,91 @@ describe('format twins on the baseline tier (0064)', () => {
     expect(s.texture().levels).toBeUndefined()
     expect(compat.errors).toEqual([])
     await s.app.dispose()
+  })
+})
+
+describe('format twins on WebGL2 (0064)', () => {
+  // The shim over a fake context: nothing rasterizes, so what a slot samples is read off the draws.
+  const SRGB8_ALPHA8 = 0x8c43
+  const RGBA8 = 0x8058
+  const open = async () => {
+    const fake = new FakeGl()
+    const gpu = await createGpuContext({
+      backend: 'webgl2',
+      webgl2: { context: fake.context, persist: false },
+    })
+    return { fake, gpu }
+  }
+  /** The textures the frame's draws sample as base color (group 1, binding 2). */
+  const baseColors = (fake: FakeGl, from: number): FakeTexture[] =>
+    fake.draws.slice(from).flatMap((d) => {
+      for (const [name, unit] of d.uniforms) {
+        if (!name.startsWith('_group_1_binding_2_') || typeof unit !== 'number') continue
+        const t = d.units.get(unit)?.texture
+        return t ? [t] : []
+      }
+      return []
+    })
+
+  it('never samples the linear texture as base color: the fallback, then the twin', {
+    timeout: 60_000,
+  }, async () => {
+    const { fake, gpu } = await open()
+    try {
+      const s = await scene(gpu)
+      s.at(3, new MaterialAsset({ ...s.flat, baseColorTexture: { texture: s.mask } }))
+      let mark = fake.draws.length
+      await s.shoot()
+      expect(s.twins().pending).toEqual([
+        { texture: s.mask.guid, kind: 'srgb/2d', waitedMs: expect.any(Number) },
+      ])
+      const waiting = baseColors(fake, mark)
+      // No base color is the mask's linear texture; the 4×4 sRGB one is the swatch.
+      expect(waiting.some((t) => t.internal === RGBA8 && t.width === 4)).toBe(false)
+      expect(new Set(waiting.filter((t) => t.width === 4)).size).toBe(1)
+      await untilReady(s)
+      mark = fake.draws.length
+      await s.shoot()
+      const ready = baseColors(fake, mark)
+      // The swatch and the twin: two 4×4 sRGB textures.
+      const srgb = new Set(ready.filter((t) => t.internal === SRGB8_ALPHA8 && t.width === 4))
+      expect(srgb.size).toBe(2)
+      expect(ready.some((t) => t.internal === RGBA8 && t.width === 4)).toBe(false)
+      expect(s.twins().recent.find((w) => w.texture === s.mask.guid)?.waitedMs).toBeGreaterThan(0)
+      expect(s.texture().levels).toBeUndefined()
+      expect(gpu.errors).toEqual([])
+      await s.app.dispose()
+    } finally {
+      gpu.destroy()
+    }
+  })
+
+  it('holds back a deferUntilReady draw until its twin is ready', { timeout: 60_000 }, async () => {
+    const { fake, gpu } = await open()
+    try {
+      const s = await scene(gpu)
+      s.at(
+        3,
+        new MaterialAsset({
+          ...s.flat,
+          baseColorTexture: { texture: s.mask },
+          deferUntilReady: true,
+        }),
+      )
+      let mark = fake.draws.length
+      await s.shoot()
+      const before = baseColors(fake, mark).length
+      expect(s.twins().pending).toHaveLength(1)
+      await untilReady(s)
+      mark = fake.draws.length
+      await s.shoot()
+      // One more draw samples a base color: the deferred quad, with its twin.
+      expect(baseColors(fake, mark).length).toBe(before + 1)
+      expect(s.texture().levels).toBeUndefined()
+      expect(gpu.errors).toEqual([])
+      await s.app.dispose()
+    } finally {
+      gpu.destroy()
+    }
   })
 })

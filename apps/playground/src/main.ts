@@ -10,7 +10,7 @@ import { particlesPlugin } from '@aethervtt/shard-particles'
 import { physics2dPlugin, physics3dPlugin } from '@aethervtt/shard-physics'
 import { createDomInputSource, createIndexedDbStorage } from '@aethervtt/shard-platform-web'
 import { connectToHub, createProtocolServer, DEFAULT_HUB_PORT } from '@aethervtt/shard-protocol'
-import { describeRender, forwardPlugin, renderPlugin } from '@aethervtt/shard-render'
+import { describeRender, forwardPlugin, pick, renderPlugin } from '@aethervtt/shard-render'
 import { materialNoisePlugin } from '@aethervtt/shard-render/noise'
 import { App, animationFrameRunner } from '@aethervtt/shard-runtime'
 import { savePlugin } from '@aethervtt/shard-save'
@@ -233,7 +233,16 @@ window.addEventListener('hashchange', () => location.reload())
 
 // Exposed for poking at from the devtools console, and for demos.test.ts: `started` once the app
 // runs, `error` if it couldn't.
-const playground = { demo, started: false, error: undefined as string | undefined }
+const playground = {
+  demo,
+  started: false,
+  error: undefined as string | undefined,
+  /** What's under a pixel of the main view: for tests comparing backends (0064). */
+  pick: async (x: number, y: number) => {
+    const hit = await pick(app.world, undefined, x, y)
+    return hit && { entity: hit.entity, path: hit.path, distance: hit.distance }
+  },
+}
 Object.assign(globalThis, { app, describe: () => describeRender(app.world), playground })
 
 /**

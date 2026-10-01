@@ -1,5 +1,5 @@
 import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
-import { fragmentKernel } from '@aethervtt/shard-shader'
+import { fragmentKernel } from '@aethervtt/shard-shader/fragment-kernel'
 import { MULTISCATTER_SIZE, TRANSMITTANCE_H, TRANSMITTANCE_W } from '../atmosphere-model'
 import {
   type AtmosphereGpu,

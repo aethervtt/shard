@@ -161,6 +161,29 @@ describe('WebGL2 translation cache (0064)', () => {
     expect(remap.stats.misses).toHaveLength(1)
   })
 
+  it("exports a session's translations as a baked set the next session needs no naga with", async () => {
+    const naga = countingNaga()
+    const first = new Translator({ clipControl: true, persist: false, naga: naga.load })
+    const vs = await first.translate(SHADER, 'vs', 'vertex')
+    await first.translate(SHADER, 'fs', 'fragment')
+    const exported = first.export()
+    expect(exported).toMatchObject({
+      format: 'shard-webgl2-glsl',
+      naga: NAGA_VERSION,
+      shim: SHIM_VERSION,
+    })
+    expect(Object.keys(exported.entries)).toHaveLength(2)
+    const next = new Translator({
+      clipControl: true,
+      persist: false,
+      baked: exported,
+      naga: naga.load,
+    })
+    expect(await next.translate(SHADER, 'vs', 'vertex')).toEqual(vs)
+    expect(next.stats).toMatchObject({ baked: 2, misses: [], nagaLoadMs: undefined })
+    expect(naga.counts.loads).toBe(1)
+  })
+
   it('keeps translations in IndexedDB: the next session needs no naga', async () => {
     vi.stubGlobal('indexedDB', fakeIndexedDb())
     const naga = countingNaga()

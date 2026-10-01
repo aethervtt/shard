@@ -99,9 +99,11 @@ Every engine error is a `ShardError` with one of these codes.
 | `gltf/invalid` | @aethervtt/shard-gltf | Only glTF 2.0 files are supported. |
 | `gltf/tangents-unavailable` | @aethervtt/shard-gltf |  |
 | `gltf/unsupported-extension` | @aethervtt/shard-gltf |  |
+| `gpu-webgl2/lost` | @aethervtt/shard-gpu-webgl2 |  |
 | `gpu-webgl2/naga-crashed` | @aethervtt/shard-gpu-webgl2 | Report the shader: naga should return an error, not crash. |
 | `gpu-webgl2/naga-load-failed` | @aethervtt/shard-gpu-webgl2 | packages/gpu-webgl2/wasm must be served with the app (rebuild with `pnpm build:wasm`). |
 | `gpu-webgl2/translate` | @aethervtt/shard-gpu-webgl2 |  |
+| `gpu-webgl2/unsupported` | @aethervtt/shard-gpu-webgl2 |  |
 | `gpu/duplicate-surface` | @aethervtt/shard-gpu | Share the Surface itself (renderPlugin({ gpu, surface })), or remove it first. |
 | `gpu/missing-feature` | @aethervtt/shard-gpu |  |
 | `gpu/no-adapter` | @aethervtt/shard-gpu |  |
@@ -245,6 +247,9 @@ Every engine error is a `ShardError` with one of these codes.
 | `render/unknown-buffer` | @aethervtt/shard-render |  |
 | `render/unknown-camera` | @aethervtt/shard-render | Pass a Camera3d entity that has rendered at least one frame. |
 | `render/unknown-material-type` | @aethervtt/shard-render |  |
+| `render/unknown-variant-source` | @aethervtt/shard-render |  |
+| `render/variant-entry` | @aethervtt/shard-render |  |
+| `render/variant-material` | @aethervtt/shard-render |  |
 | `render/which-atmosphere` | @aethervtt/shard-render | Pass entity: an entity with render/Atmosphere. |
 | `retarget/unmapped-root` | @aethervtt/shard-animation | Add it to the joint map (*.jointmap.json): { "joints": { "<source>": "<target>" } }. |
 | `runtime/disposed` | @aethervtt/shard-runtime | Create a new App; a disposed one has released its GPU objects and listeners. |

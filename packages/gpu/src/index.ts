@@ -1,3 +1,4 @@
+export type { BakedTranslations } from '@aethervtt/shard-gpu-webgl2'
 export { GpuBuffer, type GpuBufferOptions } from './buffer'
 export { LayoutCache, PipelineCache } from './caches'
 export {

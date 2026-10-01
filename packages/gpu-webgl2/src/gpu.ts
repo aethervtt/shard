@@ -1,4 +1,4 @@
-import { Translator } from './cache'
+import { type BakedTranslations, Translator } from './cache'
 import { installGpuConstants } from './constants'
 import {
   type Webgl2AdapterInfo,
@@ -31,7 +31,7 @@ export interface Webgl2GpuOptions {
    * A baked translation set (`shard shaders bake`), fetched on the first pipeline: with every
    * shader in it, naga never loads.
    */
-  shaders?: string | URL
+  shaders?: string | URL | BakedTranslations
   /** Keeps translations in IndexedDB across sessions. Default true where there is IndexedDB. */
   persist?: boolean
   /** Loads naga (tests count the loads). */

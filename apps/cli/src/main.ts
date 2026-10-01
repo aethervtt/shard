@@ -23,6 +23,7 @@ import {
 } from './commands'
 import { dev } from './dev'
 import { createOutput, EXIT, errorJson, formatError } from './output'
+import { shaders } from './shaders-command'
 import { approve, capture, compare, perfCheck } from './verify'
 
 const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; help: string }> = {
@@ -63,6 +64,10 @@ const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; 
   bake: {
     run: bake,
     help: 'bake nav [--scene p] [--force]  bake navmeshes into .shard/cache/nav',
+  },
+  shaders: {
+    run: shaders,
+    help: 'shaders bake [--manifest f] [--out f]   WebGL2 translations into .shard/shaders/webgl2.json',
   },
   track: {
     run: track,
@@ -149,6 +154,7 @@ export async function main(argv: string[]): Promise<number> {
         encoding: { type: 'string' },
         atlas: { type: 'string' },
         tier: { type: 'string' },
+        manifest: { type: 'string' },
         help: { type: 'boolean', short: 'h' },
       },
     })

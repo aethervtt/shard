@@ -444,6 +444,16 @@ export {
 export { bindingDimension, depthReadEntry } from './tier'
 export { GpuTimer } from './timer'
 export {
+  addShaderVariantSource,
+  type MaterialVariantEntry,
+  materialVariants,
+  type ShaderVariantManifest,
+  type ShaderVariantSource,
+  ShaderVariantSources,
+  showToCamera,
+  showVariants,
+} from './variants'
+export {
   type CameraData,
   CameraMoved,
   Cameras,
