@@ -127,7 +127,8 @@ their own fields, not last frame's matrices, so they work headless and within th
 - **Zoom to cursor:** the floor point under the cursor stays under it. Both cameras scale about
   it: the target moves toward it by the zoom factor, so it stays on the same ray.
 - **Pan:** the floor point grabbed at the drag's start stays under the pointer.
-- **Touch:** `pinch` zooms, `pan2` pans, `twist` yaws the orbit.
+- **Touch:** `pinch` zooms and `pan2` pans, the floor following the fingers; `twist` yaws the
+  orbit about the floor point between them.
 - **Frames:** a `controls` frame demand (0052) is held only while a camera eases or turns.
 
 `syncViews(world, from, to)` puts the `to` camera over the same `target`, with a scale that shows

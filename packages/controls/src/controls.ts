@@ -281,7 +281,12 @@ function handle(
       else if (e.kind === 'pan2') {
         // panTo writes its own hit into hitB, so the grab has its own scratch.
         if (grabAt(kind, g, e.x - e.dx, e.y - e.dy, grab2)) panTo(kind, g, grab2, e.x, e.y)
-      } else if (kind === 'orbit') g.yaw += (e.angle * 180) / Math.PI
+      } else if (kind === 'orbit') {
+        // Turn about the floor between the fingers: it stays under them.
+        const anchored = grabAt(kind, g, e.x, e.y, grab2)
+        g.yaw += (e.angle * 180) / Math.PI
+        if (anchored) panTo(kind, g, grab2, e.x, e.y)
+      }
       return
     }
   }
