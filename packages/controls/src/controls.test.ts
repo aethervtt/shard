@@ -140,8 +140,9 @@ describe('controls (0060)', () => {
       play([{ pinch: { center, from: 300, to: 90, frames: 8 } }])
       expect(distance(toScreen(world, camera, q), center)).toBeLessThan(0.5)
       // A trackpad pinch (a ctrl wheel) zooms the same way.
+      const under = floorUnder(world, camera, ...cursor, axis)
       play([{ wheel: { at: cursor, dy: -30, modifiers: 2 } }])
-      expect(distance(toScreen(world, camera, p), cursor)).toBeLessThan(0.5)
+      expect(distance(toScreen(world, camera, under), cursor)).toBeLessThan(0.5)
       // Two fingers moving together carry the floor with them.
       const r = floorUnder(world, camera, ...center, axis)
       play([{ pinch: { center, from: 150, to: 150, pan: [80, -40], frames: 8 } }])
