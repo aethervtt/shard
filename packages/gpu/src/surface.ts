@@ -122,14 +122,14 @@ export class Surface {
     const entry = entries[entries.length - 1]
     if (!entry || this.removed_) return
     const dpr = globalThis.devicePixelRatio ?? 1
+    const box = entry.contentBoxSize?.[0]
+    const w = box ? box.inlineSize : entry.contentRect.width
+    const h = box ? box.blockSize : entry.contentRect.height
     const exact = entry.devicePixelContentBoxSize?.[0]
-    if (exact) this.resize(exact.inlineSize, exact.blockSize, dpr)
-    else {
-      const box = entry.contentBoxSize?.[0]
-      const w = box ? box.inlineSize : entry.contentRect.width
-      const h = box ? box.blockSize : entry.contentRect.height
-      this.resize(w * dpr, h * dpr, dpr)
-    }
+    // The ratio the backing store really has: devicePixelRatio can disagree with the measured
+    // device pixels (embedded browsers), and CSS ↔ pixel conversions (0057, 0060) need the real one.
+    if (exact) this.resize(exact.inlineSize, exact.blockSize, w > 0 ? exact.inlineSize / w : dpr)
+    else this.resize(w * dpr, h * dpr, dpr)
   }
 
   private resize(w: number, h: number, dpr: number): void {
