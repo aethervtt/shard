@@ -139,6 +139,11 @@ describe('controls (0060)', () => {
       expect(distance(toScreen(world, camera, q), center)).toBeLessThan(0.5)
       play([{ pinch: { center, from: 300, to: 90, frames: 8 } }])
       expect(distance(toScreen(world, camera, q), center)).toBeLessThan(0.5)
+      // Two fingers moving together carry the floor with them.
+      play([{ pinch: { center, from: 150, to: 150, pan: [80, -40], frames: 8 } }])
+      expect(distance(toScreen(world, camera, q), [center[0] + 80, center[1] - 40])).toBeLessThan(
+        0.5,
+      )
       // A trackpad pinch (a ctrl wheel) zooms the same way.
       play([{ wheel: { at: cursor, dy: -30, modifiers: 2 } }])
       expect(distance(toScreen(world, camera, p), cursor)).toBeLessThan(0.5)
@@ -333,7 +338,8 @@ describe('controls frames', () => {
     orbitCamera(world, { autoRotate: 12, smoothing: 0.2 })
     mapCamera(world)
     orbitCamera(world, {}, false)
-    for (let i = 0; i < 2000; i++) frame() // let V8 optimize
+    for (let i = 0; i < 2000; i++)
+      frame() // let V8 optimize
     ;(globalThis as { gc?: () => void }).gc?.()
     const gcs = gcWindow()
     for (let i = 0; i < 20_000; i++) frame()

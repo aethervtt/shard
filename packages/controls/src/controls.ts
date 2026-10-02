@@ -109,6 +109,7 @@ const goal: Goal = {
 const view = createView()
 const hitA = new Float64Array(3)
 const hitB = new Float64Array(3)
+const grab2 = new Float64Array(3)
 const viewport: [number, number] = [1, 1]
 const scratchQuat = new Float32Array(4)
 const back = new Float64Array(3)
@@ -278,10 +279,8 @@ function handle(
       } else if (e.id !== 0 && gestures.owner(e.id) !== live.owner) return
       if (e.kind === 'pinch') zoomAt(kind, g, e.x, e.y, 1 / e.scale)
       else if (e.kind === 'pan2') {
-        if (grabAt(kind, g, e.x - e.dx, e.y - e.dy, hitA)) {
-          hitB.set(hitA)
-          panTo(kind, g, hitB, e.x, e.y)
-        }
+        // panTo writes its own hit into hitB, so the grab has its own scratch.
+        if (grabAt(kind, g, e.x - e.dx, e.y - e.dy, grab2)) panTo(kind, g, grab2, e.x, e.y)
       } else if (kind === 'orbit') g.yaw += (e.angle * 180) / Math.PI
       return
     }
