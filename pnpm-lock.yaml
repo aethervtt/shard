@@ -537,6 +537,34 @@ importers:
         specifier: ^0.1.74
         version: 0.1.74
 
+  packages/controls:
+    dependencies:
+      '@aethervtt/shard-core':
+        specifier: workspace:*
+        version: link:../core
+      '@aethervtt/shard-input':
+        specifier: workspace:*
+        version: link:../input
+      '@aethervtt/shard-platform':
+        specifier: workspace:*
+        version: link:../platform
+      '@aethervtt/shard-render':
+        specifier: workspace:*
+        version: link:../render
+      '@aethervtt/shard-runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@aethervtt/shard-transform':
+        specifier: workspace:*
+        version: link:../transform
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+      '@webgpu/types':
+        specifier: ^0.1.74
+        version: 0.1.74
+
   packages/core:
     devDependencies:
       ajv:

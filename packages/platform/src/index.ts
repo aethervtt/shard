@@ -58,13 +58,54 @@ export type RawInputEvent =
   | { type: 'key'; code: string; pressed: boolean }
   | { type: 'mouse-button'; button: MouseButton; pressed: boolean }
   | { type: 'mouse-move'; x: number; y: number; dx: number; dy: number }
-  | { type: 'wheel'; dx: number; dy: number }
+  /**
+   * Wheel movement in pixels (line and page deltas already converted). `x`/`y` (CSS pixels, from
+   * the element's top left) and `modifiers` come from sources that know them; a ctrl wheel is a
+   * trackpad pinch.
+   */
+  | { type: 'wheel'; dx: number; dy: number; x?: number; y?: number; modifiers?: number }
+  /**
+   * One pointer (0060): mouse, pen or touch, in CSS pixels from the element's top left. Gestures
+   * read these; `mouse-*` and `touch` events still feed the device resources and action maps.
+   */
+  | {
+      type: 'pointer'
+      id: number
+      phase: PointerPhase
+      pointer: PointerKind
+      /** The button that went down (`down`/`up`), or the one held since (`move`). */
+      button: MouseButton
+      x: number
+      y: number
+      /** `MODIFIERS` bits held: shift, ctrl, alt, meta. */
+      modifiers: number
+    }
   | { type: 'touch'; id: number; phase: 'start' | 'move' | 'end'; x: number; y: number }
   | { type: 'gamepad'; index: number; connected: boolean; buttons: number[]; axes: number[] }
   | { type: 'focus'; focused: boolean }
   | { type: 'action'; name: string; pressed: boolean; value?: number }
   /** Typed characters, key repeats included; "\b" is a backspace. Text fields read these. */
   | { type: 'text'; text: string }
+
+export type PointerPhase = 'down' | 'move' | 'up' | 'cancel'
+export type PointerKind = 'mouse' | 'pen' | 'touch'
+
+/** Bits of a pointer or wheel event's `modifiers`. */
+export const MODIFIERS = { shift: 1, ctrl: 2, alt: 4, meta: 8 } as const
+
+/**
+ * What the scene takes from the pointer while a control is enabled (0060). A source stops the
+ * host's default handling (`preventDefault`) only for what's listed here and for claimed pointers;
+ * everything else passes through to the page.
+ */
+export interface PointerPolicy {
+  /** Mouse buttons enabled controls drag with: presses with them, and the context menu for 'right'. */
+  buttons: readonly MouseButton[]
+  /** Wheel events zoom a control. */
+  wheel: boolean
+  /** Touches drive a control: the element gets `touch-action: none`. */
+  touch: boolean
+}
 
 /** Where raw input comes from: DOM listeners in a browser or webview, nothing when headless. */
 export interface InputSource {
@@ -75,6 +116,13 @@ export interface InputSource {
    * Returns an unsubscribe function. Polled devices (gamepads) don't call it.
    */
   onInput?(listener: () => void): () => void
+  /**
+   * A consumer took this pointer's gesture (0060): its later events are the scene's
+   * (`preventDefault`), and it keeps reporting outside the element (pointer capture) until it ends.
+   */
+  claimPointer?(id: number): void
+  /** What enabled controls take; see `PointerPolicy`. Called when it changes. */
+  setPointerPolicy?(policy: PointerPolicy): void
   dispose(): void
 }
 

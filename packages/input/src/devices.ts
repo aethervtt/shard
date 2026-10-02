@@ -1,4 +1,4 @@
-import type { MouseButton } from '@aethervtt/shard-platform'
+import type { MouseButton, RawInputEvent } from '@aethervtt/shard-platform'
 
 /** Pressed/just-pressed/just-released bookkeeping for a set of named buttons. */
 class ButtonSet<K extends string> {
@@ -160,5 +160,21 @@ export class TouchesState {
   beginFrame(): void {
     this.started.length = 0
     this.ended.length = 0
+  }
+}
+
+/** A raw event the gesture recognizer reads: a pointer, the wheel, or focus. */
+export type PointerInput = Extract<RawInputEvent, { type: 'pointer' | 'wheel' | 'focus' }>
+
+/** Pointer events in CSS pixels (0060), for gestures. Mouse and Touches hold the device state. */
+export class PointersState {
+  /** This frame's pointer, wheel and focus events, in order. Read-only: they're the raw events. */
+  readonly events: PointerInput[] = []
+  /** The last pointer position seen, in CSS pixels: where a wheel without one zooms about. */
+  readonly position: [number, number] = [0, 0]
+
+  /** @internal */
+  beginFrame(): void {
+    this.events.length = 0
   }
 }
