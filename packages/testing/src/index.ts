@@ -91,6 +91,14 @@ export class Game {
       await this.step(1)
       this.inject(name, false)
     },
+    /**
+     * Plays pointer gestures in CSS pixels (`{ drag }`, `{ pinch }`, `{ wheel }`, `{ tap }`,
+     * `{ wait }`) and steps until they're done (0060): camera controls and object drags.
+     */
+    gesture: async (...gestures: Json[]) => {
+      const { frames } = await this.call<{ frames: number }>('input.simulate', { gestures })
+      await this.step(frames)
+    },
   }
 
   /**

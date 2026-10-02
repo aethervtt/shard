@@ -14,7 +14,8 @@ import {
   PointLight,
 } from '@aethervtt/shard-render'
 import { definePlugin, Time } from '@aethervtt/shard-runtime'
-import { lookAt, Transform } from '@aethervtt/shard-transform'
+import { Transform } from '@aethervtt/shard-transform'
+import { orbitFrom } from './camera'
 
 /** Lights that circle the hall. */
 const Orbit = defineComponent('lights-demo/Orbit', {
@@ -67,7 +68,8 @@ export const lightsPlugin = definePlugin({
     world.spawn(
       [Camera3d, { fovY: 55, clearColor: [0.0005, 0.0006, 0.001, 1] }],
       [Exposure, { ev100: 3 }],
-      [Transform, { translation: [0, 7, 14], rotation: lookAt([0, 7, 14], [0, 0, -6]) }],
+      Transform,
+      orbitFrom([0, 7, 14], [0, 0, -6]),
     )
     world.spawn(
       [Mesh3d, { mesh: meshes.add(plane({ size: 80 })) }],

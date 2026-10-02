@@ -278,6 +278,11 @@ export const TOOLS: Tool[] = [
     run: async (ctx, args) => text(await inject(ctx, args.name as string, false)),
   },
   forward(
+    'simulate_gestures',
+    'input.simulate',
+    'Plays pointer gestures (drag, pinch, wheel, tap, wait) in CSS pixels, a step per frame: drives camera controls and object drags. Then `step` the frames it returns.',
+  ),
+  forward(
     'record_input',
     'input.record',
     'Starts ("start") or stops ("stop") recording input; stop returns the recording.',

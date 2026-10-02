@@ -1,6 +1,6 @@
 import { defineResource, defineSystem, First, ShardError, type World } from '@aethervtt/shard-core'
 import type { InputSource, RawInputEvent } from '@aethervtt/shard-platform'
-import { definePlugin, type Plugin, Time } from '@aethervtt/shard-runtime'
+import { definePlugin, FrameDemand, type Plugin, Time } from '@aethervtt/shard-runtime'
 import type { ActionMapDef, ActionState, Devices } from './actions'
 import {
   GAMEPAD_AXES,
@@ -8,6 +8,7 @@ import {
   GamepadsState,
   KeyboardState,
   MouseState,
+  PointersState,
   TouchesState,
 } from './devices'
 import * as pluginModule from './plugin'
@@ -24,6 +25,9 @@ export const Gamepads = defineResource<GamepadsState>('input/Gamepads', {
 export const Touches = defineResource<TouchesState>('input/Touches', {
   description: 'Active touches.',
 })
+export const Pointers = defineResource<PointersState>('input/Pointers', {
+  description: "This frame's pointer and wheel events in CSS pixels, for gestures (0060).",
+})
 
 interface InputQueueState {
   source: InputSource | undefined
@@ -35,6 +39,8 @@ interface InputQueueState {
   recording: RawInputEvent[][] | undefined
   /** Frames to play back instead of live input, when replaying. */
   replay: { frames: Map<number, RawInputEvent[]>; frame: number; length: number } | undefined
+  /** Simulated input still to come (`simulateInput`), one entry per frame, merged with live input. */
+  scheduled: RawInputEvent[][]
 }
 
 export const InputQueue = defineResource<InputQueueState>('input/Queue', {
@@ -54,6 +60,16 @@ function devices(world: World): Devices {
     mouse: world.resource(Mouse),
     gamepads: world.resource(Gamepads),
     touches: world.resource(Touches),
+  }
+}
+
+function pointers(world: World, e: RawInputEvent): void {
+  if (e.type !== 'pointer' && e.type !== 'wheel' && e.type !== 'focus') return
+  const p = world.resource(Pointers)
+  p.events.push(e)
+  if (e.type === 'pointer') {
+    p.position[0] = e.x
+    p.position[1] = e.y
   }
 }
 
@@ -110,6 +126,8 @@ function apply(world: World, d: Devices, e: RawInputEvent): void {
       }
       break
     }
+    case 'pointer':
+      break
     case 'focus':
       if (!e.focused) {
         d.keyboard.releaseAll()
@@ -159,6 +177,7 @@ export const updateInput = defineSystem({
     d.mouse.beginFrame()
     d.gamepads.beginFrame()
     d.touches.beginFrame()
+    world.resource(Pointers).beginFrame()
 
     const events = q.scratch
     events.length = 0
@@ -172,8 +191,16 @@ export const updateInput = defineSystem({
     }
     for (const e of q.pending) events.push(e)
     q.pending.length = 0
+    if (q.scheduled.length > 0) {
+      for (const e of q.scheduled.shift()!) events.push(e)
+      // A simulated gesture plays one step a frame, on-demand runners included (0052).
+      world.resource(FrameDemand).set(SIMULATE_DEMAND, q.scheduled.length > 0)
+    }
 
-    for (const e of events) apply(world, d, e)
+    for (const e of events) {
+      apply(world, d, e)
+      pointers(world, e)
+    }
     if (q.recording) q.recording.push(events.map((e) => ({ ...e })))
   },
 })
@@ -208,12 +235,14 @@ export function inputPlugin(options: InputPluginOptions = {}): Plugin {
         maps: [],
         recording: undefined,
         replay: undefined,
+        scheduled: [],
       }
       app
         .insertResource(Keyboard, new KeyboardState())
         .insertResource(Mouse, new MouseState())
         .insertResource(Gamepads, new GamepadsState())
         .insertResource(Touches, new TouchesState())
+        .insertResource(Pointers, new PointersState())
         .insertResource(InputQueue, queue)
       app.world.initResource(InputContext)
       for (const map of options.actions ?? []) addActions(app.world, map)
@@ -291,6 +320,18 @@ export function injectInput(world: World, input: InjectedInput): void {
     })
 }
 
+const SIMULATE_DEMAND = 'input/simulate'
+
+/**
+ * Queues raw input over the next frames, one entry per frame (empty entries wait a frame),
+ * after anything already queued. Gesture simulation (`simulateGestures`) builds on it.
+ */
+export function scheduleInput(world: World, frames: readonly (readonly RawInputEvent[])[]): void {
+  const q = world.resource(InputQueue)
+  for (const frame of frames) q.scheduled.push([...frame])
+  if (q.scheduled.length > 0) world.resource(FrameDemand).hold(SIMULATE_DEMAND)
+}
+
 export function startRecording(world: World): void {
   world.resource(InputQueue).recording = []
 }
@@ -329,6 +370,7 @@ export function describeInput(world: World) {
     keysHeld: world.resource(Keyboard).held(),
     gamepads: world.resource(Gamepads).connected().length,
     touches: world.resource(Touches).active.size,
+    scheduledFrames: q.scheduled.length,
     context: world.resource(InputContext).active,
     pointerCaptured: world.resource(Mouse).captured,
     actionMaps: q.maps.map((m) => ({

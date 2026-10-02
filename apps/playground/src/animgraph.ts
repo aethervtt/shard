@@ -26,12 +26,11 @@ import {
 import { AmbientLight, Camera3d, DirectionalLight, Exposure, Gizmos } from '@aethervtt/shard-render'
 import { type App, definePlugin, Time } from '@aethervtt/shard-runtime'
 import { loadScene, whenSceneReady } from '@aethervtt/shard-scene'
-import { lookAt, Transform } from '@aethervtt/shard-transform'
+import { Transform } from '@aethervtt/shard-transform'
 import { axisAngle, curl, jointClip, mul, wave } from './animation'
+import { orbitFrom } from './camera'
 import { hudExtras } from './hud'
 import { memoryPlatform } from './memory'
-
-const still = new URLSearchParams(location.search).has('still')
 
 /** What a character controller would publish; the graphs bind to it. */
 const Critter = defineComponent('playground/Critter', {
@@ -318,25 +317,6 @@ const wander = defineSystem({
   },
 })
 
-const orbit = defineSystem({
-  name: 'playground/animgraph-orbit',
-  setup: (world) => ({ q: world.query({ with: [Camera3d, Transform] }) }),
-  run: ({ q }, world) => {
-    const t = still ? 0.3 : Math.sin(world.resource(Time).elapsed * 0.05) * 0.5 + 0.3
-    const eye: [number, number, number] = [Math.sin(t) * 17, 7.5, Math.cos(t) * 17 - 2]
-    const rotation = lookAt(eye, [0, 0.8, -5])
-    for (const table of q.tables) {
-      const tr = table.column(Transform, 'translation')
-      const rot = table.column(Transform, 'rotation')
-      for (let i = 0; i < table.count; i++) {
-        tr.set(eye, i * 3)
-        rot.set(rotation, i * 4)
-      }
-      table.markChanged(Transform)
-    }
-  },
-})
-
 interface DemoState {
   herd: Entity[]
   hero: Entity | undefined
@@ -407,7 +387,7 @@ export const animgraphDemoPlugin = definePlugin({
   name: 'animgraph-demo',
   dependencies: ['scene', 'animation'],
   build(app) {
-    app.addSystems(Update, wander, orbit, tally)
+    app.addSystems(Update, wander, tally)
   },
   async ready(app: App) {
     const world = app.world
@@ -419,7 +399,8 @@ export const animgraphDemoPlugin = definePlugin({
     world.spawn(
       [Camera3d, { fovY: 50, clearColor: [0.02, 0.025, 0.035, 1] }],
       [Exposure, { ev100: 13.5 }],
-      [Transform, { translation: [0, 8, 18] }],
+      Transform,
+      orbitFrom([Math.sin(0.3) * 17, 7.5, Math.cos(0.3) * 17 - 2], [0, 0.8, -5]),
     )
 
     // A project in memory: the clips as .anim.json files, a mask, two graphs, a material.

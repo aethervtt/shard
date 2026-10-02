@@ -144,6 +144,9 @@ importers:
       '@aethervtt/shard-audio':
         specifier: workspace:*
         version: link:../../packages/audio
+      '@aethervtt/shard-controls':
+        specifier: workspace:*
+        version: link:../../packages/controls
       '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -530,6 +533,34 @@ importers:
       '@aethervtt/shard-scene':
         specifier: workspace:*
         version: link:../scene
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+      '@webgpu/types':
+        specifier: ^0.1.74
+        version: 0.1.74
+
+  packages/controls:
+    dependencies:
+      '@aethervtt/shard-core':
+        specifier: workspace:*
+        version: link:../core
+      '@aethervtt/shard-input':
+        specifier: workspace:*
+        version: link:../input
+      '@aethervtt/shard-platform':
+        specifier: workspace:*
+        version: link:../platform
+      '@aethervtt/shard-render':
+        specifier: workspace:*
+        version: link:../render
+      '@aethervtt/shard-runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@aethervtt/shard-transform':
+        specifier: workspace:*
+        version: link:../transform
+    devDependencies:
       '@types/node':
         specifier: ^26.6.2
         version: 26.6.2
@@ -1132,6 +1163,9 @@ importers:
       '@aethervtt/shard-audio':
         specifier: workspace:*
         version: link:../audio
+      '@aethervtt/shard-controls':
+        specifier: workspace:*
+        version: link:../controls
       '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core

@@ -1,5 +1,5 @@
 import { assetServer } from '@aethervtt/shard-assets'
-import { type AssetRef, defineSystem, type Entity, quat, t, Update } from '@aethervtt/shard-core'
+import { type AssetRef, defineSystem, quat, t, Update } from '@aethervtt/shard-core'
 import { sphere } from '@aethervtt/shard-mesh'
 import {
   loadNoiseKernel,
@@ -24,8 +24,9 @@ import {
   MeshMaterial,
   Shaders,
 } from '@aethervtt/shard-render'
-import { definePlugin, Time } from '@aethervtt/shard-runtime'
-import { lookAt, Transform } from '@aethervtt/shard-transform'
+import { definePlugin } from '@aethervtt/shard-runtime'
+import { Transform } from '@aethervtt/shard-transform'
+import { orbitFrom } from './camera'
 import { hudExtras } from './hud'
 import { memoryPlatform } from './memory'
 
@@ -119,7 +120,6 @@ const report: string[] = ['noise: loading the kernel…']
 let mountains = 1
 let seed = 7
 let material: AssetRef<'Material'> | undefined
-let camera: Entity | undefined
 const keys = new Set<string>()
 /** The demo's project folder (in memory: the playground has no file system). */
 const files = memoryPlatform()
@@ -178,11 +178,6 @@ async function measure(): Promise<void> {
 const controls = defineSystem({
   name: 'noise-demo/controls',
   run: (_, world) => {
-    const t = world.resource(Time)
-    const angle = t.elapsed * 0.15
-    const eye: [number, number, number] = [Math.sin(angle) * 3.2, 1.1, Math.cos(angle) * 3.2]
-    if (camera !== undefined)
-      world.set(camera, Transform, { translation: eye, rotation: lookAt(eye, [0, 0, 0]) })
     if (material && keys.has('KeyS')) {
       keys.delete('KeyS')
       seed = (seed * 1103515245 + 12345) % 1000
@@ -239,10 +234,11 @@ export const noiseDemoPlugin = definePlugin({
       ],
     )
     world.resource(AmbientLight).brightness = 800
-    camera = world.spawn(
+    world.spawn(
       [Camera3d, { fovY: 40 }],
       [Exposure, { ev100: 13 }],
-      [Transform, { translation: [0, 1, 3] }],
+      Transform,
+      orbitFrom([0, 1.1, 3.2], [0, 0, 0], { turn: 8.6 }),
     )
     void measure()
   },

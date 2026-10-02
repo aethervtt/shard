@@ -36,13 +36,12 @@ import {
 } from '@aethervtt/shard-render'
 import { type App, definePlugin, Time } from '@aethervtt/shard-runtime'
 import { loadScene, type SceneEntity, whenSceneReady } from '@aethervtt/shard-scene'
-import { lookAt, Transform } from '@aethervtt/shard-transform'
+import { Transform } from '@aethervtt/shard-transform'
 import morphUrl from '../../../packages/gltf/fixtures/khronos/AnimatedMorphCube/glTF-Binary/AnimatedMorphCube.glb?url'
 import cesiumUrl from '../../../packages/gltf/fixtures/khronos/CesiumMan/glTF-Binary/CesiumMan.glb?url'
+import { orbitFrom } from './camera'
 import { hudExtras } from './hud'
 import { memoryPlatform } from './memory'
-
-const still = new URLSearchParams(location.search).has('still')
 
 // --- clips made from the creature's rest pose --------------------------------------------------
 
@@ -231,25 +230,6 @@ const demo: DemoState = {
   note: 'loading models…',
 }
 
-const orbit = defineSystem({
-  name: 'playground/animation-orbit',
-  setup: (world) => ({ q: world.query({ with: [Camera3d, Transform] }) }),
-  run: ({ q }, world) => {
-    const t = still ? 0.5 : world.resource(Time).elapsed * 0.04 + 0.5
-    const eye: [number, number, number] = [Math.sin(t) * 19, 8.5, Math.cos(t) * 19 - 4]
-    const rotation = lookAt(eye, [0, 0.6, -5])
-    for (const table of q.tables) {
-      const tr = table.column(Transform, 'translation')
-      const rot = table.column(Transform, 'rotation')
-      for (let i = 0; i < table.count; i++) {
-        tr.set(eye, i * 3)
-        rot.set(rotation, i * 4)
-      }
-      table.markChanged(Transform)
-    }
-  },
-})
-
 /** Radar pings (clip events) flash a ring out from the tower. */
 const pings = defineSystem({
   name: 'playground/animation-pings',
@@ -288,7 +268,7 @@ export const animationDemoPlugin = definePlugin({
   name: 'animation-demo',
   dependencies: ['scene', 'animation'],
   build(app) {
-    app.addSystems(Update, orbit, pings)
+    app.addSystems(Update, pings)
   },
   async ready(app: App) {
     const world = app.world
@@ -297,10 +277,12 @@ export const animationDemoPlugin = definePlugin({
       [DirectionalLight, { illuminance: 40_000, shadows: true }],
       [Transform, { rotation: quat.fromEuler([0, 0, 0, 1], -0.95, 0.6, 0) as never }],
     )
+    // A slow turntable around the tower; `?still` holds it.
     world.spawn(
       [Camera3d, { fovY: 50, clearColor: [0.02, 0.025, 0.035, 1] }],
       [Exposure, { ev100: 13.5 }],
-      [Transform, { translation: [0, 8, 18] }],
+      Transform,
+      orbitFrom([Math.sin(0.5) * 19, 8.5, Math.cos(0.5) * 19 - 4], [0, 0.6, -5], { turn: 2.3 }),
     )
 
     // The field: 200 creatures of 60 joints, the spec's benchmark, swaying out of step.

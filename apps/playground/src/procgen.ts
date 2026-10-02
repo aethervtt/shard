@@ -18,9 +18,10 @@ import {
   Mesh3d,
   MeshMaterial,
 } from '@aethervtt/shard-render'
-import { definePlugin, Time } from '@aethervtt/shard-runtime'
+import { definePlugin } from '@aethervtt/shard-runtime'
 import { instanceEntities } from '@aethervtt/shard-scene'
-import { lookAt, Transform } from '@aethervtt/shard-transform'
+import { Transform } from '@aethervtt/shard-transform'
+import { orbitFrom } from './camera'
 import { hudExtras } from './hud'
 import { memoryPlatform } from './memory'
 import { AsteroidField, Rock } from './procgen-generators'
@@ -54,7 +55,6 @@ function checksum(bytes: Uint8Array): string {
 const files = memoryPlatform()
 const report: string[] = ['procgen: starting workers…']
 const keys = new Set<string>()
-let camera: Entity | undefined
 let field: Entity | undefined
 let seed = 7
 let roughness = 0.4
@@ -70,11 +70,6 @@ function fieldParams() {
 const controls = defineSystem({
   name: 'procgen-demo/controls',
   run: (_, world) => {
-    const t = world.resource(Time)
-    const angle = t.elapsed * 0.1
-    const eye: [number, number, number] = [Math.sin(angle) * 22, 7, Math.cos(angle) * 22]
-    if (camera !== undefined)
-      world.set(camera, Transform, { translation: eye, rotation: lookAt(eye, [0, 0, 0]) })
     // Main-thread procgen work since the last frame.
     const ms = procgenMainThreadMs()
     if (generating) worstFrame = Math.max(worstFrame, ms - lastMs)
@@ -180,10 +175,11 @@ export const procgenDemoPlugin = definePlugin({
       ],
     )
     world.resource(AmbientLight).brightness = 1200
-    camera = world.spawn(
+    world.spawn(
       [Camera3d, { fovY: 45 }],
       [Exposure, { ev100: 13 }],
-      [Transform, { translation: [0, 7, 22] }],
+      Transform,
+      orbitFrom([0, 7, 22], [0, 0, 0], { turn: 5.7 }),
     )
     void start(world).catch((err) => {
       report.length = 0

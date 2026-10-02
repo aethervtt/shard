@@ -20,7 +20,8 @@ import {
   type SceneFile,
   spawnPrefab,
 } from '@aethervtt/shard-scene'
-import { lookAt, Transform } from '@aethervtt/shard-transform'
+import { Transform } from '@aethervtt/shard-transform'
+import { orbitFrom } from './camera'
 import { hudExtras } from './hud'
 
 /** Bobs an entity up and down around `height`. */
@@ -363,7 +364,8 @@ export const prefabsDemoPlugin = definePlugin({
     world.spawn(
       [Camera3d, { fovY: 55, clearColor: [0.02, 0.025, 0.035, 1] }],
       [Exposure, { ev100: 12.5 }],
-      [Transform, { translation: eye, rotation: lookAt(eye, [0, 1, -1]) }],
+      Transform,
+      orbitFrom(eye, [0, 1, -1]),
     )
     registerPrefab(world, DRONE, drone(0))
     registerPrefab(world, HEAVY, heavy)

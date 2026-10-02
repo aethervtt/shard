@@ -20,6 +20,8 @@ import {
 import {
   describeInput,
   injectInput,
+  type SimulatedGesture,
+  simulateGestures,
   startRecording,
   startReplay,
   stopRecording,
@@ -935,6 +937,21 @@ export const METHODS: MethodDef[] = [
           path: '',
         })
       return { queued: true }
+    },
+  },
+  {
+    name: 'input.simulate',
+    description:
+      'Plays pointer gestures a step per frame, in CSS pixels, so controls and drags run headless (0060): [{ drag: { from: [x, y], to: [x, y], button, pointer, modifiers, frames, cancel } }, { pinch: { center, from, to, twist, pan, frames } }, { wheel: { at, dy, dx, modifiers } }, { tap: [x, y] }, { wait: frames }]. Needs gesturesPlugin. Returns how many frames they take.',
+    params: s('SimulateParams', {
+      gestures: t.json({ required: true, description: 'The gestures, played one after another.' }),
+    }),
+    handler: ({ world }, p) => {
+      if (!Array.isArray(p.gestures))
+        throw new ShardError('protocol/invalid-params', 'gestures must be a list', {
+          path: '/gestures',
+        })
+      return { frames: simulateGestures(world, p.gestures as SimulatedGesture[]) }
     },
   },
   {

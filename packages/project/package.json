@@ -16,6 +16,7 @@
     "@aethervtt/shard-animation": "workspace:*",
     "@aethervtt/shard-assets": "workspace:*",
     "@aethervtt/shard-audio": "workspace:*",
+    "@aethervtt/shard-controls": "workspace:*",
     "@aethervtt/shard-core": "workspace:*",
     "@aethervtt/shard-dice": "workspace:*",
     "@aethervtt/shard-fog": "workspace:*",

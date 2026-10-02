@@ -15,7 +15,8 @@ import {
 } from '@aethervtt/shard-render'
 import { definePlugin, Time } from '@aethervtt/shard-runtime'
 import { Texture, Textures, toHalf } from '@aethervtt/shard-texture'
-import { lookAt, Transform } from '@aethervtt/shard-transform'
+import { Transform } from '@aethervtt/shard-transform'
+import { orbitFrom } from './camera'
 
 /** A 2048×1024 studio environment made in code: sky gradient, a key light, two colored panels. */
 function studioTexture(width = 2048, height = 1024): Texture {
@@ -100,7 +101,8 @@ export const iblPlugin = definePlugin({
       [Exposure, { ev100: 10.5 }],
       [EnvironmentMap, { texture, intensity: 1000 }],
       Skybox,
-      [Transform, { translation: [0, 1, 6], rotation: lookAt([0, 1, 6], [0, 1, 0]) }],
+      Transform,
+      orbitFrom([0, 1, 6], [0, 1, 0]),
     )
     spheres(world)
   },
@@ -139,7 +141,8 @@ export const skyPlugin = definePlugin({
     const cam = world.spawn(
       [Camera3d, { fovY: 55 }],
       [Exposure, { ev100: 13 }],
-      [Transform, { translation: [0, 2.5, 9], rotation: lookAt([0, 2.5, 9], [0, 1.5, 0]) }],
+      Transform,
+      orbitFrom([0, 2.5, 9], [0, 1.5, 0]),
     )
     const meshes = world.resource(Meshes)
     const materials = world.resource(Materials)

@@ -67,7 +67,7 @@ export function createWebPlatform(options: WebPlatformOptions = {}): Platform {
 }
 
 export { createWebAudioBackend, type WebAudioBackend } from './audio'
-export { createDomInputSource } from './input'
+export { createDomInputSource, type DomInputOptions } from './input'
 export { createWebPerformance } from './performance'
 export { createIndexedDbStorage } from './storage'
 export { createWebWorkers } from './workers'

@@ -57,6 +57,9 @@ Every engine error is a `ShardError` with one of these codes.
 | `audio/no-plugin` | @aethervtt/shard-audio | Add "audio" to plugins in shard.json (or app.addPlugin(audioPlugin())). |
 | `audio/unknown-bus` | @aethervtt/shard-audio |  |
 | `audio/unsupported-format` | @aethervtt/shard-audio | Audio clips are WAV (PCM or float), Ogg Vorbis, Ogg Opus, MP3, or FLAC. |
+| `controls/no-controls` | @aethervtt/shard-controls | syncViews takes two cameras that each have a control. |
+| `controls/no-plugin` | @aethervtt/shard-controls | Add "controls" to plugins in shard.json (or app.addPlugin(controlsPlugin)). |
+| `controls/not-draggable` | @aethervtt/shard-controls | PlaneDrag moves an entity by its Transform. |
 | `core/owner-invalid` | @aethervtt/shard-core | An Owner is a grant from host code; it cannot be constructed or copied. |
 | `core/owner-not-authorable` | @aethervtt/shard-core | Ownership is a grant from host code: spawn with world.owners.spawn(owner, ...) or world.owners.adopt(owner, entity). |
 | `core/owner-quota` | @aethervtt/shard-core |  |
@@ -114,6 +117,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `ik/unknown-joint` | @aethervtt/shard-animation | Joint fields are paths under the IK entity or an ancestor (the model root): "Armature/Hips/UpLeg_L". animation_describe on the model lists what bound. |
 | `input/unknown-action` | @aethervtt/shard-input | Use "<map name>.<action>", e.g. "game/Controls.jump". |
 | `input/unknown-binding` | @aethervtt/shard-input | Use Gamepad:LeftStick, Gamepad:RightStick, { composite: "wasd" \| "arrows" }, or { up, down, left, right }. |
+| `input/unknown-gesture` | @aethervtt/shard-input | Simulate { drag }, { pinch }, { wheel }, { tap } or { wait }. |
 | `locale/bad-locale` | @aethervtt/shard-text | Name tables by BCP 47 tag: locales/en.strings.json, locales/pt-BR.strings.json (or hud.pt-BR.strings.json). |
 | `locale/bad-plural` | @aethervtt/shard-text | "other" is the form every locale falls back to. |
 | `locale/invalid-table` | @aethervtt/shard-text | Map keys to strings: { "hud.fuel": "Fuel: {amount}%" }. |

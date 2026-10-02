@@ -1,11 +1,12 @@
 import { animationPlugin } from '@aethervtt/shard-animation'
 // Also registers the audio importer and the AudioClip asset type for every project host.
 import { audioPlugin } from '@aethervtt/shard-audio'
+import { controlsPlugin } from '@aethervtt/shard-controls'
 // Also registers the dice data types (skins, layouts, recipes, definitions) for every project host.
 import { dicePlugin } from '@aethervtt/shard-dice'
 import { gltfPlugin } from '@aethervtt/shard-gltf'
 import type { BakedTranslations, GpuContext } from '@aethervtt/shard-gpu'
-import { inputPlugin } from '@aethervtt/shard-input'
+import { gesturesPlugin, inputPlugin } from '@aethervtt/shard-input'
 // Also registers the navgrid importer and the NavGridData asset type for every project host.
 import { loadNavCache, Nav, navGridPlugin, navPlugin } from '@aethervtt/shard-nav'
 // Also registers the noise importer and the NoiseGraph asset type for every project host.
@@ -63,6 +64,11 @@ export function buildApp(options: BuildAppOptions): App {
     names.has('dice')
   )
     names.add('render/forward')
+  if (names.has('controls')) {
+    names.add('gestures')
+    names.add('render/forward')
+  }
+  if (names.has('gestures')) names.add('input')
   if (names.has('render/forward')) {
     names.add('render')
     names.add('core/transform')
@@ -104,6 +110,8 @@ export function buildApp(options: BuildAppOptions): App {
   if (names.has('physics3d')) app.addPlugin(physics3dPlugin())
   if (names.has('physics2d')) app.addPlugin(physics2dPlugin())
   if (names.has('input')) app.addPlugin(inputPlugin({ source: options.inputSource }))
+  if (names.has('gestures')) app.addPlugin(gesturesPlugin)
+  if (names.has('controls')) app.addPlugin(controlsPlugin)
   if (names.has('audio')) app.addPlugin(audioPlugin({ backend: options.audio }))
   if (names.has('ui')) app.addPlugin(uiPlugin)
   if (names.has('nav')) app.addPlugin(navPlugin)
