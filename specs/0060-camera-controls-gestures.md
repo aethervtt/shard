@@ -1,6 +1,6 @@
 # 0060 — Camera controls, gestures, and object drag
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@aethervtt/shard-controls` (new), `@aethervtt/shard-input`, `@aethervtt/shard-platform`, `@aethervtt/shard-platform-web`
 - **Depends on:** 0008, 0027, 0057
 
@@ -183,18 +183,18 @@ today. The camera defaults to the active one drawn first.
 
 All driven headless through simulated input:
 
-- [ ] Wheel zoom and pinch keep the world point under the cursor within 0.5 CSS px, in both
+- [x] Wheel zoom and pinch keep the world point under the cursor within 0.5 CSS px, in both
       controls.
-- [ ] Panning keeps the grabbed floor point under the pointer within 0.5 CSS px over a 400 px drag.
-- [ ] A 3 px pointer move is a tap; a 5 px move is a drag.
-- [ ] A drag on an inactive camera's controls moves nothing, and switching `active` leaves both
+- [x] Panning keeps the grabbed floor point under the pointer within 0.5 CSS px over a 400 px drag.
+- [x] A 3 px pointer move is a tap; a 5 px move is a drag.
+- [x] A drag on an inactive camera's controls moves nothing, and switching `active` leaves both
       cameras' controls unchanged.
-- [ ] `syncViews` from Map to Tabletop keeps `target`, and the visible floor width within 10%.
-- [ ] `PlaneDrag` with a grid snap ends on cell centers. Escape mid-drag restores the start
+- [x] `syncViews` from Map to Tabletop keeps `target`, and the visible floor width within 10%.
+- [x] `PlaneDrag` with a grid snap ends on cell centers. Escape mid-drag restores the start
       transform and emits `DragEnded { cancelled: true }`.
-- [ ] A pointer down on empty space with no claiming consumer is not `preventDefault`ed. A claimed
+- [x] A pointer down on empty space with no claiming consumer is not `preventDefault`ed. A claimed
       drag is, and it keeps receiving moves outside the canvas.
-- [ ] Pitch stays within `[minPitch, maxPitch]`, and zoom within its limits, under any input
+- [x] Pitch stays within `[minPitch, maxPitch]`, and zoom within its limits, under any input
       sequence (property test).
 
 ## Open questions
