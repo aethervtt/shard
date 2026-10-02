@@ -1,4 +1,5 @@
 import { defineSystem, type Entity, mat4, Update, type World } from '@aethervtt/shard-core'
+import { allocationChecks, gcWindow } from '@aethervtt/shard-core/test-env'
 import {
   Gesture,
   type GestureEvent,
@@ -323,6 +324,21 @@ describe('controls (0060)', () => {
     expect(demand.isHeld('controls')).toBe(true)
     const described = describeControls(world)
     expect(described.controls[0]).toMatchObject({ kind: 'orbit', active: true, moving: true })
+  })
+})
+
+describe('controls frames', () => {
+  it('turn a turntable and hold still cameras without allocating', async () => {
+    const { world, frame } = await setup()
+    orbitCamera(world, { autoRotate: 12, smoothing: 0.2 })
+    mapCamera(world)
+    orbitCamera(world, {}, false)
+    for (let i = 0; i < 2000; i++) frame() // let V8 optimize
+    ;(globalThis as { gc?: () => void }).gc?.()
+    const gcs = gcWindow()
+    for (let i = 0; i < 20_000; i++) frame()
+    const collections = await gcs.end()
+    if (allocationChecks) expect(collections).toBe(0)
   })
 })
 

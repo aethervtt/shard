@@ -135,7 +135,7 @@ async function mountTable(): Promise<App> {
     renderPlugin({ gpu, surface: gpu.addSurface(tableCanvas), owner: 'table' }),
     forwardPlugin(),
     // Pointer and keyboard input wake it: hover the table and its frame count moves.
-    inputPlugin({ source: createDomInputSource(tableCanvas) }),
+    inputPlugin({ source: createDomInputSource(tableCanvas, { contextMenu: 'pass' }) }),
   )
   await app.init()
   const w = app.world

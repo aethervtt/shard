@@ -22,6 +22,15 @@ function kindOf(e: PointerEvent): PointerKind {
   return e.pointerType === 'touch' ? 'touch' : e.pointerType === 'pen' ? 'pen' : 'mouse'
 }
 
+export interface DomInputOptions {
+  /**
+   * The element's context menu. 'block' (default): never shown, for a game that owns its page.
+   * 'pass': shown unless a control drags with the right button, for a host with menus of its own
+   * (0060).
+   */
+  contextMenu?: 'block' | 'pass'
+}
+
 /**
  * DOM input: pointer and wheel events on `element` (positions in its backing pixels, and in CSS
  * pixels for `pointer` events), keys and focus on the window, gamepads polled on drain. Works in
@@ -29,9 +38,13 @@ function kindOf(e: PointerEvent): PointerKind {
  *
  * Events pass through to the page unless the scene takes them (0060): a press with a button an
  * enabled control drags with, a claimed pointer's later events, and the wheel while a control
- * zooms with it are `preventDefault`ed; nothing else is.
+ * zooms with it are `preventDefault`ed; so is the context menu, unless `contextMenu` is 'pass'.
  */
-export function createDomInputSource(element: HTMLElement): InputSource {
+export function createDomInputSource(
+  element: HTMLElement,
+  options: DomInputOptions = {},
+): InputSource {
+  const blockMenu = (options.contextMenu ?? 'block') === 'block'
   const events: RawInputEvent[] = []
   const listeners = new Set<() => void>()
   // Every event goes through here, so on-demand apps hear about it (0052).
@@ -153,9 +166,9 @@ export function createDomInputSource(element: HTMLElement): InputSource {
   }
   const onBlur = () => queue.push({ type: 'focus', focused: false })
   const onFocus = () => queue.push({ type: 'focus', focused: true })
-  // The page's context menu stays unless a control drags with the right button.
+  // With 'pass', the page's context menu stays unless a control drags with the right button.
   const onContextMenu = (e: Event) => {
-    if (policy.buttons.includes('right')) e.preventDefault()
+    if (blockMenu || policy.buttons.includes('right')) e.preventDefault()
   }
 
   target.addEventListener('keydown', onKeyDown)

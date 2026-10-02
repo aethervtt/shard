@@ -143,6 +143,8 @@ export class GesturesState {
   /** @internal */ nextId = 1
   /** @internal */ readonly policies = new Map<string, PolicyPart>()
   /** @internal */ policyKey = ''
+  /** @internal A policy changed since the source last heard. */
+  policyDirty = false
   /** @internal */ world: World | undefined = undefined
   /** @internal Cancels the next frame applies (`cancel()` between frames). */
   cancelRequested = false
@@ -238,7 +240,8 @@ export class GesturesState {
    */
   setPolicy(owner: string, policy: PointerPolicy | undefined): void {
     if (policy) this.policies.set(owner, policy)
-    else this.policies.delete(owner)
+    else if (!this.policies.delete(owner)) return
+    this.policyDirty = true
   }
 
   /** Active pointers, gestures and claims. For agents. */
@@ -558,7 +561,7 @@ export const updateGestures = defineSystem({
   run: (_, world) => {
     const s = world.resource(Gestures)
     // Claims of gestures that ended last frame: their consumers have seen the end.
-    for (const [id, c] of s.claims) if (c.ended) s.claims.delete(id)
+    if (s.claims.size > 0) for (const [id, c] of s.claims) if (c.ended) s.claims.delete(id)
     const now = world.resource(Time).elapsed * 1000
     const actions = world.tryResource(GestureActions.resource) as ActionState<'cancel'> | undefined
     if (s.cancelRequested) {
@@ -573,21 +576,23 @@ export const updateGestures = defineSystem({
     if (actions?.justPressed('cancel')) cancelAll(world, s)
     // Long presses, and a frame to fire the next one on (0052).
     let soonest = Number.POSITIVE_INFINITY
-    for (const t of s.tracks.values()) {
-      if (t.state !== 'pending') continue
-      const left = t.downAt + s.settings.longPressMs - now
-      if (left <= 0) {
-        t.state = 'pressed'
-        send(world, 'long-press', t.gesture, t, t.x, t.y, t.startX, t.startY, 0, 0)
-      } else if (left < soonest) soonest = left
-    }
+    if (s.tracks.size > 0)
+      for (const t of s.tracks.values()) {
+        if (t.state !== 'pending') continue
+        const left = t.downAt + s.settings.longPressMs - now
+        if (left <= 0) {
+          t.state = 'pressed'
+          send(world, 'long-press', t.gesture, t, t.x, t.y, t.startX, t.startY, 0, 0)
+        } else if (left < soonest) soonest = left
+      }
     if (soonest !== Number.POSITIVE_INFINITY) world.resource(FrameDemand).after(soonest)
     syncPolicy(world, s)
   },
 })
 
 function syncPolicy(world: World, s: GesturesState): void {
-  if (s.policies.size === 0 && s.policyKey === '') return
+  if (!s.policyDirty) return
+  s.policyDirty = false
   const policy = union(s.policies)
   const key = `${policy.buttons.join(',')}|${policy.wheel}|${policy.touch}`
   if (key === s.policyKey) return

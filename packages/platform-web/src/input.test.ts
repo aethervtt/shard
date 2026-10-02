@@ -54,9 +54,9 @@ afterEach(() => {
   ;(globalThis as Record<string, unknown>).HTMLCanvasElement = saved.canvas
 })
 
-function setup() {
+function setup(contextMenu: 'block' | 'pass' = 'pass') {
   const element = new FakeElement()
-  const source = createDomInputSource(element as unknown as HTMLElement)
+  const source = createDomInputSource(element as unknown as HTMLElement, { contextMenu })
   const drain = () => {
     const out: RawInputEvent[] = []
     source.drain(out)
@@ -133,6 +133,13 @@ describe('createDomInputSource (0060)', () => {
     const next = pointerEvent('pointermove', { pointerId: 7 })
     element.dispatchEvent(next)
     expect(next.defaultPrevented).toBe(false)
+  })
+
+  it('blocks the context menu by default, for a game that owns its page', () => {
+    const { element } = setup('block')
+    const menu = new Event('contextmenu', { cancelable: true })
+    element.dispatchEvent(menu)
+    expect(menu.defaultPrevented).toBe(true)
   })
 
   it('takes what an enabled control drags with, and only while it is enabled', () => {
