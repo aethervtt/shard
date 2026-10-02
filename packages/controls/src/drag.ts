@@ -140,7 +140,10 @@ export class PlaneDragState {
    */
   begin(options: PlaneDragOptions): boolean {
     const world = this.world
-    if (!world) throw new ShardError('controls/no-plugin', 'PlaneDrag needs controlsPlugin')
+    if (!world)
+      throw new ShardError('controls/no-plugin', 'PlaneDrag needs controlsPlugin', {
+        hint: 'Add "controls" to plugins in shard.json (or app.addPlugin(controlsPlugin)).',
+      })
     const id = typeof options.gesture === 'number' ? options.gesture : options.gesture.id
     const gestures = world.resource(Gestures)
     if (!gestures.live(id)) return false

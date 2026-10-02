@@ -21,7 +21,8 @@ import {
   Vignette,
 } from '@aethervtt/shard-render'
 import { definePlugin, Time } from '@aethervtt/shard-runtime'
-import { lookAt, Transform } from '@aethervtt/shard-transform'
+import { Transform } from '@aethervtt/shard-transform'
+import { orbitFrom } from './camera'
 
 const Spin = defineComponent('playground/Spin', { radius: t.f32, speed: t.f32, height: t.f32 })
 
@@ -94,7 +95,8 @@ export const postPlugin = definePlugin({
     world.spawn(
       [Camera3d, { fovY: 50 }],
       [PhysicalCamera, { aperture: 5.6, shutterSpeed: 1 / 1000, iso: 100 }],
-      [Transform, { translation: eye, rotation: lookAt(eye, [0, 1.2, -2]) }],
+      Transform,
+      orbitFrom(eye, [0, 1.2, -2]),
       ...(effects as unknown as []),
     )
     const meshes = world.resource(Meshes)

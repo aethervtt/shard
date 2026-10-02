@@ -76,29 +76,24 @@ export function orbitView(
   return out
 }
 
-/** An orthographic camera `elevation` above `target`, looking straight down, screen-up -Z. */
+/**
+ * An orthographic camera `elevation` from `target`. On the 'xz' floor it looks down at `pitch`
+ * degrees (90: straight down, screen-up -Z; less: from the south, so wall faces show). On the 'xy'
+ * plane (2D) it looks straight along -Z, screen-up +Y.
+ */
 export function mapView(
   out: ViewBasis,
   target: ArrayLike<number>,
   elevation: number,
+  pitch: number,
   orthoHeight: number,
   aspect: number,
+  plane: 'xz' | 'xy' = 'xz',
 ): ViewBasis {
-  out.eye[0] = target[0]!
-  out.eye[1] = target[1]! + elevation
-  out.eye[2] = target[2]!
-  out.forward[0] = 0
-  out.forward[1] = -1
-  out.forward[2] = 0
-  out.right[0] = 1
-  out.right[1] = 0
-  out.right[2] = 0
-  out.up[0] = 0
-  out.up[1] = 0
-  out.up[2] = -1
+  // The orbit camera's basis at yaw 0: from +Z (south) at `pitch`, or square on for 2D.
+  orbitView(out, target, elevation, 0, plane === 'xy' ? 0 : pitch, 60, aspect)
   out.orthographic = true
   out.half = orthoHeight / 2
-  out.aspect = aspect
   return out
 }
 
@@ -170,8 +165,9 @@ const origin = new Float64Array(3)
 const dir = new Float64Array(3)
 
 /**
- * Where the ray under CSS pixel (x, y) meets the plane `y = planeY`. False when it doesn't (it
- * runs parallel, the plane is behind the camera, or the hit is past `maxDistance`).
+ * Where the ray under CSS pixel (x, y) meets the plane `y = level` (`axis` 1, a floor) or
+ * `z = level` (`axis` 2, a 2D world). False when it doesn't: it runs parallel, the plane is behind
+ * the camera, or the hit is past `maxDistance`.
  */
 export function viewToPlane(
   v: ViewBasis,
@@ -179,18 +175,20 @@ export function viewToPlane(
   y: number,
   width: number,
   height: number,
-  planeY: number,
+  level: number,
   out: Vec,
   maxDistance = Number.POSITIVE_INFINITY,
+  axis: 1 | 2 = 1,
 ): boolean {
   viewRay(v, x, y, width, height, origin, dir)
-  const dy = dir[1]!
-  if (Math.abs(dy) < 1e-9) return false
-  const t = (planeY - origin[1]!) / dy
+  const d = dir[axis]!
+  if (Math.abs(d) < 1e-9) return false
+  const t = (level - origin[axis]!) / d
   if (t < 0 || t > maxDistance) return false
   out[0] = origin[0]! + dir[0]! * t
-  out[1] = planeY
+  out[1] = origin[1]! + dir[1]! * t
   out[2] = origin[2]! + dir[2]! * t
+  out[axis] = level
   return true
 }
 

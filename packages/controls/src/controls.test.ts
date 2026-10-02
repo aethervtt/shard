@@ -81,7 +81,13 @@ function toScreen(world: World, camera: Entity, p: ArrayLike<number>): [number, 
   return [((x / w) * 0.5 + 0.5) * W, (0.5 - (y / w) * 0.5) * H]
 }
 
-function floorUnder(world: World, camera: Entity, x: number, y: number): [number, number, number] {
+function floorUnder(
+  world: World,
+  camera: Entity,
+  x: number,
+  y: number,
+  axis: 1 | 2 = 1,
+): [number, number, number] {
   const inv = mat4.invert(mat4.create(), viewProj(world, camera))!
   const nx = (x / W) * 2 - 1
   const ny = 1 - (y / H) * 2
@@ -93,28 +99,41 @@ function floorUnder(world: World, camera: Entity, x: number, y: number): [number
   }
   const a = at(1)
   const b = at(0.5)
-  const t = -a[1]! / (b[1]! - a[1]!)
-  return [a[0]! + (b[0]! - a[0]!) * t, 0, a[2]! + (b[2]! - a[2]!) * t]
+  const t = -a[axis]! / (b[axis]! - a[axis]!)
+  const p = [0, 1, 2].map((k) => a[k]! + (b[k]! - a[k]!) * t) as [number, number, number]
+  p[axis] = 0
+  return p
 }
 
 function distance(a: ArrayLike<number>, b: ArrayLike<number>): number {
   return Math.sqrt((a[0]! - b[0]!) ** 2 + (a[1]! - b[1]!) ** 2)
 }
 
+// The orbit camera, the map looking down, the map tilted as Aether's is, and a 2D world's.
+const KINDS = ['orbit', 'map', 'map-tilted', 'map-2d'] as const
+
+function spawnKind(world: World, kind: (typeof KINDS)[number]): Entity {
+  if (kind === 'orbit') return orbitCamera(world)
+  if (kind === 'map') return mapCamera(world)
+  if (kind === 'map-tilted') return mapCamera(world, { pitch: 70 })
+  return mapCamera(world, { plane: 'xy', target: [3, 4, 0] })
+}
+
 describe('controls (0060)', () => {
-  for (const kind of ['orbit', 'map'] as const) {
+  for (const kind of KINDS) {
+    const axis = kind === 'map-2d' ? 2 : 1
     it(`${kind}: wheel zoom and pinch keep the floor point under the cursor within 0.5 px`, async () => {
       const { world, frame, play } = await setup()
-      const camera = kind === 'orbit' ? orbitCamera(world) : mapCamera(world)
+      const camera = spawnKind(world, kind)
       frame()
       const cursor: [number, number] = [780, 410]
-      const p = floorUnder(world, camera, ...cursor)
+      const p = floorUnder(world, camera, ...cursor, axis)
       for (const dy of [100, 100, -300, 40, -120]) {
         play([{ wheel: { at: cursor, dy } }])
         expect(distance(toScreen(world, camera, p), cursor)).toBeLessThan(0.5)
       }
       const center: [number, number] = [300, 220]
-      const q = floorUnder(world, camera, ...center)
+      const q = floorUnder(world, camera, ...center, axis)
       play([{ pinch: { center, from: 120, to: 260, frames: 8 } }])
       expect(distance(toScreen(world, camera, q), center)).toBeLessThan(0.5)
       play([{ pinch: { center, from: 300, to: 90, frames: 8 } }])
@@ -126,11 +145,11 @@ describe('controls (0060)', () => {
 
     it(`${kind}: panning keeps the grabbed floor point under the pointer over a 400 px drag`, async () => {
       const { world, frame, play } = await setup()
-      const camera = kind === 'orbit' ? orbitCamera(world) : mapCamera(world)
+      const camera = spawnKind(world, kind)
       frame()
       const from: [number, number] = [300, 350]
       const to: [number, number] = [620, 110] // 400 px
-      const grabbed = floorUnder(world, camera, ...from)
+      const grabbed = floorUnder(world, camera, ...from, axis)
       const steps = 20
       let step = -1
       play([{ drag: { from, to, button: 'middle', frames: steps } }], () => {
@@ -144,8 +163,8 @@ describe('controls (0060)', () => {
       })
       expect(distance(toScreen(world, camera, grabbed), to)).toBeLessThan(0.5)
       // A left drag on empty floor pans too (nothing else claimed it).
-      const left = floorUnder(world, camera, 500, 300)
-      if (kind === 'map') {
+      const left = floorUnder(world, camera, 500, 300, axis)
+      if (kind !== 'orbit') {
         play([{ drag: { from: [500, 300], to: [400, 250] } }])
         expect(distance(toScreen(world, camera, left), [400, 250])).toBeLessThan(0.5)
       }

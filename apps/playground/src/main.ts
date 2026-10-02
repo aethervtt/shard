@@ -1,10 +1,11 @@
 import { animationPlugin } from '@aethervtt/shard-animation'
 import { audioPlugin } from '@aethervtt/shard-audio'
+import { controlsPlugin } from '@aethervtt/shard-controls'
 import { ShardError } from '@aethervtt/shard-core'
 import { fogPlugin } from '@aethervtt/shard-fog'
 import { gltfPlugin } from '@aethervtt/shard-gltf'
 import { gridPlugin } from '@aethervtt/shard-grid'
-import { inputPlugin } from '@aethervtt/shard-input'
+import { gesturesPlugin, inputPlugin } from '@aethervtt/shard-input'
 import { navGridPlugin, navPlugin } from '@aethervtt/shard-nav'
 import { particlesPlugin } from '@aethervtt/shard-particles'
 import { physics2dPlugin, physics3dPlugin } from '@aethervtt/shard-physics'
@@ -60,6 +61,16 @@ const hud = document.getElementById('hud') as HTMLElement
 const demo = DEMOS.find((d) => location.hash === `#${d}`) ?? 'scene'
 document.body.dataset.demo = demo
 
+/**
+ * Camera controls (0060): pointer input on the canvas, gestures, and Orbit and Map controls, which
+ * demos put on their cameras. Demos that already add the input plugin pass false.
+ */
+const controls = (input = true) => [
+  ...(input ? [inputPlugin({ source: createDomInputSource(canvas) })] : []),
+  gesturesPlugin,
+  controlsPlugin,
+]
+
 applyResolution(canvas)
 addBackendSelect(document.getElementById('panel') as HTMLElement)
 const app = new App().addPlugin(
@@ -75,31 +86,52 @@ if (demo === 'galaxy') {
     })
   }
 } else if (demo === 'lights') {
-  app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, lightsPlugin)
+  app.addPlugin(TransformPlugin, forwardPlugin(), ...controls(), hudPlugin, lightsPlugin)
 } else if (demo === 'ibl') {
-  app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, iblPlugin)
+  app.addPlugin(TransformPlugin, forwardPlugin(), ...controls(), hudPlugin, iblPlugin)
 } else if (demo === 'deferred') {
-  app.addPlugin(TransformPlugin, forwardPlugin({ msaa: 1 }), hudPlugin, deferredPlugin)
+  app.addPlugin(
+    TransformPlugin,
+    forwardPlugin({ msaa: 1 }),
+    ...controls(),
+    hudPlugin,
+    deferredPlugin,
+  )
 } else if (demo === 'crowd') {
-  app.addPlugin(TransformPlugin, forwardPlugin({ msaa: 1 }), hudPlugin, crowdPlugin)
+  app.addPlugin(TransformPlugin, forwardPlugin({ msaa: 1 }), ...controls(), hudPlugin, crowdPlugin)
 } else if (demo === 'post') {
-  app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, postPlugin)
+  app.addPlugin(TransformPlugin, forwardPlugin(), ...controls(), hudPlugin, postPlugin)
 } else if (demo === 'lens') {
   app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, lensDemoPlugin)
 } else if (demo === 'sprites') {
   app.addPlugin(TransformPlugin, forwardPlugin({ msaa: 1 }), spritePlugin, hudPlugin, spritesPlugin)
 } else if (demo === 'particles') {
-  app.addPlugin(TransformPlugin, forwardPlugin(), particlesPlugin, hudPlugin, particlesDemoPlugin)
+  app.addPlugin(
+    TransformPlugin,
+    forwardPlugin(),
+    particlesPlugin,
+    ...controls(),
+    hudPlugin,
+    particlesDemoPlugin,
+  )
 } else if (demo === 'physics' || demo === 'planet') {
   app.addPlugin(
     TransformPlugin,
     forwardPlugin(),
     physics3dPlugin(),
+    ...controls(),
     hudPlugin,
     demo === 'physics' ? physicsDemoPlugin : planetDemoPlugin,
   )
 } else if (demo === 'physics2d') {
-  app.addPlugin(TransformPlugin, forwardPlugin(), physics2dPlugin(), hudPlugin, physics2dDemoPlugin)
+  app.addPlugin(
+    TransformPlugin,
+    forwardPlugin(),
+    physics2dPlugin(),
+    ...controls(),
+    hudPlugin,
+    physics2dDemoPlugin,
+  )
 } else if (demo === 'character' || demo === 'character-planet') {
   app.addPlugin(
     TransformPlugin,
@@ -117,9 +149,23 @@ if (demo === 'galaxy') {
     character2dDemoPlugin,
   )
 } else if (demo === 'prefabs') {
-  app.addPlugin(TransformPlugin, forwardPlugin(), ScenePlugin, hudPlugin, prefabsDemoPlugin)
+  app.addPlugin(
+    TransformPlugin,
+    forwardPlugin(),
+    ScenePlugin,
+    ...controls(),
+    hudPlugin,
+    prefabsDemoPlugin,
+  )
 } else if (demo === 'data') {
-  app.addPlugin(TransformPlugin, forwardPlugin(), ScenePlugin, hudPlugin, dataDemoPlugin)
+  app.addPlugin(
+    TransformPlugin,
+    forwardPlugin(),
+    ScenePlugin,
+    ...controls(),
+    hudPlugin,
+    dataDemoPlugin,
+  )
 } else if (demo === 'animation') {
   app.addPlugin(
     TransformPlugin,
@@ -127,6 +173,7 @@ if (demo === 'galaxy') {
     ScenePlugin,
     gltfPlugin,
     animationPlugin,
+    ...controls(),
     hudPlugin,
     animationDemoPlugin,
   )
@@ -136,6 +183,7 @@ if (demo === 'galaxy') {
     forwardPlugin(),
     ScenePlugin,
     animationPlugin,
+    ...controls(),
     hudPlugin,
     animgraphDemoPlugin,
   )
@@ -164,6 +212,7 @@ if (demo === 'galaxy') {
     forwardPlugin(),
     ScenePlugin,
     inputPlugin({ source: createDomInputSource(canvas) }),
+    ...controls(false),
     uiPlugin,
     hudPlugin,
     uiDemoPlugin,
@@ -174,6 +223,7 @@ if (demo === 'galaxy') {
     forwardPlugin(),
     physics3dPlugin(),
     navPlugin,
+    ...controls(),
     hudPlugin,
     navDemoPlugin,
   )
@@ -204,9 +254,23 @@ if (demo === 'galaxy') {
 } else if (demo === 'grids') {
   app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, gridsDemoPlugin)
 } else if (demo === 'noise') {
-  app.addPlugin(TransformPlugin, forwardPlugin(), materialNoisePlugin, hudPlugin, noiseDemoPlugin)
+  app.addPlugin(
+    TransformPlugin,
+    forwardPlugin(),
+    materialNoisePlugin,
+    ...controls(),
+    hudPlugin,
+    noiseDemoPlugin,
+  )
 } else if (demo === 'procgen') {
-  app.addPlugin(TransformPlugin, forwardPlugin(), ScenePlugin, hudPlugin, procgenDemoPlugin)
+  app.addPlugin(
+    TransformPlugin,
+    forwardPlugin(),
+    ScenePlugin,
+    ...controls(),
+    hudPlugin,
+    procgenDemoPlugin,
+  )
 } else if (demo === 'terrain') {
   app.addPlugin(TransformPlugin, forwardPlugin(), terrainPlugin(), hudPlugin, terrainDemoPlugin)
 } else if (demo === 'atmosphere') {
@@ -219,13 +283,14 @@ if (demo === 'galaxy') {
     gridPlugin,
     vectorPlugin,
     fogPlugin,
+    ...controls(),
     hudPlugin,
     tabletopDemoPlugin,
   )
 } else if (demo === 'sky') {
-  app.addPlugin(TransformPlugin, forwardPlugin(), hudPlugin, skyPlugin)
+  app.addPlugin(TransformPlugin, forwardPlugin(), ...controls(), hudPlugin, skyPlugin)
 } else {
-  app.addPlugin(TransformPlugin, forwardPlugin(), scenePlugin)
+  app.addPlugin(TransformPlugin, forwardPlugin(), ...controls(), scenePlugin)
 }
 app.addPlugin(fpsGraphPlugin)
 app.setRunner(animationFrameRunner())

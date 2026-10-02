@@ -76,6 +76,9 @@ interface Goal {
   height: number
   elevation: number
   fovY: number
+  /** The floor's normal axis (1: the xz floor, 2: the xy plane of 2D) and the map's tilt. */
+  axis: 1 | 2
+  mapPitch: number
   bounded: boolean
   boundsMin0: number
   boundsMin1: number
@@ -95,6 +98,8 @@ const goal: Goal = {
   height: 1,
   elevation: 1,
   fovY: 60,
+  axis: 1,
+  mapPitch: 90,
   bounded: false,
   boundsMin0: 0,
   boundsMin1: 0,
@@ -133,7 +138,8 @@ function clampGoal(kind: Kind, g: Goal): void {
   if (g.bounded) {
     const t = g.target
     t[0] = Math.min(Math.max(t[0]!, g.boundsMin0), Math.max(g.boundsMin0, g.boundsMax0))
-    t[2] = Math.min(Math.max(t[2]!, g.boundsMin1), Math.max(g.boundsMin1, g.boundsMax1))
+    const b = g.axis === 1 ? 2 : 1
+    t[b] = Math.min(Math.max(t[b]!, g.boundsMin1), Math.max(g.boundsMin1, g.boundsMax1))
   }
 }
 
@@ -141,7 +147,11 @@ function clampGoal(kind: Kind, g: Goal): void {
 function goalView(kind: Kind, g: Goal, aspect: number): ViewBasis {
   return kind === 'orbit'
     ? orbitView(view, g.target, g.scale, g.yaw, g.pitch, g.fovY, aspect)
-    : mapView(view, g.target, g.elevation, g.height / g.scale, aspect)
+    : mapView(view, g.target, g.elevation, g.mapPitch, g.height / g.scale, aspect, planeOf(g))
+}
+
+function planeOf(g: Goal): 'xz' | 'xy' {
+  return g.axis === 1 ? 'xz' : 'xy'
 }
 
 function viewSize(kind: Kind, g: Goal): number {
@@ -160,8 +170,9 @@ function zoomAt(kind: Kind, g: Goal, x: number, y: number, factor: number): void
   // Scaling the camera about the hit keeps the hit on the same ray, so under the same pixel.
   const k = kind === 'orbit' ? g.scale / before : before / g.scale
   const t = g.target
+  const b = g.axis === 1 ? 2 : 1
   t[0] = hitA[0]! + (t[0]! - hitA[0]!) * k
-  t[2] = hitA[2]! + (t[2]! - hitA[2]!) * k
+  t[b] = hitA[b]! + (t[b]! - hitA[b]!) * k
   clampGoal(kind, g)
 }
 
@@ -169,9 +180,11 @@ function zoomAt(kind: Kind, g: Goal, x: number, y: number, factor: number): void
 function panTo(kind: Kind, g: Goal, grab: Float64Array, x: number, y: number): void {
   const v = goalView(kind, g, viewport[0] / viewport[1])
   const max = MAX_HIT * viewSize(kind, g)
-  if (!viewToPlane(v, x, y, viewport[0], viewport[1], g.target[1]!, hitB, max)) return
+  const a = g.axis
+  if (!viewToPlane(v, x, y, viewport[0], viewport[1], g.target[a]!, hitB, max, a)) return
+  const b = a === 1 ? 2 : 1
   g.target[0] = g.target[0]! + grab[0]! - hitB[0]!
-  g.target[2] = g.target[2]! + grab[2]! - hitB[2]!
+  g.target[b] = g.target[b]! + grab[b]! - hitB[b]!
   clampGoal(kind, g)
 }
 
@@ -184,9 +197,10 @@ function grabAt(kind: Kind, g: Goal, x: number, y: number, out: Float64Array): b
     y,
     viewport[0],
     viewport[1],
-    g.target[1]!,
+    g.target[g.axis]!,
     out,
     MAX_HIT * viewSize(kind, g),
+    g.axis,
   )
 }
 
@@ -354,7 +368,15 @@ function writeCamera(table: Table, row: number, kind: Kind, live: ControlLive, g
   const v =
     kind === 'orbit'
       ? orbitView(view, live.target, live.scale, live.yaw, live.pitch, g.fovY, aspect)
-      : mapView(view, live.target, g.elevation, g.height / live.scale, aspect)
+      : mapView(
+          view,
+          live.target,
+          g.elevation,
+          g.mapPitch,
+          g.height / live.scale,
+          aspect,
+          planeOf(g),
+        )
   back[0] = -v.forward[0]!
   back[1] = -v.forward[1]!
   back[2] = -v.forward[2]!
@@ -435,6 +457,8 @@ function run(
   const height = o ? undefined : table.column(MapControls, 'height')
   const elevation = o ? undefined : table.column(MapControls, 'elevation')
   const bounded = o ? undefined : table.column(MapControls, 'bounded')
+  const mapPitch = o ? undefined : table.column(MapControls, 'pitch')
+  const plane = o ? undefined : table.column(MapControls, 'plane')
   const boundsMin = o ? undefined : table.column(MapControls, 'boundsMin')
   const boundsMax = o ? undefined : table.column(MapControls, 'boundsMax')
   let moving = false
@@ -455,6 +479,8 @@ function run(
     goal.height = o ? 1 : height![i]!
     goal.elevation = o ? 1 : elevation![i]!
     goal.bounded = o ? false : bounded![i] !== 0
+    goal.axis = o || plane![i] === 0 ? 1 : 2
+    goal.mapPitch = o ? 90 : mapPitch![i]!
     goal.boundsMin0 = o ? 0 : boundsMin![i * 2]!
     goal.boundsMin1 = o ? 0 : boundsMin![i * 2 + 1]!
     goal.boundsMax0 = o ? 0 : boundsMax![i * 2]!

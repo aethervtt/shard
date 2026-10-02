@@ -172,6 +172,56 @@ Brings along: `core/Transform`.
 | `priority` | integer | `128` | ≥ 0, ≤ 255 | Over the voice limit, lower priorities lose their voice first (0-255). |
 | `startTime` | number | `0` | ≥ 0, s | Where in the clip playback starts. |
 
+## `controls/MapControls`
+
+Pan (middle drag, or left drag on empty floor) and zoom to the cursor (wheel, pinch) on an orthographic camera over a floor, or a 2D world.
+
+Brings along: `render/Camera3d`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `target` | number[3] | `[0,0,0]` | m | The floor point at the center of the view. |
+| `zoom` | number | `1` | ≥ 0.0001 | The view is `height / zoom` tall. |
+| `minZoom` | number | `0.1` | ≥ 0.0001 |  |
+| `maxZoom` | number | `8` | ≥ 0.0001 |  |
+| `height` | number | `20` | ≥ 0.0001, m | The view's height at zoom 1 (Camera3d.orthoHeight = height / zoom). |
+| `elevation` | number | `50` | ≥ 0.0001, m | How far from the target the camera sits, along its view: keep it inside near..far. |
+| `pitch` | number | `90` | ≥ 1, ≤ 90, deg | Tilt on the xz floor: 90 looks straight down (screen-up -Z); less looks from the south, so wall faces show. |
+| `plane` | `"xz"` \| `"xy"` | `"xz"` |  | The ground it pans over: the xz floor (3D), or the xy plane of a 2D world, seen along -Z. |
+| `bounded` | boolean | `false` |  | Keep the target within boundsMin..boundsMax (x, z; x, y on the xy plane). |
+| `boundsMin` | number[2] | `[0,0]` | m |  |
+| `boundsMax` | number[2] | `[0,0]` | m |  |
+| `panButton` | `"left"` \| `"middle"` \| `"right"` | `"middle"` |  | Drags with it pan. |
+| `leftDrag` | `"pan"` \| `"none"` | `"pan"` |  | What a left or one-finger drag nothing else claimed does: the host's drags (tokens) come first. |
+| `zoomSpeed` | number | `1` | ≥ 0 | Wheel zoom rate multiplier. |
+| `smoothing` | number | `0` | ≥ 0, s | Time constant the camera eases toward the fields with. 0 (and reduced motion): at once. |
+| `enabled` | boolean | `true` |  | Takes input. The camera must be active too. |
+
+## `controls/OrbitControls`
+
+Orbit (right drag), pan (middle drag, Shift+right), dolly to the cursor (wheel), and pinch, two-finger pan and twist on touch, on a perspective camera.
+
+Brings along: `render/Camera3d`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `target` | number[3] | `[0,0,0]` | m | The point the camera orbits and looks at. |
+| `distance` | number | `10` | ≥ 0.0001, m | From the target. |
+| `yaw` | number | `0` | deg | Turn about +Y: 0 looks from +Z toward -Z, 90 from +X. |
+| `pitch` | number | `45` | deg | Height above the horizon: 90 looks straight down. |
+| `minPitch` | number | `15` | ≥ -89, ≤ 89, deg |  |
+| `maxPitch` | number | `89` | ≥ -89, ≤ 89, deg |  |
+| `minDistance` | number | `1` | ≥ 0.0001, m |  |
+| `maxDistance` | number | `100` | ≥ 0.0001, m |  |
+| `orbitButton` | `"left"` \| `"middle"` \| `"right"` | `"right"` |  | Drags with it orbit; with Shift held they pan (trackpads have no middle). |
+| `panButton` | `"left"` \| `"middle"` \| `"right"` | `"middle"` |  | Drags with it pan. |
+| `leftDrag` | `"orbit"` \| `"pan"` \| `"none"` | `"orbit"` |  | What a left or one-finger drag nothing else claimed does: the host's drags (tokens) come first. |
+| `rotateSpeed` | number | `0.3` | ≥ 0, deg | Orbit per CSS pixel. |
+| `zoomSpeed` | number | `1` | ≥ 0 | Wheel zoom rate multiplier. |
+| `autoRotate` | number | `0` | deg | Yaw per second while nothing drags the camera (a turntable). 0: still. |
+| `smoothing` | number | `0` | ≥ 0, s | Time constant the camera eases toward the fields with. 0 (and reduced motion): at once. |
+| `enabled` | boolean | `true` |  | Takes input. The camera must be active too. |
+
 ## `core/ChildOf`
 
 Makes this entity a child of another. Despawning the parent despawns it.

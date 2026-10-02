@@ -1,4 +1,11 @@
 import {
+  DragEnded,
+  MapControls,
+  OrbitControls,
+  PlaneDrag,
+  syncViews,
+} from '@aethervtt/shard-controls'
+import {
   type AssetRef,
   ChildOf,
   defineSystem,
@@ -8,6 +15,7 @@ import {
 } from '@aethervtt/shard-core'
 import { FogLayer, FogRegionsStore } from '@aethervtt/shard-fog'
 import { cellAt, cellCenter, Grid, type GridGeometry } from '@aethervtt/shard-grid'
+import { Gesture, type GestureEvent, Gestures } from '@aethervtt/shard-input'
 import { box, capsule, cylinder } from '@aethervtt/shard-mesh'
 import { createMirror, type Mirror } from '@aethervtt/shard-mirror'
 import {
@@ -51,9 +59,12 @@ import { hudExtras } from './hud'
 
 // A small VTT table (0055, 0057): a host's documents mirrored onto the engine, drawn two ways.
 // The Map view is orthographic, tilted 10° off top-down so wall faces show, with flat token discs;
-// the Tabletop view is a perspective orbit with standees. Walls, doors, windows and floors compile
-// into chunks; grid, drawings, discs and fog stack in ground bands. Click a token to select it (and move it by
-// clicking the floor), click a door to swing it. Name labels are DOM, placed by worldToScreen.
+// the Tabletop view is a perspective orbit with standees. Both are camera controls (0060), synced
+// when the view switches. Walls, doors, windows and floors compile into chunks; grid, drawings,
+// discs and fog stack in ground bands. Drag a token to move it, cell by cell (Escape puts it back);
+// click one to select it and click the floor to send it there; click a door to swing it. Dragging
+// empty floor pans the Map and orbits the Tabletop; the wheel zooms to the cursor. Name labels are
+// DOM, placed by worldToScreen.
 // The east wing's straight walls and the yard's round tower and garden wall share one procedural
 // brick material (0066), so the courses can be compared on straight, arc and Bézier walls.
 // Levels and roofs (0067): the tower has a deck on a second level, with a parapet and a hatch; the
@@ -67,7 +78,7 @@ const TABLETOP = 4
 /** One grid cell: 1.5 m. */
 const CELL = 1.5
 /** The Map view's pitch: 10° off straight down, the camera south of what it looks at. */
-const MAP_PITCH = (80 * Math.PI) / 180
+const MAP_PITCH = 80
 
 type Vec2 = [number, number]
 
@@ -311,12 +322,8 @@ interface Demo {
   hatch: Entity
   roofs: Entity[]
   labels: Map<string, HTMLElement>
-  /** Map pan (x, z) and zoom; Tabletop orbit. */
-  pan: Vec2
-  orthoHeight: number
-  yaw: number
-  pitch: number
-  distance: number
+  /** The token PlaneDrag is moving. */
+  dragging: string | undefined
   wallCount: number
   drawCount: number
 }
@@ -458,29 +465,10 @@ function edit<T extends { id: string; rev: number }>(
   if (i >= 0) list[i] = { ...list[i]!, ...change, rev: list[i]!.rev + 1 }
 }
 
-function placeCameras(world: World, d: Demo): void {
-  const at: [number, number, number] = [d.pan[0], 0, d.pan[1]]
-  const mapEye: [number, number, number] = [
-    d.pan[0],
-    Math.sin(MAP_PITCH) * 40,
-    d.pan[1] + Math.cos(MAP_PITCH) * 40,
-  ]
-  world.set(d.map, Transform, { translation: mapEye, rotation: lookAt(mapEye, at) })
-  world.set(d.map, Camera3d, { orthoHeight: d.orthoHeight })
-  const p = (d.pitch * Math.PI) / 180
-  const y = (d.yaw * Math.PI) / 180
-  const eye: [number, number, number] = [
-    d.pan[0] + Math.sin(y) * Math.cos(p) * d.distance,
-    Math.sin(p) * d.distance,
-    d.pan[1] + Math.cos(y) * Math.cos(p) * d.distance,
-  ]
-  world.set(d.tabletop, Transform, {
-    translation: eye,
-    rotation: lookAt(eye, [d.pan[0], 0, d.pan[1]]),
-  })
-}
-
 function setView(world: World, d: Demo, view: 'map' | 'tabletop'): void {
+  if (view === d.view) return
+  // The other view picks up where this one is: same target, about the same floor area.
+  syncViews(world, d.view === 'map' ? d.map : d.tabletop, view === 'map' ? d.map : d.tabletop)
   d.view = view
   world.set(d.map, Camera3d, { active: view === 'map' })
   world.set(d.tabletop, Camera3d, { active: view === 'tabletop' })
@@ -774,6 +762,11 @@ function spawnScene(world: World): Demo {
     ],
     [Exposure, { ev100: 9.2 }],
     Transform,
+    [
+      MapControls,
+      // 3 m to 80 m of floor top to bottom.
+      { pitch: MAP_PITCH, elevation: 40, height: 20, minZoom: 0.25, maxZoom: 20 / 3 },
+    ],
   )
   const tabletop = world.spawn(
     [
@@ -782,6 +775,18 @@ function spawnScene(world: World): Demo {
     ],
     [Exposure, { ev100: 9.2 }],
     Transform,
+    [
+      OrbitControls,
+      {
+        distance: 26,
+        yaw: 20,
+        pitch: 50,
+        minPitch: 12,
+        maxPitch: 88,
+        minDistance: 4,
+        maxDistance: 80,
+      },
+    ],
   )
   const d: Demo = {
     table,
@@ -799,11 +804,7 @@ function spawnScene(world: World): Demo {
     hatch: -1 as Entity,
     roofs,
     labels: new Map(),
-    pan: [0, 0],
-    orthoHeight: 20,
-    yaw: 20,
-    pitch: 50,
-    distance: 26,
+    dragging: undefined,
     wallCount: 0,
     drawCount: 0,
   }
@@ -824,7 +825,6 @@ function spawnScene(world: World): Demo {
       frameMaterial: refs.get('wood')!,
     },
   ])
-  placeCameras(world, d)
   return d
 }
 
@@ -880,32 +880,99 @@ function act(world: World, d: Demo, action: Action): void {
   }
 }
 
-/** Target pixels of a pointer event on the canvas (pick wants the view's pixels). */
-function targetPixels(canvas: HTMLCanvasElement, e: PointerEvent | MouseEvent): Vec2 {
-  const r = canvas.getBoundingClientRect()
-  return [
-    ((e.clientX - r.left) * canvas.width) / r.width,
-    ((e.clientY - r.top) * canvas.height) / r.height,
-  ]
-}
-
-/** The host id of what's under the pointer: a token (through its visual child), or a door. */
-async function hostHit(
-  world: World,
-  d: Demo,
-  canvas: HTMLCanvasElement,
-  e: PointerEvent | MouseEvent,
-) {
-  const [x, y] = targetPixels(canvas, e)
-  const hit = await pick(world, d.view === 'map' ? d.map : d.tabletop, x, y)
+/** What's under CSS pixel (x, y): a token (through its visual child), a door, or the floor. */
+async function hostHit(world: World, d: Demo, x: number, y: number) {
+  // pick wants the view's pixels.
+  const canvas = document.getElementById('viewport') as HTMLCanvasElement
+  const scale = canvas.width / Math.max(1, canvas.clientWidth)
+  const hit = await pick(world, d.view === 'map' ? d.map : d.tabletop, x * scale, y * scale)
   if (!hit) return undefined
   const token = d.tokens.keyOf(hit.entity)
-  if (token) return { kind: 'token' as const, id: token }
+  if (token) return { kind: 'token' as const, id: token, position: hit.position }
   const leaf = world.tryGet(hit.entity, DoorLeaf)
   const door = leaf?.opening != null ? d.openings.keyOf(leaf.opening) : undefined
-  if (door) return { kind: 'door' as const, id: door }
-  return { kind: 'floor' as const, id: '' }
+  if (door) return { kind: 'door' as const, id: door, position: hit.position }
+  return { kind: 'floor' as const, id: '', position: hit.position }
 }
+
+/** Snaps a dragged position to its grid cell's center. */
+function snapToCell(d: Demo, p: [number, number, number]): void {
+  const grid = gridGeometry(d)
+  const [cx, cz] = cellCenter(grid, cellAt(grid, p[0], p[2]))
+  p[0] = cx
+  p[2] = cz
+}
+
+async function onTap(world: World, d: Demo, x: number, y: number): Promise<void> {
+  const h = await hostHit(world, d, x, y)
+  if (h?.kind === 'token') d.selected = d.selected === h.id ? undefined : h.id
+  else if (h?.kind === 'door') {
+    const o = d.table.openings.find((o) => o.id === h.id)!
+    edit(d.table.openings, h.id, { state: o.state === 'open' ? 'closed' : 'open' })
+    sync(d)
+  } else if (d.selected) {
+    // Send the selected token to the clicked cell: one Transform write, one instance slot.
+    const p: [number, number, number] = [0, 0, 0]
+    if (screenToPlane(world, d.view === 'map' ? d.map : d.tabletop, x, y, 0, p)) {
+      snapToCell(d, p)
+      edit(d.table.tokens, d.selected, { x: p[0], z: p[2] })
+      sync(d)
+    }
+  }
+  outline(world, d)
+}
+
+/**
+ * A left drag: if it started on a token, PlaneDrag moves the token; otherwise the camera's
+ * control pans or orbits. The pick is async, so the drag is held until it answers: the control
+ * waits instead of panning while we look.
+ */
+async function onDragStart(world: World, d: Demo, g: GestureEvent): Promise<void> {
+  const gestures = world.resource(Gestures)
+  gestures.hold(g.id)
+  try {
+    const h = await hostHit(world, d, g.startX, g.startY)
+    if (h?.kind !== 'token') return
+    const entity = d.tokens.entity(h.id)
+    if (entity === undefined) return
+    const begun = world.resource(PlaneDrag).begin({
+      entity,
+      gesture: g,
+      grab: h.position,
+      snap: (p) => snapToCell(d, p),
+    })
+    if (begun) {
+      d.dragging = h.id
+      d.selected = h.id
+      outline(world, d)
+    }
+  } finally {
+    gestures.release(g.id)
+  }
+}
+
+/** Taps and drags (gestures, 0060), and committing a token's move when its drag ends. */
+const tabletopInput = defineSystem({
+  name: 'tabletop-demo/input',
+  setup: (world) => ({ gestures: world.reader(Gesture), ended: world.reader(DragEnded) }),
+  run: ({ gestures, ended }, world) => {
+    const d = demos.get(world)
+    if (!d) return
+    for (const g of gestures.read()) {
+      if (g.button !== 'left') continue
+      if (g.kind === 'tap') void onTap(world, d, g.x, g.y)
+      else if (g.kind === 'drag-start') void onDragStart(world, d, { ...g })
+    }
+    for (const e of ended.read()) {
+      const id = d.dragging
+      d.dragging = undefined
+      // The host commits the drop; a cancelled drag is already back where it was.
+      if (id === undefined || e.cancelled) continue
+      edit(d.table.tokens, id, { x: e.position[0], z: e.position[2] })
+      sync(d)
+    }
+  },
+})
 
 function wireInput(world: World, d: Demo): void {
   const canvas = document.getElementById('viewport') as HTMLCanvasElement
@@ -920,35 +987,11 @@ function wireInput(world: World, d: Demo): void {
     layer.append(el)
     d.labels.set(t.id, el)
   }
-  let drag: { x: number; y: number; moved: boolean } | undefined
-  canvas.addEventListener('pointerdown', (e) => {
-    drag = { x: e.clientX, y: e.clientY, moved: false }
-    canvas.setPointerCapture(e.pointerId)
-  })
+  // Hover: outline the token under the pointer while nothing is pressed.
   canvas.addEventListener('pointermove', (e) => {
-    if (drag) {
-      const dx = e.clientX - drag.x
-      const dy = e.clientY - drag.y
-      if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true
-      drag.x = e.clientX
-      drag.y = e.clientY
-      if (d.view === 'map' || e.shiftKey) {
-        const perPx = (d.view === 'map' ? d.orthoHeight : d.distance * 0.8) / canvas.clientHeight
-        const yaw = d.view === 'map' ? 0 : (d.yaw * Math.PI) / 180
-        const c = Math.cos(yaw)
-        const s = Math.sin(yaw)
-        d.pan[0] -= (dx * c + dy * s) * perPx
-        // The map's ground is foreshortened along z by its pitch.
-        const along = d.view === 'map' ? 1 / Math.sin(MAP_PITCH) : 1
-        d.pan[1] -= (dy * c - dx * s) * perPx * along
-      } else {
-        d.yaw -= dx * 0.3
-        d.pitch = Math.min(88, Math.max(12, d.pitch + dy * 0.2))
-      }
-      placeCameras(world, d)
-      return
-    }
-    void hostHit(world, d, canvas, e).then((h) => {
+    if (e.buttons !== 0) return
+    const r = canvas.getBoundingClientRect()
+    void hostHit(world, d, e.clientX - r.left, e.clientY - r.top).then((h) => {
       const hovered = h?.kind === 'token' ? h.id : undefined
       if (hovered !== d.hovered) {
         d.hovered = hovered
@@ -957,43 +1000,6 @@ function wireInput(world: World, d: Demo): void {
       canvas.style.cursor = h?.kind === 'door' || h?.kind === 'token' ? 'pointer' : 'default'
     })
   })
-  canvas.addEventListener('pointerup', (e) => {
-    const click = drag && !drag.moved
-    drag = undefined
-    if (!click) return
-    void hostHit(world, d, canvas, e).then((h) => {
-      if (h?.kind === 'token') d.selected = d.selected === h.id ? undefined : h.id
-      else if (h?.kind === 'door') {
-        const o = d.table.openings.find((x) => x.id === h.id)!
-        edit(d.table.openings, h.id, { state: o.state === 'open' ? 'closed' : 'open' })
-        sync(d)
-      } else if (d.selected) {
-        // Move the selected token to the clicked cell: one Transform write, one instance slot.
-        const [x, y] = targetPixels(canvas, e)
-        const cam = d.view === 'map' ? d.map : d.tabletop
-        const p = [0, 0, 0]
-        const css = window.devicePixelRatio || 1
-        if (screenToPlane(world, cam, x / css, y / css, 0, p)) {
-          const grid = gridGeometry(d)
-          const [cx, cz] = cellCenter(grid, cellAt(grid, p[0]!, p[2]!))
-          edit(d.table.tokens, d.selected, { x: cx, z: cz })
-          sync(d)
-        }
-      }
-      outline(world, d)
-    })
-  })
-  canvas.addEventListener(
-    'wheel',
-    (e) => {
-      e.preventDefault()
-      const k = Math.exp(e.deltaY * 0.001)
-      if (d.view === 'map') d.orthoHeight = Math.min(80, Math.max(3, d.orthoHeight * k))
-      else d.distance = Math.min(80, Math.max(4, d.distance * k))
-      placeCameras(world, d)
-    },
-    { passive: false },
-  )
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-tabletop]'))
     button.addEventListener('click', () => act(world, d, button.dataset.tabletop as Action))
 }
@@ -1001,9 +1007,9 @@ function wireInput(world: World, d: Demo): void {
 /** The playground's tabletop demo: structure, ground bands, render layers, outlines, projection. */
 export const tabletopDemoPlugin = definePlugin({
   name: 'tabletop-demo',
-  dependencies: ['structure', 'grid', 'vector', 'render/outline'],
+  dependencies: ['structure', 'grid', 'vector', 'render/outline', 'controls'],
   build(app) {
-    app.addSystems(Update, placeLabels, hideRoofs)
+    app.addSystems(Update, placeLabels, hideRoofs, tabletopInput)
   },
   ready(app) {
     const world = app.world
@@ -1021,7 +1027,8 @@ export const tabletopDemoPlugin = definePlugin({
         `levels    tower deck ${w.get(d.towerTop, Visibility).mode === 'hidden' ? 'hidden' : 'shown'}, hatch ${w.get(d.hatch, Cutout).state}, roofs ${d.roofs.filter((e) => w.get(e, Visibility).mode === 'hidden').length}/${d.roofs.length} hidden`,
         `uploads   ${f.sceneBytes} B scene, ${f.bytes.view} B view (last frame)`,
         `recent    ${stats.recent.sceneBytes} B scene, ${stats.recent.shadowMapsRendered} shadow maps (60 frames)`,
-        `selected  ${d.selected ?? '—'} (click a token; click the floor to move it; click a door)`,
+        `selected  ${d.selected ?? '—'}   drag a token to move it (Esc puts it back), or click it, then the floor`,
+        `camera    drag the floor to ${d.view === 'map' ? 'pan' : 'orbit (middle-drag pans)'}; the wheel zooms to the cursor`,
       ]
     })
   },

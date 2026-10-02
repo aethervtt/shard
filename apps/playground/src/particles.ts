@@ -1,7 +1,8 @@
 import { ParticleEffect, ParticleEffects, ParticleSystem } from '@aethervtt/shard-particles'
 import { Camera3d, Exposure, Gpu } from '@aethervtt/shard-render'
 import { definePlugin } from '@aethervtt/shard-runtime'
-import { lookAt, Transform } from '@aethervtt/shard-transform'
+import { Transform } from '@aethervtt/shard-transform'
+import { orbitFrom } from './camera'
 
 const HUES = ['#ff7a2a', '#4aa3ff', '#9dff6a', '#ff5ad2']
 
@@ -24,7 +25,8 @@ export const particlesDemoPlugin = definePlugin({
     world.spawn(
       [Camera3d, { clearColor: [0.01, 0.01, 0.02, 1] }],
       [Exposure, { ev100: 9 }],
-      [Transform, { translation: [0, 6, 22], rotation: lookAt([0, 6, 22], [0, 4, 0]) }],
+      Transform,
+      orbitFrom([0, 6, 22], [0, 4, 0]),
     )
     const effects = world.resource(ParticleEffects)
     HUES.forEach((hue, i) => {

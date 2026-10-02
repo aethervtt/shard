@@ -144,6 +144,9 @@ importers:
       '@aethervtt/shard-audio':
         specifier: workspace:*
         version: link:../../packages/audio
+      '@aethervtt/shard-controls':
+        specifier: workspace:*
+        version: link:../../packages/controls
       '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -1160,6 +1163,9 @@ importers:
       '@aethervtt/shard-audio':
         specifier: workspace:*
         version: link:../audio
+      '@aethervtt/shard-controls':
+        specifier: workspace:*
+        version: link:../controls
       '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core

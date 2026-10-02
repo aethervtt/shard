@@ -1,3 +1,4 @@
+import { OrbitControls } from '@aethervtt/shard-controls'
 import {
   type AssetRef,
   defineSystem,
@@ -40,7 +41,8 @@ import {
   setOverlays,
 } from '@aethervtt/shard-render'
 import { definePlugin, Time } from '@aethervtt/shard-runtime'
-import { lookAt, Transform } from '@aethervtt/shard-transform'
+import { Transform } from '@aethervtt/shard-transform'
+import { orbitFrom } from './camera'
 import { hudExtras } from './hud'
 
 type Vec3 = [number, number, number]
@@ -141,12 +143,12 @@ function walkable(world: World, rng: Rng): Vec3 {
 }
 
 /**
- * Beacon on WASD or the arrows (it rides the navmesh surface), camera orbit on Q/E, and the crowd
- * picking new destinations as each one arrives.
+ * Beacon on WASD or the arrows (it rides the navmesh surface), camera orbit on drag or Q/E, and
+ * the crowd picking new destinations as each one arrives.
  */
 const courtyard = defineSystem({
   name: 'nav-demo/courtyard',
-  setup: (world) => ({ arrived: world.reader(NavArrived), angle: 0.6 }),
+  setup: (world) => ({ arrived: world.reader(NavArrived) }),
   run: (s, world) => {
     const d = yard
     if (!d) return
@@ -164,12 +166,12 @@ const courtyard = defineSystem({
         world.set(d.beacon, Transform, { translation: [out[0], out[1] + 0.4, out[2]] })
       }
     }
-    s.angle += ((held('KeyE') ? 1 : 0) - (held('KeyQ') ? 1 : 0)) * dt
-    const eye: Vec3 = [Math.sin(s.angle) * 34, 26, Math.cos(s.angle) * 34 + 2]
-    world.set(d.camera, Transform, {
-      translation: eye,
-      rotation: lookAt(eye, [0, 0, 2], [0, 1, 0]),
-    })
+    // Q/E turn the orbit too (a host's keys, writing the control's yaw).
+    const turn = (held('KeyE') ? 1 : 0) - (held('KeyQ') ? 1 : 0)
+    if (turn !== 0) {
+      const { yaw } = world.get(d.camera, OrbitControls)
+      world.set(d.camera, OrbitControls, { yaw: yaw + turn * dt * 57.3 })
+    }
     for (const e of s.arrived.read()) {
       if (d.crowd.includes(e.entity))
         world.set(e.entity, NavAgent, { destination: walkable(world, d.rng) })
@@ -205,7 +207,7 @@ export const navDemoPlugin = definePlugin({
           .map(([k, n]) => `${n} ${k}`)
           .join(', ')}   lead ${f.remaining.toFixed(1)} m to go`,
         `crowd     ${d.crowd.length} agents wandering   swamp cost ${d.swamp}`,
-        `wasd/arrows: move the beacon   q/e: orbit   n: navmesh overlay`,
+        `wasd/arrows: move the beacon   drag or q/e: orbit   n: navmesh overlay`,
       ]
     })
   },
@@ -221,7 +223,8 @@ export const navDemoPlugin = definePlugin({
     const camera = world.spawn(
       [Camera3d, { fovY: 50, clearColor: [0.03, 0.035, 0.05, 1] }],
       [Exposure, { ev100: 13 }],
-      [Transform, {}],
+      Transform,
+      orbitFrom([Math.sin(0.6) * 34, 26, Math.cos(0.6) * 34 + 2], [0, 0, 2]),
     )
     const unit = meshes.add(cube({ size: 1 }))
     const ground = mat({ baseColor: [0.32, 0.34, 0.38, 1], roughness: 0.9 })

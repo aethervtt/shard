@@ -14,7 +14,8 @@ import {
 } from '@aethervtt/shard-render'
 import { definePlugin } from '@aethervtt/shard-runtime'
 import { Texture, Textures } from '@aethervtt/shard-texture'
-import { lookAt, Transform } from '@aethervtt/shard-transform'
+import { Transform } from '@aethervtt/shard-transform'
+import { orbitFrom } from './camera'
 
 /** Leaves: a mask with holes, so alpha testing (and real overdraw) happens. */
 function leaves(size = 128): Texture {
@@ -51,7 +52,8 @@ export const deferredPlugin = definePlugin({
       [Camera3d, { fovY: 60 }],
       [Exposure, { ev100: 4 }],
       [RenderPath, { mode: path }],
-      [Transform, { translation: [0, 3, 12], rotation: lookAt([0, 3, 12], [0, 3, 0]) }],
+      Transform,
+      orbitFrom([0, 3, 12], [0, 3, 0]),
     )
     const meshes = world.resource(Meshes)
     const materials = world.resource(Materials)

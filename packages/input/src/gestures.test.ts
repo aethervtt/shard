@@ -9,7 +9,7 @@ import {
   gesturesPlugin,
   simulateGestures,
 } from './gestures'
-import { injectInput, inputPlugin, rebindAction } from './plugin'
+import { injectInput, inputPlugin, Mouse, rebindAction } from './plugin'
 
 function fakeSource() {
   const queue: RawInputEvent[] = []
@@ -174,7 +174,7 @@ describe('gestures (0060)', () => {
     expect(a.seen[1]!.cancelled).toBe(true)
 
     // A host can rebind it, or remove it.
-    rebindAction(a.world, 'input/Gestures.cancel', [])
+    rebindAction(a.world, 'input/GestureActions.cancel', [])
     a.seen.length = 0
     a.pointer('down', 0, 0, 2)
     a.pointer('move', 20, 0, 2)
@@ -208,6 +208,19 @@ describe('gestures (0060)', () => {
     expect(g.owner(id)).toBe('drag')
     a.frame()
     expect(g.owner(id)).toBeUndefined()
+  })
+
+  it("a press on UI is the UI's: nothing else can claim it", async () => {
+    const a = await makeApp()
+    a.world.resource(Mouse).captured = true
+    a.pointer('down', 0, 0)
+    a.pointer('move', 30, 0)
+    a.frame()
+    const id = a.seen[0]!.id
+    const g = a.world.resource(Gestures)
+    expect(g.owner(id)).toBe('ui')
+    expect(g.free(id)).toBe(false)
+    expect(g.claim(id, 'controls')).toBe(false)
   })
 
   it('tells the source the union of what enabled consumers take, when it changes', async () => {

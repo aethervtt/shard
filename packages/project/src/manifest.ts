@@ -57,7 +57,7 @@ export const Manifest = defineSchema(
     plugins: t.list(t.string, {
       default: ['render/forward', 'input'],
       description:
-        'Engine plugins to enable, by name: render, render/forward, sprite, text, particles, animation, physics3d, physics2d, input, audio, ui, nav, nav/grid, dice, core/transform.',
+        'Engine plugins to enable, by name: render, render/forward, sprite, text, particles, animation, physics3d, physics2d, input, gestures, controls, audio, ui, nav, nav/grid, dice, core/transform.',
     }),
   },
   { description: 'shard.json: the project manifest.' },
@@ -113,6 +113,10 @@ export const BUILTIN_PLUGINS = {
   physics3d: 'Rapier 3D rigid bodies, colliders, joints, raycasts (includes core/transform)',
   physics2d: 'Rapier 2D physics in the XY plane (includes core/transform)',
   input: 'keyboard, mouse, gamepad, touch, action maps',
+  gestures:
+    'taps, long presses, drags, pinches, twists and the wheel as Gesture events, with claims and Escape to cancel (includes input)',
+  controls:
+    'OrbitControls and MapControls on cameras, syncViews, PlaneDrag to drag entities along a plane, controls.describe (includes gestures, render/forward)',
   audio:
     'AudioSource, AudioListener, playSound, buses and ducking, spatial audio, voice limits (includes core/transform)',
   ui: 'UiNode trees under a UiRoot: flexbox layout, text, images, buttons, sliders, text fields, world-anchored markers, themes (includes core/transform)',

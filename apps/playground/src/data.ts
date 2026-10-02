@@ -34,7 +34,8 @@ import {
   type SceneFile,
   whenSceneReady,
 } from '@aethervtt/shard-scene'
-import { lookAt, Transform } from '@aethervtt/shard-transform'
+import { Transform } from '@aethervtt/shard-transform'
+import { orbitFrom } from './camera'
 import { hudExtras } from './hud'
 import { memoryPlatform } from './memory'
 
@@ -375,7 +376,8 @@ export const dataDemoPlugin = definePlugin({
     world.spawn(
       [Camera3d, { fovY: 50, clearColor: [0.02, 0.025, 0.035, 1] }],
       [Exposure, { ev100: 13.5 }],
-      [Transform, { translation: eye, rotation: lookAt(eye, [-1, 6, -6]) }],
+      Transform,
+      orbitFrom(eye, [-1, 6, -6]),
     )
 
     // The bolt pool and one glowing material per lane.

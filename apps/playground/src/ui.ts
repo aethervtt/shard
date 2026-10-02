@@ -1,4 +1,5 @@
 import { assetServer } from '@aethervtt/shard-assets'
+import { OrbitControls } from '@aethervtt/shard-controls'
 import {
   ChildOf,
   defineResource,
@@ -32,7 +33,7 @@ import {
   whenSceneReady,
 } from '@aethervtt/shard-scene'
 import { Texture, Textures } from '@aethervtt/shard-texture'
-import { lookAt, Transform } from '@aethervtt/shard-transform'
+import { Transform } from '@aethervtt/shard-transform'
 import {
   describeUi,
   focusUi,
@@ -50,6 +51,7 @@ import {
   UiToggle,
 } from '@aethervtt/shard-ui'
 import interUrl from '../../../examples/star-explorer/assets/fonts/Inter-Regular.ttf?url'
+import { orbitFrom } from './camera'
 import { hudExtras } from './hud'
 import { memoryPlatform } from './memory'
 
@@ -431,7 +433,6 @@ const SCENE: SceneFile = {
 interface DemoValue {
   planets: Entity[]
   camera: Entity | undefined
-  angle: number
   orbit: number
   fuel: number
   selected: number
@@ -445,7 +446,6 @@ const Demo = defineResource<DemoValue>('ui-demo/Demo', {
   init: () => ({
     planets: [],
     camera: undefined,
-    angle: 0,
     orbit: 0,
     fuel: 1,
     selected: -1,
@@ -471,7 +471,7 @@ function setText(world: World, path: string, value: string): void {
   if (world.get(e, UiText).text !== value) world.set(e, UiText, { text: value })
 }
 
-/** Planets orbit the star; the camera circles at the slider's speed. */
+/** Planets orbit the star; the camera turns at the slider's speed. */
 const orbit = defineSystem({
   name: 'ui-demo/orbit',
   run: (_, world) => {
@@ -485,14 +485,11 @@ const orbit = defineSystem({
         translation: [Math.cos(a) * p.orbit, 0, Math.sin(a) * p.orbit],
       })
     })
+    // The slider sets the turntable's speed (0.6 rad/s at 1); dragging the scene steers it.
     const speed = world.get(at(world, 'hud/right/settings/orbit/slider'), UiSlider).value
-    d.angle += dt * speed * 0.6
-    const eye: [number, number, number] = [
-      Math.sin(d.angle) * 42,
-      12 + 4 * Math.sin(d.angle * 0.7),
-      Math.cos(d.angle) * 42,
-    ]
-    world.set(d.camera, Transform, { translation: eye, rotation: lookAt(eye, [0, 0, 0]) })
+    const turn = Math.fround(speed * 0.6 * (180 / Math.PI))
+    if (world.get(d.camera, OrbitControls).autoRotate !== turn)
+      world.set(d.camera, OrbitControls, { autoRotate: turn })
   },
 })
 
@@ -674,6 +671,7 @@ export const uiDemoPlugin = definePlugin({
     d.camera = findEntityByPath(world, 'camera')!
     world.add(d.camera, Camera3d, { fovY: 55, clearColor: [0.004, 0.005, 0.012, 1] })
     world.add(d.camera, Exposure, { ev100: 12 })
+    world.add(d.camera, ...orbitFrom([0, 12, 42], [0, 0, 0]))
     const meshes = world.resource(Meshes)
     const materials = world.resource(Materials)
     const star = materials.add(

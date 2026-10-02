@@ -1,3 +1,4 @@
+import { MapControls } from '@aethervtt/shard-controls'
 import { type AssetRef, defineSystem, type Entity, quat, Rng, Update } from '@aethervtt/shard-core'
 import { capsule, cube, plane, sphere } from '@aethervtt/shard-mesh'
 import {
@@ -24,8 +25,9 @@ import {
   MeshMaterial,
   setOverlays,
 } from '@aethervtt/shard-render'
-import { definePlugin, Time } from '@aethervtt/shard-runtime'
-import { lookAt, Transform } from '@aethervtt/shard-transform'
+import { definePlugin } from '@aethervtt/shard-runtime'
+import { Transform } from '@aethervtt/shard-transform'
+import { orbitFrom } from './camera'
 import { hudExtras } from './hud'
 
 type Mode = 'ground' | 'planet' | 'flat'
@@ -159,27 +161,12 @@ const spawner = defineSystem({
   },
 })
 
-/** Circles the camera around the action. */
-const orbitCamera = defineSystem({
-  name: 'physics-demo/camera',
-  run: (_, world) => {
-    const d = demo
-    if (!d || d.mode === 'flat') return
-    const t = world.resource(Time).elapsed * 0.1
-    const radius = d.mode === 'ground' ? 38 : 55
-    const height = d.mode === 'ground' ? 18 : 12
-    const eye: [number, number, number] = [Math.sin(t) * radius, height, Math.cos(t) * radius]
-    const target: [number, number, number] = d.mode === 'ground' ? [0, 3, 0] : [0, 0, 0]
-    world.set(d.camera, Transform, { translation: eye, rotation: lookAt(eye, target) })
-  },
-})
-
 function build(mode: Mode) {
   return definePlugin({
     name: `physics-demo/${mode}`,
     dependencies: ['render/forward', mode === 'flat' ? 'physics2d' : 'physics3d'],
     build(app) {
-      app.addSystems(Update, spawner, orbitCamera)
+      app.addSystems(Update, spawner)
       hudExtras.push((world) => {
         const p = world.tryResource(Physics)
         if (!p) return []
@@ -205,6 +192,9 @@ function build(mode: Mode) {
         [Transform, { rotation: quat.fromEuler([0, 0, 0, 1], -0.9, 0.6, 0) as never }],
       )
       const flat = mode === 'flat'
+      // A turntable around the action; the 2D view pans and zooms instead.
+      const radius = mode === 'ground' ? 38 : 55
+      const height = mode === 'ground' ? 18 : 12
       const camera = world.spawn(
         [
           Camera3d,
@@ -213,9 +203,12 @@ function build(mode: Mode) {
             : { fovY: 50, clearColor: [0.02, 0.025, 0.04, 1] },
         ],
         [Exposure, { ev100: 13 }],
+        Transform,
         flat
-          ? [Transform, { translation: [0, 10, 50] }]
-          : [Transform, { translation: [0, 14, 30], rotation: lookAt([0, 14, 30], [0, 3, 0]) }],
+          ? [MapControls, { plane: 'xy', target: [0, 10, 0], elevation: 50, height: 30 }]
+          : orbitFrom([0, height, radius], mode === 'ground' ? [0, 3, 0] : [0, 0, 0], {
+              turn: 5.7,
+            }),
       )
 
       const shapes: Shapes = {

@@ -16,7 +16,15 @@ import {
 import { definePlugin, FrameDemand, type Plugin, Time } from '@aethervtt/shard-runtime'
 import { type ActionState, defineActions } from './actions'
 import type { PointerInput } from './devices'
-import { addActions, InputQueue, Pointers, scheduleInput, updateActions } from './plugin'
+import {
+  addActions,
+  InputQueue,
+  Mouse,
+  Pointers,
+  scheduleInput,
+  Touches,
+  updateActions,
+} from './plugin'
 
 // Gestures (0060): taps, presses, drags and two-finger gestures from the pointer stream, in CSS
 // pixels. A consumer claims a gesture when it starts; unclaimed gestures pass through, and the DOM
@@ -265,7 +273,7 @@ export const Gestures = defineResource<GesturesState>('input/Gestures', {
 
 /** The built-in `cancel` action: Escape ends a drag. Rebind it with `rebindAction`. */
 export const GestureActions = defineActions(
-  'input/Gestures',
+  'input/GestureActions',
   { cancel: { kind: 'button', bindings: ['Key:Escape'] } },
   { context: 'any' },
 )
@@ -402,7 +410,7 @@ function moveTwo(world: World, two: TwoFinger): void {
   two.angle = angle
 }
 
-function down(world: World, s: GesturesState, e: PointerEvent, now: number): void {
+function down(world: World, s: GesturesState, e: PointerEvent, now: number, ui: boolean): void {
   const old = s.tracks.get(e.id)
   if (old) up(world, s, old, now, true)
   const id = s.nextId++
@@ -420,7 +428,8 @@ function down(world: World, s: GesturesState, e: PointerEvent, now: number): voi
     state: 'pending',
   }
   s.tracks.set(e.id, t)
-  s.claims.set(id, { owner: undefined, held: 0, pointers: [e.id], ended: false })
+  // A press on UI drawn over the scene is the UI's: no control takes it.
+  s.claims.set(id, { owner: ui ? 'ui' : undefined, held: 0, pointers: [e.id], ended: false })
   if (e.pointer !== 'touch') return
   let touching = 0
   let other: Track | undefined
@@ -505,6 +514,11 @@ function wheel(world: World, e: WheelInput, fx: number, fy: number): void {
 type PointerEvent = Extract<RawInputEvent, { type: 'pointer' }>
 type WheelInput = Extract<RawInputEvent, { type: 'wheel' }>
 
+function onUi(world: World, e: PointerEvent): boolean {
+  if (e.pointer === 'touch') return world.tryResource(Touches)?.captured.has(e.id) ?? false
+  return world.tryResource(Mouse)?.captured ?? false
+}
+
 function apply(
   world: World,
   s: GesturesState,
@@ -525,7 +539,7 @@ function apply(
     return
   }
   if (e.phase === 'down') {
-    down(world, s, e, now)
+    down(world, s, e, now, onUi(world, e))
     return
   }
   const t = s.tracks.get(e.id)

@@ -21,8 +21,9 @@ import {
   RenderStats,
 } from '@aethervtt/shard-render'
 import { definePlugin, Time } from '@aethervtt/shard-runtime'
-import { lookAt, Transform } from '@aethervtt/shard-transform'
+import { Transform } from '@aethervtt/shard-transform'
 import { backendLine, healthLines } from './backend'
+import { orbitFrom } from './camera'
 
 /** Marks the hero objects that spin. */
 const Spin = defineComponent('scene/Spin', { speed: t.f32({ default: 1 }) })
@@ -121,10 +122,7 @@ export const scenePlugin = definePlugin({
         },
       ],
     )
-    world.spawn(Camera3d, [
-      Transform,
-      { translation: [0, 7, 16], rotation: lookAt([0, 7, 16], [0, 0, 0]) },
-    ])
+    world.spawn(Camera3d, Transform, orbitFrom([0, 7, 16], [0, 0, 0]))
 
     world.spawn(
       [Mesh3d, { mesh: meshes.add(plane({ size: 80 })) }],

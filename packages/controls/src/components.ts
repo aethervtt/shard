@@ -60,8 +60,9 @@ export const OrbitControls = defineComponent(
 export type OrbitControlsValue = Infer<typeof OrbitControls>
 
 /**
- * Pan and zoom-to-cursor on an orthographic camera looking straight down (0060): the Map view.
- * The fields are where the camera is going, as for `OrbitControls`.
+ * Pan and zoom-to-cursor on an orthographic camera over a floor (0060): the Map view, looking
+ * down (or tilted by `pitch`), or a 2D world on the xy plane. The fields are where the camera is
+ * going, as for `OrbitControls`.
  */
 export const MapControls = defineComponent(
   'controls/MapControls',
@@ -80,9 +81,25 @@ export const MapControls = defineComponent(
       default: 50,
       min: 0.0001,
       unit: 'm',
-      description: 'How far above the target the camera sits: keep it inside near..far.',
+      description:
+        'How far from the target the camera sits, along its view: keep it inside near..far.',
     }),
-    bounded: t.bool({ description: 'Keep the target within boundsMin..boundsMax (x, z).' }),
+    pitch: t.f32({
+      default: 90,
+      min: 1,
+      max: 90,
+      unit: 'deg',
+      description:
+        'Tilt on the xz floor: 90 looks straight down (screen-up -Z); less looks from the south, so wall faces show.',
+    }),
+    plane: t.enum(['xz', 'xy'], {
+      default: 'xz',
+      description:
+        'The ground it pans over: the xz floor (3D), or the xy plane of a 2D world, seen along -Z.',
+    }),
+    bounded: t.bool({
+      description: 'Keep the target within boundsMin..boundsMax (x, z; x, y on the xy plane).',
+    }),
     boundsMin: t.vec2({ unit: 'm' }),
     boundsMax: t.vec2({ unit: 'm' }),
     panButton: t.enum(BUTTONS, { default: 'middle', description: 'Drags with it pan.' }),
@@ -102,7 +119,7 @@ export const MapControls = defineComponent(
   },
   {
     description:
-      'Pan (middle drag, or left drag on empty floor) and zoom to the cursor (wheel, pinch) on an orthographic camera looking straight down.',
+      'Pan (middle drag, or left drag on empty floor) and zoom to the cursor (wheel, pinch) on an orthographic camera over a floor, or a 2D world.',
     requires: [Camera3d],
   },
 )
