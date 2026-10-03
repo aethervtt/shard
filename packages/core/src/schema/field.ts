@@ -72,6 +72,13 @@ export interface FieldOptions<V> {
    * field changes no shader.
    */
   gpu?: boolean
+  /**
+   * Struct fields: the WGSL struct GPU structs (`wgslLayout`) pack it as, `module::path::Name`.
+   * That module declares it from the same fields. Without it a struct isn't GPU data.
+   */
+  wgsl?: string
+  /** Sample values (presets), listed as the JSON Schema's `examples`. */
+  examples?: readonly V[]
 }
 
 /** A reference to an asset. `guid` is the identity; `path` is for readers. */
@@ -201,6 +208,7 @@ function makeField<V, S extends Storage>(
     ...spec,
     jsonSchema: () => ({
       ...baseSchema(spec.options as FieldOptions<unknown>, spec.toJson(spec.defaultValue())),
+      ...(spec.options.examples ? { examples: spec.options.examples.map(spec.toJson) } : {}),
       ...spec.schema(),
     }),
   }

@@ -57,6 +57,11 @@ const PLUGINS: Record<string, (m: Mod) => PluginLike[]> = {
   ui: (m) => [m.uiPlugin as PluginLike],
 }
 
+/** Plugins exported from a package's subpaths (not its index), by file under `src/`. */
+const SUBPATH_PLUGINS: Record<string, Record<string, (m: Mod) => PluginLike[]>> = {
+  render: { 'surface.ts': (m) => [m.surfacePlugin as PluginLike] },
+}
+
 /** Engine packages in dependency order (a package after everything it depends on). */
 function dependencyOrder(): string[] {
   const deps = new Map<string, string[]>()
@@ -188,7 +193,10 @@ describe('plugins provide what their packages register (spec 0056)', () => {
     }
     const reach = new Map<string, Set<unknown>>()
     for (const [name, plugins] of Object.entries(PLUGINS)) {
-      reach.set(name, reachable(plugins(indexes.get(name)!)))
+      const all = plugins(indexes.get(name)!)
+      for (const [file, more] of Object.entries(SUBPATH_PLUGINS[name] ?? {}))
+        all.push(...more((await import(join(packages, name, 'src', file))) as Mod))
+      reach.set(name, reachable(all))
     }
     const missing: string[] = []
     for (const [registry, all] of Object.entries(regs)) {

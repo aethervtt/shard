@@ -1,6 +1,6 @@
 # 0068 — Surface variation and contact shade
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@aethervtt/shard-render` (`/surface`), `@aethervtt/shard-structure`
 - **Depends on:** 0041, 0055, 0056, 0066, 0067
 
@@ -92,22 +92,31 @@ Variation {
 - `grain`: stretched along u, as for wood;
 - `cells`: a hash per cell of `scale`, as for tiles;
 - `stagger`: cells with alternate rows offset by half, as for bricks, with a group tone per 2×2;
-- `brushed`: `cells` plus slanted brush marks.
+- `brushed`: `mottle` plus a slanted brush mark per cell, as for stone.
 
-The base value then goes through `bands` and is mixed with `detail`. The final tint is the pigment
-mix, times `1 + tone − weather`, clamped to 0.62–1.3.
+`streaks` and `grain` stretch the noise themselves (×1.25 by ×0.42, and ×0.36 by ×4.2), so `scale`
+stays the patch size for every pattern. `warp` moves the point before any pattern, so it also
+breaks up cell edges.
+
+The base value then goes through `bands` and is mixed with `detail`. The weather mask is a
+smoothstep of the detail octave between `weatherThreshold`. The final tint is the pigment mix, times
+`1 + tone − weather`, clamped to 0.62–1.3; `strength` scales the pigment's departure from white, the
+tone, the weather and the roughness, as Aether's intensity does. The hash is integer (PCG-style),
+so the CPU mirror computes the same lattice values exactly.
 
 **Presets.** `SURFACE_PRESETS` holds `solid`, `plaster`, `stone`, `brick`, `timber`, `ground`,
 `metal` and `tile`. Their values come from Aether's recipes, converted to metres and to these
 parameters. They're a `Record<string, Variation>` a host spreads and overrides; nothing in the
-shader knows their names. `surfaceVariation(v, p)` is the TypeScript mirror of the WGSL, used by
-tests and by tools that preview a preset.
+shader knows their names. Patch sizes are Aether's, converted at 1.5 m per 70 px, and every preset
+has `strength: 0.5` (Aether's global intensity). `surfaceVariation(v, p)` is the TypeScript mirror of
+the WGSL, used by tests and by tools that preview a preset.
 
 **Surface point.**
 - `projection: 'uv'` uses the mesh's UV. Structure's UVs are metres (0066): along and down the
   face on walls, and x, z on floors. So a pattern runs continuously around an arc.
-- `'world'` uses the world plane the geometric normal (`dpdx` × `dpdy`) is closest to. It's for
-  meshes without metre UVs.
+- `'world'` uses the world plane the interpolated normal is closest to (`xz`, `(z, −y)` or
+  `(x, −y)`). It's for meshes without metre UVs. The normal rather than `dpdx` × `dpdy`, so the
+  function works in any control flow.
 - Structure's own pieces use `'uv'`. Either way the point is anchored to the world, not to a
   chunk, so there's no seam where a wall crosses a chunk boundary.
 
@@ -123,13 +132,20 @@ export const SurfaceMaterial = defineMaterial('render/SurfaceMaterial', {
 export const surfacePlugin: Plugin            // registers the WGSL and SurfaceSettings
 ```
 
+**The variation field.** `VariationField` is `t.struct(VARIATION_FIELDS, { wgsl:
+'surface::variation::VariationUniform' })`. A struct field with a `wgsl` option (a new
+`FieldOptions` entry in core) packs into a material's uniform as that struct: `wgslLayout` nests it
+(16-aligned, as uniforms need) and lists it in `imports`, and the generated material module imports
+it. `surface::variation` declares the struct from the same fields, so the two can't drift. Presets
+are the field's `examples` (another new `FieldOptions` entry, emitted as JSON Schema `examples`).
+
 **The material.** `surface::material` overrides `pbr_input`:
 1. Call `standard_input`.
 2. Multiply `base_color.rgb` by the tint.
 3. Add the roughness offset.
 
 **Using the model in another type.** `surface::variation` exports:
-- `surface_point(in) -> vec2f`;
+- `surface_point(in, projection: u32) -> vec2f` (0 `uv`, 1 `world`);
 - `surface_variation(p, v: VariationUniform) -> SurfaceVariation { tint: vec3f, roughness: f32 }`.
 
 A user-authored type (a mossy wall, a lava floor) imports these and adds a `variation` field of
@@ -169,6 +185,15 @@ material `structure:contact`. It is an `extends: 'none'` type, alpha-blended, an
   - It also varies alpha ±6%.
   - Alpha is a smoothstep falloff plus a contact core over the first 10%. It never brightens as it
     darkens toward the wall, and it's capped at `maxAlpha`.
+  - An edge fade over the last 20% of the raw `fade` takes it to 0 at the reach, so a wobble that
+    pushes the edge outward never leaves a hard line where the quad ends.
+  - `color` is display-referred: the shader divides it by the view's exposure, so the shade is as
+    dark by day as by night. `contactAlpha` is the CPU mirror.
+- **Joints.** A wall end is joined when another wall on its level passes within its half thickness
+  (plus 2 cm) of the end. Walls within 11° of each other continue rather than meet: no corner strip.
+  A corner strip starts at the end itself, its fade 0 where the joined wall's face is, so the part
+  inside that wall is hidden by it at any angle.
+- Each contact mesh carries `StructureChunk` and the `ContactMesh` tag, and `NotShadowCaster`.
 - **Dirty marking.** A wall edit already marks the wall's chunks. A floor edit also marks the
   chunks of walls within `floorReach` of its old and new outline, because their interior sides
   may flip.
@@ -186,12 +211,16 @@ StructureSettings.contact: {
 }
 ```
 
-- **`variation: false`** links SurfaceMaterial without the variation code, through a define. It
-  shades exactly as the standard material, at the same cost. Switching relinks once; it isn't
-  per-frame work.
+- **`variation: false`** links SurfaceMaterial without the variation code: the plugin registers
+  `surface::material` as an override that returns `standard_input`. It shades exactly as the
+  standard material, at the same cost. Switching re-registers that one module, so the type relinks
+  once; it isn't per-frame work.
 - **`contact.enabled: false`** despawns every contact mesh, so there are no draws and no compile
-  work. Turning it back on rebuilds only the contact meshes. Changing any other `contact` field
-  also rebuilds only the contact meshes, not the walls.
+  work. Turning it back on rebuilds only the contact meshes. Changing a reach also rebuilds only
+  the contact meshes, not the walls. The look (`opacity`, `maxAlpha`, `color`, `wobble`) is the
+  built-in material's fields: changing it sets the material and rebuilds nothing.
+- A patch may carry part of `contact` (`{ contact: { wobble: 0.3 } }`): compile merges it over the
+  values before, so the rest keep theirs.
 
 A host maps its own quality presets ("low", "high") onto these.
 
@@ -214,12 +243,16 @@ a preset plus its seed. The engine API only knows variations.
 
 ### Agent surface
 
-- `structure.describe` adds contact meshes per group and chunk, their triangle counts, and whether
-  contact shade is on.
+- `structure.describe` adds contact meshes per group (`contactMeshes`) and chunk
+  (`contactTriangles`), their totals, and whether contact shade is on. The last compile reports the
+  chunks whose contact mesh alone rebuilt (`contactRebuilt`, `contactChunks`).
 - `render/SurfaceMaterial`, `render/SurfaceSettings` and the `Variation` schema appear in the
   material and resource schemas. Presets are readable from the schema's examples.
-- Errors: an out-of-range variation field fails material validation (`material/invalid-value`).
-  `render/feature-missing` fires when a SurfaceMaterial is used without `surfacePlugin`.
+- Errors: an out-of-range variation field fails material validation (`schema/out-of-range`, at
+  `/variation/<field>`). `render/feature-missing` fires once when a SurfaceMaterial is drawn without
+  `surfacePlugin`: a material type can name the plugin that registers its shader
+  (`MaterialTypeOptions.plugin`), and a draw whose shader module isn't registered logs it and falls
+  back to the standard material (0061) instead of failing to link.
 
 ## Decisions
 
@@ -235,27 +268,29 @@ a preset plus its seed. The engine API only knows variations.
 
 ## Acceptance criteria
 
-- [ ] The WGSL variation matches `surfaceVariation` within 1/255 at 1,000 points for each preset
+- [x] The WGSL variation matches `surfaceVariation` within 1/255 at 1,000 points for each preset
       and each pattern (GPU readback).
-- [ ] Twenty variation materials across every preset create one render pipeline.
-- [ ] A custom material type that imports `surface::variation` renders the same tint as
+- [x] Twenty variation materials across every preset create one render pipeline.
+- [x] A custom material type that imports `surface::variation` renders the same tint as
       SurfaceMaterial with the same variation (GPU readback).
-- [ ] A wall crossing a chunk boundary renders the same as the same wall inside one chunk (golden,
+- [x] A wall crossing a chunk boundary renders the same as the same wall inside one chunk (golden,
       max difference 2/255), and an arc wall's pattern shows no seam (golden, 30°).
-- [ ] With `variation: false`, a SurfaceMaterial renders byte-identical to a StandardMaterial with
+- [x] With `variation: false`, a SurfaceMaterial renders byte-identical to a StandardMaterial with
       the same fields.
-- [ ] Floor strips exist only on sides that face a floor on the wall's level. A doorway has no
+- [x] Floor strips exist only on sides that face a floor on the wall's level. A doorway has no
       strip across its threshold, a window keeps its strip, and a wall with no floor has none.
-- [ ] Corner strips exist only at joined ends, spanning the walls' shared height minus the insets.
-- [ ] The contact alpha is monotonic in `fade` for any noise value.
-- [ ] Hiding a level or a roof hides its contact meshes, rebuilding 0 chunks. Contact meshes add 0
+- [x] Corner strips exist only at joined ends, spanning the walls' shared height minus the insets.
+- [x] The contact alpha is monotonic in `fade` for any noise value.
+- [x] Hiding a level or a roof hides its contact meshes, rebuilding 0 chunks. Contact meshes add 0
       draws to shadow views.
-- [ ] `contact.enabled: false` leaves 0 contact meshes and 0 extra draws. Re-enabling it rebuilds
+- [x] `contact.enabled: false` leaves 0 contact meshes and 0 extra draws. Re-enabling it rebuilds
       only contact meshes.
-- [ ] A floor edit rebuilds only the contact meshes within `floorReach` of its old and new outline.
-- [ ] The max fixture's full compile stays within its 0055 budget.
-- [ ] `renderer-min` is unchanged (`pnpm size --check`, bake test).
-- [ ] A room golden at 30°: brick walls with the `brick` preset, a plaster room with contact shade.
+- [x] A floor edit rebuilds only the contact meshes within `floorReach` of its old and new outline.
+- [x] The max fixture's full compile stays within its 0055 budget.
+- [x] `renderer-min` holds no surface or contact code and its baked shaders are unchanged
+      (`pnpm size --check`, bake test). It grows 0.3 KB (brotli) for nested struct fields in
+      `wgslLayout` and `MaterialTypeOptions.plugin`, within its budget.
+- [x] A room golden at 30°: brick walls with the `brick` preset, a plaster room with contact shade.
 
 ## Open questions
 

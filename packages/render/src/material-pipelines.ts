@@ -116,6 +116,8 @@ function watchNoiseGraphs(world: World, library: ShaderLibrary): void {
 
 /** Material types reported once for noise slots without materialNoisePlugin. */
 const missingNoise = new WeakSet<MaterialType>()
+/** Material types reported once for a shader whose plugin isn't installed. */
+const missingPlugin = new WeakSet<MaterialType>()
 
 /**
  * Shader modules and pipelines per material type, looked up per draw without allocating: modules
@@ -187,6 +189,21 @@ export class MaterialPipelines {
         this.modules.set(key, undefined)
         return undefined
       }
+    }
+    if (type.plugin && type.shader && !library.has(type.shader)) {
+      // Its plugin isn't installed: say so once, and draw through the standard fallback (0061).
+      const error = new ShardError(
+        'render/feature-missing',
+        `Material ${type.name} needs ${type.plugin.split(' ')[0]}, which isn't installed`,
+        { hint: `Add ${type.plugin}.` },
+      )
+      if (!missingPlugin.has(type)) {
+        missingPlugin.add(type)
+        world.tryResource(LogResource)?.error(error)
+      }
+      this.failedTypes.set(type, { version: type.version, error })
+      this.modules.set(key, undefined)
+      return undefined
     }
     registerMaterialModule(library, type, noise)
     const request = {

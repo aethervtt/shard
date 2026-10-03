@@ -248,8 +248,42 @@ export const DoorLeaf = defineComponent(
   },
 )
 
+/** A chunk's contact shade mesh (0068): one per (group, chunk) with walls near floors. */
+export const ContactMesh = defineTag('structure/ContactMesh', { serialize: false, save: false })
+
 /** Glass in a window: a pane that structure spawns and keeps. */
 export const WindowPane = defineTag('structure/WindowPane', { serialize: false, save: false })
+
+/** Contact shade (0068): noisy dark strips where walls meet floors and each other. */
+export interface ContactSettings {
+  /** false despawns every contact mesh: no draws, no compile work. */
+  enabled: boolean
+  /** Floor strips run from a wall's face out this far (m). */
+  floorReach: number
+  /** Corner strips run from a joint along the face this far (m). */
+  cornerReach: number
+  /** Alpha scale of the falloff. */
+  opacity: number
+  /** Alpha never goes above this. */
+  maxAlpha: number
+  /** What it darkens toward: linear, display-referred. */
+  color: [number, number, number]
+  /** How far the noise moves a strip's edge, as a share of its reach (0 to 1). */
+  wobble: number
+}
+
+/** Contact shade's defaults: Aether's, in metres. */
+export function defaultContact(): ContactSettings {
+  return {
+    enabled: true,
+    floorReach: 0.7,
+    cornerReach: 0.43,
+    opacity: 0.2,
+    maxAlpha: 0.42,
+    color: [0.0033, 0.0052, 0.008],
+    wobble: 0.2,
+  }
+}
 
 export interface StructureSettingsValue {
   /** Chunk edge, world units. Changing it rebuilds every chunk. */
@@ -263,11 +297,23 @@ export interface StructureSettingsValue {
    * use the same value, so a server blocks what's drawn. Changing it rebuilds every chunk.
    */
   curveTolerance: number
+  /**
+   * Contact shade (0068). A patch may hold only the fields it changes: the rest keep their values.
+   * Turning it off or on, or changing a reach, rebuilds only contact meshes; the other fields
+   * rebuild nothing.
+   */
+  contact: ContactSettings
 }
 
 export const StructureSettings = defineResource<StructureSettingsValue>('structure/Settings', {
   description:
-    'Chunk size, door swing time, reduced motion and curve tolerance. Write with patchResource.',
-  init: () => ({ chunkSize: 8, doorSwingMs: 250, reducedMotion: false, curveTolerance: 0.01 }),
+    'Chunk size, door swing time, reduced motion, curve tolerance and contact shade. Write with patchResource.',
+  init: () => ({
+    chunkSize: 8,
+    doorSwingMs: 250,
+    reducedMotion: false,
+    curveTolerance: 0.01,
+    contact: defaultContact(),
+  }),
   hostWritable: true,
 })

@@ -13,6 +13,7 @@ import { createDomInputSource, createIndexedDbStorage } from '@aethervtt/shard-p
 import { connectToHub, createProtocolServer, DEFAULT_HUB_PORT } from '@aethervtt/shard-protocol'
 import { describeRender, forwardPlugin, pick, renderPlugin } from '@aethervtt/shard-render'
 import { materialNoisePlugin } from '@aethervtt/shard-render/noise'
+import { surfacePlugin } from '@aethervtt/shard-render/surface'
 import { App, animationFrameRunner } from '@aethervtt/shard-runtime'
 import { savePlugin } from '@aethervtt/shard-save'
 import { ScenePlugin } from '@aethervtt/shard-scene'
@@ -280,6 +281,7 @@ if (demo === 'galaxy') {
     TransformPlugin,
     forwardPlugin(),
     structurePlugin,
+    surfacePlugin,
     gridPlugin,
     vectorPlugin,
     fogPlugin,
