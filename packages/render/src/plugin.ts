@@ -385,6 +385,12 @@ export function renderPlugin(options: RenderPluginOptions = {}): Plugin {
         }),
       )
     },
+    beforeDispose(app) {
+      // Buffers and textures the frames in flight use are freed below and by the plugins that
+      // dispose before render; Dawn crashes on a later submit if they go while still in use.
+      const gpu = renderApps.get(app)?.gpu
+      if (gpu?.status === 'ok') return gpu.device.queue.onSubmittedWorkDone()
+    },
     dispose(app) {
       const state = renderApps.get(app)
       if (!state) return

@@ -540,6 +540,47 @@ describe('dispose (0052)', () => {
     expect(logged.errors(5).map((e) => e.message)).toContain('nope')
   })
 
+  it('awaits every beforeDispose, in build order, before any dispose', async () => {
+    const log: string[] = []
+    const plugin = (name: string, dependencies: string[] = []) =>
+      definePlugin({
+        name,
+        dependencies,
+        build() {},
+        async beforeDispose() {
+          await new Promise((resolve) => setTimeout(resolve, 5))
+          log.push(`wait ${name}`)
+        },
+        dispose: () => void log.push(`dispose ${name}`),
+      })
+    const app = new App().addPlugin(
+      plugin('test/b', ['test/a']),
+      plugin('test/a'),
+      definePlugin({
+        name: 'test/broken-wait',
+        build() {},
+        beforeDispose: () => Promise.reject(new Error('stuck')),
+        dispose: () => void log.push('dispose test/broken-wait'),
+      }),
+    )
+    await app.init()
+    await expect(app.dispose()).rejects.toThrow('stuck')
+    // A failed wait is logged; every plugin is still disposed.
+    expect(log).toEqual([
+      'wait test/a',
+      'wait test/b',
+      'dispose test/broken-wait',
+      'dispose test/b',
+      'dispose test/a',
+    ])
+    expect(
+      app.world
+        .resource(LogResource)
+        .errors(5)
+        .map((e) => e.message),
+    ).toContain('stuck')
+  })
+
   it('runs frames, builds, readies, and disposals inside the scopes plugins add', async () => {
     const depth: number[] = []
     let inside = 0

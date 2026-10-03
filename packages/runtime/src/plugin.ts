@@ -21,6 +21,12 @@ export interface Plugin {
    * runner stopped (0052).
    */
   dispose?(app: App): Promise<void> | void
+  /**
+   * Waits for work the plugin started that is still in flight (GPU commands submitted but not
+   * done). `app.dispose()` awaits it on every plugin before any plugin's `dispose`, so nothing is
+   * released while still in use: render's dispose runs last, after others freed their buffers.
+   */
+  beforeDispose?(app: App): Promise<void> | void
 }
 
 export function definePlugin(plugin: Plugin): Plugin {
