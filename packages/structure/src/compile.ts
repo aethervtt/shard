@@ -13,6 +13,7 @@ import { Mesh, type MeshData } from '@aethervtt/shard-mesh'
 import {
   ComputedVisibility,
   GpuAssetsResource,
+  Materials,
   Mesh3d,
   Meshes,
   MeshMaterial,
@@ -23,8 +24,11 @@ import {
 import { FrameDemand, LogResource, Time } from '@aethervtt/shard-runtime'
 import { Transform } from '@aethervtt/shard-transform'
 import {
+  ContactMesh,
+  type ContactSettings,
   Cutout,
   DoorLeaf,
+  defaultContact,
   Floor,
   Level,
   Opening,
@@ -34,6 +38,7 @@ import {
   Wall,
   WindowPane,
 } from './components'
+import { ContactQuads, contactChunks, contactQuads, emitContact } from './contact'
 import { pointAt, sampleWall } from './curve'
 import {
   ClipScratch,
@@ -82,6 +87,9 @@ interface WallRecord {
    * entity it names isn't a Level). */
   level: Entity | null
   group: Entity
+  /** Contact shade quads (0068), and the (group, chunk) keys they have area in. */
+  contact: ContactQuads
+  contactChunks: Set<number>
 }
 
 /** A floor or a roof: an outline with its cutouts as holes (0067). */
@@ -152,6 +160,7 @@ interface ChunkMesh {
   entity: Entity
   mesh: Mesh
   ref: AssetRef<'Mesh'>
+  triangles: number
 }
 
 interface ChunkRecord {
@@ -161,6 +170,9 @@ interface ChunkRecord {
   walls: Set<Entity>
   slabs: Set<Entity>
   meshes: Map<string, ChunkMesh>
+  /** Walls with contact shade here, and the chunk's contact mesh (0068). */
+  contacts: Set<Entity>
+  contact: ChunkMesh | null
 }
 
 /** What the last compile that did something did (`structure.describe`). */
@@ -170,6 +182,10 @@ export interface CompileReport {
   dirtyGroups: Entity[]
   chunksRebuilt: number
   meshesRebuilt: number
+  /** Chunks whose contact mesh alone was rebuilt (0068): a floor edit, a contact setting. */
+  contactRebuilt: number
+  /** Those chunks, as `[x, z]`. */
+  contactChunks: [number, number][]
   ms: number
 }
 
@@ -216,6 +232,8 @@ export class StructureState {
     dirtyGroups: [],
     chunksRebuilt: 0,
     meshesRebuilt: 0,
+    contactRebuilt: 0,
+    contactChunks: [],
     ms: 0,
   }
   /** Totals since start. */
@@ -232,6 +250,17 @@ export class StructureState {
   readonly dirtyWalls = new Set<Entity>()
   readonly dirtySlabs = new Set<Entity>()
   readonly dirtyChunks = new Set<number>()
+  /** (group, chunk) keys whose contact mesh alone rebuilds. */
+  readonly dirtyContact = new Set<number>()
+  /** Walls whose contact quads are recomputed after this compile's walls and slabs. */
+  readonly contactWalls = new Set<Entity>()
+  /** Contact settings as last applied. */
+  contact: ContactSettings = defaultContact()
+  /** The `StructureSettings.contact` object last merged (a patch replaces it). */
+  contactSeen: object | undefined
+  contactMaterial: MaterialRef | undefined
+  readonly contactBuilder = new MeshBuilder()
+  readonly contactScratch = new ContactQuads()
   readonly builders = new Map<string, MeshBuilder>()
   readonly scratch = new ClipScratch()
   readonly overlap = new Set<number>()
@@ -291,6 +320,8 @@ export class StructureState {
         walls: new Set(),
         slabs: new Set(),
         meshes: new Map(),
+        contacts: new Set(),
+        contact: null,
       }
       this.chunks.set(composite, c)
     }
@@ -326,13 +357,15 @@ export class StructureState {
       index: number
       chunks: number
       meshes: number
+      contactMeshes: number
       hidden: boolean
     }[] = []
-    const counts = new Map<Entity, { chunks: number; meshes: number }>()
+    const counts = new Map<Entity, { chunks: number; meshes: number; contact: number }>()
     for (const c of this.chunks.values()) {
-      const n = counts.get(c.group) ?? { chunks: 0, meshes: 0 }
+      const n = counts.get(c.group) ?? { chunks: 0, meshes: 0, contact: 0 }
       n.chunks++
       n.meshes += c.meshes.size
+      if (c.contact) n.contact++
       counts.set(c.group, n)
     }
     for (const group of this.groups) {
@@ -346,6 +379,7 @@ export class StructureState {
         index: level?.index ?? 0,
         chunks: n?.chunks ?? 0,
         meshes: n?.meshes ?? 0,
+        contactMeshes: n?.contact ?? 0,
         hidden: world.isAlive(group) && world.tryGet(group, ComputedVisibility)?.visible === false,
       })
     }
@@ -366,9 +400,16 @@ export class StructureState {
       walls: number
       floors: number
       meshes: number
+      contactTriangles: number
     }[] = []
+    let contactMeshes = 0
+    let contactTriangles = 0
     for (const c of this.chunks.values()) {
       meshes += c.meshes.size
+      if (c.contact) {
+        contactMeshes++
+        contactTriangles += c.contact.triangles
+      }
       if (c.x < minX) minX = c.x
       if (c.z < minZ) minZ = c.z
       if (c.x > maxX) maxX = c.x
@@ -379,6 +420,7 @@ export class StructureState {
         walls: c.walls.size,
         floors: c.slabs.size,
         meshes: c.meshes.size,
+        contactTriangles: c.contact?.triangles ?? 0,
       })
     }
     perChunk.sort((a, b) => a.group - b.group || a.chunk[0] - b.chunk[0] || a.chunk[1] - b.chunk[1])
@@ -404,6 +446,11 @@ export class StructureState {
           : null,
       groups: this.describeGroups(),
       perChunk,
+      contact: {
+        enabled: this.contact.enabled,
+        meshes: contactMeshes,
+        triangles: contactTriangles,
+      },
       doorsMoving: this.moving.size,
       curves: this.curves(),
       warnings: [...this.warned.keys(), ...this.cutoutWarned.keys()],
@@ -537,6 +584,8 @@ function evaluateWall(state: StructureState, entity: Entity): void {
   const world = state.world
   const old = state.walls.get(entity)
   if (old) {
+    // Walls it was joined to may lose a corner strip (0068).
+    queueContactNear(state, old.chunks)
     markChunks(state, old.chunks)
     for (const key of old.chunks) state.chunks.get(key)?.walls.delete(entity)
   }
@@ -572,6 +621,8 @@ function evaluateWall(state: StructureState, entity: Entity): void {
     chunks: new Set(),
     level,
     group,
+    contact: new ContactQuads(),
+    contactChunks: new Set(),
   }
   rec.shape = shape
   rec.material = material
@@ -594,6 +645,8 @@ function evaluateWall(state: StructureState, entity: Entity): void {
   for (const key of rec.chunks) state.chunk(key).walls.add(entity)
   markChunks(state, rec.chunks)
   state.walls.set(entity, rec)
+  state.contactWalls.add(entity)
+  queueContactNear(state, rec.chunks)
   for (const o of ids) {
     const r = state.openings.get(o)!
     // A leaf goes with its level when the level is despawned: grow a new one.
@@ -642,6 +695,8 @@ function evaluateSlab(state: StructureState, entity: Entity): void {
   const oldShape = old?.shape
   const oldCutouts = old?.cutouts ?? []
   const oldRings = old?.rings
+  // A floor edit can flip which sides of the walls near it face a floor (0068).
+  if (old?.kind === 'floor') queueContactArea(state, old.group, old.shape)
   if (old) {
     for (const key of old.chunks) state.chunks.get(key)?.slabs.delete(entity)
     for (const key of old.index) state.roofIndex.get(key)?.delete(entity)
@@ -797,6 +852,7 @@ function evaluateSlab(state: StructureState, entity: Entity): void {
       }
   }
   state.slabs.set(entity, rec)
+  if (floor) queueContactArea(state, group, shape)
   for (const c of ids) {
     const cut = state.cutouts.get(c)!
     if (cut.ring < 0) dropLeaf(state, c)
@@ -1275,6 +1331,7 @@ function rebuildChunk(state: StructureState, key: number): number {
     const data = meshData(b)
     if (existing && world.isAlive(existing.entity)) {
       existing.mesh.update(data)
+      existing.triangles = b.indexCount / 3
     } else {
       if (existing) dropChunkMesh(world, existing)
       const mesh = Mesh.create(data)
@@ -1291,7 +1348,7 @@ function rebuildChunk(state: StructureState, key: number): number {
         Derived,
       )
       if (shadowWhenHidden) world.add(entity, ShadowWhenHidden)
-      chunk.meshes.set(material, { entity, mesh, ref })
+      chunk.meshes.set(material, { entity, mesh, ref, triangles: b.indexCount / 3 })
     }
     rebuilt++
   }
@@ -1301,9 +1358,306 @@ function rebuildChunk(state: StructureState, key: number): number {
     dropChunkMesh(world, cm)
     chunk.meshes.delete(material)
   }
-  if (chunk.walls.size === 0 && chunk.slabs.size === 0 && chunk.meshes.size === 0)
-    state.chunks.delete(key)
+  rebuildContact(state, chunk)
+  dropIfEmpty(state, key, chunk)
   return rebuilt
+}
+
+function dropIfEmpty(state: StructureState, key: number, chunk: ChunkRecord): void {
+  if (
+    chunk.walls.size === 0 &&
+    chunk.slabs.size === 0 &&
+    chunk.meshes.size === 0 &&
+    chunk.contacts.size === 0 &&
+    chunk.contact === null
+  )
+    state.chunks.delete(key)
+}
+
+// ---------------------------------------------------------------------------
+// Contact shade (0068)
+
+/** Queues the walls in these (group, chunk) keys for a contact recompute (joints may change). */
+function queueContactNear(state: StructureState, keys: Set<number>): void {
+  if (!state.contact.enabled) return
+  for (const key of keys) {
+    const chunk = state.chunks.get(key)
+    if (chunk) for (const w of chunk.walls) state.contactWalls.add(w)
+  }
+}
+
+/** Queues the walls in `group` within floorReach of a floor's outline for a contact recompute. */
+function queueContactArea(state: StructureState, group: Entity, f: FloorShape): void {
+  if (!state.contact.enabled) return
+  const size = state.chunkSize
+  const r = state.contact.floorReach + 0.1
+  for (let x = Math.floor((f.minX - r) / size); x <= Math.floor((f.maxX + r) / size); x++)
+    for (let z = Math.floor((f.minZ - r) / size); z <= Math.floor((f.maxZ + r) / size); z++) {
+      const chunk = state.chunks.get(state.chunkOf(group, chunkKey(x, z)))
+      if (chunk) for (const w of chunk.walls) state.contactWalls.add(w)
+    }
+}
+
+/** A wall's surroundings for contactQuads: set `state`, `entity` and `rec` before each call. */
+const env = {
+  state: undefined as unknown as StructureState,
+  entity: -1 as Entity,
+  rec: undefined as unknown as WallRecord,
+  seen: new Set<Entity>(),
+  keys: [0, 0, 0, 0],
+
+  floorTop(x: number, z: number, base: number): number {
+    const st = env.state
+    const size = st.chunkSize
+    const chunk = st.chunks.get(
+      st.chunkOf(env.rec.group, chunkKey(Math.floor(x / size), Math.floor(z / size))),
+    )
+    if (!chunk) return Number.NaN
+    let best = Number.NaN
+    for (const e of chunk.slabs) {
+      const slab = st.slabs.get(e)
+      if (slab?.kind !== 'floor') continue
+      const f = slab.shape
+      if (x < f.minX || x > f.maxX || z < f.minZ || z > f.maxZ) continue
+      if (!insideRing(f.points, 0, f.rings[1]!, x, z, false)) continue
+      let hole = false
+      for (let r = 1; r + 1 < f.rings.length && !hole; r++)
+        hole = insideRing(f.points, f.rings[r]!, f.rings[r + 1]!, x, z, true)
+      if (hole) continue
+      const top = slabY(f, x, z)
+      if (Number.isNaN(best) || Math.abs(top - base) < Math.abs(best - base)) best = top
+    }
+    return best
+  },
+
+  joint(end: 0 | 1, out: Float64Array): boolean {
+    const st = env.state
+    const w = env.rec.shape
+    const line = w.line
+    const i = end === 0 ? 0 : line.count - 1
+    const ex = line.x[i]!
+    const ez = line.z[i]!
+    // The tangent from the left normal (−tz, tx).
+    const tx = line.nz[i]!
+    const tz = -line.nx[i]!
+    const size = st.chunkSize
+    let y0 = Infinity
+    let y1 = -Infinity
+    let covered = 0
+    const seen = env.seen
+    seen.clear()
+    seen.add(env.entity)
+    for (let k = 0; k < 4; k++) {
+      const key = st.chunkOf(
+        env.rec.group,
+        chunkKey(
+          Math.floor((ex + (k & 1 ? 0.05 : -0.05)) / size),
+          Math.floor((ez + (k & 2 ? 0.05 : -0.05)) / size),
+        ),
+      )
+      env.keys[k] = key
+      if (env.keys.indexOf(key) < k) continue
+      const chunk = st.chunks.get(key)
+      if (!chunk) continue
+      for (const o of chunk.walls) {
+        if (seen.has(o)) continue
+        seen.add(o)
+        const other = st.walls.get(o)
+        if (!other) continue
+        const ol = other.shape.line
+        const half = other.shape.thickness / 2
+        // The nearest point of its centreline, and the direction there.
+        let best = Infinity
+        let sx = 0
+        let sz = 0
+        for (let j = 0; j + 1 < ol.count; j++) {
+          const ax = ol.x[j]!
+          const az = ol.z[j]!
+          const dx = ol.x[j + 1]! - ax
+          const dz = ol.z[j + 1]! - az
+          const l2 = dx * dx + dz * dz
+          const t = l2 > 0 ? Math.min(1, Math.max(0, ((ex - ax) * dx + (ez - az) * dz) / l2)) : 0
+          const px = ax + dx * t - ex
+          const pz = az + dz * t - ez
+          const d = Math.sqrt(px * px + pz * pz)
+          if (d < best) {
+            best = d
+            const l = Math.sqrt(l2) || 1
+            sx = dx / l
+            sz = dz / l
+          }
+        }
+        if (best > half + 0.02) continue
+        // Nearly in line is a continuation, not a corner.
+        const sin = Math.abs(tx * sz - tz * sx)
+        if (sin < 0.2) continue
+        const lo = Math.max(w.elevation, other.shape.elevation)
+        const hi = Math.min(w.elevation + w.height, other.shape.elevation + other.shape.height)
+        if (hi <= lo) continue
+        if (lo < y0) y0 = lo
+        if (hi > y1) y1 = hi
+        covered = Math.max(covered, (half - best) / sin)
+      }
+    }
+    if (y1 <= y0) return false
+    out[0] = y0
+    out[1] = y1
+    out[2] = covered
+    return true
+  },
+}
+
+/**
+ * Recomputes the contact quads of the walls queued this compile, after its walls and slabs: a wall
+ * whose quads changed marks its old and new contact chunks.
+ */
+function updateContacts(state: StructureState): void {
+  if (!state.contact.enabled) {
+    state.contactWalls.clear()
+    return
+  }
+  const scratch = state.contactScratch
+  const list = state.sortedOpenings
+  env.state = state
+  for (const e of state.contactWalls) {
+    const rec = state.walls.get(e)
+    if (!rec) continue
+    list.length = 0
+    for (const o of state.byWall.get(e) ?? []) {
+      const r = state.openings.get(o)
+      if (r) list.push(r)
+    }
+    list.sort((p, q) => p.offset - q.offset)
+    env.entity = e
+    env.rec = rec
+    contactQuads(rec.shape, list, state.contact, env, scratch)
+    if (rec.contact.equals(scratch) && sameGroup(state, rec)) continue
+    for (const key of rec.contactChunks) {
+      state.dirtyContact.add(key)
+      state.chunks.get(key)?.contacts.delete(e)
+    }
+    rec.contact.copy(scratch)
+    contactChunks(rec.contact, state.chunkSize, state.overlap)
+    groupKeys(state, rec.group, rec.contactChunks)
+    for (const key of rec.contactChunks) {
+      state.chunk(key).contacts.add(e)
+      state.dirtyContact.add(key)
+    }
+  }
+  state.contactWalls.clear()
+}
+
+/** Whether a wall's contact chunks are in its current group (a level change moves them). */
+function sameGroup(state: StructureState, rec: WallRecord): boolean {
+  for (const key of rec.contactChunks)
+    return state.groups[Math.floor(key / GROUP_STRIDE)] === rec.group
+  return true
+}
+
+/** Rebuilds a (group, chunk)'s contact mesh from the walls with contact quads in it. */
+function rebuildContact(state: StructureState, chunk: ChunkRecord): void {
+  const world = state.world
+  const b = state.contactBuilder
+  b.reset()
+  if (state.contact.enabled) {
+    const size = state.chunkSize
+    const minX = chunk.x * size
+    const minZ = chunk.z * size
+    for (const e of chunk.contacts) {
+      const rec = state.walls.get(e)
+      if (rec) emitContact(rec.contact, minX, minZ, minX + size, minZ + size, b)
+    }
+  }
+  const cm = chunk.contact
+  if (b.vertexCount === 0) {
+    if (cm) dropChunkMesh(world, cm)
+    chunk.contact = null
+    return
+  }
+  const data = meshData(b)
+  if (cm && world.isAlive(cm.entity)) {
+    cm.mesh.update(data)
+    cm.triangles = b.indexCount / 3
+    return
+  }
+  if (cm) dropChunkMesh(world, cm)
+  const mesh = Mesh.create(data)
+  const ref = world
+    .resource(Meshes)
+    .add(mesh, `structure:contact/${chunk.group}/${chunk.x},${chunk.z}`) as AssetRef<'Mesh'>
+  const entity = world.spawn(
+    [Mesh3d, { mesh: ref }],
+    [MeshMaterial, { material: state.contactMaterial! }],
+    [StructureChunk, { group: chunk.group, x: chunk.x, z: chunk.z }],
+    [ChildOf, { parent: chunk.group }],
+    ContactMesh,
+    NotShadowCaster,
+    Transform,
+    Derived,
+  )
+  chunk.contact = { entity, mesh, ref, triangles: b.indexCount / 3 }
+}
+
+/** Contact off: every contact mesh goes, and every wall forgets its quads. */
+function dropContacts(state: StructureState): void {
+  for (const [key, chunk] of state.chunks) {
+    if (chunk.contact) dropChunkMesh(state.world, chunk.contact)
+    chunk.contact = null
+    chunk.contacts.clear()
+    dropIfEmpty(state, key, chunk)
+  }
+  for (const rec of state.walls.values()) {
+    rec.contact.reset()
+    rec.contactChunks.clear()
+  }
+  state.dirtyContact.clear()
+  state.contactWalls.clear()
+}
+
+/**
+ * Brings `StructureSettings.contact` in: a patch that replaced it with only some fields is merged
+ * over the values before. Returns whether anything differs from what was applied.
+ */
+function contactSettingsChanged(state: StructureState, settings: { contact: ContactSettings }) {
+  let c = settings.contact
+  if (c !== state.contactSeen) {
+    c = { ...state.contact, ...c }
+    settings.contact = c
+    state.contactSeen = c
+  }
+  const a = state.contact
+  return (
+    c.enabled !== a.enabled ||
+    c.floorReach !== a.floorReach ||
+    c.cornerReach !== a.cornerReach ||
+    c.opacity !== a.opacity ||
+    c.maxAlpha !== a.maxAlpha ||
+    c.wobble !== a.wobble ||
+    c.color[0] !== a.color[0] ||
+    c.color[1] !== a.color[1] ||
+    c.color[2] !== a.color[2]
+  )
+}
+
+/** Applies changed contact settings: a look change sets the material; the rest rebuild contact. */
+function applyContactSettings(state: StructureState, next: ContactSettings): void {
+  const prev = state.contact
+  state.contact = { ...next, color: [next.color[0], next.color[1], next.color[2]] }
+  const material = state.contactMaterial
+    ? state.world.resource(Materials).get(state.contactMaterial)
+    : undefined
+  material?.set({
+    opacity: next.opacity,
+    maxAlpha: next.maxAlpha,
+    color: [next.color[0], next.color[1], next.color[2]],
+    wobble: next.wobble,
+  })
+  if (!next.enabled) {
+    if (prev.enabled) dropContacts(state)
+    return
+  }
+  if (!prev.enabled || prev.floorReach !== next.floorReach || prev.cornerReach !== next.cornerReach)
+    for (const e of state.walls.keys()) state.contactWalls.add(e)
 }
 
 function dropChunkMesh(world: World, cm: ChunkMesh): void {
@@ -1328,11 +1682,16 @@ function meshData(b: MeshBuilder): MeshData {
 
 /** Every chunk mesh goes, and every wall and slab is placed again (the chunk size changed). */
 function resetChunks(state: StructureState): void {
-  for (const chunk of state.chunks.values())
+  for (const chunk of state.chunks.values()) {
     for (const cm of chunk.meshes.values()) dropChunkMesh(state.world, cm)
+    if (chunk.contact) dropChunkMesh(state.world, chunk.contact)
+  }
   state.chunks.clear()
+  state.dirtyContact.clear()
   for (const [entity, rec] of state.walls) {
     rec.chunks.clear()
+    rec.contact.reset()
+    rec.contactChunks.clear()
     state.dirtyWalls.add(entity)
   }
   for (const [entity, rec] of state.slabs) {
@@ -1374,7 +1733,9 @@ export const compileStructure = defineSystem({
     const settings = world.resource(StructureSettings)
     const size = settings.chunkSize
     const tolerance = settings.curveTolerance
+    const contact = contactSettingsChanged(state, settings)
     let any =
+      contact ||
       state.removedWalls.length +
         state.removedSlabs.length +
         state.removedOpenings.length +
@@ -1399,6 +1760,7 @@ export const compileStructure = defineSystem({
     }
     if (!any) return
     const start = performance.now()
+    if (contact) applyContactSettings(state, settings.contact)
     if (size !== state.chunkSize || tolerance !== state.curveTolerance) {
       state.chunkSize = size
       state.curveTolerance = tolerance
@@ -1413,7 +1775,12 @@ export const compileStructure = defineSystem({
       const rec = state.walls.get(e)
       if (!rec) continue
       markChunks(state, rec.chunks)
+      queueContactNear(state, rec.chunks)
       for (const key of rec.chunks) state.chunks.get(key)?.walls.delete(e)
+      for (const key of rec.contactChunks) {
+        state.dirtyContact.add(key)
+        state.chunks.get(key)?.contacts.delete(e)
+      }
       state.walls.delete(e)
       for (const o of state.byWall.get(e) ?? []) placeLeaf(state, o)
     }
@@ -1422,6 +1789,7 @@ export const compileStructure = defineSystem({
       const rec = state.slabs.get(e)
       if (!rec) continue
       markChunks(state, rec.chunks)
+      if (rec.kind === 'floor') queueContactArea(state, rec.group, rec.shape)
       for (const key of rec.chunks) state.chunks.get(key)?.slabs.delete(e)
       for (const key of rec.index) state.roofIndex.get(key)?.delete(e)
       state.slabs.delete(e)
@@ -1480,7 +1848,8 @@ export const compileStructure = defineSystem({
     for (const e of state.dirtySlabs)
       if (world.isAlive(e) && (world.has(e, Floor) || world.has(e, Roof))) evaluateSlab(state, e)
     state.dirtySlabs.clear()
-    if (state.dirtyChunks.size === 0) return
+    updateContacts(state)
+    if (state.dirtyChunks.size === 0 && state.dirtyContact.size === 0) return
     const dirty: [number, number][] = []
     const groups: Entity[] = []
     let meshes = 0
@@ -1492,12 +1861,25 @@ export const compileStructure = defineSystem({
       dirty.push([chunkX(plain), chunkZ(plain)])
       groups.push(group)
     }
+    // Chunks whose contact mesh alone changed: a floor edit near walls, a contact setting.
+    const contactDirty: [number, number][] = []
+    for (const key of state.dirtyContact) {
+      if (state.dirtyChunks.has(key)) continue
+      const chunk = state.chunks.get(key)
+      if (!chunk) continue
+      rebuildContact(state, chunk)
+      dropIfEmpty(state, key, chunk)
+      contactDirty.push([chunk.x, chunk.z])
+    }
+    state.dirtyContact.clear()
     state.dirtyChunks.clear()
     state.last = {
       dirtyChunks: dirty,
       dirtyGroups: groups,
       chunksRebuilt: dirty.length,
       meshesRebuilt: meshes,
+      contactRebuilt: contactDirty.length,
+      contactChunks: contactDirty,
       ms: performance.now() - start,
     }
     state.chunksRebuilt += dirty.length

@@ -1,6 +1,6 @@
 import { type AssetRef, Derived, defineSchema, PostUpdate } from '@aethervtt/shard-core'
 import { box } from '@aethervtt/shard-mesh'
-import { MaterialAsset, Materials, Meshes } from '@aethervtt/shard-render'
+import { MaterialAsset, Materials, Meshes, registerShaders, Shaders } from '@aethervtt/shard-render'
 import { type AppMethod, definePlugin } from '@aethervtt/shard-runtime'
 import { Transform, TransformSystems } from '@aethervtt/shard-transform'
 import {
@@ -12,6 +12,7 @@ import {
   swingDoors,
 } from './compile'
 import {
+  ContactMesh,
   Cutout,
   DoorLeaf,
   Floor,
@@ -23,6 +24,7 @@ import {
   Wall,
   WindowPane,
 } from './components'
+import { CONTACT_KEY, CONTACT_SHADERS, ContactShade } from './contact-shade'
 
 export const structureMethods: AppMethod[] = [
   {
@@ -51,7 +53,8 @@ function leafBox() {
  * Walls, openings and floors (0055): compiled into chunked, per-material meshes that rebuild only
  * where an edit lands, door leaves that swing without rebuilding anything, and window panes. Levels,
  * roofs and cutouts (0067): each level and roof is a group whose meshes are its children, so hiding
- * one is a Visibility write. Needs `forwardPlugin` (render/forward).
+ * one is a Visibility write. Contact shade (0068): noisy dark strips where walls meet floors and
+ * each other, one blended mesh per (group, chunk). Needs `forwardPlugin` (render/forward).
  */
 export const structurePlugin = definePlugin({
   name: 'structure',
@@ -66,6 +69,8 @@ export const structurePlugin = definePlugin({
     StructureChunk,
     DoorLeaf,
     WindowPane,
+    ContactMesh,
+    ContactShade,
     StructureSettings,
   ],
   build(app) {
@@ -105,5 +110,19 @@ export const structurePlugin = definePlugin({
       'structure:glass',
     ) as AssetRef<'Material'>
     state.leafMesh = world.resource(Meshes).add(leafBox(), 'structure:leaf') as AssetRef<'Mesh'>
+    registerShaders(world.resource(Shaders), CONTACT_SHADERS)
+    const contact = state.contact
+    state.contactMaterial = materials.add(
+      new MaterialAsset(
+        {
+          opacity: contact.opacity,
+          maxAlpha: contact.maxAlpha,
+          color: [...contact.color],
+          wobble: contact.wobble,
+        },
+        ContactShade,
+      ),
+      CONTACT_KEY,
+    ) as AssetRef<'Material'>
   },
 })

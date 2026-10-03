@@ -8,7 +8,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./testing": "./src/testing.ts",
-    "./noise": "./src/noise.ts"
+    "./noise": "./src/noise.ts",
+    "./surface": "./src/surface.ts"
   },
   "scripts": {
     "typecheck": "tsc -p .",

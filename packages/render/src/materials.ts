@@ -57,6 +57,11 @@ export interface MaterialTypeOptions<F extends Fields> {
    * what's under: a grid's lines over the tiles they're drawn on (0059). Default true.
    */
   pickable?: boolean
+  /**
+   * Where `shader` comes from when a plugin registers it, e.g. `surfacePlugin from
+   * '@aethervtt/shard-render/surface'`: a draw without it logs `render/feature-missing` naming it.
+   */
+  plugin?: string
   description?: string
 }
 
@@ -102,6 +107,8 @@ export class MaterialType {
   colors: Set<string>
   /** Whether picks can hit draws of this type (MaterialTypeOptions.pickable). */
   pickable = true
+  /** The plugin that registers its shader (MaterialTypeOptions.plugin). */
+  plugin: string | undefined
   blend: BlendMode | undefined
   shader: string | undefined
   /** Noise graphs the module wraps as `noise_<name>`. */
@@ -140,11 +147,14 @@ export class MaterialType {
     const textures: string[] = []
     for (const [key, field] of Object.entries(fields)) {
       if (isTextureHandle(field)) textures.push(key)
-      else if (field.storage !== 'object') numeric[key] = field
+      // Structs with a `wgsl` option pack as that struct (a surface Variation, 0068).
+      else if (field.storage !== 'object' || (field.kind === 'struct' && field.options.wgsl))
+        numeric[key] = field
     }
     this.extends = options.extends ?? 'standard'
     this.standardTextures = options.standardTextures ?? true
     this.pickable = options.pickable ?? true
+    this.plugin = options.plugin
     this.schema = schema
     this.textures = textures
     this.arrays = new Set(options.arrays ?? [])
@@ -203,6 +213,7 @@ export class MaterialType {
     const lines: string[] = []
     let binding = this.bindingBase
     if (this.layout) {
+      for (const path of this.layout.imports) lines.push(`import ${path};`)
       lines.push(this.layout.wgsl)
       lines.push(
         `@group(1) @binding(${binding++}) var<uniform> ${this.varName}: ${this.layout.structName};`,
@@ -323,6 +334,7 @@ function signatureOf(ext: string, options: MaterialTypeOptions<Fields>, fields: 
     colors: options.colors ?? [],
     standardTextures: options.standardTextures ?? true,
     pickable: options.pickable ?? true,
+    plugin: options.plugin ?? null,
     description: options.description ?? null,
     fields: Object.entries(fields).map(([key, field]) => [key, field.jsonSchema()]),
   })

@@ -314,7 +314,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `shader/link-unknown-module` | @aethervtt/shard-shader | Check the import path, or register the module. |
 | `shader/link-unresolved` | @aethervtt/shard-shader |  |
 | `shader/unknown-hook` | @aethervtt/shard-shader | Only functions marked @hook can be overridden. |
-| `shader/unsupported-field` | @aethervtt/shard-shader | GPU structs take numbers, bools, enums, vectors, colors, and matrices. f64 fields are not allowed; object fields are skipped. |
+| `shader/unsupported-field` | @aethervtt/shard-shader | GPU structs take numbers, bools, enums, vectors, colors, matrices, and structs with a `wgsl` option. f64 fields are not allowed; other object fields are skipped. |
 | `shader/watch-unsupported` | @aethervtt/shard-shader |  |
 | `sprite/atlas-too-large` | @aethervtt/shard-sprite | Raise maxSize, or split the images into several atlases. |
 | `sprite/bad-chunk` | @aethervtt/shard-sprite |  |

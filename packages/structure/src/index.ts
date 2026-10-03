@@ -9,10 +9,13 @@ export {
 } from './compile'
 export {
   CHANNELS,
+  ContactMesh,
+  type ContactSettings,
   CUTOUT_KINDS,
   Cutout,
   DOOR_STATES,
   DoorLeaf,
+  defaultContact,
   Floor,
   HINGES,
   Level,
@@ -27,6 +30,22 @@ export {
   Wall,
   WindowPane,
 } from './components'
+export {
+  CONTACT_CORE,
+  CONTACT_CORE_BOOST,
+  CONTACT_LIFT,
+  CONTACT_STEP,
+  CONTACT_STRIDE,
+  type ContactEnv,
+  type ContactLook,
+  ContactQuads,
+  type ContactReach,
+  contactAlpha,
+  contactChunks,
+  contactQuads,
+  emitContact,
+} from './contact'
+export { CONTACT_KEY, CONTACT_SHADERS, ContactShade } from './contact-shade'
 export {
   arcOf,
   type Centerline,

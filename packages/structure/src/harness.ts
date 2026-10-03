@@ -10,6 +10,7 @@ import {
   renderPlugin,
   Tonemapping,
 } from '@aethervtt/shard-render'
+import { surfacePlugin } from '@aethervtt/shard-render/surface'
 import { App } from '@aethervtt/shard-runtime'
 import { lookAt, Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { hostScene } from './fixtures'
@@ -37,6 +38,8 @@ export async function rig(
     shadowUpdate?: 'always' | 'on-change'
     shadows?: boolean
     orthoHeight?: number
+    /** Adds surfacePlugin (0068), for SurfaceMaterial walls and floors. */
+    surface?: boolean
   } = {},
 ): Promise<Rig> {
   const app = new App().addPlugin(
@@ -45,6 +48,7 @@ export async function rig(
     forwardPlugin({ msaa: 1 }),
     structurePlugin,
   )
+  if (options.surface) app.addPlugin(surfacePlugin)
   await app.init()
   const world = app.world
   const target = new OffscreenTarget(gpu, {

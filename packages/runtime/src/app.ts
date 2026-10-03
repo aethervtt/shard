@@ -383,8 +383,9 @@ export class App {
   }
 
   /**
-   * Stops the runner, then disposes plugins in reverse build order, so each releases what it
-   * created: GPU objects, surfaces, listeners, workers (0052). Idempotent; afterwards any other
+   * Stops the runner, waits for every plugin's work in flight (`beforeDispose`), then disposes
+   * plugins in reverse build order, so each releases what it created: GPU objects, surfaces,
+   * listeners, workers (0052). Idempotent; afterwards any other
    * call throws `runtime/disposed`. A plugin whose dispose throws is logged and the rest still run.
    */
   dispose(): Promise<void> {
@@ -716,6 +717,27 @@ export class App {
     this.world.asleep = false
     const log = this.world.tryResource(LogResource)
     let first: unknown
+    // Work in flight first, for every plugin: then nothing below frees what's still in use.
+    for (const plugin of this.built) {
+      if (!plugin.beforeDispose) continue
+      const scoped = this.enter()
+      let result: Promise<void> | void
+      try {
+        result = plugin.beforeDispose(this)
+      } catch (err) {
+        first ??= err
+        log?.error(err)
+        continue
+      } finally {
+        this.exit(scoped)
+      }
+      try {
+        await result
+      } catch (err) {
+        first ??= err
+        log?.error(err)
+      }
+    }
     for (let i = this.built.length - 1; i >= 0; i--) {
       const plugin = this.built[i]!
       if (!plugin.dispose) continue

@@ -463,6 +463,89 @@ override fn shard::pbr::material::pbr_input(uv: vec2f) -> PbrInput { var p = bas
     expect(got).toEqual(expected)
   })
 
+  it('nests struct fields with a wgsl option as the imported struct, verified on the GPU', async () => {
+    const inner = {
+      k: t.enum(['p', 'q', 'r']),
+      tint: t.vec3,
+      w: t.f32,
+    }
+    const Inner = defineComponent('test/InnerParams', inner)
+    const Outer = defineComponent('test/Outer', {
+      a: t.f32,
+      nested: t.struct(inner, { wgsl: 'test::inner::InnerParams' }),
+      plain: t.struct({ x: t.f32 }),
+      b: t.f32,
+    })
+    const layout = wgslLayout(Outer)
+    expect(layout.imports).toEqual(['test::inner::InnerParams'])
+    expect(layout.fields.map((f) => [f.name, f.offset])).toEqual([
+      ['a', 0],
+      ['nested', 16],
+      ['b', 48],
+    ])
+    expect(layout.size).toBe(64)
+    const bytes = new ArrayBuffer(layout.size)
+    layout.write(new DataView(bytes), 0, {
+      a: 1,
+      nested: { k: 'r', tint: [2, 3, 4], w: 5 },
+      plain: { x: 9 },
+      b: 6,
+    })
+    // The library links the outer struct against the inner one declared from the same fields.
+    const lib = new ShaderLibrary()
+    lib.register('test::inner', wgslLayout(Inner).wgsl)
+    lib.register(
+      'test::probe',
+      `import test::inner::InnerParams;
+${layout.wgsl}
+@group(0) @binding(0) var<uniform> p: Outer;
+@group(0) @binding(1) var<storage, read_write> o: array<f32, 7>;
+@compute @workgroup_size(1) fn main() {
+  o[0] = p.a; o[1] = f32(p.nested.k); o[2] = p.nested.tint.x; o[3] = p.nested.tint.y;
+  o[4] = p.nested.tint.z; o[5] = p.nested.w; o[6] = p.b;
+}`,
+    )
+    const { code } = await lib.link({ root: 'test::probe' })
+    const device = gpu.device
+    const pipeline = await device.createComputePipelineAsync({
+      layout: 'auto',
+      compute: { module: device.createShaderModule({ code }), entryPoint: 'main' },
+    })
+    const input = device.createBuffer({
+      size: layout.size,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    })
+    device.queue.writeBuffer(input, 0, bytes)
+    const output = device.createBuffer({
+      size: 28,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    })
+    const read = device.createBuffer({
+      size: 28,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    })
+    const encoder = device.createCommandEncoder()
+    const pass = encoder.beginComputePass()
+    pass.setPipeline(pipeline)
+    pass.setBindGroup(
+      0,
+      device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: input } },
+          { binding: 1, resource: { buffer: output } },
+        ],
+      }),
+    )
+    pass.dispatchWorkgroups(1)
+    pass.end()
+    encoder.copyBufferToBuffer(output, 0, read, 0, 28)
+    device.queue.submit([encoder.finish()])
+    await read.mapAsync(GPUMapMode.READ)
+    expect([...new Float32Array(read.getMappedRange())]).toEqual([1, 2, 2, 3, 4, 5, 6])
+    read.unmap()
+  })
+
   it('skips object fields (bound, not packed) and rejects f64', () => {
     const Mixed = defineComponent('test/MixedGpu', { name: t.string, value: t.f32 })
     expect(wgslLayout(Mixed).fields.map((f) => f.name)).toEqual(['value'])

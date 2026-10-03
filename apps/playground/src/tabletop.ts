@@ -40,6 +40,7 @@ import {
   Visibility,
   worldToScreen,
 } from '@aethervtt/shard-render'
+import { SURFACE_PRESETS, SurfaceMaterial, SurfaceSettings } from '@aethervtt/shard-render/surface'
 import { definePlugin } from '@aethervtt/shard-runtime'
 import {
   Cutout,
@@ -50,6 +51,7 @@ import {
   Roof,
   roofAt,
   Structure,
+  StructureSettings,
   Wall,
 } from '@aethervtt/shard-structure'
 import { brickMaterial } from '@aethervtt/shard-structure/fixtures'
@@ -70,6 +72,9 @@ import { hudExtras } from './hud'
 // Levels and roofs (0067): the tower has a deck on a second level, with a parapet and a hatch; the
 // hall and the east wing's two rooms have roofs, each hidden while a token stands under it. A
 // hidden roof keeps casting, so the moon only reaches a room through its windows.
+// Surface variation and contact shade (0068): each material's style, as a host's documents carry
+// it, maps onto a preset and a seed; walls get dark strips where they meet floors and each other.
+// The quality button turns both off and on, as a host's low preset would.
 
 /** Layer 1 is shared; each view adds its own visuals' layer. */
 const SHARED = 1
@@ -541,21 +546,43 @@ const placeLabels = defineSystem({
   },
 })
 
+/** Aether's style seed: FNV-1a of the material's saved identity, never of runtime order. */
+function styleSeed(identity: string): number {
+  let value = 0x811c9dc5
+  for (let i = 0; i < identity.length; i++)
+    value = Math.imul(value ^ identity.charCodeAt(i), 0x01000193)
+  return value >>> 0
+}
+
+/**
+ * A host material with a surface style (a recipe name and a seed): the engine only knows
+ * variations, so the adapter maps the recipe onto a preset (0068). No style is a plain material.
+ */
+function styledMaterial(value: Record<string, unknown>, style?: { recipe: string; seed: number }) {
+  const preset = style && SURFACE_PRESETS[style.recipe]
+  if (!preset) return new MaterialAsset(value)
+  return new MaterialAsset(
+    { ...value, variation: { ...preset, seed: style.seed }, projection: 'uv' },
+    SurfaceMaterial,
+  )
+}
+
 function spawnScene(world: World): Demo {
   const materials = world.resource(Materials)
-  const mat = (name: string, value: Record<string, unknown>) => {
-    const ref = materials.add(new MaterialAsset(value), `demo:${name}`) as AssetRef<'Material'>
+  const mat = (name: string, value: Record<string, unknown>, recipe?: string) => {
+    const style = recipe ? { recipe, seed: styleSeed(`demo:${name}`) } : undefined
+    const ref = materials.add(styledMaterial(value, style), `demo:${name}`) as AssetRef<'Material'>
     return [name, ref] as const
   }
   const refs = new Map<string, AssetRef<'Material'>>([
-    mat('stone', { baseColor: [0.55, 0.53, 0.5, 1], roughness: 0.9 }),
-    mat('wood', { baseColor: [0.33, 0.2, 0.1, 1], roughness: 0.6 }),
-    mat('flag', { baseColor: [0.3, 0.31, 0.33, 1], roughness: 0.9 }),
-    mat('dirt', { baseColor: [0.28, 0.22, 0.14, 1], roughness: 1 }),
-    mat('plank', { baseColor: [0.42, 0.3, 0.18, 1], roughness: 0.7 }),
-    mat('moss', { baseColor: [0.2, 0.34, 0.18, 1], roughness: 0.9 }),
+    mat('stone', { baseColor: [0.55, 0.53, 0.5, 1], roughness: 0.9 }, 'stone'),
+    mat('wood', { baseColor: [0.33, 0.2, 0.1, 1], roughness: 0.6 }, 'timber'),
+    mat('flag', { baseColor: [0.3, 0.31, 0.33, 1], roughness: 0.9 }, 'tile'),
+    mat('dirt', { baseColor: [0.28, 0.22, 0.14, 1], roughness: 1 }, 'ground'),
+    mat('plank', { baseColor: [0.42, 0.3, 0.18, 1], roughness: 0.7 }, 'timber'),
+    mat('moss', { baseColor: [0.2, 0.34, 0.18, 1], roughness: 0.9 }, 'ground'),
     mat('ink', { baseColor: [0.05, 0.05, 0.06, 1], roughness: 0.5 }),
-    mat('slate', { baseColor: [0.2, 0.22, 0.26, 1], roughness: 0.8 }),
+    mat('slate', { baseColor: [0.2, 0.22, 0.26, 1], roughness: 0.8 }, 'solid'),
   ])
   refs.set('brick', brickMaterial(world))
   // The tower's deck stands on the ground floor's walls.
@@ -828,7 +855,7 @@ function spawnScene(world: World): Demo {
   return d
 }
 
-type Action = 'view' | 'grid' | 'fog' | 'doors' | 'wall' | 'draw' | 'level' | 'hatch'
+type Action = 'view' | 'grid' | 'fog' | 'doors' | 'wall' | 'draw' | 'level' | 'hatch' | 'quality'
 
 function act(world: World, d: Demo, action: Action): void {
   if (action === 'view') setView(world, d, d.view === 'map' ? 'tabletop' : 'map')
@@ -858,6 +885,13 @@ function act(world: World, d: Demo, action: Action): void {
     // Show this level and below: hiding the tower's deck is one Visibility write, no rebuild.
     const v = world.get(d.towerTop, Visibility)
     world.set(d.towerTop, Visibility, { mode: v.mode === 'hidden' ? 'inherit' : 'hidden' })
+  } else if (action === 'quality') {
+    // A host's low preset: surface variation and contact shade off; both cost nothing then.
+    const on = !world.resource(SurfaceSettings).variation
+    world.patchResource(SurfaceSettings, { variation: on })
+    world.patchResource(StructureSettings, {
+      contact: { ...world.resource(StructureSettings).contact, enabled: on },
+    })
   } else if (action === 'hatch') {
     const c = world.get(d.hatch, Cutout)
     world.set(d.hatch, Cutout, { state: c.state === 'open' ? 'closed' : 'open' })
@@ -1024,6 +1058,7 @@ export const tabletopDemoPlugin = definePlugin({
         `view      ${d.view}   grid ${GRID_MODES[d.gridMode] ? `${GRID_MODES[d.gridMode]!.kind} ${GRID_MODES[d.gridMode]!.kind === 'hex' ? GRID_MODES[d.gridMode]!.orientation : ''}` : 'off'}`,
         `structure ${s.walls} walls, ${s.openings} openings, ${s.chunks} chunks, ${s.meshes} meshes`,
         `last edit ${s.lastCompile.chunksRebuilt} chunks rebuilt in ${s.lastCompile.ms.toFixed(2)} ms`,
+        `quality   ${w.resource(SurfaceSettings).variation ? 'high' : 'low'}: variation, contact shade ${s.contact.enabled ? `${s.contact.meshes} meshes, ${s.contact.triangles} triangles` : 'off'}`,
         `levels    tower deck ${w.get(d.towerTop, Visibility).mode === 'hidden' ? 'hidden' : 'shown'}, hatch ${w.get(d.hatch, Cutout).state}, roofs ${d.roofs.filter((e) => w.get(e, Visibility).mode === 'hidden').length}/${d.roofs.length} hidden`,
         `uploads   ${f.sceneBytes} B scene, ${f.bytes.view} B view (last frame)`,
         `recent    ${stats.recent.sceneBytes} B scene, ${stats.recent.shadowMapsRendered} shadow maps (60 frames)`,

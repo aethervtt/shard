@@ -186,8 +186,12 @@ await app.dispose()
 
 Plugins get an optional `dispose?(app)`, called in reverse build order. The runner stops first
 (a loop runner gives the app a `FrameDriver` through `app.attachDriver`, which `requestFrame` and
-`dispose` use), then plugins release what they created. A plugin whose dispose throws is logged
-and the others still run; the first error is rethrown at the end. `dispose()` is idempotent, and
+`dispose` use), then every plugin's optional `beforeDispose?(app)` is awaited in build order, then
+plugins release what they created. `beforeDispose` waits for work still in flight: render's awaits
+the GPU queue (`onSubmittedWorkDone`), because render disposes last and the plugins before it free
+buffers the last frames may still use; freeing them in flight crashed Dawn on the next app's submit.
+A plugin whose `beforeDispose` or dispose throws is logged and the others still run; the first error
+is rethrown at the end. `dispose()` is idempotent, and
 any other call on a disposed app throws `runtime/disposed`.
 
 - render: unsubscribes its error, device-loss and resize listeners, rejects pending captures,
