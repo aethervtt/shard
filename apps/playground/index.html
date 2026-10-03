@@ -7,13 +7,20 @@
     <style>
       html, body { margin: 0; height: 100%; background: #030306; color: #cfd6e4; font: 12px ui-monospace, monospace; }
       #viewport { display: block; width: 100%; height: 100%; }
-      #fps-graph { display: block; margin: 0 0 8px; border-radius: 3px; }
-      #panel { position: fixed; top: 10px; left: 12px; background: rgba(8, 10, 16, 0.7); padding: 10px 12px; border-radius: 6px; }
+      #panel { position: fixed; z-index: 10; top: 10px; left: 12px; max-width: calc(100vw - 48px); background: rgba(8, 10, 16, 0.78); border: 1px solid rgba(255, 255, 255, 0.06); padding: 10px 12px; border-radius: 8px; backdrop-filter: blur(6px); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35); }
       #hud { margin: 0 0 8px; white-space: pre; }
+      #fps-graph { display: block; margin: 0 0 8px; border-radius: 3px; }
+      #actions { display: flex; flex-wrap: wrap; gap: 4px; max-width: 420px; }
       button { font: inherit; color: inherit; background: #1a1f2b; border: 1px solid #2c3445; border-radius: 4px; padding: 3px 8px; cursor: pointer; }
-      button:hover { background: #242b3a; }
-      label.backend { display: block; margin: 0 0 8px; }
-      select { font: inherit; color: inherit; background: #1a1f2b; border: 1px solid #2c3445; border-radius: 4px; padding: 2px 6px; }
+      button:hover { background: #242b3a; border-color: #3b4560; }
+      label.backend { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; opacity: 0.8; }
+      select { font: inherit; color: inherit; background: #1a1f2b; border: 1px solid #2c3445; border-radius: 4px; padding: 2px 6px; cursor: pointer; }
+      select:hover { border-color: #3b4560; }
+      optgroup { color: #8a93a8; font-style: normal; }
+      option { color: #cfd6e4; }
+      #picker { display: flex; gap: 4px; margin: 0 0 8px; }
+      #picker select { flex: 1; min-width: 0; font-size: 13px; padding: 4px 8px; }
+      #picker .step { padding: 3px 9px; font-size: 14px; line-height: 1; }
       body:not([data-demo='galaxy']) [data-change] { display: none; }
       body:not([data-demo='prefabs']) [data-prefab] { display: none; }
       body:not([data-demo='data']) [data-weapon] { display: none; }
@@ -27,14 +34,12 @@
       body:not([data-demo='lights2d']) [data-lights2d] { display: none; }
       body:not([data-demo='lens']) [data-lens] { display: none; }
       body:not([data-demo='tabletop']) [data-tabletop] { display: none; }
-      nav { margin-top: 8px; opacity: 0.75; }
-      nav a { color: inherit; margin-right: 10px; }
       /* The UI demo's HUD fills the left and right edges: the panel sits between them. */
       body[data-demo='ui'] #panel { left: 50%; transform: translateX(-50%); font-size: 10px; }
-      body[data-demo='ui'] #fps-graph, body[data-demo='ui'] nav { display: none; }
+      body[data-demo='ui'] #fps-graph { display: none; }
       /* So does the save demo's. */
       body[data-demo='save'] #panel { left: 50%; transform: translateX(-50%); font-size: 10px; max-width: 460px; }
-      body[data-demo='save'] #fps-graph, body[data-demo='save'] nav { display: none; }
+      body[data-demo='save'] #fps-graph { display: none; }
     </style>
   </head>
   <body>
@@ -42,75 +47,76 @@
     <div id="panel">
       <pre id="hud">starting…</pre>
       <canvas id="fps-graph"></canvas>
-      <button type="button" data-change="-50000">−50k</button>
-      <button type="button" data-change="-10000">−10k</button>
-      <button type="button" data-change="10000">+10k</button>
-      <button type="button" data-change="50000">+50k</button>
-      <button type="button" data-prefab="spawn">1 spawn 500</button>
-      <button type="button" data-prefab="edit">2 edit prefab</button>
-      <button type="button" data-prefab="apply">3 apply drone-b</button>
-      <button type="button" data-prefab="reset">4 reset</button>
-      <button type="button" data-weapon="overcharge">1 overcharge laser</button>
-      <button type="button" data-weapon="heavy">2 edit heavy</button>
-      <button type="button" data-weapon="script">3 reload script</button>
-      <button type="button" data-weapon="break">4 break scatter</button>
-      <button type="button" data-weapon="reset">5 reset</button>
-      <button type="button" data-anim="crossfade">1 crossfade</button>
-      <button type="button" data-anim="wave">2 wave (additive, masked)</button>
-      <button type="button" data-anim="skeleton">3 skeleton</button>
-      <button type="button" data-anim="pause">4 pause</button>
-      <button type="button" data-graph="attack">1 attack (trigger)</button>
-      <button type="button" data-graph="hop">2 everyone hop</button>
-      <button type="button" data-graph="edit">3 edit run threshold</button>
-      <button type="button" data-graph="break">4 typo in a condition</button>
-      <button type="button" data-ik="ik">1 IK on/off</button>
-      <button type="button" data-ik="retarget">2 retarget on/off</button>
-      <button type="button" data-ik="sword">3 swap sword hand</button>
-      <button type="button" data-ik="overlay">4 ik + skeleton overlay</button>
-      <button type="button" data-audio="start">1 start audio</button>
-      <button type="button" data-audio="mute">2 mute sfx</button>
-      <button type="button" data-audio="line">3 radio line (ducks music)</button>
-      <button type="button" data-audio="burst">4 100 lasers</button>
-      <button type="button" data-audio="hrtf">5 hrtf</button>
-      <button type="button" data-audio="pause">6 pause orbit</button>
-      <button type="button" data-ui="theme">1 swap theme file</button>
-      <button type="button" data-ui="overlay">2 ui-layout overlay</button>
-      <button type="button" data-ui="focus">3 focus cargo</button>
-      <button type="button" data-nav="overlay">1 navmesh overlay</button>
-      <button type="button" data-nav="rock">2 move the crate</button>
-      <button type="button" data-nav="swamp">3 swamp cost</button>
-      <button type="button" data-nav="upper">4 beacon upstairs</button>
-      <button type="button" data-nav="ledge">5 beacon on the ledge (jump)</button>
-      <button type="button" data-nav="steep">6 beacon past the steep ramp</button>
-      <button type="button" data-nav="across">7 beacon across the swamp</button>
-      <button type="button" data-save="save1">save 1</button>
-      <button type="button" data-save="load1">load 1</button>
-      <button type="button" data-save="save2">save 2</button>
-      <button type="button" data-save="load2">load 2</button>
-      <button type="button" data-save="language">language</button>
-      <button type="button" data-save="rebind">rebind throw</button>
-      <button type="button" data-lights2d="overlay">1 lights2d overlay</button>
-      <button type="button" data-lights2d="lighting">2 lighting on/off</button>
-      <button type="button" data-lights2d="soft">3 soft/hard shadows</button>
-      <button type="button" data-lights2d="dusk">4 night/dusk</button>
-      <button type="button" data-lights2d="flies">5 fireflies</button>
-      <button type="button" data-lens="smaller">radius −</button>
-      <button type="button" data-lens="larger">radius +</button>
-      <button type="button" data-lens="weaker">strength −</button>
-      <button type="button" data-lens="stronger">strength +</button>
-      <button type="button" data-lens="orbit">orbiting field</button>
-      <button type="button" data-lens="huge">huge field</button>
-      <button type="button" data-lens="clear">clear</button>
-      <button type="button" data-tabletop="view">1 map / tabletop</button>
-      <button type="button" data-tabletop="grid">2 grid</button>
-      <button type="button" data-tabletop="fog">3 fog</button>
-      <button type="button" data-tabletop="doors">4 all doors</button>
-      <button type="button" data-tabletop="wall">5 add a wall</button>
-      <button type="button" data-tabletop="draw">6 draw</button>
-      <button type="button" data-tabletop="level">7 upper level</button>
-      <button type="button" data-tabletop="hatch">8 hatch</button>
-      <button type="button" data-tabletop="quality">9 quality</button>
-      <nav><a href="#scene">scene</a><a href="#galaxy">galaxy</a><a href="#lights">lights</a><a href="#ibl">ibl</a><a href="#sky">sky</a><a href="#deferred">deferred</a><a href="#crowd">crowd</a><a href="#post">post</a><a href="#lens">lens</a><a href="#sprites">sprites</a><a href="#particles">particles</a><a href="#physics">physics</a><a href="#planet">planet</a><a href="#physics2d">physics2d</a><a href="#character">character</a><a href="#character-planet">character-planet</a><a href="#character2d">character2d</a><a href="#prefabs">prefabs</a><a href="#data">data</a><a href="#animation">animation</a><a href="#animgraph">animgraph</a><a href="#ik">ik</a><a href="#audio">audio</a><a href="#ui">ui</a><a href="#nav">nav</a><a href="#nav2d">nav2d</a><a href="#save">save</a><a href="#lights2d">lights2d</a><a href="#grids">grids</a><a href="#noise">noise</a><a href="#procgen">procgen</a><a href="#terrain">terrain</a><a href="#atmosphere">atmosphere</a><a href="#tabletop">tabletop</a><a href="/embedding.html">embedding</a><a href="/dice.html">dice</a></nav>
+      <div id="actions">
+        <button type="button" data-change="-50000">−50k</button>
+        <button type="button" data-change="-10000">−10k</button>
+        <button type="button" data-change="10000">+10k</button>
+        <button type="button" data-change="50000">+50k</button>
+        <button type="button" data-prefab="spawn">1 spawn 500</button>
+        <button type="button" data-prefab="edit">2 edit prefab</button>
+        <button type="button" data-prefab="apply">3 apply drone-b</button>
+        <button type="button" data-prefab="reset">4 reset</button>
+        <button type="button" data-weapon="overcharge">1 overcharge laser</button>
+        <button type="button" data-weapon="heavy">2 edit heavy</button>
+        <button type="button" data-weapon="script">3 reload script</button>
+        <button type="button" data-weapon="break">4 break scatter</button>
+        <button type="button" data-weapon="reset">5 reset</button>
+        <button type="button" data-anim="crossfade">1 crossfade</button>
+        <button type="button" data-anim="wave">2 wave (additive, masked)</button>
+        <button type="button" data-anim="skeleton">3 skeleton</button>
+        <button type="button" data-anim="pause">4 pause</button>
+        <button type="button" data-graph="attack">1 attack (trigger)</button>
+        <button type="button" data-graph="hop">2 everyone hop</button>
+        <button type="button" data-graph="edit">3 edit run threshold</button>
+        <button type="button" data-graph="break">4 typo in a condition</button>
+        <button type="button" data-ik="ik">1 IK on/off</button>
+        <button type="button" data-ik="retarget">2 retarget on/off</button>
+        <button type="button" data-ik="sword">3 swap sword hand</button>
+        <button type="button" data-ik="overlay">4 ik + skeleton overlay</button>
+        <button type="button" data-audio="start">1 start audio</button>
+        <button type="button" data-audio="mute">2 mute sfx</button>
+        <button type="button" data-audio="line">3 radio line (ducks music)</button>
+        <button type="button" data-audio="burst">4 100 lasers</button>
+        <button type="button" data-audio="hrtf">5 hrtf</button>
+        <button type="button" data-audio="pause">6 pause orbit</button>
+        <button type="button" data-ui="theme">1 swap theme file</button>
+        <button type="button" data-ui="overlay">2 ui-layout overlay</button>
+        <button type="button" data-ui="focus">3 focus cargo</button>
+        <button type="button" data-nav="overlay">1 navmesh overlay</button>
+        <button type="button" data-nav="rock">2 move the crate</button>
+        <button type="button" data-nav="swamp">3 swamp cost</button>
+        <button type="button" data-nav="upper">4 beacon upstairs</button>
+        <button type="button" data-nav="ledge">5 beacon on the ledge (jump)</button>
+        <button type="button" data-nav="steep">6 beacon past the steep ramp</button>
+        <button type="button" data-nav="across">7 beacon across the swamp</button>
+        <button type="button" data-save="save1">save 1</button>
+        <button type="button" data-save="load1">load 1</button>
+        <button type="button" data-save="save2">save 2</button>
+        <button type="button" data-save="load2">load 2</button>
+        <button type="button" data-save="language">language</button>
+        <button type="button" data-save="rebind">rebind throw</button>
+        <button type="button" data-lights2d="overlay">1 lights2d overlay</button>
+        <button type="button" data-lights2d="lighting">2 lighting on/off</button>
+        <button type="button" data-lights2d="soft">3 soft/hard shadows</button>
+        <button type="button" data-lights2d="dusk">4 night/dusk</button>
+        <button type="button" data-lights2d="flies">5 fireflies</button>
+        <button type="button" data-lens="smaller">radius −</button>
+        <button type="button" data-lens="larger">radius +</button>
+        <button type="button" data-lens="weaker">strength −</button>
+        <button type="button" data-lens="stronger">strength +</button>
+        <button type="button" data-lens="orbit">orbiting field</button>
+        <button type="button" data-lens="huge">huge field</button>
+        <button type="button" data-lens="clear">clear</button>
+        <button type="button" data-tabletop="view">1 map / tabletop</button>
+        <button type="button" data-tabletop="grid">2 grid</button>
+        <button type="button" data-tabletop="fog">3 fog</button>
+        <button type="button" data-tabletop="doors">4 all doors</button>
+        <button type="button" data-tabletop="wall">5 add a wall</button>
+        <button type="button" data-tabletop="draw">6 draw</button>
+        <button type="button" data-tabletop="level">7 upper level</button>
+        <button type="button" data-tabletop="hatch">8 hatch</button>
+        <button type="button" data-tabletop="quality">9 quality</button>
+      </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
