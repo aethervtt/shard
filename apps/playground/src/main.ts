@@ -47,6 +47,7 @@ import { nav2dDemoPlugin, navDemoPlugin } from './nav'
 import { noiseDemoPlugin } from './noise'
 import { particlesDemoPlugin } from './particles'
 import { physics2dDemoPlugin, physicsDemoPlugin, planetDemoPlugin } from './physics'
+import { addDemoPicker } from './picker'
 import { postPlugin } from './post'
 import { prefabsDemoPlugin } from './prefabs'
 import { procgenDemoPlugin } from './procgen'
@@ -73,7 +74,9 @@ const controls = (input = true) => [
 ]
 
 applyResolution(canvas)
-addBackendSelect(document.getElementById('panel') as HTMLElement)
+const panel = document.getElementById('panel') as HTMLElement
+addBackendSelect(panel)
+addDemoPicker(panel, demo)
 const app = new App().addPlugin(
   renderPlugin({ canvas, features: ['timestamp-query'], ...graphicsOptions() }),
   unsupportedOverlayPlugin,
@@ -292,7 +295,7 @@ if (demo === 'galaxy') {
 } else if (demo === 'sky') {
   app.addPlugin(TransformPlugin, forwardPlugin(), ...controls(), hudPlugin, skyPlugin)
 } else {
-  app.addPlugin(TransformPlugin, forwardPlugin(), ...controls(), scenePlugin)
+  app.addPlugin(TransformPlugin, forwardPlugin(), ...controls(), hudPlugin, scenePlugin)
 }
 app.addPlugin(fpsGraphPlugin)
 app.setRunner(animationFrameRunner())
