@@ -1,5 +1,5 @@
 import { defineComponent, defineResource, onAdd, t, type World } from '@aethervtt/shard-core'
-import { LogResource } from '@aethervtt/shard-runtime'
+import { warnFeatureMissing } from './features'
 
 // Selection and hover outlines (0057). The component is core; the pass is `outlinePlugin`, which
 // forwardPlugin includes. Without it, an Outline logs render/feature-missing and draws nothing.
@@ -41,17 +41,8 @@ export const MAX_OUTLINE_STYLES = 16
 
 /** Warns once per world about an Outline without the outline pass (render/feature-missing). */
 export function observeOutlinesWithoutPass(world: World): void {
-  let warned = false
   world.observe(onAdd(Outline), ({ world: w }) => {
-    if (warned || w.hasResource(OutlinePath)) return
-    warned = true
-    w.tryResource(LogResource)?.log(
-      'warn',
-      "An entity has Outline, but outlinePlugin isn't installed; it draws no outline",
-      {
-        code: 'render/feature-missing',
-        hint: "Add outlinePlugin from '@aethervtt/shard-render' (forwardPlugin includes it).",
-      },
-    )
+    if (!w.hasResource(OutlinePath))
+      warnFeatureMissing(w, 'An entity has Outline', 'outlinePlugin', 'it draws no outline')
   })
 }

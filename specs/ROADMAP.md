@@ -146,4 +146,4 @@ walls (0066) and groups (0067), then surface variation (0068), per-view visibili
 | [0067](0067-structure-groups.md) | Structure groups: levels, roofs and cutouts (hide a level or a roof without a rebuild; stairwells, hatches, skylights) | implemented |
 | [0068](0068-surface-variation.md) | Surface variation and contact shade (repetition-breaking variation any material can use; noisy fake AO where walls meet walls and floors) | implemented |
 | [0069](0069-interior-lighting.md) | Interior lighting (sky visibility from the plan, spill through openings, lights blocked by walls) | accepted |
-| [0070](0070-view-visibility-cutaways.md) | Per-view visibility and cutaways (hide entities from one camera; cut roofs and walls open around reveal points) | draft |
+| [0070](0070-view-visibility-cutaways.md) | Per-view visibility and cutaways (hide entities from one camera; cut roofs and walls open around reveal points) | accepted |

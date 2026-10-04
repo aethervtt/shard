@@ -11,6 +11,8 @@ import {
   SLOT_MASK,
 } from './instances'
 import { Shaders } from './plugin'
+import { NO_HIDDEN } from './view-visibility'
+import type { HiddenSets } from './view-visibility-plugin'
 
 /** Words per indirect draw: indexed (count, instances, first index, base vertex, first instance). */
 const ARGS_WORDS = 5
@@ -40,6 +42,8 @@ interface CullView {
   lodCamera: number
   /** Render layers the view draws (0057). */
   layers: number
+  /** Its hidden set's first word in `HiddenSets.data` (0070), or NO_HIDDEN. */
+  hiddenBase: number
 }
 
 /**
@@ -52,6 +56,8 @@ export class GpuCuller {
   readonly supported: boolean
   /** Turn off to force CPU culling (tests, debugging). */
   enabled = true
+  /** Views this frame with a hidden set (0070): the cull links its HIDDEN variant. */
+  private hiddenViews = 0
   private readonly views: CullView[] = []
   private viewCount = 0
   private cameraViews = 0
@@ -117,6 +123,7 @@ export class GpuCuller {
   beginFrame(): void {
     this.viewCount = 0
     this.cameraViews = 0
+    this.hiddenViews = 0
   }
 
   /** The LOD state row of a camera (cameras choose; their shadow views reuse the choice). */
@@ -155,6 +162,7 @@ export class GpuCuller {
         flags: 0,
         lodCamera: 0,
         layers: 0xffffffff,
+        hiddenBase: NO_HIDDEN,
       }
       this.views.push(view)
     }
@@ -167,6 +175,8 @@ export class GpuCuller {
     view.lodScale = params.lodScale
     view.lodCamera = lodCamera
     view.layers = params.layers ?? 0xffffffff
+    view.hiddenBase = params.hiddenBase ?? NO_HIDDEN
+    if (view.hiddenBase !== NO_HIDDEN) this.hiddenViews++
     view.flags =
       (params.require & InstanceFlags.Caster ? VIEW_CASTERS : 0) |
       (params.updateLod ? VIEW_UPDATE_LOD : 0) |
@@ -211,9 +221,26 @@ export class GpuCuller {
     return v
   }
 
-  /** Uploads the frame's view, batch, and LOD tables, and sizes the buffers. */
-  prepare(store: InstanceStore): void {
+  /**
+   * Uploads the frame's view, batch, and LOD tables, and sizes the buffers. Hidden sets (0070)
+   * ride in the LOD state buffer after its entries: the cull's storage bindings are at WebGPU's
+   * guaranteed 8 per stage.
+   */
+  prepare(store: InstanceStore, hidden?: HiddenSets): void {
     if (this.viewCount === 0) return
+    const lodCams = Math.max(1, this.lodCameras.size)
+    const hiddenWords = hidden && hidden.sets.size > 0 ? hidden.data.length : 0
+    if (
+      this.lodStateCapacity !== store.capacity * lodCams ||
+      this.lodState.byteLength < (this.lodStateCapacity + hiddenWords) * 4
+    ) {
+      // New capacity: every entry starts unset (the fill is a one-time upload, not per frame).
+      this.lodStateCapacity = store.capacity * lodCams
+      this.lodState.ensureCapacity((this.lodStateCapacity + hiddenWords) * 4)
+      const fill = new Uint32Array(this.lodStateCapacity).fill(LOD_UNSET)
+      this.lodState.write(fill)
+    }
+    if (hiddenWords > 0) hidden!.upload(this.lodState, this.lodStateCapacity * 4)
     const batches = store.batches
     this.batchCount = batches.length
     // Regions: each batch gets room for every instance that can land in it.
@@ -281,6 +308,8 @@ export class GpuCuller {
       this.viewU32[o + 30] = v * batches.length
       this.viewU32[o + 31] = v * this.regionSize
       this.viewU32[o + 32] = view.layers
+      this.viewU32[o + 33] =
+        view.hiddenBase === NO_HIDDEN ? NO_HIDDEN : this.lodStateCapacity + view.hiddenBase
       // Draw items: byte offsets of their indirect arguments.
       for (const list of [view.list, view.forwardOnly]) {
         if (!list) continue
@@ -294,13 +323,6 @@ export class GpuCuller {
     this.viewBuffer.write(this.viewData, 0, 0, this.viewCount * VIEW_FLOATS)
     this.args.ensureCapacity(Math.max(1, this.viewCount * batches.length) * ARGS_WORDS * 4)
     this.visible.ensureCapacity(this.viewCount * this.regionSize * 4)
-    const lodCams = Math.max(1, this.lodCameras.size)
-    if (this.lodStateCapacity !== store.capacity * lodCams) {
-      // New capacity: every entry starts unset (the fill is a one-time upload, not per frame).
-      this.lodStateCapacity = store.capacity * lodCams
-      const fill = new Uint32Array(this.lodStateCapacity).fill(LOD_UNSET)
-      this.lodState.write(fill)
-    }
     this.frameViews = this.views.slice(0, this.viewCount)
     this.slotCount = store.high
     this.slotCapacity = store.capacity
@@ -314,7 +336,9 @@ export class GpuCuller {
     if (this.viewCount === 0) return
     const gpu = ctx.gpu
     const world = ctx.world
-    const module = world.resource(Shaders).module(gpu, { root: 'shard::cull' })
+    // Hidden sets (0070) link the test in, only in frames where a view has one.
+    const hidden = this.hiddenViews > 0
+    const module = world.resource(Shaders).module(gpu, hidden ? HIDDEN_REQUEST : CULL_REQUEST)
     if (!module) {
       gpu.pipelines.skipped++
       return
@@ -322,12 +346,12 @@ export class GpuCuller {
     const layout = cullLayout(gpu)
     const pipelineLayout = gpu.layouts.pipelineLayout({ label: 'cull', bindGroupLayouts: [layout] })
     const reset = gpu.pipelines.compute({
-      label: 'cull/reset',
+      label: hidden ? 'cull/reset/hidden' : 'cull/reset',
       layout: pipelineLayout,
       compute: { module, entryPoint: 'reset' },
     })
     const cull = gpu.pipelines.compute({
-      label: 'cull/instances',
+      label: hidden ? 'cull/instances/hidden' : 'cull/instances',
       layout: pipelineLayout,
       compute: { module, entryPoint: 'cull' },
     })
@@ -502,6 +526,9 @@ export class GpuCuller {
     while (this.pending.size > 0) await Promise.all(this.pending)
   }
 }
+
+const CULL_REQUEST = { root: 'shard::cull' }
+const HIDDEN_REQUEST = { root: 'shard::cull', defines: { HIDDEN: true } }
 
 function cullLayout(gpu: GpuContext): GPUBindGroupLayout {
   const C = GPUShaderStage.COMPUTE

@@ -75,6 +75,7 @@ fn prepass_output(in: PrepassVertex, n: vec3f) -> PrepassOutput {
 import shard::prepass::common::{ PrepassVertex, PrepassOutput, prepass_vertex, prepass_output, surface_of };
 import shard::pbr::material::pbr_input;
 import shard::pbr::standard::material;
+@if(CUTAWAY) import shard::cutaway::cutaway_clip;
 
 @vertex fn vs(
   @builtin(instance_index) instance_index: u32,
@@ -90,6 +91,7 @@ import shard::pbr::standard::material;
 
 /** Depth, the shaded normal (normal maps included), and velocity. */
 @fragment fn fs(in: PrepassVertex) -> PrepassOutput {
+  @if(CUTAWAY) cutaway_clip(in.world_position, in.clip.xy, in.flags);
   let p = pbr_input(surface_of(in));
   @if(MASK) if (p.alpha < material.alphaCutoff) { discard; }
   return prepass_output(in, p.normal);
@@ -97,11 +99,13 @@ import shard::pbr::standard::material;
 
 /** Baseline (0064): depth alone, for what reads depth when the scene is multisampled. */
 @if(BASELINE) @fragment fn fs_depth(in: PrepassVertex) {
+  @if(CUTAWAY) cutaway_clip(in.world_position, in.clip.xy, in.flags);
   @if(MASK) if (pbr_input(surface_of(in)).alpha < material.alphaCutoff) { discard; }
 }`,
 
   'shard::prepass::plain': `
 import shard::prepass::common::{ PrepassVertex, PrepassOutput, prepass_vertex, prepass_output };
+@if(CUTAWAY) import shard::cutaway::cutaway_clip;
 
 @vertex fn vs(
   @builtin(instance_index) instance_index: u32,
@@ -117,11 +121,14 @@ import shard::prepass::common::{ PrepassVertex, PrepassOutput, prepass_vertex, p
 
 /** Materials with their own shading: the geometric normal. */
 @fragment fn fs(in: PrepassVertex) -> PrepassOutput {
+  @if(CUTAWAY) cutaway_clip(in.world_position, in.clip.xy, in.flags);
   return prepass_output(in, normalize(in.world_normal));
 }
 
 /** Baseline (0064): depth alone. */
-@if(BASELINE) @fragment fn fs_depth(in: PrepassVertex) {}`,
+@if(BASELINE) @fragment fn fs_depth(in: PrepassVertex) {
+  @if(CUTAWAY) cutaway_clip(in.world_position, in.clip.xy, in.flags);
+}`,
 
   'shard::post::fog': `
 import shard::view::view;

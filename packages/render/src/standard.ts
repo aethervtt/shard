@@ -1,5 +1,6 @@
 import { definePlugin, type Plugin } from '@aethervtt/shard-runtime'
 import { atmospherePlugin } from './atmosphere-plugin'
+import { cutawayPlugin } from './cutaway-plugin'
 import { deferredPlugin } from './deferred-plugin'
 import { renderDescribePlugin } from './describe-plugin'
 import { dynamicResolutionPlugin } from './dynamic-resolution'
@@ -14,6 +15,7 @@ import { pixelPerfectPlugin } from './pixel-perfect-plugin'
 import { postPlugin } from './post-plugin'
 import { shadowCatcherPlugin } from './shadow-catcher'
 import { skinningPlugin } from './skinning-plugin'
+import { viewVisibilityPlugin } from './view-visibility-plugin'
 
 /**
  * The whole 3D renderer: `forwardCorePlugin` and every render feature. Apps that want a smaller
@@ -36,6 +38,8 @@ export function forwardPlugin(options: ForwardPluginOptions = {}): Plugin {
         pixelPerfectPlugin,
         lensPlugin,
         outlinePlugin,
+        cutawayPlugin,
+        viewVisibilityPlugin,
         shadowCatcherPlugin,
         dynamicResolutionPlugin,
         renderDescribePlugin,

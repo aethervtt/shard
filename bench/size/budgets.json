@@ -4,7 +4,7 @@
   "fixtures": {
     "renderer-min": {
       "entry": 102884,
-      "js": 158665,
+      "js": 162183,
       "fallback": 31100
     },
     "physics-track": {

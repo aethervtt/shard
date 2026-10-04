@@ -1,5 +1,33 @@
 import { type ComponentDef, defineResource, type Query, type World } from '@aethervtt/shard-core'
+import { LogResource } from '@aethervtt/shard-runtime'
 import { clearHealthIssue, raiseHealthIssue } from './health'
+
+const missingPlugins = new WeakMap<World, Set<string>>()
+
+/**
+ * Logs `render/feature-missing` once per world and plugin: `what` asked for a feature whose
+ * `plugin` (one forwardPlugin includes) isn't installed, and `outcome` is what happens instead.
+ */
+export function warnFeatureMissing(
+  world: World,
+  what: string,
+  plugin: string,
+  outcome: string,
+): void {
+  let seen = missingPlugins.get(world)
+  if (!seen) {
+    seen = new Set()
+    missingPlugins.set(world, seen)
+  }
+  if (seen.has(plugin)) return
+  seen.add(plugin)
+  world
+    .tryResource(LogResource)
+    ?.log('warn', `${what}, but ${plugin} isn't installed; ${outcome}`, {
+      code: 'render/feature-missing',
+      hint: `Add ${plugin} from '@aethervtt/shard-render' (forwardPlugin includes it).`,
+    })
+}
 
 // Render features and what they do on each tier (0064). Every graph node belongs to one feature,
 // which says how it runs on the baseline tier (no storage buffers in vertex or fragment shaders,

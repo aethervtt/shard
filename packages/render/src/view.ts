@@ -15,6 +15,7 @@ import { LogResource, Time } from '@aethervtt/shard-runtime'
 import { GlobalTransform } from '@aethervtt/shard-transform'
 import { RenderTargets } from './assets'
 import { Camera3d, Exposure, exposureScale } from './camera'
+import { warnFeatureMissing } from './features'
 import type { RenderView } from './graph'
 import { createDrawList, type DrawList } from './instances'
 import { Lens, LensPath } from './lens'
@@ -37,6 +38,7 @@ import {
 } from './post'
 import { RenderScale, scaledSize } from './render-scale'
 import type { RenderTarget } from './target'
+import type { HiddenSet } from './view-visibility'
 
 export const TONEMAP_CURVES = ['aces', 'agx', 'pbr-neutral', 'reinhard', 'none'] as const
 export type TonemapCurve = (typeof TONEMAP_CURVES)[number]
@@ -142,6 +144,8 @@ export interface CameraData {
   overlay: DrawList
   /** Render layers this camera draws (Camera3d.layers). */
   layers: number
+  /** Slots it doesn't draw (ViewVisibility, 0070), while it has the component. */
+  hidden: HiddenSet | undefined
   /** Renders through the G-buffer (RenderPath deferred). */
   deferred: boolean
   /** G-buffer channel to show for a capture (-1: none), also forcing a G-buffer in forward views. */
@@ -237,54 +241,6 @@ export function viewAliases(cam: CameraData): Readonly<Record<string, string>> {
 /** Effects already reported as missing, per world, so each shows once. */
 const reportedEffects = new WeakMap<World, number>()
 
-/** Worlds already told that deferred cameras render forward without deferredPlugin. */
-const reportedDeferred = new WeakSet<World>()
-
-function warnMissingDeferred(world: World): void {
-  if (reportedDeferred.has(world)) return
-  reportedDeferred.add(world)
-  world
-    .tryResource(LogResource)
-    ?.log(
-      'warn',
-      "A camera asks for RenderPath deferred, but deferredPlugin isn't installed; it renders forward",
-      {
-        code: 'render/feature-missing',
-        hint: "Add deferredPlugin from '@aethervtt/shard-render' (forwardPlugin includes it).",
-      },
-    )
-}
-
-const reportedPixel = new WeakSet<World>()
-
-function warnMissingPixelPerfect(world: World): void {
-  if (reportedPixel.has(world)) return
-  reportedPixel.add(world)
-  world
-    .tryResource(LogResource)
-    ?.log(
-      'warn',
-      "A camera has PixelPerfect, but pixelPerfectPlugin isn't installed; it renders at full resolution",
-      {
-        code: 'render/feature-missing',
-        hint: "Add pixelPerfectPlugin from '@aethervtt/shard-render' (forwardPlugin includes it).",
-      },
-    )
-}
-
-const reportedLens = new WeakSet<World>()
-
-function warnMissingLens(world: World): void {
-  if (reportedLens.has(world)) return
-  reportedLens.add(world)
-  world
-    .tryResource(LogResource)
-    ?.log('warn', "A camera has Lens, but lensPlugin isn't installed; it renders unbent", {
-      code: 'render/feature-missing',
-      hint: "Add lensPlugin from '@aethervtt/shard-render' (forwardPlugin includes it).",
-    })
-}
-
 /** Logs render/feature-missing once per effect a camera asked for whose plugin isn't installed. */
 function warnMissingEffects(world: World, missing: number): void {
   const reported = reportedEffects.get(world) ?? 0
@@ -342,8 +298,15 @@ export const extractCameras = defineSystem({
       const hasTonemap = table.has(Tonemapping)
       const curve = hasTonemap ? table.column(Tonemapping, 'curve') : undefined
       const dither = hasTonemap ? table.column(Tonemapping, 'dither') : undefined
-      if (table.has(PixelPerfect) && !pixelInstalled) warnMissingPixelPerfect(world)
-      if (table.has(Lens) && !lensInstalled) warnMissingLens(world)
+      if (table.has(PixelPerfect) && !pixelInstalled)
+        warnFeatureMissing(
+          world,
+          'A camera has PixelPerfect',
+          'pixelPerfectPlugin',
+          'it renders at full resolution',
+        )
+      if (table.has(Lens) && !lensInstalled)
+        warnFeatureMissing(world, 'A camera has Lens', 'lensPlugin', 'it renders unbent')
       const pixel = pixelInstalled && table.has(PixelPerfect)
       const ppu = pixel ? table.column(PixelPerfect, 'pixelsPerUnit') : undefined
       const snap = pixel ? table.column(PixelPerfect, 'snap') : undefined
@@ -396,6 +359,7 @@ export const extractCameras = defineSystem({
             ground: createDrawList(),
             overlay: createDrawList(),
             layers: 0xffffffff,
+            hidden: undefined,
             deferred: false,
             gbufferDebug: -1,
             lodState: new Uint8Array(0),
@@ -449,7 +413,13 @@ export const extractCameras = defineSystem({
         }
         const wantsDeferred = path ? path[i] === 1 : false
         cam.deferred = wantsDeferred && deferredInstalled
-        if (wantsDeferred && !deferredInstalled) warnMissingDeferred(world)
+        if (wantsDeferred && !deferredInstalled)
+          warnFeatureMissing(
+            world,
+            'A camera asks for RenderPath deferred',
+            'deferredPlugin',
+            'it renders forward',
+          )
         const missing = extractPost(table, i, cam, delta, true, installed)
         if (missing !== 0) warnMissingEffects(world, missing)
         const world_ = g.subarray(i * 12, i * 12 + 12)

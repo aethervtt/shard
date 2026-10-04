@@ -78,6 +78,21 @@ export {
 } from './clusters'
 export { Culler, cullGround, GpuCuller, readVisibleSlots, visibleSlots } from './culling'
 export {
+  Cutaway,
+  CutawayPath,
+  type CutawaySupport,
+  CutawayView,
+  MAX_REVEAL_POINTS,
+} from './cutaway'
+export {
+  CUTAWAY_SHADERS,
+  CutawayCameras,
+  type CutawayState,
+  cutawayPlugin,
+  describeCutaways,
+  extractCutaways,
+} from './cutaway-plugin'
+export {
   DATA_WIDTH,
   DataStore,
   type DataStoreOptions,
@@ -200,6 +215,7 @@ export {
 } from './health'
 export {
   type Batch,
+  CUTAWAY_BIT,
   createDrawList,
   DeformPath,
   type DrawItem,
@@ -220,6 +236,7 @@ export {
   MorphWeights,
   NotShadowCaster,
   NotShadowReceiver,
+  recordFlags,
   ShadowWhenHidden,
   SkinnedMesh,
   selectLod,
@@ -469,4 +486,18 @@ export {
   type ViewSettingsValue,
   viewAliases,
 } from './view'
+export {
+  type HiddenSet,
+  HiddenSetsResource,
+  NO_HIDDEN,
+  observeViewVisibilityWithoutPlugin,
+  VIEW_SHADOWS,
+  ViewVisibility,
+} from './view-visibility'
+export {
+  describeViewVisibility,
+  HiddenSets,
+  resolveViewVisibility,
+  viewVisibilityPlugin,
+} from './view-visibility-plugin'
 export { ComputedVisibility, computeVisibility, Visibility } from './visibility'

@@ -1,6 +1,6 @@
 # 0070 — Per-view visibility and cutaways
 
-- **Status:** draft
+- **Status:** accepted
 - **Packages:** `@aethervtt/shard-render`, `@aethervtt/shard-structure`
 - **Depends on:** 0007, 0056, 0057, 0067
 
@@ -42,8 +42,8 @@ Any top-down game uses them for its party.
   - A soft edge, by dithering, needs no blending.
 - **Structure opts in** with `Roof.cutaway` and `StructureSettings.cutawayWalls`, which tag the
   groups' meshes.
-- **Nothing changes without the features.** `renderer-min` and its baked shaders stay as they are:
-  cutaway is a plugin (0056), and the hidden-set check is a define.
+- **Nothing changes without the features.** `renderer-min`'s baked shaders link the same code:
+  cutaway and the hidden-list resolver are plugins (0056), and both tests are defines.
 
 ## Non-goals
 
@@ -65,25 +65,31 @@ ViewVisibility {                         // on a Camera3d
 }
 ```
 
-**Resolving the list.** The camera's list resolves to a set of instance slots: every renderable
-under a listed entity, walked through `Children`. It is re-resolved only when:
-- the list changes;
-- a listed subtree changes (a `ChildOf` change under it, or a slot allocated or freed);
-- nothing else. A still frame does no work.
+**Resolving the list.** `viewVisibilityPlugin` (in `forwardPlugin`) resolves each camera's list to
+a set of instance slots: every renderable under a listed entity, walked through `Children`. A list
+resolves again only when:
+- it changes;
+- a slot is allocated or freed, or a `ChildOf` changes anywhere (rare; checked per `ChildOf` table);
+- nothing else. A still frame does no work and allocates nothing.
 
-**Culling.** A view with a hidden set gets a bitset of slots, one bit each, in a storage buffer.
-- The GPU culler reads it through a new `CullView.hidden_base`; `0xffffffff` means none, and fits a
-  padding word.
-- The CPU cull reads the same bits.
-- Only the words that changed upload.
+Without the plugin, a `ViewVisibility` logs `render/feature-missing` once and hides nothing.
 
-The camera's colour, depth, G-buffer and picking views test it. Its shadow views test it only with
-`shadows: 'hide'`.
+**Culling.** A camera with a list has a bitset of slots, one bit each, in `HiddenSets`.
+- The CPU culls (opaque, blended, ground) read the bits.
+- The GPU culler reads them from its LOD state buffer, after the LOD entries: its compute stage
+  already binds 8 storage buffers, WebGPU's guaranteed maximum. `CullView.hidden_base` (a padding
+  word) is the set's first word there, `0xffffffff` for none.
+- Only the words that changed upload; a new buffer or layout uploads them all.
+
+The camera's colour, depth, G-buffer and picking views test it. Its cascades test it only with
+`shadows: 'hide'`, and cached cascades (0055) redraw when such a set changes. Spot and point shadow
+maps are shared by every camera, so they always keep hidden entities.
 
 **Cost.**
 - Memory: `capacity / 8` bytes per camera with a list, 12.5 KB at 100k slots.
 - Per frame: one bit read per candidate slot, in views that have a list.
-- Views without a list skip the test, through a define: the baked variants don't change.
+- The GPU test links in only through `HIDDEN`, in frames where a view has a list: the default cull
+  variant links the same code as before.
 
 It composes with what exists:
 - `Visibility` hides from every view;
@@ -97,9 +103,9 @@ It composes with what exists:
 Cutaway { }                              // tag on a renderable: it may be cut away
 CutawayView {                            // on a Camera3d
   points: list(vec3),                    // at most 16; more are ignored with a warning
-  radius: f32,                           // metres around each point's line of sight
-  margin: f32,                           // how far in front of a point a cut starts (keeps its floor)
-  edge: f32,                             // metres of dithered edge; 0 is a hard cut
+  radius: f32,                           // 2.5 m around each point's line of sight
+  margin: f32,                           // 0.6 m: how far in front of a point a cut starts
+  edge: f32,                             // 0.3 m of dithered edge; 0 is a hard cut
 }
 ```
 
@@ -112,26 +118,38 @@ it lies within radius of the line from the eye through p
 and it's nearer the camera than p by more than margin
 ```
 
-- The edge is an ordered dither over `edge` metres, so it needs no sorting and stays opaque.
-- The `margin` keeps the floor a token stands on, and a stairwell's rim, from being cut.
+- The edge is an ordered 4×4 dither over `edge` metres, ramping both conditions, so it needs no
+  sorting and stays opaque.
+- The `margin` keeps what's under a token (behind it from the camera) from being cut. Floors aren't
+  `Cutaway` in structure anyway: at an angle, a floor in front of a token is nearer than it.
 - From above, a roof opens a round hole over each token. In an orbit view, the wall between the
   camera and a token opens.
 
 **Where it runs.** A plugin, `cutawayPlugin`, depends on `render/forward` and registers
 `shard::cutaway`.
-- Its module is linked, by a define, into the forward, prepass, G-buffer and picking variants of
-  materials that draw cutaway instances.
+- Its module is linked, by `@if(CUTAWAY)`, into the forward (and ground and blended), prepass,
+  depth-only, G-buffer and picking variants. Core shaders gain one conditional import and one call
+  per fragment entry point; off, they link byte-identical code. The shader linker now only requires
+  a conditional import's module while its condition holds.
 - Shadow variants never link it, so a cut roof still casts, and 0069's interior stays dark.
-- The points go into a small per-camera uniform, which uploads only when it changes.
-- The instance needs a flag. The flags byte is full (`ShadowOnly` took its last bit), so slot flags
-  widen to 16 bits and `Cutaway` rides in bit 28 of the record's flags word. Bits 24–27 carry the
-  LOD when read.
+- Each camera's points go into a uniform at bind group 3, with each point's line of sight computed
+  on the CPU. It uploads when a value or the camera changes.
+- A batch takes the cutaway variant only when the CPU finds that a point can cut it this frame: one
+  of its `Cutaway` instances has a world box, grown by the radius, that a line of sight reaches in
+  front of its point. Structure draws a chunk per batch, so only chunks near the lines of sight pay
+  for the discard.
+- The instance needs a flag. The flags byte was full (`ShadowOnly` took its last bit), so slot flags
+  widen to 16 bits (`InstanceFlags.Cutaway` is 256) and it rides in bit 28 of the record's flags
+  word. Bits 24–27 carry the LOD when read; the LOD debug view tints a cutaway slot as level 3.
 - Without the plugin, a `Cutaway` tag logs `render/feature-missing` once, and the mesh draws whole.
 
 **Structure.**
-- `Roof.cutaway: bool` tags a roof's chunk meshes, as `shadowWhenHidden` does.
-- `StructureSettings.cutawayWalls: bool` tags wall chunk meshes: the pieces a wall draws, frames
-  and leaves included, so a door in the cut goes with its wall.
+- `Roof.cutaway: bool` tags a roof's chunk meshes, and its hatches and skylights, as
+  `shadowWhenHidden` does: a toggle rebuilds nothing.
+- `StructureSettings.cutawayWalls: bool` builds wall pieces (frames included) into meshes of their
+  own, apart from floors of the same material, and tags them; door leaves and window panes too, so
+  a door in the cut goes with its wall. Changing it rebuilds every chunk with walls.
+- Contact shade (0068) isn't cut: its floor strips must stay, and its corner strips stay with them.
 
 Hosts combine them as they like. For example, hide the roof of the building a player's token is in,
 and cut away the neighbours' roofs and the walls in front of the token.
@@ -139,24 +157,24 @@ and cut away the neighbours' roofs and the walls in front of the token.
 ### API sketch
 
 ```ts
-import { ViewVisibility } from '@aethervtt/shard-render'
-import { Cutaway, CutawayView, cutawayPlugin } from '@aethervtt/shard-render'
-app.addPlugins(cutawayPlugin)
+import { CutawayView, ViewVisibility } from '@aethervtt/shard-render'
+// forwardPlugin includes cutawayPlugin and viewVisibilityPlugin.
 world.add(preview, ViewVisibility, { hide: [gmOnlyNotes, secretDoorsGroup] })
 world.add(camera, CutawayView, { points: myTokens.map(worldPos), radius: 2.5, margin: 0.6, edge: 0.3 })
 world.set(roof, Roof, { cutaway: true })
+world.patchResource(StructureSettings, { cutawayWalls: true })
 ```
 
 ### Agent surface
 
 - `render.describe` adds, per camera:
-  - its hidden entities and the slot count they resolve to;
-  - its reveal points, radius and edge.
+  - `viewVisibility`: its hidden entities, the slot count they resolve to, and `shadows`;
+  - `cutaways`: its reveal points (and how many were ignored), radius, margin and edge.
 - `ViewVisibility`, `Cutaway`, `CutawayView`, `Roof.cutaway` and
   `StructureSettings.cutawayWalls` are schema components and fields.
 - Errors:
-  - `render/too-many-reveal-points` (once, naming the camera);
-  - `render/feature-missing` for `Cutaway` without the plugin.
+  - `render/too-many-reveal-points` (once per camera, naming it);
+  - `render/feature-missing` for `Cutaway` or `ViewVisibility` without its plugin.
 
 ## Decisions
 
@@ -170,23 +188,31 @@ world.set(roof, Roof, { cutaway: true })
 - **Dither, not alpha.** Cut surfaces stay opaque: no sorting, and depth and picking stay right.
 - **Cutaways in every camera pass, never in shadows.** If the prepass or picking still saw the
   hole, it would hide the token or eat its clicks.
+- **Hidden bits in the LOD state buffer.** A ninth storage binding would exceed WebGPU's
+  guaranteed 8 per stage; the cull already writes that buffer, and the default variant's layout
+  stays as it was.
+- **The cutaway variant per batch, chosen on the CPU.** A discard costs a draw its early depth test
+  (on a tiled GPU, its hidden-surface removal); a chunk no line of sight reaches doesn't pay it.
 
 ## Acceptance criteria
 
-- [ ] Two cameras on one scene, one hiding a group: the hiding camera never draws it and the other
+- [x] Two cameras on one scene, one hiding a group: the hiding camera never draws it and the other
       always does, on the GPU and CPU culls alike. Its shadows still fall in both views (golden).
-- [ ] Changing a hide list uploads only the bitset words that changed. A still frame with lists on
+- [x] Changing a hide list uploads only the bitset words that changed. A still frame with lists on
       three cameras uploads nothing and allocates nothing.
-- [ ] A camera without `ViewVisibility` renders byte-identical to before, and `renderer-min`'s bake
-      and size are unchanged.
-- [ ] A cutaway roof over a token opens a disc of `radius` around the token from above (golden) and
+- [x] A camera without `ViewVisibility` renders byte-identical to before. `renderer-min`'s bake
+      links byte-identical code (two modules' hashes change: their sources gained `@if` lines); its
+      JS grows 1.4 KB brotli (the components, the cull test, the pipeline plumbing).
+- [x] A cutaway roof over a token opens a disc of `radius` around the token from above (golden) and
       a hole along the line of sight at 30° (golden). The floor under the token is not cut, and the
       room below stays as dark as with the roof whole (the shadow map is unchanged).
-- [ ] A pick through the hole returns the token, not the roof.
-- [ ] `edge` dithers the rim: the fraction of cut pixels rises monotonically across the edge band.
+- [x] A pick through the hole returns the token, not the roof.
+- [x] `edge` dithers the rim: the fraction of cut pixels rises monotonically across the edge band.
 - [ ] With 16 reveal points, the max fixture's frame costs at most 5% more GPU time than with none.
-- [ ] Without `cutawayPlugin`, the forward shaders and `renderer-min` are unchanged, and a
-      `Cutaway` renderable logs `render/feature-missing` once and draws whole.
+      Checked under `pnpm bench`. On an Apple M4 it's +8–11% with all 16 points in view (+1% when
+      they cut nothing); see `TODO.md`.
+- [x] Without `cutawayPlugin`, the forward shaders link the same code, and a `Cutaway` renderable
+      logs `render/feature-missing` once and draws whole.
 
 ## Open questions
 
