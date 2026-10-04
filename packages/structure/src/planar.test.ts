@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { arcOf, pointAt, sampleWall } from './curve'
-import { type PlanarOpening, type PlanarWall, planarBarriers } from './planar'
+import { lightChannel, type PlanarOpening, type PlanarWall, planarBarriers } from './planar'
 
 // Aether's structural barrier fixtures (packages/core/test/scene-structure.test.ts): a 300 px wall
 // with a 70 px door at 80, closed and open, plus a window whose sight channel is open.
@@ -165,5 +165,33 @@ describe('planarBarriers on curved walls', () => {
       }
       expect(best).toBeLessThanOrEqual(tolerance + 1e-9)
     }
+  })
+})
+
+describe('the light channel (0069)', () => {
+  it('follows sight while unset, so existing segments are unchanged', () => {
+    const segments = planarBarriers([wallA], [door({ sight: 'none' })])
+    for (const s of segments) expect('light' in s).toBe(false)
+    expect(segments.map(lightChannel)).toEqual(['normal', 'none', 'normal'])
+  })
+
+  it('carries a set channel: a curtain blocks sight and not light, glass the opposite', () => {
+    const curtain = planarBarriers([wallA], [door({ light: 'none' })])
+    expect(curtain[1]).toMatchObject({ sight: 'normal', light: 'none' })
+    expect(lightChannel(curtain[1]!)).toBe('none')
+    const glass = planarBarriers(
+      [wallA],
+      [door({ kind: 'window', sight: 'none', light: 'normal' })],
+    )
+    expect(lightChannel(glass[1]!)).toBe('normal')
+    // `sight` reads as unset.
+    expect('light' in planarBarriers([wallA], [door({ light: 'sight' })])[1]!).toBe(false)
+  })
+
+  it('opens an open door for light too, and sets a wall’s own channel on its spans', () => {
+    const open = planarBarriers([wallA], [door({ state: 'open', light: 'normal' })])
+    expect(lightChannel(open[1]!)).toBe('none')
+    const fence = planarBarriers([{ ...wallA, light: 'none' }], [door()])
+    expect(fence.map((s) => s.light)).toEqual(['none', undefined, 'none'])
   })
 })

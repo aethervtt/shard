@@ -34,6 +34,7 @@
       body:not([data-demo='lights2d']) [data-lights2d] { display: none; }
       body:not([data-demo='lens']) [data-lens] { display: none; }
       body:not([data-demo='tabletop']) [data-tabletop] { display: none; }
+      body:not([data-demo='interior']) [data-interior] { display: none; }
       /* The UI demo's HUD fills the left and right edges: the panel sits between them. */
       body[data-demo='ui'] #panel { left: 50%; transform: translateX(-50%); font-size: 10px; }
       body[data-demo='ui'] #fps-graph { display: none; }
@@ -116,6 +117,12 @@
         <button type="button" data-tabletop="level">7 upper level</button>
         <button type="button" data-tabletop="hatch">8 hatch</button>
         <button type="button" data-tabletop="quality">9 quality</button>
+        <button type="button" data-interior="sky">1 sky visibility</button>
+        <button type="button" data-interior="block">2 wall-blocked lights</button>
+        <button type="button" data-interior="quality">3 quality</button>
+        <button type="button" data-interior="doors">4 doors</button>
+        <button type="button" data-interior="roof">5 roof</button>
+        <button type="button" data-interior="night">6 day / night</button>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>

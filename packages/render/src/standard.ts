@@ -8,6 +8,7 @@ import { environmentPlugin } from './environment-plugin'
 import { type ForwardPluginOptions, forwardCorePlugin } from './forward'
 import { fxaaPlugin } from './fxaa'
 import { gizmosPlugin } from './gizmos-plugin'
+import { interiorPlugin } from './interior-plugin'
 import { lensPlugin } from './lens-plugin'
 import { outlinePlugin } from './outline-plugin'
 import { pickingPlugin } from './picking-plugin'
@@ -40,6 +41,7 @@ export function forwardPlugin(options: ForwardPluginOptions = {}): Plugin {
         outlinePlugin,
         cutawayPlugin,
         viewVisibilityPlugin,
+        interiorPlugin,
         shadowCatcherPlugin,
         dynamicResolutionPlugin,
         renderDescribePlugin,

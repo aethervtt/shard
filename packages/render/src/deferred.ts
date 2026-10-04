@@ -6,6 +6,7 @@ import {
   drawMaterials,
   ForwardStateResource,
   gbufferEmissiveFormat,
+  INTERIOR_DEFINES,
   PASS_GBUFFER,
   PASS_OPAQUE,
   sceneColor,
@@ -96,9 +97,15 @@ function lightingNode() {
       const cam = cameraOf(ctx.view)!
       const pv = state.views.get(ctx.view.name)
       if (!pv) return
+      const mode = state.interiorMode
       const module = ctx.world
         .resource(Shaders)
-        .module(gpu, { root: 'shard::pbr::deferred_lighting' })
+        .module(
+          gpu,
+          mode !== 0
+            ? { root: 'shard::pbr::deferred_lighting', defines: INTERIOR_DEFINES[mode] }
+            : { root: 'shard::pbr::deferred_lighting' },
+        )
       if (!module) {
         gpu.pipelines.skipped++
         return

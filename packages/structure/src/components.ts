@@ -12,6 +12,14 @@ const LEVEL_FIELD = {
   }),
 }
 
+/** A light channel (0069): `sight` (unset) follows the sight channel. */
+export const LIGHT_CHANNELS = ['sight', 'normal', 'none'] as const
+
+const lightField = (what: string) =>
+  t.enum(LIGHT_CHANNELS, {
+    description: `Whether ${what} blocks light (0069): sky light spilling in, and wall-blocked lights. sight (unset) follows its sight channel; set it for a curtain that blocks sight but not light, or the opposite.`,
+  })
+
 export const Level = defineComponent(
   'structure/Level',
   {
@@ -26,6 +34,18 @@ export const Level = defineComponent(
       description: "Where the level's floor stands (y). Pieces on it are placed relative to it.",
     }),
     height: t.f32({ default: 3, min: 0, unit: 'm', description: 'Floor to ceiling.' }),
+    interiorAmbient: t.vec3({
+      unit: 'cd/m²',
+      description:
+        "Interior lighting (0069): ambient light where the sky doesn't reach, linear colour, added to interiorFill's share of the sky's. A cellar darker than a hall.",
+    }),
+    interiorFill: t.f32({
+      default: 0.05,
+      min: 0,
+      max: 1,
+      description:
+        "Interior lighting (0069): the share of the view's sky ambient (uniform or image-based) kept where the sky doesn't reach.",
+    }),
   },
   {
     description:
@@ -56,6 +76,7 @@ export const Wall = defineComponent(
     }),
     c0: t.vec2({ description: 'Bézier: the first control point, (x, z).' }),
     c1: t.vec2({ description: 'Bézier: the second control point, (x, z).' }),
+    light: lightField('it'),
   },
   {
     description:
@@ -114,6 +135,7 @@ export const Opening = defineComponent(
     movement: t.enum(CHANNELS, {
       description: 'Whether it blocks movement when closed (planarBarriers).',
     }),
+    light: lightField('it, closed,'),
   },
   { description: 'A door or window cut into a wall.' },
 )
@@ -289,6 +311,28 @@ export function defaultContact(): ContactSettings {
   }
 }
 
+export const INTERIOR_QUALITIES = ['low', 'medium', 'high'] as const
+export type InteriorQuality = (typeof INTERIOR_QUALITIES)[number]
+
+/** Interior lighting (0069), with interiorLightingPlugin. */
+export interface InteriorSettings {
+  /** Sky visibility: ambient and image-based light scaled by how much sky reaches a point. */
+  sky: boolean
+  /** Point and spot lights with blockedByWalls are occluded by their level's walls. */
+  blockLights: boolean
+  /** low: 0.5 m field, 256 bins, 1 tap; medium: 0.25 m, 512, 3; high: 0.125 m, 1024, 5. */
+  quality: InteriorQuality
+  /** How far sky light spills through an opening (m): the field's screening length. */
+  spillReach: number
+  /** Rows for blocked lights; more are lit unblocked, with structure/too-many-blocked-lights. */
+  maxBlockedLights: number
+}
+
+/** Interior lighting's defaults. */
+export function defaultInterior(): InteriorSettings {
+  return { sky: true, blockLights: true, quality: 'medium', spillReach: 3, maxBlockedLights: 256 }
+}
+
 export interface StructureSettingsValue {
   /** Chunk edge, world units. Changing it rebuilds every chunk. */
   chunkSize: number
@@ -313,11 +357,17 @@ export interface StructureSettingsValue {
    * Changing it rebuilds every chunk with walls.
    */
   cutawayWalls: boolean
+  /**
+   * Interior lighting (0069), with interiorLightingPlugin. A patch may hold only the fields it
+   * changes. Turning a part off frees its texture; quality or spill reach re-solves the field and
+   * rebuilds every row once.
+   */
+  interior: InteriorSettings
 }
 
 export const StructureSettings = defineResource<StructureSettingsValue>('structure/Settings', {
   description:
-    'Chunk size, door swing time, reduced motion, curve tolerance, contact shade and cutaway walls. Write with patchResource.',
+    'Chunk size, door swing time, reduced motion, curve tolerance, contact shade, cutaway walls and interior lighting. Write with patchResource.',
   init: () => ({
     chunkSize: 8,
     doorSwingMs: 250,
@@ -325,6 +375,7 @@ export const StructureSettings = defineResource<StructureSettingsValue>('structu
     curveTolerance: 0.01,
     contact: defaultContact(),
     cutawayWalls: false,
+    interior: defaultInterior(),
   }),
   hostWritable: true,
 })

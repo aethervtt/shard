@@ -242,6 +242,30 @@ export {
   selectLod,
   VisibilityRange,
 } from './instances'
+export {
+  INTERIOR_BINDINGS,
+  INTERIOR_BLOCKED,
+  INTERIOR_SKY,
+  InteriorPath,
+  type InteriorSupport,
+} from './interior'
+export {
+  COVER_SCALE,
+  COVER_ZERO,
+  describeInterior,
+  INTERIOR_GROUND,
+  INTERIOR_LEVELS,
+  INTERIOR_SHADERS,
+  InteriorLighting,
+  InteriorLightingResource,
+  interiorPlugin,
+  LINK_X,
+  LINK_Z,
+  ROW_CLEAR,
+  ROW_SCALE,
+  ROW_ZERO,
+  VISIBILITY_MAX,
+} from './interior-plugin'
 export { observeOriginShifts, shiftRenderHistory } from './large-world'
 export { GROUND_BANDS, type GroundBand, GroundLayer, RenderLayers } from './layers'
 export {
@@ -270,8 +294,10 @@ export {
   type AmbientLightValue,
   CascadeSettings,
   DirectionalLight,
+  extractLights,
   FALLOFFS,
   LIGHT_FLOATS,
+  LIGHT_ROW_WORD,
   LightingSettings,
   type LightingSettingsValue,
   type LightRecord,
@@ -283,6 +309,7 @@ export {
   PointLight,
   SHADOW_UPDATES,
   SpotLight,
+  setLightRow,
   tabletopFalloff,
 } from './lights'
 export { MaterialNoise, type MaterialNoiseSupport } from './material-noise'

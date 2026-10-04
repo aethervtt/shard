@@ -347,14 +347,16 @@ function textures(
 
 /** The mask's pipeline: every outlined slot's style and depth, through the mesh vertex stage. */
 function maskPipeline(world: World, gpu: GpuContext, cache: Map<number, GPURenderPipeline>) {
-  const cached = cache.get(gpu.generation)
+  const state = world.resource(ForwardStateResource)
+  // Group 0 grows while interior lighting is on (0069): a pipeline per view layout.
+  const key = gpu.generation * 2 + (state.interiorMode !== 0 ? 1 : 0)
+  const cached = cache.get(key)
   if (cached) return cached
   const module = world.resource(Shaders).module(gpu, { root: 'shard::outline::mask' })
   if (!module) {
     gpu.pipelines.skipped++
     return undefined
   }
-  const state = world.resource(ForwardStateResource)
   const store = world.resource(Instances)
   const empty = gpu.layouts.bindGroupLayout({ label: 'outline/empty', entries: [] })
   const pipeline = gpu.pipelines.render({
@@ -368,7 +370,7 @@ function maskPipeline(world: World, gpu: GpuContext, cache: Map<number, GPURende
     primitive: { topology: 'triangle-list', cullMode: 'none' },
     depthStencil: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'greater' },
   })
-  if (pipeline) cache.set(gpu.generation, pipeline)
+  if (pipeline) cache.set(key, pipeline)
   return pipeline
 }
 

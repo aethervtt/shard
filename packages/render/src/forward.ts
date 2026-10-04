@@ -64,6 +64,7 @@ import {
   SkinnedMesh,
   VisibilityRange,
 } from './instances'
+import { INTERIOR_BINDINGS, InteriorPath } from './interior'
 import { observeOriginShifts } from './large-world'
 import { GroundLayer, RenderLayers } from './layers'
 import { expireLensFields, Lens, LensFields, LensPath } from './lens'
@@ -173,7 +174,11 @@ export interface ViewGpu {
 }
 
 interface Layouts {
+  /** Group 0 as this frame binds it: `viewBase`, or with the interior bindings (0069) while on. */
   view: GPUBindGroupLayout
+  viewBase: GPUBindGroupLayout
+  /** Made on first use: few apps turn interior lighting on. */
+  viewInterior: GPUBindGroupLayout | undefined
   pipeline: GPUPipelineLayout
   cluster: GPUBindGroupLayout
   clusterPipeline: GPUPipelineLayout
@@ -205,6 +210,8 @@ export interface ForwardState {
   gbufferTargets: GPUColorTargetState[]
   /** Whether GPU culling ran this frame (the cull node reads it). */
   cullerActive: boolean
+  /** Interior lighting's mode this frame (0069): INTERIOR_SKY | INTERIOR_BLOCKED, or 0. */
+  interiorMode: number
 }
 
 export const ForwardStateResource = defineResource<ForwardState>('render/ForwardState')
@@ -314,6 +321,7 @@ export const forwardQueue = defineSystem({
     stats.clear()
     state.frame++
     ensureLayouts(gpu, state, world.resource(GpuAssetsResource), store)
+    chooseInterior(gpu, world, state)
     state.pipelines.beginFrame(state.frame, world.resource(Shaders).revision)
     shadows.uniforms.reset()
     culler.beginFrame()
@@ -623,9 +631,26 @@ const FORWARD_DEFINES = [
 
 /** Added to a pipeline key for its cutaway variant (0070). */
 const CUT_KEY = 2 ** 40
+/** Times the interior mode (0069), added to pipeline keys: each mode keeps its own pipelines. */
+const INTERIOR_KEY = 2 ** 41
 
 /** FORWARD_DEFINES with the cutaway test linked in (0070). */
 const CUTAWAY_DEFINES = FORWARD_DEFINES.map((d) => ({ ...d, CUTAWAY: true }))
+
+/** Interior lighting's defines (0069) by mode: sky visibility (1), wall-blocked lights (2). */
+export const INTERIOR_DEFINES = [
+  undefined,
+  { SKY_VISIBILITY: true },
+  { BLOCKED_LIGHTS: true },
+  { SKY_VISIBILITY: true, BLOCKED_LIGHTS: true },
+] as const
+
+/** Lit slots' defines by interior mode, then cutaway (0 or 1); mode 0 is the plain sets. */
+const LIT_DEFINES = INTERIOR_DEFINES.map((extra) =>
+  [FORWARD_DEFINES, CUTAWAY_DEFINES].map((set) =>
+    extra ? set.map((d) => ({ ...d, ...extra })) : set,
+  ),
+)
 
 /**
  * The pipeline layout of a pass drawing a material type: view, material, instances, and for the
@@ -803,8 +828,14 @@ function materialPipeline(
   const ground = pass === PASS_GROUND || pass === PASS_PICK_GROUND
   // The G-buffer, the prepass, and picking are always single-sampled.
   const msaa = gbuffer || prepass || pick ? 1 : cam.msaa
+  // Only lit slots link interior lighting (0069): the G-buffer, prepass and picking don't light.
+  const mode = gbuffer || prepass || pick ? 0 : state.interiorMode
   // Cutaway variants (0070) key above every other pass's pipelines (shadows' included).
-  const key = ((pass * 1024 + typeOrdinal(type)) * 16 + variant) * 8 + msaa + (cut ? CUT_KEY : 0)
+  const key =
+    ((pass * 1024 + typeOrdinal(type)) * 16 + variant) * 8 +
+    msaa +
+    (cut ? CUT_KEY : 0) +
+    mode * INTERIOR_KEY
   let pipeline = state.pipelines.cached(key)
   if (!pipeline) {
     const premultiply = blend === 'premultiplied'
@@ -839,7 +870,7 @@ function materialPipeline(
               ? 'shard::pbr::forward'
               : 'shard::unlit::forward',
       // Only what the slot tells apart: the prepass and picking don't premultiply.
-      (cut ? CUTAWAY_DEFINES : FORWARD_DEFINES)[
+      LIT_DEFINES[mode]![cut ? 1 : 0]![
         pick
           ? 0
           : prepass
@@ -917,7 +948,7 @@ function warmPipelines(
   pass: number,
   cut: CutawaySupport | undefined,
 ): void {
-  const slot = pass * 8 + cam.msaa + (cut ? CUT_KEY : 0)
+  const slot = pass * 8 + cam.msaa + (cut ? CUT_KEY : 0) + state.interiorMode * INTERIOR_KEY
   if (state.pipelines.warmed(slot, store.structureVersion, ctx.gpu.generation)) return
   const ground = pass === PASS_GROUND || pass === PASS_PICK_GROUND
   const batches = store.batches
@@ -1054,29 +1085,33 @@ export function viewBindGroup(
   const b = pv.baseline
   const lightsVersion = b ? b.lights.version : lights.buffer.version
   const clustersVersion = b ? b.bits.version : pv.clusters!.clusters.version
-  const key = `${idOf(ao)}/${gpu.generation}/${pv.uniform.version}/${lightsVersion}/${clustersVersion}/${lights.directional.version}/${pv.shadowData.version}/${idOf(cascades)}/${idOf(spots)}/${idOf(points)}/${baked ? idOf(baked.source) : 0}/${sh.version}/${state.globals.version}`
+  // Interior lighting (0069): its bindings exist only while a mode is on.
+  const interior = state.interiorMode !== 0 ? world.tryResource(InteriorPath) : undefined
+  const key = `${idOf(ao)}/${gpu.generation}/${pv.uniform.version}/${lightsVersion}/${clustersVersion}/${lights.directional.version}/${pv.shadowData.version}/${idOf(cascades)}/${idOf(spots)}/${idOf(points)}/${baked ? idOf(baked.source) : 0}/${sh.version}/${state.globals.version}${interior ? `/${state.interiorMode}/${interior.version}` : ''}`
   if (!pv.bindGroup || pv.bound !== key) {
+    const entries: GPUBindGroupEntry[] = [
+      { binding: 0, resource: { buffer: pv.uniform.buffer } },
+      { binding: 1, resource: b ? b.lights.resource() : { buffer: lights.buffer.buffer } },
+      { binding: 2, resource: b ? b.bits.resource() : { buffer: pv.clusters!.clusters.buffer } },
+      { binding: 3, resource: lights.directional.resource() },
+      { binding: 4, resource: pv.shadowData.resource() },
+      { binding: 5, resource: cascades.createView({ dimension: '2d-array' }) },
+      { binding: 6, resource: spots.createView({ dimension: '2d-array' }) },
+      { binding: 7, resource: points.createView({ dimension: '2d-array' }) },
+      { binding: 8, resource: state.shadowSampler },
+      { binding: 9, resource: specular },
+      { binding: 10, resource: envs.lut!.createView() },
+      { binding: 11, resource: envs.sampler! },
+      { binding: 12, resource: sh.resource() },
+      { binding: 13, resource: source },
+      { binding: 14, resource: { buffer: state.globals.buffer } },
+      { binding: 15, resource: ao.createView() },
+    ]
+    if (interior) entries.push(...interior.entries(gpu))
     pv.bindGroup = gpu.device.createBindGroup({
       label: 'forward/view',
       layout: state.layouts.view,
-      entries: [
-        { binding: 0, resource: { buffer: pv.uniform.buffer } },
-        { binding: 1, resource: b ? b.lights.resource() : { buffer: lights.buffer.buffer } },
-        { binding: 2, resource: b ? b.bits.resource() : { buffer: pv.clusters!.clusters.buffer } },
-        { binding: 3, resource: lights.directional.resource() },
-        { binding: 4, resource: pv.shadowData.resource() },
-        { binding: 5, resource: cascades.createView({ dimension: '2d-array' }) },
-        { binding: 6, resource: spots.createView({ dimension: '2d-array' }) },
-        { binding: 7, resource: points.createView({ dimension: '2d-array' }) },
-        { binding: 8, resource: state.shadowSampler },
-        { binding: 9, resource: specular },
-        { binding: 10, resource: envs.lut!.createView() },
-        { binding: 11, resource: envs.sampler! },
-        { binding: 12, resource: sh.resource() },
-        { binding: 13, resource: source },
-        { binding: 14, resource: { buffer: state.globals.buffer } },
-        { binding: 15, resource: ao.createView() },
-      ],
+      entries,
     })
     pv.bound = key
   }
@@ -1545,37 +1580,39 @@ export interface ForwardPluginOptions {
   >
 }
 
-/** Bind group and pipeline layouts, created per device (after a device loss they're rebuilt). */
-function createLayouts(gpu: GpuContext, assets: GpuAssets, store: InstanceStore): Layouts {
+/** Group 0's entries: view, lights, clusters, shadows, environment, globals, SSAO. */
+function viewEntries(gpu: GpuContext): GPUBindGroupLayoutEntry[] {
   const F = GPUShaderStage.FRAGMENT
   const depthArray = (binding: number) => ({
     binding,
     visibility: F,
     texture: { sampleType: 'depth' as const, viewDimension: '2d-array' as const },
   })
-  const view = gpu.layouts.bindGroupLayout({
-    label: 'forward/view',
-    entries: [
-      { binding: 0, visibility: GPUShaderStage.VERTEX | F, buffer: { type: 'uniform' } },
-      // Storage on the full tier; on baseline (0064) lights, directional lights, shadow data and SH
-      // are uniform blocks and the cluster bits a data texture.
-      dataEntry(gpu, 1, F, 'uniform'),
-      dataEntry(gpu, 2, F, 'texture'),
-      dataEntry(gpu, 3, F, 'uniform'),
-      dataEntry(gpu, 4, F, 'uniform'),
-      depthArray(5),
-      depthArray(6),
-      depthArray(7),
-      { binding: 8, visibility: F, sampler: { type: 'comparison' } },
-      { binding: 9, visibility: F, texture: { sampleType: 'float', viewDimension: 'cube' } },
-      { binding: 10, visibility: F, texture: { sampleType: 'float' } },
-      { binding: 11, visibility: F, sampler: { type: 'filtering' } },
-      dataEntry(gpu, 12, F, 'uniform'),
-      { binding: 13, visibility: F, texture: { sampleType: 'float', viewDimension: 'cube' } },
-      { binding: 14, visibility: GPUShaderStage.VERTEX | F, buffer: { type: 'uniform' } },
-      { binding: 15, visibility: F, texture: { sampleType: 'float' } },
-    ],
-  })
+  return [
+    { binding: 0, visibility: GPUShaderStage.VERTEX | F, buffer: { type: 'uniform' } },
+    // Storage on the full tier; on baseline (0064) lights, directional lights, shadow data and SH
+    // are uniform blocks and the cluster bits a data texture.
+    dataEntry(gpu, 1, F, 'uniform'),
+    dataEntry(gpu, 2, F, 'texture'),
+    dataEntry(gpu, 3, F, 'uniform'),
+    dataEntry(gpu, 4, F, 'uniform'),
+    depthArray(5),
+    depthArray(6),
+    depthArray(7),
+    { binding: 8, visibility: F, sampler: { type: 'comparison' } },
+    { binding: 9, visibility: F, texture: { sampleType: 'float', viewDimension: 'cube' } },
+    { binding: 10, visibility: F, texture: { sampleType: 'float' } },
+    { binding: 11, visibility: F, sampler: { type: 'filtering' } },
+    dataEntry(gpu, 12, F, 'uniform'),
+    { binding: 13, visibility: F, texture: { sampleType: 'float', viewDimension: 'cube' } },
+    { binding: 14, visibility: GPUShaderStage.VERTEX | F, buffer: { type: 'uniform' } },
+    { binding: 15, visibility: F, texture: { sampleType: 'float' } },
+  ]
+}
+
+/** Bind group and pipeline layouts, created per device (after a device loss they're rebuilt). */
+function createLayouts(gpu: GpuContext, assets: GpuAssets, store: InstanceStore): Layouts {
+  const view = gpu.layouts.bindGroupLayout({ label: 'forward/view', entries: viewEntries(gpu) })
   const C = GPUShaderStage.COMPUTE
   const cluster = gpu.layouts.bindGroupLayout({
     label: 'light-clusters',
@@ -1590,6 +1627,8 @@ function createLayouts(gpu: GpuContext, assets: GpuAssets, store: InstanceStore)
   const shadowView = shadowViewLayout(gpu)
   return {
     view,
+    viewBase: view,
+    viewInterior: undefined,
     pipeline: gpu.layouts.pipelineLayout({
       label: 'forward',
       bindGroupLayouts: [view, assets.materialLayout, store.layout],
@@ -1605,6 +1644,36 @@ function createLayouts(gpu: GpuContext, assets: GpuAssets, store: InstanceStore)
       bindGroupLayouts: [shadowView, assets.materialLayout, store.layout],
     }),
   }
+}
+
+/**
+ * Group 0 with interior lighting's bindings (0069): its data (the sky field and the light rows,
+ * one r32uint array) and its table. Only while a mode is on, so materials keep their sampled-texture room otherwise.
+ */
+function interiorViewLayout(gpu: GpuContext, state: ForwardState): GPUBindGroupLayout {
+  const layouts = state.layouts
+  if (layouts.viewInterior) return layouts.viewInterior
+  const F = GPUShaderStage.FRAGMENT
+  layouts.viewInterior = gpu.layouts.bindGroupLayout({
+    label: 'forward/view/interior',
+    entries: [
+      ...viewEntries(gpu),
+      {
+        binding: INTERIOR_BINDINGS.data,
+        visibility: F,
+        texture: { sampleType: 'uint', viewDimension: '2d-array' },
+      },
+      { binding: INTERIOR_BINDINGS.table, visibility: F, buffer: { type: 'uniform' } },
+    ],
+  })
+  return layouts.viewInterior
+}
+
+/** Picks this frame's interior mode (0069) and the view layout that goes with it. */
+function chooseInterior(gpu: GpuContext, world: World, state: ForwardState): void {
+  const mode = world.tryResource(InteriorPath)?.mode ?? 0
+  state.interiorMode = mode
+  state.layouts.view = mode !== 0 ? interiorViewLayout(gpu, state) : state.layouts.viewBase
 }
 
 function ensureLayouts(
@@ -1678,6 +1747,8 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       Cutaway,
       CutawayView,
       CutawayPath,
+      // interior lighting (0069)
+      InteriorPath,
       Cameras,
       RenderPath,
       Tonemapping,
@@ -1830,6 +1901,7 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
           pipelines: new MaterialPipelines(),
           baseline,
           cullerActive: false,
+          interiorMode: 0,
           gbufferTargets: [
             { format: 'rgba8unorm-srgb' },
             { format: 'rgba16float' },
