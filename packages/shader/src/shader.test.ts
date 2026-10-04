@@ -80,6 +80,30 @@ describe('linking', () => {
     })
   })
 
+  it('needs a conditional import only while its condition holds', async () => {
+    const lib = engineLibrary()
+    lib.register(
+      'project::cut',
+      `@if(CUT && !(OFF || false)) import plugin::cut::clip;
+@fragment fn fs() -> @location(0) vec4f {
+  @if(CUT && !(OFF || false)) clip();
+  return vec4f(1.0);
+}`,
+    )
+    // Off (or overruled), the plugin's module needn't be registered.
+    expect((await lib.link({ root: 'project::cut' })).code).not.toContain('clip')
+    expect(
+      (await lib.link({ root: 'project::cut', defines: { CUT: true, OFF: true } })).code,
+    ).not.toContain('clip')
+    await expect(lib.link({ root: 'project::cut', defines: { CUT: true } })).rejects.toMatchObject({
+      code: 'shader/link-unknown-module',
+    })
+    lib.register('plugin::cut', 'fn clip() {}')
+    expect((await lib.link({ root: 'project::cut', defines: { CUT: true } })).code).toContain(
+      'fn clip',
+    )
+  })
+
   it('allows module import cycles (WESL semantics) when nothing recurses', async () => {
     const lib = new ShaderLibrary()
     lib.register(

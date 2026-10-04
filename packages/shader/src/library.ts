@@ -363,7 +363,7 @@ export class ShaderLibrary {
 
   /** Every module a variant links: its root's imports, and the overrides'. */
   private closureOf(request: LinkRequest): string[] {
-    const imports = (p: string) => importsOf(this.sources.get(p) ?? '')
+    const imports = (p: string) => importsOf(this.sources.get(p) ?? '', request.defines ?? {})
     const paths = new Set<string>()
     for (const root of [request.root, ...(request.overrides ?? [])])
       for (const p of closure(root, imports)) paths.add(p)
@@ -405,8 +405,12 @@ export class ShaderLibrary {
         )
       }
     }
-    // WESL resolves imports lazily and ignores unused unknown ones; check them all up front.
-    for (const path of closure(request.root, (p) => importsOf(this.sources.get(p) ?? ''))) {
+    // WESL resolves imports lazily and ignores unused unknown ones; check them all up front. An
+    // import under an @if whose condition is off needn't exist (a plugin's module, 0070).
+    const defines = request.defines ?? {}
+    for (const path of closure(request.root, (p) =>
+      importsOf(this.sources.get(p) ?? '', defines),
+    )) {
       if (!this.sources.has(path)) {
         const importer = [...this.sources].find(([, src]) => importsOf(src).includes(path))?.[0]
         throw new ShardError('shader/link-unknown-module', `Unknown shader module "${path}"`, {
@@ -574,11 +578,17 @@ function variantKey(request: LinkRequest): string {
   return `${request.root}|${defines.join(',')}|${(request.overrides ?? []).join(',')}`
 }
 
-/** The modules a source imports, conditional imports (`@if(LIT) import …`) included. */
-function importsOf(source: string): string[] {
+/**
+ * The modules a source imports, conditional imports (`@if(LIT) import …`) included; with `defines`,
+ * only those whose conditions hold.
+ */
+function importsOf(source: string, defines?: Readonly<Record<string, boolean>>): string[] {
   const out: string[] = []
-  for (const m of source.matchAll(/^\s*(?:@\w+\s*\([^)]*\)\s*)*import\s+([^;]+);/gm)) {
-    const spec = m[1]!.replace(/\s+/g, '')
+  for (const m of source.matchAll(
+    /^\s*((?:@\w+\s*\((?:[^()]|\([^()]*\))*\)\s*)*)import\s+([^;]+);/gm,
+  )) {
+    if (defines && m[1] && !attributesHold(m[1], defines)) continue
+    const spec = m[2]!.replace(/\s+/g, '')
     const braced = /^(.*?)::\{(.*)\}$/.exec(spec)
     if (braced) {
       for (const item of braced[2]!.split(',')) {
@@ -591,6 +601,51 @@ function importsOf(source: string): string[] {
     }
   }
   return [...new Set(out.filter((p) => p.includes('::') && !p.startsWith('constants')))]
+}
+
+/** Whether every `@if(...)` among an import's attributes holds under `defines`. */
+function attributesHold(attributes: string, defines: Readonly<Record<string, boolean>>): boolean {
+  for (const m of attributes.matchAll(/@if\s*\(((?:[^()]|\([^()]*\))*)\)/g))
+    if (!evaluateCondition(m[1]!, defines)) return false
+  return true
+}
+
+/** A WESL condition: names, true and false, `!`, `&&`, `||` and parentheses. */
+function evaluateCondition(
+  expression: string,
+  defines: Readonly<Record<string, boolean>>,
+): boolean {
+  const tokens = expression.match(/[A-Za-z_]\w*|&&|\|\||[!()]/g) ?? []
+  let i = 0
+  const or = (): boolean => {
+    let v = and()
+    while (tokens[i] === '||') {
+      i++
+      v = and() || v
+    }
+    return v
+  }
+  const and = (): boolean => {
+    let v = unary()
+    while (tokens[i] === '&&') {
+      i++
+      v = unary() && v
+    }
+    return v
+  }
+  const unary = (): boolean => {
+    const t = tokens[i++]
+    if (t === '!') return !unary()
+    if (t === '(') {
+      const v = or()
+      i++
+      return v
+    }
+    if (t === 'true') return true
+    if (t === 'false' || t === undefined) return false
+    return defines[t] === true
+  }
+  return or()
 }
 
 function definesOf(source: string): string[] {

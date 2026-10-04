@@ -384,6 +384,7 @@ import shard::view::view;
 import shard::pbr::types::VertexOutput;
 import shard::mesh::mesh_vertex_at;
 import shard::unlit::shading::shade;
+@if(CUTAWAY) import shard::cutaway::cutaway_clip;
 
 @vertex fn vs(
   @builtin(instance_index) instance_index: u32,
@@ -400,6 +401,7 @@ import shard::unlit::shading::shade;
 }
 
 @fragment fn fs(in: VertexOutput) -> @location(0) vec4f {
+  @if(CUTAWAY) cutaway_clip(in.world_position, in.clip.xy, in.flags);
   let c = shade(in);
   @if(MASK) if (c.a < 0.5) { discard; }
   @if(OPAQUE) return vec4f(c.rgb * view.exposure, 1.0);
@@ -1009,6 +1011,7 @@ import shard::mesh::mesh_vertex_at;
 import shard::pbr::material::{ pbr_input, fragment_output };
 import shard::pbr::standard::material;
 import shard::pbr::lighting::apply_lighting;
+@if(CUTAWAY) import shard::cutaway::cutaway_clip;
 
 @vertex fn vs(
   @builtin(instance_index) instance_index: u32,
@@ -1025,6 +1028,7 @@ import shard::pbr::lighting::apply_lighting;
 }
 
 @fragment fn fs(in: VertexOutput) -> @location(0) vec4f {
+  @if(CUTAWAY) cutaway_clip(in.world_position, in.clip.xy, in.flags);
   let p = pbr_input(in);
   if (material.alphaMode == 1u && p.alpha < material.alphaCutoff) { discard; }
   let color = (apply_lighting(p, in.world_position, in.clip, in.flags) + p.emissive) * view.exposure;

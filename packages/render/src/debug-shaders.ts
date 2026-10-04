@@ -173,6 +173,7 @@ struct PickOutput {
 import shard::view::view;
 import shard::mesh::{ instance_at, mesh_vertex_at };
 import shard::pick::types::PickOutput;
+@if(CUTAWAY) import shard::cutaway::cutaway_clip;
 
 struct PickVertex {
   @builtin(position) clip: vec4f,
@@ -184,6 +185,9 @@ struct PickVertex {
    * a picked point toward the camera.
    */
   @location(2) zw: vec2f,
+  /** Where cutaways (0070) test the surface. */
+  @if(CUTAWAY) @location(3) world: vec3f,
+  @if(CUTAWAY) @location(4) @interpolate(flat) flags: u32,
 }
 
 @vertex fn vs(
@@ -203,10 +207,13 @@ struct PickVertex {
   out.normal = m.world_normal;
   out.entity = inst.entity;
   out.zw = out.clip.zw;
+  @if(CUTAWAY) out.world = m.world_position;
+  @if(CUTAWAY) out.flags = m.flags;
   return out;
 }
 
 @fragment fn fs(in: PickVertex, @builtin(front_facing) front: bool) -> PickOutput {
+  @if(CUTAWAY) cutaway_clip(in.world, in.clip.xy, in.flags);
   var out: PickOutput;
   out.id = in.entity;
   let n = normalize(in.normal);

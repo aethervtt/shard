@@ -10,12 +10,14 @@ import {
 } from '@aethervtt/shard-core'
 import type { GpuBuffer, GpuContext } from '@aethervtt/shard-gpu'
 import type { Mesh } from '@aethervtt/shard-mesh'
-import { DevMode, LogResource } from '@aethervtt/shard-runtime'
+import { DevMode } from '@aethervtt/shard-runtime'
 import { toHalf } from '@aethervtt/shard-texture'
 import { GlobalTransform, Transform } from '@aethervtt/shard-transform'
 import { MaterialAsset, Materials, Meshes } from './assets'
+import { Cutaway, CutawayPath } from './cutaway'
 import { DataStore } from './data-store'
 import { DEFORM_WORDS, DeformStore } from './deform'
+import { warnFeatureMissing } from './features'
 import { GpuAssetsResource } from './gpu-assets'
 import { GroundLayer, OVERLAY_BAND, RenderLayers } from './layers'
 import { isTransparent } from './materials'
@@ -196,7 +198,25 @@ export const InstanceFlags = {
   Morph: 64,
   /** Hidden, but drawn in shadow views (ShadowWhenHidden); Visible is off. */
   ShadowOnly: 128,
+  /**
+   * May be cut away around a camera's reveal points (Cutaway, 0070). In the record's flags word
+   * it rides in bit 28 (`CUTAWAY_BIT`), above the layers and the LOD.
+   */
+  Cutaway: 256,
 } as const
+
+/** Where `InstanceFlags.Cutaway` sits in the record's flags word (0070). */
+export const CUTAWAY_BIT = 1 << 28
+
+/** A slot's flags word: its flags (bits 0–7, Cutaway in 28) and render layers (8–23). */
+export function recordFlags(flags: number, layers: number): number {
+  return (
+    ((flags & 0xff) |
+      (layers << LAYER_SHIFT) |
+      (flags & InstanceFlags.Cutaway ? CUTAWAY_BIT : 0)) >>>
+    0
+  )
+}
 
 /** Record value for "no batch". LOD slots store `LOD_BIT | lodSet`. */
 /** The render layer mask's place in the flags word (bits 8–23; LOD rides in 24–27 when read). */
@@ -237,6 +257,11 @@ export interface Batch {
   forwardCount: number
   /** The mesh version shadows last saw (cached shadows redraw when it changes, 0055). */
   meshVersion: number
+  /**
+   * Instances that can land in this batch and are Cutaway (0070). While any are, a view whose
+   * reveal points can cut one this frame draws it with the cutaway variant of its pipeline.
+   */
+  cutaway: number
   /**
    * Drawn in the ground phase (0057): its slots have a GroundLayer, draw in (band, order) order
    * after opaque geometry, and cast no shadows. Kept apart from the same mesh and material off
@@ -295,6 +320,10 @@ export interface CullParams {
   updateLod: boolean
   /** Render layers the view draws (0057): slots sharing no bit are culled first. Default: all. */
   layers?: number
+  /** Slots this view doesn't draw (ViewVisibility, 0070): a bit per slot. */
+  hidden?: Uint32Array | undefined
+  /** Where those bits start in the GPU's hidden-set buffer, or NO_HIDDEN. */
+  hiddenBase?: number
 }
 
 const halfToFloat = (h: number): number => {
@@ -423,7 +452,7 @@ export class InstanceStore {
    * Each slot's InstanceFlags, mirrored from its record: prepare compares against these every
    * frame, and reading them from the 64-byte records would touch a cache line per instance.
    */
-  flags = new Uint8Array(0)
+  flags = new Uint16Array(0)
   /** Hidden instances per ECS table id, from the last time prepare visited the table. */
   readonly tableHidden: number[] = []
   /** Batch index (>= 0), LOD set (-2 - index), or -1 (none), per slot. */
@@ -486,6 +515,8 @@ export class InstanceStore {
   hiddenCount = 0
   /** Bumps when batches or LOD sets change shape (the GPU tables re-upload). */
   structureVersion = 0
+  /** Bumps when a slot is allocated or freed (hidden sets resolve again, 0070). */
+  slotEpoch = 0
   /**
    * Bumps when what casts shadows changes other than by moving: a slot's batch, its caster or
    * visible flag, or a batch's mesh data. Cached shadow maps (0055) redraw when it moves.
@@ -542,7 +573,7 @@ export class InstanceStore {
     const dirty = new Uint8Array(capacity)
     dirty.set(this.dirty)
     this.dirty = dirty
-    const flags = new Uint8Array(capacity)
+    const flags = new Uint16Array(capacity)
     flags.set(this.flags)
     this.flags = flags
     const prev = new Float32Array(capacity * 12)
@@ -581,6 +612,7 @@ export class InstanceStore {
     this.groundKeys[slot] = Number.NaN
     this.layers[slot] = 1
     this.markDirty(slot)
+    this.slotEpoch++
     return slot
   }
 
@@ -617,6 +649,7 @@ export class InstanceStore {
     this.deform.clear(slot)
     this.markDirty(slot)
     this.free.push(slot)
+    this.slotEpoch++
   }
 
   private boundsDirty = true
@@ -744,6 +777,8 @@ export class InstanceStore {
     const old = this.batchOf[slot]!
     if (old === assignment) return
     this.shadowEpoch++
+    const cut = this.flags[slot]! & InstanceFlags.Cutaway
+    if (cut) this.countCutaway(slot, -1)
     if (old >= 0) {
       this.batches[old]!.count--
       this.removeMember(slot, this.batches[old]!)
@@ -767,7 +802,16 @@ export class InstanceStore {
         : assignment <= -2
           ? (LOD_BIT | (-2 - assignment)) >>> 0
           : NO_BATCH
+    if (cut) this.countCutaway(slot, 1)
     this.markDirty(slot)
+  }
+
+  /** Adds `delta` to the cutaway count of every batch the slot can land in (0070). */
+  countCutaway(slot: number, delta: number): void {
+    const a = this.batchOf[slot]!
+    if (a >= 0) this.batches[a]!.cutaway += delta
+    else if (a <= -2)
+      for (const b of this.lodSets[-2 - a]!.batches) this.batches[b]!.cutaway += delta
   }
 
   /**
@@ -869,6 +913,7 @@ export class InstanceStore {
         forwardScratch: new Uint32Array(16),
         forwardCount: 0,
         meshVersion: mesh.version,
+        cutaway: 0,
         ground,
       }
       byMaterial.set(material, batch)
@@ -1076,6 +1121,7 @@ export class InstanceStore {
     this.groundCount = 0
     const layers = this.layers
     const viewLayers = params.layers ?? 0xffffffff
+    const hiddenBits = params.hidden
     const batches = this.batches
     for (let b = 0; b < batches.length; b++) {
       batches[b]!.scratchCount = 0
@@ -1098,6 +1144,10 @@ export class InstanceStore {
       }
       if ((layers[s]! & viewLayers) === 0) {
         list.culled++
+        continue
+      }
+      if (hiddenBits !== undefined && (hiddenBits[s >>> 5]! & (1 << (s & 31))) !== 0) {
+        list.hidden++
         continue
       }
       let set: LodSet | undefined
@@ -1218,6 +1268,7 @@ export class InstanceStore {
     const eye = params.eye
     const sphere = scratchSphere
     const viewLayers = params.layers ?? 0xffffffff
+    const hiddenBits = params.hidden
     for (const batch of this.batches) {
       if (!batch.transparent || batch.ground || !batch.ready || batch.memberCount === 0) continue
       for (let m = 0; m < batch.memberCount; m++) {
@@ -1225,6 +1276,7 @@ export class InstanceStore {
         const flags = u32[s * INSTANCE_FLOATS + 13]!
         if ((flags & InstanceFlags.Visible) === 0) continue
         if ((this.layers[s]! & viewLayers) === 0) continue
+        if (hiddenBits !== undefined && (hiddenBits[s >>> 5]! & (1 << (s & 31))) !== 0) continue
         sphereOfSlot(sphere, this, s, flags, batch.mesh.bounds)
         if (params.planes && !sphereInFrustum(params.planes, sphere)) continue
         if (flags & InstanceFlags.Range && eye) {
@@ -1249,6 +1301,7 @@ export class InstanceStore {
     const u32 = this.u32
     const sphere = scratchSphere
     const viewLayers = params.layers ?? 0xffffffff
+    const hiddenBits = params.hidden
     for (const batch of this.batches) {
       if (!batch.ground || !batch.ready || batch.memberCount === 0) continue
       for (let m = 0; m < batch.memberCount; m++) {
@@ -1256,6 +1309,7 @@ export class InstanceStore {
         const flags = u32[s * INSTANCE_FLOATS + 13]!
         if ((flags & InstanceFlags.Visible) === 0) continue
         if ((this.layers[s]! & viewLayers) === 0) continue
+        if (hiddenBits !== undefined && (hiddenBits[s >>> 5]! & (1 << (s & 31))) !== 0) continue
         slotSphere(sphere, this.f32, s * INSTANCE_FLOATS, batch.mesh.bounds)
         if (params.planes && !sphereInFrustum(params.planes, sphere)) continue
         this.pushGround(s, batch.index)
@@ -1692,24 +1746,6 @@ export const DeformPath = defineResource<{ installed: true }>('render/DeformPath
   description: 'Present when skinning and morph targets (skinningPlugin) are installed.',
 })
 
-const warnedDeforms = new WeakSet<World>()
-
-/** Without skinningPlugin, skinned and morphed meshes draw in their rest pose; says so once. */
-function warnNoDeforms(world: World): void {
-  if (warnedDeforms.has(world)) return
-  warnedDeforms.add(world)
-  world
-    .tryResource(LogResource)
-    ?.log(
-      'warn',
-      "An entity has SkinnedMesh or MorphWeights, but skinningPlugin isn't installed; it draws in its rest pose",
-      {
-        code: 'render/feature-missing',
-        hint: "Add skinningPlugin from '@aethervtt/shard-render' (forwardPlugin includes it).",
-      },
-    )
-}
-
 export const prepareInstances = defineSystem({
   name: 'render/prepare-instances',
   description:
@@ -1730,6 +1766,7 @@ export const prepareInstances = defineSystem({
       store.missingMaterial.set({ baseColor: dev ? [1, 0, 1, 1] : [0.5, 0.5, 0.5, 1] })
     }
     const deforms = world.hasResource(DeformPath)
+    const cutaways = world.hasResource(CutawayPath)
     const since = ctx.lastRunTick
     let hidden = 0
     let rows = 0
@@ -1772,8 +1809,18 @@ export const prepareInstances = defineSystem({
       const orders = hasGround ? table.column(GroundLayer, 'order') : undefined
       const levels = hasGround ? table.column(GroundLayer, 'level') : undefined
       const deformed = table.has(SkinnedMesh) || table.has(MorphWeights)
-      if (deformed && !deforms) warnNoDeforms(world)
+      if (deformed && !deforms)
+        warnFeatureMissing(
+          world,
+          'An entity has SkinnedMesh or MorphWeights',
+          'skinningPlugin',
+          'it draws in its rest pose',
+        )
+      const cut = table.has(Cutaway)
+      if (cut && !cutaways)
+        warnFeatureMissing(world, 'An entity has Cutaway', 'cutawayPlugin', 'it draws whole')
       const tableFlags =
+        (cut && cutaways ? InstanceFlags.Cutaway : 0) |
         (deforms && table.has(SkinnedMesh) ? InstanceFlags.Skinned : 0) |
         (deforms && table.has(MorphWeights) ? InstanceFlags.Morph : 0) |
         (table.has(NotShadowCaster) ? 0 : InstanceFlags.Caster) |
@@ -1825,8 +1872,10 @@ export const prepareInstances = defineSystem({
           resolveSlot(store, slot, meshes, materials)
         }
         if (oldFlags !== flags) {
-          u32[o + 13] = (flags | (store.layers[slot]! << LAYER_SHIFT)) >>> 0
+          u32[o + 13] = recordFlags(flags, store.layers[slot]!)
           slotFlags[slot] = flags
+          if ((oldFlags ^ flags) & InstanceFlags.Cutaway)
+            store.countCutaway(slot, flags & InstanceFlags.Cutaway ? 1 : -1)
           store.markDirty(slot)
           if (
             (oldFlags ^ flags) &

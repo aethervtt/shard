@@ -34,6 +34,7 @@ import {
   ViewLightList,
 } from './clusters'
 import { Culler, cullGround, cullTransparent, GpuCuller } from './culling'
+import { Cutaway, CutawayPath, type CutawaySupport, CutawayView } from './cutaway'
 import { DataStore, dataEntry } from './data-store'
 import { addDisplayNodes } from './display-nodes'
 import { Environments, environmentParams } from './environment-state'
@@ -142,6 +143,12 @@ import {
   Tonemapping,
   ViewSettings,
 } from './view'
+import {
+  HiddenSetsResource,
+  NO_HIDDEN,
+  observeViewVisibilityWithoutPlugin,
+  ViewVisibility,
+} from './view-visibility'
 import { ComputedVisibility, computeVisibility, Visibility } from './visibility'
 
 export { Mesh3d, MeshMaterial }
@@ -281,6 +288,8 @@ function cameraParams(cam: CameraData, out: CullParams): CullParams {
   out.eye = cam.frozenPosition ?? cam.position
   out.orthographic = cam.orthographic
   out.layers = cam.layers
+  out.hidden = cam.hidden?.bits
+  out.hiddenBase = cam.hidden ? cam.hidden.base : NO_HIDDEN
   // Screen size = diameter / viewport height: 2r / (2 d tan(fov/2)), or 2r / orthoHeight.
   out.lodScale = cam.orthographic ? 2 / cam.orthoHeight : 1 / Math.tan(cam.fovY / 2)
   if (cam.lodState.length < cam.lodCapacity)
@@ -352,10 +361,16 @@ export const forwardQueue = defineSystem({
     }
 
     // Shadow views: culled with their own frustums, measured from (and at the LOD of) the camera.
-    const shadowParams = (cam: CameraData, planes: Float32Array) => {
+    // A camera's own cascades leave its hidden slots out with ViewVisibility.shadows 'hide';
+    // spot and point maps are shared by every camera and keep them (0070).
+    const shadowParams = (cam: CameraData, planes: Float32Array, own: boolean) => {
       cameraParams(cam, shadowCull)
       shadowCull.planes = planes
       shadowCull.updateLod = false
+      if (!own || !cam.hidden?.shadows) {
+        shadowCull.hidden = undefined
+        shadowCull.hiddenBase = NO_HIDDEN
+      }
       return shadowCull
     }
     const cullShadow = (
@@ -363,8 +378,9 @@ export const forwardQueue = defineSystem({
       draws: DrawList,
       planes: Float32Array,
       box?: Float32Array,
+      own = false,
     ) => {
-      const params = shadowParams(cam, planes)
+      const params = shadowParams(cam, planes, own)
       if (gpuCull) {
         culler.add(store, draws, params, culler.lodCamera(cam.entity))
         // No CPU cull to take a union from: fit to every caster instead.
@@ -416,7 +432,7 @@ export const forwardQueue = defineSystem({
       const sun = lights.shadowSun
       if (sun) {
         fitCascades(pv.cascades, cam, sun, settings.cascadeMapSize, (v, planes, box) =>
-          cullShadow(cam, v.draws, planes, box),
+          cullShadow(cam, v.draws, planes, box, true),
         )
         for (let i = 0; i < pv.cascades.count; i++) {
           const v = pv.cascades.views[i]!
@@ -570,7 +586,8 @@ export const upload = defineSystem({
     const store = world.resource(Instances)
     const culler = world.resource(Culler)
     if (culler.active) {
-      culler.prepare(store)
+      // Hidden sets (0070) upload for the GPU cull; CPU culls read their bits.
+      culler.prepare(store, world.tryResource(HiddenSetsResource))
       store.gpuVisible = culler.visible
     }
     store.finishFrame()
@@ -604,17 +621,29 @@ const FORWARD_DEFINES = [
   { PREMULTIPLY: true, MASK: true, OPAQUE: true },
 ] as const
 
-/** The pipeline layout of a pass drawing a material type: view, material, instances. */
+/** Added to a pipeline key for its cutaway variant (0070). */
+const CUT_KEY = 2 ** 40
+
+/** FORWARD_DEFINES with the cutaway test linked in (0070). */
+const CUTAWAY_DEFINES = FORWARD_DEFINES.map((d) => ({ ...d, CUTAWAY: true }))
+
+/**
+ * The pipeline layout of a pass drawing a material type: view, material, instances, and for the
+ * cutaway variant (0070) the camera's reveal points.
+ */
 function materialLayout(
   gpu: GpuContext,
   state: ForwardState,
   assets: GpuAssets,
   type: MaterialType,
   store: InstanceStore,
+  cut: GPUBindGroupLayout | undefined,
 ) {
   return gpu.layouts.pipelineLayout({
-    label: `forward/${type.name}`,
-    bindGroupLayouts: [state.layouts.view, assets.layoutOf(type), store.layout],
+    label: cut ? `forward/${type.name}/cutaway` : `forward/${type.name}`,
+    bindGroupLayouts: cut
+      ? [state.layouts.view, assets.layoutOf(type), store.layout, cut]
+      : [state.layouts.view, assets.layoutOf(type), store.layout],
   })
 }
 
@@ -670,6 +699,11 @@ export function drawMaterials(
   const args = ctx.world.resource(Culler).args.buffer
   renderPass.setBindGroup(0, viewBindGroup(gpu, ctx.world, pv, cam))
   renderPass.setBindGroup(2, instances)
+  // A camera with reveal points draws the batches its points can cut with the cutaway variant
+  // (0070); the others, and every shadow pass, never link it.
+  const cutaway = ctx.world.tryResource(CutawayPath)
+  const cutGroup = cutaway?.bindGroup(gpu, cam.entity)
+  if (cutGroup) renderPass.setBindGroup(3, cutGroup)
   let current: GPURenderPipeline | undefined
   let boundMaterial: GPUBindGroup | undefined
   let boundPositions: GPUBuffer | undefined
@@ -680,10 +714,16 @@ export function drawMaterials(
     const item = draws.items[d]!
     const own = item.batch.material
     if (!inPass(own.type, pass)) continue
+    const cut =
+      cutGroup !== undefined &&
+      item.batch.cutaway > 0 &&
+      cutaway!.cuts(cam.entity, item.batch.index)
+        ? cutaway
+        : undefined
     // A type whose shader or pipeline failed draws with the standard pipeline instead (0061).
     const fallback = state.pipelines.failing(own.type)
     const material = fallback ? state.pipelines.proxy(own) : own
-    const pipeline = materialPipeline(ctx, state, cam, store, assets, material, pass, true)
+    const pipeline = materialPipeline(ctx, state, cam, store, assets, material, pass, true, cut)
     if (!pipeline) {
       // It just failed: draw this item again, through the fallback.
       if (!fallback && state.pipelines.failing(own.type)) d--
@@ -725,7 +765,7 @@ export function drawMaterials(
       renderPass.draw(gm.count, item.count, 0, item.first)
     }
   }
-  if (draws.cullView < 0) warmPipelines(ctx, state, cam, store, assets, pass)
+  if (draws.cullView < 0) warmPipelines(ctx, state, cam, store, assets, pass, cutGroup && cutaway)
   return switches
 }
 
@@ -750,6 +790,7 @@ function materialPipeline(
   material: MaterialAsset,
   pass: number,
   draw: boolean,
+  cut?: CutawaySupport,
 ): GPURenderPipeline | undefined {
   const gpu = ctx.gpu
   const type = material.type
@@ -762,21 +803,25 @@ function materialPipeline(
   const ground = pass === PASS_GROUND || pass === PASS_PICK_GROUND
   // The G-buffer, the prepass, and picking are always single-sampled.
   const msaa = gbuffer || prepass || pick ? 1 : cam.msaa
-  const key = ((pass * 1024 + typeOrdinal(type)) * 16 + variant) * 8 + msaa
+  // Cutaway variants (0070) key above every other pass's pipelines (shadows' included).
+  const key = ((pass * 1024 + typeOrdinal(type)) * 16 + variant) * 8 + msaa + (cut ? CUT_KEY : 0)
   let pipeline = state.pipelines.cached(key)
   if (!pipeline) {
     const premultiply = blend === 'premultiplied'
     const mask = blend === 'mask'
-    // Module slots: forward 0–7 (opaque 48–55), shadows 8, G-buffer 16–23, prepass 32–38, pick 40.
+    // Module slots: forward 0–7 (opaque 48–55), shadows 8, G-buffer 16–23, prepass 32–38, pick 40;
+    // the cutaway variant of each is 64 more (0070).
     const opaque = !gbuffer && !prepass && !pick && !isTransparent(blend)
-    const slot = pick
-      ? 40
-      : prepass
-        ? 32 + (type.standard ? 0 : 4) + (mask ? 2 : 0)
-        : (gbuffer ? 16 : opaque ? 48 : 0) +
-          (type.standard ? 0 : 4) +
-          (premultiply ? 1 : 0) +
-          (mask ? 2 : 0)
+    const slot =
+      (cut ? 64 : 0) +
+      (pick
+        ? 40
+        : prepass
+          ? 32 + (type.standard ? 0 : 4) + (mask ? 2 : 0)
+          : (gbuffer ? 16 : opaque ? 48 : 0) +
+            (type.standard ? 0 : 4) +
+            (premultiply ? 1 : 0) +
+            (mask ? 2 : 0))
     const module = state.pipelines.module(
       ctx.world,
       gpu,
@@ -794,7 +839,7 @@ function materialPipeline(
               ? 'shard::pbr::forward'
               : 'shard::unlit::forward',
       // Only what the slot tells apart: the prepass and picking don't premultiply.
-      FORWARD_DEFINES[
+      (cut ? CUTAWAY_DEFINES : FORWARD_DEFINES)[
         pick
           ? 0
           : prepass
@@ -815,8 +860,8 @@ function materialPipeline(
       gpu,
       key,
       {
-        label: `${pick ? 'pick' : prepass ? 'prepass' : gbuffer ? 'gbuffer' : ground ? 'ground' : 'forward'}/${type.name}/${blend}/x${msaa}/${variantCull(variant)}`,
-        layout: materialLayout(gpu, state, assets, type, store),
+        label: `${pick ? 'pick' : prepass ? 'prepass' : gbuffer ? 'gbuffer' : ground ? 'ground' : 'forward'}/${type.name}/${blend}/x${msaa}/${variantCull(variant)}${cut ? '/cutaway' : ''}`,
+        layout: materialLayout(gpu, state, assets, type, store, cut?.layout(gpu)),
         vertex: { module, entryPoint: 'vs', buffers: VERTEX_BUFFERS },
         fragment: {
           module,
@@ -870,8 +915,9 @@ function warmPipelines(
   store: InstanceStore,
   assets: GpuAssets,
   pass: number,
+  cut: CutawaySupport | undefined,
 ): void {
-  const slot = pass * 8 + cam.msaa
+  const slot = pass * 8 + cam.msaa + (cut ? CUT_KEY : 0)
   if (state.pipelines.warmed(slot, store.structureVersion, ctx.gpu.generation)) return
   const ground = pass === PASS_GROUND || pass === PASS_PICK_GROUND
   const batches = store.batches
@@ -887,6 +933,9 @@ function warmPipelines(
     if (!inPass(own.type, pass)) continue
     const material = state.pipelines.failing(own.type) ? state.pipelines.proxy(own) : own
     materialPipeline(ctx, state, cam, store, assets, material, pass, false)
+    // Either variant may draw it as reveal points move: both are asked for.
+    if (cut && batch.cutaway > 0)
+      materialPipeline(ctx, state, cam, store, assets, material, pass, false, cut)
     assets.material(ctx.world, material)
   }
   // Done once nothing asked for is still compiling; until then, every frame asks again.
@@ -1623,6 +1672,12 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       SpotLight,
       ComputedVisibility,
       Visibility,
+      // per-view visibility and cutaways (0070)
+      ViewVisibility,
+      HiddenSetsResource,
+      Cutaway,
+      CutawayView,
+      CutawayPath,
       Cameras,
       RenderPath,
       Tonemapping,
@@ -1690,6 +1745,7 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       w.initResource(RenderDescribers).set('screenEffects', describeScreenEffects)
       observeInstanceRemovals(w)
       observeOutlinesWithoutPass(w)
+      observeViewVisibilityWithoutPlugin(w)
       observeLightRemovals(w)
       observeOriginShifts(w)
       app

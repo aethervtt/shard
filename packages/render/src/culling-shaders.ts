@@ -40,7 +40,9 @@ struct CullView {
   visible_base: u32,
   /** Render layers the view draws (0057). */
   layers: u32,
-  _pad0: u32,
+  /** Its hidden set's first word in lod_state, past the LOD entries (0070), or NO_HIDDEN. */
+  @if(HIDDEN) hidden_base: u32,
+  @if(!HIDDEN) _pad0: u32,
   _pad1: u32,
   _pad2: u32,
 }
@@ -72,6 +74,8 @@ struct Deform {
   rest1: vec4u,
 }
 @group(0) @binding(8) var<storage, read> deforms: array<Deform>;
+
+@if(HIDDEN) const NO_HIDDEN: u32 = 0xffffffffu;
 
 const NO_BATCH: u32 = 0xffffffffu;
 const LOD_BIT: u32 = 0x80000000u;
@@ -171,6 +175,8 @@ fn cull(@builtin(global_invocation_id) id: vec3u) {
   if ((flags & mask) != mask) { return; }
   // Render layers (0057) ride in flags bits 8–23.
   if ((((inst.flags >> 8u) & 0xffffu) & view.layers) == 0u) { return; }
+  // Hidden from this view (ViewVisibility, 0070): a bit per slot.
+  @if(HIDDEN) if (view.hidden_base != NO_HIDDEN && (lod_state[view.hidden_base + (s >> 5u)] & (1u << (s & 31u))) != 0u) { return; }
   var b = inst.batch;
   var lod = false;
   var lod_set: LodSet;

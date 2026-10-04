@@ -12,6 +12,7 @@ import {
 import { Mesh, type MeshData } from '@aethervtt/shard-mesh'
 import {
   ComputedVisibility,
+  Cutaway,
   GpuAssetsResource,
   Materials,
   Mesh3d,
@@ -74,6 +75,17 @@ export const FRAME_KEY = 'structure:frame'
 /** Chunk keys fit in 32 bits; a (group, chunk) key puts the group's slot above them (0067). */
 const GROUP_STRIDE = 4294967296
 
+/**
+ * Prefixes a material key for wall pieces while walls are cutaway (0070): they build meshes of
+ * their own, apart from floors of the same material. Material keys (guids, paths) never start so.
+ */
+const WALL_KEY = '#wall/'
+
+/** The material key of a builder key. */
+function materialOf(key: string): string {
+  return key.startsWith(WALL_KEY) ? key.slice(WALL_KEY.length) : key
+}
+
 interface WallRecord {
   shape: WallShape
   material: string
@@ -106,6 +118,8 @@ interface SlabRecord {
   frameMaterials: string[]
   /** Roofs: keeps casting while hidden. */
   shadowWhenHidden: boolean
+  /** Roofs: its meshes are Cutaway (0070). */
+  cutaway: boolean
   /** Roofs: chunk keys of its footprint's bounds, for `roofAt`. */
   index: number[]
   /** Everything but its cutouts, and each accepted cutout's outline and frame: when only cutouts
@@ -256,6 +270,8 @@ export class StructureState {
   readonly contactWalls = new Set<Entity>()
   /** Contact settings as last applied. */
   contact: ContactSettings = defaultContact()
+  /** StructureSettings.cutawayWalls as last applied (0070). */
+  cutawayWalls = false
   /** The `StructureSettings.contact` object last merged (a patch replaces it). */
   contactSeen: object | undefined
   contactMaterial: MaterialRef | undefined
@@ -791,6 +807,7 @@ function evaluateSlab(state: StructureState, entity: Entity): void {
     cutouts: [],
     frameMaterials: [],
     shadowWhenHidden: false,
+    cutaway: false,
     index: [],
     signature: '',
     rings: new Map(),
@@ -809,6 +826,14 @@ function evaluateSlab(state: StructureState, entity: Entity): void {
         setShadowWhenHidden(state, cm, shadow)
   }
   rec.shadowWhenHidden = shadow
+  const cut = roof?.cutaway ?? false
+  if (old && old.cutaway !== cut) {
+    for (const key of old.chunks)
+      for (const cm of state.chunks.get(key)?.meshes.values() ?? [])
+        setTag(state, cm.entity, Cutaway, cut)
+    for (const c of old.cutouts) setTag(state, state.cutouts.get(c)?.leaf ?? null, Cutaway, cut)
+  }
+  rec.cutaway = cut
   floorChunks(shape, state.chunkSize, state.overlap, state.scratch)
   groupKeys(state, group, rec.chunks)
   for (const key of rec.chunks) state.chunk(key).slabs.add(entity)
@@ -861,10 +886,20 @@ function evaluateSlab(state: StructureState, entity: Entity): void {
 }
 
 function setShadowWhenHidden(state: StructureState, cm: ChunkMesh, on: boolean): void {
+  setTag(state, cm.entity, ShadowWhenHidden, on)
+}
+
+/** Adds or removes a tag on a mesh entity structure keeps, if it's alive. */
+function setTag(
+  state: StructureState,
+  entity: Entity | null,
+  tag: typeof Cutaway | typeof ShadowWhenHidden,
+  on: boolean,
+): void {
   const world = state.world
-  if (!world.isAlive(cm.entity)) return
-  if (on) world.add(cm.entity, ShadowWhenHidden)
-  else world.remove(cm.entity, ShadowWhenHidden)
+  if (entity === null || !world.isAlive(entity) || world.has(entity, tag) === on) return
+  if (on) world.add(entity, tag)
+  else world.remove(entity, tag)
 }
 
 function forgetOpening(state: StructureState, entity: Entity): void {
@@ -982,6 +1017,7 @@ function spawnLeaf(state: StructureState, opening: Entity, rec: OpeningRecord): 
     world.add(leaf, WindowPane)
     world.add(leaf, NotShadowCaster)
   }
+  if (state.cutawayWalls) world.add(leaf, Cutaway)
   rec.leaf = leaf
   placeLeaf(state, opening)
   dressLeaf(state, opening)
@@ -1252,6 +1288,7 @@ function buildLeaf(state: StructureState, entity: Entity, host: SlabRecord): voi
       world.add(rec.leaf, WindowPane)
       world.add(rec.leaf, NotShadowCaster)
     }
+    if (host.cutaway) world.add(rec.leaf, Cutaway)
   } else {
     parentTo(state, rec.leaf, host.group)
     const current = world.get(rec.leaf, MeshMaterial).material as MaterialRef | null
@@ -1299,6 +1336,8 @@ function rebuildChunk(state: StructureState, key: number): number {
   const maxX = minX + size
   const maxZ = minZ + size
   for (const b of state.builders.values()) b.reset()
+  // Cutaway walls (0070) build apart from floors of the same material.
+  const wallKey = state.cutawayWalls ? WALL_KEY : ''
   for (const entity of chunk.walls) {
     const rec = state.walls.get(entity)
     if (!rec) continue
@@ -1310,15 +1349,17 @@ function rebuildChunk(state: StructureState, key: number): number {
       minZ,
       maxX,
       maxZ,
-      (i) => state.builder(rec.pieceMaterials[i]!),
+      (i) => state.builder(wallKey + rec.pieceMaterials[i]!),
       state.scratch,
     )
   }
   let shadowWhenHidden = false
+  let cutawayRoof = false
   for (const entity of chunk.slabs) {
     const rec = state.slabs.get(entity)
     if (!rec) continue
     if (rec.shadowWhenHidden) shadowWhenHidden = true
+    if (rec.cutaway) cutawayRoof = true
     emitFloor(rec.shape, minX, minZ, maxX, maxZ, state.builder(rec.material), state.scratch, (k) =>
       state.builder(rec.frameMaterials[k]!),
     )
@@ -1341,13 +1382,14 @@ function rebuildChunk(state: StructureState, key: number): number {
       ) as AssetRef<'Mesh'>
       const entity = world.spawn(
         [Mesh3d, { mesh: ref }],
-        [MeshMaterial, { material: state.materialRef(material) }],
+        [MeshMaterial, { material: state.materialRef(materialOf(material)) }],
         [StructureChunk, { group: chunk.group, x: chunk.x, z: chunk.z }],
         [ChildOf, { parent: chunk.group }],
         Transform,
         Derived,
       )
       if (shadowWhenHidden) world.add(entity, ShadowWhenHidden)
+      if (cutawayRoof || material.startsWith(WALL_KEY)) world.add(entity, Cutaway)
       chunk.meshes.set(material, { entity, mesh, ref, triangles: b.indexCount / 3 })
     }
     rebuilt++
@@ -1680,6 +1722,16 @@ function meshData(b: MeshBuilder): MeshData {
   }
 }
 
+/**
+ * Walls turn cutaway or back (0070): every chunk with walls rebuilds, splitting wall pieces from
+ * floors (or merging them back), and door leaves and window panes are tagged to match.
+ */
+function applyCutawayWalls(state: StructureState, on: boolean): void {
+  state.cutawayWalls = on
+  for (const [key, chunk] of state.chunks) if (chunk.walls.size > 0) state.dirtyChunks.add(key)
+  for (const rec of state.openings.values()) setTag(state, rec.leaf, Cutaway, on)
+}
+
 /** Every chunk mesh goes, and every wall and slab is placed again (the chunk size changed). */
 function resetChunks(state: StructureState): void {
   for (const chunk of state.chunks.values()) {
@@ -1734,8 +1786,10 @@ export const compileStructure = defineSystem({
     const size = settings.chunkSize
     const tolerance = settings.curveTolerance
     const contact = contactSettingsChanged(state, settings)
+    const cutawayWalls = settings.cutawayWalls === true
     let any =
       contact ||
+      cutawayWalls !== state.cutawayWalls ||
       state.removedWalls.length +
         state.removedSlabs.length +
         state.removedOpenings.length +
@@ -1761,6 +1815,7 @@ export const compileStructure = defineSystem({
     if (!any) return
     const start = performance.now()
     if (contact) applyContactSettings(state, settings.contact)
+    if (cutawayWalls !== state.cutawayWalls) applyCutawayWalls(state, cutawayWalls)
     if (size !== state.chunkSize || tolerance !== state.curveTolerance) {
       state.chunkSize = size
       state.curveTolerance = tolerance

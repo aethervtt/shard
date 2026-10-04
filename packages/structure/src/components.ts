@@ -166,6 +166,10 @@ export const Roof = defineComponent(
       default: true,
       description: 'While hidden (Visibility), it still casts shadows, keeping the interior dark.',
     }),
+    cutaway: t.bool({
+      description:
+        "Opens around cameras' reveal points (CutawayView, 0070) instead of hiding whole: its chunk meshes, hatches and skylights are Cutaway. It still casts whole.",
+    }),
     ...LEVEL_FIELD,
   },
   {
@@ -303,17 +307,24 @@ export interface StructureSettingsValue {
    * rebuild nothing.
    */
   contact: ContactSettings
+  /**
+   * Walls open around cameras' reveal points (0070): wall pieces (frames included) draw in meshes
+   * of their own, apart from floors, tagged Cutaway, and so are door leaves and window panes.
+   * Changing it rebuilds every chunk with walls.
+   */
+  cutawayWalls: boolean
 }
 
 export const StructureSettings = defineResource<StructureSettingsValue>('structure/Settings', {
   description:
-    'Chunk size, door swing time, reduced motion, curve tolerance and contact shade. Write with patchResource.',
+    'Chunk size, door swing time, reduced motion, curve tolerance, contact shade and cutaway walls. Write with patchResource.',
   init: () => ({
     chunkSize: 8,
     doorSwingMs: 250,
     reducedMotion: false,
     curveTolerance: 0.01,
     contact: defaultContact(),
+    cutawayWalls: false,
   }),
   hostWritable: true,
 })

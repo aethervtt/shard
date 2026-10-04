@@ -67,6 +67,7 @@ import shard::mesh::mesh_vertex_at;
 import shard::pbr::material::pbr_input;
 import shard::pbr::standard::material;
 import shard::pbr::gbuffer::{ GBufferOutput, pack_gbuffer };
+@if(CUTAWAY) import shard::cutaway::cutaway_clip;
 
 const FLAG_RECEIVER: u32 = 4u;
 
@@ -86,6 +87,7 @@ const FLAG_RECEIVER: u32 = 4u;
 
 /** The surface stage only: what the material makes of the surface, packed for lighting. */
 @fragment fn fs(in: VertexOutput) -> GBufferOutput {
+  @if(CUTAWAY) cutaway_clip(in.world_position, in.clip.xy, in.flags);
   let p = pbr_input(in);
   @if(MASK) if (p.alpha < material.alphaCutoff) { discard; }
   return pack_gbuffer(p, (in.flags & FLAG_RECEIVER) != 0u, view.exposure);

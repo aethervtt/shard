@@ -43,6 +43,18 @@ each misses by the same amount at the commit that set its budget.
 
 Decide per budget: hold it to the bench machine, or state what hardware each assumes.
 
+On a MacBook (Apple M4, Metal Dawn, 2026-10-04):
+
+- Cutaways (0070), 16 reveal points on the max fixture at 1280×720: +8–11% GPU time (budget 5%),
+  measured as the median of interleaved rounds (`structure/src/cutaway.test.ts`); not measured on
+  the Windows desktop. What's known: with the points cutting nothing it's +1% (only batches whose
+  bounds reach a line of sight take the discarding variant), and one point costs nothing measurable.
+  The rest is the cut chunks: a `discard` costs a tiled GPU its hidden-surface removal, so what's
+  behind a cut wall is shaded too. Drawing those batches after the rest didn't change it. Lead: draw
+  the cut batches depth-only (with the discard) first, then everything without one, cut batches at
+  `depthCompare: 'equal'`. That needs `@invariant` clip positions, so the core shaders' code would
+  change.
+
 ## CI speed
 
 CI splits the tests across four runners (`scripts/test-shard.mjs`, balanced by
