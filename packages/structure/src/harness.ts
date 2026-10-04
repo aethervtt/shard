@@ -14,6 +14,7 @@ import { surfacePlugin } from '@aethervtt/shard-render/surface'
 import { App } from '@aethervtt/shard-runtime'
 import { lookAt, Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { hostScene } from './fixtures'
+import { interiorLightingPlugin } from './interior-plugin'
 import { structurePlugin } from './plugin'
 
 // Test rig: an app with structure, a host adapter, an offscreen camera and a sun.
@@ -40,6 +41,8 @@ export async function rig(
     orthoHeight?: number
     /** Adds surfacePlugin (0068), for SurfaceMaterial walls and floors. */
     surface?: boolean
+    /** Adds interiorLightingPlugin (0069). */
+    interior?: boolean
   } = {},
 ): Promise<Rig> {
   const app = new App().addPlugin(
@@ -49,6 +52,7 @@ export async function rig(
     structurePlugin,
   )
   if (options.surface) app.addPlugin(surfacePlugin)
+  if (options.interior) app.addPlugin(interiorLightingPlugin)
   await app.init()
   const world = app.world
   const target = new OffscreenTarget(gpu, {

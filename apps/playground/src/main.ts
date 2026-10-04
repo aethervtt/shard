@@ -18,7 +18,7 @@ import { App, animationFrameRunner } from '@aethervtt/shard-runtime'
 import { savePlugin } from '@aethervtt/shard-save'
 import { ScenePlugin } from '@aethervtt/shard-scene'
 import { spritePlugin } from '@aethervtt/shard-sprite'
-import { structurePlugin } from '@aethervtt/shard-structure'
+import { interiorLightingPlugin, structurePlugin } from '@aethervtt/shard-structure'
 import { terrainPlugin } from '@aethervtt/shard-terrain'
 import { TransformPlugin } from '@aethervtt/shard-transform'
 import { uiPlugin } from '@aethervtt/shard-ui'
@@ -40,6 +40,7 @@ import { galaxyPlugin, Population } from './galaxy'
 import { gridsDemoPlugin } from './grids'
 import { applyResolution, hudPlugin } from './hud'
 import { ikDemoPlugin } from './ik'
+import { interiorDemoPlugin } from './interior'
 import { lensDemoPlugin } from './lens'
 import { lightsPlugin } from './lights'
 import { lights2dDemoPlugin } from './lights2d'
@@ -291,6 +292,16 @@ if (demo === 'galaxy') {
     ...controls(),
     hudPlugin,
     tabletopDemoPlugin,
+  )
+} else if (demo === 'interior') {
+  app.addPlugin(
+    TransformPlugin,
+    forwardPlugin(),
+    structurePlugin,
+    interiorLightingPlugin,
+    ...controls(),
+    hudPlugin,
+    interiorDemoPlugin,
   )
 } else if (demo === 'sky') {
   app.addPlugin(TransformPlugin, forwardPlugin(), ...controls(), hudPlugin, skyPlugin)

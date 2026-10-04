@@ -12,6 +12,8 @@ import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
 import { GlobalTransform, Transform } from '@aethervtt/shard-transform'
 import { LightPresets } from './camera'
 import { DataStore } from './data-store'
+import { warnFeatureMissing } from './features'
+import { InteriorPath } from './interior'
 
 /** Luminous power presets in lumens, for point and spot lights. */
 export const LuminousPowerPresets = {
@@ -124,6 +126,10 @@ const pointFields = {
     min: 0,
     unit: 'm',
     description: 'Emitter size: softens specular highlights.',
+  }),
+  blockedByWalls: t.bool({
+    description:
+      "Occluded by its level's walls and closed doors (0069): structure's interiorLightingPlugin gives it a polar row from the plan, with no shadow-map budget. It lights only its own level. Without the plugin it lights through walls.",
   }),
 }
 
@@ -270,7 +276,17 @@ export interface LightRecord {
   alive: boolean
   /** `shadowUpdate: 'on-change'`: the light's shadow maps are cached. */
   cachedShadow: boolean
+  /** Its wall-blocking row (0069), or -1: see `setLightRow`. */
+  row: number
 }
+
+/**
+ * Where a light's wall-blocking row (0069) rides in its record, as row + 1 (0: none): a word its
+ * kind never reads. A point light's spot scale (read only for spots) and a spot's tabletop bright
+ * radius (spots always fall off physically). The Light struct is unchanged, so shaders without
+ * `BLOCKED_LIGHTS` link the same code.
+ */
+export const LIGHT_ROW_WORD = { point: 12, spot: 19 } as const
 
 /**
  * Point and spot lights in a storage buffer (`array<Light>`). Each light owns a slot; only lights
@@ -365,6 +381,7 @@ export class LightStore {
       radius: 0,
       alive: true,
       cachedShadow: false,
+      row: -1,
     }
     this.records[slot] = r
     this.byEntity.set(entity, r)
@@ -506,7 +523,7 @@ function writeLight(
     r.cosOuter = cosOuter
     r.outerAngle = outer
   } else {
-    store.set(s, 12, 0)
+    store.set(s, 12, r.row + 1)
     store.set(s, 13, 1)
     r.cosOuter = -2
   }
@@ -515,7 +532,16 @@ function writeLight(
   store.set(s, 16, normalBias)
   store.set(s, 17, softness)
   store.set(s, 18, falloff)
-  store.set(s, 19, bright)
+  store.set(s, 19, r.kind === SPOT_KIND ? r.row + 1 : bright)
+}
+
+function warnBlockedWithoutPlugin(world: World): void {
+  warnFeatureMissing(
+    world,
+    'A light has blockedByWalls',
+    'interiorPlugin',
+    'it lights through walls',
+  )
 }
 
 /** Reads lights into the light store. Only lights whose values changed are re-uploaded later. */
@@ -531,6 +557,7 @@ export const extractLights = defineSystem({
   run: ({ directional, points, spots, seen }, world, ctx) => {
     const store = world.resource(Lights)
     const since = ctx.lastRunTick
+    const interior = world.hasResource(InteriorPath)
     seen.clear()
     for (const [def, kind, q] of [
       [PointLight as unknown as PointLike, POINT_KIND, points],
@@ -555,6 +582,7 @@ export const extractLights = defineSystem({
         const falloff = kind === POINT_KIND ? table.column(PointLight, 'falloff') : undefined
         const bright = kind === POINT_KIND ? table.column(PointLight, 'bright') : undefined
         const outer = kind === SPOT_KIND ? table.column(SpotLight, 'outerAngle') : undefined
+        const blocked = table.column(def, 'blockedByWalls')
         for (let i = 0; i < n; i++) {
           const entity = table.entities[i]!
           seen.add(entity)
@@ -564,6 +592,7 @@ export const extractLights = defineSystem({
           r.shadows = shadows[i] !== 0
           r.cachedShadow = update[i] === 1
           if (existing === r && gChanged[i]! <= since && changed[i]! <= since) continue
+          if (blocked[i] !== 0 && !interior) warnBlockedWithoutPlugin(world)
           writeLight(
             store,
             r,
@@ -648,6 +677,16 @@ export function observeLightRemovals(world: World): void {
       world.tryResource(Lights)?.remove(entity)
     })
   }
+}
+
+/**
+ * Gives a light its wall-blocking row (0069), or none with -1 (marks it dirty if it changed).
+ * Structure's interiorLightingPlugin calls it after extraction.
+ */
+export function setLightRow(store: LightStore, r: LightRecord, row: number): void {
+  if (r.row === row) return
+  r.row = row
+  store.set(r.slot, r.kind === SPOT_KIND ? LIGHT_ROW_WORD.spot : LIGHT_ROW_WORD.point, row + 1)
 }
 
 /** Sets a light's shadow index (marks it dirty if it changed). */

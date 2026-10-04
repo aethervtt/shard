@@ -904,6 +904,25 @@ _Computed by the engine; never written in scene files._
 |---|---|---|---|---|
 | `visible` | boolean | `true` |  | Final visibility after inheritance. |
 
+## `render/Cutaway`
+
+Tag on a renderable: it may be cut away around a camera's reveal points (CutawayView). Shadows never cut.
+
+Tag (no fields).
+
+## `render/CutawayView`
+
+Cuts Cutaway surfaces away between this camera and its reveal points (0070): a disc in a roof from above, a hole in a wall at an angle. Every camera pass (picking too) sees the hole; shadows do not.
+
+Brings along: `render/Camera3d`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `points` | number[3][] | `[]` |  | World points to reveal, at most 16: a token's position, the party. |
+| `radius` | number | `2.5` | ≥ 0, m | How far from each point's line of sight a Cutaway surface is cut. |
+| `margin` | number | `0.6` | ≥ 0, m | How far in front of a point the cut starts, so the floor it stands on, and a stairwell rim, stay. |
+| `edge` | number | `0.3` | ≥ 0, m | Width of the dithered rim; 0 is a hard cut. |
+
 ## `render/DepthOfField`
 
 Defocus blur from the thin-lens circle of confusion: PhysicalCamera's aperture and focal length (without one: f/2.8 at the lens matching fovY).
@@ -1116,6 +1135,7 @@ Brings along: `core/Transform`.
 | `intensity` | number or `"candle"` \| `"bulb-40w"` \| `"bulb"` \| `"floodlight"` | `800` | lm | Luminous power. Presets: candle 12, bulb-40w 450, bulb 800, floodlight 20000. Presets: candle, bulb-40w, bulb, floodlight. |
 | `range` | number | `20` | ≥ 0.01, m | Where the light's contribution is windowed to zero (and where culling stops). |
 | `radius` | number | `0` | ≥ 0, m | Emitter size: softens specular highlights. |
+| `blockedByWalls` | boolean | `false` |  | Occluded by its level's walls and closed doors (0069): structure's interiorLightingPlugin gives it a polar row from the plan, with no shadow-map budget. It lights only its own level. Without the plugin it lights through walls. |
 | `shadows` | boolean | `false` |  | Casts shadows (within the shadow budget). |
 | `shadowBias` | number | `0.02` | ≥ 0, m | Moves receivers toward the light before the depth test. Fixes acne. |
 | `shadowNormalBias` | number | `1` | ≥ 0 | Moves receivers along their normal, in shadow-map texels. Fixes acne at grazing angles. |
@@ -1197,6 +1217,7 @@ Brings along: `core/Transform`.
 | `intensity` | number or `"candle"` \| `"bulb-40w"` \| `"bulb"` \| `"floodlight"` | `800` | lm | Luminous power. Presets: candle 12, bulb-40w 450, bulb 800, floodlight 20000. Presets: candle, bulb-40w, bulb, floodlight. |
 | `range` | number | `20` | ≥ 0.01, m | Where the light's contribution is windowed to zero (and where culling stops). |
 | `radius` | number | `0` | ≥ 0, m | Emitter size: softens specular highlights. |
+| `blockedByWalls` | boolean | `false` |  | Occluded by its level's walls and closed doors (0069): structure's interiorLightingPlugin gives it a polar row from the plan, with no shadow-map budget. It lights only its own level. Without the plugin it lights through walls. |
 | `shadows` | boolean | `false` |  | Casts shadows (within the shadow budget). |
 | `shadowBias` | number | `0.02` | ≥ 0, m | Moves receivers toward the light before the depth test. Fixes acne. |
 | `shadowNormalBias` | number | `1` | ≥ 0 | Moves receivers along their normal, in shadow-map texels. Fixes acne at grazing angles. |
@@ -1267,6 +1288,17 @@ Tonemapping for a camera. Without it, cameras use the default curve with ditheri
 | `jitter` | number[4] | `[0,0,0,0]` |  |  |
 | `sunTransmittance` | number[16] | `[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]` |  |  |
 | `pixelScale` | number[4] | `[0,0,0,0]` |  |  |
+
+## `render/ViewVisibility`
+
+Hides entities from one camera (0070): other cameras still draw them. For a first-person body, split-screen markers, or a game master previewing a player view.
+
+Brings along: `render/Camera3d`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `hide` | null or integer or string[] | `[]` |  | Entities this camera doesn't draw, with their descendants. |
+| `shadows` | `"keep"` \| `"hide"` | `"keep"` |  | keep: they still cast into this camera's shadows (a body its own camera doesn't draw). hide: its cascades leave them out too. Spot and point shadow maps are shared by every camera and always keep them. |
 
 ## `render/Vignette`
 

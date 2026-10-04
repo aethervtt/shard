@@ -334,6 +334,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `sprite/unknown-tile` | @aethervtt/shard-sprite | Rename it to a region the atlas has, or add the region to the atlas. |
 | `sprite/unknown-tilemap` | @aethervtt/shard-sprite | Name a *.tilemap.json asset by path or guid that a Tilemap in the world uses. |
 | `sprite/unsupported-image` | @aethervtt/shard-sprite |  |
+| `structure/too-many-blocked-lights` | @aethervtt/shard-structure | Raise StructureSettings.interior.maxBlockedLights, or block fewer lights (each row costs one texture row). |
 | `terrain/bad-direction` | @aethervtt/shard-terrain | Pass a direction from the planet’s center in its frame, e.g. the position of a point on it. |
 | `terrain/bad-points` | @aethervtt/shard-terrain | e.g. { "latlon": [[0, 0], [45, 90]] }, or { "directions": [[0, 1, 0]] } for the north pole. |
 | `terrain/bad-resolution` | @aethervtt/shard-terrain | Use 17, 33 (the default), 65, or 129 vertices per chunk edge. |

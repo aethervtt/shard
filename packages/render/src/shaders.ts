@@ -645,6 +645,8 @@ import shard::pbr::brdf::{ PI, d_ggx, v_smith_ggx_correlated, f_schlick };
 import shard::pbr::lights::{ lights, clusters, cluster_bits, next_light, directional, light_falloff, LIGHT_SPOT, NO_SHADOW, CLUSTER_X, CLUSTER_Y, CLUSTER_Z, CLUSTER_COUNT, MAX_PER_CLUSTER };
 import shard::pbr::shadows::{ directional_shadow, spot_shadow, point_shadow, cascade_index };
 import shard::pbr::environment::environment_light;
+@if(SKY_VISIBILITY) import shard::interior::interior_ambient;
+@if(BLOCKED_LIGHTS) import shard::interior::{ wall_visibility, interior_receiver };
 
 const FLAG_RECEIVER: u32 = 4u;
 
@@ -708,6 +710,7 @@ fn apply_lighting(p: PbrInput, world_position: vec3f, frag_coord: vec4f, flags: 
   // Point and spot lights from this fragment's cluster: intensity (cd) / d² × window.
   let cluster = cluster_of(frag_coord, view_depth);
   var count = 0u;
+  @if(BLOCKED_LIGHTS) let receiver = interior_receiver(world_position, n);
   @if(BASELINE) if (cluster >= 0) {
     // The cluster's lights, lowest first; keep the body in step with the loop below.
     var mask = cluster_bits[cluster];
@@ -726,6 +729,7 @@ fn apply_lighting(p: PbrInput, world_position: vec3f, frag_coord: vec4f, flags: 
         attenuation *= spot * spot;
       }
       if (attenuation <= 0.0) { continue; }
+      @if(BLOCKED_LIGHTS) attenuation *= wall_visibility(light, receiver);
       if (receives && light.shadow != NO_SHADOW) {
         if (light.kind == LIGHT_SPOT) {
           attenuation *= spot_shadow(light.shadow, world_position, n, light.position, light.shadow_bias, light.shadow_normal_bias, light.shadow_softness, frag_coord.xy);
@@ -754,6 +758,7 @@ fn apply_lighting(p: PbrInput, world_position: vec3f, frag_coord: vec4f, flags: 
         attenuation *= spot * spot;
       }
       if (attenuation <= 0.0) { continue; }
+      @if(BLOCKED_LIGHTS) attenuation *= wall_visibility(light, receiver);
       if (receives && light.shadow != NO_SHADOW) {
         if (light.kind == LIGHT_SPOT) {
           attenuation *= spot_shadow(light.shadow, world_position, n, light.position, light.shadow_bias, light.shadow_normal_bias, light.shadow_softness, frag_coord.xy);
@@ -776,9 +781,11 @@ fn apply_lighting(p: PbrInput, world_position: vec3f, frag_coord: vec4f, flags: 
     surface.occlusion *= textureLoad(ao_texture, min(vec2i(frag_coord.xy), dims - 1), 0).r;
   }
   if (view.envParams.w > 0.5) {
-    color += environment_light(surface, n, v);
+    @if(!SKY_VISIBILITY) color += environment_light(surface, n, v);
+    @if(SKY_VISIBILITY) color += interior_ambient(environment_light(surface, n, v), diffuse_color * surface.occlusion, world_position, n);
   } else {
-    color += diffuse_color * view.ambient * surface.occlusion;
+    @if(!SKY_VISIBILITY) color += diffuse_color * view.ambient * surface.occlusion;
+    @if(SKY_VISIBILITY) color += interior_ambient(diffuse_color * view.ambient * surface.occlusion, diffuse_color * surface.occlusion, world_position, n);
   }
 
   let debug = u32(view.clusterParams.w);

@@ -34,6 +34,7 @@ export const DEMOS = [
   'terrain',
   'atmosphere',
   'tabletop',
+  'interior',
 ] as const
 
 export type Demo = (typeof DEMOS)[number]
@@ -108,6 +109,7 @@ export const DEMO_GROUPS: readonly { name: string; demos: readonly (readonly [De
         ['procgen', 'Procedural generation'],
         ['terrain', 'Terrain'],
         ['tabletop', 'Tabletop (VTT)'],
+        ['interior', 'Interior lighting'],
       ],
     },
   ]

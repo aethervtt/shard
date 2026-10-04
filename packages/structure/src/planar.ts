@@ -6,6 +6,8 @@
 import { type Centerline, CURVE_TOLERANCE, pointAt, sampleWall, type WallCurve } from './curve'
 
 export type Channel = 'none' | 'normal'
+/** A light channel (0069): `sight`, or absent, follows the sight channel. */
+export type LightChannel = Channel | 'sight'
 
 export interface PlanarWall {
   id: string
@@ -18,6 +20,8 @@ export interface PlanarWall {
   c1?: readonly [number, number]
   /** The level it stands on (0067); none or null is the ground level. */
   level?: string | null
+  /** Whether its spans block light (0069); absent or `sight` follows sight (a wall's always blocks). */
+  light?: LightChannel
 }
 
 export interface PlanarOptions {
@@ -38,6 +42,8 @@ export interface PlanarOpening {
   state?: 'closed' | 'open' | 'locked'
   sight: Channel
   movement: Channel
+  /** Whether it blocks light when closed (0069); absent or `sight` follows sight. */
+  light?: LightChannel
 }
 
 export interface Segment {
@@ -49,8 +55,20 @@ export interface Segment {
   b: [number, number]
   sight: Channel
   movement: Channel
+  /** Present when its wall or opening sets a light channel (0069); absent follows sight. */
+  light?: Channel
   /** Its wall's level: present when the wall names one or `level` was asked for (0067). */
   level?: string | null
+}
+
+/** Whether a segment blocks light (0069): its light channel, or its sight channel when unset. */
+export function lightChannel(segment: Segment): Channel {
+  return segment.light ?? segment.sight
+}
+
+/** A light channel as a segment carries it: absent when it follows sight. */
+function setLight(light: LightChannel | undefined): Channel | undefined {
+  return light === 'normal' || light === 'none' ? light : undefined
 }
 
 /**
@@ -83,12 +101,14 @@ export function planarBarriers(
     const dy = wall.b[1] - wall.a[1]
     const length = line ? line.length : Math.sqrt(dx * dx + dy * dy)
     if (length < 1e-6) continue
+    const wallLight = setLight(wall.light)
     const cut = (
       from: number,
       to: number,
       id: string,
       sight: Channel,
       movement: Channel,
+      light: Channel | undefined,
       openingId?: string,
     ) => {
       const pieces = line
@@ -96,6 +116,7 @@ export function planarBarriers(
         : [span(wall, length, from, to, id, sight, movement)]
       for (const piece of pieces) {
         if (openingId !== undefined) piece.openingId = openingId
+        if (light !== undefined) piece.light = light
         if (tagged) piece.level = level
         out.push(piece)
       }
@@ -105,19 +126,22 @@ export function planarBarriers(
     let cursor = 0
     for (const opening of list) {
       if (opening.offset > cursor)
-        cut(cursor, opening.offset, `struct:${wall.id}:${cursor}`, 'normal', 'normal')
+        cut(cursor, opening.offset, `struct:${wall.id}:${cursor}`, 'normal', 'normal', wallLight)
       const open = opening.kind === 'door' && opening.state === 'open'
+      const light = setLight(opening.light)
       cut(
         opening.offset,
         opening.offset + opening.width,
         `struct-opening:${opening.id}`,
         open ? 'none' : opening.sight,
         open ? 'none' : opening.movement,
+        open && light !== undefined ? 'none' : light,
         opening.id,
       )
       cursor = opening.offset + opening.width
     }
-    if (cursor < length) cut(cursor, length, `struct:${wall.id}:${cursor}`, 'normal', 'normal')
+    if (cursor < length)
+      cut(cursor, length, `struct:${wall.id}:${cursor}`, 'normal', 'normal', wallLight)
   }
   return out
 }

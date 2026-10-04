@@ -11,6 +11,7 @@
     "apps/cli/src/cli.test.ts": 223,
     "packages/terrain/src/nav.test.ts": 177,
     "packages/terrain/src/lod.test.ts": 66,
+    "packages/structure/src/interior-max.test.ts": 120,
     "packages/text/src/font.test.ts": 60,
     "packages/terrain/src/density.test.ts": 58,
     "packages/gltf/src/textured.test.ts": 51,

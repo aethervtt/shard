@@ -1116,6 +1116,7 @@ Brings along: `core/Transform`.
 | `intensity` | number or `"candle"` \| `"bulb-40w"` \| `"bulb"` \| `"floodlight"` | `800` | lm | Luminous power. Presets: candle 12, bulb-40w 450, bulb 800, floodlight 20000. Presets: candle, bulb-40w, bulb, floodlight. |
 | `range` | number | `20` | ≥ 0.01, m | Where the light's contribution is windowed to zero (and where culling stops). |
 | `radius` | number | `0` | ≥ 0, m | Emitter size: softens specular highlights. |
+| `blockedByWalls` | boolean | `false` |  | Occluded by its level's walls and closed doors (0069): structure's interiorLightingPlugin gives it a polar row from the plan, with no shadow-map budget. It lights only its own level. Without the plugin it lights through walls. |
 | `shadows` | boolean | `false` |  | Casts shadows (within the shadow budget). |
 | `shadowBias` | number | `0.02` | ≥ 0, m | Moves receivers toward the light before the depth test. Fixes acne. |
 | `shadowNormalBias` | number | `1` | ≥ 0 | Moves receivers along their normal, in shadow-map texels. Fixes acne at grazing angles. |
@@ -1197,6 +1198,7 @@ Brings along: `core/Transform`.
 | `intensity` | number or `"candle"` \| `"bulb-40w"` \| `"bulb"` \| `"floodlight"` | `800` | lm | Luminous power. Presets: candle 12, bulb-40w 450, bulb 800, floodlight 20000. Presets: candle, bulb-40w, bulb, floodlight. |
 | `range` | number | `20` | ≥ 0.01, m | Where the light's contribution is windowed to zero (and where culling stops). |
 | `radius` | number | `0` | ≥ 0, m | Emitter size: softens specular highlights. |
+| `blockedByWalls` | boolean | `false` |  | Occluded by its level's walls and closed doors (0069): structure's interiorLightingPlugin gives it a polar row from the plan, with no shadow-map budget. It lights only its own level. Without the plugin it lights through walls. |
 | `shadows` | boolean | `false` |  | Casts shadows (within the shadow budget). |
 | `shadowBias` | number | `0.02` | ≥ 0, m | Moves receivers toward the light before the depth test. Fixes acne. |
 | `shadowNormalBias` | number | `1` | ≥ 0 | Moves receivers along their normal, in shadow-map texels. Fixes acne at grazing angles. |

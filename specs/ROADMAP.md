@@ -145,5 +145,5 @@ walls (0066) and groups (0067), then surface variation (0068), per-view visibili
 | [0066](0066-curved-walls.md) | Curved walls and structure materials (arcs, Béziers, one subdivision for drawing and barriers; textured, normal-mapped walls) | implemented |
 | [0067](0067-structure-groups.md) | Structure groups: levels, roofs and cutouts (hide a level or a roof without a rebuild; stairwells, hatches, skylights) | implemented |
 | [0068](0068-surface-variation.md) | Surface variation and contact shade (repetition-breaking variation any material can use; noisy fake AO where walls meet walls and floors) | implemented |
-| [0069](0069-interior-lighting.md) | Interior lighting (sky visibility from the plan, spill through openings, lights blocked by walls) | accepted |
+| [0069](0069-interior-lighting.md) | Interior lighting (sky visibility from the plan, spill through openings, lights blocked by walls) | implemented |
 | [0070](0070-view-visibility-cutaways.md) | Per-view visibility and cutaways (hide entities from one camera; cut roofs and walls open around reveal points) | accepted |

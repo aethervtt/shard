@@ -53,6 +53,7 @@ const CURATED: readonly Demo[] = [
   'lights2d', // sprites and a tilemap, lit by 2D lights binned on the CPU
   'ui', // text and UI through data textures
   'tabletop', // fog, the grid, drawings and tokens in ground bands
+  'interior', // interior lighting's r32uint field and rows, read with texelFetch
   'terrain', // compute only: reports render/feature-unsupported
 ]
 

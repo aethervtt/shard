@@ -283,6 +283,8 @@ export class StructureState {
   readonly region = new Set<number>()
   readonly sortedOpenings: OpeningShape[] = []
   readonly world: World
+  /** Interior lighting's section of `describe` (0069), while interiorLightingPlugin is installed. */
+  describeInterior: (() => unknown) | undefined
 
   constructor(world: World) {
     this.world = world
@@ -472,6 +474,7 @@ export class StructureState {
       warnings: [...this.warned.keys(), ...this.cutoutWarned.keys()],
       lastCompile: this.last,
       totals: { compiles: this.compiles, chunksRebuilt: this.chunksRebuilt },
+      ...(this.describeInterior ? { interior: this.describeInterior() } : {}),
     }
   }
 }

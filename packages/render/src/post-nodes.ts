@@ -53,6 +53,9 @@ const prepassNode: NodeDescriptor = {
 
 // --- SSAO --------------------------------------------------------------------------------------
 
+/** The fog pipeline's cache keys: alpha output (1), interior view layout (2). */
+const FOG_KEYS = ['post/fog', 'post/fog/alpha', 'post/fog/interior', 'post/fog/alpha/interior']
+
 /** Slice directions × steps per side, per quality. */
 const SSAO_STEPS = [
   [1, 4],
@@ -193,9 +196,10 @@ function fogNode(): NodeDescriptor {
         })
       }
       const alpha = v.cam.alphaOutput
+      // Group 0 grows while interior lighting is on (0069): its own pipeline then.
       const pipeline = cache.render(
         ctx,
-        alpha ? 'post/fog/alpha' : 'post/fog',
+        FOG_KEYS[(alpha ? 1 : 0) + (state.interiorMode !== 0 ? 2 : 0)]!,
         'shard::post::fog',
         'fs',
         [state.layouts.view, layout],
