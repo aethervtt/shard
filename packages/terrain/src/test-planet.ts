@@ -29,7 +29,7 @@ import {
   TransformPlugin,
 } from '@aethervtt/shard-transform'
 import { Planet, TerrainBudget } from './components'
-import { heightAt, Terrain } from './heights'
+import { heightAt, TerrainWorld } from './heights'
 import type { PlanetRuntime } from './planet'
 import { terrainPlugin } from './plugin'
 import type { renderOf } from './render'
@@ -160,7 +160,7 @@ export async function planetApp(gpu: GpuContext | undefined, o: PlanetOptions): 
     camera,
     sun,
     view,
-    runtime: () => world.resource(Terrain).planets.get(planet)!,
+    runtime: () => world.resource(TerrainWorld).planets.get(planet)!,
   }
 }
 

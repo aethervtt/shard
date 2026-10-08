@@ -9,7 +9,7 @@ import {
 import { encodePng, toBase64 } from '@aethervtt/shard-protocol'
 import type { AppMethod } from '@aethervtt/shard-runtime'
 import { collidersOf } from './colliders'
-import { Terrain, terrainSample } from './heights'
+import { TerrainWorld, terrainSample } from './heights'
 import type { PlanetRuntime } from './planet'
 import type { PlanetRender } from './render'
 
@@ -22,7 +22,7 @@ function scenePath(world: World, entity: Entity): string | null {
 
 /** A planet from an entity id or scene path; the only planet when omitted. */
 export function resolvePlanet(world: World, ref: unknown): PlanetRuntime {
-  const planets = world.tryResource(Terrain)?.planets
+  const planets = world.tryResource(TerrainWorld)?.planets
   if (!planets || planets.size === 0) {
     throw new ShardError('terrain/no-planet', 'There is no terrain/Planet in the world', {
       hint: 'Add terrain/Planet (with a Grid) to an entity, and the terrain plugin to the app.',
@@ -209,7 +209,7 @@ export const terrainMethods: AppMethod[] = [
       'Planet terrain as data: per planet, the chunks selected by depth (and partial ones waiting for children), requests and chunks in flight, pool usage, generation counts, collider chunks and anchors, the vertex spacing at the finest and collider depths, and the height, biome, and slope under the camera. Problems (a bad radius, a climate graph without temperature/moisture) and what it waits for are here too.',
     params: defineSchema('terrain/DescribeParams', { planet: planetField }),
     handler: ({ world }, p) => {
-      const planets = world.tryResource(Terrain)?.planets
+      const planets = world.tryResource(TerrainWorld)?.planets
       if (!planets) return { planets: [] }
       if (p.planet !== undefined && p.planet !== null && p.planet !== '')
         return { planets: [describePlanet(world, resolvePlanet(world, p.planet))] }

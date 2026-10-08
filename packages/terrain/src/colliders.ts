@@ -11,9 +11,10 @@ import {
   propagateSubtree,
   Transform,
 } from '@aethervtt/shard-transform'
-import { assembleChunk, buildChunk, type ChunkMesh, type ChunkSpec, chunkLayout } from './chunk'
+import { assembleChunk, buildChunk, type ChunkMesh, type ChunkSpec } from './chunk'
 import { Chunk, PlanetNav, TerrainAnchor } from './components'
 import { faceToDirection, keyString, nodeAt, nodeExtent } from './cube'
+import { chunkLayout } from './grid-mesh'
 import type { PlanetRuntime } from './planet'
 import { type ChunkPoints, createChunkPoints, prepareChunkPoints } from './points'
 

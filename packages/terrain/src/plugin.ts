@@ -9,7 +9,7 @@ import { anchorQueries, clearColliders, gatherAnchors, updateColliders } from '.
 import * as componentsModule from './components'
 import { Planet, TerrainBudget } from './components'
 import * as heightsModule from './heights'
-import { Terrain } from './heights'
+import { TerrainWorld } from './heights'
 import * as materialModule from './material'
 import { terrainMethods } from './methods'
 import { clearPlanetNav, updatePlanetNav } from './nav'
@@ -31,7 +31,7 @@ function watchAssets(world: World): void {
   watching.add(world)
   assetServer(world).onEvent((event) => {
     if (event.kind === 'loaded' || event.kind === 'modified' || event.kind === 'failed')
-      world.resource(Terrain).dirty = true
+      world.resource(TerrainWorld).dirty = true
   })
 }
 
@@ -49,7 +49,7 @@ export const updatePlanets = defineSystem({
     anchors: anchorQueries(world),
   }),
   run: (s, world) => {
-    const state = world.resource(Terrain)
+    const state = world.resource(TerrainWorld)
     watchAssets(world)
     state.frame++
     const frame = state.frame
@@ -82,17 +82,17 @@ export function terrainPlugin(options: TerrainPluginOptions = {}): Plugin {
     dependencies: ['core/transform'],
     build(app) {
       const world = app.world
-      const state = world.initResource(Terrain)
+      const state = world.initResource(TerrainWorld)
       state.workers = options.workers
       world.initResource(TerrainBudget)
       world.observe(onRemove(Planet), ({ entity, world }) => {
-        const rt = world.resource(Terrain).planets.get(entity)
+        const rt = world.resource(TerrainWorld).planets.get(entity)
         if (!rt) return
         clearColliders(world, rt)
         clearPlanetNav(world, rt)
         cleanupRender(world, rt)
         for (const cleanup of terrainCleanups) cleanup(world, rt)
-        world.resource(Terrain).planets.delete(entity)
+        world.resource(TerrainWorld).planets.delete(entity)
       })
       app.addSystems(PostUpdate, updatePlanets.after(TransformSystems))
       app.addMethod(...terrainMethods)

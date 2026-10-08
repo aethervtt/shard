@@ -1,6 +1,6 @@
 import { loadNoiseKernel, NoiseGraph } from '@aethervtt/shard-noise'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { buildChunk, chunkLayout } from './chunk'
+import { buildChunk } from './chunk'
 import {
   directionToFace,
   EDGE_BOTTOM,
@@ -16,8 +16,10 @@ import {
   parseKey,
   unpackKey,
 } from './cube'
+import { NodeTree } from './cube-sphere'
+import { chunkLayout } from './grid-mesh'
 import { measureErrors } from './lod'
-import { createSelection, NODE_READY, NodeTree, selectNodes } from './quadtree'
+import { createSelection, NODE_READY, selectNodes } from './quadtree'
 import { omniView, perspectiveView } from './view'
 
 let hills: NoiseGraph

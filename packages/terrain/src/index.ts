@@ -17,12 +17,9 @@ export {
 export {
   assembleChunk,
   buildChunk,
-  type ChunkLayout,
   type ChunkMesh,
   type ChunkSpec,
-  checkResolution,
   chunkCenter,
-  chunkLayout,
 } from './chunk'
 export {
   type ChunkSampling,
@@ -62,16 +59,24 @@ export {
   parseKey,
   unpackKey,
 } from './cube'
+export { CubeSphere, NodeTree } from './cube-sphere'
 export { PlanetFrame } from './frame'
+export {
+  type ChunkLayout,
+  checkResolution,
+  chunkIndices,
+  chunkLayout,
+  lockCode,
+} from './grid-mesh'
 export {
   heightAt,
   type PlanetSurface,
   planetHeightAt,
   planetRuntime,
   planetSurfaceAt,
-  Terrain,
   type TerrainSample,
   TerrainState,
+  TerrainWorld,
   terrainSample,
 } from './heights'
 export {
@@ -86,7 +91,14 @@ export {
   sampleKernel,
   VERTEX_KERNEL,
 } from './kernel'
-export { measureErrors } from './lod'
+export {
+  adaptLodBias,
+  capErrors,
+  MAX_LOD_BIAS,
+  MORPH_WGSL,
+  measureErrors,
+  morphFactor,
+} from './lod'
 export { OceanMaterial, PlanetMaterial, TERRAIN_SHADERS, TEXTURE_PERIOD } from './material'
 export { resolvePlanet, terrainMap, terrainMethods } from './methods'
 export { clearPlanetNav, planetAgents, planetNavMesh, updatePlanetNav } from './nav'
@@ -107,7 +119,8 @@ export {
   createSelection,
   NODE_BOUNDS,
   NODE_READY,
-  NodeTree,
+  type QuadSurface,
+  QuadTree,
   type Selection,
   type SelectionParams,
   type SelectionView,

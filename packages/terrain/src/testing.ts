@@ -19,7 +19,7 @@ import {
 } from '@aethervtt/shard-transform'
 import { collidersOf } from './colliders'
 import { Planet } from './components'
-import { planetHeightAt, Terrain } from './heights'
+import { planetHeightAt, TerrainWorld } from './heights'
 import { terrainPlugin } from './plugin'
 
 /** The Earth-sized planet the walk checksum runs on. */
@@ -97,7 +97,7 @@ export async function walkChecksum(characters = 4, seconds = 3): Promise<WalkRes
     f64.set(p, k * 3)
     w.despawn(c)
   }
-  const colliders = collidersOf(w.resource(Terrain).planets.get(planet)!).chunks.size
+  const colliders = collidersOf(w.resource(TerrainWorld).planets.get(planet)!).chunks.size
   new DataView(bytes.buffer).setUint32(characters * 24, colliders, true)
   let hash = 0x811c9dc5
   for (let i = 0; i < bytes.length; i++) hash = Math.imul(hash ^ bytes[i]!, 0x01000193)

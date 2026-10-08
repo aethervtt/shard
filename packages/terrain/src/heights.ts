@@ -13,14 +13,14 @@ export class TerrainState {
   dirty = true
 }
 
-export const Terrain = defineResource<TerrainState>('terrain/Terrain', {
+export const TerrainWorld = defineResource<TerrainState>('terrain/World', {
   description: 'Per-planet terrain state: quadtrees, collider chunks, and resolved assets.',
   init: () => new TerrainState(),
 })
 
 /** The runtime for a planet entity, ready to sample, or a `terrain/not-ready` error. */
 export function planetRuntime(world: World, planet: Entity): PlanetRuntime {
-  const rt = world.tryResource(Terrain)?.planets.get(planet)
+  const rt = world.tryResource(TerrainWorld)?.planets.get(planet)
   if (!rt) {
     throw new ShardError('terrain/not-a-planet', `Entity ${planet} has no terrain/Planet`, {
       hint: 'Add terrain/Planet (and a Grid) to the planet entity, and the terrain plugin to the app.',

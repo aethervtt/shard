@@ -1,7 +1,7 @@
 import { defineOverlay } from '@aethervtt/shard-render'
-import { chunkLayout } from './chunk'
 import { collidersOf } from './colliders'
-import { Terrain } from './heights'
+import { chunkLayout } from './grid-mesh'
+import { TerrainWorld } from './heights'
 
 /** Chunk shading by depth: what `terrain-lod` turns on (the material's debug mode 3). */
 export const terrainLodOverlay = defineOverlay({
@@ -30,7 +30,7 @@ export const terrainCollidersOverlay = defineOverlay({
   description:
     'Planet collider chunks: each one’s border on the surface (green; yellow while cached but not in use), and a circle per anchor showing the radius it keeps colliders within.',
   draw: (world, g) => {
-    const state = world.tryResource(Terrain)
+    const state = world.tryResource(TerrainWorld)
     if (!state) return
     for (const rt of state.planets.values()) {
       if (!rt.ready) continue

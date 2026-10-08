@@ -40,11 +40,13 @@ import {
   propagateSubtree,
   Transform,
 } from '@aethervtt/shard-transform'
-import { chunkCenter, chunkIndices, chunkLayout } from './chunk'
+import { chunkCenter } from './chunk'
 import { type ColliderChunk, collidersOf, skirtDepth } from './colliders'
 import { Chunk, Planet, TerrainBudget } from './components'
 import { keyString } from './cube'
-import { Terrain } from './heights'
+import type { NodeTree } from './cube-sphere'
+import { chunkIndices, chunkLayout } from './grid-mesh'
+import { TerrainWorld } from './heights'
 import {
   GEN_CLIMATE,
   GEN_HEIGHT,
@@ -56,10 +58,11 @@ import {
   POINT_FLOATS,
   registerKernel,
 } from './kernel'
+import { adaptLodBias } from './lod'
 import { OceanMaterial, PlanetMaterial, TERRAIN_SHADERS, TEXTURE_PERIOD } from './material'
 import type { PlanetRuntime } from './planet'
 import { createChunkPoints, prepareChunkPoints, SNAP } from './points'
-import { NODE_READY, type NodeTree, type SelectionParams, selectNodes } from './quadtree'
+import { NODE_READY, type SelectionParams, selectNodes } from './quadtree'
 import { createView, perspectiveView } from './view'
 
 const TERRAIN = 0
@@ -293,15 +296,10 @@ function selectionParams(rt: PlanetRuntime, kind: number): SelectionParams {
 /** Triangles one terrain chunk draws (its surface; skirts are thin). */
 const chunkTriangles = (n: number) => 2 * (n - 1) * (n - 1)
 
-/**
- * Steers the planet's LOD bias toward TerrainBudget.triangles: up 1% a frame while over it, back
- * down 0.5% a frame once under 85% of it, never below 1 (the planet's own settings) or above 16.
- * Slow on purpose: the bias moves split distances, so morphs shift with it (2× in about a second).
- */
+/** Steers the planet's LOD bias toward TerrainBudget.triangles (`adaptLodBias`). */
 function adaptDetail(rt: PlanetRuntime, triangles: number): void {
   const drawn = rt.selection.renderedCount * chunkTriangles(rt.settings!.resolution)
-  if (triangles > 0 && drawn > triangles) rt.lodBias = Math.min(16, rt.lodBias * 1.01)
-  else if (triangles <= 0 || drawn < triangles * 0.85) rt.lodBias = Math.max(1, rt.lodBias / 1.005)
+  rt.lodBias = adaptLodBias(rt.lodBias, drawn, triangles)
 }
 
 /**
@@ -317,7 +315,7 @@ export const selectChunks = defineSystem({
   setup: (world) => ({ cameras: world.query({ with: [Camera3d, GlobalTransform] }) }),
   run: (s, world) => {
     if (!world.tryResource(GpuAssetsResource)) return
-    const state = world.resource(Terrain)
+    const state = world.resource(TerrainWorld)
     const frame = state.frame
     const budget = world.resource(TerrainBudget)
     let jobs = budget.chunksPerFrame
@@ -1556,7 +1554,7 @@ export function registerNode(app: App): void {
       const frame = world.resource(Time).frame
       if (frame === lastFrame) return
       lastFrame = frame
-      const state = world.tryResource(Terrain)
+      const state = world.tryResource(TerrainWorld)
       if (!state) return
       for (const rt of state.planets.values()) {
         const pr = rt.parts.get('render') as PlanetRender | undefined

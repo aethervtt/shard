@@ -4,10 +4,12 @@ import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { loadNoiseKernel, NoiseGraph } from '@aethervtt/shard-noise'
 import { Gpu } from '@aethervtt/shard-render'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { buildChunk, type ChunkMesh, chunkLayout, lockCode } from './chunk'
+import { buildChunk, type ChunkMesh } from './chunk'
 import { TerrainBudget } from './components'
 import { directionToFace, keyString } from './cube'
+import { chunkLayout, lockCode } from './grid-mesh'
 import { heightAt } from './heights'
+import { morphFactor } from './lod'
 import type { PlanetRuntime } from './planet'
 import type { PlanetRender } from './render'
 import { placeCamera, planetApp, settleTerrain } from './test-planet'
@@ -161,7 +163,7 @@ describe('geomorphing (spec 0043)', () => {
           // As the vertex stage does: distance, then edge locks, center-line locks, and the fade.
           const split = (node.depth === 0 ? 0 : rt.errors[node.depth]!) * f.splitScale
           const d = Math.hypot(px - f.camera[0]!, py - f.camera[1]!, pz - f.camera[2]!)
-          let t = split <= 0 ? 0 : Math.min(1, Math.max(0, (d - 0.5 * split) / (0.45 * split)))
+          let t = morphFactor(d, split)
           const code = lockCode(a!, b!, n, v, layout.ring)
           if (code >= 0 && code < 4) {
             const lock = node.locks[code]!

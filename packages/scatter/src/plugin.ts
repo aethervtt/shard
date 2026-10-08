@@ -17,7 +17,7 @@ import {
   Shaders,
 } from '@aethervtt/shard-render'
 import { definePlugin, type Plugin } from '@aethervtt/shard-runtime'
-import { Planet, Terrain, updatePlanets } from '@aethervtt/shard-terrain'
+import { Planet, TerrainWorld, updatePlanets } from '@aethervtt/shard-terrain'
 import { GlobalTransform, TransformSystems } from '@aethervtt/shard-transform'
 import * as componentsModule from './components'
 import {
@@ -92,7 +92,7 @@ export const updateScatter = defineSystem({
     const dirty = state.dirty
     state.dirty = false
     recordRemovals(world)
-    const terrain = world.tryResource(Terrain)
+    const terrain = world.tryResource(TerrainWorld)
     if (terrain) {
       for (const rt of terrain.planets.values()) {
         if (!world.isAlive(rt.entity) || !rt.ready) continue

@@ -1,7 +1,7 @@
 import type { World } from '@aethervtt/shard-core'
 import { loadNoiseKernel, NoiseGraph, NoiseGraphs } from '@aethervtt/shard-noise'
 import { App } from '@aethervtt/shard-runtime'
-import { Planet, Terrain, terrainPlugin } from '@aethervtt/shard-terrain'
+import { Planet, TerrainWorld, terrainPlugin } from '@aethervtt/shard-terrain'
 import { Grid, Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { PlanetSurface } from './planet'
@@ -33,7 +33,7 @@ async function planet(): Promise<{ world: World; surface: PlanetSurface }> {
     Transform,
   )
   app.update(1 / 60)
-  const rt = w.resource(Terrain).planets.get(e)!
+  const rt = w.resource(TerrainWorld).planets.get(e)!
   expect(rt.ready).toBe(true)
   return { world: w, surface: new PlanetSurface(rt, cameraQuery(w)) }
 }
