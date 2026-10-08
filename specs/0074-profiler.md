@@ -78,10 +78,25 @@ profiler.record(ENCODE, ms)                   // for time measured elsewhere (GP
 - An unbalanced `end` logs `perf/span-mismatch` once per span name and resets the stack at the
   frame boundary.
 - `profiler.record(name: string, ms)` keeps working for existing callers and interns the string.
-- **Automatic spans.** `frame`; each schedule (`schedule/Update`); each system (by name, as
-  today); command application per schedule (`commands/Update`); each render-graph node's CPU
-  encode (`render/<node>`); asset results applied in `First` (`assets/apply`). Packages add
-  their own: `terrain/select`, `partition/spawn`, and so on.
+- **Automatic spans.** Packages add their own (`terrain/select`, `partition/spawn`, and so on),
+  but these names are fixed. They're the contract with 0075, whose budget keys are span names:
+
+  | Span | Track | What it times |
+  |---|---|---|
+  | `frame` | main | One `App.update`, once a frame |
+  | `schedule/<Label>` | main | One run of a schedule: `schedule/First`, `schedule/PreUpdate`, `schedule/FixedUpdate` (once per fixed step), `schedule/Update`, `schedule/PostUpdate`, `schedule/Last`, `schedule/Startup`, and state schedules by their label's name |
+  | `<system name>` | main | One run of a system, by its name, as today |
+  | `commands/<Label>` | main | Command application across one run of that schedule, recorded once per run |
+  | `render/<node>` | main | A render-graph node's CPU encode (pass begin, `run`, pass end), summed over views, once a frame per node that ran |
+  | `assets/apply` | main | Asset results applied in `First` |
+  | `gpu:frame` | GPU | First pass start to last pass end, as today |
+  | `gpu:<node>` | GPU | A render-graph pass, as today |
+  | `gpu:span/post`, `gpu:span/ssao` | GPU | The pass groups `GpuTimer` already times |
+  | `worker/<kind>` | worker | One pool job, timed inside the worker |
+
+  A key **covers** a span when it equals the name or is a prefix of it ending at a `/`: `gpu:foliage`
+  covers `gpu:foliage/place` and `gpu:foliage/cull`, and `render` covers every `render/*` span. Time
+  covered twice (a `render/<node>` span inside the `render/execute-graph` system) counts once.
 - **Aggregates are always on**, kept per id as now: last, average and max over 120 frames, plus
   p95. `ProfilerSettings { enabled: true, window: 120 }` turns the whole profiler off for builds
   that want every microsecond.

@@ -88,9 +88,9 @@ a pinned render scale (0051) and a target frame rate. The first set:
       "resolution": [1920, 1080], "renderScale": 1, "fps": 60,
       "frame": { "gpu": { "laptop": 16.6, "desktop": 8.3 }, "cpu": { "laptop": 8, "desktop": 6 } },
       "slices": {
-        "gpu": { "render/forward-opaque": 0.30, "render/shadows": 0.15, "terrain": 0.12,
-                 "foliage": 0.12, "post": 0.12, "headroom": 0.19 },
-        "cpu": { "render/prepare": 0.15, "terrain": 0.15, "scatter": 0.15, "headroom": 0.25 }
+        "gpu": { "gpu:forward-opaque": 0.30, "gpu:shadows": 0.15, "gpu:terrain": 0.12,
+                 "gpu:foliage": 0.12, "gpu:post": 0.12, "headroom": 0.19 },
+        "cpu": { "render": 0.15, "terrain": 0.15, "scatter": 0.15, "headroom": 0.55 }
       }
     }
   }
@@ -102,7 +102,9 @@ a pinned render scale (0051) and a target frame rate. The first set:
   fast on ARM, D3D12 compiles pipelines slowly).
 - Slices plus `headroom` must sum to 1. `pnpm bench` fails a scenario whose slices don't, and
   reports any slice whose measured share is over.
-- Slice keys are span names or prefixes (0074). `foliage` covers every `foliage/*` span.
+- Slice keys are span names or prefixes (0074's automatic span names, and the rule for what a key
+  covers). `gpu:foliage` covers every `gpu:foliage/*` span. A GPU slice is a share of `gpu:frame`
+  and a CPU slice a share of `frame`.
 
 ### Kinds of budget
 
