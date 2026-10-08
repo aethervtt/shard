@@ -530,7 +530,7 @@ struct SkyOutput {
 
   'shard::atmosphere::composite': `
 import shard::view::view;
-import shard::post::common::uv_of;
+import shard::post::common::{ uv_of, post_out };
 import shard::atmosphere::{ AtmosphereView, KCD, integrate, froxel_slice, relative_at };
 @if(FOG) import shard::post::fog::common::{ FogParams, fog_apply };
 
@@ -584,14 +584,14 @@ fn haze(frag: vec4f, c: vec4f, depth: f32) -> vec4f {
 
 @fragment fn fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
   let px = vec2i(frag.xy);
-  return haze(frag, textureLoad(input, px, 0), textureLoad(depth_texture, px, 0));
+  return post_out(haze(frag, textureLoad(input, px, 0), textureLoad(depth_texture, px, 0)));
 }
 
 /** Aerial perspective, then height fog: the view's fog pass folded into this one. */
 @if(FOG) @fragment fn fs_fog(@builtin(position) frag: vec4f) -> @location(0) vec4f {
   let px = vec2i(frag.xy);
   let depth = textureLoad(depth_texture, px, 0);
-  return fog_apply(haze(frag, textureLoad(input, px, 0), depth), uv_of(frag.xy), depth, fog);
+  return post_out(fog_apply(haze(frag, textureLoad(input, px, 0), depth), uv_of(frag.xy), depth, fog));
 }`,
 
   'shard::atmosphere::bake': `

@@ -185,7 +185,7 @@ fn fog_apply(c: vec4f, uv: vec2f, depth: f32, fog: FogParams) -> vec4f {
 }`,
 
   'shard::post::fog': `
-import shard::post::common::uv_of;
+import shard::post::common::{ uv_of, post_out };
 import shard::post::fog::common::{ FogParams, fog_apply };
 
 @group(1) @binding(0) var input: texture_2d<f32>;
@@ -194,7 +194,7 @@ import shard::post::fog::common::{ FogParams, fog_apply };
 
 @fragment fn fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
   let px = vec2i(frag.xy);
-  return fog_apply(textureLoad(input, px, 0), uv_of(frag.xy), textureLoad(depth_texture, px, 0), fog);
+  return post_out(fog_apply(textureLoad(input, px, 0), uv_of(frag.xy), textureLoad(depth_texture, px, 0), fog));
 }`,
 
   'shard::post::bloom': `
@@ -317,7 +317,7 @@ fn meter(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_ind
 
   'shard::post::dof': `
 import shard::view::view;
-import shard::post::common::{ uv_of, world_at, view_depth };
+import shard::post::common::{ uv_of, world_at, view_depth, post_out };
 import shard::color::luminance;
 
 struct DofParams {
@@ -398,12 +398,12 @@ const TAPS: i32 = 48;
   let sharp = textureLoad(input, px, 0);
   let blurred = textureSampleLevel(half_texture, linear_sampler, uv_of(frag.xy), 0.0);
   let t = smoothstep(0.5, 1.5, abs(coc_at(px)));
-  return vec4f(mix(sharp.rgb, blurred.rgb, t), sharp.a);
+  return post_out(vec4f(mix(sharp.rgb, blurred.rgb, t), sharp.a));
 }`,
 
   'shard::post::motion_blur': `
 import shard::view::view;
-import shard::post::common::{ uv_of, motion };
+import shard::post::common::{ uv_of, motion, post_out };
 
 struct MotionParams {
   /** Shutter fraction of a frame, max blur in pixels, samples, 0. */
@@ -425,14 +425,14 @@ struct MotionParams {
   let cap = motion_params.params.y;
   if (pixels > cap) { v *= cap / pixels; }
   let center = textureLoad(input, px, 0);
-  if (pixels < 0.5) { return center; }
+  if (pixels < 0.5) { return post_out(center); }
   let n = i32(motion_params.params.z);
   var sum = vec3f(0.0);
   for (var i = 0; i < n; i++) {
     let t = (f32(i) + 0.5) / f32(n) - 0.5;
     sum += textureSampleLevel(input, linear_sampler, uv + v * t, 0.0).rgb;
   }
-  return vec4f(sum / f32(n), center.a);
+  return post_out(vec4f(sum / f32(n), center.a));
 }`,
 
   'shard::post::taa': `

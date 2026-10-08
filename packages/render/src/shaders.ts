@@ -1300,6 +1300,23 @@ fn world_at(uv: vec2f, depth: f32) -> vec3f {
   return w.xyz / w.w;
 }
 
+/**
+ * Rounds to nearest on a device that truncates when it stores rg11b10ufloat (Metal does): half a
+ * step of each channel's own exponent (6 mantissa bits in red and green, 5 in blue) added before
+ * the store. Without it every pass through the format loses half a step on average, blue twice
+ * as much, and the image drifts warm.
+ */
+fn rg11_round(c: vec3f) -> vec3f {
+  let e = exp2(floor(log2(max(c, vec3f(6.2e-5)))));
+  return c + e * vec3f(1.0 / 128.0, 1.0 / 128.0, 1.0 / 64.0);
+}
+
+/** A post pass's output into the chain: rounded where it's rg11b10ufloat on a truncating device. */
+fn post_out(c: vec4f) -> vec4f {
+  @if(RG11_ROUND) return vec4f(rg11_round(c.rgb), c.a);
+  @if(!RG11_ROUND) return c;
+}
+
 /** Distance along the view axis, in meters. */
 fn view_depth(world: vec3f) -> f32 {
   return -(view.view * vec4f(world, 1.0)).z;

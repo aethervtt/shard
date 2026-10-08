@@ -13,6 +13,7 @@ import { ForwardStateResource, sceneColor, viewBindGroup } from './forward'
 import { type NodeContext, type NodeDescriptor, RenderPhase, type RenderView } from './graph'
 import { Gpu, Graph, Shaders, Views } from './plugin'
 import { hasEffect, PostEffect } from './post'
+import { roundsRg11, targetsFor } from './post-common'
 import { bindingDimension, depthReadEntry } from './tier'
 import { type CameraData, cameraOf } from './view'
 
@@ -819,12 +820,16 @@ function skyNode(): NodeDescriptor {
 
 /** Fog's parameters, as the fog pass writes them: color, density, falloff, start, sun. */
 const fogScratch = new Float32Array(8)
-/** Composite pipelines with fog folded in: alpha output (1), interior view layout (2). */
+/** Composite pipelines with fog folded in: alpha output (1), interior view layout (2), rg11b10 (4). */
 const FOG_COMPOSITE_KEYS = [
   'composite-fog',
   'composite-fog/alpha',
   'composite-fog/interior',
   'composite-fog/alpha/interior',
+  'composite-fog/rg11',
+  'composite-fog/alpha/rg11',
+  'composite-fog/interior/rg11',
+  'composite-fog/alpha/interior/rg11',
 ]
 
 /**
@@ -854,17 +859,22 @@ function compositeNode(): NodeDescriptor {
       const fog = (cam.post.effects & PostEffect.Fog) !== 0
       // The fog variant's group 0 is forward's view group, which grows with interior lighting.
       const alpha = cam.alphaOutput
+      const out = ctx.texture('atmosphere-out')
+      const rg11 = out.format === 'rg11b10ufloat'
       const name = fog
-        ? FOG_COMPOSITE_KEYS[(alpha ? 1 : 0) + (forward.interiorMode !== 0 ? 2 : 0)]!
-        : 'composite'
+        ? FOG_COMPOSITE_KEYS[(alpha ? 1 : 0) + (forward.interiorMode !== 0 ? 2 : 0) + (rg11 ? 4 : 0)]!
+        : rg11
+          ? 'composite/rg11'
+          : 'composite'
       let pipeline = s.pipelines.get(name) as GPURenderPipeline | undefined
       if (!pipeline) {
         const shaders = ctx.world.resource(Shaders)
         const fs = shaders.module(
           gpu,
-          fog
-            ? { root: 'shard::atmosphere::composite', defines: { FOG: true, TRANSPARENT: alpha } }
-            : { root: 'shard::atmosphere::composite' },
+          {
+            root: 'shard::atmosphere::composite',
+            defines: { FOG: fog, TRANSPARENT: fog && alpha, RG11_ROUND: roundsRg11(gpu, out) },
+          },
         )
         const vs = shaders.module(gpu, { root: 'shard::fullscreen' })
         if (!fs || !vs) {
@@ -881,7 +891,7 @@ function compositeNode(): NodeDescriptor {
           fragment: {
             module: fs,
             entryPoint: fog ? 'fs_fog' : 'fs',
-            targets: [{ format: 'rgba16float' }],
+            targets: targetsFor(out),
           },
         })
         if (!pipeline) return

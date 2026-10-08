@@ -12,7 +12,7 @@ import { Exposure } from './camera'
 import { addRenderFeatures } from './features'
 import { drawMaterials, ForwardStateResource, PASS_PREPASS, viewBindGroup } from './forward'
 import { type NodeDescriptor, RenderPhase, type RenderView } from './graph'
-import { Graph, Views } from './plugin'
+import { Gpu, Graph, Views } from './plugin'
 import { AutoExposure, cocParams, hasEffect, needsPrepass, PostEffect } from './post'
 import {
   beginPass,
@@ -20,6 +20,9 @@ import {
   forwardView,
   HDR,
   idOf,
+  postFormat,
+  roundsRg11,
+  targetsFor,
   PostCache,
   sampler,
   scratch,
@@ -54,8 +57,17 @@ const prepassNode: NodeDescriptor = {
 
 // --- SSAO --------------------------------------------------------------------------------------
 
-/** The fog pipeline's cache keys: alpha output (1), interior view layout (2). */
-const FOG_KEYS = ['post/fog', 'post/fog/alpha', 'post/fog/interior', 'post/fog/alpha/interior']
+/** The fog pipeline's cache keys: alpha output (1), interior view layout (2), rg11b10 target (4). */
+const FOG_KEYS = [
+  'post/fog',
+  'post/fog/alpha',
+  'post/fog/interior',
+  'post/fog/alpha/interior',
+  'post/fog/rg11',
+  'post/fog/alpha/rg11',
+  'post/fog/interior/rg11',
+  'post/fog/alpha/interior/rg11',
+]
 
 /** Slice directions × steps per side, per quality. */
 const SSAO_STEPS = [
@@ -169,15 +181,17 @@ function fogNode(): NodeDescriptor {
         })
       }
       const alpha = v.cam.alphaOutput
+      const out = ctx.texture('fog-out')
+      const rg11 = out.format === 'rg11b10ufloat'
       // Group 0 grows while interior lighting is on (0069): its own pipeline then.
       const pipeline = cache.render(
         ctx,
-        FOG_KEYS[(alpha ? 1 : 0) + (state.interiorMode !== 0 ? 2 : 0)]!,
+        FOG_KEYS[(alpha ? 1 : 0) + (state.interiorMode !== 0 ? 2 : 0) + (rg11 ? 4 : 0)]!,
         'shard::post::fog',
         'fs',
         [state.layouts.view, layout],
-        HDR,
-        { TRANSPARENT: alpha },
+        targetsFor(out),
+        { TRANSPARENT: alpha, RG11_ROUND: roundsRg11(gpu, out) },
       )
       if (!pipeline) return
       const f = v.cam.post.fog
@@ -362,13 +376,15 @@ function motionBlurNode(): NodeDescriptor {
           ],
         })
       }
+      const out = ctx.texture('motion-blur-out')
       const pipeline = cache.render(
         ctx,
-        'post/motion-blur',
+        out.format === 'rg11b10ufloat' ? 'post/motion-blur/rg11' : 'post/motion-blur',
         'shard::post::motion_blur',
         'fs',
         [layout],
-        HDR,
+        targetsFor(out),
+        { RG11_ROUND: roundsRg11(gpu, out) },
       )
       if (!pipeline) return
       const m = v.cam.post.motionBlur
@@ -427,15 +443,26 @@ function dofNode(): NodeDescriptor {
           entries: [uniform(0), tex(1), depthTex(gpu, 2), uniform(3), tex(4), sampler(5)],
         })
       }
+      // dof-half keeps rgba16float: its alpha is the CoC.
       const prepare = cache.render(ctx, 'dof/prepare', 'shard::post::dof', 'prepare', [layout], HDR)
-      const gather = cache.render(ctx, 'dof/gather', 'shard::post::dof', 'gather', [layout], HDR)
+      const blur = ctx.texture('dof-blur')
+      const out = ctx.texture('dof-out')
+      const gather = cache.render(
+        ctx,
+        blur.format === 'rg11b10ufloat' ? 'dof/gather/rg11' : 'dof/gather',
+        'shard::post::dof',
+        'gather',
+        [layout],
+        targetsFor(blur),
+      )
       const composite = cache.render(
         ctx,
-        'dof/composite',
+        out.format === 'rg11b10ufloat' ? 'dof/composite/rg11' : 'dof/composite',
         'shard::post::dof',
         'composite',
         [layout],
-        HDR,
+        targetsFor(out),
+        { RG11_ROUND: roundsRg11(gpu, out) },
       )
       if (!prepare || !gather || !composite) return
       const params = cache.buffer(gpu, `${ctx.view.name}/dof`, 16)
@@ -443,8 +470,6 @@ function dofNode(): NodeDescriptor {
       const input = ctx.texture('dof-in')
       const depth = ctx.texture('depth')
       const half = ctx.texture('dof-half')
-      const blur = ctx.texture('dof-blur')
-      const out = ctx.texture('dof-out')
       const group = (slot: string, secondary: GPUTexture) =>
         cache.group(
           gpu,
@@ -511,35 +536,36 @@ function bloomNode(): NodeDescriptor {
         })
       }
       const add: GPUBlendComponent = { srcFactor: 'one', dstFactor: 'one', operation: 'add' }
+      const chain = ctx.texture('bloom')
+      const rg11 = chain.format === 'rg11b10ufloat'
       const prefilter = cache.render(
         ctx,
-        'bloom/prefilter',
+        rg11 ? 'bloom/prefilter/rg11' : 'bloom/prefilter',
         'shard::post::bloom',
         'prefilter',
         [layout],
-        HDR,
+        targetsFor(chain),
       )
       const down = cache.render(
         ctx,
-        'bloom/downsample',
+        rg11 ? 'bloom/downsample/rg11' : 'bloom/downsample',
         'shard::post::bloom',
         'downsample',
         [layout],
-        HDR,
+        targetsFor(chain),
       )
       const up = cache.render(
         ctx,
-        'bloom/upsample',
+        rg11 ? 'bloom/upsample/rg11' : 'bloom/upsample',
         'shard::post::bloom',
         'upsample',
         [layout],
-        [{ format: 'rgba16float', blend: { color: add, alpha: add } }],
+        [{ format: chain.format, blend: { color: add, alpha: add } }],
       )
       if (!prefilter || !down || !up) return
       const { cam } = v
       const b = cam.post.bloom
       const input = ctx.texture('bloom-in')
-      const chain = ctx.texture('bloom')
       const levels = Math.min(chain.mipLevelCount, bloomLevels(cam))
       // One uniform slot per pass, 256 bytes apart: texel size of what it samples.
       const buffer = cache.buffer(gpu, `${ctx.view.name}/bloom`, 256 * 20)
@@ -975,8 +1001,10 @@ export function addPostNodes(world: World, baseline?: typeof import('./baseline/
   graph.declare({ name: 'velocity', format: 'rg16float' })
   graph.declare({ name: 'prepass-depth', format: 'depth32float' })
   graph.declare({ name: 'ssao', format: 'rg16float', size: halfSize })
-  graph.declare({ name: 'post-a', format: 'rgba16float' })
-  graph.declare({ name: 'post-b', format: 'rgba16float' })
+  const gpu = world.resource(Gpu)
+  const chainFormat = (view: RenderView) => postFormat(gpu, view)
+  graph.declare({ name: 'post-a', format: chainFormat })
+  graph.declare({ name: 'post-b', format: chainFormat })
   // TAA provides its history texture as this; declared for a frame its pipeline isn't ready.
   graph.declare({ name: 'taa-history', format: 'rgba16float' })
   graph.declare({ name: 'dof-half', format: 'rgba16float', size: halfSize })
