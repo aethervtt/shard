@@ -148,7 +148,10 @@ function fogNode(): NodeDescriptor {
   return {
     kind: 'render',
     phase: RenderPhase.Post,
-    enabled: hasEffect(PostEffect.Fog),
+    // With aerial perspective, the atmosphere's composite applies fog in its own pass.
+    enabled: (view) =>
+      ((cameraOf(view)?.post.effects ?? 0) & (PostEffect.Fog | PostEffect.Atmosphere)) ===
+      PostEffect.Fog,
     reads: ['fog-in', 'depth', 'environment', 'clusters'],
     writes: ['fog-out'],
     color: [{ resource: 'fog-out', clear: { r: 0, g: 0, b: 0, a: 1 } }],

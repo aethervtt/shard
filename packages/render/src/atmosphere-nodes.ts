@@ -9,7 +9,7 @@ import {
   environmentBakers,
 } from './environment'
 import { addRenderFeatures } from './features'
-import { ForwardStateResource, sceneColor } from './forward'
+import { ForwardStateResource, sceneColor, viewBindGroup } from './forward'
 import { type NodeContext, type NodeDescriptor, RenderPhase, type RenderView } from './graph'
 import { Gpu, Graph, Shaders, Views } from './plugin'
 import { hasEffect, PostEffect } from './post'
@@ -453,6 +453,21 @@ function layouts(gpu: GpuContext, s: AtmosphereGpu): Record<string, GPUBindGroup
         { binding: 7, visibility: F, texture: { sampleType: 'float', viewDimension: '3d' } },
       ],
     }),
+    // The composite with fog folded in: fog's parameters after the haze's bindings.
+    compositeFog: gpu.layouts.bindGroupLayout({
+      label: 'atmosphere/composite-fog',
+      entries: [
+        { binding: 0, visibility: F, texture: { sampleType: 'unfilterable-float' } },
+        depthReadEntry(gpu, 1, F),
+        uniform(2, F),
+        array(3, F),
+        array(4, F),
+        filtering(5, F),
+        { binding: 6, visibility: F, texture: { sampleType: 'float', viewDimension: '3d' } },
+        { binding: 7, visibility: F, texture: { sampleType: 'float', viewDimension: '3d' } },
+        uniform(8, F),
+      ],
+    }),
     viewOnly: gpu.layouts.bindGroupLayout({
       label: 'atmosphere/view',
       entries: [uniform(0, GPUShaderStage.VERTEX | F)],
@@ -802,13 +817,28 @@ function skyNode(): NodeDescriptor {
   }
 }
 
-/** Aerial perspective over geometry, in the post chain where fog would be. */
+/** Fog's parameters, as the fog pass writes them: color, density, falloff, start, sun. */
+const fogScratch = new Float32Array(8)
+/** Composite pipelines with fog folded in: alpha output (1), interior view layout (2). */
+const FOG_COMPOSITE_KEYS = [
+  'composite-fog',
+  'composite-fog/alpha',
+  'composite-fog/interior',
+  'composite-fog/alpha/interior',
+]
+
+/**
+ * Aerial perspective over geometry, in the post chain where fog would be. A view with fog too
+ * gets both in this one pass (`fs_fog`): fog's own pass stands aside, and the image makes one trip
+ * through memory instead of two.
+ */
 function compositeNode(): NodeDescriptor {
+  const fogBuffers = new Map<Entity, GPUBuffer>()
   return {
     kind: 'render',
     phase: RenderPhase.Post,
     enabled: hasEffect(PostEffect.Atmosphere),
-    reads: ['atmosphere-in', 'depth', 'atmosphere-luts', 'atmosphere-view'],
+    reads: ['atmosphere-in', 'depth', 'atmosphere-luts', 'atmosphere-view', 'environment', 'clusters'],
     writes: ['atmosphere-out'],
     color: [{ resource: 'atmosphere-out', clear: { r: 0, g: 0, b: 0, a: 1 } }],
     run: (ctx) => {
@@ -816,30 +846,46 @@ function compositeNode(): NodeDescriptor {
       const ca = ctx.view.data.atmosphere as CameraAtmosphere | undefined
       const s = ctx.world.resource(AtmosphereGpuResource)
       const c = cam ? s.cameras.get(cam.entity) : undefined
-      const pv = ctx.world.resource(ForwardStateResource).views.get(ctx.view.name)
+      const forward = ctx.world.resource(ForwardStateResource)
+      const pv = forward.views.get(ctx.view.name)
       if (!cam || !ca || !c || !pv) return
       const gpu = ctx.gpu
       const l = layouts(gpu, s)
-      let pipeline = s.pipelines.get('composite') as GPURenderPipeline | undefined
+      const fog = (cam.post.effects & PostEffect.Fog) !== 0
+      // The fog variant's group 0 is forward's view group, which grows with interior lighting.
+      const alpha = cam.alphaOutput
+      const name = fog
+        ? FOG_COMPOSITE_KEYS[(alpha ? 1 : 0) + (forward.interiorMode !== 0 ? 2 : 0)]!
+        : 'composite'
+      let pipeline = s.pipelines.get(name) as GPURenderPipeline | undefined
       if (!pipeline) {
         const shaders = ctx.world.resource(Shaders)
-        const fs = shaders.module(gpu, { root: 'shard::atmosphere::composite' })
+        const fs = shaders.module(
+          gpu,
+          fog
+            ? { root: 'shard::atmosphere::composite', defines: { FOG: true, TRANSPARENT: alpha } }
+            : { root: 'shard::atmosphere::composite' },
+        )
         const vs = shaders.module(gpu, { root: 'shard::fullscreen' })
         if (!fs || !vs) {
           gpu.pipelines.skipped++
           return
         }
         pipeline = gpu.pipelines.render({
-          label: 'atmosphere/composite',
+          label: `atmosphere/${name}`,
           layout: gpu.layouts.pipelineLayout({
-            label: 'atmosphere/composite',
-            bindGroupLayouts: [l.viewOnly!, l.composite!],
+            label: `atmosphere/${name}`,
+            bindGroupLayouts: fog ? [forward.layouts.view, l.compositeFog!] : [l.viewOnly!, l.composite!],
           }),
           vertex: { module: vs, entryPoint: 'vs' },
-          fragment: { module: fs, entryPoint: 'fs', targets: [{ format: 'rgba16float' }] },
+          fragment: {
+            module: fs,
+            entryPoint: fog ? 'fs_fog' : 'fs',
+            targets: [{ format: 'rgba16float' }],
+          },
         })
         if (!pipeline) return
-        s.pipelines.set('composite', pipeline)
+        s.pipelines.set(name, pipeline)
       }
       const input = ctx.texture('atmosphere-in')
       const depth = ctx.texture('depth')
@@ -847,6 +893,48 @@ function compositeNode(): NodeDescriptor {
       const inside = ca.inside && c.computed === s.frame
       const scatter = inside && c.scatter ? c.scatter : e.d3
       const trans = inside && c.transmittance ? c.transmittance : e.d3
+      const pass = ctx.renderPass!
+      pass.setPipeline(pipeline)
+      if (fog) {
+        let buffer = fogBuffers.get(cam.entity)
+        if (!buffer) {
+          buffer = gpu.device.createBuffer({
+            label: `${ctx.view.name}/composite-fog`,
+            size: 32,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+          })
+          fogBuffers.set(cam.entity, buffer)
+        }
+        const f = cam.post.fog
+        fogScratch.set(f.color, 0)
+        fogScratch[4] = f.density
+        fogScratch[5] = f.heightFalloff
+        fogScratch[6] = f.start
+        fogScratch[7] = f.sunScattering
+        gpu.device.queue.writeBuffer(buffer, 0, fogScratch)
+        const fogBuffer = buffer
+        const group = s.group(
+          gpu,
+          `${cam.entity}/composite-fog`,
+          `${gpu.generation}/${idOf(input)}/${idOf(depth)}/${c.uniform.version}/${idOf(scatter)}/${idOf(trans)}/${idOf(s.transmittance)}/${idOf(fogBuffer)}`,
+          l.compositeFog!,
+          () => [
+            { binding: 0, resource: input.createView() },
+            { binding: 1, resource: depth.createView() },
+            { binding: 2, resource: { buffer: c.uniform.buffer } },
+            { binding: 3, resource: s.transmittanceArray },
+            { binding: 4, resource: s.multiscatterArray },
+            { binding: 5, resource: s.clamp },
+            { binding: 6, resource: scatter.createView() },
+            { binding: 7, resource: trans.createView() },
+            { binding: 8, resource: { buffer: fogBuffer } },
+          ],
+        )
+        pass.setBindGroup(0, viewBindGroup(gpu, ctx.world, pv, cam))
+        pass.setBindGroup(1, group)
+        pass.draw(3)
+        return
+      }
       // Until every LUT exists the uniform lists no atmospheres, and this passes the image through.
       const group = s.group(
         gpu,
@@ -871,8 +959,6 @@ function compositeNode(): NodeDescriptor {
         l.viewOnly!,
         () => [{ binding: 0, resource: { buffer: pv.uniform.buffer } }],
       )
-      const pass = ctx.renderPass!
-      pass.setPipeline(pipeline)
       pass.setBindGroup(0, viewGroup)
       pass.setBindGroup(1, group)
       pass.draw(3)

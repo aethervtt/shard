@@ -532,6 +532,7 @@ struct SkyOutput {
 import shard::view::view;
 import shard::post::common::uv_of;
 import shard::atmosphere::{ AtmosphereView, KCD, integrate, froxel_slice, relative_at };
+@if(FOG) import shard::post::fog::common::{ FogParams, fog_apply };
 
 @group(1) @binding(0) var input: texture_2d<f32>;
 @group(1) @binding(1) var depth_texture: texture_depth_2d;
@@ -541,16 +542,15 @@ import shard::atmosphere::{ AtmosphereView, KCD, integrate, froxel_slice, relati
 @group(1) @binding(5) var lut_sampler: sampler;
 @group(1) @binding(6) var ap_scatter: texture_3d<f32>;
 @group(1) @binding(7) var ap_transmittance: texture_3d<f32>;
+/** A view with fog too: fog follows in the same pass (\`fs_fog\`). */
+@if(FOG) @group(1) @binding(8) var<uniform> fog: FogParams;
 
 /**
  * Aerial perspective on geometry: color × transmittance + in-scattering for every atmosphere the
  * view ray crosses before the surface, far to near. The primary reads its froxels within their
  * range; beyond it (terrain seen from orbit), and for the others, the ray is marched.
  */
-@fragment fn fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
-  let px = vec2i(frag.xy);
-  let c = textureLoad(input, px, 0);
-  let depth = textureLoad(depth_texture, px, 0);
+fn haze(frag: vec4f, c: vec4f, depth: f32) -> vec4f {
   let count = u32(atmo.info.x);
   if (depth <= 0.0 || count == 0u) { return c; }
   let uv = uv_of(frag.xy);
@@ -580,6 +580,18 @@ import shard::atmosphere::{ AtmosphereView, KCD, integrate, froxel_slice, relati
     }
   }
   return vec4f(min(color, vec3f(60000.0)), c.a);
+}
+
+@fragment fn fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
+  let px = vec2i(frag.xy);
+  return haze(frag, textureLoad(input, px, 0), textureLoad(depth_texture, px, 0));
+}
+
+/** Aerial perspective, then height fog: the view's fog pass folded into this one. */
+@if(FOG) @fragment fn fs_fog(@builtin(position) frag: vec4f) -> @location(0) vec4f {
+  let px = vec2i(frag.xy);
+  let depth = textureLoad(depth_texture, px, 0);
+  return fog_apply(haze(frag, textureLoad(input, px, 0), depth), uv_of(frag.xy), depth, fog);
 }`,
 
   'shard::atmosphere::bake': `

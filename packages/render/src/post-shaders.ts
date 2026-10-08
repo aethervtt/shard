@@ -130,11 +130,11 @@ import shard::prepass::common::{ PrepassVertex, PrepassOutput, prepass_vertex, p
   @if(CUTAWAY) cutaway_clip(in.world_position, in.clip.xy, in.flags);
 }`,
 
-  'shard::post::fog': `
+  'shard::post::fog::common': `
 import shard::view::view;
 import shard::pbr::lights::directional;
 import shard::pbr::environment::env_irradiance;
-import shard::post::common::{ uv_of, world_at };
+import shard::post::common::world_at;
 
 struct FogParams {
   color: vec4f,
@@ -144,31 +144,27 @@ struct FogParams {
   sun: f32,
 }
 
-@group(1) @binding(0) var input: texture_2d<f32>;
-@group(1) @binding(1) var depth_texture: texture_depth_2d;
-@group(1) @binding(2) var<uniform> fog: FogParams;
-
 const PI: f32 = 3.14159265;
 
 /** Optical depth of exponential height fog along the ray from t0 to t1 (meters). */
-fn optical_depth(y0: f32, dir_y: f32, t0: f32, t1: f32) -> f32 {
+fn optical_depth(fog: FogParams, y0: f32, dir_y: f32, t0: f32, t1: f32) -> f32 {
   let base = fog.density * exp(-fog.falloff * y0);
   let k = fog.falloff * dir_y;
   if (abs(k) < 1e-5) { return base * (t1 - t0); }
   return base * (exp(-k * t0) - exp(-k * t1)) / k;
 }
 
-@fragment fn fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
-  let px = vec2i(frag.xy);
-  let c = textureLoad(input, px, 0);
-  let depth = textureLoad(depth_texture, px, 0);
-  let uv = uv_of(frag.xy);
+/**
+ * Height fog over color \`c\` at a pixel (\`uv\`, its depth): the fog pass, and the atmosphere's
+ * aerial perspective when a view has both (one pass for the two).
+ */
+fn fog_apply(c: vec4f, uv: vec2f, depth: f32, fog: FogParams) -> vec4f {
   // The background is far away, not infinitely: a floor keeps the ray finite.
   let world = world_at(uv, max(depth, 1e-7));
   let to = world - view.cameraPosition;
   let dist = length(to);
   let dir = to / max(dist, 1e-6);
-  let tau = optical_depth(view.cameraPosition.y, dir.y, fog.start, max(dist, fog.start));
+  let tau = optical_depth(fog, view.cameraPosition.y, dir.y, fog.start, max(dist, fog.start));
   let transmittance = exp(-tau);
   // In-scattering: the sky (environment or ambient), plus the sun through a forward-peaked phase.
   var sky = view.ambient;
@@ -186,6 +182,19 @@ fn optical_depth(y0: f32, dir_y: f32, t0: f32, t1: f32) -> f32 {
   @if(!TRANSPARENT) return vec4f(color, c.a);
   // Premultiplied (0052): the fog is a layer of its own opacity over what's behind it.
   @if(TRANSPARENT) return vec4f(color, c.a * transmittance + (1.0 - transmittance));
+}`,
+
+  'shard::post::fog': `
+import shard::post::common::uv_of;
+import shard::post::fog::common::{ FogParams, fog_apply };
+
+@group(1) @binding(0) var input: texture_2d<f32>;
+@group(1) @binding(1) var depth_texture: texture_depth_2d;
+@group(1) @binding(2) var<uniform> fog: FogParams;
+
+@fragment fn fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
+  let px = vec2i(frag.xy);
+  return fog_apply(textureLoad(input, px, 0), uv_of(frag.xy), textureLoad(depth_texture, px, 0), fog);
 }`,
 
   'shard::post::bloom': `

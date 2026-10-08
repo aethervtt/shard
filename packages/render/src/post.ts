@@ -534,6 +534,8 @@ export function postAliases(
     let flip = false
     for (const [name, bit] of HDR_CHAIN) {
       if ((effects & bit) === 0) continue
+      // Fog rides in the aerial-perspective pass when both are on (one trip through memory).
+      if (name === 'fog' && effects & PostEffect.Atmosphere) continue
       out[`${name}-in`] = current
       // TAA writes its history, kept across frames, which later effects read in place.
       if (name === 'taa') {
