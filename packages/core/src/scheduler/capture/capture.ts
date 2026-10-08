@@ -1,3 +1,4 @@
+import { ShardError } from '../../error'
 import { spanCovers, spanName, TRACK, type TrackName, trackName } from '../profiler'
 
 // A finished capture (0074): its frames and events, which frame each event belongs to, how events
@@ -351,26 +352,37 @@ export class Capture {
     })
 
     const warnings = [...(extras.warnings ?? [])]
+    const warn = (error: ShardError) => warnings.push(error.toJSON())
     if (!extras.clock.isolated) {
-      warnings.push({
-        code: 'perf/clock-coarse',
-        message: `The page isn't cross-origin isolated: its clock steps ${extras.clock.resolutionMs} ms, so short spans read as 0 or one step`,
-        hint: 'Serve it with Cross-Origin-Opener-Policy: same-origin and Cross-Origin-Embedder-Policy: credentialless (shard dev and the playground do).',
-      })
+      warn(
+        new ShardError(
+          'perf/clock-coarse',
+          `The page isn't cross-origin isolated: its clock steps ${extras.clock.resolutionMs} ms, so short spans read as 0 or one step`,
+          {
+            hint: 'Serve it with Cross-Origin-Opener-Policy: same-origin and Cross-Origin-Embedder-Policy: credentialless (shard dev and the playground do).',
+          },
+        ),
+      )
     }
     if (this.truncated) {
-      warnings.push({
-        code: 'perf/capture-truncated',
-        message: 'The event buffer filled, so the capture stopped early',
-        hint: 'Capture fewer frames, or pass a larger "events".',
-      })
+      warn(
+        new ShardError(
+          'perf/capture-truncated',
+          'The event buffer filled: the capture stopped early',
+          {
+            hint: 'Capture fewer frames, or pass a larger "events".',
+          },
+        ),
+      )
     }
     if (this.timedOut) {
-      warnings.push({
-        code: 'perf/no-slow-frame',
-        message: 'No frame went over the flight recorder\'s "frameMs" before it timed out',
-        hint: 'Lower "until.frameMs", or raise "timeout".',
-      })
+      warn(
+        new ShardError(
+          'perf/no-slow-frame',
+          'No frame went over the flight recorder\'s "frameMs" before it timed out',
+          { hint: 'Lower "until.frameMs", or raise "timeout".' },
+        ),
+      )
     }
     const summary: CaptureSummary = {
       frames: {

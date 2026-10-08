@@ -271,7 +271,7 @@ export class Profiler {
     const id = span.id >= 0 ? span.id : idOf(span, TRACK.main)
     const d = this.depth
     if (d >= MAX_DEPTH) {
-      this.warn(id, 'perf/span-overflow', `Spans nest deeper than ${MAX_DEPTH} at "${span.name}"`)
+      this.warn(id, WARN_DEPTH)
       return -1
     }
     this.stackIds[d] = id
@@ -287,11 +287,7 @@ export class Profiler {
     const d = (token / MAX_SPANS) | 0
     const id = token - d * MAX_SPANS
     if (d !== this.depth - 1 || this.stackIds[d] !== id) {
-      this.warn(
-        id,
-        'perf/span-mismatch',
-        `Span "${spanName(id)}" ended out of order: spans end in the reverse order they began`,
-      )
+      this.warn(id, WARN_ORDER)
       // Inner spans left open end with it; an end for a span not on the stack is dropped.
       if (d >= this.depth || this.stackIds[d] !== id) return
     }
@@ -353,7 +349,7 @@ export class Profiler {
     if (!this.settings.enabled) return
     const id = span.id >= 0 ? span.id : idOf(span, TRACK.async)
     if (this.asyncCount >= ASYNC_SLOTS) {
-      this.warn(id, 'perf/async-overflow', `More than ${ASYNC_SLOTS} async spans are open`)
+      this.warn(id, WARN_ASYNC)
       return
     }
     for (let i = 0; i < ASYNC_SLOTS; i++) {
@@ -393,11 +389,7 @@ export class Profiler {
     if (!this.settings.enabled) return -1
     if (this.depth > 0) {
       const id = this.stackIds[this.depth - 1]!
-      this.warn(
-        id,
-        'perf/span-mismatch',
-        `Span "${spanName(id)}" was still open when a frame began`,
-      )
+      this.warn(id, WARN_OPEN_AT_START)
       this.depth = 0
     }
     if (this.settings.window !== this.windowSize) this.resize()
@@ -413,11 +405,7 @@ export class Profiler {
     if (token < 0) return
     if (this.depth > 1) {
       const id = this.stackIds[this.depth - 1]!
-      this.warn(
-        id,
-        'perf/span-mismatch',
-        `Span "${spanName(id)}" was still open when its frame ended`,
-      )
+      this.warn(id, WARN_OPEN_AT_END)
       this.depth = 1
     }
     this.end(token)
@@ -514,7 +502,7 @@ export class Profiler {
   }
 
   /** Reports a problem once per span name. */
-  private warn(id: number, code: string, message: string): void {
+  private warn(id: number, kind: number): void {
     if (id >= this.warned.length) {
       const grown = new Uint8Array(Math.max(id + 1, this.warned.length * 2))
       grown.set(this.warned)
@@ -522,12 +510,65 @@ export class Profiler {
     }
     if (this.warned[id]) return
     this.warned[id] = 1
-    this.onWarning?.(
-      new ShardError(code, message, {
-        hint: 'Every profiler.begin(span) needs one profiler.end(token), in the same frame.',
-        path: spanName(id),
-      }),
-    )
+    this.onWarning?.(warningOf(kind, spanName(id)))
+  }
+}
+
+const WARN_ORDER = 0
+const WARN_OPEN_AT_START = 1
+const WARN_OPEN_AT_END = 2
+const WARN_DEPTH = 3
+const WARN_ASYNC = 4
+const BALANCE_HINT = 'Every profiler.begin(span) needs one profiler.end(token), in the same frame.'
+
+/** Built only when reported, so a span ending out of order every frame allocates once. */
+function warningOf(kind: number, name: string): ShardError {
+  switch (kind) {
+    case WARN_ORDER:
+      return new ShardError(
+        'perf/span-mismatch',
+        `Span "${name}" ended out of order: spans end in the reverse order they began`,
+        {
+          hint: 'Every profiler.begin(span) needs one profiler.end(token), in the same frame.',
+          path: name,
+        },
+      )
+    case WARN_OPEN_AT_START:
+      return new ShardError(
+        'perf/span-mismatch',
+        `Span "${name}" was still open when a frame began`,
+        {
+          hint: BALANCE_HINT,
+          path: name,
+        },
+      )
+    case WARN_OPEN_AT_END:
+      return new ShardError(
+        'perf/span-mismatch',
+        `Span "${name}" was still open when its frame ended`,
+        {
+          hint: BALANCE_HINT,
+          path: name,
+        },
+      )
+    case WARN_DEPTH:
+      return new ShardError(
+        'perf/span-overflow',
+        `Spans nest deeper than ${MAX_DEPTH} at "${name}"`,
+        {
+          hint: 'A span that begins in a loop needs its end inside the loop too.',
+          path: name,
+        },
+      )
+    default:
+      return new ShardError(
+        'perf/async-overflow',
+        `More than ${ASYNC_SLOTS} async spans are open`,
+        {
+          hint: 'Every beginAsync(span, key) needs an endAsync(span, key), even when the work fails.',
+          path: name,
+        },
+      )
   }
 }
 

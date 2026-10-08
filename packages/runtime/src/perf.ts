@@ -234,11 +234,11 @@ export async function capturePerf(
   if (options.sample) {
     sampler = await host?.startSampler?.()
     if (!sampler) {
-      warnings.push({
-        code: 'perf/sampling-unavailable',
-        message: "This host can't sample JavaScript",
-        hint: 'Node samples with node:inspector; browsers need the JS Self-Profiling API and a Document-Policy: js-profiling header (shard dev and the playground send it).',
-      })
+      warnings.push(
+        new ShardError('perf/sampling-unavailable', "This host can't sample JavaScript", {
+          hint: 'Node samples with node:inspector; browsers need the JS Self-Profiling API and a Document-Policy: js-profiling header (shard dev and the playground send it).',
+        }).toJSON(),
+      )
     }
   }
   const measure = host?.measure

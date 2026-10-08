@@ -12,6 +12,7 @@ import {
   type JsonValue,
   Last,
   PostUpdate,
+  ProfilerResource,
   type ResourceDef,
   ShardError,
   t,
@@ -52,6 +53,8 @@ import {
 import {
   type App,
   AppControlResource,
+  capturePerf,
+  describePerf,
   type LogEntry,
   LogResource,
   Time,
@@ -1218,6 +1221,93 @@ export const METHODS: MethodDef[] = [
         height: m.height,
         lines: m.lines.map((l) => ({ text: value.slice(l.start, l.end), width: l.width })),
       }
+    },
+  },
+  {
+    name: 'perf.describe',
+    description:
+      'Profiler aggregates (0074) over the last 120 runs of each span (last, avg, p95, max ms): the frame, each schedule and its command application, systems and other main-thread spans, GPU passes and the GPU frame ("unavailable" without timestamp queries), worker jobs, async spans; memory (GPU ledger by category, JS heap, ECS tables); and the clock (resolution, isolated, timings under four steps are "coarse").',
+    params: s('PerfDescribeParams', {
+      spans: t.list(t.string, {
+        description:
+          'Only spans these keys cover: a key covers a span it equals or prefixes up to a "/" ("render" covers "render/opaque").',
+      }),
+      top: t.u32({ default: 30, min: 1, max: 1000, description: 'Most spans listed per track.' }),
+    }),
+    handler: ({ world }, p) => {
+      const spans = p.spans as string[] | undefined
+      return toJson(
+        describePerf(world, {
+          spans: spans && spans.length > 0 ? spans : undefined,
+          top: p.top as number,
+        }),
+      )
+    },
+  },
+  {
+    name: 'perf.capture',
+    description:
+      'Captures a span timeline (0074) over the next `frames` frames, or with `until.frameMs` a flight recorder that keeps `before` frames and stops `after` frames past the first frame over it. Returns a summary: frame CPU/GPU/interval p50/p95/max, the top spans, and the 5 worst frames, each with the spans most above their median ("over"): the lead for a hitch. The Chrome trace (Perfetto, chrome://tracing) goes to .shard/captures/ (tracePath) where the host can write, else inline (trace).',
+    params: s('PerfCaptureParams', {
+      frames: t.u32({ min: 0, max: 100000, description: 'Frames to capture (default 300).' }),
+      until: t.struct({
+        frameMs: t.f32({
+          min: 0,
+          description: 'Flight recorder: stop after the first frame whose CPU time is over this.',
+        }),
+      }),
+      before: t.u32({
+        default: 120,
+        max: 100000,
+        description: 'Flight recorder: frames kept before.',
+      }),
+      after: t.u32({ default: 30, max: 100000, description: 'Flight recorder: frames after.' }),
+      timeout: t.f32({
+        default: 60,
+        min: 0,
+        description: 'Flight recorder: seconds to wait for a slow frame.',
+      }),
+      sample: t.bool({
+        description:
+          "Also sample JavaScript (V8's profiler in Node, JS Self-Profiling in browsers): the hottest functions join the summary.",
+      }),
+      devtools: t.bool({
+        description: "Also show spans in Chrome's Performance panel (performance.measure).",
+      }),
+      write: t.bool({ default: true, description: 'Write the trace file when the host can.' }),
+    }),
+    handler: async ({ app, world, options }, p) => {
+      const frameMs = (p.until as { frameMs: number } | undefined)?.frameMs ?? 0
+      const manual = (options.frames ?? 'manual') === 'manual'
+      const gpu = world.tryResource(Gpu) !== undefined
+      return toJson(
+        await capturePerf(world, {
+          frames: (p.frames as number) || 300,
+          until: frameMs > 0 ? { frameMs } : undefined,
+          before: p.before as number,
+          after: p.after as number,
+          timeout: p.timeout as number,
+          sample: p.sample as boolean,
+          devtools: p.devtools as boolean,
+          write: p.write as boolean,
+          // Headless: run the frames here, letting GPU readbacks land between them.
+          step: manual
+            ? async () => {
+                app.update(1 / app.fixedHz)
+                if (gpu) await new Promise((resolve) => setTimeout(resolve, 0))
+              }
+            : undefined,
+        }),
+      )
+    },
+  },
+  {
+    name: 'perf.reset',
+    description: "Clears the profiler's aggregates: perf.describe starts over.",
+    params: none,
+    handler: ({ world }) => {
+      world.resource(ProfilerResource).reset()
+      return null
     },
   },
   {
