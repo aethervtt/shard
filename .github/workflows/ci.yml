@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The full Windows suite runs on main and nightly; pull requests run its path-sensitive subset.
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -31,14 +35,21 @@ jobs:
 
       - run: pnpm lint
 
-      # Turbo's cache: packages whose inputs didn't change replay their last result.
-      - uses: actions/cache@v4
+      # Turbo's cache: packages whose inputs didn't change replay their last result. Restore and
+      # save are separate steps so a failed run still saves what passed (see the test jobs).
+      - uses: actions/cache/restore@v4
         with:
           path: .turbo/cache
           key: turbo-check-${{ github.sha }}
           restore-keys: turbo-check-
 
       - run: pnpm typecheck
+
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .turbo/cache
+          key: turbo-check-${{ github.sha }}
 
   test:
     name: Test ${{ matrix.shard }}/4
@@ -64,8 +75,10 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # One cache per runner: each holds the results of the files that runner ran.
-      - uses: actions/cache@v4
+      # One cache per runner: each holds the results of the files that runner ran. It's saved even
+      # when the run fails: actions/cache saves only on success, so one failure on main left later
+      # runs restoring an older cache that matched nothing, and rerunning every test.
+      - uses: actions/cache/restore@v4
         with:
           path: .turbo/cache
           key: turbo-test-${{ matrix.shard }}-${{ github.sha }}
@@ -77,7 +90,9 @@ jobs:
       # examples run through `shard test`, which doesn't split, so they run on runner 1 only. The
       # playground's browser tests run in the browser job.
       # --continue: report every failing package, not just the first.
+      # The timeout is on the step, not the job, so the cache still saves after it.
       - name: Run this runner's tests
+        timeout-minutes: 25
         run: |
           if [ "${{ matrix.shard }}" = 1 ]; then
             pnpm test --continue --filter='!@aethervtt/shard-playground'
@@ -88,13 +103,21 @@ jobs:
           SHARD_CI: '1'
           SHARD_TEST_SHARD: ${{ matrix.shard }}/4
 
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .turbo/cache
+          key: turbo-test-${{ matrix.shard }}-${{ github.sha }}
+
   # The same tests on Windows: paths, drive letters, and .cmd shims break there and nowhere else.
-  # Hosted Windows runners have no GPU; Dawn renders on WARP, D3D12's software rasterizer.
+  # Hosted Windows runners have no GPU; Dawn renders on WARP, D3D12's software rasterizer, which
+  # makes the full suite about 4.5 hours of test time. Pull requests run the packages that use the
+  # file system, paths, processes, or workers (about 25 minutes of it); main and the nightly run
+  # everything, so a Windows-only rendering bug shows up there rather than in the PR.
   test-windows:
     name: Test Windows ${{ matrix.shard }}/4
     runs-on: windows-latest
-    # WARP rasterizes on the runner's 4 cores; tighten once real run times are known.
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -114,7 +137,7 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         with:
           path: .turbo/cache
           key: turbo-test-windows-${{ matrix.shard }}-${{ github.sha }}
@@ -123,8 +146,15 @@ jobs:
       # As the Linux runners, with SHARD_DAWN_OPTIONS naming the adapter: a runner that has no WARP
       # fails at the first GPU test instead of quietly rendering on something else.
       - name: Run this runner's tests
+        timeout-minutes: 50
         run: |
-          if [ "${{ matrix.shard }}" = 1 ]; then
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            set -f # the filters hold globs for turbo, not the shell
+            filters=""
+            for pkg in $WINDOWS_PR_PACKAGES; do filters="$filters --filter=$pkg"; done
+            if [ "${{ matrix.shard }}" = 1 ]; then filters="$filters --filter=./examples/*"; fi
+            pnpm test --continue $filters
+          elif [ "${{ matrix.shard }}" = 1 ]; then
             pnpm test --continue --filter='!@aethervtt/shard-playground'
           else
             pnpm test --continue --filter='!./examples/*' --filter='!@aethervtt/shard-playground'
@@ -133,11 +163,25 @@ jobs:
           SHARD_CI: '1'
           SHARD_TEST_SHARD: ${{ matrix.shard }}/4
           SHARD_DAWN_OPTIONS: adapter=Microsoft Basic Render Driver
+          # Packages whose code or tests use the file system, paths, processes, or workers.
+          WINDOWS_PR_PACKAGES: >-
+            @aethervtt/shard-cli @aethervtt/shard-node @aethervtt/shard-platform-node
+            @aethervtt/shard-assets @aethervtt/shard-project @aethervtt/shard-scene
+            @aethervtt/shard-procgen @aethervtt/shard-protocol @aethervtt/shard-verify
+            @aethervtt/shard-physics @aethervtt/shard-dice
+
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .turbo/cache
+          key: turbo-test-windows-${{ matrix.shard }}-${{ github.sha }}
 
   # The playground's browser tests (browser.yml), with a curated set of demos on both backends; its
   # nightly run covers every demo.
   browser:
     name: Browser
+    # browser.yml runs every demo nightly on its own schedule.
+    if: github.event_name != 'schedule'
     uses: ./.github/workflows/browser.yml
     with:
       demos: curated

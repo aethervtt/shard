@@ -284,8 +284,11 @@ describe('the max fixture', () => {
       return times[times.length >> 1]!
     }
     // Interleaved rounds, compared within each: a laptop's clocks drift more than 5% over a run.
+    // Only the bench checks the ratio, so elsewhere one round covers the rest (it's 40 minutes of
+    // WARP on CI's Windows runners at eight).
+    const rounds = timingMode === 'bench' ? 8 : 1
     const ratios: number[] = []
-    for (let round = 0; round < 8; round++) {
+    for (let round = 0; round < rounds; round++) {
       world.set(r.camera, CutawayView, { points: [] })
       await settle(r.app, 3)
       const none = await frameMs(9)
@@ -294,7 +297,8 @@ describe('the max fixture', () => {
       ratios.push((await frameMs(9)) / none)
     }
     ratios.sort((a, b) => a - b)
-    const ratio = (ratios[3]! + ratios[4]!) / 2
+    const mid = ratios.length >> 1
+    const ratio = ratios.length % 2 ? ratios[mid]! : (ratios[mid - 1]! + ratios[mid]!) / 2
     console.log(
       `max fixture, 1280×720: 16 reveal points cost ${((ratio - 1) * 100).toFixed(1)}% GPU time`,
     )

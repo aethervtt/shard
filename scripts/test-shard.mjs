@@ -2,8 +2,9 @@
 // package's vitest config includes only the test files assigned to that runner; without it,
 // everything runs.
 //
-// The slow files in test-weights.json are spread so every runner gets about the same time
-// (longest first, each to the least-loaded runner). Every other file goes by a hash of its path.
+// The slow files in test-weights.json (`files`, and `windows` on Windows) are spread so every
+// runner gets about the same time (longest first, each to the least-loaded runner). Every other
+// file goes by a hash of its path.
 // A file's runner depends only on its own path and test-weights.json, never on which other files
 // exist, so turbo's cached result for a package stays valid for the files it ran.
 
@@ -23,9 +24,13 @@ function parse(spec) {
   return { index, count }
 }
 
-/** Runner (1-based) of each weighted file. */
+/**
+ * Runner (1-based) of each weighted file. Windows renders on WARP, which is slow in different
+ * places than Linux's lavapipe, so it has its own table.
+ */
 function weighted(count) {
-  const { files } = JSON.parse(readFileSync(join(repo, 'scripts/test-weights.json'), 'utf8'))
+  const weights = JSON.parse(readFileSync(join(repo, 'scripts/test-weights.json'), 'utf8'))
+  const files = process.platform === 'win32' && weights.windows ? weights.windows : weights.files
   const load = new Array(count).fill(0)
   const out = new Map()
   const sorted = Object.entries(files).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
