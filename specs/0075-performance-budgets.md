@@ -2,8 +2,10 @@
 
 - **Status:** accepted
 - **Packages:** `@aethervtt/shard-core` (test-env), `@aethervtt/shard-runtime`, `@aethervtt/shard-render`,
-  `@aethervtt/shard-protocol`, `@aethervtt/shard-verify`, `apps/cli`, `apps/playground`, `bench/`
-- **Depends on:** 0022, 0043, 0051, 0062, 0074
+  `@aethervtt/shard-protocol`, `@aethervtt/shard-verify`, `@aethervtt/shard-platform-node`,
+  `@aethervtt/shard-node`, `@aethervtt/shard-scatter`, `@aethervtt/shard-terrain`,
+  `@aethervtt/shard-structure`, `apps/cli`, `apps/playground`, `bench/`
+- **Depends on:** 0022, 0043, 0045, 0051, 0055, 0062, 0074
 
 ## Context
 
@@ -96,9 +98,10 @@ a pinned render scale (0051) and a target frame rate. The first set:
       "resolution": [1920, 1080], "renderScale": 1, "fps": 60,
       "frame": { "gpu": { "laptop": 16.6, "desktop": 8.3 }, "cpu": { "laptop": 8, "desktop": 6 } },
       "slices": {
-        "gpu": { "gpu:forward-opaque": 0.30, "gpu:shadows": 0.15, "gpu:terrain": 0.12,
-                 "gpu:foliage": 0.12, "gpu:post": 0.12, "headroom": 0.19 },
-        "cpu": { "render": 0.15, "terrain": 0.15, "scatter": 0.15, "headroom": 0.55 }
+        "gpu": { "gpu:forward-opaque": 0.35, "gpu:foliage": 0.15, "gpu:shadows": 0.15,
+                 "gpu:tonemap": 0.05, "headroom": 0.30 },
+        "cpu": { "render": 0.30, "scatter": 0.10, "terrain/select": 0.10,
+                 "terrain/planets": 0.05, "headroom": 0.45 }
       }
     }
   }
@@ -112,11 +115,12 @@ a pinned render scale (0051) and a target frame rate. The first set:
   `"overrides": { "desktop": { "gpu": { "gpu:terrain": 2.1 } } }`.
 - Slices plus `headroom` must sum to 1. `pnpm bench` fails a scenario whose slices don't, and
   reports any slice whose measured share is over.
-- Until part B measures them, `scatter-walk` has the split above and the other scenarios only
-  their frame, with `headroom: 1`.
+- Every scenario's slice keys cover spans its fixture records, and no span twice (see "As built,
+  part B"). The fractions are proposals, each with a note, until measurements on both machines
+  set them.
 - Slice keys are span names or prefixes (0074's automatic span names, and the rule for what a key
   covers). `gpu:foliage` covers every `gpu:foliage/*` span. A GPU slice is a share of `gpu:frame`
-  and a CPU slice a share of `frame`.
+  and a CPU slice a share of `frame`. Spans a slice doesn't cover fall in `headroom`.
 
 ### Kinds of budget
 
@@ -215,7 +219,7 @@ expect(p95(gpuShare)).toBeLessThan(budget('scatter-walk', { slice: 'gpu:foliage'
 ### Agent surface
 
 - `perf.budgets { scenario? }`: the detected machine, the resolved budgets, and the latest
-  measurements against each, over budget first.
+  measurements against each, over budget first. MCP tool `describe_budgets`.
 - `perf.ablate` as above. MCP tool `ablate_passes`.
 - `pnpm bench` writes `bench/perf/report.json` (budget, measured and verdict per key) like the size
   report, and `pnpm bench --scenario scatter-walk` runs one scenario: the tests named
@@ -246,17 +250,126 @@ expect(p95(gpuShare)).toBeLessThan(budget('scatter-walk', { slice: 'gpu:foliage'
       another machine it runs, reports, and passes.
 - [x] No `budget(<number>)` call remains (`scripts/budget-literals.mjs` reports zero).
 - [ ] Every scenario's slices sum to 1, and `bench/perf/report.json` lists each slice's measured
-      share on both machines.
+      share on both machines. (The slices sum to 1, `perf/slices-overflow` otherwise, and the report
+      gives each slice its measured share from the scenario tests' records,
+      `bench/perf/src/perf.test.ts`; the shares are still to measure under `pnpm bench` on both
+      machines.)
 - [ ] On the laptop, `perf.describe` marks the scatter page's pass times overlapping, and the HUD
       stops ranking them. `perf.ablate` gives the gizmo, upscale and tonemap passes costs that
-      sum to within 15% of `gpu:frame` with all three disabled together.
-- [ ] Ablating any node of the scatter page's graph raises no validation error, and the frames
-      after `perf.ablate` returns match the frames before it. (Headless on Dawn this holds for
-      every node of a forward graph with SSAO and bloom, `render/src/ablation.test.ts`; the
-      scatter page itself is still to check.)
+      sum to within 15% of `gpu:frame` with all three disabled together. (`overlapping`, the
+      overlay's grey unranked passes and the HUD's lines are built and tested headless,
+      `runtime/src/budgets.test.ts` and `render/src/perf-overlay.test.ts`; the page on the laptop
+      and the 15% are still to check.)
+- [x] Ablating any node of the scatter page's graph raises no validation error, and the frames
+      after `perf.ablate` returns match the frames before it. Headless on Dawn with the page's
+      graph (the test planet's forest, props, `foliage/draw`, 4× MSAA, render scale 0.5 upscaled,
+      the perf overlay's gizmos): `scatter/src/ablation.test.ts`; and every node of a forward graph
+      with SSAO and bloom, `render/src/ablation.test.ts`.
 - [ ] 0045's foliage holds its `scatter-walk` slice on the laptop at 1080p (p95 over the walk),
-      thinning density to do it, and goes back to full density on the desktop if it fits.
+      thinning density to do it, and goes back to full density on the desktop if it fits. (The
+      controller converges under its target, recovers and holds still against a fake GPU,
+      `render/src/foliage-budget.test.ts`; the walk at 1080p runs under `pnpm bench`,
+      `scatter/src/scenario.test.ts`.)
 - [x] No spec mentions an undefined reference machine.
+
+## As built, part B
+
+- **Scenario tests over captures.** `measureScenario(world, name, { frames, step })` and
+  `expectScenario(run, expect)` (`@aethervtt/shard-render/testing`, `render/src/scenario.ts`) run a
+  fixture's camera path through `capturePerf(world, { keep: true, trace: false })`, which now hands
+  back the `Capture`. Each slice of the scenario (`scenarioSlices(name)` in test-env, `headroom`
+  aside) is `Capture.spanTime(key)` per frame; GPU numbers count the frames whose GPU timings
+  landed. `pnpm test` checks the capture ran and every slice key covers a span that ran (GPU slices
+  where the device has `timestamp-query`). Under `pnpm bench` the frame's p95 goes against
+  `budget(name, { track })` and each slice's against `budget(name, { slice, track })`, as soft
+  assertions so every one is recorded. On a machine whose `passTiming` is `ablation`
+  (`passTiming()` in test-env, from machines.json through `SHARD_BUDGETS`), GPU slices are
+  measured by ablation instead: `ablatePasses`' new `groups` disables, per slice, every node whose
+  `gpu:<node>` its key covers (60 frames × 3 rounds, at the path's last frame).
+- **The fixtures**, reused rather than rebuilt; 1920×1080 at render scale 1 under the bench, 320×180
+  and a few frames in `pnpm test`:
+
+  | Scenario | Test | Path |
+  |---|---|---|
+  | `scatter-walk` | `scatter/src/scenario.test.ts` | scatter's test planet (star-explorer's biome sets), its forest walked east at 3 m/s and head height for 15 s, shadowed sun, `App.perfScenario` declared |
+  | `crowd` | `render/src/crowd.test.ts` | 0022's crowd, now `spawnCrowd` in `@aethervtt/shard-render/crowd` (the playground's #crowd page uses it too), on its 2.86°/s turntable for 10 s |
+  | `planet-descent` | `terrain/src/scenario.test.ts` | 0043's Earth descent (`earthDescent`, `EARTH_HEIGHT` in terrain's testing, shared with `budget.test.ts`): 40 000 km to 2 m in 30 s, then 2 s on the ground |
+  | `tabletop-max` | `structure/src/scenario.test.ts` | 0055's `maxScene` under a shadowed sun, panned 160 m at 40 m up for 10 s |
+
+- **Spans each records** (`pnpm test`, Metal Dawn), beside `frame`, `gpu:frame`, the schedules
+  and every `render/*` system and node encode:
+  - `scatter-walk`: `gpu:forward-opaque`, `gpu:foliage/place`, `gpu:foliage/cull`,
+    `gpu:foliage/draw`, `gpu:shadows/cascade0`–`3`, `gpu:instance-cull`, `gpu:light-clusters`,
+    `gpu:tonemap`, `gpu:span/post`; `scatter/props`, `terrain/select`, `terrain/planets`,
+    `foliage/place`, `core/transform-propagate`, `transform/recenter`, `scene/instances`,
+    `worker/sample`. A longer walk adds `gpu:terrain/generate` and `terrain/encode`.
+  - `crowd`: `gpu:forward-opaque`, `gpu:shadows/cascade0`–`3`, `gpu:instance-cull`,
+    `gpu:light-clusters`, `gpu:tonemap`, `gpu:span/post`; `core/transform-propagate`.
+  - `planet-descent`: `gpu:forward-opaque`, `gpu:terrain/generate`, `gpu:instance-cull`,
+    `gpu:light-clusters`, `gpu:tonemap`, `gpu:span/post`; `terrain/encode` (inside
+    `render/terrain/generate`), `terrain/select`, `terrain/planets`.
+  - `tabletop-max`: `gpu:forward-opaque`, `gpu:forward-transparent`, `gpu:shadows/cascade0`–`3`,
+    `gpu:instance-cull`, `gpu:light-clusters`, `gpu:tonemap`, `gpu:span/post`; `structure/compile`,
+    `structure/doors`.
+- **Slice keys** (`budgets.json`, fractions proposed, each scenario's `note` says what it covers):
+  terrain draws in `forward-opaque`, so its old `gpu:terrain` slice is generation only
+  (`planet-descent` keeps it; in `scatter-walk` it falls in headroom with `instance-cull` and
+  `light-clusters`). No scenario has a post stack, so `gpu:post` became `gpu:tonemap`. CPU
+  `terrain` would cover `terrain/encode` inside `render/terrain/generate`, which `render` covers, so
+  the terrain slices are `terrain/select` and `terrain/planets`. `gpu:span/*` groups are never a
+  slice (they repeat their passes).
+
+  | Scenario | GPU | CPU |
+  |---|---|---|
+  | `scatter-walk` | `gpu:forward-opaque` 0.35, `gpu:foliage` 0.15, `gpu:shadows` 0.15, `gpu:tonemap` 0.05, headroom 0.30 | `render` 0.30, `scatter` 0.10, `terrain/select` 0.10, `terrain/planets` 0.05, headroom 0.45 |
+  | `crowd` | `gpu:forward-opaque` 0.40, `gpu:shadows` 0.30, `gpu:instance-cull` 0.05, `gpu:tonemap` 0.05, headroom 0.20 | `render` 0.30, headroom 0.70 |
+  | `planet-descent` | `gpu:forward-opaque` 0.45, `gpu:terrain` 0.15, `gpu:tonemap` 0.05, headroom 0.35 | `render` 0.35, `terrain/select` 0.10, `terrain/planets` 0.05, headroom 0.50 |
+  | `tabletop-max` | `gpu:forward-opaque` 0.35, `gpu:forward-transparent` 0.10, `gpu:shadows` 0.20, `gpu:tonemap` 0.05, headroom 0.30 | `render` 0.30, `structure` 0.15, headroom 0.55 |
+
+- **The report.** Each scenario slice in `bench/perf/report.json` has its budget (ms) and share,
+  `measured` (the worst p95 a scenario test recorded), `measuredShare` (over the frame's recorded
+  p95) and a verdict. Headroom is the frame less every slice, a floor. A share over its budget's
+  joins `over` (as `<scenario>:<track>:<slice>`) even where its ms fit, since the split holds on
+  every machine.
+- **Overlapping pass times.** `gpuPassOverlap(profiler)` (runtime) sums the averages of single
+  passes (`gpu:<node>`, not `gpu:frame` or the `gpu:span/*` groups) against `gpu:frame`'s;
+  `perf.describe`'s `gpu` gains `overlapping`, and `passesMs` and a note when it's true. The perf
+  overlay then leaves passes out of its ranking and lists four by name in grey, marked
+  "overlapping", or by the latest ablation once one ran. `ablatePasses` keeps that result in
+  `PassCosts` (render), which `perf.describe` lists as `ablation` and the playground HUD reads; the
+  HUD adds the overlap in grey with the ablation's ranking or a pointer to `perf.ablate`.
+- **`perf.budgets`.** `describeBudgets(world, { scenario? })` (runtime) and MCP `describe_budgets`.
+  Machine detection is pnpm bench's rule (`detectPerfMachine`): the CPU model the host gives and
+  the adapter's identity (`PerfProviders.adapter`, which the render plugin sets). Budgets reach an
+  app as data, `PerfBudgets { machines, budgets, source, cpu?, machine? }`: Node hosts
+  (`openProject`, so `shard mcp` and `shard profile`) load them with `loadPerfBudgets(root)`
+  (platform-node: the project's `perf/`, else a `bench/perf/` above it) with `os.cpus()` and
+  `SHARD_MACHINE`; `shard dev` sends them in its project info without a CPU model; the playground
+  imports them through Vite (`?machine=laptop`, `?scenario=scatter-walk`). A page can't read its
+  CPU model, so it gets `machine: null` and `perf/unknown-machine` unless one is named; numbers are
+  then the closest machine's and verdicts `unbudgeted`. Span keys are measured by their p95 over
+  the profiler's window (not units, rates or `in` keys); slices by the averages of the spans a key
+  covers, a span inside another covered span counted once (`Profiler.parentOf`, the span open
+  around a span's latest sample). No budgets: `perf/no-budgets`. An unknown scenario:
+  `perf/unknown-budget`.
+- **The overlay's slices.** With `App.perfScenario` set (also `AppOptions.perfScenario` and the
+  host-writable `PerfScenario` resource), the perf overlay lists each slice's measured share of
+  the frame against its share, red when over, grey when unmeasured; refreshed four times a second
+  like the rest of it.
+- **Foliage adapts.** `FoliageBudget { ms, minDetail }` (render, host-writable) with `target`,
+  `measuredMs` and `detail` to read. The target is `ms`, else the `gpu:foliage` slice of the app's
+  scenario on the detected machine, else none (full detail, nothing happens). `CoveredGpuTime`
+  sums the `gpu:foliage/*` passes that landed with each new `gpu:frame` sample (by id, through the
+  profiler's new `runsOf` and `lastOf`), and `FoliageController` steers like 0043's LOD bias: an
+  exponential average (0.15), down 1% a GPU frame over the target, up 0.5% under 85% of it, holding
+  between, down to `minDetail` (0.1). Density is the detail's square root and range its fourth
+  root. Neither allocates per frame. For foliage to have GPU time of its own, forward cameras now
+  draw it in a `foliage/draw` pass after `forward-opaque` (the cull's `ranges.w` is the density
+  factor, 1 at full detail, so full-detail output is unchanged; goldens pass). On tile-based GPUs
+  that pass's timestamps overlap like any other, so there the controller reads a high number.
+- Open: everything that needs `pnpm bench` (both machines' detection and reports, measured
+  shares, scenario and foliage budgets at 1080p, the splits set from measurements) and the
+  laptop's browser (the scatter page's overlap and the ablation within 15%).
 
 ## Open questions
 

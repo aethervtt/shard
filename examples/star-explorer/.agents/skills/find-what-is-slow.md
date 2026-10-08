@@ -5,6 +5,10 @@ GPU passes (`gpu:<node>`), worker jobs and asset loads are spans.
 
 - On average: `describe_perf` (or `shard profile`'s top spans) lists last, avg, p95 and max ms per
   span over 120 frames. `{ "spans": ["render"] }` keeps the spans a key covers.
+- Against a budget: `describe_budgets` names the machine, lists every budget with its latest p95
+  (over budget first), and splits a scenario's frame into slices, each measured share next to
+  its budget share. Where `describe_perf` says `"overlapping": true` (Apple and other tile GPUs),
+  pass times don't add up: `ablate_passes` measures what each pass costs.
 - A stutter: `capture_perf { "frames": 300 }`, or a flight recorder that waits for one:
   `{ "until": { "frameMs": 30 } }`. Read `worst`: each slow frame lists `over`, the spans that ran
   longest above their median there. The first one is the lead.
