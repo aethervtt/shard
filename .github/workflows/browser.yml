@@ -33,8 +33,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Vitest splits the test files across the runners: one each today, every one of them minutes
-        # long on a software GPU.
+        # The test files split across the runners by their CI times (`browser` in
+        # scripts/test-weights.json), every one of them minutes long on a software GPU.
         shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@v4
@@ -67,10 +67,11 @@ jobs:
       # a missing adapter fails the job instead of skipping the tests. Timing checks hold under
       # `pnpm bench` only, as everywhere else in CI.
       - name: Run the browser tests
-        run: xvfb-run -a pnpm --filter @aethervtt/shard-playground test --shard=${{ matrix.shard }}/3
+        run: xvfb-run -a pnpm --filter @aethervtt/shard-playground test
         env:
           SHARD_CI: '1'
           SHARD_BROWSER_TESTS: required
+          SHARD_TEST_SHARD: ${{ matrix.shard }}/3
           SHARD_BROWSER_HEADED: '1'
           SHARD_DEMOS: ${{ inputs.demos || 'all' }}
           VK_DRIVER_FILES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json

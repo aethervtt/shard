@@ -1,5 +1,5 @@
 {
-  "note": "Seconds per test file on a CI runner, for splitting tests across runners (scripts/test-shard.mjs). `files`: Linux (software GPU); `windows`: Windows, which renders on WARP and is slow in different places. Files not listed split by path. Refresh from a CI log when the split drifts.",
+  "note": "Seconds per test file on a CI runner, for splitting tests across runners (scripts/test-shard.mjs). `files`: Linux (software GPU); `windows`: Windows, which renders on WARP and is slow in different places; `browser`: the browser job's three runners (browser.yml), Chromium on lavapipe. Files not listed split by path. Refresh from a CI log when the split drifts.",
   "files": {
     "packages/terrain/src/detail.test.ts": 616,
     "packages/terrain/src/budget.test.ts": 526,
@@ -182,5 +182,11 @@
     "packages/texture/src/texture.test.ts": 5,
     "packages/ui/src/theme.test.ts": 5,
     "packages/ui/src/ui.test.ts": 5
+  },
+  "browser": {
+    "apps/playground/src/demos.test.ts": 345,
+    "apps/playground/src/verify.test.ts": 327,
+    "apps/playground/src/webgl2.test.ts": 198,
+    "apps/playground/src/perf.test.ts": 109
   }
 }

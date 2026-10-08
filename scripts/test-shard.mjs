@@ -2,7 +2,8 @@
 // package's vitest config includes only the test files assigned to that runner; without it,
 // everything runs.
 //
-// The slow files in test-weights.json (`files`, and `windows` on Windows) are spread so every
+// The slow files in test-weights.json (`files`, `windows` on Windows, and `browser` for the
+// browser job, SHARD_BROWSER_TESTS) are spread so every
 // runner gets about the same time (longest first, each to the least-loaded runner). Every other
 // file goes by a hash of its path.
 // A file's runner depends only on its own path and test-weights.json, never on which other files
@@ -26,11 +27,17 @@ function parse(spec) {
 
 /**
  * Runner (1-based) of each weighted file. Windows renders on WARP, which is slow in different
- * places than Linux's lavapipe, so it has its own table.
+ * places than Linux's lavapipe, so it has its own table. So does the browser job: its files run
+ * in Chromium only there (elsewhere they skip in moments), on runners of their own.
  */
 function weighted(count) {
   const weights = JSON.parse(readFileSync(join(repo, 'scripts/test-weights.json'), 'utf8'))
-  const files = process.platform === 'win32' && weights.windows ? weights.windows : weights.files
+  const files =
+    process.env.SHARD_BROWSER_TESTS && weights.browser
+      ? weights.browser
+      : process.platform === 'win32' && weights.windows
+        ? weights.windows
+        : weights.files
   const load = new Array(count).fill(0)
   const out = new Map()
   const sorted = Object.entries(files).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
