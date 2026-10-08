@@ -25,6 +25,7 @@ export {
   type PerfProvidersData,
   type PerfSampler,
   type PerfSamples,
+  perfBreakdown,
   perfMemory,
 } from './perf'
 export { definePlugin, type Plugin } from './plugin'

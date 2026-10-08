@@ -170,7 +170,7 @@ describe('shard perf-check (0062)', () => {
       records: 1,
       breaches: [{ value: 12, budget: 'max 10' }],
     })
-    write(join(dir, 'records/bad.json'), JSON.stringify({ ...record, version: 2 }))
+    write(join(dir, 'records/bad.json'), JSON.stringify({ ...record, version: 3 }))
     await expect(perfCheck(plan, [join(dir, 'records')])).rejects.toMatchObject({
       code: 'verify/invalid-record',
     })

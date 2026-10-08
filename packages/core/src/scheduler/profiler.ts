@@ -130,6 +130,8 @@ export interface SystemTiming {
 export interface SpanAggregate extends SystemTiming {
   span: string
   track: TrackName
+  /** Median over the window, in ms. */
+  p50: number
   /** 95th percentile over the window, in ms. */
   p95: number
   /** Under four steps of the clock: the numbers are mostly its resolution. */
@@ -441,6 +443,7 @@ export class Profiler {
       span: name,
       track: trackName(spanTracks[id]!),
       ...timing,
+      p50: sorted[Math.min(sorted.length - 1, Math.floor(0.5 * sorted.length))]!,
       p95: sorted[Math.min(sorted.length - 1, Math.floor(0.95 * sorted.length))]!,
     }
     const resolution = this.clock.resolutionMs

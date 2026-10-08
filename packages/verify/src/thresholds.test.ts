@@ -86,3 +86,85 @@ describe('checkThresholds (0062)', () => {
     expect(breaches[0]).toMatchObject({ metric: 'frameTime.gpuP95', value: undefined })
   })
 })
+
+const span = (name: string, p95: number, track: 'main' | 'gpu' = 'main') => ({
+  span: name,
+  track,
+  calls: 120,
+  total: p95 * 60,
+  p50: p95 / 2,
+  p95,
+  max: p95 * 1.5,
+})
+
+/** A version 2 record (0074) with a breakdown. */
+function withBreakdown(renderer: string, spawnP95: number, opaqueP95: number): PerfRecord {
+  return {
+    ...record(renderer, { p95: 12, patch: 25, longest: 20 }),
+    version: 2,
+    breakdown: {
+      cpu: [span('partition/spawn', spawnP95), span('render/forward-opaque', 1.2)],
+      gpu: [span('gpu:forward-opaque', opaqueP95, 'gpu')],
+    },
+  }
+}
+
+describe('span thresholds (0074)', () => {
+  it('fails a record whose partition/spawn p95 is over its threshold, naming the span', () => {
+    const spans: Thresholds = {
+      'tabletop-pan': {
+        spans: [
+          { span: 'partition/spawn', p95: 2 },
+          { span: 'gpu:forward-opaque', max: 9 },
+        ],
+      },
+    }
+    const ok = checkThresholds([withBreakdown('shard@abc', 1.5, 3)], spans)
+    expect(ok).toMatchObject({ pass: true, checked: 2 })
+    const { pass, breaches } = checkThresholds([withBreakdown('shard@abc', 2.6, 3)], spans)
+    expect(pass).toBe(false)
+    expect(breaches).toEqual([
+      expect.objectContaining({
+        span: 'partition/spawn',
+        metric: 'span:partition/spawn.p95',
+        value: 2.6,
+        budget: 'p95 2',
+        message: 'tabletop-pan span partition/spawn (shard@abc): p95 2.6 ms is over 2 ms',
+      }),
+    ])
+  })
+
+  it('fails a span budget on a version 1 record, which has no breakdown', () => {
+    const { breaches } = checkThresholds(
+      [record('shard@abc', { p95: 12, patch: 25, longest: 20 })],
+      {
+        'tabletop-pan': { spans: [{ span: 'partition/spawn', p95: 2 }] },
+      },
+    )
+    expect(breaches[0]!.message).toBe(
+      'tabletop-pan span partition/spawn (shard@abc): the record has no breakdown (version 1)',
+    )
+  })
+
+  it('lists the spans that grew the most when a record fails against its baseline', () => {
+    const before = withBreakdown('shard@base', 0.4, 3)
+    const after = {
+      ...withBreakdown('shard@abc', 6, 3.5),
+      frameTime: { p50: 8, p95: 18, p99: 20, n: 1 },
+    }
+    const { breaches } = checkThresholds([before, after], {
+      'tabletop-pan': { 'frameTime.p95': { maxRatioTo: 'shard', ratio: 1.1 } },
+    })
+    // The baseline renderer is "shard" too, so the base record isn't a subject: compare by hand.
+    expect(breaches).toEqual([])
+    const shard = { ...after, renderer: 'next@abc' }
+    const result = checkThresholds([before, shard], {
+      'tabletop-pan': { 'frameTime.p95': { maxRatioTo: 'shard', ratio: 1.1 } },
+    })
+    expect(result.breaches[0]!.grew).toEqual([
+      { span: 'partition/spawn', p95: 6, baselineP95: 0.4 },
+      { span: 'gpu:forward-opaque', p95: 3.5, baselineP95: 3 },
+    ])
+    expect(result.breaches[0]!.message).toContain('grew most: partition/spawn 0.4 → 6 ms')
+  })
+})

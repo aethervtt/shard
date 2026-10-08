@@ -26,6 +26,8 @@ export {
   type PlanShot,
   type PlanStep,
   parsePlan,
+  type ScenarioThresholds,
+  type SpanThreshold,
   shotId,
   type ThresholdRule,
   type Thresholds,
@@ -46,4 +48,4 @@ export {
   type CapturedShot,
   type CaptureManifest,
 } from './run'
-export { type Breach, checkThresholds, type PerfCheck } from './thresholds'
+export { type Breach, checkThresholds, type PerfCheck, spansThatGrew } from './thresholds'

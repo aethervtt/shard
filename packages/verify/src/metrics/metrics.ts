@@ -16,6 +16,7 @@ import {
   definePlugin,
   FrameDemand,
   type Plugin,
+  perfBreakdown,
 } from '@aethervtt/shard-runtime'
 import type { PerfDevice, PerfRecord } from '../record'
 import { distribution, percentile, round, SampleRing } from '../stats'
@@ -179,7 +180,7 @@ export class Metrics {
     const device = this.app.world.tryResource(Gpu)
     const memory = device?.memory() ?? { bytes: 0, byCategory: {} }
     return {
-      version: 1,
+      version: 2,
       renderer: meta.renderer ?? this.renderer,
       fixture: meta.fixture,
       scenario: meta.scenario,
@@ -204,6 +205,7 @@ export class Metrics {
       longTasks: { count: tasks.length, totalMs: round(totalMs), maxMs: round(maxMs) },
       gpuMemory: { bytes: memory.bytes, byCategory: memory.byCategory as Record<string, number> },
       download: this.performance?.downloads?.() ?? { transferred: 0, decoded: 0 },
+      breakdown: perfBreakdown(this.app.world),
     }
   }
 
@@ -248,7 +250,7 @@ export const metricsMethods: AppMethod[] = [
   {
     name: 'metrics.record',
     description:
-      'A performance record (spec 0062) of the running app: cold start, first usable frame, patch-to-frame latency, frame times, long tasks, GPU memory, and downloads, over the window since metrics.reset (at most 30 s).',
+      'A performance record (spec 0062) of the running app: cold start, first usable frame, patch-to-frame latency, frame times, long tasks, GPU memory, downloads, and the breakdown (0074: the 10 CPU and GPU spans with the highest p95), over the window since metrics.reset (at most 30 s).',
     params: defineSchema('verify/MetricsRecordParams', {
       fixture: t.string({ required: true, description: 'What was loaded, e.g. "tabletop-small".' }),
       scenario: t.string({ required: true, description: 'What ran, e.g. "tabletop-pan".' }),

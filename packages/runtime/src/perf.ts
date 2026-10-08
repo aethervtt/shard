@@ -10,6 +10,7 @@ import {
   ProfilerResource,
   ShardError,
   type SpanAggregate,
+  type SpanStats,
   spanCovers,
   TRACK,
   trackName,
@@ -79,6 +80,7 @@ function rounded(a: SpanAggregate) {
     span: a.span,
     last: r3(a.last),
     avg: r3(a.avg),
+    p50: r3(a.p50),
     p95: r3(a.p95),
     max: r3(a.max),
     samples: a.samples,
@@ -209,6 +211,32 @@ export interface PerfCaptureResult {
 /** A file-name stamp: 2026-10-07T12-30-05-123Z. */
 export function captureStamp(date = new Date()): string {
   return date.toISOString().replace(/[:.]/g, '-')
+}
+
+/**
+ * The spans with the highest p95 over the profiler's window, for perf records (0062's version 2):
+ * CPU (main thread, workers, async) and GPU, `frame` and `gpu:frame` aside.
+ */
+export function perfBreakdown(world: World, limit = 10): { cpu: SpanStats[]; gpu: SpanStats[] } {
+  const profiler = world.resource(ProfilerResource)
+  const cpu: SpanStats[] = []
+  const gpu: SpanStats[] = []
+  for (const name of profiler.names()) {
+    if (name === 'frame' || name === 'gpu:frame') continue
+    const a = profiler.stats(name)!
+    const stats: SpanStats = {
+      span: name,
+      track: a.track,
+      calls: a.samples,
+      total: r3(a.avg * a.samples),
+      p50: r3(a.p50),
+      p95: r3(a.p95),
+      max: r3(a.max),
+    }
+    ;(a.track === 'gpu' ? gpu : cpu).push(stats)
+  }
+  const order = (x: SpanStats, y: SpanStats) => y.p95 - x.p95 || (x.span < y.span ? -1 : 1)
+  return { cpu: cpu.sort(order).slice(0, limit), gpu: gpu.sort(order).slice(0, limit) }
 }
 
 const gcNames = new Map<string, string>()
