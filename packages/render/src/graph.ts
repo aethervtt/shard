@@ -313,6 +313,8 @@ export class RenderGraph {
   private readonly nodeSpans: SpanDef[] = []
   private nodeMs = new Float64Array(16)
   private nodeRan = new Uint8Array(16)
+  /** Nodes disabled for measurement (0075): see `ablate`. */
+  private readonly ablatedNodes = new Set<string>()
 
   constructor(gpu: GpuContext) {
     this.gpu = gpu
@@ -360,6 +362,32 @@ export class RenderGraph {
   /** Every node's name, in the order they were added. */
   nodeNames(): string[] {
     return [...this.nodes.keys()]
+  }
+
+  /**
+   * Disables nodes for measurement (0075's ablation), replacing the previous set; `[]` restores
+   * them. A disabled render or compute node still begins and ends its pass, with its attachments'
+   * clears, so the textures it writes stay valid for what reads them; only its `run` (its draws and
+   * dispatches) is skipped. A raw node, which begins its own passes, is skipped whole. The graph
+   * resolves as before: what the node fed still runs, on whatever its textures hold. The image is
+   * wrong while nodes are disabled. Throws `render/unknown-node` for a name the graph lacks.
+   */
+  ablate(names: Iterable<string>): void {
+    const next = [...names]
+    for (const name of next) {
+      if (!this.nodes.has(name)) {
+        throw new ShardError('render/unknown-node', `No render graph node "${name}"`, {
+          hint: `Nodes: ${this.nodeNames().join(', ')}.`,
+        })
+      }
+    }
+    this.ablatedNodes.clear()
+    for (const name of next) this.ablatedNodes.add(name)
+  }
+
+  /** The nodes `ablate` disabled. */
+  ablated(): string[] {
+    return [...this.ablatedNodes]
   }
 
   /** The data of a view rendered in the last frame. */
@@ -543,6 +571,8 @@ export class RenderGraph {
       for (let k = 0; k < order.length; k++) {
         const name = order[k]!
         const node = this.nodes.get(name)!
+        const ablated = this.ablatedNodes.size > 0 && this.ablatedNodes.has(name)
+        if (ablated && node.kind === 'raw') continue
         const t0 = profiler !== undefined ? profiler.now() : 0
         let renderPass: GPURenderPassEncoder | undefined
         let computePass: GPUComputePassEncoder | undefined
@@ -577,17 +607,19 @@ export class RenderGraph {
             timestampWrites: this.timer.allocate(name),
           })
         }
-        node.run({
-          gpu: this.gpu,
-          world,
-          view,
-          encoder,
-          renderPass,
-          computePass,
-          texture,
-          timestamps,
-          afterSubmit,
-        })
+        if (!ablated) {
+          node.run({
+            gpu: this.gpu,
+            world,
+            view,
+            encoder,
+            renderPass,
+            computePass,
+            texture,
+            timestamps,
+            afterSubmit,
+          })
+        }
         renderPass?.end()
         computePass?.end()
         if (profiler !== undefined) {

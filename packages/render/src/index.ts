@@ -1,4 +1,12 @@
 export {
+  type AblationDriver,
+  type AblationOptions,
+  type AblationResult,
+  ablatePasses,
+  type PassCost,
+  runAblation,
+} from './ablation'
+export {
   AssetStore,
   MaterialAsset,
   MaterialAssetType,
