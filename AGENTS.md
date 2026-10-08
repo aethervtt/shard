@@ -63,8 +63,12 @@ Write every timing assertion through `budget()`, `slack` or `allocationChecks` (
 A test that flakes in `pnpm test` is a bug: fix it, or skip it with an entry in `TODO.md`'s
 "Skipped tests" (what's known, the date, and the lead), never a local retry.
 CI splits test files across four runners (`SHARD_TEST_SHARD`, `scripts/test-shard.mjs`); a new test
-file that takes minutes there belongs in `scripts/test-weights.json` so the split stays even.
-The same four run on Windows too, rendering on WARP. Build paths with `node:path` and compare them
+file that takes minutes there belongs in `scripts/test-weights.json` (`windows` for Windows, whose
+WARP is slow in different places) so the split stays even. A test whose work only feeds a timing
+assertion does that work under `timingMode === 'bench'` only; CI checks correctness.
+Four Windows runners render on WARP: pull requests run the packages that use the file system,
+paths, processes, or workers (`WINDOWS_PR_PACKAGES` in `ci.yml`, so add a package there when it
+starts to), and main and the nightly job run everything. Build paths with `node:path` and compare them
 with `relative`, never a `/` prefix. `SHARD_DAWN_OPTIONS` (`;`-separated) passes Dawn options to Node
 GPU contexts: `adapter=Microsoft Basic Render Driver` renders on WARP locally, as CI's Windows job does.
 Vendored third-party code (`**/vendor`) and test fixtures (`**/fixtures`) aren't linted or edited.

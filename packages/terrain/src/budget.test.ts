@@ -1,4 +1,4 @@
-import { budget, timeout } from '@aethervtt/shard-core/test-env'
+import { budget, timeout, timingMode } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { loadNoiseKernel, NoiseGraph } from '@aethervtt/shard-noise'
@@ -52,8 +52,10 @@ describe('terrain budget (spec 0043)', () => {
     const n = [0.3, 0.9, 0.3].map((v, _, a) => v / Math.hypot(a[0]!, a[1]!, a[2]!))
     const east = [n[2]!, 0, -n[0]!].map((v, _, a) => v / Math.hypot(a[0]!, a[1]!, a[2]!))
     const ground = Math.max(0, heightAt(rt, n[0]!, n[1]!, n[2]!))
-    // 40 000 km to 2 m in 30 s: exponential, looking at the ground ahead.
-    const FRAMES = 1800
+    // 40 000 km to 2 m in 30 s: exponential, looking at the ground ahead. Outside the bench only the
+    // budget's limits are checked, and a 10 s descent reaches them as surely (it's 35 minutes of
+    // WARP on CI's Windows runners at 30 s).
+    const FRAMES = timingMode === 'bench' ? 1800 : 600
     const ratio = (2 / 4e7) ** (1 / FRAMES)
     const times: number[] = []
     const cpu: number[] = []
