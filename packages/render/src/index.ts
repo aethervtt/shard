@@ -4,6 +4,8 @@ export {
   type AblationResult,
   ablatePasses,
   type PassCost,
+  PassCosts,
+  type PassCostsData,
   runAblation,
 } from './ablation'
 export {
@@ -171,6 +173,13 @@ export {
   FoliageLayers,
   foliagePlugin,
 } from './foliage'
+export {
+  CoveredGpuTime,
+  FOLIAGE_SPAN_KEY,
+  FoliageBudget,
+  type FoliageBudgetValue,
+  FoliageController,
+} from './foliage-budget'
 export { FoliagePath, type FoliageSupport } from './foliage-path'
 export { FOLIAGE_SHADERS, MAX_FOLIAGE_MESHES } from './foliage-shaders'
 export {

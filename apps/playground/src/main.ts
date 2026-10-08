@@ -19,7 +19,10 @@ import {
   App,
   animationFrameRunner,
   capturePerf,
+  describeBudgets,
   describePerf,
+  PerfBudgets,
+  type PerfBudgetsData,
   type PerfCaptureOptions,
 } from '@aethervtt/shard-runtime'
 import { savePlugin } from '@aethervtt/shard-save'
@@ -349,16 +352,40 @@ Object.assign(globalThis, {
   describe: () => describeRender(app.world),
   /** The profiler's aggregates and clock (0074), as `perf.describe` returns them. */
   perf: () => describePerf(app.world),
+  /** The budgets and the latest measurements against them (0075), as `perf.budgets` returns them. */
+  budgets: (scenario?: string) => describeBudgets(app.world, { scenario }),
   /** A capture of the next frames (0074): its summary, and the trace inline. */
   capture: (options: PerfCaptureOptions = {}) => capturePerf(app.world, options),
   playground,
 })
 
 /**
+ * Performance budgets (0075), from the repo through the dev server: `perf.budgets`, the perf
+ * overlay's slices and foliage's target. `?scenario=scatter-walk` declares the page's scenario. A
+ * page can't read its CPU model, so it detects no machine unless `?machine=laptop` names it.
+ */
+async function loadBudgets() {
+  const params = new URLSearchParams(location.search)
+  const [budgets, machines] = await Promise.all([
+    import('../../../bench/perf/budgets.json'),
+    import('../../../bench/perf/machines.json'),
+  ])
+  app.insertResource(PerfBudgets, {
+    budgets: budgets.default as unknown as PerfBudgetsData['budgets'],
+    machines: machines.default as unknown as PerfBudgetsData['machines'],
+    source: 'bench/perf/budgets.json',
+    ...(params.get('machine') ? { machine: params.get('machine')! } : {}),
+  })
+  const scenario = params.get('scenario')
+  if (scenario) app.perfScenario = scenario
+}
+
+/**
  * With ?hub (or ?hub=ws://host:port), the page dials out to a protocol hub (`shard serve` or
  * `shard mcp --attach`) so an agent can inspect and drive it. Off by default: no hub, no noise.
  */
 async function start() {
+  await loadBudgets()
   await app.init()
   const hubParam = new URLSearchParams(location.search).get('hub')
   if (hubParam !== null) {

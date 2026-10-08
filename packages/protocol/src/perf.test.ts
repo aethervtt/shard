@@ -1,13 +1,18 @@
+import { dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
+import { loadPerfBudgets } from '@aethervtt/shard-platform-node'
 import { forwardPlugin, Gpu, Graph, OffscreenTarget, renderPlugin } from '@aethervtt/shard-render'
-import { App } from '@aethervtt/shard-runtime'
+import { App, PerfBudgets, type PerfBudgetsData } from '@aethervtt/shard-runtime'
 import { loadScene } from '@aethervtt/shard-scene'
 import { TransformPlugin } from '@aethervtt/shard-transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createProtocolServer, type ProtocolServer } from './server'
 
 // The profiler through the protocol (0074): perf.describe, perf.capture, perf.reset, the perf
-// overlay, and render.describe's memory from the ledger.
+// overlay, and render.describe's memory from the ledger; 0075's perf.budgets.
+
+const here = dirname(fileURLToPath(import.meta.url))
 
 const scene = {
   version: 1,
@@ -161,7 +166,42 @@ describe('perf methods (0074)', () => {
     const texts = gizmos.labels.map((l) => l.text)
     expect(texts[0]).toMatch(/^frame /)
     expect(texts.length).toBeGreaterThan(1)
-    expect(texts.length).toBeLessThanOrEqual(9)
+    // The frame, 8 spans, and where pass times overlap (0075) a note and 4 passes apart.
+    const overlapping = texts.some((t) => t.startsWith('gpu passes'))
+    expect(texts.length).toBeLessThanOrEqual(overlapping ? 14 : 9)
     await ok('debug.overlays', { overlays: [] })
+  })
+
+  it('perf.budgets: the machine, every budget against the latest p95, and a scenario’s slices', async () => {
+    // No budgets from the host: says so.
+    const none = await ok<{ machine: null; warnings: { code: string }[] }>('perf.budgets')
+    expect(none.warnings.map((w) => w.code)).toEqual(['perf/no-budgets'])
+    const files = loadPerfBudgets(here)!
+    app.insertResource(PerfBudgets, {
+      ...(files as unknown as PerfBudgetsData),
+      machine: 'desktop',
+    })
+    for (let i = 0; i < 3; i++) app.update(1 / 60)
+    const out = await ok<{
+      machine: string
+      source: string
+      budgets: { key: string; verdict: string }[]
+      scenario: { name: string; slices: { slice: string; track: string; share: number }[] }
+    }>('perf.budgets', { scenario: 'crowd' })
+    expect(out.machine).toBe('desktop')
+    expect(out.source).toBe('override')
+    expect(out.budgets.length).toBe(Object.keys(files.budgets.spans).length)
+    const rank = ['over', 'pass', 'unbudgeted', 'unmeasured']
+    const ranks = out.budgets.map((b) => rank.indexOf(b.verdict))
+    expect(ranks).toEqual([...ranks].sort((a, b) => a - b))
+    expect(out.scenario.name).toBe('crowd')
+    expect(out.scenario.slices.map((s) => s.slice)).toContain('gpu:forward-opaque')
+    const unknown = await server.handle({
+      jsonrpc: '2.0',
+      id: nextId++,
+      method: 'perf.budgets',
+      params: { scenario: 'nope' },
+    })
+    expect(unknown!.error?.data).toMatchObject({ code: 'perf/unknown-budget' })
   })
 })

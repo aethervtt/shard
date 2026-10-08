@@ -1,4 +1,5 @@
-import { ShardError, type World } from '@aethervtt/shard-core'
+import { defineResource, ShardError, type World } from '@aethervtt/shard-core'
+import { PerfProviders, Time } from '@aethervtt/shard-runtime'
 import { Gpu, Graph } from './plugin'
 
 /**
@@ -18,6 +19,11 @@ export interface AblationOptions {
   settle?: number
   /** Also measure every pass disabled at once. */
   together?: boolean
+  /**
+   * Names in `passes` that stand for several nodes, disabled together (0075's scenario tests ablate
+   * a slice: every node whose `gpu:<node>` its key covers).
+   */
+  groups?: Readonly<Record<string, readonly string[]>>
 }
 
 export interface PassCost {
@@ -39,6 +45,42 @@ export interface AblationResult {
   rounds: number
   /** GPU frame timings read, all states together. */
   samples: number
+}
+
+export interface PassCostsData {
+  /**
+   * The latest ablation in this app, and when it finished (`Time.elapsed`, s). The `perf` overlay
+   * and the playground HUD rank passes by it where their timestamps overlap (0075).
+   */
+  latest: (AblationResult & { at: number }) | undefined
+}
+
+/** The latest `perf.ablate` result, where the overlay, the HUD and `perf.describe` read it. */
+export const PassCosts = defineResource<PassCostsData>('render/PassCosts', {
+  description:
+    "The latest ablation's per-pass GPU costs (0075): what ranks passes where their timestamps overlap.",
+  init: () => ({ latest: undefined }),
+})
+
+/** Keeps a result where readers find it, and lists it in `perf.describe` as `ablation`. */
+function keep(world: World, result: AblationResult): void {
+  const costs = world.initResource(PassCosts)
+  costs.latest = { ...result, at: world.tryResource(Time)?.elapsed ?? 0 }
+  const sections = world.initResource(PerfProviders).sections
+  if (!sections.has('ablation')) {
+    sections.set('ablation', (w) => {
+      const latest = w.tryResource(PassCosts)?.latest
+      if (!latest) return undefined
+      return {
+        at: latest.at,
+        frameMs: latest.frameMs,
+        passes: [...latest.passes]
+          .sort((a, b) => b.ms - a.ms)
+          .map((p) => ({ pass: p.pass, ms: p.ms })),
+        ...(latest.together ? { together: latest.together.ms } : {}),
+      }
+    })
+  }
 }
 
 /** How a measurement drives the app: what to disable, and one frame's `gpu:frame`. */
@@ -136,11 +178,14 @@ export async function ablatePasses(
       hint: `Name render graph nodes: ${graph.nodeNames().join(', ')}.`,
     })
   }
-  graph.ablate(options.passes) // checks the names before anything runs
+  const groups = options.groups
+  const nodesOf = (passes: readonly string[]) =>
+    groups ? passes.flatMap((p) => groups[p] ?? [p]) : passes
+  graph.ablate(nodesOf(options.passes)) // checks the names before anything runs
   graph.ablate([])
   const timer = graph.timer
   const driver: AblationDriver = {
-    disable: (passes) => graph.ablate(passes),
+    disable: (passes) => graph.ablate(nodesOf(passes)),
     async frame() {
       const seen = timer.frameSamples
       await frame()
@@ -152,5 +197,7 @@ export async function ablatePasses(
       return timer.frameSamples === seen ? undefined : timer.frameMs
     },
   }
-  return runAblation(driver, options)
+  const result = await runAblation(driver, options)
+  keep(world, result)
+  return result
 }

@@ -596,6 +596,7 @@ describe('MCP server', () => {
         'reload_project',
         'typecheck',
         'ablate_passes',
+        'describe_budgets',
         'tilemap_read',
         'tilemap_edit',
         'physics_raycast',

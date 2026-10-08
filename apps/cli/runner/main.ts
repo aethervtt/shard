@@ -18,7 +18,13 @@ import {
 } from '@aethervtt/shard-project'
 import { connectToHub, createProtocolServer } from '@aethervtt/shard-protocol'
 import { Shaders } from '@aethervtt/shard-render'
-import { animationFrameRunner, LogResource, type Plugin } from '@aethervtt/shard-runtime'
+import {
+  animationFrameRunner,
+  LogResource,
+  PerfBudgets,
+  type PerfBudgetsData,
+  type Plugin,
+} from '@aethervtt/shard-runtime'
 import { loadScene, whenSceneReady } from '@aethervtt/shard-scene'
 import { metricsPlugin } from '@aethervtt/shard-verify/metrics'
 import { installCapturePage } from '@aethervtt/shard-verify/page'
@@ -29,6 +35,8 @@ interface DevInfo {
   /** Generators' code hashes, and the worker bundle their jobs run in. */
   procgen?: DevGenerators
   hub: string
+  /** Performance budgets (0075), when the project or its repo has them. */
+  budgets?: PerfBudgetsData
 }
 
 interface DevGenerators {
@@ -90,6 +98,8 @@ async function start() {
   })
   // Performance records over the protocol (metrics.record), the same way scripts take them (0062).
   app.addPlugin(metricsPlugin({ performance: platform.performance }))
+  // Budgets (0075) from the dev server: perf.budgets, the perf overlay's slices, foliage's target.
+  if (info.budgets) app.insertResource(PerfBudgets, info.budgets)
   await app.init()
   await loadProjectNavCache(app, platform)
 

@@ -1,4 +1,5 @@
 export { ABLATE_METHODS } from './ablate'
+export { BUDGET_METHODS } from './budgets'
 export { decodePng, encodePng, toBase64 } from './png'
 export { type PreviewImage, previewAsset, previewKtx2 } from './preview'
 export {
