@@ -528,11 +528,12 @@
           "headroom": 0.57
         },
         "cpu": {
-          "render": 0.87,
-          "headroom": 0.13
+          "render": 0.9,
+          "headroom": 0.1
         }
       },
-      "note": "Shares from the laptop's first 0075 bench (2026-10-08), each the measured share of the frame rounded up, headroom the rest: GPU by ablation gpu:forward-opaque 1.16 ms and gpu:shadows 1.61 ms of a 7.54 ms frame, gpu:instance-cull and gpu:tonemap 0 (under ablation's resolution: 0.02 and 0.01 are proposed); CPU render 2.94 ms of a 3.44 ms frame. The desktop is unmeasured. Keys cover the spans the turntable records (render/src/crowd.test.ts), none twice: gpu:forward-opaque, gpu:shadows (cascade0-3), gpu:instance-cull (0022's cull pass), gpu:tonemap; light-clusters falls in headroom. CPU: render (render systems and node encodes)."
+      "note": "Shares from the laptop's first 0075 bench (2026-10-08), each the measured share of the frame rounded up, headroom the rest: GPU by ablation gpu:forward-opaque 1.16 ms and gpu:shadows 1.61 ms of a 7.54 ms frame, gpu:instance-cull and gpu:tonemap 0 (under ablation's resolution: 0.02 and 0.01 are proposed); CPU render 2.94 ms of a 3.44 ms frame. The desktop is unmeasured. Keys cover the spans the turntable records (render/src/crowd.test.ts), none twice: gpu:forward-opaque, gpu:shadows (cascade0-3), gpu:instance-cull (0022's cull pass), gpu:tonemap; light-clusters falls in headroom. CPU: render (render systems and node encodes). Re-runs (2026-10-08, main and the post-stack branch alike) measured render 0.888 and 0.895 of the frame, so its share is 0.9; gpu:tonemap, 0 on one run and 0.39 ms by ablation on the next (sub-millisecond: noise), has a 0.5 ms floor on the laptop, as scatter-walk's small slices do.",
+      "overrides": { "laptop": { "gpu": { "gpu:tonemap": 0.5 } } }
     },
     "tabletop-max": {
       "what": "0055's max structure fixture",
