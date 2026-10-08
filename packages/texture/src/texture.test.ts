@@ -374,7 +374,7 @@ describe('textures in code and in projects', () => {
     })
     const ms = performance.now() - start
     expect(out.info.mips).toBe(12)
-    expect(ms).toBeLessThan(budget(1500))
+    expect(ms).toBeLessThan(budget('texture/import'))
   })
 })
 

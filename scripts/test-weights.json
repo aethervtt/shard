@@ -73,7 +73,12 @@
     "packages/render/src/tabletop.test.ts": 60,
     "packages/grid/src/grid.test.ts": 90,
     "packages/scenes/src/parity.test.ts": 60,
-    "packages/fog/src/fog.test.ts": 60
+    "packages/fog/src/fog.test.ts": 60,
+    "packages/structure/src/scenario.test.ts": 60,
+    "packages/scatter/src/ablation.test.ts": 45,
+    "packages/scatter/src/scenario.test.ts": 30,
+    "packages/terrain/src/scenario.test.ts": 30,
+    "packages/render/src/crowd.test.ts": 15
   },
   "windows": {
     "packages/structure/src/interior-max.test.ts": 1642,
@@ -181,7 +186,12 @@
     "packages/render/src/instances.test.ts": 5,
     "packages/texture/src/texture.test.ts": 5,
     "packages/ui/src/theme.test.ts": 5,
-    "packages/ui/src/ui.test.ts": 5
+    "packages/ui/src/ui.test.ts": 5,
+    "packages/structure/src/scenario.test.ts": 300,
+    "packages/scatter/src/ablation.test.ts": 120,
+    "packages/terrain/src/scenario.test.ts": 90,
+    "packages/scatter/src/scenario.test.ts": 60,
+    "packages/render/src/crowd.test.ts": 30
   },
   "browser": {
     "apps/playground/src/demos.test.ts": 345,

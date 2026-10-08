@@ -27,6 +27,7 @@ import {
   ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
 import type { ProtocolTarget } from './hub'
+import { BUDGET_TOOLS } from './mcp-budgets'
 
 export interface McpContext {
   /** The app tools talk to right now (attached live app, or the headless project). */
@@ -606,6 +607,7 @@ export const TOOLS: Tool[] = [
     'nav.bake',
     'Rebakes every NavMesh now and saves the tiles to .shard/cache/nav (save: false to skip; force: true rebuilds every tile). Reports tiles built and loaded from the cache.',
   ),
+  ...BUDGET_TOOLS,
 ]
 
 /** An MCP server exposing Shard's tools and resources for one project. */

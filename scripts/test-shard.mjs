@@ -12,6 +12,7 @@
 import { globSync, readFileSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { loadPerf, resolveBudgets } from '../bench/perf/src/perf.mjs'
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -57,19 +58,34 @@ function hashed(path, count) {
 }
 
 /**
+ * Every budget key with no machine (spec 0075): what `budget(key)` reads outside `pnpm bench`, so a
+ * key missing from bench/perf/budgets.json fails in `pnpm test` too, while nothing is enforced.
+ */
+function budgetKeys() {
+  const { budgets } = loadPerf()
+  return JSON.stringify(resolveBudgets(budgets, null))
+}
+
+/**
  * `include` and `passWithNoTests` for a package's vitest config: `patterns` as is, or only this
  * runner's files when SHARD_TEST_SHARD is set. Runs in the package directory (turbo and pnpm do).
  * In CI (SHARD_CI) it also sets `retry: 1`, so one hiccup on a shared runner doesn't fail the run;
  * a test that needs the retry often belongs in TODO.md. With SHARD_WGSL_LOG, a setup file records
- * the shader variants the tests link (scripts/wgsl-identity.mjs).
+ * the shader variants the tests link (scripts/wgsl-identity.mjs). `env.SHARD_BUDGETS` carries the
+ * resolved time budgets (`budget(key)`, packages/core/src/test-env.ts): pnpm bench's for its
+ * machine, or every key with no machine. With SHARD_PERF_REPORT (pnpm bench), a setup file records
+ * what each assertion against a budget measured (scripts/perf-report.setup.mjs).
  */
 export function testFiles(patterns = ['src/**/*.test.ts']) {
   // SHARD_WGSL_LOG (wgsl-identity.mjs): record every shader variant the tests link.
+  const setupFiles = [
+    ...(process.env.SHARD_WGSL_LOG ? [join(repo, 'scripts/wgsl-log.setup.mjs')] : []),
+    ...(process.env.SHARD_PERF_REPORT ? [join(repo, 'scripts/perf-report.setup.mjs')] : []),
+  ]
   const extra = {
     ...(process.env.SHARD_CI ? { retry: 1 } : {}),
-    ...(process.env.SHARD_WGSL_LOG
-      ? { setupFiles: [join(repo, 'scripts/wgsl-log.setup.mjs')] }
-      : {}),
+    ...(setupFiles.length > 0 ? { setupFiles } : {}),
+    env: { SHARD_BUDGETS: process.env.SHARD_BUDGETS ?? budgetKeys() },
   }
   const spec = process.env.SHARD_TEST_SHARD
   if (!spec) return { include: patterns, ...extra }

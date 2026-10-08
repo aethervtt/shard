@@ -1,6 +1,6 @@
-import { defineSystem, Update, type World } from '@aethervtt/shard-core'
-import { Gpu, RenderScale, RenderStats, setOverlays } from '@aethervtt/shard-render'
-import { DisplayRate, definePlugin, Time } from '@aethervtt/shard-runtime'
+import { defineSystem, ProfilerResource, Update, type World } from '@aethervtt/shard-core'
+import { Gpu, PassCosts, RenderScale, RenderStats, setOverlays } from '@aethervtt/shard-render'
+import { DisplayRate, definePlugin, gpuPassOverlap, Time } from '@aethervtt/shard-runtime'
 import { backendLine, healthLines } from './backend'
 
 /** Extra HUD lines a demo adds (e.g. physics body counts), read each refresh. */
@@ -16,6 +16,28 @@ function applyRenderScale(world: World): void {
     scale.mode = 'fixed'
     scale.scale = Number(param)
   }
+}
+
+/**
+ * GPU pass timings where they overlap (0075): on tile-based GPUs (Apple's) passes run concurrently
+ * and each pass's timestamps include waiting for earlier work, so they sum past the frame and say
+ * nothing about which pass costs most. The HUD says so, in grey, and ranks passes by the latest
+ * ablation (`perf.ablate`) when one has run.
+ */
+function passLines(world: World): string[] {
+  const profiler = world.tryResource(ProfilerResource)
+  const overlap = profiler ? gpuPassOverlap(profiler) : undefined
+  if (!overlap?.overlapping) return []
+  const lines = [
+    `gpu passes overlapping: ${overlap.passesMs.toFixed(1)} ms of passes in a ${overlap.frameMs.toFixed(1)} ms frame`,
+  ]
+  const ablation = world.tryResource(PassCosts)?.latest
+  if (!ablation) lines.push('  not ranked: perf.ablate measures each pass')
+  else {
+    const ranked = [...ablation.passes].sort((a, b) => b.ms - a.ms).slice(0, 4)
+    lines.push(`  by ablation: ${ranked.map((p) => `${p.pass} ${p.ms.toFixed(2)}`).join(', ')} ms`)
+  }
+  return lines
 }
 
 /**
@@ -53,6 +75,13 @@ const hud = defineSystem({
         : 'no camera view',
       ...hudExtras.flatMap((extra) => extra(world)),
     ].join('\n')
+    const passes = passLines(world)
+    if (passes.length > 0) {
+      const grey = document.createElement('span')
+      grey.style.color = '#999'
+      grey.textContent = `\n${passes.join('\n')}`
+      state.el.append(grey)
+    }
   },
 })
 

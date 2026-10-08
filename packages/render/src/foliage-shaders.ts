@@ -263,7 +263,10 @@ struct CullParams {
   planes: array<vec4f, 6>,
   /** Camera position (xyz, origin-relative world) and the layer's range (w). */
   camera: vec4f,
-  /** Shadow range, where thinning starts (fraction of range), the meshes' largest radius, unused. */
+  /**
+   * Shadow range, where thinning starts (fraction of range), the meshes' largest radius, and the
+   * share of instances kept everywhere (density, 0075's budget: 1 at full detail).
+   */
   ranges: vec4f,
   /** Where each LOD level after the first begins, as fractions of the range (up to 4). */
   lods: vec4f,
@@ -329,11 +332,11 @@ fn classify(@builtin(global_invocation_id) id: vec3u, @builtin(num_workgroups) g
   }
   let drawable = lod.x + level;
   var kind = 0u;
-  if (d < params.ranges.x) {
+  if (d < params.ranges.x && inst.rank <= params.ranges.w) {
     kind = (drawable + 1u) << 16u;
     atomicAdd(&counts[params.drawables + drawable], 1u);
   }
-  if (d < range && inst.rank <= keep_share(f, params.ranges.y)) {
+  if (d < range && inst.rank <= keep_share(f, params.ranges.y) * params.ranges.w) {
     let r = params.ranges.z * inst.scale * 2.0;
     var inside = true;
     for (var p = 0; p < 6; p++) {

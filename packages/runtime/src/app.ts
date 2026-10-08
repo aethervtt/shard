@@ -27,6 +27,7 @@ import { FrameDemand, FrameDemandState, LOADING_DEMAND } from './demand'
 import { Log, LogResource } from './log'
 import type { Plugin } from './plugin'
 import type { Runner } from './runners'
+import { PerfScenario } from './scenario'
 import { OnEnter, OnExit, type StateDef } from './state'
 import {
   DevMode,
@@ -58,6 +59,13 @@ export interface AppOptions {
    * `window` is how many runs aggregates cover. Also `ProfilerSettings` at runtime. Default on, 120.
    */
   profiler?: Partial<ProfilerSettingsData>
+  /**
+   * The budget scenario the app runs as (0075, `bench/perf/budgets.json`): features that adapt
+   * (0045's foliage) default their target to their slice of its frame, and the `perf` overlay shows
+   * its slices. Default none: nothing adapts. Also `App.perfScenario` and the `PerfScenario`
+   * resource at runtime.
+   */
+  perfScenario?: string | null
 }
 
 export interface AppDescription {
@@ -202,6 +210,7 @@ export class App {
     this.world.insertResource(ProfilerResource, this.profiler)
     this.world.insertResource(GlobalRng, new Rng(options.seed ?? 0))
     this.world.insertResource(DevMode, { enabled: options.dev ?? false })
+    this.world.insertResource(PerfScenario, { name: options.perfScenario ?? null })
     const log = new Log()
     log.now = () => this.world.tryResource(Time)?.elapsed ?? 0
     this.world.insertResource(LogResource, log)
@@ -239,6 +248,18 @@ export class App {
       this.appMethods.set(method.name, method)
     }
     return this
+  }
+
+  /**
+   * The budget scenario the app declares (0075): features with a budget resource adapt to their
+   * slice of its frame, and the `perf` overlay shows its slices. null (the default): none.
+   */
+  get perfScenario(): string | null {
+    return this.world.resource(PerfScenario).name
+  }
+
+  set perfScenario(name: string | null) {
+    this.world.resource(PerfScenario).name = name
   }
 
   /** Methods plugins added, in the order they were added. */

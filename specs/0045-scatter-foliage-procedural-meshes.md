@@ -145,8 +145,9 @@ bushes, grass, and crystals. It also adds automatic LODs through meshoptimizer.
   position as unorm16×3 over the chunk's bounds (sub-millimetre), mesh, octahedral up, yaw, scale,
   shade and a thinning rank. Chunk slots index a buffer of chunk-to-world rows, which scatter writes
   each frame from the surface's frame (origin-relative), so origin shifts (0040) cost one small
-  upload. The core renderer only holds a `FoliagePath` hook its opaque, G-buffer and cascade
-  passes call.
+  upload. The core renderer only holds a `FoliagePath` hook its G-buffer and cascade passes call;
+  forward cameras draw foliage in the plugin's own `foliage/draw` pass, right after opaque
+  geometry (0075).
 - A foliage chunk's ground is a patch: the chunk's own vertex grid as terrain builds it at the
   collider depth (on the pool, the same numbers as a collider chunk, so grass stands on the drawn
   ground), with the rule's density per vertex (masks and biome on the CPU). The placement compute
@@ -168,6 +169,13 @@ bushes, grass, and crystals. It also adds automatic LODs through meshoptimizer.
   blade. Foliage casts only into the nearest cascade, within `shadowRange` (default 30 m) and that
   cascade's split; that cascade redraws every frame while foliage sways. It doesn't draw in the
   depth prepass or picking (TAA's motion vectors and SSAO skip it).
+- **A time budget, not a blade count** (0075). Foliage's budget is its `gpu:foliage` slice of the
+  `scatter-walk` scenario (`bench/perf/budgets.json`). `FoliageBudget { ms }` is the target: by
+  default the slice on the detected machine when the app declares that scenario
+  (`App.perfScenario`), or a number set directly; with neither, nothing adapts. Its GPU time is
+  every `gpu:foliage/*` pass (place, cull, and a forward pass of its own, `foliage/draw`, so the
+  draws have timestamps apart from opaque geometry). A controller thins density everywhere and
+  pulls in the range to stay inside the target, and goes back to full detail when there's room.
 
 ### Mesh toolkit (`@aethervtt/shard-mesh`)
 
@@ -252,13 +260,18 @@ root to 1 leaf or tip; y: a shade), which `scatter/Vegetation` tints by.
       identically (placement hash match).
 - [x] Placement is seamless: across 100 chunk borders, the minimum distance between items of one
       rule is ≥ `spacing` and density within 10% of the target.
-- [x] Walking 1 km on a planet keeps prop spawn and despawn under 1 ms per frame of main-thread time,
-      and ≥ 20 000 props are live within range with frame time under 16.6 ms on the reference GPU.
-      (Measured on an Apple M4, not the reference desktop.)
-- [ ] Foliage draws ≥ 2M blades per view within 60 m at under 3 ms GPU (reference GPU), with no
-      per-instance CPU work (profiler shows zero CPU time in foliage per frame beyond dispatch).
-      The count and the CPU side pass; the GPU time is unmeasured on the reference GPU (an Apple
-      M4 takes about 18 ms, see TODO.md).
+- [x] Walking 1 km on a planet keeps prop spawn and despawn under 1 ms per frame of main-thread
+      time, and ≥ 20 000 props are live within range with frame time under 16.6 ms (budget
+      `scatter/props-frame`). (Measured on the laptop, not yet on the desktop.)
+- [ ] Foliage draws ≥ 2M blades per view within 60 m with no per-instance CPU work (profiler
+      shows zero CPU time in foliage per frame beyond dispatch), and holds its `scatter-walk` slice
+      (`gpu:foliage`, p95 over the walk at 1080p; `budget('scatter-walk', { slice: 'gpu:foliage' })`),
+      thinning where full density doesn't fit and at full density where it does (0075). The count
+      and the CPU side pass, and the controller converges, recovers and holds still against a fake
+      GPU (`render/src/foliage-budget.test.ts`). The slice is still to hold under `pnpm bench`
+      (`scatter/src/scenario.test.ts`). At full density the laptop takes about 18 ms (the note on
+      `gpu:foliage` in `bench/perf/budgets.json`, which stays as full density's regression
+      measure).
 - [x] A destroyed prop stays destroyed after walking away far enough to unload its chunk, walking
       back, and after save/load.
 - [x] Each engine generator's nine-seed contact sheet matches its golden, and every LOD has ≤ the
@@ -283,6 +296,12 @@ root to 1 leaf or tip; y: a shade), which `scatter/Vegetation` tints by.
   250 props a frame (each prop costs about 3.5 µs with LODs and a collider); grass at 2.2M blades
   costs about 18 ms of GPU, half vertex work and half shading, after LODs and nearest-cascade
   shadows took it down from 70 ms.
+- 0075 gave foliage its budget: `FoliageBudget` (render), steered by `FoliageController` (down 1%
+  a GPU frame over the target, up 0.5% under 85% of it, on an exponential average), with density
+  the square root of its detail and range the fourth root, so instances drawn scale with it. The
+  cull's `ranges.w` is the density factor (1 at full detail: the same instances as before), and
+  thinned blades don't cast either. `scatter/src/scenario.test.ts` walks the forest as the
+  `scatter-walk` scenario.
 - Example: star-explorer's grass, forest and rock biomes scatter `assets/scatter/*.scatter.json`,
   and `tests/scatter.test.ts` checks them headless.
 - Deferred: the translucency term (the standard lighting has no transmission input; back faces

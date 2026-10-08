@@ -111,7 +111,7 @@ EnvironmentMap {
       L reflects L within 5%, measured from the HDR capture.
 - [x] A grid of spheres (metallic × roughness) under an HDR environment renders as a golden image
       with each tonemapping curve. Metals reflect the environment.
-- [x] Prefiltering a 2048×1024 equirect HDR takes under 50 ms of GPU time on the dev machine.
+- [x] Prefiltering a 2048×1024 equirect HDR takes under 50 ms of GPU time on the laptop.
 - [x] A procedural sky at sun elevations of 60°, 10°, and −2° produces goldens with plausible color
       (blue at noon, orange at dusk, dark after sunset). Moving the sun rebakes the environment,
       and a rough sphere's ambient color follows.
@@ -156,7 +156,7 @@ EnvironmentMap {
 
   A 128² BRDF LUT (rgba16float, since rg16float isn't a storage format) is generated once, with
   the same visibility term as direct lighting. Prefiltering the 2048×1024 environment of the
-  `#ibl` playground demo takes 4.4 ms of GPU time in Chrome on the dev machine (Apple M4).
+  `#ibl` playground demo takes 4.4 ms of GPU time in Chrome on the laptop (Apple M4).
 - **IBL term:** as specified, plus Lagarde's specular occlusion from `occlusion`, and Fresnel
   with roughness for the diffuse weight. The white furnace test reflects L within 5%.
 - **Cube maps:** `@aethervtt/shard-texture` gained cube KTX2 support (`faces: 6`, uncompressed; Basis cube

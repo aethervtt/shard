@@ -323,7 +323,7 @@ BiomeSet { biomes: list(handle('terrain/Biome')), albedo, normal, orm: handle('T
 - [x] A character dropped at 20 random points walks 100 m in a straight line headless without
       falling through, and the world hash matches across Node and Chrome.
 - [x] Generation stays within `TerrainBudget` in the bench, and with the default settings a
-      descent keeps frame time under 16.6 ms on the reference GPU.
+      descent keeps frame time under 16.6 ms on both machines (budget `terrain/descent-frame`).
 - [x] A planet with an ocean shows water where `terrain.sample` reports underwater, and the
       `terrain.map` golden shows continents, poles (snow biome), and sea.
 - [x] A `NavAgent` on the surface paths 120 m across at least three chunk tiles.

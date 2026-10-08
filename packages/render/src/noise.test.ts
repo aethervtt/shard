@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { assetServer } from '@aethervtt/shard-assets'
-import { timingMode } from '@aethervtt/shard-core/test-env'
+import { budget } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { plane } from '@aethervtt/shard-mesh'
@@ -124,7 +124,7 @@ describe('materials call noise graphs', () => {
     expect(after).toBeGreaterThan(before + 20)
     // Two frames is the spec budget, held under `pnpm bench` (serial). In parallel `pnpm test` runs
     // other packages compile shaders on the same GPU, so only the reload itself is checked.
-    if (timingMode === 'bench') expect(frames).toBeLessThanOrEqual(2)
+    expect(frames).toBeLessThanOrEqual(budget('render/shader-reload'))
     expect(world.resource(Gpu).errors).toEqual([])
   })
   it('logs render/feature-missing, naming the plugin, when materialNoisePlugin is absent', async () => {

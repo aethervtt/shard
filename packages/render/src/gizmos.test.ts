@@ -162,7 +162,7 @@ describe('gizmos', () => {
       `100k gizmo lines: draw ${best.toFixed(3)} ms best, ${median(drawTimes).toFixed(3)} ms median; upload ${median(uploadTimes).toFixed(3)} ms median; GC events: ${collections}`,
     )
     if (allocationChecks) expect(collections).toBe(0)
-    expect(best).toBeLessThan(budget(1))
+    expect(best).toBeLessThan(budget('gizmos/draw', { count: 100_000 }))
   })
 })
 

@@ -658,8 +658,8 @@ describe('2D lighting performance', () => {
     const unlit = await frames(5)
     // 18-pixel sprites at 1080p (3× coverage), lights 60–120 pixels in radius: about 3.6 lights
     // and one shadowed light per pixel.
-    expect(lit).toBeLessThan(budget(1000 / 60))
-    expect(lit - unlit).toBeLessThan(budget(2.5))
+    expect(lit).toBeLessThan(budget('sprite/lit-frame'))
+    expect(lit - unlit).toBeLessThan(budget('sprite/lighting2d'))
     expect(world.resource(Gpu).errors).toEqual([])
   })
 })

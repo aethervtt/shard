@@ -62,12 +62,12 @@ describe.each(['inline', 'worker'] as const)('track client (%s)', (spawn) => {
     const abortedAt = performance.now()
     abort.abort()
     const err = await rejection(running)
-    expect(performance.now() - abortedAt).toBeLessThan(budget(10))
+    expect(performance.now() - abortedAt).toBeLessThan(budget('physics/worker-abort'))
     expect(err.code).toBe('physics/track-cancelled')
     // The worker stopped too: the next recording doesn't wait behind the endless one.
     const start = performance.now()
     const next = await c.record(goldenScene(), { contacts: golden.contacts })
-    expect(performance.now() - start).toBeLessThan(budget(100))
+    expect(performance.now() - start).toBeLessThan(budget('physics/worker-record'))
     expect(trackHash(next)).toBe(GOLDEN_HASH)
   })
 

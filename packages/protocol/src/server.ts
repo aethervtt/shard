@@ -89,6 +89,8 @@ import {
   Transform,
   worldPosition64,
 } from '@aethervtt/shard-transform'
+import { ABLATE_METHODS } from './ablate'
+import { BUDGET_METHODS } from './budgets'
 import { encodePng, toBase64 } from './png'
 
 const CAPTURE_DEBUG_VIEWS = ['clusters', 'cascades', 'lod', 'culling', 'none']
@@ -1326,6 +1328,8 @@ export const METHODS: MethodDef[] = [
     params: s('ErrorsParams', { count: t.u32({ default: 20, min: 1 }) }),
     handler: ({ world }, p) => world.resource(LogResource).errors(p.count as number),
   },
+  ...ABLATE_METHODS,
+  ...BUDGET_METHODS,
 ]
 
 export type Topic = 'log' | 'error' | 'frame' | 'project'

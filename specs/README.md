@@ -22,3 +22,22 @@ contract an implementation is checked against.
 - API sketches are TypeScript. They're a proposal; names can change during implementation.
 - Decisions that affect other specs go in the spec's **Decisions** section with a one-line reason.
 - `ROADMAP.md` orders the specs. Update it when a spec is added, split, or finished.
+
+## Performance budgets
+
+Time budgets are data (0075). `bench/perf/machines.json` names the machines they apply to
+(`laptop`, `desktop`), and `bench/perf/budgets.json` holds every budget by key, with a number per
+machine and a note.
+
+- State a budget as a slice of a named scenario (`scatter-walk`'s `gpu:foliage`), or as a unit cost
+  with its basis: "measured", or "proposed: like X". Acceptance criteria name budget keys, not
+  hardware. "The reference GPU" or "a fast machine" isn't a budget: name the machine or the key.
+- Keys are span names (0074): `frame`, `gpu:<node>`, `render/<node>`, a system's name, a package's
+  own spans. A measurement that isn't a span (an import, a load) gets a key in the same
+  `package/what` style.
+- "As built" records measured numbers per machine, and they go into `budgets.json` in the same
+  change. A machine that misses a number gets its own number with a note saying why, instead of an
+  entry in `TODO.md`.
+- Tests read budgets by key: `budget('ui/layout')`, `budget('scene/load', { count })`,
+  `budget('scatter-walk', { slice: 'gpu:foliage' })`. No `budget(<number>)` calls remain
+  (`node scripts/budget-literals.mjs`).

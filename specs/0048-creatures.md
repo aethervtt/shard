@@ -220,7 +220,7 @@ Behavior { species: handle('SpeciesInfo'), state: string, focus: entity, home: v
 - [ ] Flyers never go below terrain and swimmers never leave the water over a 10-minute headless
       run on the example planet.
 - [ ] 200 active creatures (mixed plans, LOD active) run under 4 ms CPU and 2 ms GPU per frame on
-      the bench machine.
+      the desktop (budgets `creatures/update` and `gpu:creatures`, proposed).
 - [ ] The same planet location spawns the same herd (species, count, starting positions) on every
       visit.
 

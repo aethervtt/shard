@@ -230,7 +230,7 @@ describe('the import cache', () => {
     const ms = performance.now() - start
     expect(report.imported).toEqual([])
     expect(report.unchanged).toBe(1000)
-    expect(ms).toBeLessThan(budget(200))
+    expect(ms).toBeLessThan(budget('assets/scan', { count: 1000 }))
   })
 })
 

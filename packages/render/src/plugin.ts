@@ -26,6 +26,7 @@ import {
   type Plugin,
 } from '@aethervtt/shard-runtime'
 import { type ShaderBake, ShaderLibrary } from '@aethervtt/shard-shader'
+import { PassCosts } from './ablation'
 import { loadDataTextures, releaseDataStores } from './data-store'
 import { checkUnsupportedFeatures, describeFeatures, RenderFeatures } from './features'
 import { type CapturedBuffer, type CapturedImage, RenderGraph, type RenderView } from './graph'
@@ -269,6 +270,7 @@ export function renderPlugin(options: RenderPluginOptions = {}): Plugin {
       // graph and device
       Gpu,
       GpuDeviceLost,
+      PassCosts,
       Graph,
       RenderDescribers,
       RenderFeatures,
@@ -358,7 +360,10 @@ export function renderPlugin(options: RenderPluginOptions = {}): Plugin {
         app.insertResource(Graph, new RenderGraph(gpu))
       })
       // The profiler (0074): GPU memory from the ledger, and whether passes can be timed.
-      app.world.initResource(PerfProviders).gpuMemory = gpuMemory
+      const providers = app.world.initResource(PerfProviders)
+      providers.gpuMemory = gpuMemory
+      // Which named machine this is (0075): the adapter's identity, as far as the host exposes it.
+      providers.adapter = adapterIdentity
       const profiler = app.world.tryResource(ProfilerResource)
       if (profiler) {
         profiler.gpu.status = gpu.features.has('timestamp-query') ? 'available' : 'unavailable'
@@ -458,7 +463,18 @@ export async function captureBuffer(
   return result
 }
 
-/** What the renderer is doing: graph order, culled nodes, views, pending pipelines. For agents. */
+/** The GPU adapter's vendor, architecture, device and description (0075's machine detection). */
+function adapterIdentity(world: World) {
+  const info = (world.tryResource(Gpu)?.adapter as { info?: GPUAdapterInfo } | undefined)?.info
+  if (!info) return undefined
+  return {
+    vendor: info.vendor,
+    architecture: info.architecture,
+    device: info.device,
+    description: info.description,
+  }
+}
+
 /** Every buffer and texture on the device by category: the ledger's total (0055, 0074). */
 export function gpuMemory(world: World): { bytes: number; byCategory: Record<string, number> } {
   const memory = world.tryResource(Gpu)?.memory()
@@ -467,6 +483,7 @@ export function gpuMemory(world: World): { bytes: number; byCategory: Record<str
     : { bytes: 0, byCategory: {} }
 }
 
+/** What the renderer is doing: graph order, culled nodes, views, pending pipelines. For agents. */
 export function describeRender(world: World) {
   const graph = world.tryResource(Graph)
   const gpu = world.tryResource(Gpu)

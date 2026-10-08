@@ -207,8 +207,8 @@ from `childSeed` of the system.
       that rams a spawned chunk collides.
 - [ ] Belt particle positions at time `t` from the CPU lattice and the GPU instances agree within
       1 cm, and a spawned entity's `Orbit` matches its lattice path within 1 cm over 600 s.
-- [ ] A 2M-particle belt draws its mid tier at under 2 ms GPU on the reference GPU, with no
-      per-particle CPU work.
+- [ ] A 2M-particle belt draws its mid tier at under 2 ms GPU on the desktop (budget `gpu:belt`,
+      proposed), with no per-particle CPU work.
 - [ ] A ringed gas giant (0046) shows the ring shadow on the planet and the planet's shadow on the
       ring, and flying through the ring plane shows icy chunks tumbling (golden and a capture).
 - [ ] A destroyed belt chunk stays gone after leaving the belt, returning, and a save/load.

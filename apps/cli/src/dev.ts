@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { assetServer } from '@aethervtt/shard-assets'
 import { beginRedefinition, endRedefinition, type ShardError, World } from '@aethervtt/shard-core'
 import { type BuiltBundle, createBundler, prepareGenerators } from '@aethervtt/shard-node'
-import { createNodePlatform } from '@aethervtt/shard-platform-node'
+import { createNodePlatform, loadPerfBudgets } from '@aethervtt/shard-platform-node'
 import { loadProject } from '@aethervtt/shard-project'
 import { DEFAULT_HUB_PORT } from '@aethervtt/shard-protocol'
 import { ISOLATION_HEADERS } from '@aethervtt/shard-verify/node'
@@ -127,6 +127,10 @@ export async function dev(ctx: CommandContext): Promise<number> {
     ctx.out.say(`asset import failed: ${f.path}: ${f.error.message}`)
 
   const hubPort = Number(ctx.flags.hub ?? process.env.SHARD_HUB_PORT ?? DEFAULT_HUB_PORT)
+  // Budgets (0075) for the page's perf.budgets, overlay and adapting features. A page can't read
+  // its CPU model, so it detects no machine unless SHARD_MACHINE names one (passed through).
+  const loadedBudgets = loadPerfBudgets(root)
+  const budgets = loadedBudgets ? { ...loadedBudgets, cpu: undefined } : undefined
   const shardDev: VitePlugin = {
     name: 'shard-dev',
     transformIndexHtml: {
@@ -151,6 +155,7 @@ export async function dev(ctx: CommandContext): Promise<number> {
               bundle: bundleUrl(current),
               procgen,
               hub: `ws://127.0.0.1:${hubPort}`,
+              budgets,
             }),
           )
           return

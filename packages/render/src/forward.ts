@@ -1133,7 +1133,7 @@ function forwardNode(state: ForwardState) {
       const pv = state.views.get(ctx.view.name)
       if (!pv) return
       recordSwitches(ctx, drawMaterials(ctx, state, pv, cam, cam.draws, PASS_OPAQUE))
-      ctx.world.tryResource(FoliagePath)?.draw(ctx, cam, PASS_OPAQUE, ctx.renderPass!)
+      // GPU foliage (0045) draws in its own pass after this one (`foliage/draw`, 0075).
     },
   }
 }

@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import type { ShardError } from '../error'
-import { clockInfo, defineSpan, Profiler, spanCovers, spanName, spanStats, TRACK } from './profiler'
+import {
+  clockInfo,
+  defineSpan,
+  Profiler,
+  spanCount,
+  spanCovers,
+  spanId,
+  spanName,
+  spanStats,
+  TRACK,
+} from './profiler'
 
 /** A clock that only moves when told to. */
 function fakeClock() {
@@ -23,6 +33,37 @@ describe('spanCovers (0074, 0075)', () => {
     expect(spanCovers('gpu:foliage', 'gpu:foliage-cull')).toBe(false)
     expect(spanCovers('render/opaque', 'render')).toBe(false)
     expect(spanCovers('', 'frame')).toBe(false)
+  })
+})
+
+describe('readers for feature budgets (0075)', () => {
+  it('reads runs, the latest sample and the enclosing span by id, without allocating', () => {
+    const clock = fakeClock()
+    const p = new Profiler({ now: clock.now })
+    const outer = defineSpan('test-0075/outer')
+    expect(spanId('test-0075/never')).toBe(-1)
+    const before = spanCount()
+    const frame = p.beginFrame(1)
+    const t = p.begin(outer)
+    p.sample('test-0075/inner', 2)
+    clock.t += 5
+    p.end(t)
+    p.endFrame(frame)
+    p.record('gpu:test-0075', 1.5, TRACK.gpu)
+    p.record('gpu:test-0075', 2.5, TRACK.gpu)
+    expect(spanCount()).toBeGreaterThan(before)
+    const inner = spanId('test-0075/inner')
+    const gpu = spanId('gpu:test-0075')
+    expect(p.runsOf(gpu)).toBe(2)
+    expect(p.lastOf(gpu)).toBe(2.5)
+    expect(p.lastOf(spanId(outer.name))).toBe(5)
+    // What was open around each: the outer span, the frame, nothing between frames.
+    expect(spanName(p.parentOf(inner))).toBe('test-0075/outer')
+    expect(spanName(p.parentOf(spanId(outer.name)))).toBe('frame')
+    expect(p.parentOf(gpu)).toBe(-1)
+    p.reset()
+    expect(p.runsOf(gpu)).toBe(0)
+    expect(p.lastOf(gpu)).toBe(0)
   })
 })
 

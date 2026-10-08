@@ -164,11 +164,11 @@ describe('grid A*', () => {
     }
     const collections = await gcs.end()
     if (allocationChecks) expect(collections).toBe(0)
-    expect(median([...times])).toBeLessThan(budget(2))
+    expect(median([...times])).toBeLessThan(budget('nav/grid-search'))
     // The corner-to-corner query explores most of the maze: hold it to the budget too.
     expect(
       Math.min(...[...times].filter((_, i) => i % pairs.length === pairs.length - 1)),
-    ).toBeLessThan(budget(2))
+    ).toBeLessThan(budget('nav/grid-search'))
   })
 })
 

@@ -159,11 +159,13 @@ Every engine error is a `ShardError` with one of these codes.
 | `perf/capture-truncated` | @aethervtt/shard-core | Capture fewer frames, or pass a larger "events". |
 | `perf/clock-coarse` | @aethervtt/shard-core | Serve it with Cross-Origin-Opener-Policy: same-origin and Cross-Origin-Embedder-Policy: credentialless (shard dev and the playground do). |
 | `perf/disabled` | @aethervtt/shard-core | Turn it on with resource.set core/ProfilerSettings { enabled: true }. |
+| `perf/no-budgets` | @aethervtt/shard-core | pnpm bench passes them in SHARD_BUDGETS; run tests through it or through testFiles(). |
 | `perf/no-slow-frame` | @aethervtt/shard-core | Lower "until.frameMs", or raise "timeout". |
 | `perf/sampling-unavailable` | @aethervtt/shard-runtime | Node samples with node:inspector; browsers need the JS Self-Profiling API and a Document-Policy: js-profiling header (shard dev and the playground send it). |
 | `perf/span-mismatch` | @aethervtt/shard-core | Every profiler.begin(span) needs one profiler.end(token), in the same frame. |
 | `perf/span-overflow` | @aethervtt/shard-core | A span that begins in a loop needs its end inside the loop too. |
 | `perf/too-many-spans` | @aethervtt/shard-core | Span names are fixed strings (e.g. "terrain/encode"), not per-entity or per-frame text. |
+| `perf/unknown-budget` | @aethervtt/shard-core | Add it to bench/perf/budgets.json with a number for every machine and a note. |
 | `physics/both-dimensions` | @aethervtt/shard-physics | Enable one physics plugin per app: physics3d for 3D games, physics2d for 2D. |
 | `physics/character-has-body` | @aethervtt/shard-physics | The controller makes its own kinematic body and capsule. Remove RigidBody and Collider, or put extra colliders on a child. |
 | `physics/invalid-shape` | @aethervtt/shard-physics | Check radius, halfExtents, halfHeight, points, or the mesh. |
@@ -249,6 +251,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `render/feature-missing` | @aethervtt/shard-render | Add materialNoisePlugin from '@aethervtt/shard-render/noise'. |
 | `render/foliage-meshes` | @aethervtt/shard-render | Fewer variants: 4–8 read as unique once scaled and rotated. |
 | `render/foliage-patch` | @aethervtt/shard-render | positions and normals: 3 floats per grid point; density: 1. |
+| `render/gpu-timing-unavailable` | @aethervtt/shard-render | Ablation reads gpu:frame, which needs the 'timestamp-query' feature. |
 | `render/graph-cycle` | @aethervtt/shard-render | Check reads/writes and `after` on these nodes. |
 | `render/invalid-screen-effect` | @aethervtt/shard-render | A screen effect has a kind, a radius of at least 0, and at most 8 params. |
 | `render/material-field-clash` | @aethervtt/shard-render | Give the field another name, or use extends: "none". |
@@ -266,6 +269,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `render/unknown-buffer` | @aethervtt/shard-render |  |
 | `render/unknown-camera` | @aethervtt/shard-render | Pass a Camera3d entity that has rendered at least one frame. |
 | `render/unknown-material-type` | @aethervtt/shard-render |  |
+| `render/unknown-node` | @aethervtt/shard-render |  |
 | `render/unknown-variant-source` | @aethervtt/shard-render |  |
 | `render/variant-entry` | @aethervtt/shard-render |  |
 | `render/variant-material` | @aethervtt/shard-render |  |

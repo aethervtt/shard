@@ -18,6 +18,7 @@ import {
   trackName,
   type World,
 } from '@aethervtt/shard-core'
+import type { Capture } from '@aethervtt/shard-core/capture'
 
 // The agent surface of the profiler (0074): `perf.describe`'s aggregates, and captures with their
 // summary and trace. Captures, sampling and trace writing load with `import()` on first use.
@@ -61,6 +62,10 @@ export interface PerfProvidersData {
   gpuMemory?: (world: World) => { bytes: number; byCategory: Record<string, number> }
   /** More `perf.describe` sections by name (0075 adds budgets). */
   sections: Map<string, (world: World) => unknown>
+  /** The GPU adapter's identity (the render plugin), for telling which machine this is (0075). */
+  adapter?: (
+    world: World,
+  ) => { vendor?: string; architecture?: string; device?: string; description?: string } | undefined
 }
 
 export const PerfProviders = defineResource<PerfProvidersData>('runtime/PerfProviders', {
@@ -122,6 +127,36 @@ export function perfMemory(world: World): CaptureSummary['memory'] {
   return heap ? { gpu, heap } : { gpu }
 }
 
+/** Per-pass GPU times summed past this share of `gpu:frame` mean the passes overlap (0075). */
+export const OVERLAP_RATIO = 1.1
+
+/** Whether a span is a single GPU pass (`gpu:<node>`), not the frame or a group of passes. */
+export function isGpuPass(name: string): boolean {
+  return name.startsWith('gpu:') && name !== 'gpu:frame' && !name.startsWith('gpu:span/')
+}
+
+/**
+ * Whether per-pass GPU times overlap (0075): their averages sum to more than 110% of `gpu:frame`'s.
+ * On tile-based GPUs (Apple, most mobile) passes run concurrently and a pass's timestamps include
+ * waiting for earlier work, so only `gpu:frame` is reliable there, and pass costs come from
+ * ablation (`perf.ablate`). Undefined without GPU timings.
+ */
+export function gpuPassOverlap(
+  profiler: Profiler,
+): { passesMs: number; frameMs: number; overlapping: boolean } | undefined {
+  const frame = profiler.timing('gpu:frame')
+  if (!frame || frame.avg <= 0) return undefined
+  let passes = 0
+  for (const name of profiler.names()) {
+    if (isGpuPass(name)) passes += profiler.timing(name)!.avg
+  }
+  return {
+    passesMs: r3(passes),
+    frameMs: r3(frame.avg),
+    overlapping: passes > frame.avg * OVERLAP_RATIO,
+  }
+}
+
 /**
  * `perf.describe` (0074): per-frame, per-schedule, per-system CPU time, GPU passes, worker and
  * async spans, memory (GPU ledger, JS heap, ECS tables), and the clock.
@@ -148,6 +183,7 @@ export function describePerf(world: World, options: PerfDescribeOptions = {}) {
       .map(rounded)
   const frame = spanStats(profiler, 'frame')
   const gpuFrame = spanStats(profiler, 'gpu:frame')
+  const overlap = gpuPassOverlap(profiler)
   const clock = clockInfo()
   const ecs = world.stats()
   let ecsBytes = 0
@@ -174,6 +210,14 @@ export function describePerf(world: World, options: PerfDescribeOptions = {}) {
         : {
             frame: gpuFrame ? rounded(gpuFrame) : null,
             quantized: profiler.gpu.quantized,
+            // 0075: pass times that add up to more than the frame overlap, and don't rank passes.
+            overlapping: overlap?.overlapping ?? false,
+            ...(overlap?.overlapping
+              ? {
+                  passesMs: overlap.passesMs,
+                  note: 'Pass times overlap (a tile-based GPU): each includes waiting for earlier work, so they sum past gpu:frame and do not rank passes. perf.ablate measures what each pass costs.',
+                }
+              : {}),
             passes: list('gpu'),
           },
     workers: list('worker'),
@@ -198,10 +242,16 @@ export interface PerfCaptureOptions extends Omit<CaptureOptions, 'devtools'> {
    * for the loop's frames.
    */
   step?: () => void | Promise<void>
+  /** Builds the Chrome trace (default true). Scenario tests (0075) read the capture instead. */
+  trace?: boolean
+  /** Returns the capture itself (`result.capture`), for `spanTime` (0075). In-process only. */
+  keep?: boolean
 }
 
 export interface PerfCaptureResult {
   summary: CaptureSummary
+  /** The capture, with `keep`: per-frame time a budget key covers (`spanTime`), its events. */
+  capture?: Capture
   /** Where the trace went, project-relative. */
   tracePath?: string
   /** The trace itself, when it wasn't written. */
@@ -272,7 +322,7 @@ export async function capturePerf(
     }
   }
   const measure = host?.measure
-  const { step, sample: _, devtools, write, ...captureOptions } = options
+  const { step, sample: _, devtools, write, trace: wantTrace, keep, ...captureOptions } = options
   const recorder = startCapture(profiler, {
     ...captureOptions,
     devtools:
@@ -316,8 +366,10 @@ export async function capturePerf(
     hottest: sampled?.hottest,
     warnings,
   })
-  const trace = capture.trace({ samples: sampled?.samples })
   const result: PerfCaptureResult = { summary }
+  if (keep) result.capture = capture
+  if (wantTrace === false) return result
+  const trace = capture.trace({ samples: sampled?.samples })
   if (write !== false && host?.writeText) {
     const stamp = captureStamp()
     result.tracePath = `.shard/captures/${stamp}.trace.json`

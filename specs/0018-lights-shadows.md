@@ -120,7 +120,7 @@ The schema presets follow the physical-units convention from 0007, as `LightPres
 
 - [x] An 800 lm point light 2 m above a white Lambertian plane produces the analytic luminance
       `L = (800/4π)/2² · ρ/π` at the point below it, within 2%, read back from an HDR capture.
-- [x] 256 point lights in a scene render at 60 fps at 1920×1080 in the browser on the dev machine,
+- [x] 256 point lights in a scene render at 60 fps at 1920×1080 in the browser on the laptop,
       with GPU timings reported. The golden image matches in headless Dawn.
 - [x] GPU and CPU clustering produce the same light lists for a fixture scene.
 - [x] Directional, spot, and point shadows render as authored (golden images). Moving the camera by
@@ -185,7 +185,7 @@ The schema presets follow the physical-units convention from 0007, as `LightPres
 - **glTF:** `KHR_lights_punctual` point and spot lights now import (candela × 4π → lumens, cone
   angles in degrees). A missing range ends where the light falls to 0.01 lux.
 - **Measured:** the playground's `#lights` demo (256 moving point lights, 4 with point shadows,
-  and a shadowed moon) runs at 60 fps at 1920×1080 in Chrome on the dev machine (Apple M4), with
+  and a shadowed moon) runs at 60 fps at 1920×1080 in Chrome on the laptop (Apple M4), with
   per-pass GPU timestamps in the HUD. On Apple GPUs, passes overlap, so those timestamps don't sum
   to the frame time. The golden images render headless on Dawn.
 - **Groundwork that landed with this spec:** the HDR target and tonemap pass (0019), and the

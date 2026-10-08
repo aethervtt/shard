@@ -6,6 +6,7 @@ import type { FileChangeEvent, KeyValueStorage, Platform, Workers } from '@aethe
 import { createNodePerformance } from './performance'
 import { createNodeWorkers } from './workers'
 
+export { findPerfBudgets, loadPerfBudgets, type NodePerfBudgets } from './budgets'
 export { createNodePerformance } from './performance'
 export { createNodeWorkers } from './workers'
 

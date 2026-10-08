@@ -73,7 +73,7 @@ describe('performance', () => {
       `audio/update, 48 sources: ${median(list).toFixed(4)} ms median; GC events: ${collections}`,
     )
     if (allocationChecks) expect(collections).toBe(0)
-    expect(median(list)).toBeLessThan(budget(0.1))
+    expect(median(list)).toBeLessThan(budget('audio/update'))
   })
 
   it('512 sources over the 64-voice limit: under 0.5 ms a frame', async () => {
@@ -81,6 +81,6 @@ describe('performance', () => {
     console.log(
       `audio/update, 512 sources (64 real): ${median(list).toFixed(4)} ms median; GC events: ${collections}`,
     )
-    expect(median(list)).toBeLessThan(budget(0.5))
+    expect(median(list)).toBeLessThan(budget('audio/update-virtual'))
   })
 })

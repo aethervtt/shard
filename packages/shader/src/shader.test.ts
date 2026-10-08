@@ -131,7 +131,7 @@ ${helpers}
       await lib.link({ root: 'project::big' })
       if (i >= 5) best = Math.min(best, performance.now() - start) // first runs warm up the JIT
     }
-    expect(best).toBeLessThan(budget(5))
+    expect(best).toBeLessThan(budget('shader/link'))
   })
 
   it('reloads modules from watched files', async () => {

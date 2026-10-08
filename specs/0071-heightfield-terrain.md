@@ -231,13 +231,14 @@ chunk), how they stream, and how the ground is authored.
 - [ ] Planet goldens, the planet walk checksum, and 0043's descent tests are unchanged after the
       quadtree is shared.
 - [ ] Moving one image layer rebakes only the blocks its old and new regions touch, plus their
-      ancestors (count asserted), in under 2 s for a 2 km terrain on the reference machine.
+      ancestors (count asserted), in under 2 s for a 2 km terrain on the desktop (budget
+      `terrain/heightfield-rebake`, proposed).
 - [ ] The bake is deterministic: two bakes, and a bake in Node against one in Chrome, produce
       identical pack bytes.
 - [ ] Disk use is within 10% of 4.5 bytes a sample before deflate.
 - [ ] With page reads delayed 500 ms, the flight still shows no hole (coarse levels draw).
-- [ ] A flight at 300 m/s over the 16 km terrain keeps frame time under 16.6 ms on the reference
-      GPU, with streaming under 1 ms of main-thread time a frame (p95).
+- [ ] A flight at 300 m/s over the 16 km terrain keeps frame time inside the `open-world-fly`
+      scenario's frame budget (0075), with streaming under 1 ms of main-thread time a frame (p95).
 - [ ] A flattened spline road has a cross-slope under 1° along its width. Its gravel layer
       covers the road and ends within `blend` of its edge (`terrain.sample`).
 - [ ] A character dropped at 20 random points walks 100 m headless without falling through, and

@@ -1,0 +1,558 @@
+{
+  "version": 1,
+  "note": "Time budgets per named machine (machines.json), read by tests through budget(key) from @aethervtt/shard-core/test-env (spec 0075). Milliseconds unless an entry says otherwise with `in` (frames, ratio). Kinds: target (what the product wants), unit (cost per `per`, times the test's count), rate (`per` a second, a floor), guard (a measured value; the limit is value × (1 + margin), and pnpm bench --ratchet proposes lowering it when a run beats it by more than twice its margin). Every entry has a note: a change to a number is a diff with a reason.",
+  "spans": {
+    "animation/animators": {
+      "kind": "target",
+      "laptop": 0.5,
+      "desktop": 0.5,
+      "note": "0033: 200 animators (graphs, blend spaces) evaluated in a frame; median of 5,000. animation/src/perf.test.ts."
+    },
+    "animation/ik": {
+      "kind": "target",
+      "laptop": 1,
+      "desktop": 1,
+      "note": "0034: two-bone foot IK on 100 characters × 2 legs, median frame. animation/src/perf.test.ts."
+    },
+    "animation/sample": {
+      "kind": "target",
+      "laptop": 2,
+      "desktop": 2,
+      "note": "0032: sampling 200 characters × 60 joints, median frame. animation/src/perf.test.ts."
+    },
+    "animation/skinned-frame": {
+      "kind": "target",
+      "laptop": 16.67,
+      "desktop": 16.67,
+      "note": "0032: 200 skinned characters at 1080p hold 60 fps, median frame of CPU + GPU. animation/src/perf.test.ts."
+    },
+    "assets/scan": {
+      "kind": "unit",
+      "per": "file",
+      "laptop": 0.2,
+      "desktop": 0.2,
+      "note": "0014: a scan stats unchanged sources; 1,000 in under 200 ms. assets/src/assets.test.ts."
+    },
+    "audio/update": {
+      "kind": "target",
+      "laptop": 0.1,
+      "desktop": 0.1,
+      "note": "0035: the audio/update system with 48 moving spatial sources, median frame. audio/src/perf.test.ts."
+    },
+    "audio/update-virtual": {
+      "kind": "target",
+      "laptop": 0.5,
+      "desktop": 0.5,
+      "note": "0035: audio/update with 512 sources over the 64-voice limit, median frame. audio/src/perf.test.ts."
+    },
+    "fog/redraw": {
+      "kind": "target",
+      "laptop": 50,
+      "desktop": 50,
+      "note": "0058: redrawing 4,000 regions × 1,000 points with every tessellation cached (GPU work only), one frame to the GPU finishing. fog/src/fog.test.ts."
+    },
+    "gizmos/draw": {
+      "kind": "unit",
+      "per": "line",
+      "laptop": 1e-5,
+      "desktop": 1e-5,
+      "note": "0027: 100k gizmo lines drawn in under 1 ms (best frame). render/src/gizmos.test.ts."
+    },
+    "gltf/import": {
+      "kind": "guard",
+      "margin": 0.25,
+      "laptop": 1600,
+      "desktop": 1600,
+      "note": "Importing a .glb of a 1M-triangle grid (scan with force). Regression only: the limit (2,000 ms) is the number 0015 stated. gltf/src/instance.test.ts."
+    },
+    "gltf/load": {
+      "kind": "target",
+      "laptop": 20,
+      "desktop": 20,
+      "note": "0015: loading the imported 1M-triangle mesh. gltf/src/instance.test.ts."
+    },
+    "gltf/texture-upload": {
+      "kind": "target",
+      "laptop": 30,
+      "desktop": 30,
+      "note": "0016: loading and uploading a 2048² texture with its mip chain. gltf/src/textured.test.ts."
+    },
+    "gpu-webgl2/naga-load": {
+      "kind": "target",
+      "laptop": 300,
+      "desktop": 300,
+      "note": "0064: naga's wasm loaded in the browser on the first translation-cache miss. playground/src/webgl2.test.ts."
+    },
+    "gpu-webgl2/translate": {
+      "kind": "target",
+      "laptop": 20,
+      "desktop": 20,
+      "note": "0064: p95 WGSL to GLSL translation per shader stage on the lights demo. playground/src/webgl2.test.ts."
+    },
+    "gpu:fog": {
+      "kind": "target",
+      "laptop": 1,
+      "desktop": 1,
+      "note": "0058: projected fog's passes after appending a region to 4,000 (the GPU time render.describe reports). fog/src/fog.test.ts."
+    },
+    "gpu:foliage": {
+      "kind": "guard",
+      "margin": 0.1,
+      "laptop": 19.5,
+      "desktop": 3,
+      "note": "0045: 2.2M grass blades in view within 60 m at 960×540, full density with no budget, GPU frame with the layer minus without (median): a regression guard, since in an app foliage adapts to its scatter-walk slice (FoliageBudget, 0075 part B). The laptop measured 18.49 ms in the first 0075 bench (2026-10-08), then 19.10, 19.67, 19.64, 19.77 and 20.37 ms in quiet reruns; part A, before foliage drew in a foliage/draw pass of its own, measured the same. About half is vertex work (12M vertices through the material's hooks) and half shading on overlapping blades; it was 70 ms before LODs and nearest-cascade shadows. Leads: compute each visible instance's transform once in the cull pass, and a simpler material for the farthest level. The desktop's 3 ms is 0045's number, not measured. scatter/src/bench.test.ts."
+    },
+    "mirror/sync": {
+      "kind": "target",
+      "laptop": 0.2,
+      "desktop": 0.2,
+      "note": "0055: syncing 5,000 unchanged wall documents, median. mirror/src/mirror.test.ts."
+    },
+    "nav/find-path": {
+      "kind": "target",
+      "laptop": 2,
+      "desktop": 2,
+      "note": "0037: findPath on a 256×256 maze grid, median. nav/src/perf.test.ts."
+    },
+    "nav/grid-agents": {
+      "kind": "target",
+      "laptop": 1,
+      "desktop": 1,
+      "note": "0037: a frame of 200 grid agents chasing a moving target, median. nav/src/perf.test.ts."
+    },
+    "nav/grid-search": {
+      "kind": "target",
+      "laptop": 2,
+      "desktop": 2,
+      "note": "0037: a grid search plus smoothing on the maze (median, and the corner-to-corner query alone). nav/src/grid.test.ts."
+    },
+    "nav/mesh-agents": {
+      "kind": "target",
+      "laptop": 1.5,
+      "desktop": 1.5,
+      "note": "0037: a frame of 100 navmesh agents in a crowd, median. nav/src/perf.test.ts."
+    },
+    "noise/fbm6": {
+      "kind": "rate",
+      "per": "point",
+      "laptop": 40000000,
+      "desktop": 24000000,
+      "note": "0041: 6-octave simplex fBm on one thread, best of 24 runs. The desktop measured 24.7M points/s (2026-09-29) at the commit that set 40M (e1c56ec), steady across runs and V8 versions: f32x4.min/max and i32x4.trunc_sat_f32x4 in lanes.rs are one instruction on ARM NEON and several on x86 SSE. noise/src/perf.test.ts."
+    },
+    "noise/sphere-patch": {
+      "kind": "target",
+      "laptop": 8,
+      "desktop": 8,
+      "note": "0041: a 257² sphere patch of the planet graph on the worker pool, median after warm-up. noise/src/perf.test.ts."
+    },
+    "noise/sphere-patch-main": {
+      "kind": "target",
+      "laptop": 0.2,
+      "desktop": 0.2,
+      "note": "0041: the main thread's share of a 257² sphere patch on the pool. noise/src/perf.test.ts."
+    },
+    "physics/bodies-5k": {
+      "kind": "target",
+      "laptop": 8,
+      "desktop": 8,
+      "note": "0028: 5,000 awake bodies resting on the ground: physics/sync-in + physics/step + physics/sync-out, average frame. physics/src/physics.test.ts."
+    },
+    "physics/characters": {
+      "kind": "target",
+      "laptop": 1.5,
+      "desktop": 1.5,
+      "note": "0029: 100 walking character controllers: physics/character + physics/step, average frame. physics/src/character.test.ts."
+    },
+    "physics/track-abort": {
+      "kind": "target",
+      "laptop": 10,
+      "desktop": 10,
+      "note": "0053: recording a track rejects this soon after its signal aborts. physics/src/track/track.test.ts."
+    },
+    "physics/track-record": {
+      "kind": "guard",
+      "margin": 0.25,
+      "laptop": 80,
+      "desktop": 80,
+      "note": "0053: recording 32 convex bodies over 480 steps, best of 3. The limit (100 ms) is 0053's number. physics/src/track/track.test.ts."
+    },
+    "physics/worker-abort": {
+      "kind": "target",
+      "laptop": 10,
+      "desktop": 10,
+      "note": "0053: the physics worker rejects this soon after an abort. physics/src/worker/worker.test.ts."
+    },
+    "physics/worker-record": {
+      "kind": "target",
+      "laptop": 100,
+      "desktop": 100,
+      "note": "0053: the next recording after an abort doesn't wait behind the cancelled one. physics/src/worker/worker.test.ts."
+    },
+    "procgen/main-thread": {
+      "kind": "target",
+      "laptop": 2,
+      "desktop": 2,
+      "note": "0042: main-thread procgen work in any frame while 200 runs land (hashing, caching, meshing). node/src/procgen.test.ts."
+    },
+    "profiler/always-on": {
+      "kind": "target",
+      "in": "ratio",
+      "laptop": 1.01,
+      "desktop": 1.01,
+      "note": "0074: frame time with the always-on profiler over frame time with it off, on the 100k-entity ECS bench. runtime/src/perf.test.ts."
+    },
+    "profiler/capturing": {
+      "kind": "target",
+      "in": "ratio",
+      "laptop": 1.05,
+      "desktop": 1.05,
+      "note": "0074: frame time while a capture records, over frame time with the profiler off. runtime/src/perf.test.ts."
+    },
+    "project/hot-reload": {
+      "kind": "target",
+      "laptop": 100,
+      "desktop": 100,
+      "note": "0017: rebuilding and swapping star-explorer's scripts after an edit. node/src/reload.test.ts."
+    },
+    "project/reload-migrate": {
+      "kind": "target",
+      "laptop": 300,
+      "desktop": 300,
+      "note": "0017: a hot reload that adds a field, migrating 100,000 instances. project/src/reload.test.ts."
+    },
+    "render/atmosphere-primary": {
+      "kind": "target",
+      "laptop": 0.6,
+      "desktop": 0.6,
+      "note": "0044: one planet atmosphere over a skybox, lower-quartile frame difference. render/src/atmosphere.test.ts."
+    },
+    "render/atmosphere-secondaries": {
+      "kind": "target",
+      "laptop": 1.2,
+      "desktop": 1.2,
+      "note": "0044: four atmospheres (one primary, three secondaries) over a skybox, lower-quartile frame difference. render/src/atmosphere.test.ts."
+    },
+    "render/atmosphere-select": {
+      "kind": "target",
+      "laptop": 0.1,
+      "desktop": 0.1,
+      "note": "0044: the render/atmosphere-select system, average frame. render/src/atmosphere.test.ts."
+    },
+    "render/prepare-static": {
+      "kind": "target",
+      "laptop": 1,
+      "desktop": 1,
+      "note": "0022: CPU prep of a static 200k-instance frame (slots, culling submission, uploads), best of 10. render/src/culling.test.ts."
+    },
+    "render/shader-reload": {
+      "kind": "target",
+      "in": "frames",
+      "laptop": 2,
+      "desktop": 25,
+      "note": "0041: frames from a noise graph edit to the re-rendered pixel. The desktop takes 11–25 (2026-09-29, the same at e1c56ec): it waits for one pipeline compile, about 370 ms on D3D12; two frames assume one under ~33 ms. That Dawn build found no Vulkan adapter, so D3D12 wasn't compared with Vulkan on the same GPU. render/src/noise.test.ts."
+    },
+    "scatter/foliage-cpu": {
+      "kind": "target",
+      "laptop": 0.5,
+      "desktop": 0.5,
+      "note": "0045: the scatter system's time with 2M blades in view, p95; it touches chunks, not blades. scatter/src/bench.test.ts."
+    },
+    "scatter/props-frame": {
+      "kind": "target",
+      "laptop": 16.6,
+      "desktop": 16.6,
+      "note": "0045: a frame (the longer of CPU and GPU) with 20,000 props live within range, p95. scatter/src/bench.test.ts."
+    },
+    "scatter/spawn-frame": {
+      "kind": "target",
+      "laptop": 1,
+      "desktop": 1,
+      "note": "0045: prop spawning and despawning in the worst frame of a 1 km walk, GC excluded. scatter/src/bench.test.ts."
+    },
+    "scene/load": {
+      "kind": "unit",
+      "per": "entity",
+      "laptop": 0.01,
+      "desktop": 0.01,
+      "note": "0010: loading a 10,000-entity scene in under 100 ms, best of 3. scene/src/scene.test.ts."
+    },
+    "scene/spawn-prefab": {
+      "kind": "unit",
+      "per": "instance",
+      "laptop": 0.02,
+      "desktop": 0.02,
+      "note": "0030: spawning 1,000 instances of a compiled prefab in under 20 ms, best of 3. scene/src/prefab.test.ts."
+    },
+    "shader/link": {
+      "kind": "guard",
+      "margin": 0.25,
+      "laptop": 4,
+      "desktop": 4,
+      "note": "Linking an 80-helper module that imports the PBR library, best after warm-up. The limit (5 ms) is 0006's number. shader/src/shader.test.ts."
+    },
+    "sprite/ground-unchanged": {
+      "kind": "target",
+      "laptop": 0.05,
+      "desktop": 0.05,
+      "note": "0059: a frame with nothing edited reads 100 ground tilemaps, median. sprite/src/ground.test.ts."
+    },
+    "sprite/lighting2d": {
+      "kind": "target",
+      "laptop": 2.5,
+      "desktop": 2.5,
+      "note": "0039: 20k sprites, 250 lights (64 shadowed) and 2,000 segments at 1080p, lit frame minus unlit (median). sprite/src/lighting.test.ts."
+    },
+    "sprite/lit-frame": {
+      "kind": "target",
+      "laptop": 16.67,
+      "desktop": 16.67,
+      "note": "0039: the same scene's whole lit frame holds 60 fps. sprite/src/lighting.test.ts."
+    },
+    "structure/blocked-lights": {
+      "kind": "target",
+      "in": "ratio",
+      "laptop": 1.1,
+      "desktop": 1.1,
+      "note": "0069: GPU frame with 200 blocked lights over unblocked ones on the max fixture at 1280×720 (median of interleaved rounds). structure/src/interior-max.test.ts."
+    },
+    "structure/build-max": {
+      "kind": "guard",
+      "margin": 0.25,
+      "laptop": 240,
+      "desktop": 240,
+      "note": "Building the max structure fixture from its documents (a scene load), best after a warm-up. The limit (300 ms) is 0055's number. structure/src/structure.test.ts."
+    },
+    "structure/cutaway": {
+      "kind": "target",
+      "in": "ratio",
+      "laptop": 1.12,
+      "desktop": 1.05,
+      "note": "0070: GPU frame with 16 reveal points over none on the max fixture at 1280×720 (median of interleaved rounds); 0070 asks for +5%. The laptop measured +8–11% (2026-10-04), not measured on the desktop. With the points cutting nothing it's +1%; the rest is the cut chunks: a discard costs a tiled GPU its hidden-surface removal, so what's behind a cut wall is shaded too. Drawing those batches last didn't change it. Lead: draw the cut batches depth-only first, then everything at depthCompare 'equal' (needs @invariant clip positions in the core shaders). structure/src/cutaway.test.ts."
+    },
+    "structure/interior-rows": {
+      "kind": "target",
+      "laptop": 2,
+      "desktop": 2,
+      "note": "0069: a door toggle on the max fixture rebuilds only the nearby light rows, median of 6. structure/src/interior-max.test.ts."
+    },
+    "structure/rebuild": {
+      "kind": "target",
+      "laptop": 4,
+      "desktop": 4,
+      "note": "0055, 0066: a wall edit rebuilds only the chunks it touches, median edit (straight and curved walls). structure/src/structure.test.ts, curved.test.ts."
+    },
+    "terrain/descent-frame": {
+      "kind": "target",
+      "laptop": 16.6,
+      "desktop": 16.6,
+      "note": "0043: a frame (the longer of CPU and GPU) of the Earth descent within TerrainBudget, p50 and p95. terrain/src/budget.test.ts."
+    },
+    "text/build-font": {
+      "kind": "guard",
+      "margin": 0.25,
+      "laptop": 1600,
+      "desktop": 1600,
+      "note": "Building the latin-extended set (≈330 glyphs) and packing it. The limit (2 s) is 0025's number. text/src/font.test.ts."
+    },
+    "text/import-font": {
+      "kind": "guard",
+      "margin": 0.25,
+      "laptop": 1600,
+      "desktop": 1600,
+      "note": "The font importer on latin-extended, KTX2 atlas included. The limit (2 s) is 0025's number. text/src/importer.test.ts."
+    },
+    "text/layout": {
+      "kind": "unit",
+      "per": "glyph",
+      "laptop": 0.0002,
+      "desktop": 0.0002,
+      "note": "0025: laying out 10,000 changing glyphs a frame in under 2 ms. text/src/layout.test.ts."
+    },
+    "text/prepare": {
+      "kind": "unit",
+      "per": "glyph",
+      "laptop": 0.0002,
+      "desktop": 0.0002,
+      "note": "0025: the text/prepare system with 10,000 changing glyphs (1,000 counters), best of 10 frames. text/src/text.test.ts."
+    },
+    "texture/import": {
+      "kind": "guard",
+      "margin": 0.25,
+      "laptop": 1200,
+      "desktop": 1200,
+      "note": "Importing a 2048² PNG with mipmaps. The limit (1.5 s) is 0016's number. texture/src/texture.test.ts."
+    },
+    "ui/layout": {
+      "kind": "guard",
+      "margin": 0.1,
+      "laptop": 0.9,
+      "desktop": 1.1,
+      "note": "0036: ui/layout of 2,001 nodes after one changes, best of 20. The desktop is bimodal, about 0.83 or 1.2 ms from run to run, the same at 49ddb15 (0036) and 2026-09-29: likely which CCD the process lands on. ui/src/ui.test.ts."
+    },
+    "ui/layout-unchanged": {
+      "kind": "target",
+      "laptop": 0.2,
+      "desktop": 0.2,
+      "note": "0036: ui/layout in a frame where nothing changed. ui/src/ui.test.ts."
+    },
+    "vector/tessellate": {
+      "kind": "unit",
+      "per": "point",
+      "laptop": 0.001,
+      "desktop": 0.001,
+      "note": "0057: tessellating a 1,000-point pen stroke in under 1 ms, median. vector/src/tessellate.test.ts."
+    }
+  },
+  "scenarios": {
+    "scatter-walk": {
+      "what": "star-explorer's planet, walking through forest with grass",
+      "resolution": [1920, 1080],
+      "renderScale": 1,
+      "fps": 60,
+      "frame": {
+        "gpu": {
+          "laptop": 16.6,
+          "desktop": 8.3
+        },
+        "cpu": {
+          "laptop": 8,
+          "desktop": 6
+        }
+      },
+      "slices": {
+        "gpu": {
+          "gpu:forward-opaque": 0.35,
+          "gpu:foliage": 0.06,
+          "gpu:shadows": 0.25,
+          "gpu:tonemap": 0.015,
+          "headroom": 0.325
+        },
+        "cpu": {
+          "render": 0.82,
+          "scatter": 0.07,
+          "terrain/select": 0.06,
+          "terrain/planets": 0.01,
+          "headroom": 0.04
+        }
+      },
+      "note": "Shares from the laptop's first 0075 bench (2026-10-08), each the measured share of the frame rounded up, headroom the rest. GPU slices by ablation (the laptop's passTiming): gpu:foliage 0.13-0.61 ms, gpu:tonemap 0.07-0.18 ms over four runs (floors of 1 and 0.25 ms: a sub-millisecond pass found by ablation, the difference of frames that vary by 10-20 ms, is mostly noise); CPU p95 render 5.62, scatter 0.37, terrain/select 0.34, terrain/planets 0.031 ms of a 7.08 ms frame. Known miss on the laptop: gpu:forward-opaque (10.81, 29.38 and 23.12 ms over three runs; ablating it is noisy on the M4) and gpu:shadows (12.81 and 12.24 ms) don't fit a 16.6 ms frame together, so the laptop overrides them absolutely at the measured value plus about 10%; their shares, and the desktop's whole split, are proposals, unmeasured. Lead: shadows, 4 cascades over the forest's trees and props. Keys cover the spans the walk records (scatter/src/scenario.test.ts), none twice: gpu:forward-opaque (terrain, rocks, bushes, trees), gpu:foliage (foliage/place, /cull, /draw; FoliageBudget's default target), gpu:shadows (cascade0-3), gpu:tonemap; terrain/generate, instance-cull and light-clusters fall in headroom. CPU: render (render systems and node encodes, terrain/encode included), scatter (scatter/props), terrain/select, terrain/planets. The laptop's CPU frame measured 7.08 and 8.19 ms p95 in two quiet runs against the 8 ms target, terrain/select 0.34 and 0.52 ms: near their limits, to settle with more quiet runs.",
+      "overrides": {
+        "laptop": {
+          "gpu": {
+            "gpu:forward-opaque": 32,
+            "gpu:shadows": 14
+          }
+        }
+      }
+    },
+    "planet-descent": {
+      "what": "0043's Earth descent",
+      "resolution": [1920, 1080],
+      "renderScale": 1,
+      "fps": 60,
+      "frame": {
+        "gpu": {
+          "laptop": 16.6,
+          "desktop": 8.3
+        },
+        "cpu": {
+          "laptop": 8,
+          "desktop": 6
+        }
+      },
+      "slices": {
+        "gpu": {
+          "gpu:forward-opaque": 0.42,
+          "gpu:terrain": 0.05,
+          "gpu:tonemap": 0.04,
+          "headroom": 0.49
+        },
+        "cpu": {
+          "render": 0.37,
+          "terrain/select": 0.1,
+          "terrain/planets": 0.01,
+          "headroom": 0.52
+        }
+      },
+      "note": "Shares from the laptop's first 0075 bench (2026-10-08), each the measured share of the frame rounded up, headroom the rest: GPU p95 gpu:forward-opaque 3.26 ms and gpu:tonemap 0.25 ms of an 8.06 ms frame (gpu:terrain measured 0 at p95, generation being spiky: 0.05 is proposed); CPU render 2.86 ms, terrain/planets 0.046 ms. Known miss on the laptop: terrain/select at 5.6 ms in the descent against a 0.8 ms slice, which puts the CPU frame at 8.25 ms against 8. The laptop overrides it absolutely at 6.2 ms until selection is fixed; its 0.1 share is a proposal. Lead: terrain/select at 5.6 ms in the descent. The desktop is unmeasured. Keys cover the spans the descent records (terrain/src/scenario.test.ts), none twice: gpu:forward-opaque (the terrain draws), gpu:terrain (terrain/generate), gpu:tonemap; instance-cull and light-clusters fall in headroom. CPU: render (render systems and node encodes, terrain/encode included), terrain/select, terrain/planets.",
+      "overrides": {
+        "laptop": {
+          "cpu": {
+            "terrain/select": 6.2
+          }
+        }
+      }
+    },
+    "crowd": {
+      "what": "0022's 200k instances",
+      "resolution": [1920, 1080],
+      "renderScale": 1,
+      "fps": 60,
+      "frame": {
+        "gpu": {
+          "laptop": 16.6,
+          "desktop": 8.3
+        },
+        "cpu": {
+          "laptop": 8,
+          "desktop": 6
+        }
+      },
+      "slices": {
+        "gpu": {
+          "gpu:forward-opaque": 0.17,
+          "gpu:shadows": 0.23,
+          "gpu:instance-cull": 0.02,
+          "gpu:tonemap": 0.01,
+          "headroom": 0.57
+        },
+        "cpu": {
+          "render": 0.87,
+          "headroom": 0.13
+        }
+      },
+      "note": "Shares from the laptop's first 0075 bench (2026-10-08), each the measured share of the frame rounded up, headroom the rest: GPU by ablation gpu:forward-opaque 1.16 ms and gpu:shadows 1.61 ms of a 7.54 ms frame, gpu:instance-cull and gpu:tonemap 0 (under ablation's resolution: 0.02 and 0.01 are proposed); CPU render 2.94 ms of a 3.44 ms frame. The desktop is unmeasured. Keys cover the spans the turntable records (render/src/crowd.test.ts), none twice: gpu:forward-opaque, gpu:shadows (cascade0-3), gpu:instance-cull (0022's cull pass), gpu:tonemap; light-clusters falls in headroom. CPU: render (render systems and node encodes)."
+    },
+    "tabletop-max": {
+      "what": "0055's max structure fixture",
+      "resolution": [1920, 1080],
+      "renderScale": 1,
+      "fps": 60,
+      "frame": {
+        "gpu": {
+          "laptop": 28,
+          "desktop": 8.3
+        },
+        "cpu": {
+          "laptop": 232,
+          "desktop": 6
+        }
+      },
+      "slices": {
+        "gpu": {
+          "gpu:forward-opaque": 0.35,
+          "gpu:forward-transparent": 0.1,
+          "gpu:shadows": 0.2,
+          "gpu:tonemap": 0.05,
+          "headroom": 0.3
+        },
+        "cpu": {
+          "render": 0.3,
+          "structure": 0.15,
+          "headroom": 0.55
+        }
+      },
+      "note": "Shares are proposals; the laptop's numbers are its first bench (2026-10-08), a known miss at the measured value plus about 10%: a 210.7 ms CPU frame p95, almost all render (210.2 ms; render/shadows/cascades encoding is most of it), and a 25.4 ms GPU frame, gpu:forward-opaque 7.43 ms and gpu:shadows 9.69 ms by ablation. The desktop is unmeasured. Keys cover the spans the pan records (structure/src/scenario.test.ts), none twice: gpu:forward-opaque (walls, floors, props), gpu:forward-transparent (windows), gpu:shadows (cascade0-3), gpu:tonemap; instance-cull and light-clusters fall in headroom. CPU: render (render systems and node encodes), structure (structure/compile, structure/doors).",
+      "overrides": {
+        "laptop": {
+          "gpu": {
+            "gpu:shadows": 10.7
+          },
+          "cpu": {
+            "render": 232
+          }
+        }
+      }
+    }
+  }
+}

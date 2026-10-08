@@ -98,7 +98,7 @@ opaque (forward or G-buffer + lighting) ── ssao feeds lighting's occlusion
 - [x] TAA lowers an edge-aliasing metric on a high-contrast fixture versus none, and doesn't ghost
       on a moving object beyond the clamp's tolerance (golden sequence).
 - [x] With every effect enabled, a 1080p frame's post-processing costs under 3 ms of GPU time on the
-      dev machine. Removing a component removes its node (graph culling check).
+      laptop. Removing a component removes its node (graph culling check).
 
 ## Implementation notes
 
@@ -176,7 +176,7 @@ opaque (forward or G-buffer + lighting) ── ssao feeds lighting's occlusion
   - Span timings (`gpu:span/post`, `gpu:span/ssao`) run from a group's first pass start to its last
     pass end. Per-pass stamps overlap on tile-based GPUs and add up to more than the frame.
   - `render.capture { buffer }` documents `post-hdr`, `velocity`, `ssao`, `bloom`, and `dof-half`.
-- **Measured on the dev machine (Apple M4, Chrome, 1920×1080):**
+- **Measured on the laptop (Apple M4, Chrome, 1920×1080):**
   - Timestamps don't isolate post there: a lightly loaded GPU runs downclocked, and the last pass's
     stamp includes the swapchain wait. The measure used is the frame-time difference in a GPU-bound
     scene (`#crowd?nolod&still`, 26.5 ms without effects).

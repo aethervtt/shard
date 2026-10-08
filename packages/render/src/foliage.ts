@@ -1,15 +1,30 @@
 import {
   type AssetRef,
   defineResource,
+  defineSystem,
+  PostUpdate,
   ProfilerResource,
   ShardError,
   type World,
 } from '@aethervtt/shard-core'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import type { Mesh } from '@aethervtt/shard-mesh'
-import { definePlugin } from '@aethervtt/shard-runtime'
+import {
+  definePlugin,
+  PerfBudgets,
+  type PerfBudgetsData,
+  PerfScenario,
+  scenarioSliceMs,
+} from '@aethervtt/shard-runtime'
 import { type MaterialAsset, Materials, Meshes } from './assets'
 import { addRenderFeatures } from './features'
+import {
+  CoveredGpuTime,
+  FOLIAGE_SPAN_KEY,
+  FoliageBudget,
+  type FoliageBudgetValue,
+  FoliageController,
+} from './foliage-budget'
 import { FoliagePath, type FoliageSupport } from './foliage-path'
 import {
   CHUNK_FLOATS,
@@ -24,11 +39,12 @@ import {
   INTERIOR_DEFINES,
   PASS_GBUFFER,
   PASS_OPAQUE,
+  sceneColor,
   VERTEX_BUFFERS,
   viewBindGroup,
 } from './forward'
 import { GpuAssetsResource } from './gpu-assets'
-import { type NodeContext, RenderPhase } from './graph'
+import { type NodeContext, RenderPhase, type RenderView } from './graph'
 import { materialVariant, typeOrdinal, variantBlend, variantCull } from './material-pipelines'
 import { Graph, Shaders } from './plugin'
 import { registerShaders } from './shaders'
@@ -335,6 +351,14 @@ export class FoliageLayer {
 /** Every foliage layer, drawn by `foliagePlugin`. */
 export class FoliageLayerSet {
   readonly layers = new Set<FoliageLayer>()
+  /** Density and range under the budget (0075, `FoliageBudget`): full detail without a target. */
+  readonly steer = new FoliageController()
+  /** Foliage's GPU time a frame: every `gpu:foliage/*` pass (0074's covers rule). */
+  readonly gpuTime = new CoveredGpuTime(FOLIAGE_SPAN_KEY)
+  /** The scenario slice the target came from, kept until the scenario or budgets change. */
+  sliceFor: string | null = null
+  sliceData: PerfBudgetsData | undefined
+  sliceMs = 0
   /** The shared GPU objects (pipelines, staging buffers), made on first use. */
   gpu: FoliageGpu | undefined
 
@@ -836,25 +860,29 @@ function cullLayer(
   layer: FoliageLayer,
   cam: CameraData,
   frame: number,
+  steer: FoliageController,
 ): void {
   const gpu = ctx.gpu
   const v = viewBuffers(gpu, f, layer, ctx.view.name)
   const o = layer.options
+  // The budget (0075): fewer instances everywhere and a shorter range, when over its target.
+  const range = o.range * steer.rangeScale
   // Foliage casts only into the nearest cascade (0055's far ones see it as texture-sized noise),
   // within its shadow range.
   const cascades = ctx.world.resource(ForwardStateResource).views.get(ctx.view.name)?.cascades
   const shadowRange =
-    cascades && cascades.count > 0 ? Math.min(o.shadowRange, cascades.splits[0]!) : 0
+    cascades && cascades.count > 0 ? Math.min(o.shadowRange, cascades.splits[0]!, range) : 0
   const lods = o.lodDistances ?? DEFAULT_LODS
   cullData.fill(0)
   cullData.set(cam.frustum, 0)
   cullData[24] = cam.position[0]!
   cullData[25] = cam.position[1]!
   cullData[26] = cam.position[2]!
-  cullData[27] = o.range
+  cullData[27] = range
   cullData[28] = shadowRange
   cullData[29] = o.thinFrom ?? 0.5
   cullData[30] = layer.meshRadius
+  cullData[31] = steer.density
   for (let l = 0; l < 4; l++) cullData[32 + l] = lods[l] ?? 2
   cullU32[36] = layer.perChunk
   cullU32[37] = layer.capacitySlots
@@ -866,7 +894,7 @@ function cullLayer(
   drawData[0] = cam.position[0]!
   drawData[1] = cam.position[1]!
   drawData[2] = cam.position[2]!
-  drawData[3] = o.range
+  drawData[3] = range
   drawData[4] = o.thinFrom ?? 0.5
   drawData[5] = o.scale[0]
   drawData[6] = o.scale[1]
@@ -1109,18 +1137,74 @@ function support(world: World): FoliageSupport {
   }
 }
 
+/** The target in force: the budget's ms, else the scenario's `gpu:foliage` slice, else 0 (none). */
+function foliageTarget(world: World, budget: FoliageBudgetValue, set: FoliageLayerSet): number {
+  if (budget.ms > 0) return budget.ms
+  const scenario = world.tryResource(PerfScenario)?.name ?? null
+  if (scenario === null) return 0
+  const data = world.tryResource(PerfBudgets)
+  // Resolved once per scenario and budgets: detection isn't for every frame.
+  if (scenario !== set.sliceFor || data !== set.sliceData) {
+    set.sliceFor = scenario
+    set.sliceData = data
+    set.sliceMs = scenarioSliceMs(world, scenario, 'gpu', FOLIAGE_SPAN_KEY) ?? 0
+  }
+  return set.sliceMs
+}
+
+/**
+ * Keeps foliage's GPU time inside its target (0075): thins density and pulls in range while over,
+ * goes back to full detail when there's room. Nothing happens without a target.
+ */
+const steerFoliage = defineSystem({
+  name: 'render/foliage-budget',
+  description:
+    "Thins GPU foliage's density and range to keep its GPU time (gpu:foliage) inside FoliageBudget's target, or its scenario slice (0075).",
+  run: (_, world) => {
+    const set = world.tryResource(FoliageLayers)
+    const budget = world.tryResource(FoliageBudget)
+    const profiler = world.tryResource(ProfilerResource)
+    if (!set || !budget || !profiler) return
+    const target = foliageTarget(world, budget, set)
+    budget.target = target
+    const landed = set.gpuTime.read(profiler)
+    if (!(target > 0)) {
+      if (set.steer.detail !== 1) set.steer.reset()
+      if (landed) budget.measuredMs = set.gpuTime.ms
+      budget.detail = 1
+      return
+    }
+    if (landed) set.steer.sample(set.gpuTime.ms, target, budget.minDetail)
+    budget.measuredMs = set.steer.smoothed
+    budget.detail = set.steer.detail
+  },
+})
+
+const FORWARD_READS = [
+  'clusters',
+  'shadow-cascades',
+  'shadow-local',
+  'environment',
+  'culled',
+  'ssao',
+]
+const FORWARD_WRITES = ['scene-color', 'scene-depth', 'hdr']
+
 /**
  * GPU foliage (0045): layers of instances placed by compute from ground patches, culled per camera,
- * drawn indirectly with their material's hooks in the forward, G-buffer and shadow passes. The
- * scatter package feeds it; no entities are involved.
+ * drawn indirectly with their material's hooks in its own forward pass (`foliage/draw`, so its GPU
+ * time is its own: 0075), the G-buffer and the shadow passes. The scatter package feeds it; no
+ * entities are involved. `FoliageBudget` keeps its GPU time inside a target.
  */
 export const foliagePlugin = definePlugin({
   name: 'render/foliage',
   dependencies: ['render/forward'],
-  provides: [FoliageLayers, FoliagePath],
+  provides: [FoliageLayers, FoliagePath, FoliageBudget],
   build(app) {
     app.world.initResource(FoliageLayers)
+    app.world.initResource(FoliageBudget)
     app.insertResource(FoliagePath, support(app.world))
+    app.addSystems(PostUpdate, steerFoliage)
   },
   dispose(app) {
     app.world.tryResource(FoliageLayers)?.dispose()
@@ -1133,7 +1217,7 @@ export const foliagePlugin = definePlugin({
     addRenderFeatures(world, {
       name: 'render/foliage',
       description: 'GPU foliage: instances placed and culled by compute, drawn indirectly.',
-      nodes: ['foliage/place', 'foliage/cull'],
+      nodes: ['foliage/place', 'foliage/cull', 'foliage/draw'],
       baseline: 'unsupported',
     })
     let placed = -1
@@ -1175,8 +1259,27 @@ export const foliagePlugin = definePlugin({
         const frame = world.resource(ForwardStateResource).frame
         for (const layer of set.layers) {
           if (layer.chunkCount === 0 || !layer.instances) continue
-          cullLayer(ctx, f, layer, cam, frame)
+          cullLayer(ctx, f, layer, cam, frame, set.steer)
         }
+      },
+    })
+    // Forward cameras draw foliage in a pass of its own, after opaque geometry: its timestamps are
+    // foliage's GPU time (`gpu:foliage/draw`), which its budget and the scenario slices read.
+    // Deferred cameras draw it into the G-buffer.
+    graph.addNode('foliage/draw', {
+      kind: 'render',
+      phase: RenderPhase.Opaque + 5,
+      after: ['forward-opaque'],
+      enabled: (view: RenderView) => {
+        const cam = cameraOf(view)
+        return cam !== undefined && !cam.deferred && world.resource(FoliageLayers).layers.size > 0
+      },
+      reads: FORWARD_READS,
+      writes: FORWARD_WRITES,
+      color: (view: RenderView) => sceneColor(view),
+      depth: { resource: 'scene-depth' },
+      run(ctx) {
+        world.tryResource(FoliagePath)?.draw(ctx, cameraOf(ctx.view)!, PASS_OPAQUE, ctx.renderPass!)
       },
     })
   },

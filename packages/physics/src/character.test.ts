@@ -345,7 +345,7 @@ describe('character controller 3d', () => {
     // The controllers' own system, and the physics step their 100 kinematic bodies go through.
     const controller = profiler.timing('physics/character')!.avg
     const ms = controller + profiler.timing('physics/step')!.avg
-    expect(ms).toBeLessThan(budget(1.5))
+    expect(ms).toBeLessThan(budget('physics/characters'))
     expect(chars.every((e) => state(w, e).grounded)).toBe(true)
   })
 })

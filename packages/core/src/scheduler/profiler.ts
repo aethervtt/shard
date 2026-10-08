@@ -72,6 +72,16 @@ export function internSpan(name: string, track: number = defaultTrack(name)): nu
   return id
 }
 
+/** How many span names are interned: ids run from 0 to this. Grows as new names are used. */
+export function spanCount(): number {
+  return spanNames.length
+}
+
+/** A span's id, or -1 if no profiler has used the name yet. */
+export function spanId(name: string): number {
+  return spanIds.get(name) ?? -1
+}
+
 /** A span's name by id. */
 export function spanName(id: number): string {
   return spanNames[id] ?? `span#${id}`
@@ -170,6 +180,10 @@ interface Series {
   samples: Float64Array
   cursor: number
   count: number
+  /** Samples ever pushed (not windowed): readers tell a new sample from the last one by it. */
+  total: number
+  /** The span open around its latest sample on the main track (-1: none), for `parentOf`. */
+  parent: number
 }
 
 const host = globalThis as {
@@ -445,6 +459,29 @@ export class Profiler {
     return out
   }
 
+  /**
+   * How many samples a span has had since the profiler started (or its aggregates were reset), by
+   * id: 0 if none. Allocates nothing, for per-frame readers such as feature budgets (0075).
+   */
+  runsOf(id: number): number {
+    return this.series[id]?.total ?? 0
+  }
+
+  /**
+   * The span that was open around a span's latest sample (its parent on the main track), by id, or
+   * -1: what lets aggregates count time two covering keys share once (0075's slices).
+   */
+  parentOf(id: number): number {
+    return this.series[id]?.parent ?? -1
+  }
+
+  /** A span's latest sample in ms, by id, or 0 if it has none. Allocates nothing. */
+  lastOf(id: number): number {
+    const series = this.series[id]
+    if (series === undefined || series.count === 0) return 0
+    return series.samples[(series.cursor - 1 + this.windowSize) % this.windowSize]!
+  }
+
   /** Names of every span with samples. */
   names(): string[] {
     const out: string[] = []
@@ -459,6 +496,7 @@ export class Profiler {
       if (!series) continue
       series.count = 0
       series.cursor = 0
+      series.total = 0
     }
   }
 
@@ -470,11 +508,19 @@ export class Profiler {
     series.samples[series.cursor] = ms
     series.cursor = series.cursor + 1 === this.windowSize ? 0 : series.cursor + 1
     if (series.count < this.windowSize) series.count++
+    series.total++
+    series.parent = this.depth > 0 ? this.stackIds[this.depth - 1]! : -1
   }
 
   private createSeries(id: number): Series {
     while (this.series.length <= id) this.series.push(undefined)
-    const series: Series = { samples: new Float64Array(this.windowSize), cursor: 0, count: 0 }
+    const series: Series = {
+      samples: new Float64Array(this.windowSize),
+      cursor: 0,
+      count: 0,
+      total: 0,
+      parent: -1,
+    }
     this.series[id] = series
     return series
   }
@@ -483,7 +529,13 @@ export class Profiler {
     this.windowSize = Math.max(1, this.settings.window | 0)
     for (let id = 0; id < this.series.length; id++) {
       if (this.series[id])
-        this.series[id] = { samples: new Float64Array(this.windowSize), cursor: 0, count: 0 }
+        this.series[id] = {
+          samples: new Float64Array(this.windowSize),
+          cursor: 0,
+          count: 0,
+          total: this.series[id]!.total,
+          parent: this.series[id]!.parent,
+        }
     }
   }
 

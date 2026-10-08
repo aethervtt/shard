@@ -155,7 +155,7 @@ The same API serves 2D with `vec2` arguments. Queries see the state after the la
 - [x] A body dropped from 10 m under default gravity lands at the time free fall predicts, within
       one step (headless test, 3D and 2D).
 - [x] 1,000 boxes dropped in a pile settle and sleep. 5,000 dynamic bodies step in under 8 ms per
-      60 Hz step on the dev machine (bench).
+      60 Hz step on both machines (budget `physics/bodies-5k`).
 - [x] Two headless runs of the same scene for 600 frames give the same world hash.
 - [x] A trimesh collider built from a mesh asset stops a falling ball on its surface. A convex hull
       rolls. A heightfield holds up a body.
@@ -236,7 +236,7 @@ The same API serves 2D with `vec2` arguments. Queries see the state after the la
   gravity. Both run at 60 fps in Chrome (about 5 ms per step with 7,000–10,000 contact pairs).
   `#physics2d` rains 350 shapes (`physics2d`, orthographic camera) into a valley with a plank
   bridge on revolute joints and a spinning `kinematic-velocity` paddle.
-- **Measured** on the dev machine (Apple M4, Node): 5,000 awake balls in resting contact cost
+- **Measured** on the laptop (Apple M4, Node): 5,000 awake balls in resting contact cost
   4.0 ms of Rapier step, 1.5 ms of sync-out, and 0.1 ms of sync-in per 60 Hz step. 1,000 tumbling
   boxes dropped from up to 25 m all sleep within 3 simulated seconds.
 

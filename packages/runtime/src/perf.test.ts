@@ -10,7 +10,13 @@ import {
   Update,
   type World,
 } from '@aethervtt/shard-core'
-import { allocationChecks, gcWindow, timeout, timingMode } from '@aethervtt/shard-core/test-env'
+import {
+  allocationChecks,
+  budget,
+  gcWindow,
+  timeout,
+  timingMode,
+} from '@aethervtt/shard-core/test-env'
 import { describe, expect, it } from 'vitest'
 import { App } from './app'
 import { LogResource } from './log'
@@ -273,8 +279,8 @@ describe('profiler overhead (0074)', () => {
       console.log(
         `profiler overhead: off ${baseline.toFixed(4)} ms, on ${always.toFixed(4)} ms, capturing ${capturing.toFixed(4)} ms`,
       )
-      expect(always).toBeLessThan(baseline * 1.01)
-      expect(capturing).toBeLessThan(baseline * 1.05)
+      expect(always / baseline).toBeLessThan(budget('profiler/always-on'))
+      expect(capturing / baseline).toBeLessThan(budget('profiler/capturing'))
     },
   )
 })

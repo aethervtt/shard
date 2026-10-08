@@ -240,7 +240,7 @@ describe('interior lighting on the max fixture', () => {
     console.log(
       `max fixture: a door toggle rebuilds ${interior.lastRows.lights} rows in ${times[3]!.toFixed(3)} ms (median); field region ${interior.last!.texels} texels, ${interior.last!.ms.toFixed(2)} ms`,
     )
-    expect(times[3]!).toBeLessThan(budget(2))
+    expect(times[3]!).toBeLessThan(budget('structure/interior-rows'))
     expect(world.resource(Structure).chunksRebuilt).toBe(rebuilt)
     // A still frame: the system does nothing and allocates nothing.
     const local = updateInterior.setup!(world)
@@ -282,7 +282,7 @@ describe('interior lighting on the max fixture', () => {
     )
     expect(world.resource(Gpu).errors).toEqual([])
     expect(world.resource(RenderStats).lastFrame.chunksRebuilt).toBe(0)
-    if (timingMode === 'bench') expect(b).toBeLessThan(1.1)
+    expect(b).toBeLessThan(budget('structure/blocked-lights'))
     await r.dispose()
   })
 

@@ -152,6 +152,10 @@ export async function scatterPlanet(
     height?: number
     extra?: Plugin[]
     workers?: boolean
+    /** MSAA samples (the playground's #scatter page draws with 4). Default 1. */
+    msaa?: 1 | 4
+    /** A fixed render scale, upscaled after (the page's window view). */
+    renderScale?: number
     /** A set for the whole planet (Planet.scatter), on top of the biomes'. */
     planetSet?: unknown
   } = {},
@@ -164,6 +168,8 @@ export async function scatterPlanet(
     seed: 3,
     width: options.width ?? 160,
     heightPx: options.height ?? 100,
+    msaa: options.msaa,
+    renderScale: options.renderScale,
     physics: false,
     clearColor: [0.45, 0.6, 0.85, 1],
     extra: [

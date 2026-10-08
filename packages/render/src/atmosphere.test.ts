@@ -463,15 +463,15 @@ describe('atmosphere (spec 0044)', () => {
       views: Record<string, { secondaries: unknown[] }>
     }
     expect(d.views[`camera:${four.cam}`]!.secondaries).toHaveLength(3)
-    expect(primary - base).toBeLessThan(budget(0.6))
-    expect(all - base).toBeLessThan(budget(1.2))
+    expect(primary - base).toBeLessThan(budget('render/atmosphere-primary'))
+    expect(all - base).toBeLessThan(budget('render/atmosphere-secondaries'))
     // Nothing recomputes per frame: the LUTs stay as they are, and selection is cheap.
     const s = one.world.resource(AtmosphereGpuResource)
     const computes = s.lutComputes
     for (let i = 0; i < 30; i++) one.app.update(1 / 60)
     expect(s.lutComputes).toBe(computes)
     const select = one.world.resource(ProfilerResource).timing('render/atmosphere-select')!
-    expect(select.avg).toBeLessThan(budget(0.1))
+    expect(select.avg).toBeLessThan(budget('render/atmosphere-select'))
   })
 
   it('keeps the same image far from the origin (camera-relative math)', async () => {

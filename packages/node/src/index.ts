@@ -16,7 +16,7 @@ import {
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { createMemoryStorage, type Platform } from '@aethervtt/shard-platform'
-import { createNodePlatform } from '@aethervtt/shard-platform-node'
+import { createNodePlatform, loadPerfBudgets } from '@aethervtt/shard-platform-node'
 import { configureProcgenHost, procgenHost } from '@aethervtt/shard-procgen'
 import {
   buildApp,
@@ -31,7 +31,13 @@ import {
 } from '@aethervtt/shard-project'
 import { createProtocolServer, type ProtocolServer } from '@aethervtt/shard-protocol'
 import { OffscreenTarget } from '@aethervtt/shard-render'
-import { type App, LogResource, type Plugin } from '@aethervtt/shard-runtime'
+import {
+  type App,
+  LogResource,
+  PerfBudgets,
+  type PerfBudgetsData,
+  type Plugin,
+} from '@aethervtt/shard-runtime'
 import { type LoadedSceneHandle, loadScene, whenSceneReady } from '@aethervtt/shard-scene'
 import { type BuiltBundle, type Bundler, createBundler } from './bundle'
 import { prepareGenerators } from './generators'
@@ -160,6 +166,9 @@ export async function openProject(options: OpenProjectOptions): Promise<Headless
     height: options.height ?? manifest.window.height,
   })
   const app = buildApp({ manifest, project, gpu, target, platform })
+  // Budgets (0075) for perf.budgets and features that adapt: the project's perf/, or the repo's.
+  const budgets = loadPerfBudgets(root)
+  if (budgets) app.insertResource(PerfBudgets, budgets as unknown as PerfBudgetsData)
   await app.init()
   await loadProjectNavCache(app, platform)
   const stopShaders = await loadProjectShaders(app, platform, { watch: options.watch })

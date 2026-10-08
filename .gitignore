@@ -8,6 +8,7 @@ target/
 apps/studio/src-tauri/gen/
 .playwright-mcp/
 bench/size/report.json
+bench/perf/report.json
 dist-release/
 # shard profile test fixtures (apps/cli), removed after each run
 .profile-fixture-*/

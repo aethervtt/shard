@@ -188,7 +188,7 @@ describe('project code in bundle mode', () => {
     const report = (await call('project.reload')) as { ok: boolean }
     const ms = performance.now() - start
     expect(report.ok).toBe(true)
-    expect(ms).toBeLessThan(budget(100))
+    expect(ms).toBeLessThan(budget('project/hot-reload'))
     expect(relative(root, project.bundler!.last!.file).split(sep).join('/')).toMatch(
       /^\.shard\/build\/main\.[0-9a-f]{16}\.mjs$/,
     )

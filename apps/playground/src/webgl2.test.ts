@@ -247,8 +247,8 @@ describe.skipIf(noWebgl2)('naga at load (0064)', () => {
           `naga: loaded in ${cache.nagaLoadMs.toFixed(0)} ms; ${times.length} stages translated, p95 ${p95.toFixed(1)} ms\n`,
         )
         expect(times.length).toBeGreaterThan(4)
-        expect(cache.nagaLoadMs).toBeLessThan(budget(300))
-        expect(p95).toBeLessThan(budget(20))
+        expect(cache.nagaLoadMs).toBeLessThan(budget('gpu-webgl2/naga-load'))
+        expect(p95).toBeLessThan(budget('gpu-webgl2/translate'))
       } finally {
         await context.close()
       }
