@@ -410,7 +410,7 @@ describe('tilemaps on the ground (spec 0059)', () => {
       `ground tiles, 100 maps unchanged: ${median.toFixed(4)} ms median; GC events: ${collections}`,
     )
     if (allocationChecks) expect(collections).toBe(0)
-    expect(median).toBeLessThan(budget(0.05))
+    expect(median).toBeLessThan(budget('sprite/ground-unchanged'))
   })
 
   it("lit: '3d' is lit by a tabletop point light and receives a prop's shadow; lit: 'none' is neither", {

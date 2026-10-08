@@ -1,0 +1,14 @@
+{
+  "name": "@aethervtt/shard-bench-perf",
+  "version": "0.0.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@aethervtt/shard-core": "workspace:*",
+    "webgpu": "0.6.1"
+  }
+}

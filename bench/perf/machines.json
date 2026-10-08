@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "note": "The machines time budgets apply to (spec 0075). pnpm bench matches the CPU model string (node:os) against `cpu` and the Dawn adapter's vendor, architecture, device and description against `gpu`; SHARD_MACHINE=<name> overrides it. `backend` is what Dawn picks there, and `passTiming` how a GPU slice is checked: by timestamps where passes don't overlap, by ablation where they do (tile-based GPUs).",
+  "machines": {
+    "laptop": {
+      "cpu": "Apple M4",
+      "gpu": "apple",
+      "backend": "metal",
+      "display": [2460, 1790],
+      "passTiming": "ablation",
+      "note": "MacBook, Apple M4, Metal Dawn. A tile-based GPU: per-pass timestamps overlap."
+    },
+    "desktop": {
+      "cpu": "AMD Ryzen 9 9950X3D",
+      "gpu": "RTX 5060 Ti",
+      "backend": "d3d12",
+      "display": [2560, 1440],
+      "passTiming": "timestamps",
+      "note": "Windows desktop, Ryzen 9 9950X3D (two CCDs that differ in clock and cache), RTX 5060 Ti, D3D12 Dawn."
+    }
+  }
+}

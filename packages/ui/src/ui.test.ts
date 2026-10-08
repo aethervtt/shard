@@ -573,11 +573,11 @@ describe('performance', () => {
       best = Math.min(best, profiler.timing('ui/layout')!.last)
     }
     console.info(`ui/layout, 2,001 nodes: ${best.toFixed(3)} ms`)
-    expect(best).toBeLessThan(budget(1))
+    expect(best).toBeLessThan(budget('ui/layout'))
     frame()
     const store = world.resource(UiState)
     expect(store.layouts).toBe(0)
     expect(store.nodesLaidOut).toBe(0)
-    expect(profiler.timing('ui/layout')!.last).toBeLessThan(budget(0.2))
+    expect(profiler.timing('ui/layout')!.last).toBeLessThan(budget('ui/layout-unchanged'))
   })
 })

@@ -52,7 +52,7 @@ describe('navigation per frame', () => {
     })
     expect(out.status).toBe('complete')
     if (allocationChecks) expect(gc).toBe(0)
-    expect(median([...times])).toBeLessThan(budget(2))
+    expect(median([...times])).toBeLessThan(budget('nav/find-path'))
   })
 
   it('steps 200 grid agents chasing a moving target in under 1 ms a frame, without GC', async () => {
@@ -85,7 +85,7 @@ describe('navigation per frame', () => {
       }
     })
     if (allocationChecks) expect(gc).toBe(0)
-    expect(median(times)).toBeLessThan(budget(1))
+    expect(median(times)).toBeLessThan(budget('nav/grid-agents'))
   })
 
   it('steps 100 navmesh agents in a crowd in under 1.5 ms a frame', async () => {
@@ -113,6 +113,6 @@ describe('navigation per frame', () => {
       a.update(DT)
       times.push(performance.now() - t0)
     }
-    expect(median(times)).toBeLessThan(budget(1.5))
+    expect(median(times)).toBeLessThan(budget('nav/mesh-agents'))
   })
 })

@@ -60,7 +60,7 @@ describe('tessellate', () => {
     expect(mesh.indices.length).toBeGreaterThan(999 * 6)
     // CSS-pixel strokes keep the centreline and carry the widening: half width in tangent w.
     expect(mesh.tangents[3]).toBe(1.5)
-    expect(median(times)).toBeLessThan(budget(1))
+    expect(median(times)).toBeLessThan(budget('vector/tessellate', { count: 1000 }))
   })
 
   it('strokes a rect in world units with mitred corners: perimeter × width', () => {

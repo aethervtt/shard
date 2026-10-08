@@ -231,7 +231,7 @@ describe('cancellation', () => {
     const err = await rejection(running)
     const latency = performance.now() - abortedAt
     expect(err.code).toBe('physics/track-cancelled')
-    expect(latency).toBeLessThan(budget(10))
+    expect(latency).toBeLessThan(budget('physics/track-abort'))
     const again = await recordTrack(goldenScene(), { contacts: golden.contacts })
     expect(trackHash(again)).toBe(GOLDEN_HASH)
   })
@@ -336,7 +336,7 @@ describe('performance (bench)', () => {
       best = Math.min(best, performance.now() - start)
       expect(track.steps).toBe(480)
     }
-    expect(best).toBeLessThan(budget(100))
+    expect(best).toBeLessThan(budget('physics/track-record'))
   })
 
   it('samples 10k poses without allocating', async () => {

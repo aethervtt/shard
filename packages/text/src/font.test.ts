@@ -92,7 +92,7 @@ describe('font metrics', () => {
     )
     expect(build.metrics.glyphs.length).toBeGreaterThan(320)
     expect(build.pages).toHaveLength(1)
-    expect(ms).toBeLessThan(budget(2000))
+    expect(ms).toBeLessThan(budget('text/build-font'))
   })
 })
 

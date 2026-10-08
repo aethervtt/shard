@@ -1,4 +1,4 @@
-import { budget, timeout, timingMode } from '@aethervtt/shard-core/test-env'
+import { budget, slack, timeout, timingMode } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { loadNoiseKernel, NoiseGraph } from '@aethervtt/shard-noise'
@@ -105,9 +105,9 @@ describe('terrain budget (spec 0043)', () => {
     // GPU generation time, where timestamps measure it.
     if (pr.msPerJob > 0)
       expect(pr.msPerJob * limits.chunksPerFrame).toBeLessThan(
-        budget(limits.msPerFrame) + pr.msPerJob,
+        limits.msPerFrame * slack + pr.msPerJob,
       )
-    expect(pct(times, 0.5)).toBeLessThan(budget(16.6))
-    expect(pct(times, 0.95)).toBeLessThan(budget(16.6))
+    expect(pct(times, 0.5)).toBeLessThan(budget('terrain/descent-frame'))
+    expect(pct(times, 0.95)).toBeLessThan(budget('terrain/descent-frame'))
   })
 })

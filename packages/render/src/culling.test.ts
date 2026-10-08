@@ -236,7 +236,7 @@ describe('GPU culling', () => {
       best = Math.min(best, ms)
     }
     console.info(`cpu prep, ${entities.length} static instances: ${best.toFixed(2)} ms`)
-    expect(best).toBeLessThan(budget(1))
+    expect(best).toBeLessThan(budget('render/prepare-static'))
     for (let i = 0; i < 100; i++) {
       const e = entities[i * 997]!
       world.set(e, Transform, { translation: [0, 1 + i, 0] })

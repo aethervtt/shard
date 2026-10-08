@@ -58,7 +58,7 @@ describe('font importer', () => {
     )
     const ms = performance.now() - t0
     console.log(`font import (latin-extended, KTX2 included): ${ms.toFixed(0)} ms`)
-    expect(ms).toBeLessThan(budget(2000))
+    expect(ms).toBeLessThan(budget('text/import-font'))
     const [main, atlas] = result.assets
     expect(result.assets).toHaveLength(2)
     expect(main).toMatchObject({ label: '', type: 'Font' })

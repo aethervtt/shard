@@ -251,7 +251,7 @@ describe('structure on the shadow-stress fixture', () => {
       times.push(state.last.ms)
     }
     times.sort((a, b) => a - b)
-    expect(times[times.length >> 1]!).toBeLessThan(budget(4))
+    expect(times[times.length >> 1]!).toBeLessThan(budget('structure/rebuild'))
     await r.dispose()
   })
 
@@ -555,7 +555,7 @@ describe('the max fixture', () => {
     // The first build warms V8 and the pipeline caches; the rest are what a scene load costs.
     times.shift()
     times.sort((a, b) => a - b)
-    expect(times[0]!).toBeLessThan(budget(300))
+    expect(times[0]!).toBeLessThan(budget('structure/build-max'))
     await r.dispose()
   })
 

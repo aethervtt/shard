@@ -4,7 +4,9 @@
   "globalDependencies": [
     "scripts/test-shard.mjs",
     "scripts/test-weights.json",
-    "tsconfig.base.json"
+    "tsconfig.base.json",
+    "bench/perf/budgets.json",
+    "bench/perf/src/perf.mjs"
   ],
   "tasks": {
     "build": {
@@ -18,8 +20,11 @@
       "dependsOn": ["^typecheck"],
       "env": [
         "SHARD_BENCH",
+        "SHARD_BUDGETS",
         "SHARD_CI",
         "SHARD_DAWN_OPTIONS",
+        "SHARD_PERF_REPORT",
+        "SHARD_SCENARIO",
         "SHARD_TEST_SHARD",
         "SHARD_TIER",
         "SHARD_WGSL_LOG"

@@ -1,4 +1,4 @@
-import { budget, slack } from '@aethervtt/shard-core/test-env'
+import { budget } from '@aethervtt/shard-core/test-env'
 import { createNodeWorkers } from '@aethervtt/shard-platform-node'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
@@ -33,9 +33,9 @@ describe('noise performance', () => {
       sampleNoise(g, 7, pts, out)
       best = Math.min(best, performance.now() - t0)
     }
-    const rate = n / best / 1000
-    console.log(`fbm6 simplex3: ${rate.toFixed(1)}M points/s`)
-    expect(rate).toBeGreaterThanOrEqual(40 / slack)
+    const rate = (n / best) * 1000
+    console.log(`fbm6 simplex3: ${(rate / 1e6).toFixed(1)}M points/s`)
+    expect(rate).toBeGreaterThanOrEqual(budget('noise/fbm6'))
   })
 
   describe('a 257² sphere patch of the planet graph on the pool', () => {
@@ -62,8 +62,8 @@ describe('noise performance', () => {
       console.log(
         `257² patch on ${pool.size} workers: ${median.toFixed(2)} ms, main thread ${block.toFixed(3)} ms`,
       )
-      expect(median).toBeLessThanOrEqual(budget(8))
-      expect(block).toBeLessThanOrEqual(budget(0.2))
+      expect(median).toBeLessThanOrEqual(budget('noise/sphere-patch'))
+      expect(block).toBeLessThanOrEqual(budget('noise/sphere-patch-main'))
     })
   })
 })

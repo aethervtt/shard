@@ -1,7 +1,7 @@
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type AssetRef, Children, type Entity } from '@aethervtt/shard-core'
-import { timeout, timingMode } from '@aethervtt/shard-core/test-env'
+import { budget, timeout, timingMode } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { box } from '@aethervtt/shard-mesh'
@@ -304,7 +304,7 @@ describe('the max fixture', () => {
     )
     expect(world.resource(Gpu).errors).toEqual([])
     expect(world.resource(RenderStats).lastFrame.chunksRebuilt).toBe(0)
-    if (timingMode === 'bench') expect(ratio).toBeLessThan(1.05)
+    expect(ratio).toBeLessThan(budget('structure/cutaway'))
     await r.dispose()
   })
 })

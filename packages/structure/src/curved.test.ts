@@ -285,7 +285,7 @@ describe('editing a curved wall', () => {
       bow = nextBow
     }
     times.sort((x, y) => x - y)
-    expect(times[times.length >> 1]!).toBeLessThan(budget(4))
+    expect(times[times.length >> 1]!).toBeLessThan(budget('structure/rebuild'))
     await r.dispose()
   })
 })

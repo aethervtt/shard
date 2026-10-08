@@ -543,7 +543,7 @@ describe('textures at runtime', () => {
     }
     const ms = performance.now() - start2
     handle.destroy()
-    expect(ms).toBeLessThan(budget(30))
+    expect(ms).toBeLessThan(budget('gltf/texture-upload'))
   })
 
   it('an imported _LOD chain loads as a Lod entity and draws through a LOD set', async () => {

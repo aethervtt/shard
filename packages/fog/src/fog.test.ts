@@ -1,5 +1,5 @@
 import type { AssetRef, Entity } from '@aethervtt/shard-core'
-import { budget, timeout, timingMode } from '@aethervtt/shard-core/test-env'
+import { budget, timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { plane } from '@aethervtt/shard-mesh'
@@ -296,7 +296,7 @@ describe('projected fog (0058)', () => {
       app.update(1 / 60)
     }
     const gpuMs = (describeRender(world).fog as { gpuMs: number | null }).gpuMs
-    if (timingMode === 'bench' && gpuMs !== null) expect(gpuMs).toBeLessThan(budget(1))
+    if (gpuMs !== null) expect(gpuMs).toBeLessThan(budget('gpu:fog'))
     await app.dispose()
   })
 
@@ -361,7 +361,7 @@ describe('projected fog (0058)', () => {
       expect(
         (describeRender(world).fog as { layers: { lastUpdate: string }[] }).layers[0]!.lastUpdate,
       ).toBe('redraw')
-      expect(ms).toBeLessThan(budget(50))
+      expect(ms).toBeLessThan(budget('fog/redraw'))
       await app.dispose()
     },
     timeout(120_000),

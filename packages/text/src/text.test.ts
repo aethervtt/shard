@@ -200,6 +200,6 @@ describe('text rendering', () => {
     expect(d.glyphs).toBe(10_000)
     expect(d.relayouts).toBe(1000)
     console.info(`text/prepare, 10k changing glyphs: ${best.toFixed(2)} ms`)
-    expect(best).toBeLessThan(budget(2))
+    expect(best).toBeLessThan(budget('text/prepare', { count: d.glyphs }))
   })
 })

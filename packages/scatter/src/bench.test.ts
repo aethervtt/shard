@@ -145,7 +145,7 @@ describe('scatter budgets (spec 0045)', () => {
     for (const t of p.world.query({ with: [Prop] }).tables) live += t.count
     expect(spawned).toBeGreaterThan(100)
     expect(live).toBeGreaterThan(1000)
-    expect(Math.max(...perFrame)).toBeLessThan(budget(1))
+    expect(Math.max(...perFrame)).toBeLessThan(budget('scatter/spawn-frame'))
     await p.app.dispose()
     host.workers?.dispose()
   })
@@ -201,7 +201,7 @@ describe('scatter budgets (spec 0045)', () => {
       if (f >= 60 || !bench) times.push(Math.max(t1 - t0, t2 - t1))
     }
     expect(w.resource(Gpu).errors).toEqual([])
-    expect(pct(times, 0.95)).toBeLessThan(budget(16.6))
+    expect(pct(times, 0.95)).toBeLessThan(budget('scatter/props-frame'))
     await p.app.dispose()
     host.workers?.dispose()
   })
@@ -295,7 +295,7 @@ describe('scatter budgets (spec 0045)', () => {
         gpuWith.push(performance.now() - t1)
       }
     }
-    expect(pct(cpu, 0.95)).toBeLessThan(budget(0.5))
+    expect(pct(cpu, 0.95)).toBeLessThan(budget('scatter/foliage-cpu'))
     // GPU: the same frames without the layer, to isolate what the grass costs.
     const layers = w.resource(FoliageLayers).layers
     layers.delete(layer)
@@ -307,7 +307,7 @@ describe('scatter budgets (spec 0045)', () => {
       if (f >= FRAMES / 6) gpuWithout.push(performance.now() - t1)
     }
     layers.add(layer)
-    expect(pct(gpuWith, 0.5) - pct(gpuWithout, 0.5)).toBeLessThan(budget(3))
+    expect(pct(gpuWith, 0.5) - pct(gpuWithout, 0.5)).toBeLessThan(budget('gpu:foliage'))
     await app.dispose()
     target.destroy()
   })

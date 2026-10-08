@@ -402,13 +402,13 @@ describe('performance', () => {
     writeFileSync(join(root, 'assets/grid.glb'), glb)
     const { assets, app } = await start(root)
     const importMs = (await assets.scan({ force: true })).ms
-    expect(importMs).toBeLessThan(budget(2000))
+    expect(importMs).toBeLessThan(budget('gltf/import'))
     const start2 = performance.now()
     await assets.load('assets/grid.glb#Mesh/Grid')
     const loadMs = performance.now() - start2
     expect(
       app.world.resource(Meshes).get(assets.resolve('assets/grid.glb#Mesh/Grid'))!.drawCount / 3,
     ).toBeGreaterThan(1_000_000)
-    expect(loadMs).toBeLessThan(budget(20))
+    expect(loadMs).toBeLessThan(budget('gltf/load'))
   })
 })

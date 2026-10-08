@@ -168,7 +168,7 @@ jobs:
             @aethervtt/shard-cli @aethervtt/shard-node @aethervtt/shard-platform-node
             @aethervtt/shard-assets @aethervtt/shard-project @aethervtt/shard-scene
             @aethervtt/shard-procgen @aethervtt/shard-protocol @aethervtt/shard-verify
-            @aethervtt/shard-physics @aethervtt/shard-dice
+            @aethervtt/shard-physics @aethervtt/shard-dice @aethervtt/shard-bench-perf
 
       - uses: actions/cache/save@v4
         if: always()

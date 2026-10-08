@@ -155,6 +155,6 @@ describe('performance', () => {
     const ms = (performance.now() - t0) / frames
     console.log(`layout: ${(total / frames).toFixed(0)} glyphs per frame, ${ms.toFixed(3)} ms`)
     expect(total / frames).toBe(10000)
-    expect(ms).toBeLessThan(budget(2))
+    expect(ms).toBeLessThan(budget('text/layout', { count: total / frames }))
   })
 })

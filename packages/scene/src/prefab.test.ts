@@ -493,7 +493,7 @@ describe('spawning', () => {
       for (const r of roots) w.despawn(r)
       updateInstances(w)
     }
-    expect(ms).toBeLessThan(budget(20))
+    expect(ms).toBeLessThan(budget('scene/spawn-prefab', { count: 1000 }))
   })
 })
 

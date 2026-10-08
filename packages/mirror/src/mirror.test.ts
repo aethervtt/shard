@@ -149,6 +149,6 @@ describe('mirror', () => {
     const collections = await gcs.end()
     expect(applies).toBe(0)
     if (allocationChecks) expect(collections).toBe(0)
-    expect(median(times)).toBeLessThan(budget(0.2))
+    expect(median(times)).toBeLessThan(budget('mirror/sync'))
   })
 })

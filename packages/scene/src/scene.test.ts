@@ -425,7 +425,7 @@ describe('performance', () => {
       ms = Math.min(ms, performance.now() - start)
       expect(w.entityCount).toBe(10_000)
     }
-    expect(ms).toBeLessThan(budget(100))
+    expect(ms).toBeLessThan(budget('scene/load', { count: 10_000 }))
   })
 })
 

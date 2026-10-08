@@ -94,7 +94,7 @@ describe('performance', () => {
       `sampling 200 × 60 joints: ${Math.min(...list).toFixed(3)} ms best, ${median(list).toFixed(3)} ms median; GC events: ${collections}`,
     )
     if (allocationChecks) expect(collections).toBe(0)
-    expect(median(list)).toBeLessThan(budget(2))
+    expect(median(list)).toBeLessThan(budget('animation/sample'))
   })
 
   it('200 animators evaluate in under 0.5 ms a frame, allocating nothing', async () => {
@@ -195,7 +195,7 @@ describe('performance', () => {
       `200 animators: ${Math.min(...list).toFixed(3)} ms best, ${median(list).toFixed(3)} ms median; GC events: ${collections}`,
     )
     if (allocationChecks) expect(collections).toBe(0)
-    expect(median(list)).toBeLessThan(budget(0.5))
+    expect(median(list)).toBeLessThan(budget('animation/animators'))
   })
 
   it('100 characters with two-bone foot IK solve in under 1 ms a frame, allocating nothing', async () => {
@@ -274,7 +274,7 @@ describe('performance', () => {
       `two-bone IK, 100 characters × 2 legs: ${Math.min(...list).toFixed(3)} ms best, ${median(list).toFixed(3)} ms median; GC events: ${collections}`,
     )
     if (allocationChecks) expect(collections).toBe(0)
-    expect(median(list)).toBeLessThan(budget(1))
+    expect(median(list)).toBeLessThan(budget('animation/ik'))
   })
 
   it('200 skinned characters hold 60 fps at 1080p', { timeout: timeout(60_000) }, async () => {
@@ -323,7 +323,7 @@ describe('performance', () => {
         `200 skinned characters at 1080p: ${median(times).toFixed(2)} ms median frame (CPU + GPU), ${stats.visible} visible, ${stats.drawCalls} draws`,
       )
       expect(stats.visible).toBeGreaterThanOrEqual(200)
-      expect(median(times)).toBeLessThan(budget(1000 / 60))
+      expect(median(times)).toBeLessThan(budget('animation/skinned-frame'))
     } finally {
       target.destroy()
       gpu.destroy()

@@ -89,7 +89,7 @@ describe('project hot reload', () => {
     const report = await reloader.reload(bundle('hr-b', { extraField: true }))
     expect(report.ok).toBe(true)
     expect(report.migrated).toEqual(['hr-b/Mover'])
-    expect(report.ms).toBeLessThan(budget(300))
+    expect(report.ms).toBeLessThan(budget('project/reload-migrate'))
     const e = entities[4321]!
     const table = app.world.entityTable(e)
     const def = table.components.find((c) => c.name === 'hr-b/Mover')!

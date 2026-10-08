@@ -162,7 +162,7 @@ describe.each(VARIANTS)('physics 3d (%s)', (v) => {
     for (const name of ['physics/sync-in', 'physics/step', 'physics/sync-out']) {
       ms += profiler.timing(name)!.avg
     }
-    expect(ms).toBeLessThan(budget(8))
+    expect(ms).toBeLessThan(budget('physics/bodies-5k'))
   })
 
   it('replays exactly: two runs of the same scene give the same poses', {
