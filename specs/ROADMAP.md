@@ -122,10 +122,16 @@ on and leave, procedural flora and creatures, a ship, a scanner, and a HUD.
 Web build, desktop bundles, profiler in Studio. Mobile via Tauri, untested and non-blocking.
 0074 is the engine side of the profiler. It has no dependency on the rest of M9 and can land any
 time, before 0071–0073 if their streaming budgets should be checked against its spans.
+0075 runs alongside it in two parts. Part A doesn't need 0074: the machines and budgets files,
+`budget(key)`, converting literals and spec references, and ablation (it reads `gpu:frame`, which
+exists). Part B waits for 0074: scenario tests over captures, `perf.budgets`, the overlay's
+slices, and foliage adapting to its slice. 0074's automatic span names are the contract between
+them: budget keys are span names.
 
 | Spec | Title | Status |
 |---|---|---|
 | [0074](0074-profiler.md) | Profiler (spans, captures with attributed worst frames, Chrome traces, borrowed sampling) | accepted |
+| [0075](0075-performance-budgets.md) | Performance budgets (named machines, scenario frame slices, unit costs, ablation on tile GPUs) | accepted |
 
 Notes for the web export spec, not yet written:
 
