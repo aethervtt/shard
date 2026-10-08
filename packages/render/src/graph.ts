@@ -83,6 +83,11 @@ export interface NodeContext {
   /** Set for compute nodes. */
   readonly computePass: GPUComputePassEncoder | undefined
   texture(name: string): GPUTexture
+  /**
+   * Hands later nodes `texture` as resource `name` for the rest of this view's frame, instead of a
+   * pooled one: a node that keeps its output across frames (TAA's history) writes it once.
+   */
+  provide(name: string, texture: GPUTexture): void
   /** Timestamp writes for a pass the node begins itself (raw nodes), labeled `name`. */
   timestamps(name: string): GPURenderPassTimestampWrites | undefined
   /** Runs after the frame's commands are submitted (e.g. to map a readback buffer). */
@@ -565,6 +570,9 @@ export class RenderGraph {
         textures.set(canonical, t)
         return t
       }
+      const provide = (name: string, t: GPUTexture) => {
+        textures.set(canonicalOf(view.aliases, name), t)
+      }
       const timestamps = (name: string) => this.timer.allocate(name)
       const afterSubmit = (fn: () => void) => void submitted.push(fn)
 
@@ -616,6 +624,7 @@ export class RenderGraph {
             renderPass,
             computePass,
             texture,
+            provide,
             timestamps,
             afterSubmit,
           })

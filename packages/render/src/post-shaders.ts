@@ -442,11 +442,6 @@ struct TaaParams {
 @group(0) @binding(5) var linear_sampler: sampler;
 @group(0) @binding(6) var<uniform> taa: TaaParams;
 
-struct TaaOutput {
-  @location(0) color: vec4f,
-  @location(1) history: vec4f,
-}
-
 fn rgb_to_ycocg(c: vec3f) -> vec3f {
   return vec3f(0.25 * c.r + 0.5 * c.g + 0.25 * c.b, 0.5 * c.r - 0.5 * c.b, -0.25 * c.r + 0.5 * c.g - 0.25 * c.b);
 }
@@ -482,7 +477,7 @@ fn sample_history(uv: vec2f) -> vec3f {
   return max(c / w, vec3f(0.0));
 }
 
-@fragment fn fs(@builtin(position) frag: vec4f) -> TaaOutput {
+@fragment fn fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
   let px = vec2i(frag.xy);
   let size = vec2i(textureDimensions(input));
   let uv = uv_of(frag.xy);
@@ -524,17 +519,12 @@ fn sample_history(uv: vec2f) -> vec3f {
   if (m > 1.0) { h = center + offset / m; }
   let blended = mix(ycocg_to_rgb(h), current, alpha);
   let color = expand(max(blended, vec3f(0.0)));
-  var out: TaaOutput;
-  @if(!TRANSPARENT) {
-    out.color = vec4f(color, 1.0);
-    out.history = vec4f(color, 1.0);
-  }
+  // The output is also next frame's history.
+  var out = vec4f(color, 1.0);
   @if(TRANSPARENT) {
     // Coverage resolves like color: history clamped to the neighborhood, blended at the same rate.
     let past = clamp(textureSampleLevel(history, linear_sampler, prev_uv, 0.0).a, alpha_lo, alpha_hi);
-    let coverage = mix(past, textureLoad(input, px, 0).a, alpha);
-    out.color = vec4f(color, coverage);
-    out.history = vec4f(color, coverage);
+    out.a = mix(past, textureLoad(input, px, 0).a, alpha);
   }
   return out;
 }`,

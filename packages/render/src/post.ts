@@ -534,9 +534,15 @@ export function postAliases(
     let flip = false
     for (const [name, bit] of HDR_CHAIN) {
       if ((effects & bit) === 0) continue
+      out[`${name}-in`] = current
+      // TAA writes its history, kept across frames, which later effects read in place.
+      if (name === 'taa') {
+        out['taa-out'] = 'taa-history'
+        current = 'taa-history'
+        continue
+      }
       const next = flip ? 'post-b' : 'post-a'
       flip = !flip
-      out[`${name}-in`] = current
       out[`${name}-out`] = next
       current = next
     }

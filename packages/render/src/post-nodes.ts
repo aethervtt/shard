@@ -284,12 +284,11 @@ function taaNode(): NodeDescriptor {
         'shard::post::taa',
         'fs',
         [layout],
-        [{ format: 'rgba16float' }, { format: 'rgba16float' }],
+        HDR,
         { TRANSPARENT: alpha },
       )
       if (!pipeline) return
       const input = ctx.texture('taa-in')
-      const out = ctx.texture('taa-out')
       let h = histories.get(ctx.view.name)
       if (
         !h ||
@@ -303,7 +302,10 @@ function taaNode(): NodeDescriptor {
             label: `${ctx.view.name}/taa-history-${i}`,
             size: [input.width, input.height],
             format: 'rgba16float',
-            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+            usage:
+              GPUTextureUsage.RENDER_ATTACHMENT |
+              GPUTextureUsage.TEXTURE_BINDING |
+              GPUTextureUsage.COPY_SRC,
           })
         h = { textures: [make(0), make(1)], index: 0, valid: false, generation: gpu.generation }
         histories.set(ctx.view.name, h)
@@ -336,10 +338,11 @@ function taaNode(): NodeDescriptor {
           { binding: 6, resource: { buffer: params.buffer } },
         ],
       )
+      // The resolved frame is next frame's history: written once, and read in place by the
+      // effects after TAA (`taa-out` is `taa-history`, outside the post-a/post-b ping-pong).
       const pass = ctx.encoder.beginRenderPass({
         label: `${ctx.view.name}/taa`,
         colorAttachments: [
-          { view: out.createView(), loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 1] },
           { view: write.createView(), loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 1] },
         ],
         timestampWrites: ctx.timestamps('post/taa'),
@@ -348,6 +351,7 @@ function taaNode(): NodeDescriptor {
       pass.setBindGroup(0, group)
       pass.draw(3)
       pass.end()
+      ctx.provide('taa-out', write)
       h.index = 1 - h.index
       h.valid = true
     },
@@ -952,6 +956,8 @@ export function addPostNodes(world: World, baseline?: typeof import('./baseline/
   graph.declare({ name: 'ssao-half', format: 'rg16float', size: halfSize })
   graph.declare({ name: 'post-a', format: 'rgba16float' })
   graph.declare({ name: 'post-b', format: 'rgba16float' })
+  // TAA provides its history texture as this; declared for a frame its pipeline isn't ready.
+  graph.declare({ name: 'taa-history', format: 'rgba16float' })
   graph.declare({ name: 'dof-half', format: 'rgba16float', size: halfSize })
   graph.declare({ name: 'dof-blur', format: 'rgba16float', size: halfSize })
   graph.declare({
