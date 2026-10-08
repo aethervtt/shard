@@ -1,3 +1,4 @@
+import { timeout } from '@aethervtt/shard-core/test-env'
 import { loadNoiseKernel, NoiseGraph } from '@aethervtt/shard-noise'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { buildChunk } from './chunk'
@@ -250,7 +251,10 @@ describe('selection', () => {
     for (let i = 0; i < sel.renderedCount; i++) expect(tree.depth[sel.rendered[i]!]).toBe(0)
   })
 
-  it('covers everything in view exactly once, balanced 2:1, near the surface', () => {
+  it('covers everything in view exactly once, balanced 2:1, near the surface', {
+    // Seconds alone; a parallel run's load can triple that.
+    timeout: timeout(120_000),
+  }, () => {
     const R = 6.371e6
     const { tree, params } = planetTree(R, 600)
     const eye = [0, R + 800, 0]

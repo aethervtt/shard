@@ -365,15 +365,30 @@ Every engine error is a `ShardError` with one of these codes.
 | `sprite/unsupported-image` | @aethervtt/shard-sprite |  |
 | `structure/too-many-blocked-lights` | @aethervtt/shard-structure | Raise StructureSettings.interior.maxBlockedLights, or block fewer lights (each row costs one texture row). |
 | `terrain/bad-direction` | @aethervtt/shard-terrain | Pass a direction from the planet’s center in its frame, e.g. the position of a point on it. |
-| `terrain/bad-points` | @aethervtt/shard-terrain | e.g. { "latlon": [[0, 0], [45, 90]] }, or { "directions": [[0, 1, 0]] } for the north pole. |
+| `terrain/bad-points` | @aethervtt/shard-terrain | Points are metres from the terrain’s corner, e.g. { "points": [[120, 300]] }. |
 | `terrain/bad-resolution` | @aethervtt/shard-terrain | Use 17, 33 (the default), 65, or 129 vertices per chunk edge. |
+| `terrain/bad-size` | @aethervtt/shard-terrain | Terrains run from 256 m to 64 km a side. Bigger worlds are planets (0043). |
+| `terrain/bad-source` | @aethervtt/shard-terrain |  |
+| `terrain/bad-spacing` | @aethervtt/shard-terrain | Sample spacing is the leaf vertex spacing: 1 m for most open worlds, 0.5 m for detailed ground. |
+| `terrain/bake-failed` | @aethervtt/shard-terrain | Check the project cache is writable (.shard/cache/terrain), then run `shard terrain bake --force`. |
 | `terrain/climate-outputs` | @aethervtt/shard-terrain | Name the two climate layers "temperature" and "moisture"; each should stay in [−1, 1]. |
+| `terrain/corrupt-pack` | @aethervtt/shard-terrain | The pack is damaged or from another bake: `shard terrain bake --force` rewrites it. |
+| `terrain/heightmap-format` | @aethervtt/shard-terrain | Heightmaps are 16-bit grayscale PNGs, or .r16/.r32 raw files with "width" and "height" in their .meta settings. An 8-bit PNG is a texture, not a heightmap. |
+| `terrain/missing-pack` | @aethervtt/shard-terrain | The terrain isn’t baked (or was baked for another grid): `shard terrain bake`. |
 | `terrain/no-planet` | @aethervtt/shard-terrain | Add terrain/Planet (with a Grid) to an entity, and the terrain plugin to the app. |
+| `terrain/no-terrain` | @aethervtt/shard-terrain | Add terrain/Terrain (with a Grid and a *.terrain.json source) to an entity. |
 | `terrain/not-a-planet` | @aethervtt/shard-terrain | Add terrain/Planet (and a Grid) to the planet entity, and the terrain plugin to the app. |
+| `terrain/not-a-terrain` | @aethervtt/shard-terrain | terrain.describe lists every terrain with its entity and scene path. |
 | `terrain/not-ready` | @aethervtt/shard-terrain | Its graphs and biomes load asynchronously; step a frame (or await the asset loads) first. |
+| `terrain/out-of-bounds` | @aethervtt/shard-terrain | Points are metres from the terrain’s corner in its frame. |
+| `terrain/out-of-range` | @aethervtt/shard-terrain | Widen heightRange to cover them (heights are 16-bit over it), or lower the layers that push past it. |
 | `terrain/radius-too-large` | @aethervtt/shard-terrain | Rocky planets go up to about 16 000 km; gas giants have no surface (spec 0046 renders them). |
 | `terrain/too-many-biomes` | @aethervtt/shard-terrain | Merge similar biomes, or split the planet’s surface into fewer, broader ones. |
+| `terrain/too-many-layers` | @aethervtt/shard-terrain | Merge layers that look alike, or share texture array layers between them. |
+| `terrain/unknown-layer` | @aethervtt/shard-terrain |  |
+| `terrain/unknown-spline` | @aethervtt/shard-terrain | Define it under "splines". |
 | `terrain/which-planet` | @aethervtt/shard-terrain | Pass planet: an entity id or a scene path (terrain.describe lists them). |
+| `terrain/which-terrain` | @aethervtt/shard-terrain | Pass terrain: an entity id or a scene path (terrain.describe lists them). |
 | `testing/missing-component` | @aethervtt/shard-testing |  |
 | `testing/unknown-entity` | @aethervtt/shard-testing | Use a scene path like "ship/camera" or an entity id. |
 | `text/font-parse-failed` | @aethervtt/shard-text | Fonts import from .ttf and .otf files (TrueType or CFF outlines). |

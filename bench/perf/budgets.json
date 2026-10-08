@@ -347,6 +347,12 @@
       "desktop": 16.6,
       "note": "0043: a frame (the longer of CPU and GPU) of the Earth descent within TerrainBudget, p50 and p95. terrain/src/budget.test.ts."
     },
+    "terrain/heightfield-rebake": {
+      "kind": "target",
+      "laptop": 2000,
+      "desktop": 2000,
+      "note": "0071: moving one image layer of the 2 km test terrain (0.5 m spacing) rebakes the blocks its old and new rectangles touch and their ancestors, on the worker pool, and rewrites their packs. terrain/src/heightfield/rebake.test.ts. Proposed: not yet measured on either machine."
+    },
     "text/build-font": {
       "kind": "guard",
       "margin": 0.25,
@@ -503,6 +509,37 @@
           }
         }
       }
+    },
+    "open-world-fly": {
+      "what": "0071's 300 m/s flight over the 16 km heightfield",
+      "resolution": [1920, 1080],
+      "renderScale": 1,
+      "fps": 60,
+      "frame": {
+        "gpu": {
+          "laptop": 16.6,
+          "desktop": 8.3
+        },
+        "cpu": {
+          "laptop": 8,
+          "desktop": 6
+        }
+      },
+      "slices": {
+        "gpu": {
+          "gpu:forward-opaque": 0.5,
+          "gpu:tonemap": 0.05,
+          "headroom": 0.45
+        },
+        "cpu": {
+          "render": 0.4,
+          "terrain/heightfield-select": 0.05,
+          "terrain/heightfield-upload": 0.04,
+          "terrain/heightfields": 0.03,
+          "headroom": 0.48
+        }
+      },
+      "note": "Proposed, not yet measured: the frame budgets are planet-descent's, and the streaming slices (select, upload, the runtime with its colliders) add to 0.12 of an 8 ms CPU frame, the 1 ms a frame 0071 allows streaming. Keys cover the spans the flight records (terrain/src/heightfield/scenario.test.ts), none twice: gpu:forward-opaque (the terrain draws), gpu:tonemap; CPU render (render systems and node encodes), and the heightfield systems."
     },
     "crowd": {
       "what": "0022's 200k instances",

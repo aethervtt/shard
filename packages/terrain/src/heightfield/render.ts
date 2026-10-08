@@ -88,6 +88,9 @@ export class HeightfieldRender {
   layers = 0
   pages: Texture | undefined
   pagesRef: AssetRef | undefined
+  /** The pool's GPU textures this frame (looked up in First). */
+  gpuPages: GPUTexture | undefined
+  gpuControl: GPUTexture | undefined
   control: Texture | undefined
   controlRef: AssetRef | undefined
   chunksTexture: Texture | undefined
@@ -116,6 +119,10 @@ export class HeightfieldRender {
   lastStamp = 0
   /** The terrain version the pool's pages are from. */
   version = 0
+  /** The grid the pool's pages are for. */
+  layout: object | undefined
+  /** The terrain version whose coarse levels went to the pool. */
+  residentVersion = -1
   stats = { uploaded: 0, evicted: 0, uploadedLastFrame: 0, requested: 0, skippedFull: 0 }
 
   constructor(world: World) {
@@ -270,8 +277,8 @@ function writeSlot(
   const col = cell % PER_ROW
   const row = Math.floor(cell / PER_ROW)
   const queue = gpu.device.queue
-  const pages = (r as { gpuPages?: GPUTexture }).gpuPages!
-  const control = (r as { gpuControl?: GPUTexture }).gpuControl!
+  const pages = r.gpuPages!
+  const control = r.gpuControl!
   queue.writeTexture(
     { texture: pages, origin: { x: col * LEAF_SIDE, y: row * LEAF_SIDE, z: layer } },
     page.texels! as Uint8Array<ArrayBuffer>,
@@ -312,8 +319,8 @@ export const uploadHeightfieldPages = defineSystem({
       const gpuPages = assets.texture(r.pages!)?.texture
       const gpuControl = assets.texture(r.control!)?.texture
       if (!gpuPages || !gpuControl) continue
-      ;(r as { gpuPages?: GPUTexture }).gpuPages = gpuPages
-      ;(r as { gpuControl?: GPUTexture }).gpuControl = gpuControl
+      r.gpuPages = gpuPages
+      r.gpuControl = gpuControl
       // Pinned pages first (stable order otherwise).
       r.arrived.sort(
         (a, b) => (b.depth <= rt.residentDepth ? 1 : 0) - (a.depth <= rt.residentDepth ? 1 : 0),
@@ -663,7 +670,13 @@ export const selectHeightfields = defineSystem({
     const picked = pickCamera(s.cameras)
     for (const rt of state.heightfields.values()) {
       if (!rt.ready || !rt.streaming || !world.isAlive(rt.entity)) continue
-      const r = heightfieldRenderOf(world, rt)
+      let r = heightfieldRenderOf(world, rt)
+      // A new grid (the source's size or spacing changed): pages, meshes and chunks start over.
+      if (r.layout !== undefined && r.layout !== rt.layout) {
+        cleanupHeightfieldRender(world, rt)
+        r = heightfieldRenderOf(world, rt)
+      }
+      r.layout = rt.layout
       ensurePool(world, rt, r, budget.pages)
       if (r.version !== rt.version) reloadPool(rt, r)
       updateMaterial(world, rt, r)

@@ -13,7 +13,7 @@ import {
   PhysicsConfig,
   physics3dPlugin,
 } from '@aethervtt/shard-physics'
-import type { Workers } from '@aethervtt/shard-platform'
+import type { PlatformFileSystem, Workers } from '@aethervtt/shard-platform'
 import {
   Camera3d,
   captureView,
@@ -74,6 +74,10 @@ export interface HeightfieldOptions {
   pagesPerFrame?: number
   /** Where the terrain's corner sits in the world (its Transform). */
   at?: [number, number, number]
+  /** Bake into (and read packs from) this file service's `.shard/cache/terrain`; memory without. */
+  fs?: PlatformFileSystem
+  /** The source asset's guid (its cache directory), default `mem:…`. */
+  name?: string
 }
 
 export interface HeightfieldApp {
@@ -118,14 +122,19 @@ export async function heightfieldApp(
   const app = new App().addPlugin(TransformPlugin)
   if (gpu) app.addPlugin(renderPlugin({ gpu, windowView: false }), forwardPlugin({ msaa: 1 }))
   if (o.physics) app.addPlugin(physics3dPlugin())
-  app.addPlugin(terrainPlugin({ workers: o.workers }), ...(o.extra ?? []))
+  app.addPlugin(terrainPlugin({ workers: o.workers, fs: o.fs }), ...(o.extra ?? []))
   await app.init()
   const world = app.world
   if (o.physics) world.resource(PhysicsConfig).gravity = [0, -9.81, 0]
   if (o.pages !== undefined) world.resource(TerrainBudget).pages = o.pages
   if (o.pagesPerFrame !== undefined) world.resource(TerrainBudget).pagesPerFrame = o.pagesPerFrame
   const asset = sourceAsset(world, o)
-  const ref = world.initResource(TerrainSources).add(asset, 'test.terrain.json')
+  const sources = world.initResource(TerrainSources)
+  let ref = sources.add(asset, 'test.terrain.json')
+  if (o.name) {
+    sources.set(o.name, asset)
+    ref = { type: 'terrain/TerrainSource', guid: o.name, path: `${o.name}.terrain.json` }
+  }
   const terrain = world.spawn(
     [Grid, { cellSize: 2000 }],
     [
@@ -568,4 +577,15 @@ export async function heightfieldWalk(
     tiles,
     ms: performance.now() - t0,
   }
+}
+
+/**
+ * 0071's 16 km terrain at 1 m (benches only: about 600 MB of packs): the valley terrain's layers
+ * spread over 16 km, with a 12 km road.
+ */
+export function openWorldSource() {
+  const v = valleySource(16384, 1)
+  const height = v.source.height as Record<string, unknown>[]
+  height[0] = { noise: { path: 'hills' }, scale: 260 }
+  return { ...v, source: { ...v.source, heightRange: [-300, 700] } }
 }

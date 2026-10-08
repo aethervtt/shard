@@ -375,12 +375,12 @@ export const TOOLS: Tool[] = [
   forward(
     'describe_terrain',
     'terrain.describe',
-    'Planet terrain as data: chunks selected per depth, partial chunks waiting for children, requests in flight, pool use, collider chunks and their anchors, vertex spacing at the finest and collider depths, and the height, biome, and slope under the camera. Problems (radius too large, a climate graph missing temperature or moisture) show here too. Use it to check LOD and colliders while flying around.',
+    'Terrain as data. Planets: chunks selected per depth, partial chunks waiting for children, requests in flight, pool use, collider chunks and their anchors, vertex spacing, and the height, biome, and slope under the camera. Heightfield terrains (*.terrain.json): the bake (blocks current, stale, baking; what the last bake rebuilt and any heights clipped by heightRange), chunks per depth, pages resident and in flight, the GPU pool, and collider tiles. Problems show here too. Use it to check LOD, streaming and colliders while flying around, and that an edit rebaked what you expected.',
   ),
   forward(
     'sample_terrain',
     'terrain.sample',
-    'The surface of a planet at up to 4096 points, from the same CPU noise colliders use: height above the radius, underwater and water depth, slope, temperature, moisture, and biome weights. Points are directions from the center or [lat, lon] in degrees. Example: { "latlon": [[0, 0], [80, 20]] } to compare the equator with the arctic.',
+    'The ground at up to 4096 points, exactly what colliders use. A planet: height above the radius, underwater and water depth, slope, climate and biome weights; points are directions from the center or [lat, lon] in degrees, e.g. { "latlon": [[0, 0], [80, 20]] }. A heightfield terrain: height, normal, slope, and the two heaviest paint layers; points are [x, z] metres from its corner, e.g. { "points": [[120, 300], [124, 300]] } to check a road is flat across.',
   ),
   forward(
     'describe_scatter',
@@ -410,7 +410,7 @@ export const TOOLS: Tool[] = [
   {
     name: 'terrain_map',
     description:
-      'An equirectangular image of a whole planet: "biomes" colors land by its dominant biome (shaded by slope), "height" dark lowlands to white peaks; water is blue, darker when deeper. One image answers "are there continents, oceans, and polar caps". Example: { "mode": "biomes", "size": 512 }.',
+      'An image of terrain. A planet, equirectangular: "biomes" colors land by its dominant biome (shaded by slope), "height" dark lowlands to white peaks; water is blue. A heightfield terrain, top-down: "height", "slope", "layers" (the heaviest paint layer), or "bake" (blocks current, stale, and rebuilt by the last bake). Example: { "mode": "biomes", "size": 512 } or { "terrain": "world", "mode": "layers" }.',
     inputSchema: paramsSchema('terrain.map'),
     run: async (ctx, args) => {
       const map = await ctx

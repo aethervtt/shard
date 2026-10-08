@@ -239,7 +239,7 @@ export class HeightfieldRuntime {
           // A read-only host (a static web build) without current packs bakes in memory.
           store = memoryPackStore()
           this.store = store
-          ;(pages as { store: PackStore }).store = store
+          pages.store = store
         }
         this.bake = 'baking'
         const report = await bakeTerrain(asset, stack, store, {
@@ -254,7 +254,9 @@ export class HeightfieldRuntime {
       }
       if (generation !== this.generation) return
       if (!manifest)
-        throw new ShardError('terrain/bake-failed', 'The terrain bake wrote no manifest')
+        throw new ShardError('terrain/bake-failed', 'The terrain bake wrote no manifest', {
+          hint: 'Check the project cache is writable (.shard/cache/terrain), then run `shard terrain bake --force`.',
+        })
       const rebaked = this.bakedHash !== '' && this.bakedHash !== manifest.sourceHash
       this.manifest = manifest
       this.bakedHash = manifest.sourceHash

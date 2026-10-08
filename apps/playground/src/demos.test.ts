@@ -55,6 +55,7 @@ const CURATED: readonly Demo[] = [
   'tabletop', // fog, the grid, drawings and tokens in ground bands
   'interior', // interior lighting's r32uint field and rows, read with texelFetch
   'terrain', // compute only: reports render/feature-unsupported
+  'heightfield', // heights fetched in the vertex stage from the page pool (texelFetch), no compute
 ]
 
 const which = process.env.SHARD_DEMOS || 'curated'
@@ -189,6 +190,34 @@ describe.skipIf(skip)('playground demos on WebGPU', () => {
       timeout(90_000),
     )
   }
+})
+
+describe.skipIf(skip)('#heightfield in Chrome against Node (0071)', () => {
+  it(
+    'bakes the same pack bytes and walks to the same checksum as Node',
+    async () => {
+      const context = await browser.newContext({ viewport: { width: 640, height: 360 } })
+      try {
+        const page = await context.newPage()
+        await page.goto(`${server.base}/?perf=0#heightfield`)
+        // The page compares both with the values Node pins and says = Node ✓ or ≠ Node.
+        const result = await page.waitForFunction(
+          () => {
+            const h = (globalThis as { heightfield?: { hash: string; walk: string } }).heightfield
+            return h?.hash.includes('Node') && h.walk.includes('Node') ? { ...h } : null
+          },
+          undefined,
+          { timeout: timeout(120_000), polling: 500 },
+        )
+        const { hash, walk } = (await result.jsonValue()) as { hash: string; walk: string }
+        expect(hash).toContain('= Node ✓')
+        expect(walk).toContain('= Node ✓')
+      } finally {
+        await context.close()
+      }
+    },
+    timeout(180_000),
+  )
 })
 
 describe.skipIf(skipGl)('playground demos on WebGL2 (0064)', () => {

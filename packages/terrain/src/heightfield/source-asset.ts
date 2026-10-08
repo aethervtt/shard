@@ -92,7 +92,7 @@ const EXPECTED: Record<string, string> = {
  */
 export const TerrainSourceImporter = defineImporter({
   name: 'terrain',
-  version: 1,
+  version: 2,
   extensions: ['.terrain.json'],
   settings: NoSettings,
   async import(file, ctx) {

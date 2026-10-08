@@ -145,12 +145,8 @@ export interface TerrainLayout {
   blockLevels: number
 }
 
-function bad(code: string, path: string, message: string, hint?: string): ShardError {
-  return new ShardError(code, message, { path, ...(hint ? { hint } : {}) })
-}
-
 const shape = (path: string, message: string, hint?: string) =>
-  bad('terrain/bad-source', path, message, hint)
+  new ShardError('terrain/bad-source', message, { path, ...(hint ? { hint } : {}) })
 
 function num(v: unknown, path: string, what: string): number {
   if (typeof v !== 'number' || !Number.isFinite(v)) throw shape(path, `${what} must be a number`)
@@ -224,21 +220,25 @@ export function parseTerrainSource(json: unknown): TerrainSource {
   const size = pair(json.size, '/size', 'size')
   const spacing = num(json.spacing, '/spacing', 'spacing')
   if (!(spacing >= MIN_SPACING && spacing <= MAX_SPACING)) {
-    throw bad(
+    throw new ShardError(
       'terrain/bad-spacing',
-      '/spacing',
       `spacing ${spacing} m is outside ${MIN_SPACING}–${MAX_SPACING} m`,
-      'Sample spacing is the leaf vertex spacing: 1 m for most open worlds, 0.5 m for detailed ground.',
+      {
+        path: '/spacing',
+        hint: 'Sample spacing is the leaf vertex spacing: 1 m for most open worlds, 0.5 m for detailed ground.',
+      },
     )
   }
   const paintSpacing = opt(json.paintSpacing, spacing * 2, '/paintSpacing', 'paintSpacing')
   const step = paintSpacing / spacing
   if (!(step === 1 || step === 2 || step === 4)) {
-    throw bad(
+    throw new ShardError(
       'terrain/bad-spacing',
-      '/paintSpacing',
       `paintSpacing ${paintSpacing} m isn't 1, 2 or 4 times spacing (${spacing} m)`,
-      'The default, twice spacing, quarters control memory and keeps 8 m roads crisp.',
+      {
+        path: '/paintSpacing',
+        hint: 'The default, twice spacing, quarters control memory and keeps 8 m roads crisp.',
+      },
     )
   }
   const heightRange = pair(json.heightRange, '/heightRange', 'heightRange')
@@ -281,12 +281,10 @@ export function parseTerrainSource(json: unknown): TerrainSource {
   const splineName = (v: unknown, path: string): string => {
     if (typeof v !== 'string' || v === '') throw shape(path, 'A spline is named by a string')
     if (!splines[v]) {
-      throw bad(
-        'terrain/unknown-spline',
-        path,
-        `No spline named "${v}"`,
-        `Define it under "splines". Known: ${Object.keys(splines).join(', ') || '(none)'}.`,
-      )
+      throw new ShardError('terrain/unknown-spline', `No spline named "${v}"`, {
+        path: path,
+        hint: `Define it under "splines". Known: ${Object.keys(splines).join(', ') || '(none)'}.`,
+      })
     }
     return v
   }
@@ -351,11 +349,13 @@ export function parseTerrainSource(json: unknown): TerrainSource {
   const layerList = json.layers ?? []
   if (!Array.isArray(layerList)) throw shape('/layers', 'layers is a list of material layers')
   if (layerList.length > MAX_MATERIAL_LAYERS) {
-    throw bad(
+    throw new ShardError(
       'terrain/too-many-layers',
-      '/layers',
       `${layerList.length} material layers; a terrain has at most ${MAX_MATERIAL_LAYERS}`,
-      'Merge layers that look alike, or share texture array layers between them.',
+      {
+        path: '/layers',
+        hint: 'Merge layers that look alike, or share texture array layers between them.',
+      },
     )
   }
   const layers = layerList.map((value, i): SourceMaterialLayer => {
@@ -408,11 +408,13 @@ export function parseTerrainSource(json: unknown): TerrainSource {
     if (!isPlainObject(value)) throw shape(path, 'A paint layer is an object')
     known(value, ['layer', 'height', 'slope', 'noise', 'mask', 'spline', 'blend'], path)
     if (typeof value.layer !== 'string' || !names.has(value.layer)) {
-      throw bad(
+      throw new ShardError(
         'terrain/unknown-layer',
-        pointer(path, 'layer'),
         `No material layer named ${JSON.stringify(value.layer)}`,
-        `Paint names one of "layers": ${[...names.keys()].join(', ') || '(none defined)'}.`,
+        {
+          path: pointer(path, 'layer'),
+          hint: `Paint names one of "layers": ${[...names.keys()].join(', ') || '(none defined)'}.`,
+        },
       )
     }
     let noise: SourcePaint['noise'] = null
@@ -475,11 +477,13 @@ export function terrainLayout(
   const leafSize = PAGE * spacing
   for (const [i, side] of [sizeX, sizeZ].entries()) {
     if (!(side >= MIN_SIZE && side <= MAX_SIZE)) {
-      throw bad(
+      throw new ShardError(
         'terrain/bad-size',
-        pointer('/size', i),
         `A side of ${side} m is outside ${MIN_SIZE} m – ${MAX_SIZE / 1024} km`,
-        'Terrains run from 256 m to 64 km a side. Bigger worlds are planets (0043).',
+        {
+          path: pointer('/size', i),
+          hint: 'Terrains run from 256 m to 64 km a side. Bigger worlds are planets (0043).',
+        },
       )
     }
   }
@@ -487,11 +491,10 @@ export function terrainLayout(
   const leavesZ = sizeZ / leafSize
   const hint = `Sides are whole numbers of roots: ${leafSize} m × 2^k (each leaf is ${PAGE} samples of ${spacing} m), at most ${MAX_ROOTS} roots, e.g. ${leafSize * 32} m.`
   if (!Number.isInteger(leavesX) || !Number.isInteger(leavesZ)) {
-    throw bad(
+    throw new ShardError(
       'terrain/bad-size',
-      '/size',
       `size ${sizeX} × ${sizeZ} m isn't a whole number of ${leafSize} m leaves`,
-      hint,
+      { path: '/size', hint: hint },
     )
   }
   let depth = 0
@@ -505,11 +508,10 @@ export function terrainLayout(
     depth++
   }
   if (depth > MAX_DEPTH) {
-    throw bad(
+    throw new ShardError(
       'terrain/bad-size',
-      '/size',
       `size ${sizeX} × ${sizeZ} m isn't a whole number of roots (at most ${MAX_ROOTS} of them)`,
-      hint,
+      { path: '/size', hint: hint },
     )
   }
   const paintStep = source.paintSpacing / spacing

@@ -131,8 +131,8 @@ export const updateHeightfields = defineSystem({
       for (const update of heightfieldUpdates) update(world, rt, frame)
       // Once streaming, the coarse levels go to the GPU pool (the render side made).
       const r = rt.parts.get('render') as HeightfieldRender | undefined
-      if (r && rt.streaming && (r as { resident?: number }).resident !== rt.version) {
-        ;(r as { resident?: number }).resident = rt.version
+      if (r && rt.streaming && r.residentVersion !== rt.version) {
+        r.residentVersion = rt.version
         enqueueResident(rt, r)
       }
     }

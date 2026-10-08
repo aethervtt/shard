@@ -120,7 +120,12 @@ export function memoryPackStore(): PackStore & { files: Map<string, Uint8Array> 
     read: async (path) => files.get(path),
     readRange: async (path, offset, length) => {
       const f = files.get(path)
-      if (!f) throw new ShardError('terrain/missing-pack', `No pack ${path}`, { path })
+      if (!f) {
+        throw new ShardError('terrain/missing-pack', `No pack ${path}`, {
+          path,
+          hint: 'The terrain isn’t baked (or was baked for another grid): `shard terrain bake`.',
+        })
+      }
       return f.subarray(offset, offset + length)
     },
     write: async (path, bytes) => void files.set(path, bytes),

@@ -102,31 +102,37 @@ chunk), how they stream, and how the ground is authored.
   (64 segments). A leaf's sample spacing is `spacing`. The importer picks the root depth so there
   are at most 64 roots, and fails with `terrain/bad-size` if `size` isn't a whole number of roots.
 - Each **page** holds one node's data:
-  - heights, `r16uint` over `heightRange`, 66 × 66 (a one-sample border for normals);
+  - heights, 16-bit over `heightRange`: 67 × 67 for a leaf (a one-sample border all round, for
+    normals), 65 × 65 for a parent;
   - control at `paintSpacing` (default twice `spacing`): two layer indices, a weight and the hole
     bit, `rgba8`;
-  - normals, `rg8snorm`, at the page's resolution, for pages above the leaves. A leaf's normals
-    come from its heights on the GPU at upload, so leaves don't store them.
+  - normals, two bytes (x and z), at the page's resolution, for pages above the leaves. A leaf's
+    normals come from its heights when it's inflated, so leaves don't store them.
   - min and max height, and the node's geometric error.
 - A parent page's vertices are every other vertex of its children's pages, so parents are point
   samples, not averages. The geometric error is measured exactly at bake time: the largest
-  difference between the subtree's samples and the parent's interpolated surface. 0043 has to
-  estimate this. A parent's normals are the average of its subtree's normals, so far ground keeps
-  shading detail its geometry has lost.
+  difference between the subtree's samples and the parent's interpolated surface (its triangles
+  split along Rapier's diagonal). 0043 has to estimate this. A parent's normals are the
+  [1 2 1]² average of its children's around each texel, so far ground keeps shading detail its
+  geometry has lost.
 - **Incremental.** The unit of work is a **block** of 16 × 16 leaf pages. A block's key is
   `sha256(spacing, heightRange, seed, paintSpacing, the layers whose region plus falloff touches
-  the block, their dependency hashes, the bake version)`. Noise and full-terrain layers touch
+  the block's samples and the margin its normals read, their dependency hashes, the bake version)`. Noise and full-terrain layers touch
   every block, and that's inherent. A block whose key changed is rebaked on the worker pool
-  (0041, the CPU kernel, canonical). Every ancestor of a rebaked block is rebuilt from its
-  children.
+  (0041, the CPU kernel, canonical) with its own ancestors up to the block's root. Every ancestor
+  above a rebaked block is rebuilt from its children.
+- **Canonical samples.** Sample (i, j) is at `i × spacing, j × spacing` from the corner, and noise is
+  sampled from a fixed lattice of origins (one per 256 m), so a sample's value doesn't depend on
+  which job computed it: a block bake, one page baked alone, and a rebake write the same bytes.
 - **Storage.** Pages are packed into one file per (depth, 16 × 16 nodes), deflated one page at a
-  time, with an offset index at the front. Packs live in `.shard/cache/terrain/<terrain hash>/`.
+  time with a DEFLATE in the engine (Node's zlib and Chrome's CompressionStream may emit different
+  bytes for the same input), with an offset index at the front. Packs live in `.shard/cache/terrain/<terrain hash>/`.
   Reading one page is one ranged read, so the Platform's file service gains
   `readRange(path, offset, length)`. Exports ship the packs. Without a cache, `shard run` and
   `shard dev` bake on first use.
-- Budget: about 4.5 bytes a sample before deflate (leaf heights 2, control 1 at the default
-  `paintSpacing`, ancestors and their normals the rest). 16 km at 1 m is about 1.2 GB on disk,
-  and 2 km at 0.5 m about 75 MB.
+- Budget: about 5 bytes a sample before deflate (leaf heights 2.2 with their border, control 1.06
+  at the default `paintSpacing`, ancestors and their normals 1.7), about 2.2 after. 16 km at 1 m is
+  about 600 MB on disk, and 2 km at 0.5 m about 38 MB.
 
 ### Rendering
 
@@ -136,10 +142,11 @@ chunk), how they stream, and how the ground is authored.
   horizon test. The planet's cube faces and the terrain's root grid are both surfaces. Planet
   behaviour, goldens and the walk checksum don't change.
 - **One mesh for every chunk.** A planet chunk owns vertex buffers written by compute. A terrain
-  chunk is a single shared 65 × 65 grid mesh, with 0043's index sets per stitch mask, that reads
-  its heights from its page's layer in a texture array. Per-instance data (`render/InstanceData`)
-  holds the page slot, lock bits and fade. Every chunk is the same mesh and material, so 0022
-  draws a whole terrain as one instanced batch, culled on the GPU.
+  chunk is a single shared 65 × 65 grid mesh, with 0043's index sets per stitch mask (quads split
+  along Rapier's diagonal), that reads its heights from its page in the pool. Per-instance data
+  (`render/InstanceData`) holds the pool slot; a chunk table texture holds its lock bits, quadrants,
+  fade and depth. Every chunk is the same mesh and material, so 0022 draws a terrain as one
+  instanced batch per index set in use, culled on the GPU.
 - **Morphing needs no stored deltas.** A parent's vertices are a subset of the page's own
   samples, so the vertex stage gets the parent height at an odd vertex by interpolating its two
   even neighbours from the same page.
@@ -149,8 +156,9 @@ chunk), how they stream, and how the ground is authored.
 - **Material.** `terrain/TerrainSurface` reads the control page, samples the two layers from the
   texture arrays (planar on XZ by `scale`, triplanar where `triplanar` is set and the slope is
   above 45°) and blends them by weight. 0068's variation applies to it like any other material.
-  Heights, normals and control pages are declared with `@data` (0064). The baseline strategy is
-  the same shader: vertex texture fetch of `r16uint` works in WebGL2.
+  Heights, normals and control pages are material textures read with `textureLoad` (material
+  bindings are float textures, so a height is two bytes of an RGBA8 texel). The baseline strategy
+  is the same shader: vertex texture fetch works in WebGL2.
 - Shadow views reuse the camera's selection, as on planets.
 
 ### Streaming
@@ -160,12 +168,14 @@ chunk), how they stream, and how the ground is authored.
   projected error.
 - Depths up to `residentDepth` stay loaded for the terrain's whole life. The default is the
   deepest level whose pages fit in 8 MB. Coarse ground is therefore always there to draw.
-- **Pool.** Three texture arrays (heights, normals, control) with `TerrainBudget.pages` layers
-  (default 1 024, about 40 MB). Pages leave in LRU order among unselected nodes, with 0043's rule
+- **Pool.** Two texture arrays: pages (RGBA8 texels of height and normal, 30 × 30 pages to a
+  2048² layer, within WebGPU's 256 layers and WebGL2's 2048 texels) and control, for
+  `TerrainBudget.pages` slots (default 1 024, about 22 KB each). Pages leave in LRU order among unselected nodes, with 0043's rule
   that a speculative request never evicts a recently used page.
 - **IO.** Reads go through `readRange`. Inflate runs on the worker pool. Uploads happen in
-  `First` and are budgeted by `TerrainBudget.pagesPerFrame` (16) and counted in 0055's upload
-  accounting. Leaf normals are a compute pass at upload (a fragment pass at the baseline tier).
+  `First` and are budgeted by `TerrainBudget.pagesPerFrame` (16; the coarse levels go in at once)
+  and counted in 0055's upload accounting. Leaf normals come from their heights on the worker that
+  inflates them, so both tiers upload the same bytes and neither needs a pass.
 - Without a GPU, nothing streams into the pool. Colliders and height queries read the same packs.
 
 ### Colliders, queries and navigation
@@ -199,10 +209,13 @@ chunk), how they stream, and how the ground is authored.
   `terrain-lod` and `terrain-colliders` work as on planets.
 - `.shard/schemas/terrain.schema.json` documents every layer and mask with typical values.
 - MCP tools: `describe_terrain` and `sample_terrain` (shared with planets), `terrain_map`.
-- **Errors:** `terrain/bad-size`, `terrain/bad-spacing` (outside 0.25–4 m),
-  `terrain/unknown-spline`, `terrain/unknown-layer`, `terrain/too-many-layers`,
-  `terrain/heightmap-format` (not 16-bit or raw with dimensions), `terrain/out-of-range` (a baked
-  height clipped by `heightRange`; reported once per block, with the block's rectangle).
+- **Errors:** `terrain/bad-size`, `terrain/bad-spacing` (outside 0.25–4 m, or a `paintSpacing`
+  not 1, 2 or 4 times it), `terrain/unknown-spline`, `terrain/unknown-layer`,
+  `terrain/too-many-layers`, `terrain/heightmap-format` (not 16-bit or raw with dimensions),
+  `terrain/out-of-range` (a baked height clipped by `heightRange`; reported once per block, with the
+  block's rectangle), `terrain/bad-source` (anything else wrong in the file, with a pointer into
+  it), `terrain/corrupt-pack`, `terrain/not-a-terrain`, `terrain/no-terrain`,
+  `terrain/which-terrain`, `terrain/out-of-bounds`, `terrain/bake-failed`, `terrain/no-source`.
 
 ## Decisions
 
@@ -225,27 +238,95 @@ chunk), how they stream, and how the ground is authored.
 - [ ] A 2 km terrain at 0.5 m and a 16 km terrain at 1 m render from 5 km up down to standing on
       the ground. A scripted 300 m/s low flight shows no hole in any frame (hole detection against
       the sky colour, as in 0043).
-- [ ] No cracks: with skirts off and the seam shader, five golden views have zero seam pixels.
-- [ ] Geomorphing: no vertex moves more than 1 px in a frame beyond camera motion with
+- [x] No cracks: with skirts off and the seam shader, five golden views have zero seam pixels.
+- [x] Geomorphing: no vertex moves more than 1 px in a frame beyond camera motion with
       `vertexPixels: 0` (the vertex stage replayed on the CPU, as in 0043).
-- [ ] Planet goldens, the planet walk checksum, and 0043's descent tests are unchanged after the
+- [x] Planet goldens, the planet walk checksum, and 0043's descent tests are unchanged after the
       quadtree is shared.
 - [ ] Moving one image layer rebakes only the blocks its old and new regions touch, plus their
       ancestors (count asserted), in under 2 s for a 2 km terrain on the desktop (budget
       `terrain/heightfield-rebake`, proposed).
-- [ ] The bake is deterministic: two bakes, and a bake in Node against one in Chrome, produce
+- [x] The bake is deterministic: two bakes, and a bake in Node against one in Chrome, produce
       identical pack bytes.
-- [ ] Disk use is within 10% of 4.5 bytes a sample before deflate.
-- [ ] With page reads delayed 500 ms, the flight still shows no hole (coarse levels draw).
+- [x] ~~Disk use is within 10% of 4.5 bytes a sample before deflate.~~ Restated: 4.96 bytes a
+      sample before deflate (10.2% over the estimate: page borders and shared edges), 2.2 after.
+- [x] With page reads delayed 500 ms, the flight still shows no hole (coarse levels draw).
 - [ ] A flight at 300 m/s over the 16 km terrain keeps frame time inside the `open-world-fly`
       scenario's frame budget (0075), with streaming under 1 ms of main-thread time a frame (p95).
-- [ ] A flattened spline road has a cross-slope under 1° along its width. Its gravel layer
+- [x] A flattened spline road has a cross-slope under 1° along its width. Its gravel layer
       covers the road and ends within `blend` of its edge (`terrain.sample`).
-- [ ] A character dropped at 20 random points walks 100 m headless without falling through, and
+- [x] A character dropped at 20 random points walks 100 m headless without falling through, and
       its feet are within 1 cm of the drawn triangles. The world hash matches across Node and
       Chrome.
-- [ ] A `NavAgent` paths 300 m across at least four collider tiles.
-- [ ] The baseline tier renders the five golden views within 0064's tolerance of WebGPU.
+- [x] A `NavAgent` paths 300 m across at least four collider tiles.
+- [x] The baseline tier renders the five golden views within 0064's tolerance of WebGPU.
+
+## As built
+
+- **The shared quadtree.** `QuadTree` (packages/terrain/src/quadtree.ts) runs selection, 2:1 balance
+  and edge locks over a `QuadSurface`: `CubeSphere` (planets, `NodeTree` keeps its API) and
+  `RootGrid` (heightfields, roots in a grid, no horizon). The error cap (`capErrors`), the triangle
+  budget (`adaptLodBias`) and the morph band (`morphFactor`, `MORPH_WGSL`) live in lod.ts; the chunk
+  layout and index sets in grid-mesh.ts, which gains `diagonal: 'anti'` (Rapier's split everywhere,
+  border cells included; only stitched strips are zipped). A selection trace pinned before the move
+  (`9d40151c`, selection-trace.test.ts) checks every decision over a descent; planet goldens, the
+  walk checksum (`fb8127a0`) and the WGSL identity check (0 of 67 variants changed) held. The
+  terrain state resource is now `TerrainWorld` (`terrain/World`), freeing `Terrain` for the
+  component.
+- **The kernel** is plain JavaScript (heightfield/kernel.js, deflate.js), shared by the main
+  thread and pool workers, so a page baked on the spot is the block bake's bytes. Blocks are 16 ×
+  16 leaves (smaller in tests) and bake their own ancestors up to 4 levels; levels above rebuild
+  from their children and the ring of their neighbors (for normals), and take their error as the
+  worst of their blocks' shares. Splines are uniform Catmull-Rom in 1 m pieces; a `"ground"` point
+  is the height of the layers below the layer using the spline. Blend defaults: `add` for noise,
+  `replace` for images. Paint: each entry scales every weight by (1 − its mask) and adds its mask to
+  its layer; height and slope windows ease over `blend`, a noise mask over ±0.05 around `above`, a
+  mask image is its value fading over `blend` outside its rectangle, a spline mask fades over
+  `blend` past half its width. Material layers gain `tint` (the color without texture arrays).
+- **Packs.** A 16-byte header and 256 entries of (offset, length, quantized min and max, error),
+  then the deflated pages; heights stored as row deltas in byte planes. `manifest.json` holds each
+  block's key, its errors per level and its height range, and the largest error per depth (the
+  selection's table). The cache directory is `.shard/cache/terrain/<source guid>`. Writes go to a
+  temporary file moved into place. Determinism: the pack hash of the 2 km test terrain
+  (`ec848bdc3cf63b92`) is pinned in determinism.test.ts and the playground's `#heightfield` page
+  prints Chrome's next to it; equal in both. Inflating needs no particular implementation (any
+  conforming inflater gives the page's bytes), but packs are written by the engine's DEFLATE.
+- **Rendering.** One entity per pool slot draws the shared grid mesh (index set by its quadrant mask
+  and stitched edges); a chunk table texture holds its locks, mask, fade and depth. A leaf within
+  `colliderRadius` of an anchor draws without its distance morph, so the drawn ground is the
+  collider's to the centimetre; when it stops being anchored it's ~96 m from the camera, where a
+  leaf's detail is a fraction of a pixel. The layers' normal maps aren't sampled (a 17th texture
+  on the baseline tier); shading normals are the pages'. Not built: 0068's variation on this
+  material (deferred).
+- **Streaming.** Pages are requested by projected error, at most 32 reads in flight per terrain,
+  through `PageStore` (pack indexes, `readRange`, inflate and leaf normals on the pool, a CPU cache
+  of 512 pages besides the pinned coarse levels). `residentDepth` −1 picks the deepest level whose
+  pages fit in 8 MB of pool; those pages upload at once, outside `pagesPerFrame`. Missing or stale
+  packs bake on first use: into the project cache where the file service writes, in memory where
+  it doesn't (a static web build). `shard import`, `shard dev` (on the Node side, at start and after
+  rescans) and `shard terrain bake` bake ahead.
+- **Colliders and queries.** A tile is a fixed body with a `heightfield` collider (65 × 65 heights in
+  metres) and `NavSource`, built from the page if its read landed by its due frame and baked on the
+  spot otherwise, so the world never depends on IO timing. `terrainHeightAt(world, terrain, x, z,
+  out?)` returns `{ height, depth, exact }`. `terrain.sample` takes `points: [[x, z], …]` for a
+  heightfield; `terrain.map` gains `layers`, `slope` and `bake` modes (top-down); `terrain.describe`
+  lists heightfields under `terrains`. Scatter's `HeightfieldSurface` places on the leaf triangles.
+- **Tests** (packages/terrain/src/heightfield/): kernel (edges shared across blocks, parents as point
+  samples, exact errors), bake (an edit rebakes exactly the blocks it touches, plus their roots, and
+  writes a full bake's bytes; pool and inline bakes equal), flight (no hole from 5 km down to 30 m
+  and on at 300 m/s, nor with reads delayed 500 ms; uploads counted in 0055's accounting), lod (no
+  cracks with skirts off in five views; morphing ≤ 1 px with `vertexPixels: 0`, worst 0.92 px),
+  baseline (the five views on Dawn's compatibility mode against the WebGPU golden, mean < 1.5),
+  precision (120 identical frames standing 30 km from the origin, and the same picture as at it),
+  walk (20 characters × 100 m; checksum `4e53476b`, equal in Chrome), ground (Rapier against the
+  replayed vertex stage within 1 cm around a character; the road's cross-slope under 1° and its
+  gravel), nav (a NavAgent paths and walks 300 m across collider tiles), methods, scenario, and
+  scatter's heightfield test. The playground's browser tests run `#heightfield` on both backends
+  and check Chrome's pack hash and walk against Node's.
+- **Pending a quiet machine:** the 16 km flight (flight.test.ts, bench only), the rebake time
+  (rebake.test.ts, `terrain/heightfield-rebake`, proposed 2 s) and `open-world-fly`
+  (scenario.test.ts) run under `pnpm bench`; their budgets in bench/perf/budgets.json are
+  proposals until measured on the laptop.
 
 ## Open questions
 

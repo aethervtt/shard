@@ -9,6 +9,12 @@ import {
 import { encodePng, toBase64 } from '@aethervtt/shard-protocol'
 import type { AppMethod } from '@aethervtt/shard-runtime'
 import { collidersOf } from './colliders'
+import {
+  describeHeightfield,
+  heightfieldMap,
+  resolveHeightfield,
+  sampleHeightfield,
+} from './heightfield/methods'
 import { TerrainWorld, terrainSample } from './heights'
 import type { PlanetRuntime } from './planet'
 import type { PlanetRender } from './render'
@@ -202,30 +208,71 @@ const planetField = t.json({
   description: 'The planet: entity id or scene path (default: the only planet).',
 })
 
+const named = (ref: unknown) => ref !== undefined && ref !== null && ref !== ''
+
+/** A heightfield is meant: named, or no planet named and the world has heightfields but no planets. */
+function wantsHeightfield(world: World, p: { planet?: unknown; terrain?: unknown }): boolean {
+  if (named(p.terrain)) return true
+  if (named(p.planet)) return false
+  const state = world.tryResource(TerrainWorld)
+  return (state?.planets.size ?? 0) === 0 && (state?.heightfields.size ?? 0) > 0
+}
+
+const terrainField = t.json({
+  description: 'A heightfield terrain (0071): entity id or scene path (default: the only one).',
+})
+
 export const terrainMethods: AppMethod[] = [
   {
     name: 'terrain.describe',
     description:
-      'Planet terrain as data: per planet, the chunks selected by depth (and partial ones waiting for children), requests and chunks in flight, pool usage, generation counts, collider chunks and anchors, the vertex spacing at the finest and collider depths, and the height, biome, and slope under the camera. Problems (a bad radius, a climate graph without temperature/moisture) and what it waits for are here too.',
-    params: defineSchema('terrain/DescribeParams', { planet: planetField }),
+      'Terrain as data. Per planet: the chunks selected by depth (and partial ones waiting for children), requests and chunks in flight, pool usage, generation counts, collider chunks and anchors, the vertex spacing at the finest and collider depths, and the height, biome, and slope under the camera. Per heightfield terrain (0071): roots and depths, the bake (blocks current, stale, baking; the last bake’s rebuilt blocks, time and heights clipped by heightRange), chunks selected by depth, pages resident, cached and read, the GPU pool, and collider tiles with their anchors. Problems and what each waits for are here too.',
+    params: defineSchema('terrain/DescribeParams', {
+      planet: planetField,
+      terrain: terrainField,
+    }),
     handler: ({ world }, p) => {
-      const planets = world.tryResource(TerrainWorld)?.planets
-      if (!planets) return { planets: [] }
+      const state = world.tryResource(TerrainWorld)
+      if (!state) return { planets: [], terrains: [] }
+      if (p.terrain !== undefined && p.terrain !== null && p.terrain !== '')
+        return {
+          planets: [],
+          terrains: [describeHeightfield(world, resolveHeightfield(world, p.terrain))],
+        }
       if (p.planet !== undefined && p.planet !== null && p.planet !== '')
-        return { planets: [describePlanet(world, resolvePlanet(world, p.planet))] }
-      return { planets: [...planets.values()].map((rt) => describePlanet(world, rt)) }
+        return { planets: [describePlanet(world, resolvePlanet(world, p.planet))], terrains: [] }
+      return {
+        planets: [...state.planets.values()].map((rt) => describePlanet(world, rt)),
+        terrains: [...state.heightfields.values()].map((rt) => describeHeightfield(world, rt)),
+      }
     },
   },
   {
     name: 'terrain.sample',
     description:
-      'The surface at points on a planet, from the CPU noise the colliders use (headless-safe): height (m above radius), underwater and water depth, slope (degrees), climate, and biome weights with the dominant biome. Points are directions from the planet center in its frame ([x, y, z], any length) or [lat, lon] in degrees (lat from the +Y axis’s equator, lon around it).',
+      'The ground at points. On a planet, from the CPU noise the colliders use (headless-safe): height (m above radius), underwater and water depth, slope (degrees), climate, and biome weights with the dominant biome; points are directions from the center in its frame ([x, y, z], any length) or [lat, lon] in degrees. On a heightfield terrain (0071, `terrain` or `points`): height, normal, slope, and the two heaviest paint layers with the second’s share, from its leaf pages (loaded first, so exactly the colliders’ ground); points are [x, z] metres from its corner.',
     params: defineSchema('terrain/SampleParams', {
       planet: planetField,
-      directions: t.json({ description: 'Directions: [[x, y, z], …] (at most 4096).' }),
-      latlon: t.json({ description: 'Latitudes and longitudes in degrees: [[lat, lon], …].' }),
+      terrain: terrainField,
+      directions: t.json({ description: 'Planets: directions [[x, y, z], …] (at most 4096).' }),
+      latlon: t.json({
+        description: 'Planets: latitudes and longitudes in degrees: [[lat, lon], …].',
+      }),
+      points: t.json({
+        description: 'Heightfields: [[x, z], …] metres from the corner (at most 4096).',
+      }),
     }),
-    handler: ({ world }, p) => {
+    handler: async ({ world }, p) => {
+      if (wantsHeightfield(world, p) || (Array.isArray(p.points) && !named(p.planet))) {
+        const points = Array.isArray(p.points) ? (p.points as number[][]) : []
+        if (points.length === 0 || points.length > 4096) {
+          throw new ShardError('terrain/bad-points', 'Pass 1 to 4096 points as [[x, z], …]', {
+            hint: 'Points are metres from the terrain’s corner, e.g. { "points": [[120, 300]] }.',
+          })
+        }
+        const rt = resolveHeightfield(world, p.terrain)
+        return { samples: await sampleHeightfield(world, rt, points) }
+      }
       const rt = resolvePlanet(world, p.planet)
       usable(rt)
       const dirs: number[][] = []
@@ -262,15 +309,24 @@ export const terrainMethods: AppMethod[] = [
   {
     name: 'terrain.map',
     description:
-      'An equirectangular PNG of a planet (width × width/2; latitude +90 at the top, longitude −180 to 180 left to right): mode "biomes" colors land by its dominant biome’s tint (shaded by slope), mode "height" dark lowlands to white peaks; water is blue, darker when deeper. One image answers "are there continents, oceans, and polar caps".',
+      'A PNG of terrain. A planet: equirectangular (width × width/2; latitude +90 at the top, longitude −180 to 180 left to right), "biomes" colors land by its dominant biome’s tint (shaded by slope), "height" dark lowlands to white peaks; water is blue, darker when deeper. A heightfield terrain (0071): top-down (+X right, +Z down), "height", "slope" (flat black to 60° white), "layers" (the heaviest paint layer’s tint), or "bake" (blocks green when current, amber when stale, cyan where the last bake rebuilt them).',
     params: defineSchema('terrain/MapParams', {
       planet: planetField,
+      terrain: terrainField,
       size: t.u32({ default: 256, min: 16, max: 1024, description: 'Width in pixels.' }),
-      mode: t.enum(['biomes', 'height']),
+      mode: t.enum(['biomes', 'height', 'layers', 'slope', 'bake']),
     }),
     handler: async ({ world }, p) => {
-      const rt = resolvePlanet(world, p.planet)
-      const image = terrainMap(rt, p.size as number, p.mode as 'height' | 'biomes')
+      const mode = p.mode as string
+      const image =
+        wantsHeightfield(world, p) ||
+        ((mode === 'layers' || mode === 'slope' || mode === 'bake') && !named(p.planet))
+          ? heightfieldMap(resolveHeightfield(world, p.terrain), p.size as number, mode)
+          : terrainMap(
+              resolvePlanet(world, p.planet),
+              p.size as number,
+              mode === 'height' ? 'height' : 'biomes',
+            )
       const png = await encodePng(image.data, image.width, image.height)
       return { width: image.width, height: image.height, data: toBase64(png) }
     },

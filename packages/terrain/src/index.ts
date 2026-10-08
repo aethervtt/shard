@@ -194,7 +194,12 @@ export {
 export { OceanMaterial, PlanetMaterial, TERRAIN_SHADERS, TEXTURE_PERIOD } from './material'
 export { resolvePlanet, terrainMap, terrainMethods } from './methods'
 export { clearPlanetNav, planetAgents, planetNavMesh, updatePlanetNav } from './nav'
-export { terrainBiomesOverlay, terrainCollidersOverlay, terrainLodOverlay } from './overlays'
+export {
+  terrainBiomesOverlay,
+  terrainCollidersOverlay,
+  terrainLodOverlay,
+  terrainPagesOverlay,
+} from './overlays'
 export { COLLIDER_SPACING, PlanetRuntime, type PlanetSettings } from './planet'
 export { type TerrainPluginOptions, terrainPlugin, updatePlanets } from './plugin'
 export {

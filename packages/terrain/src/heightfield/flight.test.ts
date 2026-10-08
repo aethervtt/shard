@@ -1,9 +1,12 @@
-import { timeout } from '@aethervtt/shard-core/test-env'
+import { mkdirSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { timeout, timingMode } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { Upload } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { loadNoiseKernel, NoiseGraph } from '@aethervtt/shard-noise'
-import { createNodeWorkers } from '@aethervtt/shard-platform-node'
+import { createNodePlatform, createNodeWorkers } from '@aethervtt/shard-platform-node'
 import { captureView, Shaders, Visibility } from '@aethervtt/shard-render'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { evalHeightPoints } from './kernel'
@@ -14,6 +17,7 @@ import {
   heightfieldApp,
   holes,
   lookAt,
+  openWorldSource,
   settleHeightfield,
   untilStreaming,
   VALLEY_HILLS,
@@ -208,5 +212,32 @@ describe('heightfield streaming without holes (spec 0071)', () => {
       await p.app.dispose()
     },
     timeout(240_000),
+  )
+
+  // 0071's 16 km terrain at 1 m: too big for `pnpm test` (it bakes once into the OS temp directory,
+  // shared with the open-world-fly scenario), so `pnpm bench` or by hand (SHARD_BENCH=1).
+  it.runIf(timingMode === 'bench')(
+    'flies the 16 km terrain from 5 km down to 30 m and on at 300 m/s with no hole',
+    async () => {
+      const root = join(tmpdir(), 'shard-open-world-fly')
+      mkdirSync(root, { recursive: true })
+      const p = await heightfieldApp(gpu, {
+        ...openWorldSource(),
+        noise: { hills },
+        workers,
+        width: W,
+        heightPx: H,
+        fovY: FOV,
+        fs: createNodePlatform({ root }).fs,
+        name: 'open-world-16km',
+      })
+      await untilStreaming(p, timeout(1_800_000))
+      lookAt(p, [2400, 5000, 2400], [3000, 0, 3000])
+      await settleHeightfield(p, 60)
+      const result = await fly(p, 16384, 600)
+      expect(result.holes).toBe(0)
+      await p.app.dispose()
+    },
+    timeout(3_600_000),
   )
 })

@@ -2,7 +2,7 @@ import { World } from '@aethervtt/shard-core'
 import { loadNoiseKernel, NoiseGraph } from '@aethervtt/shard-noise'
 import { createNodeWorkers } from '@aethervtt/shard-platform-node'
 import { afterAll, describe, expect, it } from 'vitest'
-import { bakeTerrain, packHash } from './bake'
+import { bakeTerrain, packHash, readManifest, terrainStats } from './bake'
 import { memoryPackStore } from './pack'
 import { compileStack } from './stack'
 import { sourceAsset, VALLEY_HILLS, valleySource } from './testing'
@@ -33,5 +33,10 @@ describe('bake determinism (0071)', () => {
     const ha = await packHash(a.files)
     expect(await packHash(b.files)).toBe(ha)
     expect(ha.slice(0, 16)).toBe(VALLEY_PACK_HASH)
+    // Disk use (0071): page bytes before deflate per leaf sample, and after.
+    const stats = await terrainStats(asset, a, await readManifest(a))
+    expect(stats.bytesPerSample).toBeGreaterThan(4.9)
+    expect(stats.bytesPerSample).toBeLessThan(5)
+    expect(stats.diskBytesPerSample).toBeLessThan(stats.bytesPerSample / 1.5)
   }, 120_000)
 })

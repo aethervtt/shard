@@ -65,7 +65,7 @@ export interface LoadedPage {
  * levels pinned). Colliders, height queries and the GPU pool all read through it.
  */
 export class PageStore {
-  readonly store: PackStore
+  store: PackStore
   readonly layout: TerrainLayout
   readonly lo: number
   readonly hi: number

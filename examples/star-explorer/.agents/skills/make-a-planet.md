@@ -41,3 +41,4 @@ orbit down to 0.4 m vertex spacing on the ground. Put the camera in the planet's
 - Give it air: `"render/Atmosphere": {}` on the planet entity takes the planet's radius, draws
   the sky from the ground to orbit, and hazes distant terrain (tune-an-atmosphere.md).
 - Rocks, trees and grass: give biomes (or the planet) a scatter set (scatter-props-and-foliage.md).
+- A bounded landscape you shape (roads, valleys) rather than a whole planet: make-a-terrain.md.

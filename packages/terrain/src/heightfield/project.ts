@@ -11,7 +11,8 @@ import { compileStack } from './stack'
 
 /** Where a terrain source's packs live, under the project: `.shard/cache/terrain/<guid>`. */
 export function terrainCacheDir(guid: string): string {
-  return `.shard/cache/terrain/${guid}`
+  // Sources made in code have `mem:` guids: kept to file-name characters.
+  return `.shard/cache/terrain/${guid.replace(/[^a-zA-Z0-9._-]/g, '-')}`
 }
 
 /**

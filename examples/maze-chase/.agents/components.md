@@ -1733,6 +1733,22 @@ Planet terrain: biome blending and triplanar texture-array layers, with geomorph
 | `biomeParams` | number[4] | `[0,0,0,0]` |  | Set by the terrain: biome count, latitude bias, snow line, texture period. |
 | `debugParams` | number[4] | `[0,0,0,0]` |  | Set by the terrain: debug mode (0 off, 1 dominant biome, 2 seams, 3 levels), far-texturing distance, has ORM, 0. |
 
+## `terrain/Terrain`
+
+A heightfield terrain (spec 0071): a bounded landscape from 256 m to 64 km a side, streamed from its baked pages through a quadtree with no cracks or popping, with Rapier heightfield colliders near bodies. Needs a Grid (its chunks are grid children); its local origin is the terrain’s corner, x and z along its sides.
+
+Brings along: `transform/Grid`, `core/Transform`, `render/Visibility`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `source` | null or terrain/TerrainSource ref | `null` |  | The layer stack (*.terrain.json): noise, heightmap images, splines that flatten, raise or carve, and paint layers. Baked into page packs in .shard/cache/terrain by `shard import` (or on first use). |
+| `errorPixels` | number | `2` | ≥ 0.1 | A node splits when its geometric error covers more pixels than this. |
+| `vertexPixels` | number | `4` | ≥ 0 | Finest on-screen vertex spacing: however rough the ground, nodes stop splitting once their vertices are this many pixels apart (normals keep the finer relief in the shading). 0: no limit. |
+| `colliderRadius` | number | `96` | ≥ 0, m | Heightfield collider tiles (and leaf-detail rendering) within this distance of every TerrainAnchor, character, dynamic body and NavAgent. |
+| `skirts` | boolean | `true` |  | Walls under chunk edges that hide cracks while neighbors change level. |
+| `residentDepth` | integer | `-1` | ≥ -1, ≤ 127 | Depths up to this stay loaded for the terrain’s life, so streaming that falls behind shows coarse ground, never a hole. −1: the deepest level whose pages fit in 8 MB. |
+| `scatter` | null or scatter/ScatterSet ref | `null` |  | Props and foliage on the terrain (*.scatter.json; needs the scatter plugin), placed per block from its heights and paint. |
+
 ## `terrain/TerrainAnchor`
 
 Terrain colliders around this entity. Characters and dynamic bodies are anchors without it; add it with enabled: false to opt one out.
@@ -1741,6 +1757,61 @@ Terrain colliders around this entity. Characters and dynamic bodies are anchors 
 |---|---|---|---|---|
 | `enabled` | boolean | `true` |  | False: this body gets no terrain colliders (a ship in orbit, a projectile). |
 | `radius` | number | `0` | ≥ 0, m | Collider chunks within this distance (0: the planet’s colliderRadius). |
+
+## `terrain/TerrainChunk`
+
+A heightfield chunk or collider tile the terrain spawned. Rebuilt from it; never saved.
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `terrain` | null or integer or string | `null` |  |  |
+| `key` | string | `""` |  | depth/x/z |
+| `kind` | `"render"` \| `"collider"` | `"render"` |  |  |
+
+## `terrain/TerrainSurface`
+
+Heightfield terrain: vertex fetch from streamed pages, geomorphing between levels, and two blended material layers from the paint control pages.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `baseColor` | string or number[4] | `[0.8,0.8,0.8,1]` |  | Albedo (linear), alpha in w. |
+| `metallic` | number | `0` | ≥ 0, ≤ 1 | 0 for dielectrics, 1 for metals. |
+| `roughness` | number | `0.5` | ≥ 0, ≤ 1 | Microsurface roughness. |
+| `emissive` | string or number[4] | `"#ffffff"` |  | Emitted color (linear), scaled by emissiveLuminance. |
+| `emissiveLuminance` | number | `0` | ≥ 0, cd/m² | Emitted luminance. 0 = not emissive. |
+| `doubleSided` | boolean | `false` |  | Draw back faces too (no culling). |
+| `deferUntilReady` | boolean | `false` |  | Baseline tier (0064): while a texture it binds waits for a copy in its slot's color space, skip its draws instead of showing the slot's loading fallback. |
+| `alphaMode` | `"opaque"` \| `"mask"` \| `"alpha"` \| `"additive"` \| `"premultiplied"` | `"opaque"` |  | opaque ignores alpha; mask discards pixels below alphaCutoff; alpha blends (transparent, drawn after opaque, sorted back to front); additive adds light (glows); premultiplied expects color already multiplied by alpha. |
+| `alphaCutoff` | number | `0.5` | ≥ 0, ≤ 1 | Alpha threshold for alphaMode "mask". |
+| `normalScale` | number | `1` |  | Strength of the normal map. |
+| `occlusionStrength` | number | `1` | ≥ 0, ≤ 1 | Strength of the occlusion map. |
+| `baseColorTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Albedo (sRGB), multiplied with baseColor. |
+| `metallicRoughnessTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | G = roughness, B = metallic (linear), multiplied with the factors. |
+| `normalTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Tangent-space normal map. |
+| `occlusionTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Ambient occlusion in R (linear). |
+| `emissiveTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Emission color (sRGB), multiplied with emissive. |
+| `pages` | null or Texture ref | `null` |  | Set by the terrain: the page pool, RGBA8 texels of (height low, height high, normal x, normal z). |
+| `control` | null or Texture ref | `null` |  | Set by the terrain: control texels per page (two layers and their blend). |
+| `chunks` | null or Texture ref | `null` |  | Set by the terrain: per pool slot, edge locks, drawn quadrants, fade and depth. |
+| `layerTable` | null or Texture ref | `null` |  | Set by the terrain: per material layer, its array layers, scale, tint, triplanar. |
+| `albedoArray` | null or Texture ref | `null` |  | The source’s albedo texture array. |
+| `ormArray` | null or Texture ref | `null` |  | The source’s occlusion/roughness/metallic array. |
+| `center` | number[4] | `[0,0,0,0]` |  | Set by the terrain: its origin in the origin frame (xyz). |
+| `rot0` | number[4] | `[0,0,0,0]` |  | Set by the terrain: origin → terrain rotation rows (xyz), texture origin (w). |
+| `rot1` | number[4] | `[0,0,0,0]` |  | Set by the terrain. |
+| `rot2` | number[4] | `[0,0,0,0]` |  | Set by the terrain. |
+| `camera` | number[4] | `[0,0,0,0]` |  | Set by the terrain: the selecting camera (xyz), pixels per radian / errorPixels (w). |
+| `pool` | number[4] | `[0,0,0,0]` |  | Set by the terrain: pages per atlas row, per layer, atlas side, control cell side. |
+| `range` | number[4] | `[0,0,0,0]` |  | Set by the terrain: lowest and highest height, paint cells per page, layer count. |
+| `errors0` | number[4] | `[0,0,0,0]` |  | Set by the terrain: morph error per depth (0–3). |
+| `errors1` | number[4] | `[0,0,0,0]` |  | Set by the terrain: morph error per depth (4–7). |
+| `errors2` | number[4] | `[0,0,0,0]` |  | Set by the terrain: morph error per depth (8–11). |
+| `skirts0` | number[4] | `[0,0,0,0]` |  | Set by the terrain: skirt depth per depth (0–3). |
+| `skirts1` | number[4] | `[0,0,0,0]` |  | Set by the terrain: skirt depth per depth (4–7). |
+| `skirts2` | number[4] | `[0,0,0,0]` |  | Set by the terrain: skirt depth per depth (8–11). |
+| `debug` | number[4] | `[0,0,0,0]` |  | Set by the terrain: debug mode (0 off, 1 layers, 2 seams, 3 levels, 4 normals, 5 pages), has albedo, has ORM, texture period. |
 
 ## `text/Localized`
 
