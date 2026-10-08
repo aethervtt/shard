@@ -740,7 +740,7 @@ export const METHODS: MethodDef[] = [
       }),
       buffer: t.string({
         description:
-          "Raw floats of a render buffer instead of the display image: 'hdr' (luminance in cd/m², before post-processing and tonemapping), 'post-hdr' (after the HDR effects, pre-exposed), 'depth', 'velocity' (screen motion in uv units, TAA and motion blur), 'ssao' (ambient occlusion), 'bloom' (the glow's first level), 'dof-half' (color and signed CoC in pixels), or another graph texture. Returned as base64 little-endian rgba32float.",
+          "Raw floats of a render buffer instead of the display image: 'hdr' (luminance in cd/m², before post-processing and tonemapping), 'post-hdr' (after the HDR effects, pre-exposed), 'depth', 'velocity' (screen motion in uv units, TAA and motion blur), 'ssao' (ambient occlusion and view depth, at half resolution), 'bloom' (the glow's first level), 'dof-half' (color and signed CoC in pixels), or another graph texture. Returned as base64 little-endian rgba32float.",
       }),
     }),
     handler: async ({ app, world, options }, p) => {
