@@ -610,9 +610,8 @@ export async function run(ctx: CommandContext): Promise<number> {
       for (let i = 0; i < frames; i++) p.app.update(1 / p.app.fixedHz)
     }
     // --cpu-prof (0074): V8's sampling profiler over the frames, written as a .cpuprofile.
-    const profiled = ctx.flags['cpu-prof']
-      ? await withCpuProfile(p.root, loop)
-      : (loop(), undefined)
+    const profiled = ctx.flags['cpu-prof'] ? await withCpuProfile(p.root, loop) : undefined
+    if (!profiled) loop()
     const result = {
       frames,
       seed: p.manifest.seed,
