@@ -4,7 +4,7 @@
 //
 //   node scripts/post-baseline.mjs [--out .shard/post-baseline] [--sets all,none,bloom]
 //     [--query res=3024x1964] [--viewport 1512x982] [--scale 0.8] [--frames 600]
-//     [--ablate [--passes tonemap,gizmos]] [--chromium]
+//     [--ablate [--passes tonemap,gizmos]] [--port 5181] [--chromium]
 //
 // Runs headed in the installed Chrome (`--chromium`: Playwright's), so frames pace to the display.
 // Needs the playground's dev server (`pnpm playground`). Run it alone: nothing else on the machine.
@@ -26,6 +26,7 @@ const { values } = parseArgs({
     viewport: { type: 'string' },
     scale: { type: 'string' },
     passes: { type: 'string' },
+    port: { type: 'string' },
   },
 })
 
@@ -48,6 +49,7 @@ mkdirSync(out, { recursive: true })
 const rows = []
 for (const set of sets) {
   const url = new URL(base.url)
+  if (values.port) url.port = values.port
   if (set !== 'all') url.searchParams.set('effects', set === 'none' ? '' : set)
   for (const q of values.query ?? []) {
     const [k, v = ''] = q.split('=')
