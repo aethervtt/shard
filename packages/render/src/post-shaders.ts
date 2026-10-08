@@ -210,7 +210,6 @@ struct BloomParams {
 @group(0) @binding(0) var source: texture_2d<f32>;
 @group(0) @binding(1) var source_sampler: sampler;
 @group(0) @binding(2) var<uniform> params: BloomParams;
-@group(0) @binding(3) var scene: texture_2d<f32>;
 
 fn tap(uv: vec2f, dx: f32, dy: f32) -> vec3f {
   return textureSampleLevel(source, source_sampler, uv + vec2f(dx, dy) * params.threshold.zw, 0.0).rgb;
@@ -261,28 +260,25 @@ struct FullscreenInput { @builtin(position) clip: vec4f, @location(0) uv: vec2f 
     + (tap(in.uv, -1.0, 0.0) + tap(in.uv, 1.0, 0.0) + tap(in.uv, 0.0, -1.0) + tap(in.uv, 0.0, 1.0)) * 2.0
     + tap(in.uv, -1.0, -1.0) + tap(in.uv, 1.0, -1.0) + tap(in.uv, -1.0, 1.0) + tap(in.uv, 1.0, 1.0);
   return vec4f(c / 16.0, 1.0);
-}
-
-/** The scene plus the glow: mixed (energy-conserving) without a threshold, added with one. */
-@fragment fn composite(in: FullscreenInput) -> @location(0) vec4f {
-  let s = textureLoad(scene, vec2i(in.clip.xy), 0);
-  let glow = textureSampleLevel(source, source_sampler, in.uv, 0.0).rgb / params.mix.y;
-  let c = select(s.rgb + glow * params.mix.x, mix(s.rgb, glow, params.mix.x), params.mix.z > 0.5);
-  return vec4f(c, s.a);
 }`,
 
   'shard::post::exposure': `
 import shard::view::view;
 import shard::color::luminance;
+@if(BLOOM) import shard::post::glow::add_glow;
 
 struct MeterParams {
   /** EV of bin 0, bins per EV, metering mode, 0. */
   range: vec4f,
+  /** Bloom, which the tonemap adds to the image: intensity, level count, mix (1) or add (0). */
+  glow: vec4f,
 }
 
 @group(0) @binding(1) var input: texture_2d<f32>;
 @group(0) @binding(2) var<storage, read_write> histogram: array<atomic<u32>, 256>;
 @group(0) @binding(3) var<uniform> params: MeterParams;
+@if(BLOOM) @group(0) @binding(4) var bloom: texture_2d<f32>;
+@if(BLOOM) @group(0) @binding(5) var bloom_sampler: sampler;
 
 var<workgroup> local: array<atomic<u32>, 256>;
 
@@ -298,7 +294,12 @@ fn meter(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_ind
   let size = textureDimensions(input);
   let px = id.xy * 4u + 2u;
   if (px.x < size.x && px.y < size.y) {
-    let c = textureLoad(input, vec2i(px), 0).rgb;
+    var c = textureLoad(input, vec2i(px), 0).rgb;
+    // What the tonemap shows: the image with bloom's glow over it.
+    @if(BLOOM) {
+      let uv = (vec2f(px) + 0.5) / vec2f(size);
+      c = add_glow(c, textureSampleLevel(bloom, bloom_sampler, uv, 0.0).rgb, params.glow);
+    }
     let l = luminance(c) / max(view.exposure, 1e-20);
     let ev = log2(max(l, 1e-10) * 8.0);
     let bin = u32(clamp((ev - params.range.x) * params.range.y, 0.0, 255.0));

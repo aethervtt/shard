@@ -6,6 +6,7 @@ import {
   ProfilerResource,
   type World,
 } from '@aethervtt/shard-core'
+import type { GpuContext } from '@aethervtt/shard-gpu'
 import { Time } from '@aethervtt/shard-runtime'
 import { Exposure } from './camera'
 import { addRenderFeatures } from './features'
@@ -496,7 +497,8 @@ function bloomNode(): NodeDescriptor {
     phase: RenderPhase.Post + 40,
     enabled: hasEffect(PostEffect.Bloom),
     reads: ['bloom-in'],
-    writes: ['bloom-out', 'bloom'],
+    // The tonemap composites level 0 over the image (and auto exposure meters the same mix).
+    writes: ['bloom'],
     run: (ctx) => {
       const v = forwardView(ctx)
       if (!v) return
@@ -505,7 +507,7 @@ function bloomNode(): NodeDescriptor {
         layoutGen = gpu.generation
         layout = gpu.layouts.bindGroupLayout({
           label: 'bloom',
-          entries: [tex(0), sampler(1), uniform(2), tex(3, 'unfilterable-float')],
+          entries: [tex(0), sampler(1), uniform(2)],
         })
       }
       const add: GPUBlendComponent = { srcFactor: 'one', dstFactor: 'one', operation: 'add' }
@@ -533,20 +535,11 @@ function bloomNode(): NodeDescriptor {
         [layout],
         [{ format: 'rgba16float', blend: { color: add, alpha: add } }],
       )
-      const composite = cache.render(
-        ctx,
-        'bloom/composite',
-        'shard::post::bloom',
-        'composite',
-        [layout],
-        HDR,
-      )
-      if (!prefilter || !down || !up || !composite) return
+      if (!prefilter || !down || !up) return
       const { cam } = v
       const b = cam.post.bloom
       const input = ctx.texture('bloom-in')
       const chain = ctx.texture('bloom')
-      const out = ctx.texture('bloom-out')
       const levels = Math.min(chain.mipLevelCount, bloomLevels(cam))
       // One uniform slot per pass, 256 bytes apart: texel size of what it samples.
       const buffer = cache.buffer(gpu, `${ctx.view.name}/bloom`, 256 * 20)
@@ -566,7 +559,6 @@ function bloomNode(): NodeDescriptor {
       slot(n++, input.width, input.height) // prefilter samples the input
       for (let k = 1; k < levels; k++) slot(n++, ...(mipSize(k - 1) as [number, number]))
       for (let k = levels - 2; k >= 0; k--) slot(n++, ...(mipSize(k + 1) as [number, number]))
-      slot(n++, chain.width, chain.height) // composite samples level 0
       buffer.write(params, 0, 0, n * 64)
       const view = (k: number) => chain.createView({ baseMipLevel: k, mipLevelCount: 1 })
       const group = (i: number, source: GPUTexture, mip: number) =>
@@ -579,7 +571,6 @@ function bloomNode(): NodeDescriptor {
             { binding: 0, resource: source === chain ? view(mip) : source.createView() },
             { binding: 1, resource: cache.sampler(gpu) },
             { binding: 2, resource: { buffer: buffer.buffer, offset: i * 256, size: 32 } },
-            { binding: 3, resource: input.createView() },
           ],
         )
       let i = 0
@@ -600,12 +591,45 @@ function bloomNode(): NodeDescriptor {
       draw('post/bloom', prefilter, view(0), input, 0)
       for (let k = 1; k < levels; k++) draw('post/bloom-down', down, view(k), chain, k - 1)
       for (let k = levels - 2; k >= 0; k--) draw('post/bloom-up', up, view(k), chain, k + 1, true)
-      draw('post/bloom-composite', composite, out.createView(), chain, 0)
     },
   }
 }
 
 // --- auto exposure -----------------------------------------------------------------------------
+
+/**
+ * Bloom's glow parameters for what composites it (the tonemap) and what meters it: intensity, the
+ * chain's level count (one mip per level), mix (1, no threshold) or add (0). Zeros without bloom.
+ */
+export function bloomGlow(
+  cam: CameraData,
+  chain: GPUTexture | undefined,
+  out: Float32Array,
+  at: number,
+): void {
+  const b = cam.post.bloom
+  out[at] = chain ? b.intensity : 0
+  out[at + 1] = chain ? chain.mipLevelCount : 1
+  out[at + 2] = chain && b.threshold <= 0 ? 1 : 0
+  out[at + 3] = 0
+}
+
+const whites = new WeakMap<GPUDevice, GPUTexture>()
+/** A 1×1 white texture, bound where an optional input is off. */
+function whiteTexture(gpu: GpuContext): GPUTexture {
+  let t = whites.get(gpu.device)
+  if (!t) {
+    t = gpu.device.createTexture({
+      label: 'post/white',
+      size: [1, 1],
+      format: 'rgba8unorm',
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    })
+    gpu.device.queue.writeTexture({ texture: t }, new Uint8Array([255, 255, 255, 255]), {}, [1, 1])
+    whites.set(gpu.device, t)
+  }
+  return t
+}
 
 /** Metered EV100 per camera (from the GPU histogram, a frame or two late) and the adapted EV. */
 export interface ExposureState {
@@ -697,21 +721,25 @@ function autoExposureNode(
     kind: 'raw',
     phase: RenderPhase.Post + 50,
     enabled: hasEffect(PostEffect.AutoExposure),
-    reads: ['post-hdr'],
+    reads: ['post-hdr', 'bloom'],
     sideEffects: true,
     run: (ctx) => {
       const v = forwardView(ctx)
       if (!v) return
       const gpu = ctx.gpu
+      // With bloom on, meter what the tonemap shows: the glow over the image.
+      const bloom = (v.cam.post.effects & PostEffect.Bloom) !== 0
+      const chain = bloom ? ctx.texture('bloom') : undefined
       if (baseline) {
         const layout = baseline.meterLayout(gpu)
         const pipeline = cache.render(
           ctx,
-          'post/exposure-meter',
+          bloom ? 'post/exposure-meter/bloom' : 'post/exposure-meter',
           'shard::post::baseline::meter',
           'main',
           [layout],
           [{ format: 'rg16float' }],
+          { BLOOM: bloom },
         )
         if (!pipeline) return
         let m = meterViews.get(ctx.view.name)
@@ -720,7 +748,8 @@ function autoExposureNode(
           meterViews.set(ctx.view.name, m)
         }
         const input = ctx.texture('post-hdr')
-        const key = `${idOf(input)}/${v.pv.uniform.version}`
+        const level0 = chain ?? whiteTexture(gpu)
+        const key = `${idOf(input)}/${v.pv.uniform.version}/${idOf(level0)}`
         if (!m.group || m.groupKey !== key) {
           m.groupKey = key
           m.group = gpu.device.createBindGroup({
@@ -730,6 +759,8 @@ function autoExposureNode(
               { binding: 0, resource: { buffer: v.pv.uniform.buffer } },
               { binding: 1, resource: input.createView() },
               { binding: 2, resource: { buffer: m.params } },
+              { binding: 3, resource: level0.createView({ mipLevelCount: 1 }) },
+              { binding: 4, resource: cache.sampler(gpu) },
             ],
           })
         }
@@ -737,7 +768,15 @@ function autoExposureNode(
         scratch[1] = METER_BINS_PER_EV
         scratch[2] = v.cam.post.exposure.metering
         scratch[3] = 0
-        const k = baseline.renderMeter(ctx, m, pipeline, m.group, scratch.subarray(0, 4))
+        bloomGlow(v.cam, chain, scratch, 4)
+        const k = baseline.renderMeter(
+          ctx,
+          m,
+          pipeline,
+          m.group,
+          scratch.subarray(0, 4),
+          scratch.subarray(4, 8),
+        )
         if (k === undefined) return
         const meters = ctx.world.resource(ExposureMeters)
         const entity = v.cam.entity
@@ -770,13 +809,20 @@ function autoExposureNode(
             { binding: 1, visibility: C, texture: { sampleType: 'unfilterable-float' } },
             { binding: 2, visibility: C, buffer: { type: 'storage' } },
             uniform(3, C),
+            { binding: 4, visibility: C, texture: { sampleType: 'float' } },
+            { binding: 5, visibility: C, sampler: { type: 'filtering' } },
           ],
         })
         perView.clear()
       }
-      const pipeline = cache.compute(ctx, 'post/exposure', 'shard::post::exposure', 'meter', [
-        layout,
-      ])
+      const pipeline = cache.compute(
+        ctx,
+        bloom ? 'post/exposure/bloom' : 'post/exposure',
+        'shard::post::exposure',
+        'meter',
+        [layout],
+        { BLOOM: bloom },
+      )
       if (!pipeline) return
       let state = perView.get(ctx.view.name)
       if (!state || state.generation !== gpu.generation) {
@@ -803,20 +849,24 @@ function autoExposureNode(
       scratch[1] = METER_BINS_PER_EV
       scratch[2] = e.metering
       scratch[3] = 0
-      const params = cache.buffer(gpu, `${ctx.view.name}/exposure`, 16)
-      params.write(scratch, 0, 0, 4)
+      bloomGlow(v.cam, chain, scratch, 4)
+      const params = cache.buffer(gpu, `${ctx.view.name}/exposure`, 32)
+      params.write(scratch, 0, 0, 8)
       const input = ctx.texture('post-hdr')
       const histogram = state.histogram
+      const level0 = chain ?? whiteTexture(gpu)
       const group = cache.group(
         gpu,
         `${ctx.view.name}/exposure`,
-        `${idOf(input)}/${idOf(histogram)}/${v.pv.uniform.version}/${params.version}`,
+        `${idOf(input)}/${idOf(histogram)}/${v.pv.uniform.version}/${params.version}/${idOf(level0)}`,
         layout,
         () => [
           { binding: 0, resource: { buffer: v.pv.uniform.buffer } },
           { binding: 1, resource: input.createView() },
           { binding: 2, resource: { buffer: histogram } },
           { binding: 3, resource: { buffer: params.buffer } },
+          { binding: 4, resource: level0.createView({ mipLevelCount: 1 }) },
+          { binding: 5, resource: cache.sampler(gpu) },
         ],
       )
       gpu.device.queue.writeBuffer(histogram, 0, zero)

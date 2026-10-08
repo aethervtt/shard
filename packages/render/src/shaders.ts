@@ -1130,9 +1130,21 @@ fn environment_light(p: PbrInput, n: vec3f, v: vec3f) -> vec3f {
 fn environment_background(d: vec3f) -> vec3f {
   return textureSampleLevel(env_source, env_sampler, env_rotate(d), 0.0).rgb * view.envParams.x;
 }`,
+  'shard::post::glow': `
+/**
+ * Bloom's first level over the image: mixed, conserving energy, without a threshold; added with
+ * one. \`glow\`: intensity, the chain's level count, mix (1) or add (0), 0. The tonemap applies it
+ * as it reads the image, and auto exposure meters the same mix.
+ */
+fn add_glow(c: vec3f, level0: vec3f, glow: vec4f) -> vec3f {
+  let g = level0 / glow.y;
+  return select(c + g * glow.x, mix(c, g, glow.x), glow.z > 0.5);
+}`,
+
   'shard::post::tonemap': `
 import shard::color::{ linear_to_srgb, srgb_to_linear, ign, luminance };
 import shard::tonemap::tonemap;
+@if(BLOOM) import shard::post::glow::add_glow;
 
 struct TonemapParams {
   /** curve, dither, flags (1 grading, 2 vignette, 4 LUT, 8 sRGB LUT), 0. */
@@ -1148,12 +1160,16 @@ struct TonemapParams {
   vignette: vec4f,
   /** 1 / width, 1 / height of the view. */
   texel: vec4f,
+  /** Bloom: intensity, level count, mix (1) or add (0), 0. */
+  glow: vec4f,
 }
 
 @group(0) @binding(0) var hdr: texture_2d<f32>;
 @group(0) @binding(1) var<uniform> params: TonemapParams;
 @group(0) @binding(2) var lut: texture_2d<f32>;
 @group(0) @binding(3) var lut_sampler: sampler;
+/** Bloom's first level, composited here instead of in a pass of its own. */
+@if(BLOOM) @group(0) @binding(4) var bloom: texture_2d<f32>;
 
 const LIN_TO_LMS = mat3x3f(
   vec3f(3.90405e-1, 7.08416e-2, 2.31082e-2),
@@ -1191,7 +1207,11 @@ fn apply_lut(c: vec3f) -> vec3f {
 }
 
 @fragment fn fs(@builtin(position) p: vec4f) -> @location(0) vec4f {
-  let texel = textureLoad(hdr, vec2i(p.xy), 0);
+  var texel = textureLoad(hdr, vec2i(p.xy), 0);
+  @if(BLOOM) {
+    let level0 = textureSampleLevel(bloom, lut_sampler, p.xy * params.texel.xy, 0.0).rgb;
+    texel = vec4f(add_glow(texel.rgb, level0, params.glow), texel.a);
+  }
   var hdr_color = max(texel.rgb, vec3f(0.0));
   @if(TRANSPARENT) var alpha = 1.0;
   @if(TRANSPARENT) {

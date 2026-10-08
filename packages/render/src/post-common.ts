@@ -91,12 +91,13 @@ export class PostCache {
     root: string,
     entry: string,
     layouts: GPUBindGroupLayout[],
+    defines?: Record<string, boolean>,
   ): GPUComputePipeline | undefined {
     const gpu = ctx.gpu
     this.check(gpu)
     const cached = this.pipelines.get(key) as GPUComputePipeline | undefined
     if (cached) return cached
-    const module = ctx.world.resource(Shaders).module(gpu, { root })
+    const module = ctx.world.resource(Shaders).module(gpu, defines ? { root, defines } : { root })
     if (!module) {
       gpu.pipelines.skipped++
       return undefined

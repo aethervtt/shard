@@ -41,7 +41,8 @@ function tonemapNode(): NodeDescriptor {
     kind: 'render',
     phase: RenderPhase.Tonemap,
     enabled: (view) => cameraOf(view) !== undefined,
-    reads: ['post-hdr'],
+    // Bloom's chain, when the view blooms: the glow is composited here (see the 'bloom' node).
+    reads: ['post-hdr', 'bloom'],
     writes: ['ldr'],
     color: [{ resource: 'ldr', clear: { r: 0, g: 0, b: 0, a: 1 } }],
     run: (ctx) => {
@@ -51,7 +52,7 @@ function tonemapNode(): NodeDescriptor {
         layoutGen = gpu.generation
         layout = gpu.layouts.bindGroupLayout({
           label: 'tonemap',
-          entries: [tex(0, 'unfilterable-float'), uniform(1), tex(2), sampler(3)],
+          entries: [tex(0, 'unfilterable-float'), uniform(1), tex(2), sampler(3), tex(4)],
         })
         white = gpu.device.createTexture({
           label: 'tonemap/no-lut',
@@ -63,9 +64,10 @@ function tonemapNode(): NodeDescriptor {
       const format = ctx.texture('ldr').format
       const srgb = format.endsWith('-srgb')
       const alpha = cam.alphaOutput
+      const bloom = (cam.post.effects & PostEffect.Bloom) !== 0
       const pipeline = cache.render(
         ctx,
-        `tonemap/${format}${alpha ? '/alpha' : ''}`,
+        `tonemap/${format}${alpha ? '/alpha' : ''}${bloom ? '/bloom' : ''}`,
         'shard::post::tonemap',
         'fs',
         [layout],
@@ -73,6 +75,7 @@ function tonemapNode(): NodeDescriptor {
         {
           SRGB_TARGET: srgb,
           TRANSPARENT: alpha,
+          BLOOM: bloom,
         },
       )
       if (!pipeline) return
@@ -90,7 +93,7 @@ function tonemapNode(): NodeDescriptor {
           flags |= 4
         }
       }
-      scratch.fill(0, 0, 32)
+      scratch.fill(0, 0, 36)
       u[0] = cam.curve
       u[1] = cam.dither ? 1 : 0
       u[2] = flags
@@ -108,20 +111,31 @@ function tonemapNode(): NodeDescriptor {
       scratch[26] = cam.width / Math.max(1, cam.height)
       scratch[28] = 1 / cam.width
       scratch[29] = 1 / cam.height
-      const params = cache.buffer(gpu, `${ctx.view.name}/tonemap`, 128)
-      params.write(scratch, 0, 0, 32)
+      // The chain's level count is the bloom node's: the texture has one mip per level.
+      const chain = bloom ? ctx.texture('bloom') : undefined
+      if (chain) {
+        const b = post.bloom
+        scratch[32] = b.intensity
+        scratch[33] = chain.mipLevelCount
+        scratch[34] = b.threshold > 0 ? 0 : 1
+      }
+      const params = cache.buffer(gpu, `${ctx.view.name}/tonemap`, 144)
+      params.write(scratch, 0, 0, 36)
       const hdr = ctx.texture('post-hdr')
-      const lutView = lut ?? white!.createView()
       const group = cache.group(
         gpu,
         `${ctx.view.name}/tonemap`,
-        `${idOf(hdr)}/${params.version}/${lut ? idOf(lut) : 0}`,
+        `${idOf(hdr)}/${params.version}/${lut ? idOf(lut) : 0}/${chain ? idOf(chain) : 0}`,
         layout,
         () => [
           { binding: 0, resource: hdr.createView() },
           { binding: 1, resource: { buffer: params.buffer } },
-          { binding: 2, resource: lutView },
+          { binding: 2, resource: lut ?? white!.createView() },
           { binding: 3, resource: cache.sampler(gpu) },
+          {
+            binding: 4,
+            resource: chain ? chain.createView({ mipLevelCount: 1 }) : white!.createView(),
+          },
         ],
       )
       const pass = ctx.renderPass!

@@ -536,6 +536,11 @@ export function postAliases(
       if ((effects & bit) === 0) continue
       // Fog rides in the aerial-perspective pass when both are on (one trip through memory).
       if (name === 'fog' && effects & PostEffect.Atmosphere) continue
+      // Bloom reads the image and builds its chain; the tonemap adds the glow as it reads.
+      if (name === 'bloom') {
+        out['bloom-in'] = current
+        continue
+      }
       out[`${name}-in`] = current
       // TAA writes its history, kept across frames, which later effects read in place.
       if (name === 'taa') {
