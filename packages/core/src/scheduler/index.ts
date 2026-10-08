@@ -24,6 +24,7 @@ export {
   type SystemTiming,
   spanCovers,
   spanName,
+  spanStats,
   spanTrack,
   TRACK,
   type TrackName,

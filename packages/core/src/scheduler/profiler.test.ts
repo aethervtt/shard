@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ShardError } from '../error'
-import { defineSpan, Profiler, spanCovers, spanName, TRACK } from './profiler'
+import { clockInfo, defineSpan, Profiler, spanCovers, spanName, spanStats, TRACK } from './profiler'
 
 /** A clock that only moves when told to. */
 function fakeClock() {
@@ -56,7 +56,12 @@ describe('Profiler spans (0074)', () => {
     }
     // The window holds runs 3–6: inner took 3, 4, 5, 6.
     expect(p.timing('test-profiler/inner')).toEqual({ last: 6, avg: 4.5, max: 6, samples: 4 })
-    expect(p.stats('test-profiler/outer')).toMatchObject({ last: 7, max: 7, p95: 7, track: 'main' })
+    expect(spanStats(p, 'test-profiler/outer')).toMatchObject({
+      last: 7,
+      max: 7,
+      p95: 7,
+      track: 'main',
+    })
   })
 
   it('record(name, ms) keeps working for existing callers, and all() lists it', () => {
@@ -65,9 +70,9 @@ describe('Profiler spans (0074)', () => {
     p.record('test-profiler/legacy', 0.75)
     expect(p.timing('test-profiler/legacy')).toMatchObject({ last: 0.75, avg: 1, samples: 2 })
     expect(p.all()['test-profiler/legacy']?.samples).toBe(2)
-    expect(p.stats('gpu:test-profiler')).toBeUndefined()
+    expect(spanStats(p, 'gpu:test-profiler')).toBeUndefined()
     p.record('gpu:test-profiler', 3)
-    expect(p.stats('gpu:test-profiler')?.track).toBe('gpu')
+    expect(spanStats(p, 'gpu:test-profiler')?.track).toBe('gpu')
   })
 
   it('an unbalanced end logs perf/span-mismatch once per name; the frame resets the stack', () => {
@@ -108,7 +113,7 @@ describe('Profiler spans (0074)', () => {
     clock.t = 9
     p.endAsync(load, 'a.png')
     expect(p.timing('test-profiler/load')).toMatchObject({ samples: 2, max: 9 })
-    expect(p.stats('test-profiler/load')?.track).toBe('async')
+    expect(spanStats(p, 'test-profiler/load')?.track).toBe('async')
   })
 
   it('ProfilerSettings.enabled = false turns everything off; window changes take effect', () => {
@@ -152,7 +157,7 @@ describe('Profiler spans (0074)', () => {
   })
 
   it('reports its clock: resolution and whether the page is isolated', () => {
-    const clock = new Profiler().clock
+    const clock = clockInfo()
     expect(clock.resolutionMs).toBeGreaterThanOrEqual(0)
     expect(clock.isolated).toBe(true) // not a page: nothing coarsens the clock
   })

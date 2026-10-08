@@ -260,11 +260,6 @@ export class Profiler {
     return this.settings.enabled
   }
 
-  /** The clock's resolution and isolation (measured once, on first use). */
-  get clock(): ClockInfo {
-    return clockInfo()
-  }
-
   // --- spans -------------------------------------------------------------------
 
   /** Starts a span on the main track. Returns a token for `end`; -1 when the profiler is off. */
@@ -432,23 +427,11 @@ export class Profiler {
     return { last, avg: sum / series.count, max, samples: series.count }
   }
 
-  /** A span's aggregates with its p95 and track, or undefined if it never ran. */
-  stats(name: string): SpanAggregate | undefined {
-    const timing = this.timing(name)
-    if (!timing) return undefined
-    const id = spanIds.get(name)!
-    const series = this.series[id]!
-    const sorted = Array.from(series.samples.subarray(0, series.count)).sort((a, b) => a - b)
-    const out: SpanAggregate = {
-      span: name,
-      track: trackName(spanTracks[id]!),
-      ...timing,
-      p50: sorted[Math.min(sorted.length - 1, Math.floor(0.5 * sorted.length))]!,
-      p95: sorted[Math.min(sorted.length - 1, Math.floor(0.95 * sorted.length))]!,
-    }
-    const resolution = this.clock.resolutionMs
-    if (out.track !== 'gpu' && resolution > 0 && timing.avg < 4 * resolution) out.coarse = true
-    return out
+  /** A span's samples over the window, in ring order (not by age); undefined if it never ran. */
+  samples(name: string): Float64Array | undefined {
+    const id = spanIds.get(name)
+    const series = id === undefined ? undefined : this.series[id]
+    return series?.count ? series.samples.subarray(0, series.count) : undefined
   }
 
   /** Every span that ran, by name. */
@@ -522,57 +505,53 @@ const WARN_OPEN_AT_START = 1
 const WARN_OPEN_AT_END = 2
 const WARN_DEPTH = 3
 const WARN_ASYNC = 4
-const BALANCE_HINT = 'Every profiler.begin(span) needs one profiler.end(token), in the same frame.'
+const MISMATCH = [
+  'ended out of order: spans end in the reverse order they began',
+  'was still open when a frame began',
+  'was still open when its frame ended',
+]
 
 /** Built only when reported, so a span ending out of order every frame allocates once. */
 function warningOf(kind: number, name: string): ShardError {
-  switch (kind) {
-    case WARN_ORDER:
-      return new ShardError(
-        'perf/span-mismatch',
-        `Span "${name}" ended out of order: spans end in the reverse order they began`,
-        {
-          hint: 'Every profiler.begin(span) needs one profiler.end(token), in the same frame.',
-          path: name,
-        },
-      )
-    case WARN_OPEN_AT_START:
-      return new ShardError(
-        'perf/span-mismatch',
-        `Span "${name}" was still open when a frame began`,
-        {
-          hint: BALANCE_HINT,
-          path: name,
-        },
-      )
-    case WARN_OPEN_AT_END:
-      return new ShardError(
-        'perf/span-mismatch',
-        `Span "${name}" was still open when its frame ended`,
-        {
-          hint: BALANCE_HINT,
-          path: name,
-        },
-      )
-    case WARN_DEPTH:
-      return new ShardError(
-        'perf/span-overflow',
-        `Spans nest deeper than ${MAX_DEPTH} at "${name}"`,
-        {
-          hint: 'A span that begins in a loop needs its end inside the loop too.',
-          path: name,
-        },
-      )
-    default:
-      return new ShardError(
-        'perf/async-overflow',
-        `More than ${ASYNC_SLOTS} async spans are open`,
-        {
-          hint: 'Every beginAsync(span, key) needs an endAsync(span, key), even when the work fails.',
-          path: name,
-        },
-      )
+  if (kind === WARN_DEPTH) {
+    return new ShardError(
+      'perf/span-overflow',
+      `Spans nest deeper than ${MAX_DEPTH} at "${name}"`,
+      {
+        hint: 'A span that begins in a loop needs its end inside the loop too.',
+        path: name,
+      },
+    )
   }
+  if (kind === WARN_ASYNC) {
+    return new ShardError('perf/async-overflow', `More than ${ASYNC_SLOTS} async spans are open`, {
+      hint: 'Every beginAsync(span, key) needs an endAsync(span, key), even when the work fails.',
+      path: name,
+    })
+  }
+  return new ShardError('perf/span-mismatch', `Span "${name}" ${MISMATCH[kind]}`, {
+    hint: 'Every profiler.begin(span) needs one profiler.end(token), in the same frame.',
+    path: name,
+  })
+}
+
+/** A span's aggregates with its p50, p95 and track, or undefined if it never ran. */
+export function spanStats(profiler: Profiler, name: string): SpanAggregate | undefined {
+  const timing = profiler.timing(name)
+  const samples = profiler.samples(name)
+  if (!timing || !samples) return undefined
+  const sorted = Float64Array.from(samples).sort()
+  const at = (p: number) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))]!
+  const out: SpanAggregate = {
+    span: name,
+    track: trackName(spanTrack(spanIds.get(name)!)),
+    ...timing,
+    p50: at(0.5),
+    p95: at(0.95),
+  }
+  const resolution = clockInfo().resolutionMs
+  if (out.track !== 'gpu' && resolution > 0 && timing.avg < 4 * resolution) out.coarse = true
+  return out
 }
 
 export const ProfilerResource = defineResource<Profiler>('core/Profiler', {

@@ -3,6 +3,7 @@ import {
   type CaptureSummary,
   type CaptureWarning,
   type ChromeTrace,
+  clockInfo,
   defineResource,
   type HeapStats,
   type HotFunction,
@@ -12,6 +13,7 @@ import {
   type SpanAggregate,
   type SpanStats,
   spanCovers,
+  spanStats,
   TRACK,
   trackName,
   type World,
@@ -134,7 +136,7 @@ export function describePerf(world: World, options: PerfDescribeOptions = {}) {
   const commands: Record<string, unknown> = {}
   for (const name of profiler.names()) {
     if (!wanted(name)) continue
-    const stats = profiler.stats(name)!
+    const stats = spanStats(profiler, name)!
     if (name.startsWith('schedule/')) schedules[name] = rounded(stats)
     else if (name.startsWith('commands/')) commands[name] = rounded(stats)
     else if (name !== 'frame' && name !== 'gpu:frame') byTrack[stats.track]?.push(stats)
@@ -144,9 +146,9 @@ export function describePerf(world: World, options: PerfDescribeOptions = {}) {
       .sort((a, b) => b.avg - a.avg || (a.span < b.span ? -1 : 1))
       .slice(0, top)
       .map(rounded)
-  const frame = profiler.stats('frame')
-  const gpuFrame = profiler.stats('gpu:frame')
-  const clock = profiler.clock
+  const frame = spanStats(profiler, 'frame')
+  const gpuFrame = spanStats(profiler, 'gpu:frame')
+  const clock = clockInfo()
   const ecs = world.stats()
   let ecsBytes = 0
   for (const t of ecs.tables) ecsBytes += t.bytes
@@ -223,7 +225,7 @@ export function perfBreakdown(world: World, limit = 10): { cpu: SpanStats[]; gpu
   const gpu: SpanStats[] = []
   for (const name of profiler.names()) {
     if (name === 'frame' || name === 'gpu:frame') continue
-    const a = profiler.stats(name)!
+    const a = spanStats(profiler, name)!
     const stats: SpanStats = {
       span: name,
       track: a.track,
@@ -309,7 +311,7 @@ export async function capturePerf(
   }
   const sampled = sampler ? await sampler.stop() : undefined
   const summary = capture.summary({
-    clock: { ...profiler.clock, gpuQuantized: profiler.gpu.quantized },
+    clock: { ...clockInfo(), gpuQuantized: profiler.gpu.quantized },
     memory: perfMemory(world),
     hottest: sampled?.hottest,
     warnings,

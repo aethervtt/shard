@@ -1,4 +1,4 @@
-import { type Entity, ProfilerResource, type World } from '@aethervtt/shard-core'
+import { type Entity, ProfilerResource, spanStats, type World } from '@aethervtt/shard-core'
 import { Time } from '@aethervtt/shard-runtime'
 import { LABEL_FONT, labelWidth } from './gizmo-font'
 import type { GizmoStore } from './gizmos'
@@ -31,8 +31,8 @@ function linesOf(world: World): string[] {
   const profiler = world.tryResource(ProfilerResource)
   const lines: string[] = []
   if (profiler) {
-    const frame = profiler.stats('frame')
-    const gpu = profiler.stats('gpu:frame')
+    const frame = spanStats(profiler, 'frame')
+    const gpu = spanStats(profiler, 'gpu:frame')
     lines.push(
       `frame ${frame ? pad(frame.avg) : '     -'} ms  p95 ${frame ? pad(frame.p95) : '     -'}` +
         (profiler.gpu.status === 'unavailable'
