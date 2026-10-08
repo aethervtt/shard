@@ -13,6 +13,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@aethervtt/shard-core": "workspace:*"
+    "@aethervtt/shard-core": "workspace:*",
+    "meshoptimizer": "1.3.0"
   }
 }

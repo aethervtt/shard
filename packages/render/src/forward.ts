@@ -39,6 +39,7 @@ import { DataStore, dataEntry } from './data-store'
 import { addDisplayNodes } from './display-nodes'
 import { Environments, environmentParams } from './environment-state'
 import { addRenderFeatures } from './features'
+import { FoliagePath } from './foliage-path'
 import { GpuAssets, GpuAssetsResource } from './gpu-assets'
 import { type ColorAttachment, type NodeContext, RenderPhase, type RenderView } from './graph'
 import { clearHealthIssue, MaterialFallbacks, raiseHealthIssue } from './health'
@@ -1132,6 +1133,7 @@ function forwardNode(state: ForwardState) {
       const pv = state.views.get(ctx.view.name)
       if (!pv) return
       recordSwitches(ctx, drawMaterials(ctx, state, pv, cam, cam.draws, PASS_OPAQUE))
+      ctx.world.tryResource(FoliagePath)?.draw(ctx, cam, PASS_OPAQUE, ctx.renderPass!)
     },
   }
 }
@@ -1302,8 +1304,13 @@ function cascadeNode(state: ForwardState) {
       const shadows = ctx.world.resource(ShadowsResource)
       const size = ctx.world.resource(LightingSettings).cascadeMapSize
       const texture = pv.cascades.ensureTexture(ctx.gpu, size, ctx.view.name)
+      // Swaying foliage (0045) keeps the nearest cascade (where it casts) from going stale.
+      const foliage = ctx.world.tryResource(FoliagePath)
+      const cam = cameraOf(ctx.view)!
+      const animated = foliage?.animatedShadows(cam) ?? false
       for (let i = 0; i < pv.cascades.count; i++) {
         const view = pv.cascades.views[i]!
+        if (animated && i === 0) view.redraw = true
         if (!beginShadowView(ctx, view)) continue
         drawShadowCasters(
           ctx,
@@ -1314,6 +1321,9 @@ function cascadeNode(state: ForwardState) {
           state.pipelines,
           state.layouts.shadowView,
           `shadows/cascade${i}`,
+          foliage,
+          cam,
+          i,
         )
         endShadowView(ctx, view)
       }

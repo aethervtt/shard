@@ -70,6 +70,10 @@ export const Planet = defineComponent(
       default: true,
       description: 'Walls under chunk edges that hide cracks while neighbors change level.',
     }),
+    scatter: t.handle('scatter/ScatterSet', {
+      description:
+        'Props and foliage everywhere on the planet (*.scatter.json; needs the scatter plugin). Each biome can add its own (Biome.scatter).',
+    }),
   },
   {
     description:

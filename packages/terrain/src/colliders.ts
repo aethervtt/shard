@@ -215,7 +215,7 @@ export function wantedColliders(planet: PlanetRuntime): string[] {
   return [...wantedKeys].sort()
 }
 
-function specFor(
+export function chunkSpec(
   planet: PlanetRuntime,
   face: number,
   depth: number,
@@ -284,7 +284,7 @@ export function updateColliders(
     }
     if (frame < job.due) continue
     set.jobs.delete(key)
-    const spec = specFor(planet, job.face, job.depth, job.x, job.y)
+    const spec = chunkSpec(planet, job.face, job.depth, job.x, job.y)
     let mesh: ChunkMesh
     if (job.ready && job.pts && job.values && job.temps && job.moist) {
       mesh = assembleChunk(spec, job.pts, job.values, job.temps, job.moist)
@@ -345,13 +345,54 @@ function startJob(
     cancelled: false,
   }
   if (!workers || workers.size === 0) return job
+  const sampling = sampleChunkAsync(planet, workers, face, depth, x, y)
+  job.pts = sampling.pts
+  job.values = sampling.values
+  job.temps = sampling.temps
+  job.moist = sampling.moist
+  sampling.done.then(
+    () => {
+      if (!job.cancelled) job.ready = true
+    },
+    () => {
+      // A failed job builds on the main thread at its due frame.
+    },
+  )
+  return job
+}
+
+/** A chunk's sample points with their graphs sampled on the pool (`done` resolves when all are in). */
+export interface ChunkSampling {
+  pts: ChunkPoints
+  values: Float32Array
+  temps: Float32Array
+  moist: Float32Array
+  done: Promise<void>
+}
+
+/**
+ * Samples a chunk's height and climate on the worker pool: `assembleChunk(chunkSpec(…), pts, values,
+ * temps, moist)` then gives the same mesh `buildChunk` does inline. Colliders and scatter's foliage
+ * patches (0045) use it.
+ */
+export function sampleChunkAsync(
+  planet: PlanetRuntime,
+  workers: Workers,
+  face: number,
+  depth: number,
+  x: number,
+  y: number,
+): ChunkSampling {
   const s = planet.settings!
   const pts = prepareChunkPoints(face, depth, x, y, s.resolution, s.radius, createChunkPoints())
-  job.pts = pts
   const count = pts.count
-  job.values = new Float32Array(count)
-  job.temps = new Float32Array(count)
-  job.moist = new Float32Array(count)
+  const out: ChunkSampling = {
+    pts,
+    values: new Float32Array(count),
+    temps: new Float32Array(count),
+    moist: new Float32Array(count),
+    done: Promise.resolve(),
+  }
   const parts: Promise<void>[] = []
   const origin = new Float64Array(4)
   for (let g = 0; g < pts.groups; g++) {
@@ -368,32 +409,24 @@ function startJob(
     origin[1] = pts.origins[g * 4 + 1]!
     origin[2] = pts.origins[g * 4 + 2]!
     const o = Float64Array.from(origin)
-    const scatter = (target: Float32Array) => (values: Float32Array) => {
-      for (let i = a; i < b; i++) target[pts.order[i]!] = values[i - a]!
-    }
     const run = (graph: typeof planet.height, target: Float32Array, node?: string) => {
       if (!graph) return
-      const out = new Float32Array(b - a)
+      const values = new Float32Array(b - a)
       parts.push(
-        sampleNoiseAsync(workers, graph, s.seed, local, out, {
+        sampleNoiseAsync(workers, graph, s.seed, local, values, {
           origin: o,
           ...(node ? { node } : {}),
-        }).then(() => scatter(target)(out)),
+        }).then(() => {
+          for (let i = a; i < b; i++) target[pts.order[i]!] = values[i - a]!
+        }),
       )
     }
-    run(planet.height, job.values)
-    run(planet.climate, job.temps, 'temperature')
-    run(planet.climate, job.moist, 'moisture')
+    run(planet.height, out.values)
+    run(planet.climate, out.temps, 'temperature')
+    run(planet.climate, out.moist, 'moisture')
   }
-  Promise.all(parts).then(
-    () => {
-      if (!job.cancelled) job.ready = true
-    },
-    () => {
-      // A failed job builds on the main thread at its due frame.
-    },
-  )
-  return job
+  out.done = Promise.all(parts).then(() => {})
+  return out
 }
 
 function makeChunk(

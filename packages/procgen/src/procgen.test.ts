@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { assetServer } from '@aethervtt/shard-assets'
 import { defineComponent, type Entity, type ShardError, t, World } from '@aethervtt/shard-core'
-import { decodeMesh } from '@aethervtt/shard-mesh'
+import { decodeMesh, loadMeshSimplifier } from '@aethervtt/shard-mesh'
 import { loadNoiseKernel, type NoiseGraph } from '@aethervtt/shard-noise'
 import { createNodePlatform } from '@aethervtt/shard-platform-node'
 import { Mesh3d, Meshes } from '@aethervtt/shard-render'
@@ -39,6 +39,7 @@ import {
 
 beforeAll(async () => {
   await loadNoiseKernel()
+  await loadMeshSimplifier()
 })
 
 async function errorOf(f: () => unknown): Promise<ShardError> {

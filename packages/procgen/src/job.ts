@@ -1,5 +1,6 @@
 import { type Artifact, findAssetType } from '@aethervtt/shard-assets'
 import { type JsonValue, ShardError } from '@aethervtt/shard-core'
+import { loadMeshSimplifier } from '@aethervtt/shard-mesh'
 import { useNoiseKernel } from '@aethervtt/shard-noise'
 import {
   type ContextState,
@@ -88,6 +89,8 @@ export async function executeJob(job: GenJob): Promise<GenResult> {
   const gen = requireGenerator(job.generator)
   if (job.noise) useNoiseKernel(job.noise, job.noiseSimd ?? true)
   const deps = await loadDependencies(job)
+  // ctx.mesh simplifies synchronously (LODs); the WASM loads once per thread.
+  await loadMeshSimplifier()
   const state: ContextState = { children: [], warnings: [] }
   const params = gen.params.deserialize(job.params)
   const ctx = createContext(gen, job, deps, job.chain, state)

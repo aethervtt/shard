@@ -191,6 +191,12 @@ Files: `*.biomes.json`
 
 No import settings.
 
+## `data/scatter`
+
+Files: `*.scatter.json`
+
+No import settings.
+
 ## `data/theme`
 
 Files: `*.theme.json`

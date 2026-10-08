@@ -108,3 +108,14 @@ export async function walkChecksum(characters = 4, seconds = 3): Promise<WalkRes
     ms: performance.now() - t0,
   }
 }
+
+export {
+  capture,
+  holes,
+  type PlanetApp,
+  type PlanetOptions,
+  placeCamera,
+  planetApp,
+  settleTerrain,
+  sunOver,
+} from './test-planet'

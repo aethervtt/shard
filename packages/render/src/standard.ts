@@ -5,6 +5,7 @@ import { deferredPlugin } from './deferred-plugin'
 import { renderDescribePlugin } from './describe-plugin'
 import { dynamicResolutionPlugin } from './dynamic-resolution'
 import { environmentPlugin } from './environment-plugin'
+import { foliagePlugin } from './foliage'
 import { type ForwardPluginOptions, forwardCorePlugin } from './forward'
 import { fxaaPlugin } from './fxaa'
 import { gizmosPlugin } from './gizmos-plugin'
@@ -43,6 +44,7 @@ export function forwardPlugin(options: ForwardPluginOptions = {}): Plugin {
         viewVisibilityPlugin,
         interiorPlugin,
         shadowCatcherPlugin,
+        foliagePlugin,
         dynamicResolutionPlugin,
         renderDescribePlugin,
       )

@@ -5,11 +5,20 @@ import {
   cone,
   cube,
   cylinder,
+  type LeafCardOptions,
+  leafCards,
   type Mesh,
+  MeshBuilder,
   type MeshData,
   plane,
+  type SimplifyOptions,
+  simplifyLods,
   sphere,
+  type TreeSkeleton,
+  type TreeSkeletonOptions,
   torus,
+  treeSkeleton,
+  tubeAlong,
 } from '@aethervtt/shard-mesh'
 import type { MeshResult } from './generator'
 
@@ -30,12 +39,25 @@ export interface MeshBuilderApi {
   ): MeshData
   /** Recomputes smooth normals from the triangles (area-weighted). */
   computeNormals(mesh: MeshData): MeshData
+  /** A procedural modelling builder (0045): shapes, deformation, merge, weld, normals, UVs. */
+  create(): MeshBuilder
+  /** A builder holding a copy of `mesh`. */
+  from(mesh: MeshData): MeshBuilder
+  /** A recursive branch graph for trees and bushes (seeded). */
+  treeSkeleton(options: TreeSkeletonOptions): TreeSkeleton
+  /** Skins a skeleton with tubes, appended to `b`; returns the first vertex added. */
+  tubeAlong(b: MeshBuilder, skeleton: TreeSkeleton, options?: { sides?: number }): number
+  /** Leaf cards along a skeleton's branches, appended to `b`; returns the first vertex added. */
+  leafCards(b: MeshBuilder, skeleton: TreeSkeleton, options: LeafCardOptions): number
+  /** Simplified copies at fractions of the triangle count (meshoptimizer). */
+  simplifyLods(mesh: MeshData, fractions: readonly number[], options?: SimplifyOptions): MeshData[]
   /**
-   * Finishes a mesh: optional normals and tangents, and levels of detail as fractions of the
-   * triangle count (`lods: [0.5, 0.2]`), made by vertex clustering.
+   * Finishes a mesh (data or a builder): optional normals and tangents, and levels of detail as
+   * fractions of the triangle count (`lods: [0.5, 0.2]`), simplified by meshoptimizer (UV seams
+   * kept, each level's vertices a subset of the source's).
    */
   finish(
-    mesh: MeshData,
+    mesh: MeshData | MeshBuilder,
     options?: { normals?: boolean; tangents?: boolean; lods?: readonly number[] },
   ): MeshResult
 }
@@ -280,124 +302,25 @@ function computeTangents(mesh: MeshData): Float32Array {
   return out
 }
 
-// --- levels of detail --------------------------------------------------------------------------
-
-/** Vertex clustering on a grid of `cells` per axis over the bounds: returns the simplified mesh. */
-function cluster(mesh: MeshData, cells: number): MeshData {
-  const p = mesh.positions
-  const count = p.length / 3
-  let minX = Infinity
-  let minY = Infinity
-  let minZ = Infinity
-  let maxX = -Infinity
-  let maxY = -Infinity
-  let maxZ = -Infinity
-  for (let v = 0; v < count; v++) {
-    minX = Math.min(minX, p[v * 3]!)
-    minY = Math.min(minY, p[v * 3 + 1]!)
-    minZ = Math.min(minZ, p[v * 3 + 2]!)
-    maxX = Math.max(maxX, p[v * 3]!)
-    maxY = Math.max(maxY, p[v * 3 + 1]!)
-    maxZ = Math.max(maxZ, p[v * 3 + 2]!)
-  }
-  const size = Math.max(maxX - minX, maxY - minY, maxZ - minZ) || 1
-  const cell = size / cells
-  const map = new Int32Array(count)
-  const byKey = new Map<number, number>()
-  const sums: number[] = []
-  const members: number[] = []
-  for (let v = 0; v < count; v++) {
-    const ix = Math.min(cells - 1, Math.floor((p[v * 3]! - minX) / cell))
-    const iy = Math.min(cells - 1, Math.floor((p[v * 3 + 1]! - minY) / cell))
-    const iz = Math.min(cells - 1, Math.floor((p[v * 3 + 2]! - minZ) / cell))
-    const key = (ix * cells + iy) * cells + iz
-    let c = byKey.get(key)
-    if (c === undefined) {
-      c = members.length
-      byKey.set(key, c)
-      members.push(0)
-      sums.push(0, 0, 0)
-    }
-    map[v] = c
-    members[c] = members[c]! + 1
-    sums[c * 3] = sums[c * 3]! + p[v * 3]!
-    sums[c * 3 + 1] = sums[c * 3 + 1]! + p[v * 3 + 1]!
-    sums[c * 3 + 2] = sums[c * 3 + 2]! + p[v * 3 + 2]!
-  }
-  const tri = triangles(mesh)
-  const kept: number[] = []
-  for (let t = 0; t < tri.length; t += 3) {
-    const a = map[tri[t]!]!
-    const b = map[tri[t + 1]!]!
-    const c = map[tri[t + 2]!]!
-    if (a !== b && b !== c && c !== a) kept.push(a, b, c)
-  }
-  const n = members.length
-  const positions = new Float32Array(n * 3)
-  for (let c = 0; c < n; c++) {
-    positions[c * 3] = sums[c * 3]! / members[c]!
-    positions[c * 3 + 1] = sums[c * 3 + 1]! / members[c]!
-    positions[c * 3 + 2] = sums[c * 3 + 2]! / members[c]!
-  }
-  const out: MeshData = {
-    positions,
-    indices: n > 65535 ? new Uint32Array(kept) : new Uint16Array(kept),
-  }
-  // Colors and UVs average per cluster, like positions.
-  for (const [name, width] of [
-    ['uvs', 2],
-    ['colors', 4],
-  ] as const) {
-    const src = mesh[name]
-    if (!src) continue
-    const acc = new Float64Array(n * width)
-    for (let v = 0; v < count; v++)
-      for (let k = 0; k < width; k++)
-        acc[map[v]! * width + k] = acc[map[v]! * width + k]! + src[v * width + k]!
-    const avg = new Float32Array(n * width)
-    for (let c = 0; c < n; c++)
-      for (let k = 0; k < width; k++) avg[c * width + k] = acc[c * width + k]! / members[c]!
-    out[name] = avg
-  }
-  return out
-}
-
-/** A level of detail with about `fraction` of the triangles (a binary search over cell sizes). */
-function simplify(mesh: MeshData, fraction: number): MeshData {
-  const target = Math.max(4, Math.floor((triangles(mesh).length / 3) * fraction))
-  let lo = 1
-  let hi = 256
-  let best = cluster(mesh, 2)
-  for (let step = 0; step < 8 && lo <= hi; step++) {
-    const cells = (lo + hi) >> 1
-    const candidate = cluster(mesh, cells)
-    const tris = (candidate.indices?.length ?? 0) / 3
-    if (tris <= target) {
-      best = candidate
-      lo = cells + 1
-    } else hi = cells - 1
-  }
-  return best
-}
-
 function finish(
-  mesh: MeshData,
+  input: MeshData | MeshBuilder,
   options: { normals?: boolean; tangents?: boolean; lods?: readonly number[] } = {},
 ): MeshResult {
+  const mesh = input instanceof MeshBuilder ? input.finish() : input
   const withNormals = (m: MeshData) =>
     options.normals === true || !m.normals ? computeNormals(m) : m
   const withTangents = (m: MeshData) =>
     options.tangents ? { ...m, tangents: computeTangents(m) } : m
   const base = withTangents(withNormals(mesh))
-  const lods: MeshData[] = []
   for (const fraction of options.lods ?? []) {
     if (!(fraction > 0 && fraction < 1)) {
       throw new ShardError('procgen/bad-mesh', `LOD fractions are in (0, 1), got ${fraction}`, {
         hint: 'lods: [0.5, 0.2] keeps about half, then a fifth, of the triangles.',
       })
     }
-    lods.push(withTangents(computeNormals(simplify(mesh, fraction))))
   }
+  // Levels keep the source's vertices (and so its normals and tangents).
+  const lods = options.lods?.length ? simplifyLods(base, options.lods) : []
   return { kind: 'mesh', mesh: base, lods }
 }
 
@@ -419,5 +342,11 @@ export const meshBuilder: MeshBuilderApi = {
     return out
   },
   computeNormals,
+  create: () => MeshBuilder.create(),
+  from: (mesh) => MeshBuilder.from(mesh),
+  treeSkeleton,
+  tubeAlong,
+  leafCards,
+  simplifyLods,
   finish,
 }

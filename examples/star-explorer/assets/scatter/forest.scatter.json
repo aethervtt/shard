@@ -1,0 +1,32 @@
+{
+  "$schema": "../../.shard/schemas/scatter.schema.json",
+  "rules": [
+    {
+      "name": "trees",
+      "items": [{ "generator": "shard/Tree", "variants": 6 }],
+      "density": 0.02,
+      "spacing": 4,
+      "masks": { "slope": [0, 25] },
+      "scale": [0.7, 1.3],
+      "sink": 0.02,
+      "collider": "ball",
+      "range": 400
+    },
+    {
+      "name": "bushes",
+      "items": [{ "generator": "shard/Bush", "params": { "radius": 0.6 }, "variants": 3 }],
+      "density": 0.05,
+      "spacing": 1.5,
+      "avoid": ["trees"],
+      "range": 120
+    },
+    {
+      "name": "grass",
+      "kind": "foliage",
+      "items": [{ "generator": "shard/GrassClump", "params": { "height": 0.4 }, "variants": 3 }],
+      "density": 2,
+      "avoid": ["trees"],
+      "range": 40
+    }
+  ]
+}

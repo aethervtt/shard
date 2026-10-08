@@ -57,7 +57,7 @@ export const Manifest = defineSchema(
     plugins: t.list(t.string, {
       default: ['render/forward', 'input'],
       description:
-        'Engine plugins to enable, by name: render, render/forward, sprite, text, particles, animation, physics3d, physics2d, input, gestures, controls, audio, ui, nav, nav/grid, dice, core/transform.',
+        'Engine plugins to enable, by name: render, render/forward, sprite, text, particles, animation, physics3d, physics2d, input, gestures, controls, audio, ui, nav, nav/grid, terrain, scatter, dice, core/transform.',
     }),
   },
   { description: 'shard.json: the project manifest.' },
@@ -125,6 +125,8 @@ export const BUILTIN_PLUGINS = {
     'navigation on NavGrids only, without loading the Recast WASM (includes core/transform)',
   terrain:
     'planets: Planet cube-sphere terrain from noise graphs with LOD, geomorphing, oceans, biomes, collider chunks around characters, navmeshes on the surface; terrain.* methods (includes core/transform; add render/forward to draw it, physics3d for colliders)',
+  scatter:
+    'props and foliage from ScatterSet rules (*.scatter.json) on planets (Planet.scatter, Biome.scatter) and ScatterSurface meshes: props as entities around cameras and anchors, GPU foliage near cameras; scatter.* methods; the engine generators shard/Rock, Tree, Bush, GrassClump and Crystal make their meshes (includes core/transform; add terrain for planets, render/forward to draw)',
   dice: 'the dice table (0054): dice skins, face layouts and effect recipes as data, dice.play and dice.describe, dice/RollRequest in scenes; tracks record on the calling thread (includes render/forward)',
   'core/transform': 'Transform and hierarchy propagation',
 } as const

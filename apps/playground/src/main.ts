@@ -10,12 +10,14 @@ import { navGridPlugin, navPlugin } from '@aethervtt/shard-nav'
 import { particlesPlugin } from '@aethervtt/shard-particles'
 import { physics2dPlugin, physics3dPlugin } from '@aethervtt/shard-physics'
 import { createDomInputSource, createIndexedDbStorage } from '@aethervtt/shard-platform-web'
+import { procgenPlugin } from '@aethervtt/shard-procgen'
 import { connectToHub, createProtocolServer, DEFAULT_HUB_PORT } from '@aethervtt/shard-protocol'
 import { describeRender, forwardPlugin, pick, renderPlugin } from '@aethervtt/shard-render'
 import { materialNoisePlugin } from '@aethervtt/shard-render/noise'
 import { surfacePlugin } from '@aethervtt/shard-render/surface'
 import { App, animationFrameRunner } from '@aethervtt/shard-runtime'
 import { savePlugin } from '@aethervtt/shard-save'
+import { scatterPlugin } from '@aethervtt/shard-scatter'
 import { ScenePlugin } from '@aethervtt/shard-scene'
 import { spritePlugin } from '@aethervtt/shard-sprite'
 import { interiorLightingPlugin, structurePlugin } from '@aethervtt/shard-structure'
@@ -53,6 +55,7 @@ import { postPlugin } from './post'
 import { prefabsDemoPlugin } from './prefabs'
 import { procgenDemoPlugin } from './procgen'
 import { saveDemoPlugin } from './save'
+import { scatterDemoPlugin } from './scatter'
 import { scenePlugin } from './scene'
 import { spritesPlugin } from './sprites'
 import { tabletopDemoPlugin } from './tabletop'
@@ -278,6 +281,17 @@ if (demo === 'galaxy') {
   )
 } else if (demo === 'terrain') {
   app.addPlugin(TransformPlugin, forwardPlugin(), terrainPlugin(), hudPlugin, terrainDemoPlugin)
+} else if (demo === 'scatter') {
+  app.addPlugin(
+    TransformPlugin,
+    forwardPlugin(),
+    terrainPlugin(),
+    ScenePlugin,
+    procgenPlugin(),
+    scatterPlugin(),
+    hudPlugin,
+    scatterDemoPlugin,
+  )
 } else if (demo === 'atmosphere') {
   app.addPlugin(TransformPlugin, forwardPlugin(), terrainPlugin(), hudPlugin, atmosphereDemoPlugin)
 } else if (demo === 'tabletop') {

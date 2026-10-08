@@ -15,7 +15,6 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.30.0",
     "@aethervtt/shard-animation": "workspace:*",
     "@aethervtt/shard-assets": "workspace:*",
     "@aethervtt/shard-audio": "workspace:*",
@@ -34,6 +33,7 @@
     "@aethervtt/shard-render": "workspace:*",
     "@aethervtt/shard-runtime": "workspace:*",
     "@aethervtt/shard-save": "workspace:*",
+    "@aethervtt/shard-scatter": "workspace:*",
     "@aethervtt/shard-scene": "workspace:*",
     "@aethervtt/shard-sprite": "workspace:*",
     "@aethervtt/shard-structure": "workspace:*",
@@ -41,6 +41,7 @@
     "@aethervtt/shard-text": "workspace:*",
     "@aethervtt/shard-ui": "workspace:*",
     "@aethervtt/shard-verify": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "playwright": "1.63.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",

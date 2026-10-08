@@ -96,13 +96,21 @@ UI, navigation, and saves. Each one exposes its state to agents as data.
 | [0042](0042-generators.md) | Generators as assets (seeded, cached by input hash, previews) | implemented |
 | [0043](0043-planet-terrain.md) | Planet terrain (cube-sphere, quadtree LOD, GPU chunks, biomes, streaming) | implemented |
 | [0044](0044-atmosphere.md) | Atmosphere scattering (Hillaire LUTs, aerial perspective, any altitude) | implemented |
-| [0045](0045-scatter-foliage-procedural-meshes.md) | Scatter, foliage, and procedural meshes | accepted |
+| [0045](0045-scatter-foliage-procedural-meshes.md) | Scatter, foliage, and procedural meshes | implemented |
 | [0046](0046-star-systems-galaxy.md) | Star systems and galaxy generation | accepted |
 | [0047](0047-small-bodies.md) | Small bodies (asteroids, belts, rings, comets) | accepted |
 | [0048](0048-creatures.md) | Creatures (body plans, procedural locomotion, behavior, fauna) | accepted |
 | [0049](0049-clouds-weather.md) | Clouds and weather (volumetric clouds, timeline weather, precipitation) | accepted |
 | [0050](0050-soundscapes.md) | Soundscapes and procedural audio | accepted |
 | [0051](0051-render-scale.md) | Render scale and dynamic resolution (high-DPI displays) | implemented |
+| [0071](0071-heightfield-terrain.md) | Heightfield terrain (layer stack baked to pages, shared quadtree, streamed pages, heightfield colliders) | accepted |
+| [0072](0072-world-partition.md) | World partition and streaming (cells as scene files, streaming sources, diffs for unloaded cells) | accepted |
+| [0073](0073-hlod.md) | Hierarchical LOD (baked proxies for unloaded cells: instances, merged, baked) | accepted |
+
+Open worlds land in order: 0071 (terrain), 0072 (partition, its always scene holds the terrain),
+then 0073 (HLOD over the partition's cells). 0073 uses 0045's simplifier (`simplifyLods`). 2D
+streaming (a metroidvania's rooms) is noted in 0072's open questions and gets its own spec when a
+2D project needs it.
 
 ## M8 — Proof project: No Man's Sky-style explorer
 
@@ -112,6 +120,28 @@ on and leave, procedural flora and creatures, a ship, a scanner, and a HUD.
 ## M9 — Export
 
 Web build, desktop bundles, profiler in Studio. Mobile via Tauri, untested and non-blocking.
+0074 is the engine side of the profiler. It has no dependency on the rest of M9 and can land any
+time, before 0071–0073 if their streaming budgets should be checked against its spans.
+
+| Spec | Title | Status |
+|---|---|---|
+| [0074](0074-profiler.md) | Profiler (spans, captures with attributed worst frames, Chrome traces, borrowed sampling) | accepted |
+
+Notes for the web export spec, not yet written:
+
+- **Static by default.** An export is plain files any static host serves (itch.io, GitHub Pages,
+  a CDN). The build does the heavy work up front: a manifest with content hashes, brotli
+  pre-compressed files, and streamed data packed for few requests. That covers 0072's cells
+  packed into region bundles with the cell index, 0071's terrain packs read by HTTP `Range`, and
+  0073's proxies.
+- **An optional server.** `shard serve --prod` (or `shard export --server`) serves the same build
+  on Node, so Bun works too. It adds what static files can't: one response for everything
+  entering range (cells, the assets they need, proxies), terrain pages by key, cache and
+  compression headers per build, and game services such as server-side saves (0038's diffs),
+  accounts, and later multiplayer.
+- **The client never requires the server.** The web Platform fetches URLs. It uses the server's
+  extras when the server advertises them and falls back to plain files otherwise, so one build
+  runs in both places.
 
 ## E1 — Embedding: Aether
 

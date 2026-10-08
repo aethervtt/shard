@@ -48,6 +48,10 @@ export const Biome = defineDataType(
       default: [1, 1, 1, 1],
       description: 'Multiplies the albedo (the whole color when the set has no textures).',
     }),
+    scatter: t.handle('scatter/ScatterSet', {
+      description:
+        'Props and foliage where this biome is the heaviest (*.scatter.json; needs the scatter plugin).',
+    }),
   },
   {
     extension: 'biome',

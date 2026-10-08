@@ -57,6 +57,7 @@ describe('render features', () => {
       }
       // Compute-only features say so.
       expect(features.find((f) => f.name === 'terrain')?.baseline).toBe('unsupported')
+      expect(features.find((f) => f.name === 'render/foliage')?.baseline).toBe('unsupported')
       await app.dispose()
     } finally {
       gpu.destroy()

@@ -1,6 +1,7 @@
 import { defineResource, frustum, mat4, type World } from '@aethervtt/shard-core'
 import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
 import { Culler } from './culling'
+import type { FoliageSupport } from './foliage-path'
 import { GpuAssetsResource } from './gpu-assets'
 import type { NodeContext } from './graph'
 import {
@@ -656,6 +657,9 @@ export function drawShadowCasters(
   pipelines: MaterialPipelines,
   shadowView: GPUBindGroupLayout,
   label: string,
+  foliage?: FoliageSupport,
+  cam?: CameraData,
+  cascade = 0,
 ): void {
   const world = ctx.world
   const gpu = ctx.gpu
@@ -675,6 +679,7 @@ export function drawShadowCasters(
   const draws0 = view.draws
   const instances = draws0.cullView >= 0 ? store.gpuBindGroup : store.bindGroup
   if (!instances || !uniforms.bindGroup) {
+    if (foliage && cam && uniforms.bindGroup) foliage.drawShadow(ctx, cam, pass, offset, cascade)
     pass.end()
     return
   }
@@ -768,6 +773,8 @@ export function drawShadowCasters(
       pass.draw(gm.count, item.count, 0, item.first)
     }
   }
+  // GPU foliage (0045) casts into the camera's cascades from its own instances.
+  if (foliage && cam) foliage.drawShadow(ctx, cam, pass, offset, cascade)
   pass.end()
 }
 

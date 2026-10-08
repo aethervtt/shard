@@ -1,0 +1,27 @@
+{
+  "$schema": "../../.shard/schemas/scatter.schema.json",
+  "rules": [
+    {
+      "name": "boulders",
+      "items": [
+        { "generator": "shard/Rock", "params": { "radius": 1.5, "roughness": 0.6 }, "variants": 6 }
+      ],
+      "density": 0.012,
+      "spacing": 5,
+      "align": 1,
+      "scale": [0.5, 2],
+      "sink": 0.25,
+      "collider": "convex",
+      "range": 400
+    },
+    {
+      "name": "crystals",
+      "items": [{ "generator": "shard/Crystal", "variants": 4 }],
+      "density": 0.004,
+      "spacing": 6,
+      "align": 0.5,
+      "avoid": ["boulders"],
+      "range": 250
+    }
+  ]
+}

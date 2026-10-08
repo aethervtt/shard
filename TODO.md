@@ -55,6 +55,17 @@ On a MacBook (Apple M4, Metal Dawn, 2026-10-04):
   `depthCompare: 'equal'`. That needs `@invariant` clip positions, so the core shaders' code would
   change.
 
+On the same MacBook (2026-10-07):
+
+- GPU foliage (0045), 2.2M grass blades in view within 60 m at 960×540: about 18 ms of GPU time
+  (budget 3 ms on the reference GPU; `scatter/src/bench.test.ts`); not measured on the Windows
+  desktop. What's known: it was 70 ms before LODs (fewer, wider blades past 18 m and 36 m) and
+  casting only into the nearest cascade; at 96×54 it's 8.7 ms, so about half is vertex work (12M
+  vertices through the material's hooks) and half shading on overlapping blades. A cheaper wind
+  sway changed nothing. Leads: compute each visible instance's transform once in the cull pass
+  instead of per vertex (costs a buffer per visible instance), and shade the farthest level with a
+  simpler material.
+
 ## CI speed
 
 CI splits the tests across four runners (`scripts/test-shard.mjs`, balanced by

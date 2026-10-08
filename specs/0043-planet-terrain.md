@@ -47,7 +47,7 @@ has a deeper tree. Gas giants have no solid surface and aren't terrain; 0046 ren
 - Caves, overhangs, and voxel editing (a heightfield can't have them; voxel terrain is a later spec).
 - Terrain deformation at runtime (later: a per-chunk delta layer).
 - Flat (non-planet) heightmap terrain as a separate component. A `Planet` with a huge radius works
-  for landscapes but isn't optimized for them; a flat quadtree is a later, smaller spec.
+  for landscapes but isn't optimized for them; flat terrain is 0071.
 - Water rendering beyond a lit, transparent, wave-normal surface (VISION lists water as later).
 - Gas giants (no surface; 0046 renders them as banded cloud spheres with deep atmospheres).
 

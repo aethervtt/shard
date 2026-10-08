@@ -1,7 +1,8 @@
 # 0045 — Scatter, foliage, and procedural meshes
 
-- **Status:** accepted
-- **Packages:** `@aethervtt/shard-procgen`, `@aethervtt/shard-mesh`, `@aethervtt/shard-terrain`, `@aethervtt/shard-render`
+- **Status:** implemented
+- **Packages:** `@aethervtt/shard-scatter` (new), `@aethervtt/shard-procgen`, `@aethervtt/shard-mesh`,
+  `@aethervtt/shard-terrain`, `@aethervtt/shard-render`
 - **Depends on:** 0020, 0022, 0030, 0031, 0041, 0042, 0043
 
 ## Context
@@ -101,73 +102,100 @@ bushes, grass, and crystals. It also adds automatic LODs through meshoptimizer.
 
 ### Placement
 
-- Placement is per terrain chunk at a fixed **scatter depth** per rule, chosen so a chunk holds
-  about 64–1 024 items. Every chunk key at that depth gets a seed of
-  `hashSeed(planetSeed, chunkKey, ruleIndex)`.
-- Candidates come from a jittered grid in chunk space with cell size `spacing` (at least one cell
-  per `1/density` m²). The cell's hash gives its jitter and acceptance roll against density and
-  masks. This is blue-noise-like, order-independent, and seamless across chunks, because cells are
-  on a global lattice of the face and not per chunk.
-- Height, normal, slope, and biome weights at each candidate come from the CPU kernel for props
-  (0041, canonical, on the pool) and from the chunk's GPU data for foliage.
-- The output per prop is `(itemIndex, position, rotation, scale)` in the chunk frame, cached per
-  `(set hash, chunk key)` in an LRU like collider chunks.
+- Placement is per quadtree node at a fixed **scatter depth** per rule: props pick the depth whose
+  chunks hold about 256 items (64–1 024); foliage uses the collider depth, deeper only if a chunk
+  would hold more than one dispatch places (16 384).
+- Candidates come from a jittered lattice on each cube face, aligned to the chunks, so it's
+  global: a cell is `max(1/√(2·density), spacing/0.6)` metres, every cell's random numbers are
+  `hash32(ruleSeed, cellX, cellY, face, stream)` (the GPU computes the same ones), and its item
+  sits in the middle `1 − spacing/cell` of the cell, so neighbors are always `spacing` apart. A cell
+  is accepted with chance `density × cell area`, the area measured per chunk (cube-sphere cells
+  aren't square). A density the spacing can't fit is `scatter/density-too-high`, naming the most
+  that fits. Order-independent and seamless across chunks; where two faces meet, the lattices
+  don't, so `spacing` holds within a face.
+- Height, normal, slope, and biome weights at each prop candidate come from the CPU kernel (0041,
+  canonical; on the pool, finished inline at a fixed due frame like collider chunks).
+- The output per prop is item, variant, position, rotation, scale, cell index (its stable id),
+  footprint radius and shade, in the chunk frame, cached per (rules version, rule, chunk) in an
+  LRU. `avoid` drops candidates inside the avoided rule's items' footprints, from that rule's
+  chunks around this one (placed first, on the pool).
 
 ### Props
 
 - When a prop chunk comes within `range` of the camera or a `TerrainAnchor`, its placements
-  spawn as children of the terrain chunk entity: a prefab instance, or `Mesh3d` + `MeshMaterial`
-  + `Lod` for generator items, plus a collider when `collider` is set. Spawning is budgeted
-  (`ScatterBudget.propsPerFrame = 2 000`) and prioritized by distance.
-- Spawned props are marked `procgen/Generated` and `scatter/Prop { rule, index }`, where `index` is
-  the placement's stable id within its chunk. Saves (0038) record only changes: a prop the player
-  destroyed is saved as `removed: [chunkKey, rule, index]` and stays gone when its chunk
-  regenerates.
+  spawn under a `scatter/Chunk { surface, rule, chunk }` entity (a child of the planet with a
+  `GridCell`, at the chunk's center): a prefab instance, or `Mesh3d` + `MeshMaterial` + `Lod` +
+  `VisibilityRange` for generator items, plus a collider when `collider` is set (`convex` from the
+  coarsest LOD, `trimesh`, `ball`, `cuboid`). Spawning is budgeted (`ScatterBudget.propsPerFrame =
+  250`: each prop costs a few microseconds with its LODs and collider, and 250 keep a frame under
+  1 ms), nearest first, and a chunk with more spawns over several frames, in a fixed order, so
+  which frame a prop appears on depends only on frames. Chunks despawn past 1.15 × `range`.
+- Spawned props are `procgen/Generated`, `core/Derived`, and `scatter/Prop { index }`, where `index`
+  is the placement's stable id within its chunk (the parent `scatter/Chunk` names the rule and
+  chunk; `propIdentity` reads all three). Saves (0038) record only changes: a prop the game
+  despawns is recorded in the persisted `scatter/Removed` resource as `"rule|chunk|index"` and
+  stays gone when its chunk spawns again.
 - Distance ranges come from 0022's `VisibilityRange`, and LODs are the generator's LOD meshes.
 
 ### Foliage
 
-- A render-side **GPU instance layer**: `FoliageLayer` resources owned by the renderer, one per
-  (mesh, material). Each has a storage buffer of compact 16 B instances: position as unorm16×3
-  over the chunk's bounds (sub-millimetre), a chunk slot, packed yaw and tilt, scale, and color
-  variation. There's also an indirect-args buffer. Chunk slots index a per-frame buffer of chunk
-  matrices (origin-relative, from the terrain chunk entities' `GlobalTransform`), so origin
-  shifts (0040) cost one small upload.
-- When a terrain chunk at foliage depth becomes visible within `range`, a compute pass places its
-  candidates from the chunk's GPU heights and biome weights and appends them to the layer through a
-  per-chunk slot range. Chunks leaving range free their range. There's no CPU involvement per
-  instance.
-- Per view, a culling compute pass does a frustum and distance test and writes the visible list plus
-  indirect args. It also computes density thinning with distance (fewer blades farther out, each
-  one wider), so the far edge of `range` fades instead of ending in a line.
-- The draw uses 0020 materials through a foliage vertex entry point that decodes the instance and
-  then runs the material's `vertex_position` hook. The foliage material template extends `standard`.
-  Its vertex hook adds wind: a global `Wind { direction, strength, gustScale }` resource (0049
-  replaces it with a view of the planet's wind field) sampled
-  from 2D noise, weighted by vertex height in the blade. It shades two-sided and alpha-tested, with
-  a translucency term. Foliage renders in shadows only within `shadowRange` (default 30 m).
+- A render-side **GPU instance layer** (`foliagePlugin`, part of `forwardPlugin`): a
+  `FoliageLayer` per foliage rule, holding its variant meshes (and their LODs) and one material.
+  Each has a storage buffer of compact 16 B instances, one per lattice cell of each chunk slot:
+  position as unorm16×3 over the chunk's bounds (sub-millimetre), mesh, octahedral up, yaw, scale,
+  shade and a thinning rank. Chunk slots index a buffer of chunk-to-world rows, which scatter writes
+  each frame from the surface's frame (origin-relative), so origin shifts (0040) cost one small
+  upload. The core renderer only holds a `FoliagePath` hook its opaque, G-buffer and cascade
+  passes call.
+- A foliage chunk's ground is a patch: the chunk's own vertex grid as terrain builds it at the
+  collider depth (on the pool, the same numbers as a collider chunk, so grass stands on the drawn
+  ground), with the rule's density per vertex (masks and biome on the CPU). The placement compute
+  pass hashes each cell as the CPU would, interpolates the patch's triangles (split like the
+  ground's), and writes the cell's instance, or none. Render chunks at other depths aren't
+  involved, and nothing runs on the CPU per instance.
+- Per camera, culling runs in three compute passes: classify (frustum, `range`, thinning, LOD by
+  distance), a prefix sum of the counts, and a scatter into each drawable's range of one visible
+  list (so memory is one entry per instance, whatever the mesh count). Thinning drops instances by
+  rank past half the range (down to 30% at its end), widening the survivors and shrinking the last
+  12% to nothing, so the edge fades. Lower levels of detail (`shard/GrassClump`'s: fewer, wider
+  blades at 2 segments, then single triangles) draw from 0.3 and 0.6 of the range.
+- The draw uses 0020 materials through foliage roots (forward, G-buffer, shadow) whose vertex stage
+  decodes the instance and runs `shard::mesh::mesh_vertex`, so the material's `vertex_position` and
+  `vertex_extra` hooks apply; `vertex_instance_data()` gives (fade, shade). Back faces flip their
+  normal. Engine generator items default to `scatter/Vegetation`, a standard material tinted by
+  the generators' part codes, whose vertex hook adds wind from the `scatter/Wind { direction,
+  strength, gustScale }` resource (0049 replaces it), weighted by the vertex's height in the
+  blade. Foliage casts only into the nearest cascade, within `shadowRange` (default 30 m) and that
+  cascade's split; that cascade redraws every frame while foliage sways. It doesn't draw in the
+  depth prepass or picking (TAA's motion vectors and SSAO skip it).
 
 ### Mesh toolkit (`@aethervtt/shard-mesh`)
 
 ```ts
-const b = MeshBuilder.create()
+const b = MeshBuilder.create()               // ctx.mesh.create() in a generator
 b.icosphere(3)                              // or box, cylinder, lathe(profile), tube(curve, r)
-b.displace((p, n) => noise.sample(p) * 0.3) // along normals, sync; or displaceNoise(graph, seed, amt)
+b.displace((p, n) => noise(p) * 0.3)        // along normals, sync
+b.displaceNoise((pts, out) => ctx.noise.sample(graph, seed, pts, out), 0.3)  // one batch
 b.extrude(faceSet, distance)
-b.merge(other, transform)
+b.merge(other, transform)                   // a builder or MeshData, a column-major 4×4
 b.weld(epsilon); b.normals({ angle: 40 }); b.tangents(); b.uvsTriplanar(scale)
 const mesh = b.finish()                     // MeshData
+await loadMeshSimplifier()                  // once per thread; generator jobs do it for you
 const lods = simplifyLods(mesh, [0.5, 0.2, 0.05])   // meshoptimizer, WASM
 ```
 
-- The builder stores data in growable TypedArrays (no per-vertex objects). `displace` with a
-  callback is for generator code, which runs off the main thread (0042), and `displaceNoise` uses the
-  batch kernel.
-- `simplifyLods` uses meshoptimizer's simplifier (the npm `meshoptimizer` package's WASM), which
-  keeps UV seams and borders. `ctx.mesh.finish(mesh, { lods })` in 0042 calls it.
-- `treeSkeleton({ trunk, branches, levels, gravity, seed })` builds a recursive branch graph, and
-  `tubeAlong` skins it. Leaf cards are quads placed along the last branch level, with UVs into a
-  leaf atlas.
+- The builder stores data in growable f64 TypedArrays (no per-vertex objects) and uses only
+  + − × ÷ and sqrt, with trig through `sinCos` (a polynomial), so a mesh is the same bytes in every
+  JavaScript engine. `uv1(i, u, v)` sets a second uv set. `displace` with a callback is for
+  generator code, which runs off the main thread (0042); `displaceNoise` takes a batch sampler.
+- `simplifyLods` uses meshoptimizer's attribute-aware simplifier (the npm `meshoptimizer`
+  package's WASM, loaded with `import()`). Levels keep a subset of the source's vertices, so UVs,
+  normals and seams are the source's; if seams stop it short of the target, it retries
+  permissive, then sloppy. `ctx.mesh.finish(mesh, { lods })` calls it, and generators may also
+  return their own LOD meshes.
+- `treeSkeleton({ trunk, branches, levels, spread, gravity, seed, … })` builds a recursive branch
+  graph, `tubeAlong` skins it, and `leafCards` places two-sided cards along chosen levels: quads
+  with UVs into a leaf atlas, or pointed leaf shapes that need no texture (the default).
 
 ### Engine generators
 
@@ -176,26 +204,32 @@ const lods = simplifyLods(mesh, [0.5, 0.2, 0.05])   // meshoptimizer, WASM
 | `shard/Rock` | mesh + LODs | radius, roughness, flatness, facets, detail |
 | `shard/Tree` | mesh + LODs | height, trunkRadius, levels, branching, spread, leafDensity, leafSize |
 | `shard/Bush` | mesh + LODs | radius, stems, leafDensity |
-| `shard/GrassClump` | mesh | blades, height, width, bend, spread |
+| `shard/GrassClump` | mesh + LODs | blades, height, width, bend, spread |
 | `shard/Crystal` | mesh + LODs | count, length, radius, spread, sides |
 
 Each ships with preview goldens at nine seeds and default params that look good without tuning.
+Every mesh stands on its origin and writes a part code in its second uv set (x: 0 bark, stone or
+root to 1 leaf or tip; y: a shade), which `scatter/Vegetation` tints by.
 
 ### Agent surface
 
 - `.shard/schemas/scatter.schema.json`, with each mask and field documented with typical values
   ("grass: density 4–10/m², range 40–80 m").
-- `scatter.describe { planet? }` returns, per rule: placed counts in range, spawned props,
-  foliage instances visible, and time spent.
-- `scatter.sample { planet, position, radius }` lists placements near a point (rule, item, position)
-  from the CPU path, headless-safe for props. An agent can ask "what's within 10 m of the landing
-  pad" and move the pad.
-- `procgen.preview` of a `ScatterSet` renders a 64 m × 64 m patch of a test surface (or a given
-  planet location) from above and at eye level.
+- `scatter.describe { surface? }` returns, per surface and rule: chunks in range, placements,
+  spawned props, lattice candidates, foliage chunks and instances visible and casting, props
+  spawned and despawned last frame, and main-thread time.
+- `scatter.sample { surface, position | entity | latlon, radius }` lists prop placements near a
+  point (rule, item, variant, position, distance, scale, chunk, index, removed) from the CPU path,
+  headless-safe, spawned or not. An agent can ask "what's within 10 m of the landing pad" and move
+  the pad. Foliage is GPU-only and not listed.
+- `procgen.preview` (and `asset.preview`) of a `*.scatter.json` renders it on a 64 m × 64 m flat
+  patch, from above and at eye level, side by side.
 - `debug.overlays` gains `scatter` (placement dots colored by rule) and `foliage-chunks`.
 - MCP tools: `describe_scatter`, `sample_scatter`.
-- **Errors:** `scatter/unknown-rule` (in `avoid`), `scatter/density-too-high` (would exceed the
-  per-chunk cap), `scatter/item-not-mesh` (a generator item whose output isn't a mesh).
+- **Errors:** `scatter/unknown-rule` (in `avoid`), `scatter/density-too-high` (more than the
+  spacing can fit), `scatter/item-not-mesh` (an item without a mesh generator or prefab, a
+  generator whose output isn't a mesh, or a prefab in a foliage rule), `scatter/duplicate-rule`,
+  `scatter/no-items`.
 
 ## Decisions
 
@@ -213,20 +247,46 @@ Each ships with preview goldens at nine seeds and default params that look good 
 
 ## Acceptance criteria
 
-- [ ] The example planet with three biome scatter sets shows rocks, trees, and grass in the right
+- [x] The example planet with three biome scatter sets shows rocks, trees, and grass in the right
       biomes (golden from five fixed viewpoints). Restarting or running on another host places them
       identically (placement hash match).
-- [ ] Placement is seamless: across 100 chunk borders, the minimum distance between items of one
+- [x] Placement is seamless: across 100 chunk borders, the minimum distance between items of one
       rule is ≥ `spacing` and density within 10% of the target.
-- [ ] Walking 1 km on a planet keeps prop spawn and despawn under 1 ms per frame of main-thread time,
+- [x] Walking 1 km on a planet keeps prop spawn and despawn under 1 ms per frame of main-thread time,
       and ≥ 20 000 props are live within range with frame time under 16.6 ms on the reference GPU.
+      (Measured on an Apple M4, not the reference desktop.)
 - [ ] Foliage draws ≥ 2M blades per view within 60 m at under 3 ms GPU (reference GPU), with no
       per-instance CPU work (profiler shows zero CPU time in foliage per frame beyond dispatch).
-- [ ] A destroyed prop stays destroyed after walking away far enough to unload its chunk, walking
+      The count and the CPU side pass; the GPU time is unmeasured on the reference GPU (an Apple
+      M4 takes about 18 ms, see TODO.md).
+- [x] A destroyed prop stays destroyed after walking away far enough to unload its chunk, walking
       back, and after save/load.
-- [ ] Each engine generator's nine-seed contact sheet matches its golden, and every LOD has ≤ the
+- [x] Each engine generator's nine-seed contact sheet matches its golden, and every LOD has ≤ the
       requested triangle fraction (±10%) with no UV seam cracks.
-- [ ] A `ScatterSurface` on a flat plane mesh with the same `ScatterSet` places props and foliage.
+- [x] A `ScatterSurface` on a flat plane mesh with the same `ScatterSet` places props and foliage.
+
+## As built
+
+- Tests: `packages/scatter/src/*.test.ts`. The lattice test places a 10 × 10 block of chunks and
+  checks the least distance and the density; `props.test.ts` covers spawning, `avoid`, despawning,
+  removed props through a walk and a save, and a `ScatterSurface`; `foliage.test.ts` draws GPU grass
+  on a `ScatterSurface` that keeps off the boulders; `planet-render.test.ts` renders the test planet
+  (20 km, three biomes with their own sets) from five viewpoints against goldens;
+  `checksum.test.ts` pins the placement checksum (`9acc927a`), the same inline and on the pool, and
+  the playground's `#scatter` page shows Chrome's next to it (they match).
+  `bench.test.ts` walks 1 km at 6 m/s (spawn and despawn at most 1 ms a frame, GC pauses taken
+  out), keeps 20 000+ props live under 16.6 ms, and counts 2.2M blades in view with the scatter
+  system's CPU time flat. Render's `foliage.test.ts` places, draws (forward and deferred) and
+  removes a layer. Mesh: `builder.test.ts`; procgen: `engine/engine.test.ts` and the contact sheet
+  goldens in `engine/sheets.test.ts`.
+- Measured on an Apple M4 (Metal Dawn): a 1 km walk's worst frame of spawning is under 1 ms at
+  250 props a frame (each prop costs about 3.5 µs with LODs and a collider); grass at 2.2M blades
+  costs about 18 ms of GPU, half vertex work and half shading, after LODs and nearest-cascade
+  shadows took it down from 70 ms.
+- Example: star-explorer's grass, forest and rock biomes scatter `assets/scatter/*.scatter.json`,
+  and `tests/scatter.test.ts` checks them headless.
+- Deferred: the translucency term (the standard lighting has no transmission input; back faces
+  flip their normal instead), foliage in the depth prepass and picking, and imposters.
 
 ## Open questions
 
