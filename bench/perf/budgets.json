@@ -417,13 +417,13 @@
           "gpu:forward-opaque": 0.03,
           "gpu:shadows": 0.03,
           "gpu:atmosphere": 0.05,
-          "gpu:post": 0.15,
-          "gpu:tonemap": 0.04,
-          "headroom": 0.57
+          "gpu:post": 0.22,
+          "gpu:tonemap": 0.09,
+          "headroom": 0.45
         },
-        "cpu": { "render": 0.98, "headroom": 0.02 }
+        "cpu": { "render": 0.99, "headroom": 0.01 }
       },
-      "note": "Shares from the laptop's first bench of the scenario (2026-10-08, render/src/post-stack.test.ts), each the measured share of the frame rounded up, headroom the rest. GPU frame p95 7.27 ms; GPU slices by ablation (the laptop's passTiming): prepass 0.33, ssao 0.57, shadows 0.20, atmosphere 0.33, post 1.08, tonemap 0.23 ms; forward-opaque measured 0, so 0.03 is proposed. CPU frame p95 1.78 ms, render 1.74 ms of it: headless, the render systems are the frame. In Chrome on the laptop the same scene at 1920x1080 holds 120 Hz (gpu:frame p50 4.13 ms, no missed vsync over 600 frames; scripts/post-baseline.mjs); at the panel's native 3024x1964 it doesn't (gpu:frame p50 9.36 ms, frame interval p50 12.1 ms). The desktop is unmeasured. Keys cover the spans the path records, none twice: gpu:prepass, gpu:ssao (gtao and upsample), gpu:forward-opaque, gpu:shadows (cascade0-3), gpu:atmosphere (sky-view, aerial, sky), gpu:post (atmosphere, fog, taa, motion-blur, dof*, bloom*, exposure), gpu:tonemap; instance-cull and light-clusters fall in headroom. CPU: render (render systems and node encodes)."
+      "note": "Shares from three laptop benches of the scenario (2026-10-08, render/src/post-stack.test.ts), each slice the worst measured share rounded up, headroom the rest. GPU frame p95 7.27, 6.49 and 6.55 ms; GPU slices by ablation (the laptop's passTiming), less their noise: post 1.08, 1.30 and 1.30 ms, tonemap 0.23, 0.53 and 0, prepass 0.33, 0.27 and 0, ssao up to 0.57, shadows up to 0.20, atmosphere up to 0.33; forward-opaque measured 0-0.03, so 0.03 is proposed. Ablation here is noisy (tonemap's raw p95 read 0.97 ms in one run and 0 in the next). CPU frame p95 1.78-1.90 ms, render 97-98% of it: headless, the render systems are the frame. In Chrome on the laptop the same scene at 1920x1080 holds 120 Hz (gpu:frame p50 4.13 ms, no missed vsync over 600 frames; scripts/post-baseline.mjs); at the panel's native 3024x1964 it doesn't (gpu:frame p50 9.36 ms, frame interval p50 12.1 ms). The desktop is unmeasured. Keys cover the spans the path records, none twice: gpu:prepass, gpu:ssao (gtao and upsample), gpu:forward-opaque, gpu:shadows (cascade0-3), gpu:atmosphere (sky-view, aerial, sky), gpu:post (atmosphere, fog, taa, motion-blur, dof*, bloom*, exposure), gpu:tonemap; instance-cull and light-clusters fall in headroom. CPU: render (render systems and node encodes)."
     },
     "scatter-walk": {
       "what": "star-explorer's planet, walking through forest with grass",
