@@ -2,7 +2,8 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import type { ShardError } from '@aethervtt/shard-core'
+import { defineSpan, Profiler, type ShardError, TRACK } from '@aethervtt/shard-core'
+import { startCapture } from '@aethervtt/shard-core/capture'
 import { createInlineWorkers, defaultWorkerCount, workersOf } from '@aethervtt/shard-platform'
 import { afterAll, describe, expect, it } from 'vitest'
 import { createNodePlatform } from './index'
@@ -28,6 +29,12 @@ export async function slow(ms, tag) {
 }
 export function thread() { return threadId }
 export function crash() { process.exit(3) }
+export function noise(ms) {
+  const end = performance.now() + ms
+  let x = 0
+  while (performance.now() < end) x += Math.sqrt(x + 1)
+  return x
+}
 export function fail() {
   throw Object.assign(new Error('bad input'), { code: 'test/bad-input', hint: 'Pass a number.' })
 }
@@ -109,5 +116,39 @@ describe('inline workers (size 0)', () => {
     expect(defaultWorkerCount(1)).toBe(1)
     expect(defaultWorkerCount(4)).toBe(3)
     expect(defaultWorkerCount(32)).toBe(8)
+  })
+})
+
+describe('worker tracks (0074)', () => {
+  it('a noise job appears on a worker track inside the main-thread span that awaited it', async () => {
+    const pool = createNodeWorkers(1)
+    try {
+      await pool.run(url, 'noise', [1]) // start the worker and load the module
+      const profiler = new Profiler()
+      const noiseSpan = defineSpan('worker/noise')
+      const off = pool.observe!((job) =>
+        profiler.record(noiseSpan, job.ms, TRACK.worker + job.worker, job.start),
+      )
+      const recorder = startCapture(profiler, { frames: 1 })
+      const awaited = defineSpan('test-workers/await-noise')
+      const frame = profiler.beginFrame(0)
+      profiler.beginAsync(awaited, 1)
+      await pool.run(url, 'noise', [8], { kind: 'noise' })
+      profiler.endAsync(awaited, 1)
+      profiler.endFrame(frame)
+      off()
+      const capture = await recorder.done
+      const trace = capture.trace().traceEvents
+      const job = trace.find((e) => e.name === 'worker/noise')!
+      const begin = trace.find((e) => e.name === 'test-workers/await-noise' && e.ph === 'b')!
+      const end = trace.find((e) => e.name === 'test-workers/await-noise' && e.ph === 'e')!
+      expect(trace.find((e) => e.tid === job.tid && e.ph === 'M')?.args?.name).toBe('worker 0')
+      expect(job.dur! / 1000).toBeGreaterThanOrEqual(8)
+      // Inside the span that awaited it, within 1 ms (ts and dur are µs).
+      expect(job.ts!).toBeGreaterThanOrEqual(begin.ts! - 1000)
+      expect(job.ts! + job.dur!).toBeLessThanOrEqual(end.ts! + 1000)
+    } finally {
+      pool.dispose()
+    }
   })
 })

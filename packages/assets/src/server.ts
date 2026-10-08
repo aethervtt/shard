@@ -267,6 +267,8 @@ class LoadsInFlight extends Map<string, Promise<void>> {
  */
 /** Asset results applied: the store updated and events sent (0074). */
 const APPLY = defineSpan('assets/apply')
+/** One asset load, from request to applied: an async span. */
+const LOAD = defineSpan('assets/load')
 
 /** Spans of worker jobs by kind (`worker/<kind>`), made once each. */
 const workerSpans = new Map<string, SpanDef>()
@@ -598,7 +600,18 @@ export class AssetServer {
     return promise
   }
 
+  /** A load from request to applied, as an async span (`assets/load`, 0074). */
   private async loadEntry(entry: AssetEntry, reload: boolean): Promise<void> {
+    const profiler = this.world.tryResource(ProfilerResource)
+    profiler?.beginAsync(LOAD, entry.guid)
+    try {
+      await this.loadEntryNow(entry, reload)
+    } finally {
+      profiler?.endAsync(LOAD, entry.guid)
+    }
+  }
+
+  private async loadEntryNow(entry: AssetEntry, reload: boolean): Promise<void> {
     if (!reload) entry.state = 'loading'
     try {
       const type = findAssetType(entry.type)
