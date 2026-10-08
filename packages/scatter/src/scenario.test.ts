@@ -77,9 +77,12 @@ async function walk(): Promise<{ p: ScatterPlanet; place: (i: number) => void }>
     placeCamera(p, eye, look)
   }
   place(0)
-  await settleTerrain(p)
-  await settleScatter(p, 2000)
-  await settleTerrain(p)
+  // Settled for the bench. `pnpm test` only needs the spans to run: on CI's software GPU a frame of
+  // this forest takes seconds, and settling it fully outlasts the job.
+  const settle = bench ? undefined : 60
+  await settleTerrain(p, settle)
+  await settleScatter(p, bench ? 2000 : 60)
+  await settleTerrain(p, settle)
   return { p, place }
 }
 
