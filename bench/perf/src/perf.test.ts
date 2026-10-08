@@ -18,6 +18,8 @@ import {
 } from './perf.mjs'
 
 const { machines, budgets } = loadPerf()
+/** scatter-walk's shares as budgets.json sets them. */
+const WALK = budgets.scenarios['scatter-walk'].slices
 
 const M4 = {
   vendor: 'apple',
@@ -95,7 +97,8 @@ describe('budgets.json (0075)', () => {
       code: 'perf/slices-overflow',
       path: 'scenarios/scatter-walk/slices/gpu',
     })
-    expect(problems[0].message).toContain('1.05')
+    const sum = 1 - WALK.gpu['gpu:foliage'] + 0.2
+    expect(problems[0].message).toContain(String(+sum.toFixed(4)))
   })
 
   it('flags an entry without a note, a guard without a margin, and a missing machine', () => {
@@ -119,9 +122,20 @@ describe('budgets.json (0075)', () => {
     expect(limitOf(laptop, 'ui/layout')).toBeCloseTo(0.99)
     expect(limitOf(laptop, 'scene/load', { count: 10_000 })).toBeCloseTo(100)
     expect(laptop.scenarios['scatter-walk']!.frame).toEqual({ gpu: 16.6, cpu: 8 })
-    expect(laptop.scenarios['scatter-walk']!.slices.gpu['gpu:foliage']).toBeCloseTo(16.6 * 0.15)
-    expect(desktop.scenarios['scatter-walk']!.slices.cpu.render).toBeCloseTo(6 * 0.3)
-    expect(limitOf(desktop, 'scatter-walk', { slice: 'gpu:foliage' })).toBeCloseTo(8.3 * 0.15)
+    expect(laptop.scenarios['scatter-walk']!.slices.gpu['gpu:foliage']).toBeCloseTo(
+      16.6 * WALK.gpu['gpu:foliage'],
+    )
+    expect(desktop.scenarios['scatter-walk']!.slices.cpu.render).toBeCloseTo(6 * WALK.cpu.render)
+    expect(limitOf(desktop, 'scatter-walk', { slice: 'gpu:foliage' })).toBeCloseTo(
+      8.3 * WALK.gpu['gpu:foliage'],
+    )
+    // The laptop's known miss: shadows overridden absolutely (budgets.json's note).
+    expect(laptop.scenarios['scatter-walk']!.slices.gpu['gpu:shadows']).toBe(
+      budgets.scenarios['scatter-walk'].overrides.laptop.gpu['gpu:shadows'],
+    )
+    expect(desktop.scenarios['scatter-walk']!.slices.gpu['gpu:shadows']).toBeCloseTo(
+      8.3 * WALK.gpu['gpu:shadows'],
+    )
     // How each checks GPU slices reaches the tests too (test-env's passTiming).
     expect(resolveBudgets(budgets, 'laptop', { machines }).passTiming).toBe('ablation')
     expect(resolveBudgets(budgets, 'desktop', { machines }).passTiming).toBe('timestamps')
@@ -130,13 +144,16 @@ describe('budgets.json (0075)', () => {
 
   it('applies a machine override to a slice as an absolute number', () => {
     const withOverride = structuredClone(budgets)
-    withOverride.scenarios['scatter-walk'].overrides = { desktop: { gpu: { 'gpu:shadows': 2.1 } } }
+    withOverride.scenarios['scatter-walk'].overrides = { desktop: { gpu: { 'gpu:tonemap': 2.1 } } }
     expect(checkBudgets(withOverride, machines)).toEqual([])
     const r = resolveBudgets(withOverride, 'desktop')
-    expect(r.scenarios['scatter-walk']!.slices.gpu['gpu:shadows']).toBe(2.1)
+    expect(r.scenarios['scatter-walk']!.slices.gpu['gpu:tonemap']).toBe(2.1)
     expect(
-      resolveBudgets(withOverride, 'laptop').scenarios['scatter-walk']!.slices.gpu['gpu:shadows'],
-    ).toBeCloseTo(16.6 * 0.15)
+      resolveBudgets(withOverride, 'laptop').scenarios['scatter-walk']!.slices.gpu['gpu:tonemap'],
+    ).toBeCloseTo(16.6 * WALK.gpu['gpu:tonemap'])
+    // An override for a slice the scenario lacks is an error.
+    withOverride.scenarios['scatter-walk'].overrides = { desktop: { gpu: { 'gpu:nope': 1 } } }
+    expect(checkBudgets(withOverride, machines).map((p) => p.code)).toEqual(['perf/bad-budget'])
   })
 
   it('outside a machine every key resolves to no number; unknown machines keep the closest, unenforced', () => {
@@ -159,7 +176,7 @@ describe('budget(key) against resolved budgets (test-env)', () => {
     expect(resolveLimit(laptop, 'text/layout', { count: 10_000 }).limit).toBeCloseTo(2)
     expect(
       resolveLimit(laptop, 'scatter-walk', { slice: 'headroom', track: 'gpu' }).limit,
-    ).toBeCloseTo(16.6 * 0.3)
+    ).toBeCloseTo(16.6 * WALK.gpu.headroom)
     const unknown = resolveBudgets(budgets, null, { closest: 'desktop' })
     expect(resolveLimit(unknown, 'mirror/sync')).toMatchObject({
       limit: Number.POSITIVE_INFINITY,
@@ -200,7 +217,7 @@ describe('the report (0075)', () => {
         record('scene/load', 50, { count: 10_000 }),
         record('noise/fbm6', 41e6),
         record('noise/fbm6', 39e6),
-        record('scatter-walk', 1.5, { slice: 'gpu:foliage' }),
+        record('scatter-walk', 0.2, { slice: 'gpu:foliage' }),
       ],
     })
     expect(report.machine).toBe('laptop')
@@ -222,7 +239,7 @@ describe('the report (0075)', () => {
     })
     expect(report.keys['ui/layout']!.verdict).toBe('unmeasured')
     expect(report.over.sort()).toEqual(['noise/fbm6', 'nav/find-path'].sort())
-    expect(report.scenarios['scatter-walk']!.slices.gpu.headroom!.share).toBe(0.3)
+    expect(report.scenarios['scatter-walk']!.slices.gpu.headroom!.share).toBe(WALK.gpu.headroom)
   })
 
   it("gives each scenario slice its measured share of the frame, and reports a share over its budget's", () => {
@@ -234,27 +251,24 @@ describe('the report (0075)', () => {
       records: [
         record('scatter-walk', 10, { track: 'gpu' }),
         record('scatter-walk', 4, { slice: 'gpu:forward-opaque', track: 'gpu' }),
-        record('scatter-walk', 1, { slice: 'gpu:foliage', track: 'gpu' }),
+        record('scatter-walk', 0.1, { slice: 'gpu:foliage', track: 'gpu' }),
         record('scatter-walk', 1, { slice: 'gpu:shadows', track: 'gpu' }),
-        record('scatter-walk', 0.5, { slice: 'gpu:tonemap', track: 'gpu' }),
+        record('scatter-walk', 0.05, { slice: 'gpu:tonemap', track: 'gpu' }),
       ],
     })
     const s = report.scenarios['scatter-walk']!
     expect(s.frame.gpu).toEqual({ budget: 16.6, measured: 10 })
     expect(s.slices.gpu['gpu:forward-opaque']).toMatchObject({
-      share: 0.35,
+      share: WALK.gpu['gpu:forward-opaque'],
       measured: 4,
       measuredShare: 0.4,
       verdict: 'over',
     })
-    expect(s.slices.gpu['gpu:foliage']).toMatchObject({ measuredShare: 0.1, verdict: 'pass' })
+    expect(s.slices.gpu['gpu:foliage']).toMatchObject({ measuredShare: 0.01, verdict: 'pass' })
     // Headroom is what the slices leave, a floor.
-    expect(s.slices.gpu.headroom).toMatchObject({
-      measured: 3.5,
-      measuredShare: 0.35,
-      verdict: 'pass',
-    })
-    // 4 ms fits the laptop's 5.81 ms slice; its share of this frame is still over.
+    expect(s.slices.gpu.headroom!.measured).toBeCloseTo(4.85)
+    expect(s.slices.gpu.headroom).toMatchObject({ measuredShare: 0.485, verdict: 'pass' })
+    // 4 ms fits the laptop's absolute override; its share of this frame is still over.
     expect(report.keys['scatter-walk:gpu:gpu:forward-opaque']!.verdict).toBe('pass')
     expect(report.over).toContain('scatter-walk:gpu:gpu:forward-opaque')
     expect(s.slices.cpu.render!.verdict).toBe('unmeasured')

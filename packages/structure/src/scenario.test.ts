@@ -15,8 +15,12 @@ import { rig } from './harness'
 const bench = timingMode === 'bench'
 const WIDTH = bench ? 1920 : 320
 const HEIGHT = bench ? 1080 : 180
-/** 10 s of panning under the bench. */
-const FRAMES = bench ? 600 : 24
+/**
+ * 2 s of panning under the bench. A frame of this fixture takes about 250 ms of CPU on the laptop
+ * (2026-10-08: render/shadows/cascades encodes for 160 ms, forward-opaque for 40), so the
+ * capture and the ablation that follows it are sized to about 2 minutes together.
+ */
+const FRAMES = bench ? 120 : 24
 
 let gpu: GpuContext
 beforeAll(async () => {
@@ -48,6 +52,8 @@ describe('scenario: tabletop-max (0075)', () => {
         await gpu.device.queue.onSubmittedWorkDone()
         await new Promise((resolve) => setTimeout(resolve, 0))
       },
+      // The laptop ablates its GPU slices: 4 slices and 2 baselines × 2 rounds × (20 + 4 frames).
+      ablation: { frames: 20, rounds: 2 },
     })
     expect(r.app.world.resource(Gpu).errors).toEqual([])
     console.info(

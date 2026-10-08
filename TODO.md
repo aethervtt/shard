@@ -25,6 +25,34 @@ start over. Remove an entry in the change that fixes it.
   the log of the first failure), confirm or rule out the collect race, then fix it with a test that
   forces the ordering.
 
+## Budget misses (0075)
+
+Scenario slices a machine doesn't meet. `bench/perf/budgets.json` overrides each on that machine
+at what it measured, with a note; remove the override and the entry when the miss is fixed.
+
+### scatter-walk's GPU frame on the laptop (2026-10-08)
+
+- By ablation, `gpu:forward-opaque` costs 10.81 ms and `gpu:shadows` 12.81 ms at 1080p
+  (`scatter/src/scenario.test.ts`): together past the 16.6 ms frame. The laptop overrides both
+  (12 and 14 ms).
+- Lead: shadows, 4 cascades over the forest's trees and props, redrawn every frame while foliage
+  sways (0045). Then the opaque pass: terrain, rocks, bushes and trees.
+
+### planet-descent's terrain/select on the laptop (2026-10-08)
+
+- `terrain/select` is 5.6 ms p95 in the Earth descent (`terrain/src/scenario.test.ts`) against a
+  0.8 ms slice, and puts the CPU frame at 8.25 ms against 8. The laptop overrides it at 6.2 ms.
+- Lead: terrain/select at 5.6 ms in the descent; capture it (`shard profile`, or the scenario
+  test's capture) to see whether it's the quadtree walk or the frames where selection changes most.
+
+### tabletop-max's CPU frame (2026-10-08, a local probe, not a bench run)
+
+- At 1080p a frame of the max fixture takes about 250 ms of CPU on the laptop:
+  `render/shadows/cascades` encodes for about 160 ms and `forward-opaque` for 40. Its split is
+  still a proposal: the first bench timed out before measuring it.
+- Lead: per-batch draw encoding for thousands of structure chunks in four cascades (0022's note on
+  one indirect draw per live batch).
+
 ## CI speed
 
 CI splits the tests across four runners (`scripts/test-shard.mjs`, balanced by

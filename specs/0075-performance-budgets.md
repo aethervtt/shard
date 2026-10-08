@@ -116,8 +116,7 @@ a pinned render scale (0051) and a target frame rate. The first set:
 - Slices plus `headroom` must sum to 1. `pnpm bench` fails a scenario whose slices don't, and
   reports any slice whose measured share is over.
 - Every scenario's slice keys cover spans its fixture records, and no span twice (see "As built,
-  part B"). The fractions are proposals, each with a note, until measurements on both machines
-  set them.
+  part B"). The fractions come from the laptop's measurements; the desktop's are still to measure.
 - Slice keys are span names or prefixes (0074's automatic span names, and the rule for what a key
   covers). `gpu:foliage` covers every `gpu:foliage/*` span. A GPU slice is a share of `gpu:frame`
   and a CPU slice a share of `frame`. Spans a slice doesn't cover fall in `headroom`.
@@ -268,8 +267,9 @@ expect(p95(gpuShare)).toBeLessThan(budget('scatter-walk', { slice: 'gpu:foliage'
 - [ ] 0045's foliage holds its `scatter-walk` slice on the laptop at 1080p (p95 over the walk),
       thinning density to do it, and goes back to full density on the desktop if it fits. (The
       controller converges under its target, recovers and holds still against a fake GPU,
-      `render/src/foliage-budget.test.ts`; the walk at 1080p runs under `pnpm bench`,
-      `scatter/src/scenario.test.ts`.)
+      `render/src/foliage-budget.test.ts`. The laptop's first bench held the walk's slice at
+      1080p, `scatter/src/scenario.test.ts`, but the walk's sparse forest grass cost only
+      0.13 ms, so nothing had to thin; thinning under load and the desktop are still to show.)
 - [x] No spec mentions an undefined reference machine.
 
 ## As built, part B
@@ -294,7 +294,7 @@ expect(p95(gpuShare)).toBeLessThan(budget('scatter-walk', { slice: 'gpu:foliage'
   | `scatter-walk` | `scatter/src/scenario.test.ts` | scatter's test planet (star-explorer's biome sets), its forest walked east at 3 m/s and head height for 15 s, shadowed sun, `App.perfScenario` declared |
   | `crowd` | `render/src/crowd.test.ts` | 0022's crowd, now `spawnCrowd` in `@aethervtt/shard-render/crowd` (the playground's #crowd page uses it too), on its 2.86°/s turntable for 10 s |
   | `planet-descent` | `terrain/src/scenario.test.ts` | 0043's Earth descent (`earthDescent`, `EARTH_HEIGHT` in terrain's testing, shared with `budget.test.ts`): 40 000 km to 2 m in 30 s, then 2 s on the ground |
-  | `tabletop-max` | `structure/src/scenario.test.ts` | 0055's `maxScene` under a shadowed sun, panned 160 m at 40 m up for 10 s |
+  | `tabletop-max` | `structure/src/scenario.test.ts` | 0055's `maxScene` under a shadowed sun, panned 160 m at 40 m up over 120 frames (a frame of it costs about 250 ms of CPU on the laptop) |
 
 - **Spans each records** (`pnpm test`, Metal Dawn), beside `frame`, `gpu:frame`, the schedules
   and every `render/*` system and node encode:
@@ -311,7 +311,8 @@ expect(p95(gpuShare)).toBeLessThan(budget('scatter-walk', { slice: 'gpu:foliage'
   - `tabletop-max`: `gpu:forward-opaque`, `gpu:forward-transparent`, `gpu:shadows/cascade0`–`3`,
     `gpu:instance-cull`, `gpu:light-clusters`, `gpu:tonemap`, `gpu:span/post`; `structure/compile`,
     `structure/doors`.
-- **Slice keys** (`budgets.json`, fractions proposed, each scenario's `note` says what it covers):
+- **Slice keys** (`budgets.json`; each scenario's `note` says what its keys cover and where its
+  numbers came from):
   terrain draws in `forward-opaque`, so its old `gpu:terrain` slice is generation only
   (`planet-descent` keeps it; in `scatter-walk` it falls in headroom with `instance-cull` and
   `light-clusters`). No scenario has a post stack, so `gpu:post` became `gpu:tonemap`. CPU
@@ -321,10 +322,20 @@ expect(p95(gpuShare)).toBeLessThan(budget('scatter-walk', { slice: 'gpu:foliage'
 
   | Scenario | GPU | CPU |
   |---|---|---|
-  | `scatter-walk` | `gpu:forward-opaque` 0.35, `gpu:foliage` 0.15, `gpu:shadows` 0.15, `gpu:tonemap` 0.05, headroom 0.30 | `render` 0.30, `scatter` 0.10, `terrain/select` 0.10, `terrain/planets` 0.05, headroom 0.45 |
-  | `crowd` | `gpu:forward-opaque` 0.40, `gpu:shadows` 0.30, `gpu:instance-cull` 0.05, `gpu:tonemap` 0.05, headroom 0.20 | `render` 0.30, headroom 0.70 |
-  | `planet-descent` | `gpu:forward-opaque` 0.45, `gpu:terrain` 0.15, `gpu:tonemap` 0.05, headroom 0.35 | `render` 0.35, `terrain/select` 0.10, `terrain/planets` 0.05, headroom 0.50 |
+  | `scatter-walk` | `gpu:forward-opaque` 0.35 (laptop 12 ms), `gpu:foliage` 0.02, `gpu:shadows` 0.25 (laptop 14 ms), `gpu:tonemap` 0.01, headroom 0.37 | `render` 0.82, `scatter` 0.06, `terrain/select` 0.06, `terrain/planets` 0.01, headroom 0.05 |
+  | `crowd` | `gpu:forward-opaque` 0.17, `gpu:shadows` 0.23, `gpu:instance-cull` 0.02, `gpu:tonemap` 0.01, headroom 0.57 | `render` 0.87, headroom 0.13 |
+  | `planet-descent` | `gpu:forward-opaque` 0.42, `gpu:terrain` 0.05, `gpu:tonemap` 0.04, headroom 0.49 | `render` 0.37, `terrain/select` 0.10 (laptop 6.2 ms), `terrain/planets` 0.01, headroom 0.52 |
   | `tabletop-max` | `gpu:forward-opaque` 0.35, `gpu:forward-transparent` 0.10, `gpu:shadows` 0.20, `gpu:tonemap` 0.05, headroom 0.30 | `render` 0.30, `structure` 0.15, headroom 0.55 |
+
+  The splits come from the laptop's first `pnpm bench` of part B (2026-10-08): each slice is its
+  measured share of the frame (p95, by ablation for the laptop's GPU slices) rounded up a little,
+  and headroom is the rest. Where the measurements don't fit the frame, the shares aren't
+  stretched: the laptop overrides the slice absolutely at what it measured plus about 10%, a known
+  miss with its note in `budgets.json` and an entry in `TODO.md` (`scatter-walk`'s opaque and
+  shadow passes, 10.81 and 12.81 ms by ablation; `planet-descent`'s `terrain/select`, 5.6 ms).
+  Slices that measured 0 keep a small proposed share. `tabletop-max` timed out in that run, so its
+  split is still a proposal (its test now pans 120 frames and ablates 2 rounds of 20, about 90 s on
+  the laptop). The desktop is unmeasured everywhere.
 
 - **The report.** Each scenario slice in `bench/perf/report.json` has its budget (ms) and share,
   `measured` (the worst p95 a scenario test recorded), `measuredShare` (over the frame's recorded
