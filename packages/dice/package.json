@@ -32,7 +32,6 @@
     "@aethervtt/shard-platform-node": "workspace:*",
     "@types/node": "^26.6.2",
     "@webgpu/types": "^0.1.74",
-    "tsx": "^4.23.15",
     "webgpu": "0.6.1"
   }
 }

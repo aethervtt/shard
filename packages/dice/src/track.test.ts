@@ -1,14 +1,8 @@
-import { createRequire } from 'node:module'
-import { pathToFileURL } from 'node:url'
-import { Worker } from 'node:worker_threads'
 import { Rng, type ShardError } from '@aethervtt/shard-core'
 import { timeout } from '@aethervtt/shard-core/test-env'
 import { recordTrack, sceneHash, type Track, trackHash } from '@aethervtt/shard-physics/track'
-import {
-  createTrackClient,
-  type TrackClient,
-  type TrackWorkerLike,
-} from '@aethervtt/shard-physics/worker'
+import { createTrackClient, type TrackClient } from '@aethervtt/shard-physics/worker'
+import { nodeTrackWorker } from '@aethervtt/shard-physics/worker/testing'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { DIE_KINDS, registerBuiltinDice } from './builtins'
 import { dieGeometry, requireDie } from './definition'
@@ -43,30 +37,7 @@ async function record(roll: DiceRoll): Promise<Track> {
   })
 }
 
-const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
-
-/** `test-worker.ts` on worker_threads, through the web Worker interface the client expects. */
-function nodeWorker(): TrackWorkerLike {
-  const worker = new Worker(new URL('./test-worker.ts', import.meta.url), {
-    execArgv: ['--import', tsx],
-  })
-  const listeners: Record<string, ((event: never) => void)[]> = {
-    message: [],
-    error: [],
-    messageerror: [],
-  }
-  const emit = (type: string, event: unknown) => {
-    for (const listener of listeners[type]!) listener(event as never)
-  }
-  worker.on('message', (data) => emit('message', { data }))
-  worker.on('error', (err: Error) => emit('error', { type: 'error', message: err.message }))
-  return {
-    postMessage: (message, transfer) => worker.postMessage(message, transfer as ArrayBuffer[]),
-    addEventListener: (type: string, listener: (event: never) => void) =>
-      void listeners[type]!.push(listener),
-    terminate: () => void worker.terminate(),
-  }
-}
+const nodeWorker = () => nodeTrackWorker(new URL('./test-worker.ts', import.meta.url))
 
 const clients: TrackClient[] = []
 afterEach(() => {

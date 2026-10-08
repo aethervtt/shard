@@ -1,12 +1,10 @@
-import { createRequire } from 'node:module'
-import { pathToFileURL } from 'node:url'
-import { Worker } from 'node:worker_threads'
 import { assetServer } from '@aethervtt/shard-assets'
 import { type AssetRef, type Entity, t } from '@aethervtt/shard-core'
 import { timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import type { TrackWorkerLike } from '@aethervtt/shard-physics/worker'
+import { nodeTrackWorker } from '@aethervtt/shard-physics/worker/testing'
 import {
   Culler,
   defineMaterial,
@@ -250,26 +248,7 @@ describe('dice entrances (0065)', () => {
   it('records the same track and rest spot inline and in the worker', {
     timeout: timeout(90_000),
   }, async () => {
-    const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
-    const nodeWorker = (): TrackWorkerLike => {
-      const worker = new Worker(new URL('./test-worker.ts', import.meta.url), {
-        execArgv: ['--import', tsx],
-      })
-      const listeners: Record<string, ((event: never) => void)[]> = {
-        message: [],
-        error: [],
-        messageerror: [],
-      }
-      worker.on('message', (data) => {
-        for (const l of listeners.message!) l({ data } as never)
-      })
-      return {
-        postMessage: (message, transfer) => worker.postMessage(message, transfer as ArrayBuffer[]),
-        addEventListener: (type: string, listener: (event: never) => void) =>
-          void listeners[type]!.push(listener),
-        terminate: () => void worker.terminate(),
-      }
-    }
+    const nodeWorker = () => nodeTrackWorker(new URL('./test-worker.ts', import.meta.url))
     const seen: { hash: string; rest: number[] }[] = []
     for (const worker of [undefined, nodeWorker]) {
       const r = await rig({ worker })

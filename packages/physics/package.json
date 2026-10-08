@@ -9,7 +9,8 @@
     ".": "./src/index.ts",
     "./render": "./src/render.ts",
     "./track": "./src/track/index.ts",
-    "./worker": "./src/worker/index.ts"
+    "./worker": "./src/worker/index.ts",
+    "./worker/testing": "./src/worker/testing.ts"
   },
   "scripts": {
     "typecheck": "tsc -p .",
