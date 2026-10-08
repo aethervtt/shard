@@ -80,7 +80,47 @@ describe.skipIf(noWebGpu)('the profiler in Chromium (0074)', () => {
           return gl?.getExtension('EXT_disjoint_timer_query_webgl2') != null
         })
         if (!timer) expect(perf.gpu).toBe('unavailable')
-        else if (perf.gpu !== 'unavailable') expect(perf.gpu.frame?.avg).toBeGreaterThan(0)
+        else {
+          expect(perf.gpu).not.toBe('unavailable')
+          expect((perf.gpu as Exclude<Perf['gpu'], 'unavailable'>).frame?.avg).toBeGreaterThan(0)
+        }
+      } finally {
+        await page.close()
+      }
+    },
+    timeout(90_000),
+  )
+
+  it(
+    'a capture on WebGPU has a GPU span per render pass',
+    async () => {
+      const page = await browser.newPage()
+      try {
+        await perfOf(page, `${server.base}/`)
+        const result = await page.evaluate(async () => {
+          const g = globalThis as unknown as {
+            capture(o: object): Promise<{ trace: { traceEvents: { name: string; ph: string }[] } }>
+            describe(): {
+              perView: Record<string, { order: string[] }>
+              order: { name: string; kind: string }[]
+            }
+          }
+          const { trace } = await g.capture({ frames: 30 })
+          const d = g.describe()
+          const kinds = Object.fromEntries(d.order.map((o) => [o.name, o.kind]))
+          const passes = [...new Set(Object.values(d.perView).flatMap((v) => v.order))].filter(
+            (n) => kinds[n] !== 'raw',
+          )
+          const names = new Set(trace.traceEvents.filter((e) => e.ph === 'X').map((e) => e.name))
+          return {
+            passes,
+            missing: passes.filter((n) => !names.has(`gpu:${n}`)),
+            frame: names.has('gpu:frame'),
+          }
+        })
+        expect(result.passes.length).toBeGreaterThan(0)
+        expect(result.frame).toBe(true)
+        expect(result.missing).toEqual([])
       } finally {
         await page.close()
       }

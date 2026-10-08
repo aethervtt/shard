@@ -15,7 +15,13 @@ import { connectToHub, createProtocolServer, DEFAULT_HUB_PORT } from '@aethervtt
 import { describeRender, forwardPlugin, pick, renderPlugin } from '@aethervtt/shard-render'
 import { materialNoisePlugin } from '@aethervtt/shard-render/noise'
 import { surfacePlugin } from '@aethervtt/shard-render/surface'
-import { App, animationFrameRunner, describePerf } from '@aethervtt/shard-runtime'
+import {
+  App,
+  animationFrameRunner,
+  capturePerf,
+  describePerf,
+  type PerfCaptureOptions,
+} from '@aethervtt/shard-runtime'
 import { savePlugin } from '@aethervtt/shard-save'
 import { scatterPlugin } from '@aethervtt/shard-scatter'
 import { ScenePlugin } from '@aethervtt/shard-scene'
@@ -343,6 +349,8 @@ Object.assign(globalThis, {
   describe: () => describeRender(app.world),
   /** The profiler's aggregates and clock (0074), as `perf.describe` returns them. */
   perf: () => describePerf(app.world),
+  /** A capture of the next frames (0074): its summary, and the trace inline. */
+  capture: (options: PerfCaptureOptions = {}) => capturePerf(app.world, options),
   playground,
 })
 

@@ -514,7 +514,12 @@ describe('commands', () => {
         })
         child.on('exit', (code) => reject(new Error(`dev exited ${code}`)))
       })
-      const html = await (await fetch(info.url)).text()
+      const page = await fetch(info.url)
+      // Cross-origin isolated, for a 5 µs clock, and JS sampling allowed (0074).
+      expect(page.headers.get('cross-origin-opener-policy')).toBe('same-origin')
+      expect(page.headers.get('cross-origin-embedder-policy')).toBe('credentialless')
+      expect(page.headers.get('document-policy')).toBe('js-profiling')
+      const html = await page.text()
       const map = JSON.parse(/<script type="importmap">(.*?)<\/script>/s.exec(html)![1]!)
       expect(map.imports['@aethervtt/shard-core']).toMatch(
         /^\/@fs\/.*\/packages\/core\/src\/index\.ts$/,

@@ -45,12 +45,14 @@ async function appWith(...systems: ReturnType<typeof defineSystem>[]) {
 
 describe('perf.describe (0074)', () => {
   it('returns systems, schedules and the frame; schedules sum to within 5% of frame', async () => {
-    const app = await appWith(steady)
-    app.addSystems(PostUpdate, defineSystem({ name: 'test-perf/post', run: () => busyWait(0.05) }))
-    app.addSystems(
-      FixedUpdate,
-      defineSystem({ name: 'test-perf/fixed', run: () => busyWait(0.02) }),
+    // Systems that take most of the frame, as real ones do: the frame's own bookkeeping (events,
+    // state transitions) stays a small share of it even on a loaded machine.
+    const app = await appWith(
+      defineSystem({ name: 'test-perf/work', run: () => busyWait(0.6) }),
+      steady,
     )
+    app.addSystems(PostUpdate, defineSystem({ name: 'test-perf/post', run: () => busyWait(0.3) }))
+    app.addSystems(FixedUpdate, defineSystem({ name: 'test-perf/fixed', run: () => busyWait(0.2) }))
     for (let i = 0; i < 130; i++) app.update(1 / 60)
     const perf = describePerf(app.world)
     expect(perf.frame).toMatchObject({ span: 'frame', samples: 120 })
@@ -75,7 +77,7 @@ describe('perf.describe (0074)', () => {
     expect(describePerf(app.world, { spans: ['schedule/Update'] }).schedules).toHaveProperty(
       'schedule/Update',
     )
-    expect(describePerf(app.world, { spans: ['test-perf'] }).systems.length).toBe(3)
+    expect(describePerf(app.world, { spans: ['test-perf'] }).systems.length).toBe(4)
   })
 
   it('ProfilerSettings turns the profiler off, and perf.reset clears it', async () => {
