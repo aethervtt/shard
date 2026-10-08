@@ -209,8 +209,8 @@ world.patchResource(StructureSettings, { cutawayWalls: true })
 - [x] A pick through the hole returns the token, not the roof.
 - [x] `edge` dithers the rim: the fraction of cut pixels rises monotonically across the edge band.
 - [ ] With 16 reveal points, the max fixture's frame costs at most 5% more GPU time than with none.
-      Checked under `pnpm bench`. On an Apple M4 it's +8–11% with all 16 points in view (+1% when
-      they cut nothing); see `TODO.md`.
+      Checked under `pnpm bench` (budget `structure/cutaway`). On the laptop it's +8–11% with all
+      16 points in view (+1% when they cut nothing); see that entry's note.
 - [x] Without `cutawayPlugin`, the forward shaders link the same code, and a `Cutaway` renderable
       logs `render/feature-missing` once and draws whole.
 

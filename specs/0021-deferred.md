@@ -90,7 +90,7 @@ transparent. The renderer decides per material. Agents don't choose.
 - [x] A fixture scene (directional plus 64 point lights, shadows, IBL, mixed materials) renders in
       forward and deferred within tolerance of each other (mean absolute difference < 2 levels).
 - [x] A scene with 1000 point lights and 4× overdraw renders faster in deferred than in forward
-      (GPU timings), and at 60 fps at 1080p on the dev machine.
+      (GPU timings), and at 60 fps at 1080p on the laptop.
 - [x] A transparent material and an unlit custom material in a deferred view render forward, in
       the correct depth order (golden image).
 - [x] Each G-buffer debug buffer is captured as a golden image.
@@ -137,7 +137,7 @@ transparent. The renderer decides per material. Agents don't choose.
   overlap and sum to more than the frame.
 - **Measured:** the playground's `#deferred` demo is 1000 point lights over four screen-covering
   layers of alpha-tested foliage (the case where early depth rejection can't hide overdraw), at
-  1920×1080 in Chrome on the dev machine (Apple M4). Both paths run at 60 fps. The GPU frame takes
+  1920×1080 in Chrome on the laptop (Apple M4). Both paths run at 60 fps. The GPU frame takes
   9.3 ms forward and 5.0–6.2 ms deferred.
 - **Found along the way:** the lighting node first listed the shadow passes only in `after`, so
   the graph culled cascades in deferred views. The lava-in-deferred comparison caught it.

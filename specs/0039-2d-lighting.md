@@ -231,12 +231,13 @@ world.add(wall, LightOccluder2d, { shape: 'collider' })
 - [x] A 256×256 tilemap with an occluding wall layer produces merged edges (under 5% of the naive
       per-cell edge count on the test map), and editing a tile rebuilds only its chunk's edges.
 - [x] 20k lit sprites, 250 lights (64 shadowed), and 2000 occluder segments render at 60 fps at
-      1080p on the dev machine, with bin + shadow + shade adding under 2.5 ms of GPU time over the
-      same scene unlit (bench). The bench scene: normal-mapped sprites 0.3 units (18 px) across on
-      an 18-unit view (3× coverage), lights 1–2 units in radius (about 3.6 lights and one shadowed
-      light per pixel), softness 0.1. Measured 2.3 ms (2.85 vs 0.58 ms per frame, back-to-back
-      frames in Dawn). Denser lighting costs proportionally more: lights 1.5–3 units (7.5 lights
-      and 2 shadowed per pixel) add 4.4 ms.
+      1080p on both machines (budgets `sprite/lit-frame` and `sprite/lighting2d`), with
+      bin + shadow + shade adding under 2.5 ms of GPU time over the same scene unlit (bench). The
+      bench scene: normal-mapped sprites 0.3 units (18 px) across on an 18-unit view (3×
+      coverage), lights 1–2 units in radius (about 3.6 lights and one shadowed light per pixel),
+      softness 0.1. Measured 2.3 ms on the laptop (2.85 vs 0.58 ms per frame, back-to-back frames
+      in Dawn). Denser lighting costs proportionally more: lights 1.5–3 units (7.5 lights and 2
+      shadowed per pixel) add 4.4 ms.
 - [x] Light extraction, binning inputs, and occluder segment generation (shapes, outlines, tile
       edges) are tested headless, without a GPU.
 

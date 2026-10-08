@@ -124,7 +124,7 @@ draw   (render) : capacity instances; dead slots collapse to nothing in the vert
 ## Acceptance criteria
 
 - [x] 1M particles (4 emitters × 250k, billboards, additive) simulate and render at 60 fps at 1080p
-      on the dev machine, with simulation under 2 ms of GPU time.
+      on the laptop, with simulation under 2 ms of GPU time.
 - [x] Same seed, same frame, same device: the particle buffers match exactly (headless, stepped).
 - [x] An effect file with a bad module parameter fails validation with a pointer. Editing a valid
       file hot reloads the running effect without restarting it.
@@ -155,7 +155,7 @@ draw   (render) : capacity instances; dead slots collapse to nothing in the vert
 - The CPU backend runs every module except collision (it has no depth buffer), and it draws
   through the same render path by uploading its particles.
 - Offscreen `reduced` simulates every 4th frame with 4× the step.
-- Measured on the dev machine (`#particles` in the playground, 1920×1080, 4 × 250k additive
+- Measured on the laptop (Apple M4, `#particles` in the playground, 1920×1080, 4 × 250k additive
   billboards): 60 fps, 999,948 alive, simulation 1.39 ms of GPU time.
 
 ## Open questions

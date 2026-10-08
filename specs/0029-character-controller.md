@@ -130,7 +130,7 @@ In `FixedUpdate`, after `physics/sync-in` and before `physics/step`:
 - [x] Walking into a 10 kg dynamic box pushes it.
 - [x] A 2D character walks, jumps between platforms, and stands on a polyline collider.
 - [x] 100 controllers step in under 1.5 ms per step (bench): 1.0 ms for the controller system, 1.06 ms
-      with the physics step, on the dev machine.
+      with the physics step, on the laptop (budget `physics/characters`).
 
 ## Open questions
 

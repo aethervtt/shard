@@ -191,8 +191,9 @@ WeatherSet { states: list(struct { state: handle('WeatherState'), weight: f32, b
 - [ ] The example planet shows cumulus from the ground, a flight up through the layer with no
       discontinuity (frame-to-frame luminance change under 5%), a cloud deck from above, and
       weather systems from orbit (goldens at each).
-- [ ] Clouds cost ≤ 2.5 ms GPU at 1440p from the ground and ≤ 1.5 ms from orbit on the reference
-      GPU, with no visible temporal smearing on a 90°/s camera pan (history rejection test).
+- [ ] Clouds cost ≤ 2.5 ms GPU at 1440p from the ground and ≤ 1.5 ms from orbit on the desktop
+      (budget `gpu:clouds`, proposed), with no visible temporal smearing on a 90°/s camera pan
+      (history rejection test).
 - [ ] `weather.at` for a location and time returns the same state on Node and Chrome, and the
       rendered precipitation at that time and place matches it.
 - [ ] A storm front approaches over 5 minutes of game time from one side (coverage at a test

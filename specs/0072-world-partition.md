@@ -207,7 +207,8 @@ which mode produced it.
 ## Acceptance criteria
 
 - [ ] The fixture (8 km, 128 m cells, 100 000 entities across `main` and `large`) loads its
-      always scene and the cells around the camera in under 1 s on the reference machine.
+      always scene and the cells around the camera in under 1 s on the desktop (budget
+      `partition/initial-load`, proposed).
 - [ ] Flying across the fixture at 100 m/s, every `main` cell within 0.8 × `loadRange` of the
       camera is spawned on every frame after the first second. Streaming main-thread time is
       under 2 ms a frame at p95.

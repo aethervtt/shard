@@ -219,8 +219,8 @@ until it's ready. Its object appears late rather than wrong. Misses are visible:
 issue, `render/shader-cache-miss`, counts them in `RenderHealth` without changing its state.
 Budgets:
 
-- loading naga the first time: under 300 ms on the mid-range reference device;
-- translating one variant after that: under 20 ms p95.
+- loading naga the first time: under 300 ms (budget `gpu-webgl2/naga-load`);
+- translating one variant after that: under 20 ms p95 (budget `gpu-webgl2/translate`).
 
 ### The baseline tier
 

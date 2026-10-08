@@ -252,13 +252,14 @@ root to 1 leaf or tip; y: a shade), which `scatter/Vegetation` tints by.
       identically (placement hash match).
 - [x] Placement is seamless: across 100 chunk borders, the minimum distance between items of one
       rule is ≥ `spacing` and density within 10% of the target.
-- [x] Walking 1 km on a planet keeps prop spawn and despawn under 1 ms per frame of main-thread time,
-      and ≥ 20 000 props are live within range with frame time under 16.6 ms on the reference GPU.
-      (Measured on an Apple M4, not the reference desktop.)
-- [ ] Foliage draws ≥ 2M blades per view within 60 m at under 3 ms GPU (reference GPU), with no
-      per-instance CPU work (profiler shows zero CPU time in foliage per frame beyond dispatch).
-      The count and the CPU side pass; the GPU time is unmeasured on the reference GPU (an Apple
-      M4 takes about 18 ms, see TODO.md).
+- [x] Walking 1 km on a planet keeps prop spawn and despawn under 1 ms per frame of main-thread
+      time, and ≥ 20 000 props are live within range with frame time under 16.6 ms (budget
+      `scatter/props-frame`). (Measured on the laptop, not yet on the desktop.)
+- [ ] Foliage draws ≥ 2M blades per view within 60 m within budget `gpu:foliage` (3 ms on the
+      desktop), with no per-instance CPU work (profiler shows zero CPU time in foliage per frame
+      beyond dispatch). The count and the CPU side pass. The GPU time is unmeasured on the desktop,
+      and the laptop takes about 18 ms (the note on `gpu:foliage` in `bench/perf/budgets.json`).
+      0075 part B replaces the number with foliage holding its `scatter-walk` slice.
 - [x] A destroyed prop stays destroyed after walking away far enough to unload its chunk, walking
       back, and after save/load.
 - [x] Each engine generator's nine-seed contact sheet matches its golden, and every LOD has ≤ the

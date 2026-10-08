@@ -25,47 +25,6 @@ start over. Remove an entry in the change that fixes it.
   the log of the first failure), confirm or rule out the collect race, then fix it with a test that
   forces the ordering.
 
-## Budgets this machine misses under `pnpm bench`
-
-On a Windows desktop (Ryzen 9 9950X3D, RTX 5060 Ti, D3D12 Dawn, 2026-09-29). None is a regression:
-each misses by the same amount at the commit that set its budget.
-
-- Noise, 6-octave fBm: 24.7M points/s (budget 40M), steady across runs; 28.3M on Node 22, 24–25M on
-  24, 25, and 26. The `.wasm` hasn't changed since 0041 set the budget (e1c56ec), and V8 is already
-  on TurboFan (`--no-liftoff` gives the same). The spec's 40–42M came from "the bench machine".
-  Lead: `f32x4.min`/`max` (NaN-propagating) and `i32x4.trunc_sat_f32x4` in `lanes.rs` are one
-  instruction on ARM NEON and several on x86 SSE, so the budget may only hold on ARM.
-- UI layout of 2,001 nodes: bimodal, about 0.83 ms or 1.2 ms from run to run, the same at 49ddb15
-  (0036) and now. Likely which CCD the process lands on (this CPU's two differ in clock and cache).
-- Shader edit to re-render: 11–25 frames (budget 2), the same at e1c56ec. It waits for one pipeline
-  compile, about 370 ms on D3D12; the budget assumes one under ~33 ms. This Dawn build finds no
-  Vulkan adapter here, so D3D12 wasn't compared against Vulkan on the same GPU.
-
-Decide per budget: hold it to the bench machine, or state what hardware each assumes.
-
-On a MacBook (Apple M4, Metal Dawn, 2026-10-04):
-
-- Cutaways (0070), 16 reveal points on the max fixture at 1280×720: +8–11% GPU time (budget 5%),
-  measured as the median of interleaved rounds (`structure/src/cutaway.test.ts`); not measured on
-  the Windows desktop. What's known: with the points cutting nothing it's +1% (only batches whose
-  bounds reach a line of sight take the discarding variant), and one point costs nothing measurable.
-  The rest is the cut chunks: a `discard` costs a tiled GPU its hidden-surface removal, so what's
-  behind a cut wall is shaded too. Drawing those batches after the rest didn't change it. Lead: draw
-  the cut batches depth-only (with the discard) first, then everything without one, cut batches at
-  `depthCompare: 'equal'`. That needs `@invariant` clip positions, so the core shaders' code would
-  change.
-
-On the same MacBook (2026-10-07):
-
-- GPU foliage (0045), 2.2M grass blades in view within 60 m at 960×540: about 18 ms of GPU time
-  (budget 3 ms on the reference GPU; `scatter/src/bench.test.ts`); not measured on the Windows
-  desktop. What's known: it was 70 ms before LODs (fewer, wider blades past 18 m and 36 m) and
-  casting only into the nearest cascade; at 96×54 it's 8.7 ms, so about half is vertex work (12M
-  vertices through the material's hooks) and half shading on overlapping blades. A cheaper wind
-  sway changed nothing. Leads: compute each visible instance's transform once in the cull pass
-  instead of per vertex (costs a buffer per visible instance), and shade the farthest level with a
-  simpler material.
-
 ## CI speed
 
 CI splits the tests across four runners (`scripts/test-shard.mjs`, balanced by

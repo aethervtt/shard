@@ -155,9 +155,9 @@ found by name so the renderer doesn't import the scene package.
   A game that wants styled world-space text uses `Text`.
 - `packages/sprite`: sprite records carry their entity, `shard::sprite` has an `fs_pick` entry
   point, and the plugin registers a pick drawer. Tilemaps aren't pickable yet.
-- Measured on the dev machine: 100k `line()` calls take 0.49 ms at best and about 0.6 ms median
-  (no GC). Uploading those 3.2 MB takes another 0.3–0.9 ms, depending on load. The test holds the
-  drawing calls to the budget and logs the upload.
+- Measured on the laptop (budget `gizmos/draw`, a unit cost per line): 100k `line()` calls take
+  0.49 ms at best and about 0.6 ms median (no GC). Uploading those 3.2 MB takes another 0.3–0.9 ms,
+  depending on load. The test holds the drawing calls to the budget and logs the upload.
 - The BVH rebuilds rather than refits when something moves. That's cheap at the entity counts
   raycasts see today; refitting is the next step if a scene moves thousands of meshes every frame.
 - `render.capture` with overlays turns them on for that capture and restores the previous

@@ -56,17 +56,25 @@ holds on every GPU.
 ```json
 {
   "machines": {
-    "laptop": { "cpu": "Apple M4", "gpu": "apple", "backend": "metal", "display": [2460, 1790] },
-    "desktop": { "cpu": "AMD Ryzen 9 9950X3D", "gpu": "RTX 5060 Ti", "backend": "d3d12", "display": [2560, 1440] }
+    "laptop": { "cpu": "Apple M4", "gpu": "apple", "backend": "metal", "display": [2460, 1790],
+                "passTiming": "ablation" },
+    "desktop": { "cpu": "AMD Ryzen 9 9950X3D", "gpu": "RTX 5060 Ti", "backend": "d3d12",
+                 "display": [2560, 1440], "passTiming": "timestamps" }
   }
 }
 ```
 
-- Detection matches the CPU model string and the adapter's vendor and description.
-  `SHARD_MACHINE=laptop` overrides it. A match that disagrees with the override is a warning,
-  not a failure.
+- Detection matches the CPU model string (`node:os`) and the Dawn adapter's vendor,
+  architecture, device and description, as Node tests get the adapter (`SHARD_DAWN_OPTIONS`
+  included). A machine matches when both its `cpu` and `gpu` strings do.
+  `SHARD_MACHINE=laptop` overrides it. A match that disagrees with the override is a warning
+  (`perf/machine-mismatch`), not a failure, and so is an override `machines.json` lacks
+  (`perf/unknown-machine`, and the machine is unknown).
 - On an unknown machine, every `budget()` is unlimited, as in `pnpm test`, and `pnpm bench`
-  prints what it measured against the closest named machine's budgets.
+  prints what it measured against the closest named machine's budgets: the one whose CPU, GPU
+  and backend matched best.
+- `pnpm bench --dry-run` prints the machine and how many budgets resolved, and runs nothing
+  (`--json` for all of it).
 
 ### Scenarios and slices
 
@@ -100,8 +108,12 @@ a pinned render scale (0051) and a target frame rate. The first set:
 - A slice is a fraction of the scenario's frame, so one split serves every machine. A machine may
   override a slice with an absolute number where hardware differs unevenly (the noise kernel is
   fast on ARM, D3D12 compiles pipelines slowly).
+- A machine's override is absolute, in ms:
+  `"overrides": { "desktop": { "gpu": { "gpu:terrain": 2.1 } } }`.
 - Slices plus `headroom` must sum to 1. `pnpm bench` fails a scenario whose slices don't, and
   reports any slice whose measured share is over.
+- Until part B measures them, `scatter-walk` has the split above and the other scenarios only
+  their frame, with `headroom: 1`.
 - Slice keys are span names or prefixes (0074's automatic span names, and the rule for what a key
   covers). `gpu:foliage` covers every `gpu:foliage/*` span. A GPU slice is a share of `gpu:frame`
   and a CPU slice a share of `frame`.
@@ -120,25 +132,39 @@ a pinned render scale (0051) and a target frame rate. The first set:
 }
 ```
 
-- **Target**: a slice's share of a scenario frame. It says what the product wants.
+- **Target**: a slice's share of a scenario frame. It says what the product wants. Until a
+  feature has a slice, a target is an absolute number per machine (the spec's number).
 - **Unit and rate**: cost per item, or items per second. They're measured after implementation
   and carry over between machines far better than totals. Settings derive from them
   (`propsPerFrame`) instead of being guessed.
-- **Guard**: a measured value plus `margin`. It catches regressions and says nothing about what
-  the product wants. `pnpm bench --ratchet` proposes lowering any guard the run beat by more than
-  twice its margin.
+- **Guard**: a measured value plus `margin`, a fraction: the limit is `value × (1 + margin)`. It
+  catches regressions and says nothing about what the product wants. `pnpm bench --ratchet`
+  proposes lowering any guard the run beat by more than twice its margin (measured under
+  `value × (1 − 2 × margin)`) to the measured value, rounded up to two significant digits.
+- Numbers are ms unless an entry says otherwise with `in`: `"in": "frames"` (frames to a hot
+  reload), `"in": "ratio"` (a frame with a feature over one without).
 - Every entry has a `note`. A change to a number is a diff with a reason, as in the size budgets.
 
 ### Tests
 
 ```ts
 expect(p95(spawnMs)).toBeLessThan(budget('scatter/spawn', { count: props }))   // unit × count
-expect(p95(gpuShare)).toBeLessThan(budget('scatter-walk', { slice: 'foliage', track: 'gpu' }))
+expect(p95(gpuShare)).toBeLessThan(budget('scatter-walk', { slice: 'gpu:foliage', track: 'gpu' }))
 ```
 
 - `budget(key, opts?)` resolves the machine's number, and returns unlimited outside `pnpm bench` or
-  on an unknown machine. `budget(ms)` keeps working until migration ends.
-  `scripts/budget-literals.mjs` lists the numeric calls that remain, and the goal is none.
+  on an unknown machine: ∞, or 0 for a rate, which is a floor. A unit's budget is its cost times
+  `count`. A slice's track defaults to `gpu` for a `gpu:` key and `cpu` otherwise. A key, scenario
+  or slice `budgets.json` lacks throws `perf/unknown-budget`, in `pnpm test` too. `budget(ms)`
+  keeps working; `scripts/budget-literals.mjs` lists the numeric calls that remain, and the goal
+  is none.
+- Budgets reach the test process resolved, as JSON in `SHARD_BUDGETS` (core reads no files).
+  `pnpm bench` resolves every key for the detected machine; outside it, `testFiles()` passes the
+  keys with no machine, so a misspelt key fails everywhere while nothing is enforced.
+- Under `pnpm bench`, a setup file (`scripts/perf-report.setup.mjs`) records what each assertion
+  against a key measured: `budget(key)` notes its call, and the comparison matchers
+  (`toBeLessThan` and the like) record the value they check against it. Assertions stay as they
+  are.
 - A test that measures a scenario runs its camera path through 0074's captures and reads spans
   from the summary, so tests, `shard profile` and the HUD measure the same thing.
 
@@ -155,9 +181,15 @@ expect(p95(gpuShare)).toBeLessThan(budget('scatter-walk', { slice: 'foliage', tr
   `gpu:frame`. Interleaving rounds cancels thermal drift, as `structure/src/cutaway.test.ts`
   already does. A node disabled for measurement skips its draws and dispatches, but its
   passes still begin and end, so the textures it writes stay valid for what reads them. The
-  image is wrong during those rounds, which is fine for a measurement. GPU slice budgets are checked by
-  ablation on tile-based machines and by timestamps on the others, and `machines.json` says
-  which (`"passTiming": "ablation" | "timestamps"`).
+  image is wrong during those rounds, which is fine for a measurement. GPU slice budgets are
+  checked by ablation on tile-based machines and by timestamps on the others, and
+  `machines.json` says which (`"passTiming": "ablation" | "timestamps"`).
+- As built: `RenderGraph.ablate(names)` disables nodes; a raw node, which begins its own passes,
+  is skipped whole. Each round measures the baseline, every pass disabled in turn (reversed on
+  odd rounds), and the baseline again, and a pass's difference is the mean of the two baselines
+  minus its median. The first 4 frames after each change are dropped while the previous state's
+  timings land. `together: true` also measures every pass disabled at once. The result is
+  `{ frameMs, passes: [{ pass, ms, rounds }], together?, frames, rounds, samples }`.
 
 ### Features that adapt
 
@@ -168,7 +200,7 @@ expect(p95(gpuShare)).toBeLessThan(budget('scatter-walk', { slice: 'foliage', tr
   (`App.perfScenario`, default none, which means no adaptation). Acceptance criteria then say
   "stays inside its slice and fills 60 m at the density that affords", not "2.2M blades in 3 ms".
 - 0045's foliage is the first to gain one: density thinning and range driven by GPU time, the
-  cause of its open miss in `TODO.md`.
+  cause of its open miss (the note on `gpu:foliage` in `budgets.json`).
 
 ### Specs
 
@@ -186,10 +218,14 @@ expect(p95(gpuShare)).toBeLessThan(budget('scatter-walk', { slice: 'foliage', tr
   measurements against each, over budget first.
 - `perf.ablate` as above. MCP tool `ablate_passes`.
 - `pnpm bench` writes `bench/perf/report.json` (budget, measured and verdict per key) like the size
-  report, and `pnpm bench --scenario scatter-walk` runs one scenario.
+  report, and `pnpm bench --scenario scatter-walk` runs one scenario: the tests named
+  `scenario: scatter-walk …`, without the ECS benchmarks. A unit's measured value is per item; a
+  rate's is the lowest seen, everything else's the highest.
 - The `perf` overlay (0074) shows each slice's measured share against its budget, red when over.
 - **Errors:** `perf/unknown-budget` (a key missing from `budgets.json`), `perf/slices-overflow`,
-  `perf/unknown-machine` (a warning).
+  `perf/unknown-machine` and `perf/machine-mismatch` (warnings). `perf.ablate` fails with
+  `render/unknown-node` for a pass the graph lacks, and `render/gpu-timing-unavailable` without
+  `timestamp-query`.
 
 ## Decisions
 
@@ -208,17 +244,19 @@ expect(p95(gpuShare)).toBeLessThan(budget('scatter-walk', { slice: 'foliage', tr
 
 - [ ] `pnpm bench` detects both named machines and reports which. With `SHARD_MACHINE` unset on
       another machine it runs, reports, and passes.
-- [ ] No `budget(<number>)` call remains (`scripts/budget-literals.mjs` reports zero).
+- [x] No `budget(<number>)` call remains (`scripts/budget-literals.mjs` reports zero).
 - [ ] Every scenario's slices sum to 1, and `bench/perf/report.json` lists each slice's measured
       share on both machines.
 - [ ] On the laptop, `perf.describe` marks the scatter page's pass times overlapping, and the HUD
       stops ranking them. `perf.ablate` gives the gizmo, upscale and tonemap passes costs that
       sum to within 15% of `gpu:frame` with all three disabled together.
 - [ ] Ablating any node of the scatter page's graph raises no validation error, and the frames
-      after `perf.ablate` returns match the frames before it.
+      after `perf.ablate` returns match the frames before it. (Headless on Dawn this holds for
+      every node of a forward graph with SSAO and bloom, `render/src/ablation.test.ts`; the
+      scatter page itself is still to check.)
 - [ ] 0045's foliage holds its `scatter-walk` slice on the laptop at 1080p (p95 over the walk),
       thinning density to do it, and goes back to full density on the desktop if it fits.
-- [ ] No spec mentions an undefined reference machine.
+- [x] No spec mentions an undefined reference machine.
 
 ## Open questions
 

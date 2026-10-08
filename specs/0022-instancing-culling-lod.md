@@ -103,7 +103,7 @@ applied in the cull pass.
 - [x] After the first frame, a static scene of 100k instances uploads 0 instance bytes per frame.
       Moving 100 of them uploads roughly 100 × 64 bytes.
 - [x] 200k instances across 20 mesh types (plus 4 shadow cascades) render at 60 fps at 1080p on
-      the dev machine, with CPU render preparation under 1 ms.
+      the laptop, with CPU render preparation under 1 ms (budget `render/prepare-static`).
 - [x] GPU and CPU culling produce the same visible sets for camera and shadow views of a fixture.
 - [x] LOD switches at the configured screen sizes and doesn't flicker when the size oscillates
       within the hysteresis band (test). Shadows use the camera's level.
@@ -175,7 +175,7 @@ applied in the cull pass.
   - `render.capture { debug: 'lod' }` tints meshes by level: green, yellow, orange, red.
   - `{ debug: 'culling' }` freezes the camera's cull frustum and eye, and they stay frozen across
     later captures until `{ debug: 'none' }`.
-- **Measured:** the playground's `#crowd` demo, at 1920×1080 in Chrome on the dev machine (Apple
+- **Measured:** the playground's `#crowd` demo, at 1920×1080 in Chrome on the laptop (Apple
   M4):
   - The scene is 200k static instances of 20 mesh types with LOD chains (every fifth a small prop
     with a 120 m `VisibilityRange`), under a sun with 4 cascades, with the camera orbiting.

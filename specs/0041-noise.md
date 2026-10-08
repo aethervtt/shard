@@ -297,11 +297,11 @@ interface Workers {
 - [x] For every node type, GPU codegen and CPU agree within `1e-5 × (1 + |cpu|)` over 64k points
       (times the slope gain for amplifying operators, as above).
 - [x] The CPU kernel samples a 6-octave fBm simplex 3D graph at ≥ 40M points/s per core with SIMD
-      (bench: 40–42M on the bench machine, 40.2M in Chrome), and allocates nothing per call once
-      warmed up.
+      (budget `noise/fbm6`: 40–42M on the laptop, 40.2M in Chrome; the desktop's x86 SSE reaches
+      about 24.7M, which is its number), and allocates nothing per call once warmed up.
 - [x] `sampleSpherePatch` of a 257² patch on the pool completes in ≤ 8 ms for the planet graph
-      above on the bench machine (about 2 ms on 8 workers; 3 ms on web workers in Chrome), with the
-      main thread blocked for ≤ 0.2 ms (about 0.05 ms).
+      above on both machines (budget `noise/sphere-patch`; about 2 ms on 8 workers, 3 ms on web
+      workers in Chrome), with the main thread blocked for ≤ 0.2 ms (about 0.05 ms).
 - [x] Editing a `.noise.json` in `shard dev` re-imports it, regenerates the WGSL, and a material
       using it re-renders within two frames.
 - [x] A cycle, an unknown node, and 20 octaves each fail validation with their code and a pointer
