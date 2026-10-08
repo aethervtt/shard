@@ -1,4 +1,5 @@
 import { World } from '@aethervtt/shard-core'
+import { timeout } from '@aethervtt/shard-core/test-env'
 import { loadNoiseKernel, NoiseGraph } from '@aethervtt/shard-noise'
 import { createNodeWorkers } from '@aethervtt/shard-platform-node'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -17,26 +18,30 @@ afterAll(() => workers.dispose())
 export const VALLEY_PACK_HASH = 'ec848bdc3cf63b92'
 
 describe('bake determinism (0071)', () => {
-  it('bakes the valley terrain to the bytes Chrome bakes, twice the same', async () => {
-    await loadNoiseKernel()
-    const hills = await NoiseGraph.create(VALLEY_HILLS)
-    const world = new World()
-    const asset = sourceAsset(world, { ...valleySource(), noise: { hills } })
-    const stack = compileStack(asset.source, {
-      noise: () => hills,
-      heightmap: () => valleySource().heightmaps.valley,
-    })
-    const a = memoryPackStore()
-    const b = memoryPackStore()
-    await bakeTerrain(asset, stack, a, { workers })
-    await bakeTerrain(asset, stack, b)
-    const ha = await packHash(a.files)
-    expect(await packHash(b.files)).toBe(ha)
-    expect(ha.slice(0, 16)).toBe(VALLEY_PACK_HASH)
-    // Disk use (0071): page bytes before deflate per leaf sample, and after.
-    const stats = await terrainStats(asset, a, await readManifest(a))
-    expect(stats.bytesPerSample).toBeGreaterThan(4.9)
-    expect(stats.bytesPerSample).toBeLessThan(5)
-    expect(stats.diskBytesPerSample).toBeLessThan(stats.bytesPerSample / 1.5)
-  }, 120_000)
+  it(
+    'bakes the valley terrain to the bytes Chrome bakes, twice the same',
+    async () => {
+      await loadNoiseKernel()
+      const hills = await NoiseGraph.create(VALLEY_HILLS)
+      const world = new World()
+      const asset = sourceAsset(world, { ...valleySource(), noise: { hills } })
+      const stack = compileStack(asset.source, {
+        noise: () => hills,
+        heightmap: () => valleySource().heightmaps.valley,
+      })
+      const a = memoryPackStore()
+      const b = memoryPackStore()
+      await bakeTerrain(asset, stack, a, { workers })
+      await bakeTerrain(asset, stack, b)
+      const ha = await packHash(a.files)
+      expect(await packHash(b.files)).toBe(ha)
+      expect(ha.slice(0, 16)).toBe(VALLEY_PACK_HASH)
+      // Disk use (0071): page bytes before deflate per leaf sample, and after.
+      const stats = await terrainStats(asset, a, await readManifest(a))
+      expect(stats.bytesPerSample).toBeGreaterThan(4.9)
+      expect(stats.bytesPerSample).toBeLessThan(5)
+      expect(stats.diskBytesPerSample).toBeLessThan(stats.bytesPerSample / 1.5)
+    },
+    timeout(120_000),
+  )
 })
