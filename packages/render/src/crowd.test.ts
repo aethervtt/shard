@@ -102,7 +102,10 @@ describe('scenario: crowd (0075)', () => {
     })
     const gpuSlices = run.slices.filter((s) => s.track === 'gpu')
     expect(gpuSlices.map((s) => s.measuredBy)).toEqual(gpuSlices.map(() => 'ablation'))
-    for (const s of gpuSlices) expect(Number.isFinite(s.p95) && s.p95 >= 0).toBe(true)
+    for (const s of gpuSlices) {
+      expect(Number.isFinite(s.p95) && s.p95 >= 0).toBe(true)
+      expect(s.noise).toBe(0) // one round: no spread
+    }
     // gpu:shadows stood for both cascade nodes' passes, disabled together.
     const latest = c.world.resource(PassCosts).latest!
     expect(latest.passes.map((p) => p.pass).sort()).toEqual(gpuSlices.map((s) => s.key).sort())

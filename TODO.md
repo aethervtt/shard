@@ -32,9 +32,9 @@ at what it measured, with a note; remove the override and the entry when the mis
 
 ### scatter-walk's GPU frame on the laptop (2026-10-08)
 
-- By ablation, `gpu:forward-opaque` costs 10.81 ms and `gpu:shadows` 12.81 ms at 1080p
-  (`scatter/src/scenario.test.ts`): together past the 16.6 ms frame. The laptop overrides both
-  (12 and 14 ms).
+- By ablation, `gpu:forward-opaque` costs 10.8–29.4 ms (three runs; ablating it is noisy on the
+  M4) and `gpu:shadows` 12.2–12.8 ms at 1080p (`scatter/src/scenario.test.ts`): together past the
+  16.6 ms frame. The laptop overrides both (32 and 14 ms).
 - Lead: shadows, 4 cascades over the forest's trees and props, redrawn every frame while foliage
   sways (0045). Then the opaque pass: terrain, rocks, bushes and trees.
 
@@ -45,11 +45,12 @@ at what it measured, with a note; remove the override and the entry when the mis
 - Lead: terrain/select at 5.6 ms in the descent; capture it (`shard profile`, or the scenario
   test's capture) to see whether it's the quadtree walk or the frames where selection changes most.
 
-### tabletop-max's CPU frame (2026-10-08, a local probe, not a bench run)
+### tabletop-max on the laptop (2026-10-08)
 
-- At 1080p a frame of the max fixture takes about 250 ms of CPU on the laptop:
-  `render/shadows/cascades` encodes for about 160 ms and `forward-opaque` for 40. Its split is
-  still a proposal: the first bench timed out before measuring it.
+- At 1080p the max fixture's CPU frame is 210.7 ms p95, almost all `render` (210.2 ms; a local
+  probe put `render/shadows/cascades` encoding at about 160 ms and `forward-opaque` at 40), and
+  its GPU frame 25.4 ms (`gpu:shadows` 9.69 ms by ablation). The laptop overrides the frames
+  (232 and 28 ms), `render` and `gpu:shadows`.
 - Lead: per-batch draw encoding for thousands of structure chunks in four cascades (0022's note on
   one indirect draw per live batch).
 

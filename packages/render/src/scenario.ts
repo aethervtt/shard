@@ -29,6 +29,12 @@ export interface ScenarioSlice {
   /** The p95 of it: frames whose GPU timings landed, for a GPU slice. Ablation's cost instead. */
   p95: number
   measuredBy: 'capture' | 'ablation'
+  /**
+   * Ablation only: half the range of the cost over rounds, in ms. A pass's cost is the difference
+   * of two frame times that vary by milliseconds, so a sub-millisecond pass can't be resolved
+   * below this; the budget check allows it.
+   */
+  noise?: number
 }
 
 export interface ScenarioRun {
@@ -133,6 +139,7 @@ export async function measureScenario(
         const s = slices.find((x) => x.track === 'gpu' && x.key === cost.pass)!
         s.p95 = Math.max(0, cost.ms)
         s.measuredBy = 'ablation'
+        s.noise = (Math.max(...cost.rounds) - Math.min(...cost.rounds)) / 2
       }
     }
   }
@@ -156,7 +163,8 @@ export async function measureScenario(
  * The checks of a scenario test. In `pnpm test`: the capture ran every frame, and every slice key
  * covers at least one span that ran (GPU ones where the device times passes). Under `pnpm bench`:
  * p95 of the frame and of each slice against the scenario's budgets, soft, so every one is
- * recorded for `bench/perf/report.json`.
+ * recorded for `bench/perf/report.json`. A slice measured by ablation fails only when it's over by
+ * more than its noise: what's checked (and reported) is its cost minus the noise.
  */
 export function expectScenario(run: ScenarioRun, expect: typeof vitestExpect): void {
   expect(run.summary.frames.count).toBe(run.capture.frameCount)
@@ -177,7 +185,12 @@ export function expectScenario(run: ScenarioRun, expect: typeof vitestExpect): v
   }
   for (const s of run.slices) {
     if (s.track === 'gpu' && !run.gpuTimed) continue
-    soft(s.p95, `${run.name}: ${s.track} slice ${s.key} p95 (${s.measuredBy})`).toBeLessThan(
+    const measured = s.noise === undefined ? s.p95 : Math.max(0, s.p95 - s.noise)
+    const how =
+      s.noise === undefined
+        ? s.measuredBy
+        : `ablation, ${s.p95.toFixed(3)} ± ${s.noise.toFixed(3)} ms`
+    soft(measured, `${run.name}: ${s.track} slice ${s.key} p95 (${how})`).toBeLessThan(
       budget(`${run.name}`, { slice: s.key, track: s.track }),
     )
   }

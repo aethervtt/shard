@@ -54,8 +54,8 @@
     "gizmos/draw": {
       "kind": "unit",
       "per": "line",
-      "laptop": 0.00001,
-      "desktop": 0.00001,
+      "laptop": 1e-5,
+      "desktop": 1e-5,
       "note": "0027: 100k gizmo lines drawn in under 1 ms (best frame). render/src/gizmos.test.ts."
     },
     "gltf/import": {
@@ -422,24 +422,24 @@
       "slices": {
         "gpu": {
           "gpu:forward-opaque": 0.35,
-          "gpu:foliage": 0.02,
+          "gpu:foliage": 0.06,
           "gpu:shadows": 0.25,
-          "gpu:tonemap": 0.01,
-          "headroom": 0.37
+          "gpu:tonemap": 0.015,
+          "headroom": 0.325
         },
         "cpu": {
           "render": 0.82,
-          "scatter": 0.06,
+          "scatter": 0.07,
           "terrain/select": 0.06,
           "terrain/planets": 0.01,
-          "headroom": 0.05
+          "headroom": 0.04
         }
       },
-      "note": "Shares from the laptop's first 0075 bench (2026-10-08), each the measured share of the frame rounded up, headroom the rest. GPU slices by ablation (the laptop's passTiming): gpu:foliage 0.131 ms, gpu:tonemap 0.066 ms; CPU p95 render 5.62, scatter 0.37, terrain/select 0.34, terrain/planets 0.031 ms of a 7.08 ms frame. Known miss on the laptop: gpu:forward-opaque (10.81 ms) and gpu:shadows (12.81 ms) don't fit a 16.6 ms frame together, so the laptop overrides them absolutely at the measured value plus about 10%; their shares, and the desktop's whole split, are proposals, unmeasured. Lead: shadows, 4 cascades over the forest's trees and props. Keys cover the spans the walk records (scatter/src/scenario.test.ts), none twice: gpu:forward-opaque (terrain, rocks, bushes, trees), gpu:foliage (foliage/place, /cull, /draw; FoliageBudget's default target), gpu:shadows (cascade0-3), gpu:tonemap; terrain/generate, instance-cull and light-clusters fall in headroom. CPU: render (render systems and node encodes, terrain/encode included), scatter (scatter/props), terrain/select, terrain/planets.",
+      "note": "Shares from the laptop's first 0075 bench (2026-10-08), each the measured share of the frame rounded up, headroom the rest. GPU slices by ablation (the laptop's passTiming): gpu:foliage 0.13-0.61 ms, gpu:tonemap 0.07-0.18 ms over four runs (floors of 1 and 0.25 ms: a sub-millisecond pass found by ablation, the difference of frames that vary by 10-20 ms, is mostly noise); CPU p95 render 5.62, scatter 0.37, terrain/select 0.34, terrain/planets 0.031 ms of a 7.08 ms frame. Known miss on the laptop: gpu:forward-opaque (10.81, 29.38 and 23.12 ms over three runs; ablating it is noisy on the M4) and gpu:shadows (12.81 and 12.24 ms) don't fit a 16.6 ms frame together, so the laptop overrides them absolutely at the measured value plus about 10%; their shares, and the desktop's whole split, are proposals, unmeasured. Lead: shadows, 4 cascades over the forest's trees and props. Keys cover the spans the walk records (scatter/src/scenario.test.ts), none twice: gpu:forward-opaque (terrain, rocks, bushes, trees), gpu:foliage (foliage/place, /cull, /draw; FoliageBudget's default target), gpu:shadows (cascade0-3), gpu:tonemap; terrain/generate, instance-cull and light-clusters fall in headroom. CPU: render (render systems and node encodes, terrain/encode included), scatter (scatter/props), terrain/select, terrain/planets. The laptop's CPU frame measured 7.08 and 8.19 ms p95 in two quiet runs against the 8 ms target, terrain/select 0.34 and 0.52 ms: near their limits, to settle with more quiet runs.",
       "overrides": {
         "laptop": {
           "gpu": {
-            "gpu:forward-opaque": 12,
+            "gpu:forward-opaque": 32,
             "gpu:shadows": 14
           }
         }
@@ -520,11 +520,11 @@
       "fps": 60,
       "frame": {
         "gpu": {
-          "laptop": 16.6,
+          "laptop": 28,
           "desktop": 8.3
         },
         "cpu": {
-          "laptop": 8,
+          "laptop": 232,
           "desktop": 6
         }
       },
@@ -542,7 +542,17 @@
           "headroom": 0.55
         }
       },
-      "note": "Proposed split, unmeasured: the first 0075 bench (2026-10-08) timed out before recording it. A local 1080p probe on the laptop (not a bench run) put a frame at about 250 ms of CPU, render/shadows/cascades encoding for 160 ms and forward-opaque for 40, and the GPU frame near 25-30 ms. Keys cover the spans the pan records (structure/src/scenario.test.ts), none twice: gpu:forward-opaque (walls, floors, props), gpu:forward-transparent (windows), gpu:shadows (cascade0-3), gpu:tonemap; instance-cull and light-clusters fall in headroom. CPU: render (render systems and node encodes), structure (structure/compile, structure/doors)."
+      "note": "Shares are proposals; the laptop's numbers are its first bench (2026-10-08), a known miss at the measured value plus about 10%: a 210.7 ms CPU frame p95, almost all render (210.2 ms; render/shadows/cascades encoding is most of it), and a 25.4 ms GPU frame, gpu:forward-opaque 7.43 ms and gpu:shadows 9.69 ms by ablation. The desktop is unmeasured. Keys cover the spans the pan records (structure/src/scenario.test.ts), none twice: gpu:forward-opaque (walls, floors, props), gpu:forward-transparent (windows), gpu:shadows (cascade0-3), gpu:tonemap; instance-cull and light-clusters fall in headroom. CPU: render (render systems and node encodes), structure (structure/compile, structure/doors).",
+      "overrides": {
+        "laptop": {
+          "gpu": {
+            "gpu:shadows": 10.7
+          },
+          "cpu": {
+            "render": 232
+          }
+        }
+      }
     }
   }
 }

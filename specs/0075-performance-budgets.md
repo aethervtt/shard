@@ -285,7 +285,11 @@ expect(p95(gpuShare)).toBeLessThan(budget('scatter-walk', { slice: 'gpu:foliage'
   assertions so every one is recorded. On a machine whose `passTiming` is `ablation`
   (`passTiming()` in test-env, from machines.json through `SHARD_BUDGETS`), GPU slices are
   measured by ablation instead: `ablatePasses`' new `groups` disables, per slice, every node whose
-  `gpu:<node>` its key covers (60 frames × 3 rounds, at the path's last frame).
+  `gpu:<node>` its key covers (60 frames × 3 rounds, at the path's last frame). A slice measured
+  this way fails only when it's over by more than its noise, half the range of its cost over the
+  rounds: a pass's cost is the difference of two frame times that vary by milliseconds on the M4
+  (`gpu:forward-opaque` read 10.8, 29.4 and 23.1 ms in three runs), so a sub-millisecond pass
+  can't be resolved more finely.
 - **The fixtures**, reused rather than rebuilt; 1920×1080 at render scale 1 under the bench, 320×180
   and a few frames in `pnpm test`:
 
@@ -333,9 +337,12 @@ expect(p95(gpuShare)).toBeLessThan(budget('scatter-walk', { slice: 'gpu:foliage'
   stretched: the laptop overrides the slice absolutely at what it measured plus about 10%, a known
   miss with its note in `budgets.json` and an entry in `TODO.md` (`scatter-walk`'s opaque and
   shadow passes, 10.81 and 12.81 ms by ablation; `planet-descent`'s `terrain/select`, 5.6 ms).
-  Slices that measured 0 keep a small proposed share. `tabletop-max` timed out in that run, so its
-  split is still a proposal (its test now pans 120 frames and ablates 2 rounds of 20, about 90 s on
-  the laptop). The desktop is unmeasured everywhere.
+  Slices that measured 0 keep a small proposed share. `tabletop-max` timed out in that run; its
+  test now pans 120 frames and ablates 2 rounds of 20 (about 80 s on the laptop), and a later run
+  measured it: a 210.7 ms CPU frame, almost all `render`, and a 25.4 ms GPU frame, overridden on
+  the laptop as a known miss. Re-runs widened `scatter-walk`'s laptop override for
+  `gpu:forward-opaque` to 32 ms and gave its sub-millisecond slices floors (`gpu:foliage` 1 ms,
+  `gpu:tonemap` 0.25 ms). The desktop is unmeasured everywhere.
 
 - **The report.** Each scenario slice in `bench/perf/report.json` has its budget (ms) and share,
   `measured` (the worst p95 a scenario test recorded), `measuredShare` (over the frame's recorded
