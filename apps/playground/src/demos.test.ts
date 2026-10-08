@@ -103,7 +103,8 @@ async function run(
       pageErrors.push(message.text())
     }
   })
-  await page.goto(`${server.base}/${backend ? `?backend=${backend}` : ''}#${demo}`)
+  // perf=0: no perf overlay (0074), so the colors counted are the demo's own.
+  await page.goto(`${server.base}/?${backend ? `backend=${backend}&` : ''}perf=0#${demo}`)
   await page.waitForFunction(() => {
     const p = (globalThis as { playground?: { started: boolean; error?: string } }).playground
     return p?.started || p?.error !== undefined

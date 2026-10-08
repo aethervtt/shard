@@ -58,6 +58,7 @@ import { type BaselineReport, validateBaseline } from './baseline'
 import { Hub, localTarget, type ProtocolTarget } from './hub'
 import { createMcpServer } from './mcp'
 import { EXIT, errorJson, formatError, type Output } from './output'
+import { CAPTURES_DIR, withCpuProfile } from './profile'
 
 export interface CommandContext {
   out: Output
@@ -605,7 +606,13 @@ export async function run(ctx: CommandContext): Promise<number> {
     if (scene)
       loadScene(p.app.world, JSON.parse(await p.platform.fs.readText(scene)), { id: scene })
     const start = performance.now()
-    for (let i = 0; i < frames; i++) p.app.update(1 / p.app.fixedHz)
+    const loop = () => {
+      for (let i = 0; i < frames; i++) p.app.update(1 / p.app.fixedHz)
+    }
+    // --cpu-prof (0074): V8's sampling profiler over the frames, written as a .cpuprofile.
+    const profiled = ctx.flags['cpu-prof']
+      ? await withCpuProfile(p.root, loop)
+      : (loop(), undefined)
     const result = {
       frames,
       seed: p.manifest.seed,
@@ -613,10 +620,17 @@ export async function run(ctx: CommandContext): Promise<number> {
       hash: worldHash(p.app.world),
       ms: Math.round(performance.now() - start),
       errors: await localTarget('headless', p.server).request('errors.recent', { count: 20 }),
+      ...(profiled && { profilePath: profiled.profilePath, hottest: profiled.hottest }),
     }
     ctx.out.result(
       result,
-      `Ran ${frames} frames in ${result.ms} ms: ${result.entities} entities, hash ${result.hash.slice(0, 16)}…`,
+      `Ran ${frames} frames in ${result.ms} ms: ${result.entities} entities, hash ${result.hash.slice(0, 16)}…` +
+        (profiled
+          ? `\nCPU profile: ${profiled.profilePath} (hottest: ${profiled.hottest
+              .slice(0, 3)
+              .map((f) => f.name)
+              .join(', ')})`
+          : ''),
     )
     return EXIT.ok
   })
@@ -913,12 +927,17 @@ interface TestReport {
   failed: number
   skipped: number
   tests: { file: string; name: string; state: string; error?: string }[]
+  /** `.cpuprofile`s written by --cpu-prof, project-relative. */
+  profiles?: string[]
 }
 
-export async function testCommand({ out, project, args }: CommandContext): Promise<number> {
+export async function testCommand({ out, project, args, flags }: CommandContext): Promise<number> {
   const { startVitest } = await import('vitest/node')
   const root = resolve(project)
   process.env.SHARD_PROJECT_ROOT = root
+  // --cpu-prof (0074): each test file's process runs under V8's --cpu-prof.
+  const profileDir = join(root, CAPTURES_DIR)
+  const before = flags['cpu-prof'] ? new Set(await readdir(profileDir).catch(() => [])) : undefined
   const vitest = await startVitest('test', args, {
     root,
     include: ['tests/**/*.test.ts'],
@@ -926,8 +945,18 @@ export async function testCommand({ out, project, args }: CommandContext): Promi
     reporters: out.json ? [{ onInit() {} }] : ['default'],
     testTimeout: 60_000,
     fileParallelism: false,
+    ...(before && {
+      pool: 'forks',
+      execArgv: ['--cpu-prof', '--cpu-prof-dir', profileDir],
+    }),
   })
   const report: TestReport = { passed: 0, failed: 0, skipped: 0, tests: [] }
+  if (before) {
+    const files = await readdir(profileDir).catch(() => [] as string[])
+    report.profiles = files
+      .filter((f) => f.endsWith('.cpuprofile') && !before.has(f))
+      .map((f) => relative(root, join(profileDir, f)))
+  }
   const visit = (task: {
     type: string
     name: string
@@ -952,7 +981,10 @@ export async function testCommand({ out, project, args }: CommandContext): Promi
   for (const file of vitest?.state.getFiles() ?? []) visit(file as never)
   await vitest?.close()
   const failedToRun = (vitest?.state.getUnhandledErrors().length ?? 0) > 0
-  out.result(report, `${report.passed} passed, ${report.failed} failed, ${report.skipped} skipped.`)
+  out.result(
+    report,
+    `${report.passed} passed, ${report.failed} failed, ${report.skipped} skipped.${report.profiles ? `\nCPU profiles: ${report.profiles.join(', ') || 'none'}` : ''}`,
+  )
   return report.failed > 0 || failedToRun ? EXIT.failed : EXIT.ok
 }
 

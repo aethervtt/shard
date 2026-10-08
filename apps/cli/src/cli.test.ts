@@ -11,6 +11,7 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { hottestFromCpuProfile } from '@aethervtt/shard-core/capture'
 import { openProject } from '@aethervtt/shard-node'
 import { connectToHub, createProtocolServer, decodePng } from '@aethervtt/shard-protocol'
 import { encodePng, sha256 } from '@aethervtt/shard-verify/node'
@@ -599,6 +600,8 @@ describe('MCP server', () => {
         'describe_generators',
         'metrics_record',
         'metrics_reset',
+        'describe_perf',
+        'capture_perf',
       ]),
     )
     expect(tools.find((t) => t.name === 'physics_raycast')!.inputSchema).toMatchObject({
@@ -613,6 +616,35 @@ describe('MCP server', () => {
     )
     const schema = await client.readResource({ uri: 'shard://schemas/star-explorer/Ship' })
     expect((schema.contents[0] as { text: string }).text).toContain('Speed cap')
+  })
+
+  it('describe_perf on a headless star-explorer run: systems, schedules and frame (0074)', async () => {
+    await call('step', { frames: 130 })
+    const perf = (await call('describe_perf', { top: 1000 })).json() as {
+      frame: { avg: number; samples: number }
+      schedules: Record<string, { avg: number }>
+      systems: { span: string; avg: number }[]
+    }
+    expect(perf.frame.samples).toBe(120)
+    expect(Object.keys(perf.schedules)).toEqual(
+      expect.arrayContaining(['schedule/First', 'schedule/Update', 'schedule/Last']),
+    )
+    expect(perf.systems.map((s) => s.span)).toEqual(
+      expect.arrayContaining(['render/execute-graph', 'star-explorer/fly']),
+    )
+    // Schedules run back to back inside the frame: together, within 5% of it.
+    let schedules = 0
+    for (const s of Object.values(perf.schedules)) schedules += s.avg
+    expect(Math.abs(perf.frame.avg - schedules) / perf.frame.avg).toBeLessThan(0.05)
+    const captured = (await call('capture_perf', { frames: 20 })).json() as {
+      summary: { frames: { count: number }; worst: unknown[] }
+      tracePath: string
+    }
+    expect(captured.summary.frames.count).toBe(20)
+    expect(captured.tracePath).toMatch(/^\.shard\/captures\/.+\.trace\.json$/)
+    const trace = join(example, captured.tracePath)
+    onTestFinished(() => rmSync(trace, { force: true }))
+    expect(JSON.parse(readFileSync(trace, 'utf8')).traceEvents.length).toBeGreaterThan(20)
   })
 
   it('runs a whole agent loop: fix a scene, load, step, look, fly, check', async () => {
@@ -1002,5 +1034,76 @@ describe('shard compare, approve, perf-check (0062)', () => {
     expect(met.code).toBe(0)
     expect(met.json()).toMatchObject({ pass: true, checked: 2, records: 2 })
     rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe('shard profile (0074)', () => {
+  /**
+   * A project whose one system busy-waits 2 ms a frame, and 25 ms on frame 30. It lives inside the
+   * CLI package so its scripts resolve the engine packages.
+   */
+  function fixture() {
+    const dir = mkdtempSync(join(here, '..', '.profile-fixture-'))
+    onTestFinished(() => rmSync(dir, { recursive: true, force: true }))
+    const game = join(dir, 'game')
+    expect(shard(['init', game, '--template', 'empty'], dir).code).toBe(0)
+    writeFileSync(
+      join(game, 'scripts/main.ts'),
+      `import { defineSystem, Update } from '@aethervtt/shard-core'
+import { defineProject } from '@aethervtt/shard-project'
+import { Time } from '@aethervtt/shard-runtime'
+
+export function busyWait(ms: number): number {
+  const end = performance.now() + ms
+  let x = 0
+  while (performance.now() < end) for (let i = 0; i < 20000; i++) x += Math.sqrt(i)
+  return x
+}
+
+const busy = defineSystem({
+  name: 'fixture/busy',
+  run: (_, world) => {
+    busyWait(world.resource(Time).frame === 30 ? 25 : 2)
+  },
+})
+
+export default defineProject({
+  name: 'game',
+  build(app) {
+    app.addSystems(Update, busy)
+  },
+})
+`,
+    )
+    return game
+  }
+
+  it("--cpu-prof writes a .cpuprofile whose hottest function is the fixture's busy-wait", () => {
+    const game = fixture()
+    const r = shard(['profile', '--frames', '60', '--cpu-prof', '--json'], game)
+    expect(r.code, r.stderr).toBe(0)
+    const out = r.json()
+    expect(out.summary.frames.count).toBe(60)
+    expect(out.summary.worst[0]).toMatchObject({ frame: 30 })
+    expect(out.summary.worst[0].over[0].span).toBe('fixture/busy')
+    expect(out.tracePath).toMatch(/\.trace\.json$/)
+    expect(out.profilePath).toMatch(/\.cpuprofile$/)
+    const profile = JSON.parse(readFileSync(join(game, out.profilePath), 'utf8'))
+    expect(hottestFromCpuProfile(profile)[0]!.name).toBe('busyWait')
+    expect(out.summary.hottest[0].name).toBe('busyWait')
+
+    const run = shard(['run', '--frames', '30', '--cpu-prof', '--json'], game)
+    expect(run.code, run.stderr).toBe(0)
+    const ran = run.json()
+    expect(ran.hottest[0].name).toBe('busyWait')
+    expect(existsSync(join(game, ran.profilePath))).toBe(true)
+
+    // A flight recorder stops after the first frame over 15 ms (the first frame compiles
+    // pipelines, so it may be that one rather than frame 30), keeping 30 frames after it.
+    const caught = shard(['profile', '--until-ms', '15', '--json'], game)
+    expect(caught.code, caught.stderr).toBe(0)
+    const { capture } = caught.json().summary
+    expect(capture.trigger.frameMs).toBeGreaterThan(15)
+    expect(capture.range[1]).toBe(capture.trigger.frame + 30)
   })
 })

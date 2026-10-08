@@ -1,5 +1,5 @@
-import { defineSystem, ProfilerResource, Update, type World } from '@aethervtt/shard-core'
-import { Gpu, RenderScale, RenderStats } from '@aethervtt/shard-render'
+import { defineSystem, Update, type World } from '@aethervtt/shard-core'
+import { Gpu, RenderScale, RenderStats, setOverlays } from '@aethervtt/shard-render'
 import { DisplayRate, definePlugin, Time } from '@aethervtt/shard-runtime'
 import { backendLine, healthLines } from './backend'
 
@@ -18,11 +18,15 @@ function applyRenderScale(world: World): void {
   }
 }
 
-/** FPS, draw stats, and the slowest systems and GPU passes, four times a second. */
+/**
+ * FPS, render scale and draw stats, four times a second. Frame time, the slowest spans and the GPU
+ * frame are the engine's `perf` overlay (0074), drawn over the scene; `?perf=0` hides it.
+ */
 const hud = defineSystem({
   name: 'playground/hud',
   setup: (world) => {
     applyRenderScale(world)
+    if (new URLSearchParams(location.search).get('perf') !== '0') setOverlays(world, { perf: true })
     return { el: document.getElementById('hud') as HTMLElement, last: 0, frames: 0 }
   },
   run: (state, world) => {
@@ -33,13 +37,6 @@ const hud = defineSystem({
     state.last = time
     state.frames = 0
     const [view, stats] = [...world.resource(RenderStats)][0] ?? ['none', undefined]
-    const timings = world.resource(ProfilerResource).all()
-    const rows = Object.entries(timings)
-      .filter(([name]) => !name.startsWith('playground/hud') && name !== 'gpu:frame')
-      .sort((a, b) => b[1].avg - a[1].avg)
-      .slice(0, 10)
-      .map(([name, t]) => `${name.padEnd(28)} ${t.avg.toFixed(2).padStart(6)} ms`)
-    const gpuFrame = timings['gpu:frame']?.avg ?? 0
     const canvas = document.getElementById('viewport') as HTMLCanvasElement
     const scale = world.tryResource(RenderScale)
     const k = scale?.windowViews ? scale.scale : 1
@@ -49,15 +46,12 @@ const hud = defineSystem({
       `fps       ${fps.toFixed(0)}   ${canvas.width}x${canvas.height}`,
       `render    ${Math.round(canvas.width * k)}x${Math.round(canvas.height * k)}   ${k.toFixed(2)} ${scale?.mode ?? ''}${scale?.signal && scale.signal !== 'none' ? ` (${scale.signal})` : ''}`,
       `display   ${display ? `${display.hz} Hz (${display.source})` : '?'}   budget ${scale ? scale.budgetMs.toFixed(1) : '?'} ms`,
-      `gpu frame ${gpuFrame.toFixed(2)} ms`,
       backendLine(world.resource(Gpu)),
       ...healthLines(world),
       stats
         ? `${view}: ${stats.visible} visible, ${stats.culled} culled, ${stats.drawCalls} draws`
         : 'no camera view',
       ...hudExtras.flatMap((extra) => extra(world)),
-      '',
-      ...rows,
     ].join('\n')
   },
 })

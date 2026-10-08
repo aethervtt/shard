@@ -249,7 +249,7 @@ export const TOOLS: Tool[] = [
   forward(
     'debug_overlays',
     'debug.overlays',
-    'Keeps debug overlays on in every frame: bounds, lights (ranges and cones), cameras (other cameras\' frustums), cascades (shadow cascades), normals, axes, labels (scene paths). Pass the full set; [] turns them off. "filter": "ship/" limits them to one subtree.',
+    'Keeps debug overlays on in every frame: bounds, lights (ranges and cones), cameras (other cameras\' frustums), cascades (shadow cascades), normals, axes, labels (scene paths), perf (frame time, the top 8 spans, the GPU frame). Pass the full set; [] turns them off. "filter": "ship/" limits them to one subtree.',
   ),
   forward(
     'list_gizmos',
@@ -525,8 +525,27 @@ export const TOOLS: Tool[] = [
   forward(
     'metrics_record',
     'metrics.record',
-    'A performance record (spec 0062) of the running app: cold start, first usable frame, patch-to-frame latency (p50/p95 of app.trace), frame-time p50/p95/p99 and GPU p95, long tasks, GPU memory by category, and downloads, over the window since metrics_reset (at most 30 s). Needs a live app (shard dev, attached). Measure after a change the way the capture scripts do: metrics_reset, exercise the scene, then metrics_record.',
+    'A performance record (spec 0062) of the running app: cold start, first usable frame, patch-to-frame latency (p50/p95 of app.trace), frame-time p50/p95/p99 and GPU p95, long tasks, GPU memory by category, downloads, and the breakdown (the 10 CPU and GPU spans with the highest p95), over the window since metrics_reset (at most 30 s). Needs a live app (shard dev, attached). Measure after a change the way the capture scripts do: metrics_reset, exercise the scene, then metrics_record.',
   ),
+  forward(
+    'describe_perf',
+    'perf.describe',
+    'Where frame time goes (profiler, spec 0074), averaged over the last 120 frames: the frame, each schedule, every system and render-graph encode (render/<node>), GPU passes and the GPU frame, worker jobs and async work (last, avg, p95, max ms); memory (GPU by category, JS heap, ECS); and the clock (spans under four of its steps are "coarse"). "spans": ["render"] limits it to spans a key covers. Use it to find what is expensive on average; use capture_perf for stutters.',
+  ),
+  {
+    name: 'capture_perf',
+    description:
+      'Captures every span over the next frames (default 300) and summarizes them (profiler, spec 0074): frame CPU/GPU/interval p50/p95/max, the top spans, and the 5 worst frames, each with "over": the spans that ran longest above their median in that frame. That names the cause of a stutter. With "until": { "frameMs": 30 } it is a flight recorder: it waits (up to "timeout" s) for a frame over 30 ms, keeping 120 frames before and 30 after. "sample": true adds the hottest JavaScript functions. The full trace goes to .shard/captures/*.trace.json for Perfetto. Headless, it runs the frames itself; on a live app it waits for them.',
+    inputSchema: paramsSchema('perf.capture'),
+    run: async (ctx, args) => {
+      const result = await ctx
+        .target()
+        .request<{ trace?: unknown; [key: string]: unknown }>('perf.capture', args)
+      // The trace is for Perfetto, not for reading: it stays out of the reply.
+      const { trace, ...rest } = result
+      return text(trace ? { ...rest, trace: 'not written: the host is read-only' } : rest)
+    },
+  },
   forward(
     'metrics_reset',
     'metrics.reset',
