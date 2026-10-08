@@ -8,6 +8,8 @@ import * as biomesModule from './biomes'
 import { anchorQueries, clearColliders, gatherAnchors, updateColliders } from './colliders'
 import * as componentsModule from './components'
 import { Planet, TerrainBudget } from './components'
+import * as heightmapModule from './heightfield/heightmap'
+import * as sourceModule from './heightfield/source-asset'
 import * as heightsModule from './heights'
 import { TerrainWorld } from './heights'
 import * as materialModule from './material'
@@ -78,7 +80,15 @@ export const updatePlanets = defineSystem({
 export function terrainPlugin(options: TerrainPluginOptions = {}): Plugin {
   return definePlugin({
     name: 'terrain',
-    provides: [biomesModule, componentsModule, heightsModule, materialModule, overlaysModule],
+    provides: [
+      biomesModule,
+      componentsModule,
+      heightsModule,
+      heightmapModule,
+      materialModule,
+      overlaysModule,
+      sourceModule,
+    ],
     dependencies: ['core/transform'],
     build(app) {
       const world = app.world

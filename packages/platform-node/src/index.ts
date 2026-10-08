@@ -1,5 +1,15 @@
 import { watch as fsWatch } from 'node:fs'
-import { access, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import {
+  access,
+  mkdir,
+  open,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { ShardError } from '@aethervtt/shard-core'
 import type { FileChangeEvent, KeyValueStorage, Platform, Workers } from '@aethervtt/shard-platform'
@@ -102,6 +112,26 @@ export function createNodePlatform(options: NodePlatformOptions): Platform {
         // A view, not a copy: big artifacts (meshes, textures) are tens of megabytes.
         const data = await readFile(abs(path))
         return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+      },
+      readRange: async (path, offset, length) => {
+        let file: Awaited<ReturnType<typeof open>>
+        try {
+          file = await open(abs(path), 'r')
+        } catch (cause) {
+          throw new ShardError('platform/fs-not-found', `Can't read "${path}"`, { path, cause })
+        }
+        try {
+          const out = new Uint8Array(length)
+          let got = 0
+          while (got < length) {
+            const { bytesRead } = await file.read(out, got, length - got, offset + got)
+            if (bytesRead === 0) break
+            got += bytesRead
+          }
+          return got === length ? out : out.subarray(0, got)
+        } finally {
+          await file.close()
+        }
       },
       writeText: async (path, data) => {
         await mkdir(dirname(abs(path)), { recursive: true })

@@ -69,6 +69,77 @@ export {
   lockCode,
 } from './grid-mesh'
 export {
+  type BakeInput,
+  type BakeManifest,
+  type BakeOptions,
+  type BakeReport,
+  type BlockRecord,
+  bakeTerrain,
+  blockKeys,
+  type OutOfRange,
+  readManifest,
+  type TerrainStats,
+  terrainStats,
+} from './heightfield/bake'
+export {
+  decodeHeightPng,
+  type Heightmap,
+  HeightmapAssetType,
+  HeightmapImporter,
+  Heightmaps,
+} from './heightfield/heightmap'
+export {
+  BAKE_VERSION,
+  BLOCK,
+  type DecodedPage,
+  deflate,
+  inflate,
+  LEAF_SIDE,
+  PAGE,
+  SIDE,
+  type Stack,
+} from './heightfield/kernel'
+export {
+  fsPackStore,
+  memoryPackStore,
+  PACK,
+  type PackEntry,
+  type PackIndex,
+  type PackStore,
+  packOf,
+  readIndex,
+  writePack,
+} from './heightfield/pack'
+export {
+  type BakeHost,
+  bakeIsCurrent,
+  bakeProjectTerrains,
+  type ProjectBake,
+  stackFor,
+  terrainCacheDir,
+} from './heightfield/project'
+export {
+  MAX_MATERIAL_LAYERS,
+  parseTerrainSource,
+  type SourceHeightLayer,
+  type SourcePaint,
+  type SourceSpline,
+  sourceDependencies,
+  type TerrainLayout,
+  type TerrainSource,
+  terrainLayout,
+} from './heightfield/source'
+export {
+  type SourceDependency,
+  type TerrainSourceArtifact,
+  TerrainSourceAsset,
+  TerrainSourceAssetType,
+  TerrainSourceImporter,
+  TerrainSources,
+  terrainJsonSchema,
+} from './heightfield/source-asset'
+export { compileStack, mainNoise, type StackAssets } from './heightfield/stack'
+export {
   heightAt,
   type PlanetSurface,
   planetHeightAt,

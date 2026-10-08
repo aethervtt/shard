@@ -21,6 +21,13 @@ export function simdSupported(): boolean {
   return WebAssembly.validate(SIMD_PROBE)
 }
 
+/**
+ * URL of the kernel's JavaScript side (kernel.js), for other packages' pool jobs: a worker module
+ * imports it with `import(url)` and instantiates the posted `NoiseKernel.module`, so it samples
+ * exactly as this thread does.
+ */
+export const NOISE_KERNEL_MODULE = new URL('./kernel.js', import.meta.url).href
+
 const loaded = new Map<boolean, Promise<NoiseKernel>>()
 let current: NoiseKernel | undefined
 

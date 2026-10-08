@@ -167,6 +167,12 @@ export interface PlatformFileSystem {
   readonly writable: boolean
   readText(path: string): Promise<string>
   readBytes(path: string): Promise<Uint8Array>
+  /**
+   * `length` bytes from `offset` (fewer at the end of the file): one ranged read, so a terrain
+   * page comes out of a pack of hundreds without reading the rest (0071). Absent on hosts that
+   * can't; callers read the whole file then.
+   */
+  readRange?(path: string, offset: number, length: number): Promise<Uint8Array>
   writeText(path: string, data: string): Promise<void>
   writeBytes(path: string, data: Uint8Array): Promise<void>
   exists(path: string): Promise<boolean>
