@@ -14,7 +14,7 @@ import { expect } from 'vitest'
 const dir = process.env.SHARD_PERF_REPORT
 
 /** Appends a record when `expected` is what the last budget() call returned. */
-export function noteBudget(file, received, expected, state) {
+export function noteBudget(file, received, expected, state, pass) {
   const call = globalThis.__shardBudget
   if (!call || call.used || typeof received !== 'number') return false
   if (expected !== call.limit) return false
@@ -26,6 +26,8 @@ export function noteBudget(file, received, expected, state) {
     limit: call.limit,
     reference: call.reference,
     kind: call.kind,
+    // The test's own comparison (`<`, `<=`, …) decides the verdict, not the report.
+    ...(pass === undefined ? {} : { pass }),
     test: state.currentTestName,
     file: state.testPath,
   }
@@ -45,8 +47,8 @@ export function budgetMatchers(file, state = () => expect.getState()) {
   const matchers = {}
   for (const [name, [op, compare]] of Object.entries(COMPARISONS)) {
     matchers[name] = function (received, expected) {
-      noteBudget(file, received, expected, state())
       const pass = compare(received, expected)
+      noteBudget(file, received, expected, state(), pass)
       return {
         pass,
         message: () =>

@@ -300,12 +300,15 @@ export function buildReport({ budgets, resolved, records, detection, date }) {
       k.measured = measured
     }
     k.tests.push({ test: r.test, file: r.file, measured: r.measured, limit })
+    if (r.pass !== undefined) k.failed = (k.failed ?? false) || !r.pass
   }
   for (const k of Object.values(keys)) {
     if (k.measured === null) k.verdict = 'unmeasured'
     else if (k.limit === null) k.verdict = 'unbudgeted'
+    else if (k.failed !== undefined) k.verdict = k.failed ? 'over' : 'pass'
     else if (k.kind === 'rate') k.verdict = k.measured >= k.limit ? 'pass' : 'over'
     else k.verdict = k.measured < k.limit ? 'pass' : 'over'
+    delete k.failed
   }
   const scenarios = {}
   for (const [name, s] of Object.entries(resolved.scenarios)) {

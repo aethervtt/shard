@@ -221,6 +221,22 @@ describe('the report (0075)', () => {
     expect(report.scenarios['scatter-walk']!.slices.gpu.headroom!.share).toBe(0.19)
   })
 
+  it("takes the verdict from the test's own comparison when it was recorded", () => {
+    const limit = limitOf(laptop, 'nav/find-path')!
+    const report = buildReport({
+      budgets,
+      resolved: laptop,
+      detection: {},
+      date: '',
+      records: [
+        { ...record('nav/find-path', limit), pass: true }, // toBeLessThanOrEqual at the limit
+        { ...record('mirror/sync', 0.1), pass: false },
+      ],
+    })
+    expect(report.keys['nav/find-path']!.verdict).toBe('pass')
+    expect(report.keys['mirror/sync']!.verdict).toBe('over')
+  })
+
   it('--ratchet proposes lowering a guard beaten by more than twice its margin', () => {
     const report = buildReport({
       budgets,
