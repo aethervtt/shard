@@ -213,7 +213,11 @@ export function checkBudgets(budgets, machines) {
  * unknown machine: budget() stays unlimited, and the numbers are the closest machine's, to report
  * against.
  */
-export function resolveBudgets(budgets, machine, { enforce = machine !== null, closest } = {}) {
+export function resolveBudgets(
+  budgets,
+  machine,
+  { enforce = machine !== null, closest, machines } = {},
+) {
   const on = machine ?? closest ?? null
   const value = (entry) => (on !== null && typeof entry[on] === 'number' ? entry[on] : null)
   const spans = {}
@@ -241,7 +245,8 @@ export function resolveBudgets(budgets, machine, { enforce = machine !== null, c
     }
     scenarios[name] = { frame, slices }
   }
-  return { machine: on, enforce: enforce && on !== null, spans, scenarios }
+  const passTiming = on !== null ? (machines?.machines?.[on]?.passTiming ?? null) : null
+  return { machine: on, enforce: enforce && on !== null, passTiming, spans, scenarios }
 }
 
 /** A key's limit from resolved budgets (the same rule as budget() in test-env). */
@@ -310,23 +315,54 @@ export function buildReport({ budgets, resolved, records, detection, date }) {
     else k.verdict = k.measured < k.limit ? 'pass' : 'over'
     delete k.failed
   }
+  // Each scenario's slices as measured shares of its frame, next to their budget shares: a slice's
+  // measured ms (the worst p95 a scenario test recorded) over the frame's. Headroom is what the
+  // slices leave, a floor. A share over its budget is reported even where the ms fit (on an
+  // unknown machine, say), since the split holds on every machine.
   const scenarios = {}
+  const overShares = []
+  const r4 = (v) => Math.round(v * 1e4) / 1e4
   for (const [name, s] of Object.entries(resolved.scenarios)) {
     const slices = {}
+    const frame = {}
     for (const track of TRACKS) {
       slices[track] = {}
+      const frameMs = keys[`${name}:${track}`]?.measured ?? null
+      frame[track] = { budget: s.frame[track], measured: frameMs }
+      let used = 0
+      let all = true
       for (const [slice, ms] of Object.entries(s.slices[track])) {
-        // Part B fills in measured shares from captures.
-        slices[track][slice] = {
-          budget: ms,
-          share: budgets.scenarios[name].slices[track][slice],
-          measured: null,
+        const share = budgets.scenarios[name].slices[track][slice]
+        if (slice === 'headroom') continue
+        const measured = keys[`${name}:${track}:${slice}`]?.measured ?? null
+        if (measured === null) all = false
+        else used += measured
+        const measuredShare = measured !== null && frameMs ? r4(measured / frameMs) : null
+        const verdict =
+          measuredShare === null ? 'unmeasured' : measuredShare > share ? 'over' : 'pass'
+        slices[track][slice] = { budget: ms, share, measured, measuredShare, verdict }
+        if (verdict === 'over') overShares.push(`${name}:${track}:${slice}`)
+      }
+      if ('headroom' in s.slices[track]) {
+        const share = budgets.scenarios[name].slices[track].headroom
+        const left = frameMs && all ? Math.max(0, frameMs - used) : null
+        const measuredShare = left !== null ? r4(left / frameMs) : null
+        const verdict =
+          measuredShare === null ? 'unmeasured' : measuredShare < share ? 'over' : 'pass'
+        slices[track].headroom = {
+          budget: s.slices[track].headroom,
+          share,
+          measured: left,
+          measuredShare,
+          verdict,
         }
+        if (verdict === 'over') overShares.push(`${name}:${track}:headroom`)
       }
     }
-    scenarios[name] = { frame: s.frame, slices }
+    scenarios[name] = { frame, slices }
   }
   const over = Object.keys(keys).filter((k) => keys[k].verdict === 'over')
+  for (const id of overShares) if (!over.includes(id)) over.push(id)
   return {
     version: 1,
     date,

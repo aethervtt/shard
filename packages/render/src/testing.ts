@@ -13,6 +13,14 @@ import { Culler } from './culling'
 import type { CapturedImage } from './graph'
 import { captureView, Gpu, Shaders } from './plugin'
 
+export {
+  expectScenario,
+  measureScenario,
+  type ScenarioOptions,
+  type ScenarioRun,
+  type ScenarioSlice,
+} from './scenario'
+
 /** Renders frames until shaders and pipelines are compiled and nothing is skipped. */
 export async function settle(app: App, frames = 40): Promise<void> {
   const gpu = app.world.resource(Gpu)

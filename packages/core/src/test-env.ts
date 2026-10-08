@@ -67,6 +67,11 @@ export interface ResolvedBudgets {
   enforce: boolean
   spans: Record<string, ResolvedSpan>
   scenarios: Record<string, ResolvedScenario>
+  /**
+   * How the machine checks GPU slices (machines.json): per-pass timestamps, or ablation where
+   * passes overlap (tile-based GPUs). Absent outside `pnpm bench`.
+   */
+  passTiming?: 'ablation' | 'timestamps' | null
 }
 
 export interface BudgetOptions {
@@ -153,6 +158,25 @@ export interface BudgetCall extends ResolvedLimit {
   key: string
   opts: BudgetOptions
   used: boolean
+}
+
+/**
+ * A scenario's slice keys per track, `headroom` aside (0075): what a scenario test measures. Throws
+ * `perf/unknown-budget` for a scenario budgets.json lacks, in `pnpm test` too.
+ */
+export function scenarioSlices(name: string): Record<Track, string[]> {
+  const scenario = budgets()?.scenarios[name]
+  if (!scenario) throw unknownBudget(name)
+  const keys = (track: Track) => Object.keys(scenario.slices[track]).filter((k) => k !== 'headroom')
+  return { gpu: keys('gpu'), cpu: keys('cpu') }
+}
+
+/**
+ * How GPU slices are measured on this machine (0075): `'ablation'` under `pnpm bench` on a machine
+ * whose passes overlap (machines.json's `passTiming`), else `'timestamps'`.
+ */
+export function passTiming(): 'ablation' | 'timestamps' {
+  return timingMode === 'bench' && budgets()?.passTiming === 'ablation' ? 'ablation' : 'timestamps'
 }
 
 /**

@@ -111,6 +111,8 @@ export async function walkChecksum(characters = 4, seconds = 3): Promise<WalkRes
 
 export {
   capture,
+  EARTH_HEIGHT,
+  earthDescent,
   holes,
   type PlanetApp,
   type PlanetOptions,

@@ -29,7 +29,7 @@ import {
   TransformPlugin,
 } from '@aethervtt/shard-transform'
 import { Planet, TerrainBudget } from './components'
-import { Terrain } from './heights'
+import { heightAt, Terrain } from './heights'
 import type { PlanetRuntime } from './planet'
 import { terrainPlugin } from './plugin'
 import type { renderOf } from './render'
@@ -46,6 +46,8 @@ export interface PlanetOptions {
   errorPixels?: number
   /** MSAA samples (default 1). */
   msaa?: 1 | 4
+  /** A fixed render scale (0051): the view renders at it and is upscaled, as a window view is. */
+  renderScale?: number
   /** Planet.vertexPixels (default: the component's). */
   vertexPixels?: number
   minSpacing?: number
@@ -75,7 +77,13 @@ export interface PlanetApp {
 export async function planetApp(gpu: GpuContext | undefined, o: PlanetOptions): Promise<PlanetApp> {
   const app = new App().addPlugin(TransformPlugin)
   if (gpu)
-    app.addPlugin(renderPlugin({ gpu, windowView: false }), forwardPlugin({ msaa: o.msaa ?? 1 }))
+    app.addPlugin(
+      renderPlugin({ gpu, windowView: false }),
+      forwardPlugin({
+        msaa: o.msaa ?? 1,
+        ...(o.renderScale ? { renderScale: { mode: 'fixed', scale: o.renderScale } } : {}),
+      }),
+    )
   if (o.physics) app.addPlugin(physics3dPlugin())
   app.addPlugin(terrainPlugin(), ...(o.extra ?? []))
   await app.init()
@@ -114,6 +122,7 @@ export async function planetApp(gpu: GpuContext | undefined, o: PlanetOptions): 
       width: o.width ?? 96,
       height: o.heightPx ?? 64,
       pixelRatio: o.pixelRatio ?? 1,
+      renderScale: o.renderScale !== undefined,
     })
     const targetRef = world.resource(RenderTargets).add(target, 'terrain-test')
     camera = world.spawn(
@@ -259,4 +268,45 @@ export function holes(
     }
   }
   return count
+}
+
+/**
+ * 0043's Earth descent (the bench's `terrain/descent-frame` and 0075's `planet-descent` scenario):
+ * the height graph of an Earth-sized planet with 3 km of relief.
+ */
+export const EARTH_HEIGHT = {
+  output: 'h',
+  nodes: {
+    continents: { fbm: { source: 'simplex', octaves: 7, frequency: 3e-6, seed: 1 } },
+    ridges: { ridged: { source: 'simplex', octaves: 8, frequency: 3e-4, seed: 2 } },
+    h: { add: ['continents', { multiply: ['ridges', 0.15] }] },
+  },
+}
+
+/**
+ * The Earth descent's camera path: from 40 000 km to 2 m over `frames` frames, exponentially,
+ * looking at the ground ahead. `look(f)` places the camera at frame `f` (held at 2 m after).
+ */
+export function earthDescent(
+  p: PlanetApp,
+  radius: number,
+  frames: number,
+): { look(frame: number): void } {
+  const rt = p.runtime()
+  const n = [0.3, 0.9, 0.3].map((v, _, a) => v / Math.hypot(a[0]!, a[1]!, a[2]!))
+  const east = [n[2]!, 0, -n[0]!].map((v, _, a) => v / Math.hypot(a[0]!, a[1]!, a[2]!))
+  const ground = Math.max(0, heightAt(rt, n[0]!, n[1]!, n[2]!))
+  const ratio = (2 / 4e7) ** (1 / frames)
+  return {
+    look(frame: number) {
+      const altitude = 4e7 * ratio ** Math.min(frame, frames)
+      const eye = n.map((v) => v * (radius + ground + altitude))
+      const ahead = Math.min(altitude * 1.2, radius * 0.5)
+      placeCamera(
+        p,
+        eye,
+        n.map((v, k) => v * (radius + ground) + east[k]! * ahead),
+      )
+    },
+  }
 }

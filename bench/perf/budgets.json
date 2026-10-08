@@ -99,7 +99,7 @@
       "kind": "target",
       "laptop": 19,
       "desktop": 3,
-      "note": "0045: 2.2M grass blades in view within 60 m at 960×540, GPU frame with the layer minus without (median). 3 ms is 0045's number, not measured on the desktop. The laptop measured about 18 ms (2026-10-07): about half vertex work (12M vertices through the material's hooks) and half shading on overlapping blades; it was 70 ms before LODs and nearest-cascade shadows. Leads: compute each visible instance's transform once in the cull pass, and a simpler material for the farthest level. Part B replaces this with foliage adapting to its scatter-walk slice. scatter/src/bench.test.ts."
+      "note": "0045: 2.2M grass blades in view within 60 m at 960×540, GPU frame with the layer minus without (median). 3 ms is 0045's number, not measured on the desktop. The laptop measured about 18 ms (2026-10-07): about half vertex work (12M vertices through the material's hooks) and half shading on overlapping blades; it was 70 ms before LODs and nearest-cascade shadows. Leads: compute each visible instance's transform once in the cull pass, and a simpler material for the farthest level. Full density with no target: the regression measure. In an app, foliage now adapts to its scatter-walk slice instead (FoliageBudget, 0075 part B; scatter/src/scenario.test.ts). scatter/src/bench.test.ts."
     },
     "mirror/sync": {
       "kind": "target",
@@ -420,21 +420,21 @@
       },
       "slices": {
         "gpu": {
-          "gpu:forward-opaque": 0.3,
+          "gpu:forward-opaque": 0.35,
+          "gpu:foliage": 0.15,
           "gpu:shadows": 0.15,
-          "gpu:terrain": 0.12,
-          "gpu:foliage": 0.12,
-          "gpu:post": 0.12,
-          "headroom": 0.19
+          "gpu:tonemap": 0.05,
+          "headroom": 0.3
         },
         "cpu": {
-          "render": 0.15,
-          "terrain": 0.15,
-          "scatter": 0.15,
-          "headroom": 0.55
+          "render": 0.3,
+          "scatter": 0.1,
+          "terrain/select": 0.1,
+          "terrain/planets": 0.05,
+          "headroom": 0.45
         }
       },
-      "note": "Placeholder split from spec 0075. Part B sets it from ablation and capture measurements, in the change that records them."
+      "note": "Proposed split, awaiting measurement on both machines (spec 0075 sets splits from measurements). Keys cover the spans the walk records (scatter/src/scenario.test.ts), none twice. GPU: gpu:forward-opaque (terrain, rocks, bushes and trees draw there), gpu:foliage (foliage/place, /cull and its own /draw pass; FoliageBudget's default target), gpu:shadows (cascade0-3), gpu:tonemap; terrain/generate (the old gpu:terrain, only while chunks generate), instance-cull and light-clusters fall in headroom. CPU: render (every render system and render/<node> encode, terrain/encode included), scatter (scatter/props), terrain/select, terrain/planets."
     },
     "planet-descent": {
       "what": "0043's Earth descent",
@@ -453,13 +453,19 @@
       },
       "slices": {
         "gpu": {
-          "headroom": 1
+          "gpu:forward-opaque": 0.45,
+          "gpu:terrain": 0.15,
+          "gpu:tonemap": 0.05,
+          "headroom": 0.35
         },
         "cpu": {
-          "headroom": 1
+          "render": 0.35,
+          "terrain/select": 0.1,
+          "terrain/planets": 0.05,
+          "headroom": 0.5
         }
       },
-      "note": "Placeholder: not split yet. Part B measures it and sets the split."
+      "note": "Proposed split, awaiting measurement on both machines (spec 0075 sets splits from measurements). Keys cover the spans the descent records (terrain/src/scenario.test.ts), none twice. GPU: gpu:forward-opaque (the terrain draws), gpu:terrain (terrain/generate), gpu:tonemap; instance-cull and light-clusters fall in headroom. CPU: render (render systems and node encodes, terrain/encode included), terrain/select, terrain/planets."
     },
     "crowd": {
       "what": "0022's 200k instances",
@@ -478,13 +484,18 @@
       },
       "slices": {
         "gpu": {
-          "headroom": 1
+          "gpu:forward-opaque": 0.4,
+          "gpu:shadows": 0.3,
+          "gpu:instance-cull": 0.05,
+          "gpu:tonemap": 0.05,
+          "headroom": 0.2
         },
         "cpu": {
-          "headroom": 1
+          "render": 0.3,
+          "headroom": 0.7
         }
       },
-      "note": "Placeholder: not split yet. Part B measures it and sets the split."
+      "note": "Proposed split, awaiting measurement on both machines (spec 0075 sets splits from measurements). Keys cover the spans the turntable records (render/src/crowd.test.ts), none twice. GPU: gpu:forward-opaque, gpu:shadows (cascade0-3), gpu:instance-cull (0022's cull pass), gpu:tonemap; light-clusters falls in headroom. CPU: render (render systems and node encodes; 0022 measured 0.08 ms of preparation on the laptop)."
     },
     "tabletop-max": {
       "what": "0055's max structure fixture",
@@ -503,13 +514,19 @@
       },
       "slices": {
         "gpu": {
-          "headroom": 1
+          "gpu:forward-opaque": 0.35,
+          "gpu:forward-transparent": 0.1,
+          "gpu:shadows": 0.2,
+          "gpu:tonemap": 0.05,
+          "headroom": 0.3
         },
         "cpu": {
-          "headroom": 1
+          "render": 0.3,
+          "structure": 0.15,
+          "headroom": 0.55
         }
       },
-      "note": "Placeholder: not split yet. Part B measures it and sets the split."
+      "note": "Proposed split, awaiting measurement on both machines (spec 0075 sets splits from measurements). Keys cover the spans the pan records (structure/src/scenario.test.ts), none twice. GPU: gpu:forward-opaque (walls, floors, props), gpu:forward-transparent (windows), gpu:shadows (cascade0-3), gpu:tonemap; instance-cull and light-clusters fall in headroom. CPU: render (render systems and node encodes), structure (structure/compile, structure/doors)."
     }
   }
 }

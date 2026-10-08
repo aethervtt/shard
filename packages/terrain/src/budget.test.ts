@@ -5,9 +5,8 @@ import { loadNoiseKernel, NoiseGraph } from '@aethervtt/shard-noise'
 import { Gpu } from '@aethervtt/shard-render'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { TerrainBudget } from './components'
-import { heightAt } from './heights'
 import type { PlanetRender } from './render'
-import { placeCamera, planetApp, settleTerrain } from './test-planet'
+import { EARTH_HEIGHT, earthDescent, planetApp, settleTerrain } from './test-planet'
 
 let gpu: GpuContext
 let terrain: NoiseGraph
@@ -15,14 +14,7 @@ let terrain: NoiseGraph
 beforeAll(async () => {
   gpu = await createNodeGpuContext()
   await loadNoiseKernel()
-  terrain = await NoiseGraph.create({
-    output: 'h',
-    nodes: {
-      continents: { fbm: { source: 'simplex', octaves: 7, frequency: 3e-6, seed: 1 } },
-      ridges: { ridged: { source: 'simplex', octaves: 8, frequency: 3e-4, seed: 2 } },
-      h: { add: ['continents', { multiply: ['ridges', 0.15] }] },
-    },
-  })
+  terrain = await NoiseGraph.create(EARTH_HEIGHT)
 })
 
 // Descents submit frames faster than a software GPU runs them: wait for the queue before destroying.
@@ -49,37 +41,23 @@ describe('terrain budget (spec 0043)', () => {
     const w = p.world
     const rt = p.runtime()
     const limits = w.resource(TerrainBudget)
-    const n = [0.3, 0.9, 0.3].map((v, _, a) => v / Math.hypot(a[0]!, a[1]!, a[2]!))
-    const east = [n[2]!, 0, -n[0]!].map((v, _, a) => v / Math.hypot(a[0]!, a[1]!, a[2]!))
-    const ground = Math.max(0, heightAt(rt, n[0]!, n[1]!, n[2]!))
     // 40 000 km to 2 m in 30 s: exponential, looking at the ground ahead. Outside the bench only the
     // budget's limits are checked, and a 10 s descent reaches them as surely (it's 35 minutes of
     // WARP on CI's Windows runners at 30 s).
     const FRAMES = timingMode === 'bench' ? 1800 : 600
-    const ratio = (2 / 4e7) ** (1 / FRAMES)
+    const descent = earthDescent(p, R, FRAMES)
     const times: number[] = []
     const cpu: number[] = []
     const gpuTimes: number[] = []
     let jobs = 0
     let most = 0
-    let altitude = 4e7
-    const look = () => {
-      const eye = n.map((v) => v * (R + ground + altitude))
-      const ahead = Math.min(altitude * 1.2, R * 0.5)
-      placeCamera(
-        p,
-        eye,
-        n.map((v, k) => v * (R + ground) + east[k]! * ahead),
-      )
-    }
     // Start from a loaded planet. Kernels compile asynchronously, and frames here are faster
     // than the compile: without this, generation began ~1,400 frames in, and under a loaded
     // suite (or a slow shader compiler) not at all.
-    look()
+    descent.look(0)
     await settleTerrain(p)
     for (let f = 0; f < FRAMES + 120; f++) {
-      if (f < FRAMES) altitude *= ratio
-      look()
+      descent.look(f + 1)
       // CPU: the update; GPU: submit to done (the queue is idle when the frame starts). A real
       // frame loop overlaps them, so a frame takes the longer of the two.
       const t0 = performance.now()

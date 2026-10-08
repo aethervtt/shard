@@ -62,7 +62,10 @@ export async function prepare({ env = process.env, cpu = cpus()[0]?.model, adapt
   }
   const info = adapter === undefined ? await adapterInfo(env) : adapter
   const detection = detectMachine(machines, { cpu, adapter: info, override: env.SHARD_MACHINE })
-  const resolved = resolveBudgets(budgets, detection.machine, { closest: detection.closest })
+  const resolved = resolveBudgets(budgets, detection.machine, {
+    closest: detection.closest,
+    machines,
+  })
   return {
     machines,
     budgets,
@@ -159,7 +162,13 @@ async function main() {
   )
   for (const key of report.over) {
     const k = report.keys[key]
-    console.log(`  over: ${key}  measured ${k.measured}, limit ${k.limit}`)
+    if (k?.verdict === 'over')
+      console.log(`  over: ${key}  measured ${k.measured}, limit ${k.limit}`)
+    else {
+      const [name, track, slice] = key.split(':')
+      const sl = report.scenarios[name]?.slices[track]?.[slice]
+      if (sl) console.log(`  over: ${key}  ${sl.measuredShare} of the frame, budget ${sl.share}`)
+    }
   }
   for (const r of report.ratchet ?? []) {
     console.log(`  ratchet: ${r.key} on ${r.machine}: ${r.from} → ${r.to} (measured ${r.measured})`)

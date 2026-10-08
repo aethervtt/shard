@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { budget, type ResolvedBudgets, resolveLimit, slack, timingMode } from './test-env'
+import {
+  budget,
+  passTiming,
+  type ResolvedBudgets,
+  resolveLimit,
+  scenarioSlices,
+  slack,
+  timingMode,
+} from './test-env'
 
 const RESOLVED: ResolvedBudgets = {
   machine: 'laptop',
@@ -63,6 +71,18 @@ describe('budget() (0075)', () => {
     expect(() => budget('mirror/snyc')).toThrow(
       expect.objectContaining({ code: 'perf/unknown-budget' }),
     )
+  })
+
+  it("lists a scenario's slice keys per track, headroom aside (scenario tests measure them)", () => {
+    const slices = scenarioSlices('scatter-walk')
+    expect(slices.gpu).toContain('gpu:foliage')
+    expect(slices.gpu).not.toContain('headroom')
+    expect(slices.cpu).toContain('render')
+    expect(() => scenarioSlices('scatter-wlak')).toThrow(
+      expect.objectContaining({ code: 'perf/unknown-budget' }),
+    )
+    // Ablation measures GPU slices only under pnpm bench, on a machine whose passes overlap.
+    if (timingMode !== 'bench') expect(passTiming()).toBe('timestamps')
   })
 
   it('keeps budget(ms) working', () => {
