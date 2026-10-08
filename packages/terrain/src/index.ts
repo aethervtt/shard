@@ -77,10 +77,12 @@ export {
   bakeTerrain,
   blockKeys,
   type OutOfRange,
+  packHash,
   readManifest,
   type TerrainStats,
   terrainStats,
 } from './heightfield/bake'
+export { Terrain, TerrainChunk } from './heightfield/component'
 export {
   decodeHeightPng,
   type Heightmap,
@@ -99,6 +101,7 @@ export {
   SIDE,
   type Stack,
 } from './heightfield/kernel'
+export { TerrainSurfaceMaterial } from './heightfield/material'
 export {
   fsPackStore,
   memoryPackStore,
@@ -118,6 +121,8 @@ export {
   stackFor,
   terrainCacheDir,
 } from './heightfield/project'
+export { HeightfieldDebug, type HeightfieldRender } from './heightfield/render'
+export { HeightfieldRuntime } from './heightfield/runtime'
 export {
   MAX_MATERIAL_LAYERS,
   parseTerrainSource,

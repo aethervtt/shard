@@ -644,3 +644,22 @@ export async function terrainStats(
     slowestBlockMs: times.length > 0 ? Math.max(...times) : 0,
   }
 }
+
+/**
+ * SHA-256 over every pack (path and bytes, sorted by path; not the manifest, which records
+ * timings): equal hashes mean byte-identical bakes, as Node's and Chrome's must be (0071).
+ */
+export async function packHash(files: ReadonlyMap<string, Uint8Array>): Promise<string> {
+  const paths = [...files.keys()].filter((p) => p !== MANIFEST).sort()
+  let size = 0
+  for (const p of paths) size += p.length + files.get(p)!.length
+  const all = new Uint8Array(size)
+  let o = 0
+  for (const p of paths) {
+    all.set(encoder.encode(p), o)
+    o += p.length
+    all.set(files.get(p)!, o)
+    o += files.get(p)!.length
+  }
+  return sha256Hex(all)
+}

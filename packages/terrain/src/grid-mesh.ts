@@ -39,13 +39,20 @@ const sets = new Map<string, Uint16Array>()
  *
  * Quads fill the interior; each edge's strip (between the border and the first inner row) is
  * zipped per half, so no triangle crosses a quadrant boundary. Skirts follow the drawn border.
+ *
+ * `diagonal: 'anti'` (heightfields, 0071) splits every quad along (i+1, j)–(i, j+1), Rapier's
+ * heightfield split, border cells included: only a stitched edge's strip is zipped. What's drawn is
+ * then exactly the collider's triangles wherever no edge is stitched. Its triangles face +Y with
+ * i along +X and j along +Z (clockwise in (i, j)).
  */
 export function chunkIndices(
   n: number,
   mask: number,
   stitch: number,
   skirts: boolean,
+  diagonal: 'main' | 'anti' = 'main',
 ): Uint16Array {
+  if (diagonal === 'anti') return antiIndices(n, mask, stitch, skirts)
   const key = `${n}:${mask}:${stitch}:${skirts}`
   let out = sets.get(key)
   if (out) return out
@@ -122,6 +129,105 @@ export function chunkIndices(
     }
   }
   for (const v of skirt) parts.push(v)
+  out = Uint16Array.from(parts)
+  sets.set(key, out)
+  return out
+}
+
+/** `chunkIndices` with every quad split along its anti-diagonal (heightfields). */
+function antiIndices(n: number, mask: number, stitch: number, skirts: boolean): Uint16Array {
+  const key = `${n}:${mask}:${stitch}:${skirts}:anti`
+  let out = sets.get(key)
+  if (out) return out
+  const layout = chunkLayout(n)
+  const index = layout.index
+  const side = n - 1
+  const h = side / 2
+  const parts: number[] = []
+  const quadrant = (i: number, j: number) => (i >= h ? 1 : 0) + (j >= h ? 2 : 0)
+  const stitched = (e: number) => (stitch & (1 << e)) !== 0
+  // Every cell not in a stitched edge's strip: a quad split along (i+1, j)–(i, j+1).
+  for (let j = 0; j < side; j++) {
+    for (let i = 0; i < side; i++) {
+      if (
+        (j === 0 && stitched(0)) ||
+        (i === side - 1 && stitched(1)) ||
+        (j === side - 1 && stitched(2)) ||
+        (i === 0 && stitched(3))
+      )
+        continue
+      if (!(mask & (1 << quadrant(i, j)))) continue
+      const a = index[i + j * n]!
+      const b = index[i + 1 + j * n]!
+      const c = index[i + 1 + (j + 1) * n]!
+      const d = index[i + (j + 1) * n]!
+      parts.push(a, b, d, b, c, d)
+    }
+  }
+  const at = (e: number, s: number, depth: number) => {
+    const i = e === 0 ? s : e === 1 ? side - depth : e === 2 ? side - s : depth
+    const j = e === 0 ? depth : e === 1 ? s : e === 2 ? side - depth : side - s
+    return index[i + j * n]!
+  }
+  const skirt: number[] = []
+  const outer: number[] = []
+  const inner: number[] = []
+  for (let e = 0; e < 4; e++) {
+    const step = stitched(e) ? 2 : 1
+    // Where a stitched strip's inner row starts and ends: at the corner, unless the edge before
+    // (or after) is stitched too, when the two strips share the corner cell along its diagonal.
+    const lo = stitched((e + 3) % 4) ? 1 : 0
+    const hi = stitched((e + 1) % 4) ? side - 1 : side
+    for (let half = 0; half < 2; half++) {
+      const s0 = half * h
+      const s1 = s0 + h
+      const m = s0 + h / 2
+      const q =
+        e === 0
+          ? quadrant(m, 0)
+          : e === 1
+            ? quadrant(side, m)
+            : e === 2
+              ? quadrant(side - m, side)
+              : quadrant(0, side - m)
+      if (!(mask & (1 << q))) continue
+      outer.length = 0
+      for (let s = s0; s <= s1; s += step) outer.push(s)
+      if (stitched(e)) {
+        inner.length = 0
+        for (let s = Math.max(lo, s0); s <= Math.min(hi, s1); s++) inner.push(s)
+        let a = 0
+        let b = 0
+        while (a < outer.length - 1 || b < inner.length - 1) {
+          const advanceOuter =
+            b === inner.length - 1 || (a < outer.length - 1 && outer[a + 1]! <= inner[b + 1]!)
+          if (advanceOuter) {
+            parts.push(at(e, outer[a]!, 0), at(e, outer[a + 1]!, 0), at(e, inner[b]!, 1))
+            a++
+          } else {
+            parts.push(at(e, outer[a]!, 0), at(e, inner[b + 1]!, 1), at(e, inner[b]!, 1))
+            b++
+          }
+        }
+      }
+      if (!skirts) continue
+      for (let k = 0; k + 1 < outer.length; k++) {
+        const va = at(e, outer[k]!, 0)
+        const vb = at(e, outer[k + 1]!, 0)
+        const sa = layout.surface + va
+        const sb = layout.surface + vb
+        skirt.push(va, sa, vb, vb, sa, sb, va, vb, sa, vb, sb, sa)
+      }
+    }
+  }
+  for (const v of skirt) parts.push(v)
+  // Grid i, j run along a heightfield's +X and +Z: front faces turn counter-clockwise seen from
+  // +Y, which is clockwise in (i, j).
+  for (let t = 0; t < parts.length; t += 3) {
+    const b = parts[t + 1]!
+    parts[t + 1] = parts[t + 2]!
+    parts[t + 2] = b
+  }
   out = Uint16Array.from(parts)
   sets.set(key, out)
   return out

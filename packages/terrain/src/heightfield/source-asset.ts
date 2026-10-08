@@ -340,6 +340,15 @@ export function terrainJsonSchema(): Record<string, unknown> {
               type: 'boolean',
               description: 'Projected from three axes where the slope passes 45° (rock on cliffs).',
             },
+            tint: {
+              type: 'array',
+              items: { type: 'number' },
+              minItems: 3,
+              maxItems: 3,
+              description:
+                'Linear RGB multiplying the albedo, and the whole color when the terrain has no texture arrays (default: a palette by index: grass, rock, gravel, sand, snow…).',
+              examples: [[0.16, 0.3, 0.08]],
+            },
           },
           required: ['name'],
           additionalProperties: false,

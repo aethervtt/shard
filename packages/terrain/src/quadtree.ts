@@ -19,7 +19,11 @@ export interface QuadSurface {
   readonly roots: number
   /** The tree grew to `capacity` nodes: per-node data the surface keeps grows with it. */
   grow(capacity: number): void
-  /** Sets up a new node's geometry; the tree has filled its root, depth, x and y. */
+  /**
+   * Sets up a new node's geometry; the tree has filled its root, depth, x, y and a height range
+   * (its parent's, or the tree's). A surface that knows the node's range (or that it's ready) may
+   * set it here, with its flags.
+   */
   initNode(tree: QuadTree, n: number): void
   /** The node's bounding sphere at its height range, into `tree.sphere`. */
   updateSphere(tree: QuadTree, n: number): void
@@ -175,8 +179,8 @@ export class QuadTree {
     this.gen[n] = 0
     this.mask[n] = 15
     this.locks.fill(-1, n * 4, n * 4 + 4)
-    this.surface.initNode(this, n)
-    // Children start from their parent's known range, else the surface's.
+    // Children start from their parent's known range, else the surface's; the surface may know
+    // better (a baked page's range) and say so in initNode.
     if (parent !== NONE && this.flags[parent]! & NODE_BOUNDS) {
       this.minH[n] = this.minH[parent]!
       this.maxH[n] = this.maxH[parent]!
@@ -184,6 +188,7 @@ export class QuadTree {
       this.minH[n] = this.lowest
       this.maxH[n] = this.highest
     }
+    this.surface.initNode(this, n)
     this.surface.updateSphere(this, n)
   }
 

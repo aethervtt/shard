@@ -149,16 +149,22 @@ export interface TerrainBudgetValue {
   pool: number
   /** Collider chunks cached per planet. */
   colliderCache: number
+  /** Heightfields (0071): GPU page pool slots per terrain (about 22 KB each). */
+  pages: number
+  /** Heightfields: pages uploaded to the pool per frame, at most. */
+  pagesPerFrame: number
 }
 
 export const TerrainBudget = defineResource<TerrainBudgetValue>('terrain/Budget', {
   description:
-    'How much terrain work a frame may do: chunk generations, GPU milliseconds, and how many chunks stay cached.',
+    'How much terrain work a frame may do: chunk generations, GPU milliseconds, page uploads, and how many chunks and pages stay cached.',
   init: () => ({
     chunksPerFrame: 8,
     triangles: 2_000_000,
     msPerFrame: 1.5,
     pool: 2048,
     colliderCache: 256,
+    pages: 1024,
+    pagesPerFrame: 16,
   }),
 })

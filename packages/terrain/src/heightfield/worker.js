@@ -12,7 +12,7 @@ const kernels = new Map()
 function noiseFor(url, module) {
   let k = kernels.get(url)
   if (!k) {
-    k = import(url).then((m) => ({
+    k = import(/* @vite-ignore */ url).then((m) => ({
       state: m.instantiate(module),
       computeOrigins: m.computeOrigins,
       evalProgram: m.evalProgram,

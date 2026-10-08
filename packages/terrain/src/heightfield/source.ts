@@ -76,7 +76,21 @@ export interface SourceMaterialLayer {
   scale: number
   /** Projected from three axes where the slope passes 45° (cliffs). */
   triplanar: boolean
+  /** Linear RGB multiplying the albedo; the whole color without texture arrays. */
+  tint: [number, number, number]
 }
+
+/** Tints for layers that don't set one, by index: grass, rock, gravel, sand, snow, soil, … */
+export const LAYER_TINTS: [number, number, number][] = [
+  [0.16, 0.3, 0.08],
+  [0.32, 0.3, 0.28],
+  [0.45, 0.4, 0.33],
+  [0.7, 0.62, 0.42],
+  [0.9, 0.92, 0.95],
+  [0.25, 0.17, 0.1],
+  [0.12, 0.2, 0.12],
+  [0.5, 0.25, 0.15],
+]
 
 export interface SourcePaint {
   /** Material layer name. */
@@ -347,12 +361,23 @@ export function parseTerrainSource(json: unknown): TerrainSource {
   const layers = layerList.map((value, i): SourceMaterialLayer => {
     const path = pointer('/layers', i)
     if (!isPlainObject(value)) throw shape(path, 'A material layer is an object')
-    known(value, ['name', 'albedo', 'normal', 'orm', 'scale', 'triplanar'], path)
+    known(value, ['name', 'albedo', 'normal', 'orm', 'scale', 'triplanar', 'tint'], path)
     if (typeof value.name !== 'string' || value.name === '')
       throw shape(pointer(path, 'name'), 'A material layer needs a name')
     const albedo = opt(value.albedo, i, pointer(path, 'albedo'), 'albedo')
     const scale = opt(value.scale, 4, pointer(path, 'scale'), 'scale')
     if (!(scale > 0)) throw shape(pointer(path, 'scale'), 'scale must be positive')
+    let tint = LAYER_TINTS[i % LAYER_TINTS.length]!
+    if (value.tint !== undefined) {
+      const tp = pointer(path, 'tint')
+      if (!Array.isArray(value.tint) || value.tint.length !== 3)
+        throw shape(tp, 'tint is [r, g, b], linear, 0–1')
+      tint = [
+        num(value.tint[0], tp, 'tint'),
+        num(value.tint[1], tp, 'tint'),
+        num(value.tint[2], tp, 'tint'),
+      ]
+    }
     return {
       name: value.name,
       albedo,
@@ -360,6 +385,7 @@ export function parseTerrainSource(json: unknown): TerrainSource {
       orm: opt(value.orm, albedo, pointer(path, 'orm'), 'orm'),
       scale,
       triplanar: value.triplanar === true,
+      tint,
     }
   })
   const names = new Map(layers.map((l, i) => [l.name, i]))

@@ -110,6 +110,19 @@ export async function walkChecksum(characters = 4, seconds = 3): Promise<WalkRes
 }
 
 export {
+  capture as captureHeightfield,
+  type HeightfieldApp,
+  type HeightfieldOptions,
+  heightfieldApp,
+  holes as heightfieldHoles,
+  lookAt as lookAtTerrain,
+  settleHeightfield,
+  sourceAsset,
+  untilStreaming,
+  VALLEY_HILLS,
+  valleySource,
+} from './heightfield/testing'
+export {
   capture,
   EARTH_HEIGHT,
   earthDescent,
