@@ -141,7 +141,7 @@ describe('heightfield LOD (spec 0071)', () => {
         fovY: FOV,
         vertexPixels: 0,
         // Coarse on purpose: an unmorphed split would jump several pixels.
-        errorPixels: 8,
+        errorPixels: 4,
       })
       p.world.resource(TerrainBudget).triangles = 0
       await untilStreaming(p)

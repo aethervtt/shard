@@ -35,7 +35,7 @@ import { chunkIndices, chunkLayout } from '../grid-mesh'
 import { TerrainWorld } from '../heights'
 import { adaptLodBias } from '../lod'
 import { TEXTURE_PERIOD } from '../material'
-import { NODE_READY, type SelectionParams, selectNodes } from '../quadtree'
+import { NODE_READY, nearAnchor, type SelectionParams, selectNodes } from '../quadtree'
 import { pickCamera } from '../render'
 import { createView, perspectiveView } from '../view'
 import { TerrainChunk } from './component'
@@ -552,7 +552,13 @@ function setShown(world: World, c: ChunkEntity, shown: boolean): void {
  * table. A chunk that replaces its parent starts at its parent's shape (fade 1) and eases to its
  * own, so a late split slides instead of popping.
  */
-function showSelected(world: World, rt: HeightfieldRuntime, r: HeightfieldRender, frame: number) {
+function showSelected(
+  world: World,
+  rt: HeightfieldRuntime,
+  r: HeightfieldRender,
+  frame: number,
+  params: SelectionParams,
+) {
   const dt = world.tryResource(Time)?.delta ?? 1 / 60
   const tree = rt.tree
   const sel = rt.selection
@@ -610,16 +616,19 @@ function showSelected(world: World, rt: HeightfieldRuntime, r: HeightfieldRender
     c.fade = fade
     const o = slot * 4
     const fb = Math.round(fade * 255)
+    // A leaf near an anchor draws exactly its collider: its distance morph is off (bit 7).
+    const anchored = depth === rt.layout!.depth && nearAnchor(tree, n, params) ? 128 : 0
+    const db = depth | anchored
     if (
       r.table[o] !== bits ||
       r.table[o + 1] !== mask ||
       r.table[o + 2] !== fb ||
-      r.table[o + 3] !== depth
+      r.table[o + 3] !== db
     ) {
       r.table[o] = bits
       r.table[o + 1] = mask
       r.table[o + 2] = fb
-      r.table[o + 3] = depth
+      r.table[o + 3] = db
       r.tableDirty = true
     }
   }
@@ -665,14 +674,15 @@ export const selectHeightfields = defineSystem({
       }
       r.hasCamera = true
       updateView(world, rt, r, picked.entity)
-      selectNodes(rt.tree, r.view, selectionParams(rt), frame, rt.selection)
+      const params = selectionParams(rt)
+      selectNodes(rt.tree, r.view, params, frame, rt.selection)
       rt.lodBias = adaptLodBias(
         rt.lodBias,
         rt.selection.renderedCount * CHUNK_TRIANGLES,
         budget.triangles,
       )
       requestPages(rt, r)
-      showSelected(world, rt, r, frame)
+      showSelected(world, rt, r, frame, params)
       writeTable(world, r)
       if (frame % 120 === 0) {
         rt.tree.prune(frame - 600, (n: number) => {

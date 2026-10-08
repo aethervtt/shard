@@ -8,6 +8,7 @@ import * as biomesModule from './biomes'
 import { anchorQueries, clearColliders, gatherAnchors, updateColliders } from './colliders'
 import * as componentsModule from './components'
 import { Planet, TerrainBudget } from './components'
+import { clearHeightfieldColliders } from './heightfield/colliders'
 import * as heightfieldComponentModule from './heightfield/component'
 import { Terrain } from './heightfield/component'
 import * as heightmapModule from './heightfield/heightmap'
@@ -126,6 +127,7 @@ export function terrainPlugin(options: TerrainPluginOptions = {}): Plugin {
         const rt = world.resource(TerrainWorld).heightfields.get(entity)
         if (!rt) return
         for (const cleanup of heightfieldCleanups) cleanup(world, rt)
+        clearHeightfieldColliders(world, rt)
         cleanupHeightfieldRender(world, rt)
         world.resource(TerrainWorld).heightfields.delete(entity)
       })

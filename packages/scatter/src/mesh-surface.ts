@@ -210,7 +210,7 @@ const point = new Float32Array(3)
  * plane (in metres: the entity's uniform scale is applied), heights from vertical rays.
  */
 export class MeshSurface implements Surface {
-  readonly kind = 'mesh'
+  readonly kind: 'mesh' | 'heightfield' = 'mesh'
   readonly entity: Entity
   rules: CompiledRule[] = []
   masks: (NoiseGraph | undefined)[] = []

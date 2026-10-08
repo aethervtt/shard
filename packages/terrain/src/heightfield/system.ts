@@ -11,8 +11,9 @@ import {
 import type { App } from '@aethervtt/shard-runtime'
 import { GlobalTransform } from '@aethervtt/shard-transform'
 import { type AnchorQueries, anchorQueries } from '../colliders'
-import { TerrainAnchor } from '../components'
+import { TerrainAnchor, TerrainBudget } from '../components'
 import { TerrainWorld } from '../heights'
+import { updateHeightfieldColliders } from './colliders'
 import { Terrain } from './component'
 import { HEIGHTFIELD_SHADERS } from './material'
 import { enqueueResident, type HeightfieldRender } from './render'
@@ -103,7 +104,7 @@ export const heightfieldUpdates: ((world: World, rt: HeightfieldRuntime, frame: 
 export const updateHeightfields = defineSystem({
   name: 'terrain/heightfields',
   description:
-    'Resolves each Terrain’s source, bakes its packs when missing or stale (on first use), loads its coarse levels, and gathers the anchors its colliders follow.',
+    'Resolves each Terrain’s source, bakes its packs when missing or stale (on first use), loads its coarse levels, and keeps heightfield collider tiles (fixed bodies) around characters, dynamic bodies, NavAgents and TerrainAnchors.',
   setup: (world) => ({
     terrains: world.query({ with: [Terrain] }),
     anchors: anchorQueries(world),
@@ -119,12 +120,14 @@ export const updateHeightfields = defineSystem({
       }
     }
     const env = { fs: state.fs, workers: state.workers }
+    const colliderCache = world.resource(TerrainBudget).colliderCache
     for (const rt of state.heightfields.values()) {
       if (!world.isAlive(rt.entity)) continue
       rt.refresh(world, env)
       rt.frame.update(world, rt.entity)
       if (!rt.ready) continue
       gatherHeightfieldAnchors(world, rt, s.anchors)
+      updateHeightfieldColliders(world, rt, frame, colliderCache)
       for (const update of heightfieldUpdates) update(world, rt, frame)
       // Once streaming, the coarse levels go to the GPU pool (the render side made).
       const r = rt.parts.get('render') as HeightfieldRender | undefined

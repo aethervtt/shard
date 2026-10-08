@@ -14,7 +14,7 @@ afterAll(() => workers.dispose())
  * The playground's #heightfield terrain (2 km at 0.5 m), baked here: the pack hash it pins is what
  * Chrome's bake prints on that page, so the two hosts write identical pack bytes (0071).
  */
-export const VALLEY_PACK_HASH = '0bf43d2057b24cdb'
+export const VALLEY_PACK_HASH = 'ec848bdc3cf63b92'
 
 describe('bake determinism (0071)', () => {
   it('bakes the valley terrain to the bytes Chrome bakes, twice the same', async () => {

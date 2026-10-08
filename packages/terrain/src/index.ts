@@ -82,6 +82,11 @@ export {
   type TerrainStats,
   terrainStats,
 } from './heightfield/bake'
+export {
+  type ColliderTile,
+  type TileSet,
+  tilesOf,
+} from './heightfield/colliders'
 export { Terrain, TerrainChunk } from './heightfield/component'
 export {
   decodeHeightPng,
@@ -121,6 +126,16 @@ export {
   stackFor,
   terrainCacheDir,
 } from './heightfield/project'
+export {
+  finestPage,
+  type HeightfieldSample,
+  heightfieldRuntime,
+  heightfieldSample,
+  loadTerrainRegion,
+  pageHeight,
+  type TerrainHeight,
+  terrainHeightAt,
+} from './heightfield/queries'
 export { HeightfieldDebug, type HeightfieldRender } from './heightfield/render'
 export { HeightfieldRuntime } from './heightfield/runtime'
 export {
@@ -144,6 +159,7 @@ export {
   terrainJsonSchema,
 } from './heightfield/source-asset'
 export { compileStack, mainNoise, type StackAssets } from './heightfield/stack'
+export { heightfieldUpdates, updateHeightfields } from './heightfield/system'
 export {
   heightAt,
   type PlanetSurface,

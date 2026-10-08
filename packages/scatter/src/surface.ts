@@ -57,12 +57,12 @@ export interface PlacementJob {
 
 /**
  * What placement needs from a surface: its frame, its chunk grid per rule, and its heights, normals
- * and masks at candidate points. Planets (0043) and meshes (`ScatterSurface`) implement it; 0071's
- * heightfield terrain will too.
+ * and masks at candidate points. Planets (0043), meshes (`ScatterSurface`) and heightfield terrains
+ * (0071, `Terrain.scatter`) implement it.
  */
 export interface Surface {
   readonly entity: Entity
-  readonly kind: 'planet' | 'mesh'
+  readonly kind: 'planet' | 'mesh' | 'heightfield'
   /** Bumps when anything placements depend on changes (rules, seed, heights). */
   readonly version: number
   readonly rules: readonly CompiledRule[]

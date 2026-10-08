@@ -16,7 +16,12 @@ import {
   TerrainSources,
   TerrainWorld,
 } from '@aethervtt/shard-terrain'
-import { sourceAsset, VALLEY_HILLS, valleySource } from '@aethervtt/shard-terrain/testing'
+import {
+  heightfieldWalk,
+  sourceAsset,
+  VALLEY_HILLS,
+  valleySource,
+} from '@aethervtt/shard-terrain/testing'
 import { FloatingOrigin, Grid, lookAt, placeInGrid, Transform } from '@aethervtt/shard-transform'
 import { hudExtras } from './hud'
 
@@ -29,7 +34,9 @@ import { hudExtras } from './hud'
  */
 
 /** The pack hash Node bakes for this terrain (packages/terrain heightfield/determinism.test.ts). */
-export const NODE_PACK_HASH = '0bf43d2057b24cdb'
+export const NODE_PACK_HASH = 'ec848bdc3cf63b92'
+/** What heightfieldWalk() prints in Node (packages/terrain heightfield/walk.test.ts). */
+export const NODE_WALK = '4e53476b'
 const SPEEDS = [0, 5, 20, 80, 300, 1000]
 
 interface Demo {
@@ -41,6 +48,7 @@ interface Demo {
   gear: number
   keys: Set<string>
   hash: string
+  walk: string
 }
 
 let demo: Demo | undefined
@@ -131,6 +139,7 @@ export const heightfieldDemoPlugin = definePlugin({
         `pages     ${r?.used ?? 0}/${budget.pages} in the pool, ${r?.stats.uploadedLastFrame ?? 0} uploaded, ${rt.pages?.pendingReads ?? 0} reading`,
         `bake      ${rt.lastBake ? `${rt.lastBake.blocks} blocks in ${Math.round(rt.lastBake.ms)} ms` : rt.bake}`,
         `packs     ${d.hash || 'hashing…'}`,
+        `walk      ${d.walk || 'running headless walk…'}`,
         'w/s speed  a/d turn  r/f pitch',
         `l lod ${o['terrain-lod'] ? 'on' : 'off'}  p pages ${o['terrain-pages'] ? 'on' : 'off'}`,
       ]
@@ -164,6 +173,7 @@ export const heightfieldDemoPlugin = definePlugin({
       gear: 3,
       keys: new Set(),
       hash: '',
+      walk: '',
     }
     placeInGrid(world, camera, terrain, demo.position)
     Object.assign(globalThis, { heightfield: demo })
@@ -180,6 +190,19 @@ export const heightfieldDemoPlugin = definePlugin({
         }
       })
     }, 250)
+    // The headless walk (its own app, no GPU): Chrome must print the checksum Node pins.
+    setTimeout(() => {
+      heightfieldWalk().then(
+        (r) => {
+          if (demo)
+            demo.walk = `${r.checksum} ${r.checksum === NODE_WALK ? '= Node ✓' : `≠ Node ${NODE_WALK} ✗`}`
+        },
+        (err) => {
+          console.error(err)
+          if (demo) demo.walk = 'failed'
+        },
+      )
+    }, 500)
     window.addEventListener('keydown', (e) => {
       const d = demo
       if (!d) return

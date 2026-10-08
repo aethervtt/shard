@@ -90,6 +90,8 @@ struct Chunk {
   mask: u32,
   fade: f32,
   depth: u32,
+  /** A leaf near an anchor: drawn exactly as its collider, no distance morph. */
+  anchored: bool,
   layer: i32,
   corner: vec2i,
 }
@@ -110,7 +112,9 @@ fn terrain_chunk() -> Chunk {
   c.locks = u32(t.r * 255.0 + 0.5);
   c.mask = u32(t.g * 255.0 + 0.5);
   c.fade = t.b;
-  c.depth = u32(t.a * 255.0 + 0.5);
+  let d = u32(t.a * 255.0 + 0.5);
+  c.depth = d & 127u;
+  c.anchored = d >= 128u;
   let cell = terrain_cell(slot);
   c.corner = cell.xy;
   c.layer = cell.z;
@@ -148,12 +152,13 @@ fn terrain_lock(i: i32, j: i32) -> i32 {
 
 /**
  * How far toward its parent level a vertex has morphed (0043's rules): by distance within the band
- * where the parent splits; overridden on edges by the chunk's locks (1 this level, 2 the parent's)
- * and on center lines where a partial parent meets a child; never less than the chunk's fade.
+ * where the parent splits (not at all on a leaf near an anchor: what's drawn there is the collider);
+ * overridden on edges by the chunk's locks (1 this level, 2 the parent's) and on center lines where
+ * a partial parent meets a child; never less than the chunk's fade.
  */
 fn terrain_morph(c: Chunk, i: i32, j: i32, local: vec3f) -> f32 {
   var t = 0.0;
-  let split = select(per_depth(${S}.errors0, ${S}.errors1, ${S}.errors2, c.depth) * ${S}.camera.w, 0.0, c.depth == 0u);
+  let split = select(per_depth(${S}.errors0, ${S}.errors1, ${S}.errors2, c.depth) * ${S}.camera.w, 0.0, c.depth == 0u || c.anchored);
   if (split > 0.0) {
     let d = distance(vertex_world(local), ${S}.camera.xyz);
     t = ${MORPH_WGSL};

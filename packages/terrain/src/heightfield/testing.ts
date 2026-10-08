@@ -3,10 +3,16 @@
  * memory from a source object, a camera placed in the terrain's frame, a loop that runs frames until
  * streaming settles, and hole detection against the sky color.
  */
-import { type Entity, quat, type World } from '@aethervtt/shard-core'
+import { type Entity, hash32, quat, type World } from '@aethervtt/shard-core'
 import type { GpuContext } from '@aethervtt/shard-gpu'
-import { type NoiseGraph, NoiseGraphs } from '@aethervtt/shard-noise'
-import { PhysicsConfig, physics3dPlugin } from '@aethervtt/shard-physics'
+import { loadNoiseKernel, NoiseGraph, NoiseGraphs } from '@aethervtt/shard-noise'
+import {
+  CharacterController,
+  CharacterIntent,
+  CharacterState,
+  PhysicsConfig,
+  physics3dPlugin,
+} from '@aethervtt/shard-physics'
 import type { Workers } from '@aethervtt/shard-platform'
 import {
   Camera3d,
@@ -28,20 +34,24 @@ import {
   placeInGrid,
   Transform,
   TransformPlugin,
+  worldPosition64,
 } from '@aethervtt/shard-transform'
 import { TerrainBudget } from '../components'
 import { lockCode } from '../grid-mesh'
 import { TerrainWorld } from '../heights'
 import { morphFactor } from '../lod'
 import { terrainPlugin } from '../plugin'
+import { tilesOf } from './colliders'
 import { Terrain } from './component'
 import { type Heightmap, Heightmaps } from './heightmap'
 import { dequantize, LEAF_SIDE, PAGE, SIDE } from './kernel'
 import { nodeKey } from './pages'
+import { pageHeight } from './queries'
 import type { HeightfieldRender } from './render'
 import type { HeightfieldRuntime } from './runtime'
 import { parseTerrainSource, terrainLayout } from './source'
 import { type SourceDependency, TerrainSourceAsset, TerrainSources } from './source-asset'
+import { mainNoise } from './stack'
 
 export interface HeightfieldOptions {
   /** A `*.terrain.json` object; asset paths name entries of `noise` and `heightmaps`. */
@@ -299,7 +309,7 @@ export function valleySource(size = 2048, spacing = 0.5) {
         },
       },
       height: [
-        { noise: { path: 'hills' }, scale: 120 },
+        { noise: { path: 'hills' }, scale: 80 },
         {
           image: { path: 'valley' },
           at: [size * 0.6, size * 0.45],
@@ -326,9 +336,9 @@ export function valleySource(size = 2048, spacing = 0.5) {
 export const VALLEY_HILLS = {
   output: 'h',
   nodes: {
-    base: { fbm: { source: 'simplex', octaves: 6, frequency: 0.0015, seed: 1 } },
-    ridges: { ridged: { source: 'simplex', octaves: 5, frequency: 0.006, seed: 2 } },
-    h: { add: ['base', { multiply: ['ridges', 0.3] }] },
+    base: { fbm: { source: 'simplex', octaves: 6, frequency: 0.0012, seed: 1 } },
+    ridges: { ridged: { source: 'simplex', octaves: 4, frequency: 0.005, seed: 2 } },
+    h: { add: ['base', { multiply: ['ridges', 0.12] }] },
   },
 }
 
@@ -336,7 +346,15 @@ export const VALLEY_HILLS = {
 export interface DrawnFrame {
   nodes: Map<
     number,
-    { depth: number; x: number; z: number; locks: number[]; mask: number; fade: number }
+    {
+      depth: number
+      x: number
+      z: number
+      locks: number[]
+      mask: number
+      fade: number
+      anchored: boolean
+    }
   >
   /** Camera position in the terrain's frame. */
   camera: number[]
@@ -362,6 +380,7 @@ export function snapshotDrawn(p: HeightfieldApp): DrawnFrame {
       locks: Array.from(t.locks.subarray(n * 4, n * 4 + 4)),
       mask: t.mask[n]!,
       fade: slot >= 0 ? r.table[slot * 4 + 2]! / 255 : 0,
+      anchored: slot >= 0 && r.table[slot * 4 + 3]! >= 128,
     })
   }
   return {
@@ -423,7 +442,7 @@ export function drawnHeightAt(
               : own
       const wx = nx * size + i * spacing
       const wz = nz * size + j * spacing
-      const split = depth === 0 ? 0 : f.errors[depth]! * f.splitScale
+      const split = depth === 0 || node.anchored ? 0 : f.errors[depth]! * f.splitScale
       const d = Math.hypot(wx - f.camera[0]!, own - f.camera[1]!, wz - f.camera[2]!)
       let t = morphFactor(d, split)
       const code = lockCode(
@@ -463,4 +482,90 @@ function ringIndex(i: number, j: number): number {
   if (i === s && j < s) return s + j
   if (j === s && i > 0) return 2 * s + (s - i)
   return 3 * s + (s - j)
+}
+
+export interface HeightfieldWalk {
+  /** FNV-1a over the characters' final terrain-frame positions (f64 bytes) and the tile count. */
+  checksum: string
+  walked: number[]
+  /** The lowest the feet got under the collider surface (m, negative is below). */
+  lowest: number
+  tiles: number
+  ms: number
+}
+
+/**
+ * Drops `characters` capsules at deterministic points on the valley terrain and walks each for
+ * `seconds` headless (no GPU, colliders only). Node (packages/terrain tests) and Chrome (the
+ * playground's #heightfield page) must print the same checksum: the bake, the collider tiles and
+ * physics are deterministic.
+ */
+export async function heightfieldWalk(
+  characters = 4,
+  seconds = 3,
+  workers?: Workers,
+): Promise<HeightfieldWalk> {
+  const t0 = performance.now()
+  await loadNoiseKernel()
+  const hills = await NoiseGraph.create(VALLEY_HILLS)
+  const p = await heightfieldApp(undefined, {
+    ...valleySource(),
+    noise: { hills },
+    physics: true,
+    ...(workers ? { workers } : {}),
+  })
+  const w = p.world
+  const rt = p.runtime()
+  const walked: number[] = []
+  const bytes = new Uint8Array(characters * 24 + 4)
+  const f64 = new Float64Array(bytes.buffer, 0, characters * 3)
+  const p0 = new Float64Array(3)
+  const pos = new Float64Array(3)
+  let lowest = Infinity
+  const ground = (x: number, z: number) => {
+    const size = rt.layout!.leafSize
+    const page = rt.pages!.leafNow(
+      mainNoise(),
+      rt.stack!,
+      Math.floor(x / size),
+      Math.floor(z / size),
+    )
+    return pageHeight(rt, page, x, z)
+  }
+  for (let k = 0; k < characters; k++) {
+    const x = 200 + (hash32(71, k) / 2 ** 32) * 1600
+    const z = 400 + (hash32(72, k) / 2 ** 32) * 1400
+    const c = w.spawn(
+      [CharacterController, { radius: 0.35, height: 1.8 }],
+      [CharacterIntent, {}],
+      [CharacterState, {}],
+      Transform,
+      FloatingOrigin,
+    )
+    placeInGrid(w, c, p.terrain, [x, ground(x, z) + 1.2, z])
+    for (let f = 0; f < 60; f++) p.app.update(1 / 60)
+    worldPosition64(w, c, p0, p.terrain)
+    w.set(c, CharacterIntent, { move: [0, 0, -5] })
+    for (let f = 0; f < seconds * 60; f++) {
+      p.app.update(1 / 60)
+      worldPosition64(w, c, pos, p.terrain)
+      if (pos[0]! > 0 && pos[2]! > 0 && pos[0]! < 2048 && pos[2]! < 2048)
+        lowest = Math.min(lowest, pos[1]! - 0.9 - ground(pos[0]!, pos[2]!))
+    }
+    walked.push(Math.hypot(pos[0]! - p0[0]!, pos[2]! - p0[2]!))
+    f64.set(pos, k * 3)
+    w.despawn(c)
+  }
+  const tiles = tilesOf(rt).tiles.size
+  new DataView(bytes.buffer).setUint32(characters * 24, tiles, true)
+  let hash = 0x811c9dc5
+  for (let i = 0; i < bytes.length; i++) hash = Math.imul(hash ^ bytes[i]!, 0x01000193)
+  await p.app.dispose()
+  return {
+    checksum: (hash >>> 0).toString(16).padStart(8, '0'),
+    walked,
+    lowest,
+    tiles,
+    ms: performance.now() - t0,
+  }
 }
