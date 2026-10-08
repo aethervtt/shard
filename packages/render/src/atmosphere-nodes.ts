@@ -843,7 +843,14 @@ function compositeNode(): NodeDescriptor {
     kind: 'render',
     phase: RenderPhase.Post,
     enabled: hasEffect(PostEffect.Atmosphere),
-    reads: ['atmosphere-in', 'depth', 'atmosphere-luts', 'atmosphere-view', 'environment', 'clusters'],
+    reads: [
+      'atmosphere-in',
+      'depth',
+      'atmosphere-luts',
+      'atmosphere-view',
+      'environment',
+      'clusters',
+    ],
     writes: ['atmosphere-out'],
     color: [{ resource: 'atmosphere-out', clear: { r: 0, g: 0, b: 0, a: 1 } }],
     run: (ctx) => {
@@ -862,20 +869,19 @@ function compositeNode(): NodeDescriptor {
       const out = ctx.texture('atmosphere-out')
       const rg11 = out.format === 'rg11b10ufloat'
       const name = fog
-        ? FOG_COMPOSITE_KEYS[(alpha ? 1 : 0) + (forward.interiorMode !== 0 ? 2 : 0) + (rg11 ? 4 : 0)]!
+        ? FOG_COMPOSITE_KEYS[
+            (alpha ? 1 : 0) + (forward.interiorMode !== 0 ? 2 : 0) + (rg11 ? 4 : 0)
+          ]!
         : rg11
           ? 'composite/rg11'
           : 'composite'
       let pipeline = s.pipelines.get(name) as GPURenderPipeline | undefined
       if (!pipeline) {
         const shaders = ctx.world.resource(Shaders)
-        const fs = shaders.module(
-          gpu,
-          {
-            root: 'shard::atmosphere::composite',
-            defines: { FOG: fog, TRANSPARENT: fog && alpha, RG11_ROUND: roundsRg11(gpu, out) },
-          },
-        )
+        const fs = shaders.module(gpu, {
+          root: 'shard::atmosphere::composite',
+          defines: { FOG: fog, TRANSPARENT: fog && alpha, RG11_ROUND: roundsRg11(gpu, out) },
+        })
         const vs = shaders.module(gpu, { root: 'shard::fullscreen' })
         if (!fs || !vs) {
           gpu.pipelines.skipped++
@@ -885,7 +891,9 @@ function compositeNode(): NodeDescriptor {
           label: `atmosphere/${name}`,
           layout: gpu.layouts.pipelineLayout({
             label: `atmosphere/${name}`,
-            bindGroupLayouts: fog ? [forward.layouts.view, l.compositeFog!] : [l.viewOnly!, l.composite!],
+            bindGroupLayouts: fog
+              ? [forward.layouts.view, l.compositeFog!]
+              : [l.viewOnly!, l.composite!],
           }),
           vertex: { module: vs, entryPoint: 'vs' },
           fragment: {
