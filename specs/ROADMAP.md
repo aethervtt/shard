@@ -130,7 +130,7 @@ them: budget keys are span names.
 
 | Spec | Title | Status |
 |---|---|---|
-| [0074](0074-profiler.md) | Profiler (spans, captures with attributed worst frames, Chrome traces, borrowed sampling) | accepted |
+| [0074](0074-profiler.md) | Profiler (spans, captures with attributed worst frames, Chrome traces, borrowed sampling) | implemented |
 | [0075](0075-performance-budgets.md) | Performance budgets (named machines, scenario frame slices, unit costs, ablation on tile GPUs) | accepted |
 
 Notes for the web export spec, not yet written:
