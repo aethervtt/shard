@@ -277,7 +277,8 @@ interface CaptureSummary {
       totals. The schedules sum to within 5% of `frame`.
 - [x] Always-on profiling allocates nothing over 1 000 frames of the 100k-entity ECS bench (with
       `allocationChecks`), and neither does a running capture after it starts.
-- [ ] Overhead in `pnpm bench`: under 1% of frame time always on, and under 5% while capturing.
+- [x] Overhead in `pnpm bench`: under 1% of frame time always on, and under 5% while capturing.
+      Laptop, 2026-10-08: 0.1964 ms a frame off, 0.1937 ms on, 0.1930 ms capturing (within noise).
 - [x] A fixture system that busy-waits 20 ms on frame 150: a 300-frame capture's `worst[0]` is
       frame 150, with that system first in `over`. A flight-recorder capture with `frameMs: 15`
       stops 30 frames after it, with 120 frames before.
