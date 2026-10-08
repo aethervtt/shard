@@ -215,7 +215,7 @@ describe.skipIf(skip)('browser performance records (0062)', () => {
       const validate = new Ajv({ strict: false }).compile(perfRecordJsonSchema())
       expect(validate(record), JSON.stringify(validate.errors)).toBe(true)
       expect(record).toMatchObject({
-        version: 1,
+        version: 2,
         renderer: 'shard',
         fixture: 'verify-tabletop',
         scenario: 'moves',

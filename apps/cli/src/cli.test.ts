@@ -1044,7 +1044,7 @@ describe('shard compare, approve, perf-check (0062)', () => {
 
 describe('shard profile (0074)', () => {
   /**
-   * A project whose one system busy-waits 2 ms a frame, and 25 ms on frame 30. It lives inside the
+   * A project whose one system busy-waits 2 ms a frame, and 80 ms on frame 30. It lives inside the
    * CLI package so its scripts resolve the engine packages.
    */
   function fixture() {
@@ -1068,7 +1068,7 @@ export function busyWait(ms: number): number {
 const busy = defineSystem({
   name: 'fixture/busy',
   run: (_, world) => {
-    busyWait(world.resource(Time).frame === 30 ? 25 : 2)
+    busyWait(world.resource(Time).frame === 30 ? 80 : 2)
   },
 })
 
@@ -1089,8 +1089,9 @@ export default defineProject({
     expect(r.code, r.stderr).toBe(0)
     const out = r.json()
     expect(out.summary.frames.count).toBe(60)
-    expect(out.summary.worst[0]).toMatchObject({ frame: 30 })
-    expect(out.summary.worst[0].over[0].span).toBe('fixture/busy')
+    // Among the worst frames (the first, compiling pipelines, can be slower still), led by the system.
+    const hitch = out.summary.worst.find((w: { frame: number }) => w.frame === 30)
+    expect(hitch.over[0].span).toBe('fixture/busy')
     expect(out.tracePath).toMatch(/\.trace\.json$/)
     expect(out.profilePath).toMatch(/\.cpuprofile$/)
     const profile = JSON.parse(readFileSync(join(game, out.profilePath), 'utf8'))
