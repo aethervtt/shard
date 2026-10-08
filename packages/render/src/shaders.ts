@@ -686,6 +686,26 @@ fn heat(count: u32) -> vec3f {
  * Lighting stage: the only place lights are evaluated. Returns scene-referred radiance.
  * Directional lights (with cascaded shadows), then clustered point and spot lights, then ambient.
  */
+/**
+ * SSAO at a full-resolution pixel, from the half-resolution AO and view depth (rg): the four
+ * nearest texels, weighted by how well their depth matches this pixel's. Without SSAO a white
+ * 1×1 texture is bound, which gives 1.
+ */
+fn ssao_at(frag: vec2f, z: f32) -> f32 {
+  let half_size = vec2i(textureDimensions(ao_texture));
+  let base = vec2i(floor((frag - 1.0) * 0.5));
+  var sum = 0.0;
+  var weight = 0.0;
+  for (var k = 0; k < 4; k++) {
+    let q = clamp(base + vec2i(k & 1, k >> 1), vec2i(0), half_size - 1);
+    let s = textureLoad(ao_texture, q, 0);
+    let w = 1.0 / (1e-3 + abs(s.y - z) / max(z, 1e-3));
+    sum += s.x * w;
+    weight += w;
+  }
+  return sum / max(weight, 1e-6);
+}
+
 fn apply_lighting(p: PbrInput, world_position: vec3f, frag_coord: vec4f, flags: u32) -> vec3f {
   let n = p.normal;
   let v = normalize(view.cameraPosition - world_position);
@@ -776,10 +796,7 @@ fn apply_lighting(p: PbrInput, world_position: vec3f, frag_coord: vec4f, flags: 
   // Ambient: image-based lighting from the environment, or the uniform AmbientLight (cd/m²).
   // SSAO darkens it on opaque surfaces (it measures the depth buffer, which blended ones aren't in).
   var surface = p;
-  if (p.alpha >= 0.999) {
-    let dims = vec2i(textureDimensions(ao_texture));
-    surface.occlusion *= textureLoad(ao_texture, min(vec2i(frag_coord.xy), dims - 1), 0).r;
-  }
+  if (p.alpha >= 0.999) { surface.occlusion *= ssao_at(frag_coord.xy, view_depth); }
   if (view.envParams.w > 0.5) {
     @if(!SKY_VISIBILITY) color += environment_light(surface, n, v);
     @if(SKY_VISIBILITY) color += interior_ambient(environment_light(surface, n, v), diffuse_color * surface.occlusion, world_position, n);

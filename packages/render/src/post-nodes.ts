@@ -66,7 +66,7 @@ const invProj = mat4.create()
 
 function ssaoNode(phase: number, deferred: boolean): NodeDescriptor {
   const cache = new PostCache()
-  let layouts: { gtao: GPUBindGroupLayout; up: GPUBindGroupLayout } | undefined
+  let layout: GPUBindGroupLayout | undefined
   let layoutGen = -1
   return {
     kind: 'raw',
@@ -78,41 +78,27 @@ function ssaoNode(phase: number, deferred: boolean): NodeDescriptor {
       )
     },
     reads: ['ssao-normal', 'ssao-depth'],
-    writes: ['ssao', 'ssao-half'],
+    writes: ['ssao'],
     run: (ctx) => {
       const v = forwardView(ctx)
       if (!v) return
       const gpu = ctx.gpu
-      if (!layouts || layoutGen !== gpu.generation) {
+      if (!layout || layoutGen !== gpu.generation) {
         layoutGen = gpu.generation
-        layouts = {
-          gtao: gpu.layouts.bindGroupLayout({
-            label: 'ssao/gtao',
-            entries: [uniform(0), depthTex(gpu, 1), tex(2, 'unfilterable-float'), uniform(3)],
-          }),
-          up: gpu.layouts.bindGroupLayout({
-            label: 'ssao/upsample',
-            entries: [uniform(0), depthTex(gpu, 1), uniform(3), tex(4, 'unfilterable-float')],
-          }),
-        }
+        layout = gpu.layouts.bindGroupLayout({
+          label: 'ssao/gtao',
+          entries: [uniform(0), depthTex(gpu, 1), tex(2, 'unfilterable-float'), uniform(3)],
+        })
       }
       const gtao = cache.render(
         ctx,
         'ssao/gtao',
         'shard::post::ssao',
         'gtao',
-        [layouts.gtao],
+        [layout],
         [{ format: 'rg16float' }],
       )
-      const up = cache.render(
-        ctx,
-        'ssao/upsample',
-        'shard::post::ssao',
-        'upsample',
-        [layouts.up],
-        [{ format: 'r8unorm' }],
-      )
-      if (!gtao || !up) return
+      if (!gtao) return
       const { cam, pv } = v
       const s = cam.post.ssao
       const steps = SSAO_STEPS[s.quality] ?? SSAO_STEPS[1]
@@ -129,13 +115,12 @@ function ssaoNode(phase: number, deferred: boolean): NodeDescriptor {
       params.write(scratch, 0, 0, 24)
       const depth = ctx.texture('ssao-depth')
       const normal = ctx.texture('ssao-normal')
-      const half = ctx.texture('ssao-half')
       const out = ctx.texture('ssao')
-      const g1 = cache.group(
+      const group = cache.group(
         gpu,
         `${ctx.view.name}/gtao`,
         `${idOf(depth)}/${idOf(normal)}/${pv.uniform.version}/${params.version}`,
-        layouts.gtao,
+        layout,
         () => [
           { binding: 0, resource: { buffer: pv.uniform.buffer } },
           { binding: 1, resource: depth.createView() },
@@ -143,28 +128,12 @@ function ssaoNode(phase: number, deferred: boolean): NodeDescriptor {
           { binding: 3, resource: { buffer: params.buffer } },
         ],
       )
-      let pass = beginPass(ctx, 'ssao', half.createView())
+      const pass = beginPass(ctx, 'ssao', out.createView())
       pass.setPipeline(gtao)
-      pass.setBindGroup(0, g1)
+      pass.setBindGroup(0, group)
       pass.draw(3)
       pass.end()
-      const g2 = cache.group(
-        gpu,
-        `${ctx.view.name}/ssao-up`,
-        `${idOf(depth)}/${idOf(half)}/${pv.uniform.version}/${params.version}`,
-        layouts.up,
-        () => [
-          { binding: 0, resource: { buffer: pv.uniform.buffer } },
-          { binding: 1, resource: depth.createView() },
-          { binding: 3, resource: { buffer: params.buffer } },
-          { binding: 4, resource: half.createView() },
-        ],
-      )
-      pass = beginPass(ctx, 'ssao/upsample', out.createView())
-      pass.setPipeline(up)
-      pass.setBindGroup(0, g2)
-      pass.draw(3)
-      pass.end()
+      // Half resolution, AO and view depth: lighting upsamples it where it shades (ssao_at).
       pv.ao = out
     },
   }
@@ -949,11 +918,10 @@ const halfSize = { divide: 2 }
 export function addPostNodes(world: World, baseline?: typeof import('./baseline/exposure')): void {
   const graph = world.resource(Graph)
   world.initResource(ExposureMeters)
-  graph.declare({ name: 'prepass-normal', format: 'rgba16float' })
+  graph.declare({ name: 'prepass-normal', format: 'rg16float' })
   graph.declare({ name: 'velocity', format: 'rg16float' })
   graph.declare({ name: 'prepass-depth', format: 'depth32float' })
-  graph.declare({ name: 'ssao', format: 'r8unorm' })
-  graph.declare({ name: 'ssao-half', format: 'rg16float', size: halfSize })
+  graph.declare({ name: 'ssao', format: 'rg16float', size: halfSize })
   graph.declare({ name: 'post-a', format: 'rgba16float' })
   graph.declare({ name: 'post-b', format: 'rgba16float' })
   // TAA provides its history texture as this; declared for a frame its pipeline isn't ready.

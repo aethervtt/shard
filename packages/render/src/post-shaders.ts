@@ -546,7 +546,6 @@ struct SsaoParams {
 @group(0) @binding(1) var depth_texture: texture_depth_2d;
 @group(0) @binding(2) var normal_texture: texture_2d<f32>;
 @group(0) @binding(3) var<uniform> ssao: SsaoParams;
-@group(0) @binding(4) var half_ao: texture_2d<f32>;
 
 const PI: f32 = 3.14159265;
 
@@ -613,26 +612,6 @@ fn view_position(px: vec2i) -> vec3f {
   }
   let ao = clamp(visibility / f32(dirs), 0.0, 1.0);
   return vec4f(pow(ao, ssao.params.y), -p.z, 0.0, 1.0);
-}
-
-/** Back to full resolution: the four nearest half-resolution texels, weighted by depth match. */
-@fragment fn upsample(@builtin(position) frag: vec4f) -> @location(0) vec4f {
-  let px = vec2i(frag.xy);
-  let depth = textureLoad(depth_texture, px, 0);
-  if (depth <= 0.0) { return vec4f(1.0); }
-  let z = -view_position(px).z;
-  let half_size = vec2i(textureDimensions(half_ao));
-  let base = vec2i(floor((frag.xy - 1.0) * 0.5));
-  var sum = 0.0;
-  var weight = 0.0;
-  for (var k = 0; k < 4; k++) {
-    let q = clamp(base + vec2i(k & 1, k >> 1), vec2i(0), half_size - 1);
-    let s = textureLoad(half_ao, q, 0);
-    let w = 1.0 / (1e-3 + abs(s.y - z) / max(z, 1e-3));
-    sum += s.x * w;
-    weight += w;
-  }
-  return vec4f(sum / max(weight, 1e-6), 0.0, 0.0, 1.0);
 }`,
 }
 
