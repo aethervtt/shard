@@ -303,6 +303,15 @@ export class Copier {
     gl.bindBuffer(GL.COPY_READ_BUFFER, src.gl)
     gl.bindBuffer(GL.COPY_WRITE_BUFFER, dst.gl)
     gl.copyBufferSubData(GL.COPY_READ_BUFFER, GL.COPY_WRITE_BUFFER, srcOffset, dstOffset, size)
+    // Timer query results not in yet travel with the copy (0074).
+    if (src.queryReads.length > 0) {
+      for (let i = src.queryReads.length - 1; i >= 0; i--) {
+        const read = src.queryReads[i]!
+        if (read.offset < srcOffset || read.offset >= srcOffset + size) continue
+        src.queryReads.splice(i, 1)
+        dst.queryReads.push({ offset: read.offset - srcOffset + dstOffset, queries: read.queries })
+      }
+    }
     if (dst.shadow) {
       if (src.shadow) dst.shadow.set(src.shadow.subarray(srcOffset, srcOffset + size), dstOffset)
       else gl.getBufferSubData(GL.COPY_WRITE_BUFFER, dstOffset, dst.shadow, dstOffset, size)

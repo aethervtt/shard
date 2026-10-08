@@ -5,6 +5,7 @@ import type { Webgl2Device } from './device'
 import { Attachments } from './fbo'
 import { GL } from './gl'
 import type { Webgl2RenderPipeline } from './pipeline'
+import type { Webgl2QuerySet } from './queries'
 import { type Webgl2Buffer, Webgl2Texture, type Webgl2TextureView } from './resources'
 
 // Runs recorded commands on the GL context (decision 7 of 0064):
@@ -30,6 +31,8 @@ export class Replayer {
   private stream: CommandStream | undefined
   private i = 0
   private r = 0
+  /** The query set timing the pass being replayed. */
+  private timed: Webgl2QuerySet | undefined
 
   // The pass.
   private passFbo: WebGLFramebuffer | null = null
@@ -268,6 +271,25 @@ export class Replayer {
             const offset = this.num()
             const size = this.num()
             this.device.copier.clearBuffer(this.ref() as Webgl2Buffer, offset, size)
+            break
+          }
+          case OP.BEGIN_QUERY: {
+            const pair = this.num()
+            const set = this.ref() as Webgl2QuerySet
+            set.begin(pair)
+            this.timed = set
+            break
+          }
+          case OP.END_QUERY:
+            this.timed?.end()
+            this.timed = undefined
+            break
+          case OP.RESOLVE_QUERIES: {
+            const first = this.num()
+            const count = this.num()
+            const offset = this.num()
+            const set = this.ref() as Webgl2QuerySet
+            set.resolve(first, count, this.ref() as Webgl2Buffer, offset)
             break
           }
           default:

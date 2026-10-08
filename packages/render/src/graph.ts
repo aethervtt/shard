@@ -1,4 +1,11 @@
-import { ShardError, type World } from '@aethervtt/shard-core'
+import {
+  defineSpan,
+  ProfilerResource,
+  ShardError,
+  type SpanDef,
+  TRACK,
+  type World,
+} from '@aethervtt/shard-core'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { flushDataStores } from './data-store'
 import { unsupportedNodes } from './features'
@@ -301,6 +308,11 @@ export class RenderGraph {
   /** Views rendered in the last frame, in order. */
   private lastViews: string[] = []
   private readonly viewData = new Map<string, Record<string, unknown>>()
+  /** Each node's `render/<node>` span and its CPU time this frame, summed over views (0074). */
+  private readonly nodeSlots = new Map<string, number>()
+  private readonly nodeSpans: SpanDef[] = []
+  private nodeMs = new Float64Array(16)
+  private nodeRan = new Uint8Array(16)
 
   constructor(gpu: GpuContext) {
     this.gpu = gpu
@@ -321,6 +333,19 @@ export class RenderGraph {
     }
     this.nodes.set(name, node)
     this.resolutions.clear()
+    if (!this.nodeSlots.has(name)) {
+      const slot = this.nodeSpans.length
+      this.nodeSlots.set(name, slot)
+      this.nodeSpans.push(defineSpan(`render/${name}`))
+      if (slot >= this.nodeMs.length) {
+        const ms = new Float64Array(this.nodeMs.length * 2)
+        ms.set(this.nodeMs)
+        this.nodeMs = ms
+        const ran = new Uint8Array(this.nodeRan.length * 2)
+        ran.set(this.nodeRan)
+        this.nodeRan = ran
+      }
+    }
   }
 
   removeNode(name: string): void {
@@ -455,6 +480,7 @@ export class RenderGraph {
 
     // Features the baseline tier doesn't support don't run on it (0064).
     const off = this.gpu.tier === 'baseline' ? unsupportedNodes(world) : undefined
+    const profiler = world.tryResource(ProfilerResource)
     for (const view of sorted) {
       const resolved = this.resolveFor(view, off)
       const order = resolved.order
@@ -517,6 +543,7 @@ export class RenderGraph {
       for (let k = 0; k < order.length; k++) {
         const name = order[k]!
         const node = this.nodes.get(name)!
+        const t0 = profiler !== undefined ? profiler.now() : 0
         let renderPass: GPURenderPassEncoder | undefined
         let computePass: GPUComputePassEncoder | undefined
         if (node.kind === 'render') {
@@ -563,6 +590,13 @@ export class RenderGraph {
         })
         renderPass?.end()
         computePass?.end()
+        if (profiler !== undefined) {
+          const ms = profiler.now() - t0
+          const slot = this.nodeSlots.get(name)!
+          this.nodeMs[slot] = this.nodeMs[slot]! + ms
+          this.nodeRan[slot] = 1
+          profiler.event(this.nodeSpans[slot]!, TRACK.main, t0, ms)
+        }
       }
 
       for (const capture of this.captures) {
@@ -600,6 +634,15 @@ export class RenderGraph {
       }
     }
 
+    // `render/<node>`: one sample a frame per node that ran, its views summed.
+    if (profiler !== undefined) {
+      for (let slot = 0; slot < this.nodeSpans.length; slot++) {
+        if (!this.nodeRan[slot]) continue
+        profiler.sample(this.nodeSpans[slot]!, this.nodeMs[slot]!)
+        this.nodeMs[slot] = 0
+        this.nodeRan[slot] = 0
+      }
+    }
     this.captures = this.captures.filter((c) => !readbacks.some((r) => r.capture === c))
     this.timer.resolve(encoder)
     // Baseline data textures written this frame (0064): uploaded before the work that reads them.

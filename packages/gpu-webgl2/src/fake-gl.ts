@@ -203,6 +203,11 @@ export interface FakeGlOptions {
   linkPolls?: number
   /** UNIFORM_BLOCK_DATA_SIZE by block name prefix (default 0: whatever is bound). */
   blockSizes?: Record<string, number>
+  /**
+   * Offers EXT_disjoint_timer_query_webgl2 (0074): every TIME_ELAPSED query takes `elapsedNs`, and
+   * its result is available after `polls` reads of QUERY_RESULT_AVAILABLE (default 0).
+   */
+  timerQuery?: { elapsedNs: number; polls?: number }
 }
 
 export class FakeGl {
@@ -299,6 +304,7 @@ export class FakeGl {
         },
       },
     }
+    if (options.timerQuery) all.EXT_disjoint_timer_query_webgl2 = {}
     for (const [name, ext] of Object.entries(all)) {
       if (!options.without?.includes(name)) this.extensions.set(name, ext)
     }
@@ -1252,6 +1258,42 @@ export class FakeGl {
   }
 
   // --- sync -----------------------------------------------------------------------------
+
+  // --- timer queries (EXT_disjoint_timer_query_webgl2) --------------------------------
+
+  /** Queries begun so far, and the one running. */
+  queriesBegun = 0
+  private activeQuery: { polls: number; ended: boolean } | null = null
+
+  createQuery(): object {
+    return { kind: 'query', id: this.next++, polls: 0, ended: false }
+  }
+
+  deleteQuery(): void {}
+
+  beginQuery(_target: number, query: { polls: number; ended: boolean }): void {
+    query.polls = this.options.timerQuery?.polls ?? 0
+    query.ended = false
+    this.activeQuery = query
+    this.queriesBegun++
+  }
+
+  endQuery(): void {
+    if (this.activeQuery) this.activeQuery.ended = true
+    this.activeQuery = null
+  }
+
+  getQueryParameter(query: { polls: number; ended: boolean }, p: number): number | boolean {
+    if (p === 0x8867) {
+      if (!query.ended) return false
+      if (query.polls > 0) {
+        query.polls--
+        return false
+      }
+      return true
+    }
+    return this.options.timerQuery?.elapsedNs ?? 0
+  }
 
   fenceSync(): object {
     return { kind: 'sync', id: this.next++ }

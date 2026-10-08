@@ -394,6 +394,7 @@ export {
   Gpu,
   GpuDeviceLost,
   Graph,
+  gpuMemory,
   RenderDescribers,
   RenderOptions,
   type RenderOptionsValue,

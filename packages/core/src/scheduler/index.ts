@@ -1,4 +1,34 @@
-export { Profiler, ProfilerResource, type SystemTiming } from './profiler'
+export type {
+  CaptureSummary,
+  CaptureWarning,
+  ChromeTrace,
+  HeapStats,
+  HotFunction,
+  SpanStats,
+  Stats,
+} from './capture/capture'
+export type { CaptureOptions } from './capture/recorder'
+export {
+  type ClockInfo,
+  clockInfo,
+  defineSpan,
+  internSpan,
+  Profiler,
+  type ProfilerOptions,
+  ProfilerResource,
+  ProfilerSettings,
+  type ProfilerSettingsData,
+  type ProfilerSink,
+  type SpanAggregate,
+  type SpanDef,
+  type SystemTiming,
+  spanCovers,
+  spanName,
+  spanTrack,
+  TRACK,
+  type TrackName,
+  trackName,
+} from './profiler'
 export {
   defineSchedule,
   First,

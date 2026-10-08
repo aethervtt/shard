@@ -22,6 +22,7 @@ import { defineOverlay, OVERLAYS, type Overlay, registeredOverlays } from './ove
 
 const extraOverlays = registeredOverlays()
 
+import { drawPerfOverlay } from './perf-overlay'
 import { Views } from './plugin'
 import { Cameras, cameraOf } from './view'
 
@@ -69,7 +70,7 @@ function scenePath(world: World, entity: Entity): string | undefined {
 export const DebugOverlays = defineResource<DebugOverlaysValue>('render/DebugOverlays', {
   hostWritable: true,
   description:
-    'Built-in debug drawings, each drawn through Gizmos: bounds, light volumes, camera frustums, shadow cascades, normals, transform axes, and entity labels.',
+    'Built-in debug drawings, each drawn through Gizmos: bounds, light volumes, camera frustums, shadow cascades, normals, transform axes, entity labels, and perf (frame time, top spans, GPU frame).',
   init: () => ({
     bounds: false,
     lights: false,
@@ -78,6 +79,7 @@ export const DebugOverlays = defineResource<DebugOverlaysValue>('render/DebugOve
     normals: false,
     axes: false,
     labels: false,
+    perf: false,
     extra: {},
     filter: { components: [], path: '' },
     name: scenePath,
@@ -302,7 +304,17 @@ export const drawOverlays = defineSystem({
     let extra = false
     for (const name in o.extra) if (o.extra[name] && extraOverlays.has(name)) extra = true
     if (
-      !(o.bounds || o.lights || o.cameras || o.cascades || o.normals || o.axes || o.labels || extra)
+      !(
+        o.bounds ||
+        o.lights ||
+        o.cameras ||
+        o.cascades ||
+        o.normals ||
+        o.axes ||
+        o.labels ||
+        o.perf ||
+        extra
+      )
     )
       return
     g.beginOverlays()
@@ -327,6 +339,7 @@ function draw(world: World, o: DebugOverlaysValue, g: GizmoStore): void {
     }
     if (o.lights) drawLights(world, o, g, defs)
     const primary = primaryCamera(world)
+    if (o.perf) drawPerfOverlay(world, g, primary)
     if (o.cameras) {
       for (const [entity, cam] of world.resource(Cameras)) {
         if (entity === primary || !passes(world, o, entity, defs)) continue

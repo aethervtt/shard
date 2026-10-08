@@ -5,6 +5,7 @@ import {
   defineSystem,
   defineSystemSet,
   Last,
+  ProfilerResource,
   ShardError,
   type World,
 } from '@aethervtt/shard-core'
@@ -21,6 +22,7 @@ import {
   FrameDemand,
   LOADING_DEMAND,
   LogResource,
+  PerfProviders,
   type Plugin,
 } from '@aethervtt/shard-runtime'
 import { type ShaderBake, ShaderLibrary } from '@aethervtt/shard-shader'
@@ -355,6 +357,12 @@ export function renderPlugin(options: RenderPluginOptions = {}): Plugin {
         app.insertResource(Gpu, gpu)
         app.insertResource(Graph, new RenderGraph(gpu))
       })
+      // The profiler (0074): GPU memory from the ledger, and whether passes can be timed.
+      app.world.initResource(PerfProviders).gpuMemory = gpuMemory
+      const profiler = app.world.tryResource(ProfilerResource)
+      if (profiler) {
+        profiler.gpu.status = gpu.features.has('timestamp-query') ? 'available' : 'unavailable'
+      }
       app.setPresenter(presentOn(state))
       const shaders = options.shaders ?? new ShaderLibrary()
       if (!options.shaders) registerEngineShaders(shaders)
@@ -451,6 +459,14 @@ export async function captureBuffer(
 }
 
 /** What the renderer is doing: graph order, culled nodes, views, pending pipelines. For agents. */
+/** Every buffer and texture on the device by category: the ledger's total (0055, 0074). */
+export function gpuMemory(world: World): { bytes: number; byCategory: Record<string, number> } {
+  const memory = world.tryResource(Gpu)?.memory()
+  return memory
+    ? { bytes: memory.bytes, byCategory: { ...memory.byCategory } as Record<string, number> }
+    : { bytes: 0, byCategory: {} }
+}
+
 export function describeRender(world: World) {
   const graph = world.tryResource(Graph)
   const gpu = world.tryResource(Gpu)
@@ -473,7 +489,12 @@ export function describeRender(world: World) {
     gpuTimings: gpu.features.has('timestamp-query'),
     stats: Object.fromEntries(world.tryResource(RenderStats) ?? []),
     counters: { ...(world.tryResource(RenderCounters) ?? { taaResets: 0, originShifts: 0 }) },
-    memory: world.tryResource(GpuMemory) ?? { textures: 0, textureBytes: 0 },
+    // The ledger's total, so it agrees with perf.describe and perf records; and the textures the
+    // forward renderer uploaded, as before.
+    memory: {
+      ...gpuMemory(world),
+      ...(world.tryResource(GpuMemory) ?? { textures: 0, textureBytes: 0 }),
+    },
     recentErrors: gpu.errors.slice(-5).map((e) => e.toJSON()),
     features: describeFeatures(world),
     health: world.tryResource(RenderHealth) ?? { state: 'ok', issues: [] },

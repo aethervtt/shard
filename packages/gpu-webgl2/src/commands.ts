@@ -1,6 +1,7 @@
 import type { Webgl2BindGroup } from './binding'
 import { unsupported } from './errors'
 import type { Webgl2RenderPipeline } from './pipeline'
+import type { Webgl2QuerySet } from './queries'
 import type { Webgl2Buffer, Webgl2TextureView } from './resources'
 
 // Command encoders. WebGPU runs an encoder's commands at submit, after every queue write made
@@ -26,6 +27,9 @@ export const OP = {
   COPY_TEXTURE_TO_BUFFER: 15,
   COPY_TEXTURE: 16,
   CLEAR_BUFFER: 17,
+  BEGIN_QUERY: 18,
+  END_QUERY: 19,
+  RESOLVE_QUERIES: 20,
 } as const
 
 export class CommandStream {
@@ -91,6 +95,8 @@ function colorOf(c: GPUColor | undefined, i: 0 | 1 | 2 | 3): number {
 
 export class Webgl2CommandEncoder {
   label = ''
+  /** @internal The pass being recorded times itself (`timestampWrites`): its end ends the query. */
+  timedPass = false
   private stream: CommandStream | undefined
   private readonly pass: Webgl2RenderPassEncoder
   private readonly buffer: Webgl2CommandBuffer
@@ -117,6 +123,15 @@ export class Webgl2CommandEncoder {
   beginRenderPass(d: GPURenderPassDescriptor): Webgl2RenderPassEncoder {
     const s = this.recording
     if (d.occlusionQuerySet) throw unsupported(`run occlusion queries ("${d.label ?? this.label}")`)
+    // A timed pass: a TIME_ELAPSED query around it, recorded as its timestamp pair (0074).
+    const writes = d.timestampWrites
+    const index = writes?.beginningOfPassWriteIndex ?? writes?.endOfPassWriteIndex
+    this.timedPass = writes !== undefined && index !== undefined
+    if (this.timedPass) {
+      s.num(OP.BEGIN_QUERY)
+      s.num(index! >> 1)
+      s.ref(writes!.querySet)
+    }
     s.num(OP.BEGIN_PASS)
     const colors = d.colorAttachments
     s.num(colors.length)
@@ -263,12 +278,25 @@ export class Webgl2CommandEncoder {
     s.ref(buffer)
   }
 
-  resolveQuerySet(): never {
-    throw unsupported('resolve query sets', 'timestamp-query is never offered on WebGL2.')
+  /** Pairs of the set to the buffer: written when the buffer is mapped (queries.ts). */
+  resolveQuerySet(
+    querySet: Webgl2QuerySet,
+    firstQuery: number,
+    queryCount: number,
+    destination: Webgl2Buffer,
+    destinationOffset: number,
+  ): void {
+    const s = this.recording
+    s.num(OP.RESOLVE_QUERIES)
+    s.num(firstQuery)
+    s.num(queryCount)
+    s.num(destinationOffset)
+    s.ref(querySet)
+    s.ref(destination)
   }
 
   writeTimestamp(): never {
-    throw unsupported('write timestamps', 'timestamp-query is never offered on WebGL2.')
+    throw unsupported('write timestamps', 'WebGL2 times passes (timestampWrites) only.')
   }
 
   pushDebugGroup(): void {}
@@ -432,7 +460,12 @@ export class Webgl2RenderPassEncoder {
   insertDebugMarker(): void {}
 
   end(): void {
-    this.encoder.recording.num(OP.END_PASS)
+    const s = this.encoder.recording
+    s.num(OP.END_PASS)
+    if (this.encoder.timedPass) {
+      s.num(OP.END_QUERY)
+      this.encoder.timedPass = false
+    }
   }
 }
 

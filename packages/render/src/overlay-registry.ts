@@ -12,6 +12,8 @@ export const OVERLAYS = [
   'normals',
   'axes',
   'labels',
+  /** Frame time, the top 8 spans, and the GPU frame (0074). */
+  'perf',
 ] as const
 export type Overlay = (typeof OVERLAYS)[number]
 

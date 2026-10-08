@@ -6,6 +6,20 @@ export interface WorkerRunOptions {
   readonly transfer?: readonly ArrayBuffer[]
   /** `high` jobs start before every queued `normal` one. Default `normal`. */
   readonly priority?: 'high' | 'normal'
+  /** What the profiler calls the job: its span is `worker/<kind>` (0074). Default: `fn`. */
+  readonly kind?: string
+}
+
+/**
+ * One finished job as the worker timed it (0074), on the calling thread's `performance.now()`
+ * timeline: the two contexts' `timeOrigin`s are subtracted, so it lines up with main-thread spans.
+ */
+export interface WorkerJobTiming {
+  kind: string
+  /** The pool's thread that ran it, from 0. */
+  worker: number
+  start: number
+  ms: number
 }
 
 /**
@@ -31,6 +45,11 @@ export interface Workers {
   ): Promise<T>
   /** Stops every worker. Jobs still running or queued reject. */
   dispose(): void
+  /**
+   * Calls `listener` with every finished job's timing, measured inside the worker and carried back
+   * with its result, so it costs no extra messages. Returns an unsubscribe function.
+   */
+  observe?(listener: (timing: WorkerJobTiming) => void): () => void
 }
 
 /** What a host gives the pool for one worker thread. */
@@ -57,6 +76,7 @@ interface Job {
   id: number
   module: string
   fn: string
+  kind: string
   args: readonly unknown[]
   transfer: readonly ArrayBuffer[]
   resolve(value: unknown): void
@@ -71,8 +91,21 @@ interface Slot {
 interface Reply {
   id: number
   ok: boolean
+  /** Start (on the epoch: the worker's timeOrigin plus its now()) and duration, in ms. */
+  time?: [number, number]
   result?: unknown
   error?: { code?: string; message: string; hint?: string; path?: string }
+}
+
+const clock = globalThis as { performance?: { now(): number; timeOrigin?: number } }
+
+/** Where this thread's `performance.now()` starts, on the epoch. */
+function timeOrigin(): number {
+  return clock.performance?.timeOrigin ?? 0
+}
+
+function now(): number {
+  return clock.performance ? clock.performance.now() : Date.now()
 }
 
 /** The shared queue: a worker per slot, one job per worker at a time, FIFO with a priority lane. */
@@ -80,16 +113,28 @@ export function createWorkerPool(options: WorkerPoolOptions): Workers {
   const slots: Slot[] = []
   const high: Job[] = []
   const normal: Job[] = []
+  const observers = new Set<(timing: WorkerJobTiming) => void>()
   let nextId = 1
   let disposed = false
 
   const start = (slot: Slot) => {
+    const index = slots.indexOf(slot)
     const events: WorkerThreadEvents = {
       message: (message) => {
         const reply = message as Reply
         const job = slot.job
         if (!job || job.id !== reply.id) return
         slot.job = undefined
+        const time = reply.time
+        if (time && observers.size > 0) {
+          const timing = {
+            kind: job.kind,
+            worker: index,
+            start: time[0] - timeOrigin(),
+            ms: time[1],
+          }
+          for (const listener of observers) listener(timing)
+        }
         if (reply.ok) job.resolve(reply.result)
         else job.reject(toError(reply.error!))
         pump()
@@ -152,6 +197,7 @@ export function createWorkerPool(options: WorkerPoolOptions): Workers {
           id: nextId++,
           module,
           fn,
+          kind: opts.kind ?? fn,
           args,
           transfer: opts.transfer ?? [],
           resolve: resolve as (value: unknown) => void,
@@ -160,8 +206,13 @@ export function createWorkerPool(options: WorkerPoolOptions): Workers {
         ;(opts.priority === 'high' ? high : normal).push(job)
         pump()
       }),
+    observe: (listener) => {
+      observers.add(listener)
+      return () => observers.delete(listener)
+    },
     dispose: () => {
       disposed = true
+      observers.clear()
       const stopped = new ShardError('platform/workers-disposed', 'The worker pool was disposed')
       for (const job of [...high.splice(0), ...normal.splice(0)]) job.reject(stopped)
       for (const slot of slots) {
@@ -187,10 +238,20 @@ function toError(e: NonNullable<Reply['error']>): ShardError {
  */
 export function createInlineWorkers(): Workers {
   const modules = new Map<string, Promise<Record<string, unknown>>>()
+  const observers = new Set<(timing: WorkerJobTiming) => void>()
   let disposed = false
   return {
     size: 0,
-    run: async <T>(module: string, fn: string, args: readonly unknown[]) => {
+    observe: (listener) => {
+      observers.add(listener)
+      return () => observers.delete(listener)
+    },
+    run: async <T>(
+      module: string,
+      fn: string,
+      args: readonly unknown[],
+      options: WorkerRunOptions = {},
+    ) => {
       if (disposed)
         throw new ShardError('platform/workers-disposed', 'The worker pool was disposed')
       let mod = modules.get(module)
@@ -204,7 +265,13 @@ export function createInlineWorkers(): Workers {
           hint: 'Worker functions are named exports of the module passed to run().',
         })
       }
-      return (await f(...args)) as T
+      const start = now()
+      const result = (await f(...args)) as T
+      if (observers.size > 0) {
+        const timing = { kind: options.kind ?? fn, worker: 0, start, ms: now() - start }
+        for (const listener of observers) listener(timing)
+      }
+      return result
     },
     dispose: () => {
       disposed = true
@@ -256,8 +323,10 @@ const handle = async (msg, post) => {
     if (typeof f !== 'function') {
       throw Object.assign(new Error('"' + module + '" has no export "' + fn + '"'), { code: 'platform/worker-no-export' })
     }
+    const t0 = performance.now()
     const result = await f(...args)
-    post({ id, ok: true, result }, transfers(result))
+    const time = [performance.timeOrigin + t0, performance.now() - t0]
+    post({ id, ok: true, result, time }, transfers(result))
   } catch (e) {
     post({ id, ok: false, error: { code: e && e.code, message: String((e && e.message) || e), hint: e && e.hint, path: e && e.path } }, [])
   }

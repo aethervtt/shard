@@ -1,4 +1,4 @@
-import { ProfilerResource, type World } from '@aethervtt/shard-core'
+import { ProfilerResource, TRACK, type World } from '@aethervtt/shard-core'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 
 const MAX_PASSES = 96
@@ -11,11 +11,29 @@ const SPANS: readonly (readonly [string, (name: string) => boolean])[] = [
   ['gpu:span/ssao', (n) => n === 'ssao' || n.startsWith('ssao/')],
 ]
 const READBACK_BUFFERS = 3
+/** Chrome quantizes timestamps to 100 µs unless WebGPU developer features are on. */
+const QUANTUM_NS = 100_000n
+/** Pass timings seen before deciding the clock is quantized. */
+const QUANTIZED_AFTER = 32
 
 interface Readback {
   buffer: GPUBuffer
   busy: boolean
   names: string[]
+  /** The frame it timed and when that frame was submitted, on the profiler's clock (0074). */
+  frame: number
+  submitAt: number
+}
+
+/** `gpu:<node>`, made once per node name. */
+const gpuNames = new Map<string, string>()
+function gpuName(node: string): string {
+  let name = gpuNames.get(node)
+  if (name === undefined) {
+    name = `gpu:${node}`
+    gpuNames.set(node, name)
+  }
+  return name
 }
 
 /**
@@ -29,6 +47,13 @@ export class GpuTimer {
   frameMs = 0
   /** Frames measured so far: changes when `frameMs` does. */
   frameSamples = 0
+  /**
+   * Every pass time so far was a whole number of 100 µs: the browser quantizes timestamps
+   * (0074's `gpuQuantized`). Decided after a few dozen passes.
+   */
+  quantized = false
+  private passTimes = 0
+  private unquantized = false
   private querySet: GPUQuerySet | undefined
   private resolveBuffer: GPUBuffer | undefined
   private readonly readbacks: Readback[] = []
@@ -73,6 +98,8 @@ export class GpuTimer {
         }),
         busy: false,
         names: [],
+        frame: 0,
+        submitAt: 0,
       })
     }
   }
@@ -104,17 +131,24 @@ export class GpuTimer {
     this.pendingCopy = target
   }
 
-  /** Call after submit. Records timings when the copy lands. */
+  /**
+   * Call after submit. Records timings when the copy lands: aggregates per name, and (during a
+   * capture) GPU-track spans placed from this frame's submit time, since WebGPU's clock isn't the
+   * CPU's (0074).
+   */
   readback(world: World): void {
+    const profiler = world.tryResource(ProfilerResource)
+    if (profiler) profiler.gpu.status = this.enabled ? 'available' : 'unavailable'
     const target = this.pendingCopy
     if (!target) return
     this.pendingCopy = undefined
+    target.frame = profiler?.frame ?? 0
+    target.submitAt = profiler ? profiler.now() : 0
     const generation = this.generation
     target.buffer.mapAsync(GPUMapMode.READ).then(
       () => {
         if (generation !== this.gpu.generation) return
         const times = new BigUint64Array(target.buffer.getMappedRange())
-        const profiler = world.tryResource(ProfilerResource)
         const totals = new Map<string, number>()
         // Tile-based GPUs skip empty passes, stamps included: their slots keep an old frame's
         // values. Anything that began over a second before the frame's last end is such a slot.
@@ -135,8 +169,25 @@ export class GpuTimer {
           totals.set(name, (totals.get(name) ?? 0) + Number(end - begin) / 1e6)
           if (first === 0n || begin < first) first = begin
           if (end > last) last = end
+          if (end > begin) {
+            if ((end - begin) % QUANTUM_NS !== 0n) this.unquantized = true
+            this.passTimes++
+          }
         }
-        for (const [name, ms] of totals) profiler?.record(`gpu:${name}`, ms)
+        if (this.passTimes >= QUANTIZED_AFTER) this.quantized = !this.unquantized
+        if (profiler) profiler.gpu.quantized = this.quantized
+        for (const [name, ms] of totals) profiler?.sample(gpuName(name), ms)
+        // The timeline: each pass where it ran relative to the frame's first, from its submit.
+        const at = (stamp: bigint) => target.submitAt + Number(stamp - first) / 1e6
+        if (profiler?.capturing && first !== 0n) {
+          for (let i = 0; i < target.names.length; i++) {
+            const begin = times[i * 2]!
+            const end = times[i * 2 + 1]!
+            if (begin === 0n || end < begin || begin < stale) continue
+            const ms = Number(end - begin) / 1e6
+            profiler.event(gpuName(target.names[i]!), TRACK.gpu, at(begin), ms, target.frame)
+          }
+        }
         // Spans of pass groups, for the same reason: post-processing from its first pass to the
         // tonemap (and FXAA), and SSAO's passes.
         for (let g = 0; g < SPANS.length; g++) {
@@ -150,7 +201,7 @@ export class GpuTimer {
             if (a === 0n || begin < a) a = begin
             if (end > b) b = end
           }
-          if (b > a) profiler?.record(label, Number(b - a) / 1e6)
+          if (b > a) profiler?.record(label, Number(b - a) / 1e6, TRACK.gpu, at(a), target.frame)
         }
         // The whole frame, first pass start to last pass end: reliable even where passes overlap
         // (tile-based GPUs), which makes per-pass times add up to more than the frame. A frame
@@ -159,7 +210,7 @@ export class GpuTimer {
         if (first !== 0n) {
           this.frameMs = Number(last - first) / 1e6
           this.frameSamples++
-          profiler?.record('gpu:frame', this.frameMs)
+          profiler?.record('gpu:frame', this.frameMs, TRACK.gpu, target.submitAt, target.frame)
         }
         target.buffer.unmap()
         target.busy = false

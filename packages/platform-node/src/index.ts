@@ -3,8 +3,10 @@ import { access, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'n
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { ShardError } from '@aethervtt/shard-core'
 import type { FileChangeEvent, KeyValueStorage, Platform, Workers } from '@aethervtt/shard-platform'
+import { createNodePerformance } from './performance'
 import { createNodeWorkers } from './workers'
 
+export { createNodePerformance } from './performance'
 export { createNodeWorkers } from './workers'
 
 /**
@@ -155,6 +157,7 @@ export function createNodePlatform(options: NodePlatformOptions): Platform {
     },
     storage: createFileStorage(dataDir),
     clock: { now: () => performance.now() },
+    performance: createNodePerformance(),
     log: {
       log: (level, message, data) =>
         write(`[${level}] ${message}${data ? ` ${JSON.stringify(data)}` : ''}`),

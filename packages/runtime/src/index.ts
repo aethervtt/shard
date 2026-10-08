@@ -12,6 +12,21 @@ export { AppControl, AppControlResource } from './control'
 export { FrameDemand, FrameDemandState, type FrameMode, LOADING_DEMAND } from './demand'
 export { COMMON_RATES, RefreshMeter, rateFromIntervals, snapRate } from './display'
 export { Log, type LogEntry, type LogLevel, LogResource } from './log'
+export {
+  capturePerf,
+  captureStamp,
+  describePerf,
+  type PerfCaptureOptions,
+  type PerfCaptureResult,
+  type PerfDescribeOptions,
+  type PerfHost,
+  PerfHostResource,
+  PerfProviders,
+  type PerfProvidersData,
+  type PerfSampler,
+  type PerfSamples,
+  perfMemory,
+} from './perf'
 export { definePlugin, type Plugin } from './plugin'
 export {
   type AnimationFrameOptions,

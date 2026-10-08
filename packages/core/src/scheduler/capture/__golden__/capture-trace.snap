@@ -1,0 +1,598 @@
+{
+  "traceEvents": [
+    {
+      "name": "process_name",
+      "ph": "M",
+      "pid": 1,
+      "tid": 0,
+      "args": {
+        "name": "Shard"
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 1,
+      "tid": 1,
+      "args": {
+        "name": "main"
+      }
+    },
+    {
+      "name": "thread_sort_index",
+      "ph": "M",
+      "pid": 1,
+      "tid": 1,
+      "args": {
+        "sort_index": 1
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 1,
+      "tid": 2,
+      "args": {
+        "name": "gpu (approximate: placed at submit)"
+      }
+    },
+    {
+      "name": "thread_sort_index",
+      "ph": "M",
+      "pid": 1,
+      "tid": 2,
+      "args": {
+        "sort_index": 2
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 1,
+      "tid": 3,
+      "args": {
+        "name": "async"
+      }
+    },
+    {
+      "name": "thread_sort_index",
+      "ph": "M",
+      "pid": 1,
+      "tid": 3,
+      "args": {
+        "sort_index": 3
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 1,
+      "tid": 4,
+      "args": {
+        "name": "gc"
+      }
+    },
+    {
+      "name": "thread_sort_index",
+      "ph": "M",
+      "pid": 1,
+      "tid": 4,
+      "args": {
+        "sort_index": 4
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 1,
+      "tid": 5,
+      "args": {
+        "name": "worker 0"
+      }
+    },
+    {
+      "name": "thread_sort_index",
+      "ph": "M",
+      "pid": 1,
+      "tid": 5,
+      "args": {
+        "sort_index": 5
+      }
+    },
+    {
+      "name": "thread_name",
+      "ph": "M",
+      "pid": 1,
+      "tid": 6,
+      "args": {
+        "name": "worker 1"
+      }
+    },
+    {
+      "name": "thread_sort_index",
+      "ph": "M",
+      "pid": 1,
+      "tid": 6,
+      "args": {
+        "sort_index": 6
+      }
+    },
+    {
+      "name": "frame",
+      "cat": "main",
+      "ph": "X",
+      "ts": 0,
+      "dur": 4500,
+      "pid": 1,
+      "tid": 1,
+      "args": {
+        "frame": 0
+      }
+    },
+    {
+      "name": "schedule/Update",
+      "cat": "main",
+      "ph": "X",
+      "ts": 0,
+      "dur": 2250,
+      "pid": 1,
+      "tid": 1,
+      "args": {
+        "frame": 0
+      }
+    },
+    {
+      "name": "test-capture/move",
+      "cat": "main",
+      "ph": "X",
+      "ts": 0,
+      "dur": 1000,
+      "pid": 1,
+      "tid": 1,
+      "args": {
+        "frame": 0
+      }
+    },
+    {
+      "name": "test-capture/spawn",
+      "cat": "main",
+      "ph": "X",
+      "ts": 1000,
+      "dur": 1000,
+      "pid": 1,
+      "tid": 1,
+      "args": {
+        "frame": 0
+      }
+    },
+    {
+      "name": "commands/Update",
+      "cat": "main",
+      "ph": "X",
+      "ts": 2000,
+      "dur": 250,
+      "pid": 1,
+      "tid": 1,
+      "args": {
+        "frame": 0
+      }
+    },
+    {
+      "name": "render/execute-graph",
+      "cat": "main",
+      "ph": "X",
+      "ts": 2250,
+      "dur": 1250,
+      "pid": 1,
+      "tid": 1,
+      "args": {
+        "frame": 0
+      }
+    },
+    {
+      "name": "render/opaque",
+      "cat": "main",
+      "ph": "X",
+      "ts": 2250,
+      "dur": 500,
+      "pid": 1,
+      "tid": 1,
+      "args": {
+        "frame": 0
+      }
+    },
+    {
+      "name": "render/opaque",
+      "cat": "main",
+      "ph": "X",
+      "ts": 2750,
+      "dur": 500,
+      "pid": 1,
+      "tid": 1,
+      "args": {
+        "frame": 0
+      }
+    },
+    {
+      "name": "frame",
+      "cat": "main",
+      "ph": "X",
+      "ts": 16500,
+      "dur": 12500,
+      "pid": 1,
+      "tid": 1,
+      "args": {
+        "frame": 1
+      }
+    },
+    {
+      "name": "schedule/Update",
+      "cat": "main",
+      "ph": "X",
+      "ts": 16500,
+      "dur": 10250,
+      "pid": 1,
+      "tid": 1,
+      "args": {
+        "frame": 1
+      }
+    },
+    {
+      "name": "test-capture/move",
+      "cat": "main",
+      "ph": "X",
+      "ts": 16500,
+      "dur": 1000,
+      "pid": 1,
+      "tid": 1,
+      "args": {
+        "frame": 1
+      }
+    },
+    {
+      "name": "test-capture/spawn",
+      "cat": "main",
+      "ph": "X",
+      "ts": 17500,
+      "dur": 9000,
+      "pid": 1,
+      "tid": 1,
+      "args": {
+        "frame": 1
+      }
+    },
+    {
+      "name": "commands/Update",
+      "cat": "main",
+      "ph": "X",
+      "ts": 26500,
+      "dur": 250,
+      "pid": 1,
+      "tid": 1,
+      "args": {
+        "frame": 1
+      }
+    },
+    {
+      "name": "render/execute-graph",
+      "cat": "main",
+      "ph": "X",
+      "ts": 26750,
+      "dur": 1250,
+      "pid": 1,
+      "tid": 1,
+      "args": {
+        "frame": 1
+      }
+    },
+    {
+      "name": "render/opaque",
+      "cat": "main",
+      "ph": "X",
+      "ts": 26750,
+      "dur": 500,
+      "pid": 1,
+      "tid": 1,
+      "args": {
+        "frame": 1
+      }
+    },
+    {
+      "name": "render/opaque",
+      "cat": "main",
+      "ph": "X",
+      "ts": 27250,
+      "dur": 500,
+      "pid": 1,
+      "tid": 1,
+      "args": {
+        "frame": 1
+      }
+    },
+    {
+      "name": "frame",
+      "cat": "main",
+      "ph": "X",
+      "ts": 41000,
+      "dur": 4500,
+      "pid": 1,
+      "tid": 1,
+      "args": {
+        "frame": 2
+      }
+    },
+    {
+      "name": "schedule/Update",
+      "cat": "main",
+      "ph": "X",
+      "ts": 41000,
+      "dur": 2250,
+      "pid": 1,
+      "tid": 1,
+      "args": {
+        "frame": 2
+      }
+    },
+    {
+      "name": "test-capture/move",
+      "cat": "main",
+      "ph": "X",
+      "ts": 41000,
+      "dur": 1000,
+      "pid": 1,
+      "tid": 1,
+      "args": {
+        "frame": 2
+      }
+    },
+    {
+      "name": "test-capture/spawn",
+      "cat": "main",
+      "ph": "X",
+      "ts": 42000,
+      "dur": 1000,
+      "pid": 1,
+      "tid": 1,
+      "args": {
+        "frame": 2
+      }
+    },
+    {
+      "name": "commands/Update",
+      "cat": "main",
+      "ph": "X",
+      "ts": 43000,
+      "dur": 250,
+      "pid": 1,
+      "tid": 1,
+      "args": {
+        "frame": 2
+      }
+    },
+    {
+      "name": "render/execute-graph",
+      "cat": "main",
+      "ph": "X",
+      "ts": 43250,
+      "dur": 1250,
+      "pid": 1,
+      "tid": 1,
+      "args": {
+        "frame": 2
+      }
+    },
+    {
+      "name": "render/opaque",
+      "cat": "main",
+      "ph": "X",
+      "ts": 43250,
+      "dur": 500,
+      "pid": 1,
+      "tid": 1,
+      "args": {
+        "frame": 2
+      }
+    },
+    {
+      "name": "render/opaque",
+      "cat": "main",
+      "ph": "X",
+      "ts": 43750,
+      "dur": 500,
+      "pid": 1,
+      "tid": 1,
+      "args": {
+        "frame": 2
+      }
+    },
+    {
+      "name": "gpu:frame",
+      "cat": "gpu",
+      "ph": "X",
+      "ts": 3500,
+      "dur": 2500,
+      "pid": 1,
+      "tid": 2,
+      "args": {
+        "frame": 0
+      }
+    },
+    {
+      "name": "gpu:opaque",
+      "cat": "gpu",
+      "ph": "X",
+      "ts": 3500,
+      "dur": 2000,
+      "pid": 1,
+      "tid": 2,
+      "args": {
+        "frame": 0
+      }
+    },
+    {
+      "name": "gpu:tonemap",
+      "cat": "gpu",
+      "ph": "X",
+      "ts": 5500,
+      "dur": 500,
+      "pid": 1,
+      "tid": 2,
+      "args": {
+        "frame": 0
+      }
+    },
+    {
+      "name": "gpu:frame",
+      "cat": "gpu",
+      "ph": "X",
+      "ts": 28000,
+      "dur": 2500,
+      "pid": 1,
+      "tid": 2,
+      "args": {
+        "frame": 1
+      }
+    },
+    {
+      "name": "gpu:opaque",
+      "cat": "gpu",
+      "ph": "X",
+      "ts": 28000,
+      "dur": 2000,
+      "pid": 1,
+      "tid": 2,
+      "args": {
+        "frame": 1
+      }
+    },
+    {
+      "name": "gpu:tonemap",
+      "cat": "gpu",
+      "ph": "X",
+      "ts": 30000,
+      "dur": 500,
+      "pid": 1,
+      "tid": 2,
+      "args": {
+        "frame": 1
+      }
+    },
+    {
+      "name": "gpu:frame",
+      "cat": "gpu",
+      "ph": "X",
+      "ts": 44500,
+      "dur": 2500,
+      "pid": 1,
+      "tid": 2,
+      "args": {
+        "frame": 2
+      }
+    },
+    {
+      "name": "gpu:opaque",
+      "cat": "gpu",
+      "ph": "X",
+      "ts": 44500,
+      "dur": 2000,
+      "pid": 1,
+      "tid": 2,
+      "args": {
+        "frame": 2
+      }
+    },
+    {
+      "name": "gpu:tonemap",
+      "cat": "gpu",
+      "ph": "X",
+      "ts": 46500,
+      "dur": 500,
+      "pid": 1,
+      "tid": 2,
+      "args": {
+        "frame": 2
+      }
+    },
+    {
+      "name": "test-capture/load",
+      "cat": "async",
+      "ph": "b",
+      "ts": 3500,
+      "pid": 1,
+      "tid": 3,
+      "id": "0x21",
+      "args": {
+        "frame": 0
+      }
+    },
+    {
+      "name": "test-capture/load",
+      "cat": "async",
+      "ph": "e",
+      "ts": 44500,
+      "pid": 1,
+      "tid": 3,
+      "id": "0x21",
+      "args": {
+        "frame": 0
+      }
+    },
+    {
+      "name": "gc/minor",
+      "cat": "gc",
+      "ph": "X",
+      "ts": 27000,
+      "dur": 500,
+      "pid": 1,
+      "tid": 4,
+      "args": {
+        "frame": 1
+      }
+    },
+    {
+      "name": "worker/noise",
+      "cat": "worker",
+      "ph": "X",
+      "ts": 500,
+      "dur": 3000,
+      "pid": 1,
+      "tid": 5,
+      "args": {
+        "frame": 0
+      }
+    },
+    {
+      "name": "worker/noise",
+      "cat": "worker",
+      "ph": "X",
+      "ts": 41500,
+      "dur": 3000,
+      "pid": 1,
+      "tid": 5,
+      "args": {
+        "frame": 2
+      }
+    },
+    {
+      "name": "worker/noise",
+      "cat": "worker",
+      "ph": "X",
+      "ts": 25000,
+      "dur": 3000,
+      "pid": 1,
+      "tid": 6,
+      "args": {
+        "frame": 1
+      }
+    }
+  ],
+  "displayTimeUnit": "ms",
+  "otherData": {
+    "producer": "shard profiler (0074)",
+    "gpuTrack": "Approximate: WebGPU's clock isn't the CPU's, so each frame's GPU passes are placed from its submit time.",
+    "frames": [
+      0,
+      2
+    ]
+  }
+}

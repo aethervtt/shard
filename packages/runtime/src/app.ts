@@ -7,6 +7,8 @@ import {
   PreUpdate,
   Profiler,
   ProfilerResource,
+  ProfilerSettings,
+  type ProfilerSettingsData,
   type ResourceDef,
   Rng,
   Schedule,
@@ -51,6 +53,11 @@ export interface AppOptions {
    * Default false.
    */
   dev?: boolean
+  /**
+   * The profiler (0074): `enabled: false` turns spans off for builds that want every microsecond;
+   * `window` is how many runs aggregates cover. Also `ProfilerSettings` at runtime. Default on, 120.
+   */
+  profiler?: Partial<ProfilerSettingsData>
 }
 
 export interface AppDescription {
@@ -157,7 +164,7 @@ export class App {
   private readonly schedules = new Map<ScheduleLabel, Schedule>()
   private readonly systemNames = new Set<string>()
   private readonly states: StateDriver[] = []
-  private readonly profiler = new Profiler()
+  private readonly profiler: Profiler
   private runner: Runner | undefined
   private initialized = false
   private startupDone = false
@@ -189,12 +196,17 @@ export class App {
     this.fixedHz = options.fixedHz ?? 60
     this.maxFixedSteps = options.maxFixedSteps ?? 5
     this.now = options.now ?? (() => performance.now())
+    const settings: ProfilerSettingsData = { enabled: true, window: 120, ...options.profiler }
+    this.profiler = new Profiler({ now: this.now, settings })
+    this.world.insertResource(ProfilerSettings, settings)
     this.world.insertResource(ProfilerResource, this.profiler)
     this.world.insertResource(GlobalRng, new Rng(options.seed ?? 0))
     this.world.insertResource(DevMode, { enabled: options.dev ?? false })
     const log = new Log()
     log.now = () => this.world.tryResource(Time)?.elapsed ?? 0
     this.world.insertResource(LogResource, log)
+    this.profiler.onWarning = (w) =>
+      log.log('warn', w.message, { code: w.code, hint: w.hint, path: w.path })
     const control = new AppControl()
     control.onRequest = () => this.driver?.requestFrame()
     this.world.insertResource(AppControlResource, control)
@@ -520,7 +532,20 @@ export class App {
     }
   }
 
+  /** One frame, timed as the `frame` span (0074). */
   private frame(delta: number): void {
+    const profiler = this.profiler
+    const token = profiler.beginFrame((this.world.resource(Time) as TimeData).frame)
+    try {
+      this.frameBody(delta)
+    } catch (err) {
+      profiler.cancel(token)
+      throw err
+    }
+    profiler.endFrame(token)
+  }
+
+  private frameBody(delta: number): void {
     const world = this.world
     // This frame carries what was stamped before it started (0062). No allocation without traces.
     const traces = this.traces.length > 0 ? this.traces.splice(0) : undefined
