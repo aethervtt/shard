@@ -193,6 +193,20 @@
       "desktop": 2,
       "note": "0042: main-thread procgen work in any frame while 200 runs land (hashing, caching, meshing). node/src/procgen.test.ts."
     },
+    "profiler/always-on": {
+      "kind": "target",
+      "in": "ratio",
+      "laptop": 1.01,
+      "desktop": 1.01,
+      "note": "0074: frame time with the always-on profiler over frame time with it off, on the 100k-entity ECS bench. runtime/src/perf.test.ts."
+    },
+    "profiler/capturing": {
+      "kind": "target",
+      "in": "ratio",
+      "laptop": 1.05,
+      "desktop": 1.05,
+      "note": "0074: frame time while a capture records, over frame time with the profiler off. runtime/src/perf.test.ts."
+    },
     "project/hot-reload": {
       "kind": "target",
       "laptop": 100,
