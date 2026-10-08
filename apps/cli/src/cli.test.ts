@@ -1044,7 +1044,7 @@ describe('shard compare, approve, perf-check (0062)', () => {
 
 describe('shard profile (0074)', () => {
   /**
-   * A project whose one system busy-waits 2 ms a frame, and 80 ms on frame 30. It lives inside the
+   * A project whose one system busy-waits 10 ms a frame, and 80 ms on frame 30. It lives inside the
    * CLI package so its scripts resolve the engine packages.
    */
   function fixture() {
@@ -1068,7 +1068,9 @@ export function busyWait(ms: number): number {
 const busy = defineSystem({
   name: 'fixture/busy',
   run: (_, world) => {
-    busyWait(world.resource(Time).frame === 30 ? 80 : 2)
+    // 10 ms every frame, so the busy-wait leads a CPU profile even where the engine's own work is
+    // slow (CI's software GPU); 80 ms on frame 30, the hitch.
+    busyWait(world.resource(Time).frame === 30 ? 80 : 10)
   },
 })
 
