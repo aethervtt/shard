@@ -25,6 +25,7 @@ export async function capture(ctx: CommandContext): Promise<number> {
   const run = await runCapture(plan, {
     out,
     headed: Boolean(ctx.flags.headed),
+    ...(ctx.flags.channel ? { channel: String(ctx.flags.channel) } : {}),
     log: (message) => ctx.out.say(message),
   })
   const { manifest, failures } = run

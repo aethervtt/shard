@@ -91,7 +91,7 @@ const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; 
   },
   capture: {
     run: capture,
-    help: 'capture <plan.json> [--out dir]  browser captures, steps and records (0062)',
+    help: 'capture <plan.json> [--out dir] [--headed] [--channel chrome]  browser captures, steps and records (0062)',
   },
   compare: {
     run: compare,
@@ -156,6 +156,7 @@ export async function main(argv: string[]): Promise<number> {
         plan: { type: 'string' },
         by: { type: 'string' },
         headed: { type: 'boolean' },
+        channel: { type: 'string' },
         layer: { type: 'string' },
         chunk: { type: 'string' },
         rect: { type: 'string' },

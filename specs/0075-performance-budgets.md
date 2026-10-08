@@ -299,6 +299,7 @@ expect(p95(gpuShare)).toBeLessThan(budget('scatter-walk', { slice: 'gpu:foliage'
   | `crowd` | `render/src/crowd.test.ts` | 0022's crowd, now `spawnCrowd` in `@aethervtt/shard-render/crowd` (the playground's #crowd page uses it too), on its 2.86°/s turntable for 10 s |
   | `planet-descent` | `terrain/src/scenario.test.ts` | 0043's Earth descent (`earthDescent`, `EARTH_HEIGHT` in terrain's testing, shared with `budget.test.ts`): 40 000 km to 2 m in 30 s, then 2 s on the ground |
   | `tabletop-max` | `structure/src/scenario.test.ts` | 0055's `maxScene` under a shadowed sun, panned 160 m at 40 m up over 120 frames (a frame of it costs about 250 ms of CPU on the laptop) |
+  | `post-stack` | `render/src/post-stack.test.ts` | the playground's #post courtyard (`spawnPostScene` and `postScenePlugin` in `@aethervtt/shard-render/post-scene`) with every post effect on, flown along `postCamera` (30° either side of the axis every 20 s) at 120 fps |
 
 - **Spans each records** (`pnpm test`, Metal Dawn), beside `frame`, `gpu:frame`, the schedules
   and every `render/*` system and node encode:
@@ -330,6 +331,7 @@ expect(p95(gpuShare)).toBeLessThan(budget('scatter-walk', { slice: 'gpu:foliage'
   | `crowd` | `gpu:forward-opaque` 0.17, `gpu:shadows` 0.23, `gpu:instance-cull` 0.02, `gpu:tonemap` 0.01, headroom 0.57 | `render` 0.87, headroom 0.13 |
   | `planet-descent` | `gpu:forward-opaque` 0.42, `gpu:terrain` 0.05, `gpu:tonemap` 0.04, headroom 0.49 | `render` 0.37, `terrain/select` 0.10 (laptop 6.2 ms), `terrain/planets` 0.01, headroom 0.52 |
   | `tabletop-max` | `gpu:forward-opaque` 0.35, `gpu:forward-transparent` 0.10, `gpu:shadows` 0.20, `gpu:tonemap` 0.05, headroom 0.30 | `render` 0.30, `structure` 0.15, headroom 0.55 |
+  | `post-stack` | `gpu:prepass` 0.05, `gpu:ssao` 0.08, `gpu:forward-opaque` 0.03, `gpu:shadows` 0.03, `gpu:atmosphere` 0.05, `gpu:post` 0.15, `gpu:tonemap` 0.04, headroom 0.57 | `render` 0.98, headroom 0.02 |
 
   The splits come from the laptop's first `pnpm bench` of part B (2026-10-08): each slice is its
   measured share of the frame (p95, by ablation for the laptop's GPU slices) rounded up a little,
@@ -344,6 +346,13 @@ expect(p95(gpuShare)).toBeLessThan(budget('scatter-walk', { slice: 'gpu:foliage'
   `gpu:forward-opaque` to 32 ms and gave its sub-millisecond slices floors (`gpu:foliage` 1 ms,
   `gpu:tonemap` 0.25 ms). The desktop is unmeasured everywhere.
 
+- **GPU timings after a clock step.** On Dawn's Metal backend the timestamp clock steps back by
+  about 70 s in a device's first frames, while it calibrates. `GpuTimer` used to drop a pass whose
+  end came before the latest end it had seen (the slot of a pass a tile GPU skipped keeps an old
+  frame's stamps), so one early stamp hid every later pass: `post-stack` recorded no GPU spans in
+  Node. A slot is now left over when it holds exactly the stamps it held at the last readback
+  (`render/src/timer.test.ts`). Chrome's numbers didn't change: #post's `gpu:frame` read 9.36–9.44 ms
+  at 3024×1964 before and after.
 - **The report.** Each scenario slice in `bench/perf/report.json` has its budget (ms) and share,
   `measured` (the worst p95 a scenario test recorded), `measuredShare` (over the frame's recorded
   p95) and a verdict. Headroom is the frame less every slice, a floor. A share over its budget's

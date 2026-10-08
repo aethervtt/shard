@@ -1,0 +1,17 @@
+{
+  "url": "http://localhost:5180/?capture&path&res=1920x1080&scale=1#post",
+  "fixture": "post-stack",
+  "browsers": ["chromium"],
+  "dpr": [2],
+  "viewport": [1100, 700],
+  "canvas": "#viewport",
+  "timeoutMs": 900000,
+  "conditions": { "renderScale": { "mode": "fixed", "scale": 1 } },
+  "steps": [{ "name": "render" }, { "name": "profile", "args": { "frames": 600 } }],
+  "scenarios": [{ "name": "post-stack", "seconds": 10 }],
+  "thresholds": {
+    "post-stack": {
+      "frameTime.p95": { "max": 8.4 }
+    }
+  }
+}

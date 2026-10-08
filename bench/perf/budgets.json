@@ -404,6 +404,27 @@
     }
   },
   "scenarios": {
+    "post-stack": {
+      "what": "the playground's #post courtyard with every post effect on, flown along postCamera",
+      "resolution": [1920, 1080],
+      "renderScale": 1,
+      "fps": 120,
+      "frame": { "gpu": { "laptop": 8.3, "desktop": 8.3 }, "cpu": { "laptop": 4, "desktop": 4 } },
+      "slices": {
+        "gpu": {
+          "gpu:prepass": 0.05,
+          "gpu:ssao": 0.08,
+          "gpu:forward-opaque": 0.03,
+          "gpu:shadows": 0.03,
+          "gpu:atmosphere": 0.05,
+          "gpu:post": 0.15,
+          "gpu:tonemap": 0.04,
+          "headroom": 0.57
+        },
+        "cpu": { "render": 0.98, "headroom": 0.02 }
+      },
+      "note": "Shares from the laptop's first bench of the scenario (2026-10-08, render/src/post-stack.test.ts), each the measured share of the frame rounded up, headroom the rest. GPU frame p95 7.27 ms; GPU slices by ablation (the laptop's passTiming): prepass 0.33, ssao 0.57, shadows 0.20, atmosphere 0.33, post 1.08, tonemap 0.23 ms; forward-opaque measured 0, so 0.03 is proposed. CPU frame p95 1.78 ms, render 1.74 ms of it: headless, the render systems are the frame. In Chrome on the laptop the same scene at 1920x1080 holds 120 Hz (gpu:frame p50 4.13 ms, no missed vsync over 600 frames; scripts/post-baseline.mjs); at the panel's native 3024x1964 it doesn't (gpu:frame p50 9.36 ms, frame interval p50 12.1 ms). The desktop is unmeasured. Keys cover the spans the path records, none twice: gpu:prepass, gpu:ssao (gtao and upsample), gpu:forward-opaque, gpu:shadows (cascade0-3), gpu:atmosphere (sky-view, aerial, sky), gpu:post (atmosphere, fog, taa, motion-blur, dof*, bloom*, exposure), gpu:tonemap; instance-cull and light-clusters fall in headroom. CPU: render (render systems and node encodes)."
+    },
     "scatter-walk": {
       "what": "star-explorer's planet, walking through forest with grass",
       "resolution": [1920, 1080],

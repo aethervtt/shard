@@ -64,7 +64,10 @@ const PLUGINS: Record<string, (m: Mod) => PluginLike[]> = {
 
 /** Plugins exported from a package's subpaths (not its index), by file under `src/`. */
 const SUBPATH_PLUGINS: Record<string, Record<string, (m: Mod) => PluginLike[]>> = {
-  render: { 'surface.ts': (m) => [m.surfacePlugin as PluginLike] },
+  render: {
+    'surface.ts': (m) => [m.surfacePlugin as PluginLike],
+    'post-scene.ts': (m) => [m.postScenePlugin as PluginLike],
+  },
 }
 
 /** Engine packages in dependency order (a package after everything it depends on). */
