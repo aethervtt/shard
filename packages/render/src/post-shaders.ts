@@ -130,11 +130,11 @@ import shard::prepass::common::{ PrepassVertex, PrepassOutput, prepass_vertex, p
   @if(CUTAWAY) cutaway_clip(in.world_position, in.clip.xy, in.flags);
 }`,
 
-  'shard::post::fog': `
+  'shard::post::fog::common': `
 import shard::view::view;
 import shard::pbr::lights::directional;
 import shard::pbr::environment::env_irradiance;
-import shard::post::common::{ uv_of, world_at };
+import shard::post::common::world_at;
 
 struct FogParams {
   color: vec4f,
@@ -144,31 +144,27 @@ struct FogParams {
   sun: f32,
 }
 
-@group(1) @binding(0) var input: texture_2d<f32>;
-@group(1) @binding(1) var depth_texture: texture_depth_2d;
-@group(1) @binding(2) var<uniform> fog: FogParams;
-
 const PI: f32 = 3.14159265;
 
 /** Optical depth of exponential height fog along the ray from t0 to t1 (meters). */
-fn optical_depth(y0: f32, dir_y: f32, t0: f32, t1: f32) -> f32 {
+fn optical_depth(fog: FogParams, y0: f32, dir_y: f32, t0: f32, t1: f32) -> f32 {
   let base = fog.density * exp(-fog.falloff * y0);
   let k = fog.falloff * dir_y;
   if (abs(k) < 1e-5) { return base * (t1 - t0); }
   return base * (exp(-k * t0) - exp(-k * t1)) / k;
 }
 
-@fragment fn fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
-  let px = vec2i(frag.xy);
-  let c = textureLoad(input, px, 0);
-  let depth = textureLoad(depth_texture, px, 0);
-  let uv = uv_of(frag.xy);
+/**
+ * Height fog over color \`c\` at a pixel (\`uv\`, its depth): the fog pass, and the atmosphere's
+ * aerial perspective when a view has both (one pass for the two).
+ */
+fn fog_apply(c: vec4f, uv: vec2f, depth: f32, fog: FogParams) -> vec4f {
   // The background is far away, not infinitely: a floor keeps the ray finite.
   let world = world_at(uv, max(depth, 1e-7));
   let to = world - view.cameraPosition;
   let dist = length(to);
   let dir = to / max(dist, 1e-6);
-  let tau = optical_depth(view.cameraPosition.y, dir.y, fog.start, max(dist, fog.start));
+  let tau = optical_depth(fog, view.cameraPosition.y, dir.y, fog.start, max(dist, fog.start));
   let transmittance = exp(-tau);
   // In-scattering: the sky (environment or ambient), plus the sun through a forward-peaked phase.
   var sky = view.ambient;
@@ -188,6 +184,19 @@ fn optical_depth(y0: f32, dir_y: f32, t0: f32, t1: f32) -> f32 {
   @if(TRANSPARENT) return vec4f(color, c.a * transmittance + (1.0 - transmittance));
 }`,
 
+  'shard::post::fog': `
+import shard::post::common::{ uv_of, post_out };
+import shard::post::fog::common::{ FogParams, fog_apply };
+
+@group(1) @binding(0) var input: texture_2d<f32>;
+@group(1) @binding(1) var depth_texture: texture_depth_2d;
+@group(1) @binding(2) var<uniform> fog: FogParams;
+
+@fragment fn fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
+  let px = vec2i(frag.xy);
+  return post_out(fog_apply(textureLoad(input, px, 0), uv_of(frag.xy), textureLoad(depth_texture, px, 0), fog));
+}`,
+
   'shard::post::bloom': `
 import shard::color::luminance;
 
@@ -201,7 +210,6 @@ struct BloomParams {
 @group(0) @binding(0) var source: texture_2d<f32>;
 @group(0) @binding(1) var source_sampler: sampler;
 @group(0) @binding(2) var<uniform> params: BloomParams;
-@group(0) @binding(3) var scene: texture_2d<f32>;
 
 fn tap(uv: vec2f, dx: f32, dy: f32) -> vec3f {
   return textureSampleLevel(source, source_sampler, uv + vec2f(dx, dy) * params.threshold.zw, 0.0).rgb;
@@ -252,28 +260,25 @@ struct FullscreenInput { @builtin(position) clip: vec4f, @location(0) uv: vec2f 
     + (tap(in.uv, -1.0, 0.0) + tap(in.uv, 1.0, 0.0) + tap(in.uv, 0.0, -1.0) + tap(in.uv, 0.0, 1.0)) * 2.0
     + tap(in.uv, -1.0, -1.0) + tap(in.uv, 1.0, -1.0) + tap(in.uv, -1.0, 1.0) + tap(in.uv, 1.0, 1.0);
   return vec4f(c / 16.0, 1.0);
-}
-
-/** The scene plus the glow: mixed (energy-conserving) without a threshold, added with one. */
-@fragment fn composite(in: FullscreenInput) -> @location(0) vec4f {
-  let s = textureLoad(scene, vec2i(in.clip.xy), 0);
-  let glow = textureSampleLevel(source, source_sampler, in.uv, 0.0).rgb / params.mix.y;
-  let c = select(s.rgb + glow * params.mix.x, mix(s.rgb, glow, params.mix.x), params.mix.z > 0.5);
-  return vec4f(c, s.a);
 }`,
 
   'shard::post::exposure': `
 import shard::view::view;
 import shard::color::luminance;
+@if(BLOOM) import shard::post::glow::add_glow;
 
 struct MeterParams {
   /** EV of bin 0, bins per EV, metering mode, 0. */
   range: vec4f,
+  /** Bloom, which the tonemap adds to the image: intensity, level count, mix (1) or add (0). */
+  glow: vec4f,
 }
 
 @group(0) @binding(1) var input: texture_2d<f32>;
 @group(0) @binding(2) var<storage, read_write> histogram: array<atomic<u32>, 256>;
 @group(0) @binding(3) var<uniform> params: MeterParams;
+@if(BLOOM) @group(0) @binding(4) var bloom: texture_2d<f32>;
+@if(BLOOM) @group(0) @binding(5) var bloom_sampler: sampler;
 
 var<workgroup> local: array<atomic<u32>, 256>;
 
@@ -289,7 +294,12 @@ fn meter(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_ind
   let size = textureDimensions(input);
   let px = id.xy * 4u + 2u;
   if (px.x < size.x && px.y < size.y) {
-    let c = textureLoad(input, vec2i(px), 0).rgb;
+    var c = textureLoad(input, vec2i(px), 0).rgb;
+    // What the tonemap shows: the image with bloom's glow over it.
+    @if(BLOOM) {
+      let uv = (vec2f(px) + 0.5) / vec2f(size);
+      c = add_glow(c, textureSampleLevel(bloom, bloom_sampler, uv, 0.0).rgb, params.glow);
+    }
     let l = luminance(c) / max(view.exposure, 1e-20);
     let ev = log2(max(l, 1e-10) * 8.0);
     let bin = u32(clamp((ev - params.range.x) * params.range.y, 0.0, 255.0));
@@ -307,7 +317,7 @@ fn meter(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_ind
 
   'shard::post::dof': `
 import shard::view::view;
-import shard::post::common::{ uv_of, world_at, view_depth };
+import shard::post::common::{ uv_of, world_at, view_depth, post_out };
 import shard::color::luminance;
 
 struct DofParams {
@@ -388,12 +398,12 @@ const TAPS: i32 = 48;
   let sharp = textureLoad(input, px, 0);
   let blurred = textureSampleLevel(half_texture, linear_sampler, uv_of(frag.xy), 0.0);
   let t = smoothstep(0.5, 1.5, abs(coc_at(px)));
-  return vec4f(mix(sharp.rgb, blurred.rgb, t), sharp.a);
+  return post_out(vec4f(mix(sharp.rgb, blurred.rgb, t), sharp.a));
 }`,
 
   'shard::post::motion_blur': `
 import shard::view::view;
-import shard::post::common::{ uv_of, motion };
+import shard::post::common::{ uv_of, motion, post_out };
 
 struct MotionParams {
   /** Shutter fraction of a frame, max blur in pixels, samples, 0. */
@@ -415,14 +425,14 @@ struct MotionParams {
   let cap = motion_params.params.y;
   if (pixels > cap) { v *= cap / pixels; }
   let center = textureLoad(input, px, 0);
-  if (pixels < 0.5) { return center; }
+  if (pixels < 0.5) { return post_out(center); }
   let n = i32(motion_params.params.z);
   var sum = vec3f(0.0);
   for (var i = 0; i < n; i++) {
     let t = (f32(i) + 0.5) / f32(n) - 0.5;
     sum += textureSampleLevel(input, linear_sampler, uv + v * t, 0.0).rgb;
   }
-  return vec4f(sum / f32(n), center.a);
+  return post_out(vec4f(sum / f32(n), center.a));
 }`,
 
   'shard::post::taa': `
@@ -441,11 +451,6 @@ struct TaaParams {
 @group(0) @binding(4) var history: texture_2d<f32>;
 @group(0) @binding(5) var linear_sampler: sampler;
 @group(0) @binding(6) var<uniform> taa: TaaParams;
-
-struct TaaOutput {
-  @location(0) color: vec4f,
-  @location(1) history: vec4f,
-}
 
 fn rgb_to_ycocg(c: vec3f) -> vec3f {
   return vec3f(0.25 * c.r + 0.5 * c.g + 0.25 * c.b, 0.5 * c.r - 0.5 * c.b, -0.25 * c.r + 0.5 * c.g - 0.25 * c.b);
@@ -482,7 +487,7 @@ fn sample_history(uv: vec2f) -> vec3f {
   return max(c / w, vec3f(0.0));
 }
 
-@fragment fn fs(@builtin(position) frag: vec4f) -> TaaOutput {
+@fragment fn fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
   let px = vec2i(frag.xy);
   let size = vec2i(textureDimensions(input));
   let uv = uv_of(frag.xy);
@@ -524,17 +529,12 @@ fn sample_history(uv: vec2f) -> vec3f {
   if (m > 1.0) { h = center + offset / m; }
   let blended = mix(ycocg_to_rgb(h), current, alpha);
   let color = expand(max(blended, vec3f(0.0)));
-  var out: TaaOutput;
-  @if(!TRANSPARENT) {
-    out.color = vec4f(color, 1.0);
-    out.history = vec4f(color, 1.0);
-  }
+  // The output is also next frame's history.
+  var out = vec4f(color, 1.0);
   @if(TRANSPARENT) {
     // Coverage resolves like color: history clamped to the neighborhood, blended at the same rate.
     let past = clamp(textureSampleLevel(history, linear_sampler, prev_uv, 0.0).a, alpha_lo, alpha_hi);
-    let coverage = mix(past, textureLoad(input, px, 0).a, alpha);
-    out.color = vec4f(color, coverage);
-    out.history = vec4f(color, coverage);
+    out.a = mix(past, textureLoad(input, px, 0).a, alpha);
   }
   return out;
 }`,
@@ -556,7 +556,6 @@ struct SsaoParams {
 @group(0) @binding(1) var depth_texture: texture_depth_2d;
 @group(0) @binding(2) var normal_texture: texture_2d<f32>;
 @group(0) @binding(3) var<uniform> ssao: SsaoParams;
-@group(0) @binding(4) var half_ao: texture_2d<f32>;
 
 const PI: f32 = 3.14159265;
 
@@ -623,26 +622,6 @@ fn view_position(px: vec2i) -> vec3f {
   }
   let ao = clamp(visibility / f32(dirs), 0.0, 1.0);
   return vec4f(pow(ao, ssao.params.y), -p.z, 0.0, 1.0);
-}
-
-/** Back to full resolution: the four nearest half-resolution texels, weighted by depth match. */
-@fragment fn upsample(@builtin(position) frag: vec4f) -> @location(0) vec4f {
-  let px = vec2i(frag.xy);
-  let depth = textureLoad(depth_texture, px, 0);
-  if (depth <= 0.0) { return vec4f(1.0); }
-  let z = -view_position(px).z;
-  let half_size = vec2i(textureDimensions(half_ao));
-  let base = vec2i(floor((frag.xy - 1.0) * 0.5));
-  var sum = 0.0;
-  var weight = 0.0;
-  for (var k = 0; k < 4; k++) {
-    let q = clamp(base + vec2i(k & 1, k >> 1), vec2i(0), half_size - 1);
-    let s = textureLoad(half_ao, q, 0);
-    let w = 1.0 / (1e-3 + abs(s.y - z) / max(z, 1e-3));
-    sum += s.x * w;
-    weight += w;
-  }
-  return vec4f(sum / max(weight, 1e-6), 0.0, 0.0, 1.0);
 }`,
 }
 

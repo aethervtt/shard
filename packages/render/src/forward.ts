@@ -702,7 +702,8 @@ export const PICK_TARGETS: GPUColorTargetState[] = [
   { format: 'rgba32float' },
 ]
 
-const PREPASS_TARGETS: GPUColorTargetState[] = [{ format: 'rgba16float' }, { format: 'rg16float' }]
+// Octahedral normal (xy) and screen velocity: two channels each.
+const PREPASS_TARGETS: GPUColorTargetState[] = [{ format: 'rg16float' }, { format: 'rg16float' }]
 
 /**
  * Draws a list of batches with their material types' pipelines. Returns the pipeline switches, so

@@ -23,14 +23,20 @@ async function app(gpu: GpuContext) {
   )
   await app.init()
   const graph = app.world.resource(Graph)
-  for (const name of ['first', 'second']) {
-    graph.addNode(name, {
-      kind: 'render',
-      writes: [VIEW_TARGET],
-      color: [{ resource: VIEW_TARGET, clear: name === 'first' ? [0, 0, 0, 1] : undefined }],
-      run() {},
-    })
-  }
+  // Two passes on different targets: render nodes on the same attachments would share one.
+  graph.addNode('first', {
+    kind: 'render',
+    writes: [VIEW_TARGET],
+    color: [{ resource: VIEW_TARGET, clear: [0, 0, 0, 1] }],
+    run() {},
+  })
+  graph.addNode('second', {
+    kind: 'render',
+    sideEffects: true,
+    writes: [{ name: 'second', format: 'rgba8unorm' }],
+    color: [{ resource: 'second', clear: [0, 0, 0, 1] }],
+    run() {},
+  })
   return app
 }
 

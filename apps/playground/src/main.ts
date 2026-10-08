@@ -9,10 +9,22 @@ import { gesturesPlugin, inputPlugin } from '@aethervtt/shard-input'
 import { navGridPlugin, navPlugin } from '@aethervtt/shard-nav'
 import { particlesPlugin } from '@aethervtt/shard-particles'
 import { physics2dPlugin, physics3dPlugin } from '@aethervtt/shard-physics'
-import { createDomInputSource, createIndexedDbStorage } from '@aethervtt/shard-platform-web'
+import {
+  createDomInputSource,
+  createIndexedDbStorage,
+  createWebPerformance,
+} from '@aethervtt/shard-platform-web'
 import { procgenPlugin } from '@aethervtt/shard-procgen'
 import { connectToHub, createProtocolServer, DEFAULT_HUB_PORT } from '@aethervtt/shard-protocol'
-import { describeRender, forwardPlugin, pick, renderPlugin } from '@aethervtt/shard-render'
+import {
+  ablatePasses,
+  describeRender,
+  forwardPlugin,
+  Graph,
+  pick,
+  renderPlugin,
+  Views,
+} from '@aethervtt/shard-render'
 import { materialNoisePlugin } from '@aethervtt/shard-render/noise'
 import { surfacePlugin } from '@aethervtt/shard-render/surface'
 import {
@@ -34,6 +46,8 @@ import { terrainPlugin } from '@aethervtt/shard-terrain'
 import { TransformPlugin } from '@aethervtt/shard-transform'
 import { uiPlugin } from '@aethervtt/shard-ui'
 import { vectorPlugin } from '@aethervtt/shard-vector'
+import { metricsPlugin } from '@aethervtt/shard-verify/metrics'
+import { installCapturePage } from '@aethervtt/shard-verify/page'
 import { animationDemoPlugin } from './animation'
 import { animgraphDemoPlugin } from './animgraph'
 import { atmosphereDemoPlugin } from './atmosphere'
@@ -332,6 +346,11 @@ if (demo === 'galaxy') {
   app.addPlugin(TransformPlugin, forwardPlugin(), ...controls(), hudPlugin, scenePlugin)
 }
 app.addPlugin(fpsGraphPlugin)
+// `?capture`: a page `shard capture` (0062) can drive and record, as verify.html is.
+const capturing = new URLSearchParams(location.search).has('capture')
+if (capturing) {
+  app.addPlugin(metricsPlugin({ performance: createWebPerformance(), renderer: 'shard' }))
+}
 app.setRunner(animationFrameRunner())
 window.addEventListener('hashchange', () => location.reload())
 
@@ -397,7 +416,56 @@ async function start() {
     })
   }
   playground.started = true
+  if (capturing) {
+    app.markUsable()
+    installCapturePage(app, { steps: captureSteps() })
+  }
   await app.run()
+}
+
+const nextFrame = () =>
+  new Promise<void>((resolve) => {
+    const off = app.onFrame(() => {
+      off()
+      resolve()
+    })
+  })
+
+/**
+ * Steps a `shard capture` plan runs on `?capture` pages (0074, 0075): `profile` captures frames
+ * (summary and trace), `ablate` measures render-graph passes by ablation (default: every node the
+ * last frame ran), `render` returns `render.describe`.
+ */
+function captureSteps(): Record<string, (args: unknown) => unknown> {
+  return {
+    profile: async (args) => {
+      const { frames = 600 } = (args ?? {}) as { frames?: number }
+      return capturePerf(app.world, { frames })
+    },
+    ablate: async (args) => {
+      const options = (args ?? {}) as {
+        passes?: string[]
+        frames?: number
+        rounds?: number
+        together?: boolean
+        groups?: Record<string, string[]>
+      }
+      let passes = options.passes ?? []
+      if (passes.length === 0) {
+        const perView = app.world.resource(Graph).describe().perView as Record<
+          string,
+          { order: string[] }
+        >
+        const ran = new Set<string>()
+        for (const view of app.world.resource(Views).list) {
+          for (const name of perView[view.name]?.order ?? []) ran.add(name)
+        }
+        passes = [...ran]
+      }
+      return ablatePasses(app.world, { ...options, passes }, nextFrame)
+    },
+    render: () => describeRender(app.world),
+  }
 }
 
 start().catch((err: unknown) => {

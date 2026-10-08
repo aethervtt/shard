@@ -686,6 +686,26 @@ fn heat(count: u32) -> vec3f {
  * Lighting stage: the only place lights are evaluated. Returns scene-referred radiance.
  * Directional lights (with cascaded shadows), then clustered point and spot lights, then ambient.
  */
+/**
+ * SSAO at a full-resolution pixel, from the half-resolution AO and view depth (rg): the four
+ * nearest texels, weighted by how well their depth matches this pixel's. Without SSAO a white
+ * 1×1 texture is bound, which gives 1.
+ */
+fn ssao_at(frag: vec2f, z: f32) -> f32 {
+  let half_size = vec2i(textureDimensions(ao_texture));
+  let base = vec2i(floor((frag - 1.0) * 0.5));
+  var sum = 0.0;
+  var weight = 0.0;
+  for (var k = 0; k < 4; k++) {
+    let q = clamp(base + vec2i(k & 1, k >> 1), vec2i(0), half_size - 1);
+    let s = textureLoad(ao_texture, q, 0);
+    let w = 1.0 / (1e-3 + abs(s.y - z) / max(z, 1e-3));
+    sum += s.x * w;
+    weight += w;
+  }
+  return sum / max(weight, 1e-6);
+}
+
 fn apply_lighting(p: PbrInput, world_position: vec3f, frag_coord: vec4f, flags: u32) -> vec3f {
   let n = p.normal;
   let v = normalize(view.cameraPosition - world_position);
@@ -776,10 +796,7 @@ fn apply_lighting(p: PbrInput, world_position: vec3f, frag_coord: vec4f, flags: 
   // Ambient: image-based lighting from the environment, or the uniform AmbientLight (cd/m²).
   // SSAO darkens it on opaque surfaces (it measures the depth buffer, which blended ones aren't in).
   var surface = p;
-  if (p.alpha >= 0.999) {
-    let dims = vec2i(textureDimensions(ao_texture));
-    surface.occlusion *= textureLoad(ao_texture, min(vec2i(frag_coord.xy), dims - 1), 0).r;
-  }
+  if (p.alpha >= 0.999) { surface.occlusion *= ssao_at(frag_coord.xy, view_depth); }
   if (view.envParams.w > 0.5) {
     @if(!SKY_VISIBILITY) color += environment_light(surface, n, v);
     @if(SKY_VISIBILITY) color += interior_ambient(environment_light(surface, n, v), diffuse_color * surface.occlusion, world_position, n);
@@ -1113,9 +1130,21 @@ fn environment_light(p: PbrInput, n: vec3f, v: vec3f) -> vec3f {
 fn environment_background(d: vec3f) -> vec3f {
   return textureSampleLevel(env_source, env_sampler, env_rotate(d), 0.0).rgb * view.envParams.x;
 }`,
+  'shard::post::glow': `
+/**
+ * Bloom's first level over the image: mixed, conserving energy, without a threshold; added with
+ * one. \`glow\`: intensity, the chain's level count, mix (1) or add (0), 0. The tonemap applies it
+ * as it reads the image, and auto exposure meters the same mix.
+ */
+fn add_glow(c: vec3f, level0: vec3f, glow: vec4f) -> vec3f {
+  let g = level0 / glow.y;
+  return select(c + g * glow.x, mix(c, g, glow.x), glow.z > 0.5);
+}`,
+
   'shard::post::tonemap': `
 import shard::color::{ linear_to_srgb, srgb_to_linear, ign, luminance };
 import shard::tonemap::tonemap;
+@if(BLOOM) import shard::post::glow::add_glow;
 
 struct TonemapParams {
   /** curve, dither, flags (1 grading, 2 vignette, 4 LUT, 8 sRGB LUT), 0. */
@@ -1131,12 +1160,16 @@ struct TonemapParams {
   vignette: vec4f,
   /** 1 / width, 1 / height of the view. */
   texel: vec4f,
+  /** Bloom: intensity, level count, mix (1) or add (0), 0. */
+  glow: vec4f,
 }
 
 @group(0) @binding(0) var hdr: texture_2d<f32>;
 @group(0) @binding(1) var<uniform> params: TonemapParams;
 @group(0) @binding(2) var lut: texture_2d<f32>;
 @group(0) @binding(3) var lut_sampler: sampler;
+/** Bloom's first level, composited here instead of in a pass of its own. */
+@if(BLOOM) @group(0) @binding(4) var bloom: texture_2d<f32>;
 
 const LIN_TO_LMS = mat3x3f(
   vec3f(3.90405e-1, 7.08416e-2, 2.31082e-2),
@@ -1174,7 +1207,11 @@ fn apply_lut(c: vec3f) -> vec3f {
 }
 
 @fragment fn fs(@builtin(position) p: vec4f) -> @location(0) vec4f {
-  let texel = textureLoad(hdr, vec2i(p.xy), 0);
+  var texel = textureLoad(hdr, vec2i(p.xy), 0);
+  @if(BLOOM) {
+    let level0 = textureSampleLevel(bloom, lut_sampler, p.xy * params.texel.xy, 0.0).rgb;
+    texel = vec4f(add_glow(texel.rgb, level0, params.glow), texel.a);
+  }
   var hdr_color = max(texel.rgb, vec3f(0.0));
   @if(TRANSPARENT) var alpha = 1.0;
   @if(TRANSPARENT) {
@@ -1261,6 +1298,23 @@ fn world_at(uv: vec2f, depth: f32) -> vec3f {
   let ndc = vec2f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
   let w = view.invViewProj * vec4f(ndc, depth, 1.0);
   return w.xyz / w.w;
+}
+
+/**
+ * Rounds to nearest on a device that truncates when it stores rg11b10ufloat (Metal does): half a
+ * step of each channel's own exponent (6 mantissa bits in red and green, 5 in blue) added before
+ * the store. Without it every pass through the format loses half a step on average, blue twice
+ * as much, and the image drifts warm.
+ */
+fn rg11_round(c: vec3f) -> vec3f {
+  let e = exp2(floor(log2(max(c, vec3f(6.2e-5)))));
+  return c + e * vec3f(1.0 / 128.0, 1.0 / 128.0, 1.0 / 64.0);
+}
+
+/** A post pass's output into the chain: rounded where it's rg11b10ufloat on a truncating device. */
+fn post_out(c: vec4f) -> vec4f {
+  @if(RG11_ROUND) return vec4f(rg11_round(c.rgb), c.a);
+  @if(!RG11_ROUND) return c;
 }
 
 /** Distance along the view axis, in meters. */

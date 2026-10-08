@@ -15,22 +15,32 @@ export const BASELINE_EXPOSURE_SHADERS: Record<string, string> = {
   'shard::post::baseline::meter': `
 import shard::view::view;
 import shard::color::luminance;
+@if(BLOOM) import shard::post::glow::add_glow;
 
 struct Meter {
   /** EV of bin 0, bins per EV, metering mode, 0. */
   range: vec4f,
   /** The meter image's size. */
   size: vec4f,
+  /** Bloom, which the tonemap adds to the image: intensity, level count, mix (1) or add (0). */
+  glow: vec4f,
 }
 
 @group(0) @binding(1) var input: texture_2d<f32>;
 @group(0) @binding(2) var<uniform> meter: Meter;
+@if(BLOOM) @group(0) @binding(3) var bloom: texture_2d<f32>;
+@if(BLOOM) @group(0) @binding(4) var bloom_sampler: sampler;
 
 /** One sample: the EV100 of the input pixel under it, and its metering weight (of 16). */
 @fragment fn main(@builtin(position) p: vec4f) -> @location(0) vec4f {
   let size = textureDimensions(input);
   let px = min(vec2u((floor(p.xy) + 0.5) / meter.size.xy * vec2f(size)), size - 1u);
-  let c = textureLoad(input, vec2i(px), 0).rgb;
+  var c = textureLoad(input, vec2i(px), 0).rgb;
+  // What the tonemap shows: the image with bloom's glow over it.
+  @if(BLOOM) {
+    let uv = (vec2f(px) + 0.5) / vec2f(size);
+    c = add_glow(c, textureSampleLevel(bloom, bloom_sampler, uv, 0.0).rgb, meter.glow);
+  }
   let l = luminance(c) / max(view.exposure, 1e-20);
   let ev = log2(max(l, 1e-10) * 8.0);
   let q = vec2f(px) / vec2f(size) * 2.0 - 1.0;
@@ -68,7 +78,7 @@ export function meterView(gpu: GpuContext, name: string, readbacks: number): Met
     view: target.createView(),
     params: gpu.device.createBuffer({
       label: `${name}/exposure-meter`,
-      size: 32,
+      size: 48,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     }),
     readbacks: Array.from({ length: readbacks }, (_, i) =>
@@ -93,11 +103,13 @@ export function meterLayout(gpu: GpuContext): GPUBindGroupLayout {
       { binding: 0, visibility: F, buffer: { type: 'uniform' } },
       { binding: 1, visibility: F, texture: { sampleType: 'unfilterable-float' } },
       { binding: 2, visibility: F, buffer: { type: 'uniform' } },
+      { binding: 3, visibility: F, texture: { sampleType: 'float' } },
+      { binding: 4, visibility: F, sampler: { type: 'filtering' } },
     ],
   })
 }
 
-const params = new Float32Array(8)
+const params = new Float32Array(12)
 
 /**
  * Renders the meter image and, when a readback is free, copies it out. Returns the readback that
@@ -109,10 +121,12 @@ export function renderMeter(
   pipeline: GPURenderPipeline,
   group: GPUBindGroup,
   range: Float32Array,
+  glow: Float32Array,
 ): number | undefined {
   params.set(range, 0)
   params[4] = METER_WIDTH
   params[5] = METER_HEIGHT
+  params.set(glow, 8)
   ctx.gpu.device.queue.writeBuffer(m.params, 0, params)
   const pass = ctx.encoder.beginRenderPass({
     label: `${ctx.view.name}/exposure`,

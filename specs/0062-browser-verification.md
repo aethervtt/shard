@@ -226,6 +226,14 @@ same steps to its own copy of the session, and its world is that copy's projecti
 `?fault=keep-token` and `?fault=keep-scene` break the player's projection on purpose. Its probe
 reports stand-ins for 0061's owner counts and 0055's mirror counts until those exist.
 
+Any playground demo becomes a capture page with `?capture` (metrics, `installCapturePage`, and the
+steps `profile`, a 0074 capture, `ablate`, 0075's `perf.ablate`, and `render`, `render.describe`).
+`plans/post.json` records 0075's `post-stack` on #post, and `scripts/post-baseline.mjs` runs it
+once per `?effects=` set. A step's result, when it returns one, goes to
+`results/<browser>@<dpr>x-<client>/<step>.json` next to the shots. Frame intervals at the display's
+rate need a real window: `--headed --channel chrome` (or `SHARD_BROWSER_CHANNEL`) runs the installed
+Chrome instead of Playwright's headless Chromium.
+
 ### Compare and approve
 
 `shard compare [captures] [--approved captures/approved] [--report file]` diffs each capture against

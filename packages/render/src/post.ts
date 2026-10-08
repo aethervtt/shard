@@ -534,9 +534,22 @@ export function postAliases(
     let flip = false
     for (const [name, bit] of HDR_CHAIN) {
       if ((effects & bit) === 0) continue
+      // Fog rides in the aerial-perspective pass when both are on (one trip through memory).
+      if (name === 'fog' && effects & PostEffect.Atmosphere) continue
+      // Bloom reads the image and builds its chain; the tonemap adds the glow as it reads.
+      if (name === 'bloom') {
+        out['bloom-in'] = current
+        continue
+      }
+      out[`${name}-in`] = current
+      // TAA writes its history, kept across frames, which later effects read in place.
+      if (name === 'taa') {
+        out['taa-out'] = 'taa-history'
+        current = 'taa-history'
+        continue
+      }
       const next = flip ? 'post-b' : 'post-a'
       flip = !flip
-      out[`${name}-in`] = current
       out[`${name}-out`] = next
       current = next
     }

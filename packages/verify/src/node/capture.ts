@@ -23,6 +23,11 @@ export interface CaptureOptions {
   headed?: boolean
   /** Extra browser flags (also `SHARD_BROWSER_ARGS`, space-separated). */
   browserArgs?: string[]
+  /**
+   * Chromium's release channel (also `SHARD_BROWSER_CHANNEL`): `chrome` runs the installed Chrome,
+   * headed at the display's refresh rate for frame-interval records. Default Playwright's Chromium.
+   */
+  channel?: string
   /** Progress lines. */
   log?: (message: string) => void
 }
@@ -47,7 +52,7 @@ export interface CaptureRun {
 export function browserLaunch(
   browser: BrowserName,
   dpr: number,
-  options: Pick<CaptureOptions, 'headed' | 'browserArgs'> = {},
+  options: Pick<CaptureOptions, 'headed' | 'browserArgs' | 'channel'> = {},
 ): LaunchOptions {
   const extra = [
     ...(options.browserArgs ?? []),
@@ -63,7 +68,8 @@ export function browserLaunch(
   ]
   if (process.platform === 'linux')
     args.push('--enable-features=Vulkan', '--disable-vulkan-surface')
-  return { headless, channel: 'chromium', args: [...args, ...extra] }
+  const channel = options.channel ?? process.env.SHARD_BROWSER_CHANNEL ?? 'chromium'
+  return { headless, channel, args: [...args, ...extra] }
 }
 
 interface Client {
@@ -261,6 +267,16 @@ async function runSteps(
           { run: step.run ?? step.name, args: step.args ?? null, trace: step.trace ?? false },
         )
         latency.set(client.plan.name, ran.latencyMs)
+        // What a step returns (a capture's summary and trace, an ablation) goes next to the shots.
+        if (ran.result !== null && ran.result !== undefined) {
+          const file = join(
+            out,
+            'results',
+            `${browser}@${dpr}x-${client.plan.name}`,
+            `${name}.json`,
+          )
+          await writeOut(file, `${JSON.stringify(ran.result, null, 2)}\n`)
+        }
       } catch (err) {
         failures.push({ step: name, client: client.plan.name, path: '', message: pageMessage(err) })
       }

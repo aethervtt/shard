@@ -6,12 +6,13 @@ import {
   ProfilerResource,
   type World,
 } from '@aethervtt/shard-core'
+import type { GpuContext } from '@aethervtt/shard-gpu'
 import { Time } from '@aethervtt/shard-runtime'
 import { Exposure } from './camera'
 import { addRenderFeatures } from './features'
 import { drawMaterials, ForwardStateResource, PASS_PREPASS, viewBindGroup } from './forward'
 import { type NodeDescriptor, RenderPhase, type RenderView } from './graph'
-import { Graph, Views } from './plugin'
+import { Gpu, Graph, Views } from './plugin'
 import { AutoExposure, cocParams, hasEffect, needsPrepass, PostEffect } from './post'
 import {
   beginPass,
@@ -20,8 +21,11 @@ import {
   HDR,
   idOf,
   PostCache,
+  postFormat,
+  roundsRg11,
   sampler,
   scratch,
+  targetsFor,
   tex,
   uniform,
 } from './post-common'
@@ -53,8 +57,17 @@ const prepassNode: NodeDescriptor = {
 
 // --- SSAO --------------------------------------------------------------------------------------
 
-/** The fog pipeline's cache keys: alpha output (1), interior view layout (2). */
-const FOG_KEYS = ['post/fog', 'post/fog/alpha', 'post/fog/interior', 'post/fog/alpha/interior']
+/** The fog pipeline's cache keys: alpha output (1), interior view layout (2), rg11b10 target (4). */
+const FOG_KEYS = [
+  'post/fog',
+  'post/fog/alpha',
+  'post/fog/interior',
+  'post/fog/alpha/interior',
+  'post/fog/rg11',
+  'post/fog/alpha/rg11',
+  'post/fog/interior/rg11',
+  'post/fog/alpha/interior/rg11',
+]
 
 /** Slice directions × steps per side, per quality. */
 const SSAO_STEPS = [
@@ -66,7 +79,7 @@ const invProj = mat4.create()
 
 function ssaoNode(phase: number, deferred: boolean): NodeDescriptor {
   const cache = new PostCache()
-  let layouts: { gtao: GPUBindGroupLayout; up: GPUBindGroupLayout } | undefined
+  let layout: GPUBindGroupLayout | undefined
   let layoutGen = -1
   return {
     kind: 'raw',
@@ -78,41 +91,27 @@ function ssaoNode(phase: number, deferred: boolean): NodeDescriptor {
       )
     },
     reads: ['ssao-normal', 'ssao-depth'],
-    writes: ['ssao', 'ssao-half'],
+    writes: ['ssao'],
     run: (ctx) => {
       const v = forwardView(ctx)
       if (!v) return
       const gpu = ctx.gpu
-      if (!layouts || layoutGen !== gpu.generation) {
+      if (!layout || layoutGen !== gpu.generation) {
         layoutGen = gpu.generation
-        layouts = {
-          gtao: gpu.layouts.bindGroupLayout({
-            label: 'ssao/gtao',
-            entries: [uniform(0), depthTex(gpu, 1), tex(2, 'unfilterable-float'), uniform(3)],
-          }),
-          up: gpu.layouts.bindGroupLayout({
-            label: 'ssao/upsample',
-            entries: [uniform(0), depthTex(gpu, 1), uniform(3), tex(4, 'unfilterable-float')],
-          }),
-        }
+        layout = gpu.layouts.bindGroupLayout({
+          label: 'ssao/gtao',
+          entries: [uniform(0), depthTex(gpu, 1), tex(2, 'unfilterable-float'), uniform(3)],
+        })
       }
       const gtao = cache.render(
         ctx,
         'ssao/gtao',
         'shard::post::ssao',
         'gtao',
-        [layouts.gtao],
+        [layout],
         [{ format: 'rg16float' }],
       )
-      const up = cache.render(
-        ctx,
-        'ssao/upsample',
-        'shard::post::ssao',
-        'upsample',
-        [layouts.up],
-        [{ format: 'r8unorm' }],
-      )
-      if (!gtao || !up) return
+      if (!gtao) return
       const { cam, pv } = v
       const s = cam.post.ssao
       const steps = SSAO_STEPS[s.quality] ?? SSAO_STEPS[1]
@@ -129,13 +128,12 @@ function ssaoNode(phase: number, deferred: boolean): NodeDescriptor {
       params.write(scratch, 0, 0, 24)
       const depth = ctx.texture('ssao-depth')
       const normal = ctx.texture('ssao-normal')
-      const half = ctx.texture('ssao-half')
       const out = ctx.texture('ssao')
-      const g1 = cache.group(
+      const group = cache.group(
         gpu,
         `${ctx.view.name}/gtao`,
         `${idOf(depth)}/${idOf(normal)}/${pv.uniform.version}/${params.version}`,
-        layouts.gtao,
+        layout,
         () => [
           { binding: 0, resource: { buffer: pv.uniform.buffer } },
           { binding: 1, resource: depth.createView() },
@@ -143,28 +141,12 @@ function ssaoNode(phase: number, deferred: boolean): NodeDescriptor {
           { binding: 3, resource: { buffer: params.buffer } },
         ],
       )
-      let pass = beginPass(ctx, 'ssao', half.createView())
+      const pass = beginPass(ctx, 'ssao', out.createView())
       pass.setPipeline(gtao)
-      pass.setBindGroup(0, g1)
+      pass.setBindGroup(0, group)
       pass.draw(3)
       pass.end()
-      const g2 = cache.group(
-        gpu,
-        `${ctx.view.name}/ssao-up`,
-        `${idOf(depth)}/${idOf(half)}/${pv.uniform.version}/${params.version}`,
-        layouts.up,
-        () => [
-          { binding: 0, resource: { buffer: pv.uniform.buffer } },
-          { binding: 1, resource: depth.createView() },
-          { binding: 3, resource: { buffer: params.buffer } },
-          { binding: 4, resource: half.createView() },
-        ],
-      )
-      pass = beginPass(ctx, 'ssao/upsample', out.createView())
-      pass.setPipeline(up)
-      pass.setBindGroup(0, g2)
-      pass.draw(3)
-      pass.end()
+      // Half resolution, AO and view depth: lighting upsamples it where it shades (ssao_at).
       pv.ao = out
     },
   }
@@ -179,7 +161,10 @@ function fogNode(): NodeDescriptor {
   return {
     kind: 'render',
     phase: RenderPhase.Post,
-    enabled: hasEffect(PostEffect.Fog),
+    // With aerial perspective, the atmosphere's composite applies fog in its own pass.
+    enabled: (view) =>
+      ((cameraOf(view)?.post.effects ?? 0) & (PostEffect.Fog | PostEffect.Atmosphere)) ===
+      PostEffect.Fog,
     reads: ['fog-in', 'depth', 'environment', 'clusters'],
     writes: ['fog-out'],
     color: [{ resource: 'fog-out', clear: { r: 0, g: 0, b: 0, a: 1 } }],
@@ -196,15 +181,17 @@ function fogNode(): NodeDescriptor {
         })
       }
       const alpha = v.cam.alphaOutput
+      const out = ctx.texture('fog-out')
+      const rg11 = out.format === 'rg11b10ufloat'
       // Group 0 grows while interior lighting is on (0069): its own pipeline then.
       const pipeline = cache.render(
         ctx,
-        FOG_KEYS[(alpha ? 1 : 0) + (state.interiorMode !== 0 ? 2 : 0)]!,
+        FOG_KEYS[(alpha ? 1 : 0) + (state.interiorMode !== 0 ? 2 : 0) + (rg11 ? 4 : 0)]!,
         'shard::post::fog',
         'fs',
         [state.layouts.view, layout],
-        HDR,
-        { TRANSPARENT: alpha },
+        targetsFor(out),
+        { TRANSPARENT: alpha, RG11_ROUND: roundsRg11(gpu, out) },
       )
       if (!pipeline) return
       const f = v.cam.post.fog
@@ -284,12 +271,11 @@ function taaNode(): NodeDescriptor {
         'shard::post::taa',
         'fs',
         [layout],
-        [{ format: 'rgba16float' }, { format: 'rgba16float' }],
+        HDR,
         { TRANSPARENT: alpha },
       )
       if (!pipeline) return
       const input = ctx.texture('taa-in')
-      const out = ctx.texture('taa-out')
       let h = histories.get(ctx.view.name)
       if (
         !h ||
@@ -303,7 +289,10 @@ function taaNode(): NodeDescriptor {
             label: `${ctx.view.name}/taa-history-${i}`,
             size: [input.width, input.height],
             format: 'rgba16float',
-            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+            usage:
+              GPUTextureUsage.RENDER_ATTACHMENT |
+              GPUTextureUsage.TEXTURE_BINDING |
+              GPUTextureUsage.COPY_SRC,
           })
         h = { textures: [make(0), make(1)], index: 0, valid: false, generation: gpu.generation }
         histories.set(ctx.view.name, h)
@@ -336,10 +325,11 @@ function taaNode(): NodeDescriptor {
           { binding: 6, resource: { buffer: params.buffer } },
         ],
       )
+      // The resolved frame is next frame's history: written once, and read in place by the
+      // effects after TAA (`taa-out` is `taa-history`, outside the post-a/post-b ping-pong).
       const pass = ctx.encoder.beginRenderPass({
         label: `${ctx.view.name}/taa`,
         colorAttachments: [
-          { view: out.createView(), loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 1] },
           { view: write.createView(), loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 1] },
         ],
         timestampWrites: ctx.timestamps('post/taa'),
@@ -348,6 +338,7 @@ function taaNode(): NodeDescriptor {
       pass.setBindGroup(0, group)
       pass.draw(3)
       pass.end()
+      ctx.provide('taa-out', write)
       h.index = 1 - h.index
       h.valid = true
     },
@@ -385,13 +376,15 @@ function motionBlurNode(): NodeDescriptor {
           ],
         })
       }
+      const out = ctx.texture('motion-blur-out')
       const pipeline = cache.render(
         ctx,
-        'post/motion-blur',
+        out.format === 'rg11b10ufloat' ? 'post/motion-blur/rg11' : 'post/motion-blur',
         'shard::post::motion_blur',
         'fs',
         [layout],
-        HDR,
+        targetsFor(out),
+        { RG11_ROUND: roundsRg11(gpu, out) },
       )
       if (!pipeline) return
       const m = v.cam.post.motionBlur
@@ -450,15 +443,26 @@ function dofNode(): NodeDescriptor {
           entries: [uniform(0), tex(1), depthTex(gpu, 2), uniform(3), tex(4), sampler(5)],
         })
       }
+      // dof-half keeps rgba16float: its alpha is the CoC.
       const prepare = cache.render(ctx, 'dof/prepare', 'shard::post::dof', 'prepare', [layout], HDR)
-      const gather = cache.render(ctx, 'dof/gather', 'shard::post::dof', 'gather', [layout], HDR)
+      const blur = ctx.texture('dof-blur')
+      const out = ctx.texture('dof-out')
+      const gather = cache.render(
+        ctx,
+        blur.format === 'rg11b10ufloat' ? 'dof/gather/rg11' : 'dof/gather',
+        'shard::post::dof',
+        'gather',
+        [layout],
+        targetsFor(blur),
+      )
       const composite = cache.render(
         ctx,
-        'dof/composite',
+        out.format === 'rg11b10ufloat' ? 'dof/composite/rg11' : 'dof/composite',
         'shard::post::dof',
         'composite',
         [layout],
-        HDR,
+        targetsFor(out),
+        { RG11_ROUND: roundsRg11(gpu, out) },
       )
       if (!prepare || !gather || !composite) return
       const params = cache.buffer(gpu, `${ctx.view.name}/dof`, 16)
@@ -466,8 +470,6 @@ function dofNode(): NodeDescriptor {
       const input = ctx.texture('dof-in')
       const depth = ctx.texture('depth')
       const half = ctx.texture('dof-half')
-      const blur = ctx.texture('dof-blur')
-      const out = ctx.texture('dof-out')
       const group = (slot: string, secondary: GPUTexture) =>
         cache.group(
           gpu,
@@ -520,7 +522,8 @@ function bloomNode(): NodeDescriptor {
     phase: RenderPhase.Post + 40,
     enabled: hasEffect(PostEffect.Bloom),
     reads: ['bloom-in'],
-    writes: ['bloom-out', 'bloom'],
+    // The tonemap composites level 0 over the image (and auto exposure meters the same mix).
+    writes: ['bloom'],
     run: (ctx) => {
       const v = forwardView(ctx)
       if (!v) return
@@ -529,48 +532,40 @@ function bloomNode(): NodeDescriptor {
         layoutGen = gpu.generation
         layout = gpu.layouts.bindGroupLayout({
           label: 'bloom',
-          entries: [tex(0), sampler(1), uniform(2), tex(3, 'unfilterable-float')],
+          entries: [tex(0), sampler(1), uniform(2)],
         })
       }
       const add: GPUBlendComponent = { srcFactor: 'one', dstFactor: 'one', operation: 'add' }
+      const chain = ctx.texture('bloom')
+      const rg11 = chain.format === 'rg11b10ufloat'
       const prefilter = cache.render(
         ctx,
-        'bloom/prefilter',
+        rg11 ? 'bloom/prefilter/rg11' : 'bloom/prefilter',
         'shard::post::bloom',
         'prefilter',
         [layout],
-        HDR,
+        targetsFor(chain),
       )
       const down = cache.render(
         ctx,
-        'bloom/downsample',
+        rg11 ? 'bloom/downsample/rg11' : 'bloom/downsample',
         'shard::post::bloom',
         'downsample',
         [layout],
-        HDR,
+        targetsFor(chain),
       )
       const up = cache.render(
         ctx,
-        'bloom/upsample',
+        rg11 ? 'bloom/upsample/rg11' : 'bloom/upsample',
         'shard::post::bloom',
         'upsample',
         [layout],
-        [{ format: 'rgba16float', blend: { color: add, alpha: add } }],
+        [{ format: chain.format, blend: { color: add, alpha: add } }],
       )
-      const composite = cache.render(
-        ctx,
-        'bloom/composite',
-        'shard::post::bloom',
-        'composite',
-        [layout],
-        HDR,
-      )
-      if (!prefilter || !down || !up || !composite) return
+      if (!prefilter || !down || !up) return
       const { cam } = v
       const b = cam.post.bloom
       const input = ctx.texture('bloom-in')
-      const chain = ctx.texture('bloom')
-      const out = ctx.texture('bloom-out')
       const levels = Math.min(chain.mipLevelCount, bloomLevels(cam))
       // One uniform slot per pass, 256 bytes apart: texel size of what it samples.
       const buffer = cache.buffer(gpu, `${ctx.view.name}/bloom`, 256 * 20)
@@ -590,7 +585,6 @@ function bloomNode(): NodeDescriptor {
       slot(n++, input.width, input.height) // prefilter samples the input
       for (let k = 1; k < levels; k++) slot(n++, ...(mipSize(k - 1) as [number, number]))
       for (let k = levels - 2; k >= 0; k--) slot(n++, ...(mipSize(k + 1) as [number, number]))
-      slot(n++, chain.width, chain.height) // composite samples level 0
       buffer.write(params, 0, 0, n * 64)
       const view = (k: number) => chain.createView({ baseMipLevel: k, mipLevelCount: 1 })
       const group = (i: number, source: GPUTexture, mip: number) =>
@@ -603,7 +597,6 @@ function bloomNode(): NodeDescriptor {
             { binding: 0, resource: source === chain ? view(mip) : source.createView() },
             { binding: 1, resource: cache.sampler(gpu) },
             { binding: 2, resource: { buffer: buffer.buffer, offset: i * 256, size: 32 } },
-            { binding: 3, resource: input.createView() },
           ],
         )
       let i = 0
@@ -624,12 +617,45 @@ function bloomNode(): NodeDescriptor {
       draw('post/bloom', prefilter, view(0), input, 0)
       for (let k = 1; k < levels; k++) draw('post/bloom-down', down, view(k), chain, k - 1)
       for (let k = levels - 2; k >= 0; k--) draw('post/bloom-up', up, view(k), chain, k + 1, true)
-      draw('post/bloom-composite', composite, out.createView(), chain, 0)
     },
   }
 }
 
 // --- auto exposure -----------------------------------------------------------------------------
+
+/**
+ * Bloom's glow parameters for what composites it (the tonemap) and what meters it: intensity, the
+ * chain's level count (one mip per level), mix (1, no threshold) or add (0). Zeros without bloom.
+ */
+export function bloomGlow(
+  cam: CameraData,
+  chain: GPUTexture | undefined,
+  out: Float32Array,
+  at: number,
+): void {
+  const b = cam.post.bloom
+  out[at] = chain ? b.intensity : 0
+  out[at + 1] = chain ? chain.mipLevelCount : 1
+  out[at + 2] = chain && b.threshold <= 0 ? 1 : 0
+  out[at + 3] = 0
+}
+
+const whites = new WeakMap<GPUDevice, GPUTexture>()
+/** A 1×1 white texture, bound where an optional input is off. */
+function whiteTexture(gpu: GpuContext): GPUTexture {
+  let t = whites.get(gpu.device)
+  if (!t) {
+    t = gpu.device.createTexture({
+      label: 'post/white',
+      size: [1, 1],
+      format: 'rgba8unorm',
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    })
+    gpu.device.queue.writeTexture({ texture: t }, new Uint8Array([255, 255, 255, 255]), {}, [1, 1])
+    whites.set(gpu.device, t)
+  }
+  return t
+}
 
 /** Metered EV100 per camera (from the GPU histogram, a frame or two late) and the adapted EV. */
 export interface ExposureState {
@@ -721,21 +747,25 @@ function autoExposureNode(
     kind: 'raw',
     phase: RenderPhase.Post + 50,
     enabled: hasEffect(PostEffect.AutoExposure),
-    reads: ['post-hdr'],
+    reads: ['post-hdr', 'bloom'],
     sideEffects: true,
     run: (ctx) => {
       const v = forwardView(ctx)
       if (!v) return
       const gpu = ctx.gpu
+      // With bloom on, meter what the tonemap shows: the glow over the image.
+      const bloom = (v.cam.post.effects & PostEffect.Bloom) !== 0
+      const chain = bloom ? ctx.texture('bloom') : undefined
       if (baseline) {
         const layout = baseline.meterLayout(gpu)
         const pipeline = cache.render(
           ctx,
-          'post/exposure-meter',
+          bloom ? 'post/exposure-meter/bloom' : 'post/exposure-meter',
           'shard::post::baseline::meter',
           'main',
           [layout],
           [{ format: 'rg16float' }],
+          { BLOOM: bloom },
         )
         if (!pipeline) return
         let m = meterViews.get(ctx.view.name)
@@ -744,7 +774,8 @@ function autoExposureNode(
           meterViews.set(ctx.view.name, m)
         }
         const input = ctx.texture('post-hdr')
-        const key = `${idOf(input)}/${v.pv.uniform.version}`
+        const level0 = chain ?? whiteTexture(gpu)
+        const key = `${idOf(input)}/${v.pv.uniform.version}/${idOf(level0)}`
         if (!m.group || m.groupKey !== key) {
           m.groupKey = key
           m.group = gpu.device.createBindGroup({
@@ -754,6 +785,8 @@ function autoExposureNode(
               { binding: 0, resource: { buffer: v.pv.uniform.buffer } },
               { binding: 1, resource: input.createView() },
               { binding: 2, resource: { buffer: m.params } },
+              { binding: 3, resource: level0.createView({ mipLevelCount: 1 }) },
+              { binding: 4, resource: cache.sampler(gpu) },
             ],
           })
         }
@@ -761,7 +794,15 @@ function autoExposureNode(
         scratch[1] = METER_BINS_PER_EV
         scratch[2] = v.cam.post.exposure.metering
         scratch[3] = 0
-        const k = baseline.renderMeter(ctx, m, pipeline, m.group, scratch.subarray(0, 4))
+        bloomGlow(v.cam, chain, scratch, 4)
+        const k = baseline.renderMeter(
+          ctx,
+          m,
+          pipeline,
+          m.group,
+          scratch.subarray(0, 4),
+          scratch.subarray(4, 8),
+        )
         if (k === undefined) return
         const meters = ctx.world.resource(ExposureMeters)
         const entity = v.cam.entity
@@ -794,13 +835,20 @@ function autoExposureNode(
             { binding: 1, visibility: C, texture: { sampleType: 'unfilterable-float' } },
             { binding: 2, visibility: C, buffer: { type: 'storage' } },
             uniform(3, C),
+            { binding: 4, visibility: C, texture: { sampleType: 'float' } },
+            { binding: 5, visibility: C, sampler: { type: 'filtering' } },
           ],
         })
         perView.clear()
       }
-      const pipeline = cache.compute(ctx, 'post/exposure', 'shard::post::exposure', 'meter', [
-        layout,
-      ])
+      const pipeline = cache.compute(
+        ctx,
+        bloom ? 'post/exposure/bloom' : 'post/exposure',
+        'shard::post::exposure',
+        'meter',
+        [layout],
+        { BLOOM: bloom },
+      )
       if (!pipeline) return
       let state = perView.get(ctx.view.name)
       if (!state || state.generation !== gpu.generation) {
@@ -827,20 +875,24 @@ function autoExposureNode(
       scratch[1] = METER_BINS_PER_EV
       scratch[2] = e.metering
       scratch[3] = 0
-      const params = cache.buffer(gpu, `${ctx.view.name}/exposure`, 16)
-      params.write(scratch, 0, 0, 4)
+      bloomGlow(v.cam, chain, scratch, 4)
+      const params = cache.buffer(gpu, `${ctx.view.name}/exposure`, 32)
+      params.write(scratch, 0, 0, 8)
       const input = ctx.texture('post-hdr')
       const histogram = state.histogram
+      const level0 = chain ?? whiteTexture(gpu)
       const group = cache.group(
         gpu,
         `${ctx.view.name}/exposure`,
-        `${idOf(input)}/${idOf(histogram)}/${v.pv.uniform.version}/${params.version}`,
+        `${idOf(input)}/${idOf(histogram)}/${v.pv.uniform.version}/${params.version}/${idOf(level0)}`,
         layout,
         () => [
           { binding: 0, resource: { buffer: v.pv.uniform.buffer } },
           { binding: 1, resource: input.createView() },
           { binding: 2, resource: { buffer: histogram } },
           { binding: 3, resource: { buffer: params.buffer } },
+          { binding: 4, resource: level0.createView({ mipLevelCount: 1 }) },
+          { binding: 5, resource: cache.sampler(gpu) },
         ],
       )
       gpu.device.queue.writeBuffer(histogram, 0, zero)
@@ -945,13 +997,16 @@ const halfSize = { divide: 2 }
 export function addPostNodes(world: World, baseline?: typeof import('./baseline/exposure')): void {
   const graph = world.resource(Graph)
   world.initResource(ExposureMeters)
-  graph.declare({ name: 'prepass-normal', format: 'rgba16float' })
+  graph.declare({ name: 'prepass-normal', format: 'rg16float' })
   graph.declare({ name: 'velocity', format: 'rg16float' })
   graph.declare({ name: 'prepass-depth', format: 'depth32float' })
-  graph.declare({ name: 'ssao', format: 'r8unorm' })
-  graph.declare({ name: 'ssao-half', format: 'rg16float', size: halfSize })
-  graph.declare({ name: 'post-a', format: 'rgba16float' })
-  graph.declare({ name: 'post-b', format: 'rgba16float' })
+  graph.declare({ name: 'ssao', format: 'rg16float', size: halfSize })
+  const gpu = world.resource(Gpu)
+  const chainFormat = (view: RenderView) => postFormat(gpu, view)
+  graph.declare({ name: 'post-a', format: chainFormat })
+  graph.declare({ name: 'post-b', format: chainFormat })
+  // TAA provides its history texture as this; declared for a frame its pipeline isn't ready.
+  graph.declare({ name: 'taa-history', format: 'rgba16float' })
   graph.declare({ name: 'dof-half', format: 'rgba16float', size: halfSize })
   graph.declare({ name: 'dof-blur', format: 'rgba16float', size: halfSize })
   graph.declare({

@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./crowd": "./src/crowd.ts",
+    "./post-scene": "./src/post-scene.ts",
     "./testing": "./src/testing.ts",
     "./noise": "./src/noise.ts",
     "./surface": "./src/surface.ts"
