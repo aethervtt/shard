@@ -154,6 +154,16 @@ Every engine error is a `ShardError` with one of these codes.
 | `noise/unknown-node` | @aethervtt/shard-noise |  |
 | `noise/unknown-type` | @aethervtt/shard-noise | Types: value, perlin, simplex, cellular, fbm, ridged, billow, add, multiply, min, max, lerp, select, remap, clamp, curve, terrace, abs, power, constant, warp, scale, translate. |
 | `particles/invalid-effect` | @aethervtt/shard-particles |  |
+| `perf/async-overflow` | @aethervtt/shard-core | Every beginAsync(span, key) needs an endAsync(span, key), even when the work fails. |
+| `perf/capture-running` | @aethervtt/shard-core | Wait for it to finish (perf.capture resolves when it does), then capture again. |
+| `perf/capture-truncated` | @aethervtt/shard-core | Capture fewer frames, or pass a larger "events". |
+| `perf/clock-coarse` | @aethervtt/shard-core | Serve it with Cross-Origin-Opener-Policy: same-origin and Cross-Origin-Embedder-Policy: credentialless (shard dev and the playground do). |
+| `perf/disabled` | @aethervtt/shard-core | Turn it on with resource.set core/ProfilerSettings { enabled: true }. |
+| `perf/no-slow-frame` | @aethervtt/shard-core | Lower "until.frameMs", or raise "timeout". |
+| `perf/sampling-unavailable` | @aethervtt/shard-runtime | Node samples with node:inspector; browsers need the JS Self-Profiling API and a Document-Policy: js-profiling header (shard dev and the playground send it). |
+| `perf/span-mismatch` | @aethervtt/shard-core | Every profiler.begin(span) needs one profiler.end(token), in the same frame. |
+| `perf/span-overflow` | @aethervtt/shard-core | A span that begins in a loop needs its end inside the loop too. |
+| `perf/too-many-spans` | @aethervtt/shard-core | Span names are fixed strings (e.g. "terrain/encode"), not per-entity or per-frame text. |
 | `physics/both-dimensions` | @aethervtt/shard-physics | Enable one physics plugin per app: physics3d for 3D games, physics2d for 2D. |
 | `physics/character-has-body` | @aethervtt/shard-physics | The controller makes its own kinematic body and capsule. Remove RigidBody and Collider, or put extra colliders on a child. |
 | `physics/invalid-shape` | @aethervtt/shard-physics | Check radius, halfExtents, halfHeight, points, or the mesh. |

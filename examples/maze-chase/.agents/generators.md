@@ -12,5 +12,93 @@ inputs (name, version, code, params, seed, loaded assets). Use an output as:
 Tune one with MCP `preview_generator { "generator": "<name>", "seeds": "1-9" }` (a contact sheet)
 and `run_generator` (counts, bounds, cache key). See `.agents/skills/make-a-generator.md`.
 
-No generators yet.
+## `shard/Bush`
+
+A shrub: several short branching stems from one point, densely leaved. LODs at 40% and 12%.
+
+Output: `Mesh` (sub-assets `#LOD1`, … when it makes levels of detail). Version 1.
+
+| Param | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `radius` | number | `0.8` | ≥ 0.05, m | About how wide it grows. |
+| `stems` | integer | `6` | ≥ 1, ≤ 24 |  |
+| `leafDensity` | number | `18` | ≥ 0 | Leaf cards per metre of branch. |
+
+```json
+{"$schema":"../.shard/schemas/gen.schema.json","generator":"shard/Bush","seed":1,"params":{}}
+```
+
+## `shard/Crystal`
+
+A crystal cluster: pointed prisms fanning out from a base, with hard edges. LODs at 50% and 20%.
+
+Output: `Mesh` (sub-assets `#LOD1`, … when it makes levels of detail). Version 1.
+
+| Param | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `count` | integer | `6` | ≥ 1, ≤ 32 | Prisms in the cluster. |
+| `length` | number | `1.2` | ≥ 0.01, m | The longest prism. |
+| `radius` | number | `0.14` | ≥ 0.005, m |  |
+| `spread` | number | `28` | ≥ 0, ≤ 80, deg | How far prisms tilt from upright. |
+| `sides` | integer | `6` | ≥ 3, ≤ 12 |  |
+
+```json
+{"$schema":"../.shard/schemas/gen.schema.json","generator":"shard/Crystal","seed":1,"params":{}}
+```
+
+## `shard/GrassClump`
+
+A clump of grass blades: tapered, bent strips from one root. One-sided (foliage draws two-sided); uv1.x runs 0 at the root to 1 at the tip, for wind and tint. LODs: 5/8 of the blades, wider, at 2 segments; then 5/16 at 1 (a triangle each).
+
+Output: `Mesh` (sub-assets `#LOD1`, … when it makes levels of detail). Version 2.
+
+| Param | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `blades` | integer | `12` | ≥ 1, ≤ 64 |  |
+| `height` | number | `0.55` | ≥ 0.01, m |  |
+| `width` | number | `0.045` | ≥ 0.001, m | Blade width at the root. |
+| `bend` | number | `0.35` | ≥ 0, ≤ 1 | How far blades curve over. |
+| `spread` | number | `0.18` | ≥ 0, m | Radius the roots scatter over. |
+
+```json
+{"$schema":"../.shard/schemas/gen.schema.json","generator":"shard/GrassClump","seed":1,"params":{}}
+```
+
+## `shard/Rock`
+
+A boulder: a noisy, faceted, flattened icosphere sitting on its origin, part-buried. LODs at 50% and 20%.
+
+Output: `Mesh` (sub-assets `#LOD1`, … when it makes levels of detail). Version 1.
+
+| Param | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `radius` | number | `1` | ≥ 0.05, m | Rough size before noise. |
+| `roughness` | number | `0.5` | ≥ 0, ≤ 1 | Lumpiness: 0 smooth, 1 craggy. |
+| `flatness` | number | `0.3` | ≥ 0, ≤ 1 | Squash toward a slab: 0 round, 1 flat. |
+| `facets` | integer | `6` | ≥ 0, ≤ 32 | Flat cuts across the surface, for fractured stone (0: none). |
+| `detail` | integer | `4` | ≥ 1, ≤ 6 | Icosphere subdivisions: 4 is 2 562 vertices. |
+
+```json
+{"$schema":"../.shard/schemas/gen.schema.json","generator":"shard/Rock","seed":1,"params":{}}
+```
+
+## `shard/Tree`
+
+A broadleaf tree: a branching skeleton skinned with tubes, leaf cards on the outer branches. LODs at 40% and 12%.
+
+Output: `Mesh` (sub-assets `#LOD1`, … when it makes levels of detail). Version 1.
+
+| Param | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `height` | number | `8` | ≥ 0.5, m | About how tall it grows. |
+| `trunkRadius` | number | `0.22` | ≥ 0.01, m |  |
+| `levels` | integer | `2` | ≥ 0, ≤ 4 | Branching levels below the trunk. |
+| `branching` | integer | `5` | ≥ 1, ≤ 12 | Children per branch. |
+| `spread` | number | `42` | ≥ 0, ≤ 90, deg | Angle between a branch and its parent. |
+| `leafDensity` | number | `10` | ≥ 0 | Leaf cards per metre of outer branch. |
+| `leafSize` | number | `0.45` | ≥ 0.01, m |  |
+
+```json
+{"$schema":"../.shard/schemas/gen.schema.json","generator":"shard/Tree","seed":1,"params":{}}
+```
 

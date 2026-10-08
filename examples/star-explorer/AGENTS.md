@@ -12,6 +12,7 @@ shard import --json       # import new and changed asset files
 shard mv <from> <to>      # move an asset and rewrite references to it
 shard tiles read <map>    # tilemap cells as rows; tiles edit <map> --cell x,y=name
 shard run --frames 600    # headless run
+shard profile --frames 600  # capture spans: the worst frames and what grew in them
 shard screenshot scenes/main.scene.json --out shot.png
 shard test --json         # gameplay tests in tests/
 shard check --json        # type-check scripts: file, line, column

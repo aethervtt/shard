@@ -37,6 +37,7 @@ shard tiles read|edit <asset>         # tilemap cells by name (0059); tiles <ass
 shard check                           # type-check the project's scripts
 shard dev                             # play it in a browser; saves hot reload in place
 shard run --frames 600                # headless run, prints a deterministic world hash
+shard profile [scene] --frames 600    # capture spans (0074): worst frames, a Perfetto trace; --cpu-prof, --attach
 shard screenshot scenes/main.scene.json --out shot.png
 shard test                            # gameplay tests in tests/*.test.ts
 shard track scene.json --out t.bin    # record a physics track (0053) headless; prints its hash
