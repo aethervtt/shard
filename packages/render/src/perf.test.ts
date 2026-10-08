@@ -66,6 +66,27 @@ describe('GPU timing on WebGL2 (0074)', () => {
     }
   })
 
+  it('keeps every pass of a frame that takes seconds, as on a software renderer', async () => {
+    const fake = new FakeGl({ timerQuery: { elapsedNs: 1_500_000_000, polls: 1 } })
+    const gpu = await createGpuContext({
+      backend: 'webgl2',
+      features: ['timestamp-query'],
+      webgl2: { context: fake.context, persist: false },
+    })
+    try {
+      const a = await app(gpu)
+      await frames(a, 8)
+      const profiler = a.world.resource(ProfilerResource)
+      // The first pass began 3 s before the frame's last end: real, not left over.
+      expect(profiler.timing('gpu:first')?.last).toBeCloseTo(1500, 3)
+      expect(profiler.timing('gpu:second')?.last).toBeCloseTo(1500, 3)
+      expect(profiler.timing('gpu:frame')?.last).toBeCloseTo(3000, 3)
+      await a.dispose()
+    } finally {
+      gpu.destroy()
+    }
+  })
+
   it('a disjoint operation drops the frame; without the extension, GPU timing is unavailable', async () => {
     const disjoint = new FakeGl({
       timerQuery: { elapsedNs: 1_000_000 },

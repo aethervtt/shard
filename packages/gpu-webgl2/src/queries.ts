@@ -6,8 +6,10 @@ import type { Webgl2Buffer } from './resources'
 // TIME_ELAPSED query around the pass (passes don't overlap, so queries don't nest). Results arrive
 // frames later, as WebGPU readbacks do: `resolveQuerySet` leaves the queries on the destination
 // buffer, copies carry them along, and mapping the buffer waits for them and writes them in. A
-// pair's begin and end are written back to back from 1 ns, pass after pass, so GpuTimer's
-// "end − begin" is each pass's elapsed time and the frame's first-to-last span is their sum. A
+// pair's begin and end are written back to back, pass after pass, on one timeline that continues
+// across frames (`device.timerAt`, from 1 ns) as a GPU clock does, so GpuTimer's "end − begin" is
+// each pass's elapsed time, the frame's first-to-last span is their sum, and a later frame's
+// stamps are never mistaken for an earlier frame's left over in its slots. A
 // disjoint operation (GPU_DISJOINT_EXT) makes the results meaningless: they're written as zeros,
 // which GpuTimer skips.
 
@@ -124,7 +126,7 @@ export async function finishQueryReads(
   const disjoint = !lost && gl.getParameter(GPU_DISJOINT_EXT) === true
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   for (const read of reads) {
-    let at = 1n
+    let at = device.timerAt
     for (let k = 0; k < read.queries.length; k++) {
       const q = read.queries[k]
       const pos = read.offset - mapOffset + k * 16
@@ -135,6 +137,7 @@ export async function finishQueryReads(
         begin = at
         end = at + elapsed
         at = end
+        device.timerAt = end
       }
       if (pos >= 0 && pos + 16 <= bytes.byteLength) {
         view.setBigUint64(pos, begin, true)

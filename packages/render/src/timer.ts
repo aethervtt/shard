@@ -2,8 +2,6 @@ import { ProfilerResource, TRACK, type World } from '@aethervtt/shard-core'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 
 const MAX_PASSES = 96
-/** Stamps this much older than a frame's last pass end are left over from an earlier frame. */
-const STALE_NS = 1_000_000_000n
 
 /** Pass groups timed as one span (see readback). */
 const SPANS: readonly (readonly [string, (name: string) => boolean])[] = [
@@ -54,6 +52,8 @@ export class GpuTimer {
   quantized = false
   private passTimes = 0
   private unquantized = false
+  /** The last pass end of the latest frame read back: older stamps are left over (see readback). */
+  private previousEnd = 0n
   private querySet: GPUQuerySet | undefined
   private resolveBuffer: GPUBuffer | undefined
   private readonly readbacks: Readback[] = []
@@ -77,6 +77,7 @@ export class GpuTimer {
     this.names = []
     if (!this.enabled || this.generation === this.gpu.generation) return
     this.generation = this.gpu.generation
+    this.previousEnd = 0n
     const device = this.gpu.device
     this.querySet = device.createQuerySet({
       label: 'gpu-timer',
@@ -151,20 +152,23 @@ export class GpuTimer {
         const times = new BigUint64Array(target.buffer.getMappedRange())
         const totals = new Map<string, number>()
         // Tile-based GPUs skip empty passes, stamps included: their slots keep an old frame's
-        // values. Anything that began over a second before the frame's last end is such a slot.
+        // values, so a slot that ended no later than the previous frame read back is such a slot.
+        // (A fixed age, such as a second, also drops real passes on a GPU that slow: a software
+        // renderer's frame can take seconds.)
         let latest = 0n
         for (let i = 0; i < target.names.length; i++) {
           const end = times[i * 2 + 1]!
           if (end > latest) latest = end
         }
-        const stale = latest - STALE_NS
+        const stale = this.previousEnd
+        if (latest > this.previousEnd) this.previousEnd = latest
         let first = 0n
         let last = 0n
         for (let i = 0; i < target.names.length; i++) {
           const begin = times[i * 2]!
           const end = times[i * 2 + 1]!
           // Some backends leave a pass's stamps at zero (or out of order) on its first frames.
-          if (begin === 0n || end < begin || begin < stale) continue
+          if (begin === 0n || end < begin || end <= stale) continue
           const name = target.names[i]!
           totals.set(name, (totals.get(name) ?? 0) + Number(end - begin) / 1e6)
           if (first === 0n || begin < first) first = begin
@@ -183,7 +187,7 @@ export class GpuTimer {
           for (let i = 0; i < target.names.length; i++) {
             const begin = times[i * 2]!
             const end = times[i * 2 + 1]!
-            if (begin === 0n || end < begin || begin < stale) continue
+            if (begin === 0n || end < begin || end <= stale) continue
             const ms = Number(end - begin) / 1e6
             profiler.event(gpuName(target.names[i]!), TRACK.gpu, at(begin), ms, target.frame)
           }
@@ -197,7 +201,7 @@ export class GpuTimer {
           for (let i = 0; i < target.names.length; i++) {
             const begin = times[i * 2]!
             const end = times[i * 2 + 1]!
-            if (begin === 0n || end < begin || begin < stale || !match(target.names[i]!)) continue
+            if (begin === 0n || end < begin || end <= stale || !match(target.names[i]!)) continue
             if (a === 0n || begin < a) a = begin
             if (end > b) b = end
           }

@@ -100,6 +100,8 @@ export class Webgl2Device extends EventTarget {
   readonly copier: Copier
   /** Query objects for timed passes (`timestamp-query`, 0074). */
   readonly queries: QueryPool
+  /** Where the next timed pass's stamps start: one timeline across frames, as GPU clocks are. */
+  timerAt = 1n
   readonly replayer: Replayer
   readonly queue: Webgl2Queue
   readonly features: ReadonlySet<string>
