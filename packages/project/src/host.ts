@@ -19,6 +19,7 @@ import { forwardPlugin, type RenderTarget, renderPlugin, Shaders } from '@aether
 import { materialNoisePlugin } from '@aethervtt/shard-render/noise'
 import { App, LogResource, type Plugin } from '@aethervtt/shard-runtime'
 import { savePlugin } from '@aethervtt/shard-save'
+import { scatterPlugin } from '@aethervtt/shard-scatter'
 import { type LoadedSceneHandle, loadScene, ScenePlugin } from '@aethervtt/shard-scene'
 import { spritePlugin } from '@aethervtt/shard-sprite'
 import { terrainPlugin } from '@aethervtt/shard-terrain'
@@ -80,7 +81,8 @@ export function buildApp(options: BuildAppOptions): App {
     names.has('ui') ||
     names.has('nav') ||
     names.has('nav/grid') ||
-    names.has('terrain')
+    names.has('terrain') ||
+    names.has('scatter')
   )
     names.add('core/transform')
   const app = new App({ seed: manifest.seed })
@@ -117,6 +119,7 @@ export function buildApp(options: BuildAppOptions): App {
   if (names.has('nav')) app.addPlugin(navPlugin)
   else if (names.has('nav/grid')) app.addPlugin(navGridPlugin)
   if (names.has('terrain')) app.addPlugin(terrainPlugin({ workers: options.platform?.workers }))
+  if (names.has('scatter')) app.addPlugin(scatterPlugin({ workers: options.platform?.workers }))
   // noise.sample and noise.stats, whatever the manifest says: graphs are data every project can use.
   app.addPlugin(noisePlugin)
   app.addPlugin(ScenePlugin)

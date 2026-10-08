@@ -1319,6 +1319,69 @@ Leaves the entity out of saved games: loading keeps it as it is (debug helpers, 
 
 Tag (no fields).
 
+## `scatter/Chunk`
+
+The parent of one chunk of one rule’s props (scatter/Prop): rebuilt from the scatter rules, never saved.
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `surface` | null or integer or string | `null` |  |  |
+| `rule` | string | `""` |  | The rule’s id (set path, biome, name). |
+| `chunk` | string | `""` |  | face/depth/x/y on a planet, x/z on a mesh. |
+
+## `scatter/Prop`
+
+A prop a ScatterSet placed, a child of its scatter/Chunk. Rebuilt when its chunk comes back in range; despawning it records it as removed (saved), so it stays gone.
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `index` | integer | `0` | ≥ 0, ≤ 4294967295 | Its stable id within its chunk (a lattice cell); the parent scatter/Chunk names the rule and chunk. |
+
+## `scatter/ScatterSurface`
+
+Scatters props and foliage on this entity’s mesh by a ScatterSet, as on a planet: items sit where a ray straight down (local −Y) meets the mesh. For flat levels; planets use Planet.scatter and Biome.scatter.
+
+Brings along: `render/Mesh3d`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `set` | null or scatter/ScatterSet ref | `null` |  | The rules (*.scatter.json) to place on this mesh. |
+| `seed` | integer | `0` | ≥ 0, ≤ 4294967295 | Mixed into every rule: the same rules, other places. |
+
+## `scatter/Vegetation`
+
+Scatter items’ material: the standard material tinted from base to tip by the generators’ part codes (uv1), with wind sway on the tips. Engine generator items get one by default.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `baseColor` | string or number[4] | `[0.8,0.8,0.8,1]` |  | Albedo (linear), alpha in w. |
+| `metallic` | number | `0` | ≥ 0, ≤ 1 | 0 for dielectrics, 1 for metals. |
+| `roughness` | number | `0.5` | ≥ 0, ≤ 1 | Microsurface roughness. |
+| `emissive` | string or number[4] | `"#ffffff"` |  | Emitted color (linear), scaled by emissiveLuminance. |
+| `emissiveLuminance` | number | `0` | ≥ 0, cd/m² | Emitted luminance. 0 = not emissive. |
+| `doubleSided` | boolean | `false` |  | Draw back faces too (no culling). |
+| `deferUntilReady` | boolean | `false` |  | Baseline tier (0064): while a texture it binds waits for a copy in its slot's color space, skip its draws instead of showing the slot's loading fallback. |
+| `alphaMode` | `"opaque"` \| `"mask"` \| `"alpha"` \| `"additive"` \| `"premultiplied"` | `"opaque"` |  | opaque ignores alpha; mask discards pixels below alphaCutoff; alpha blends (transparent, drawn after opaque, sorted back to front); additive adds light (glows); premultiplied expects color already multiplied by alpha. |
+| `alphaCutoff` | number | `0.5` | ≥ 0, ≤ 1 | Alpha threshold for alphaMode "mask". |
+| `normalScale` | number | `1` |  | Strength of the normal map. |
+| `occlusionStrength` | number | `1` | ≥ 0, ≤ 1 | Strength of the occlusion map. |
+| `baseColorTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Albedo (sRGB), multiplied with baseColor. |
+| `metallicRoughnessTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | G = roughness, B = metallic (linear), multiplied with the factors. |
+| `normalTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Tangent-space normal map. |
+| `occlusionTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Ambient occlusion in R (linear). |
+| `emissiveTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Emission color (sRGB), multiplied with emissive. |
+| `baseTint` | string or number[4] | `[0.36,0.27,0.19,1]` |  | Color at part 0 (bark, stone, a blade’s root), times baseColor. |
+| `tipTint` | string or number[4] | `[0.32,0.55,0.18,1]` |  | Color at part 1 (leaves, a blade’s tip), times baseColor. |
+| `shade` | number | `0.25` | ≥ 0, ≤ 1 | How much the per-vertex shade varies brightness (±). |
+| `sway` | number | `0` | ≥ 0 | Wind response: metres a tip moves at wind strength 1 (0: still). |
+| `windDirection` | number[3] | `[1,0,0]` |  | World-space wind direction (the Wind resource writes it each frame). |
+| `windStrength` | number | `1` | ≥ 0 | Written from the Wind resource. |
+| `gustScale` | number | `0.05` | ≥ 0, 1/m | Gust waves per metre (written from the Wind resource). |
+
 ## `scene/InstancePart`
 
 Set on entities a SceneInstance or PrefabInstance spawned.
@@ -1614,6 +1677,7 @@ Brings along: `transform/Grid`, `core/Transform`, `render/Visibility`.
 | `vertexPixels` | number | `4` | ≥ 0 | Finest on-screen vertex spacing: however rough the terrain, chunks stop splitting once their vertices are this many pixels apart (smaller triangles cost GPU time and show nothing; normal tiles keep the finer relief in the shading). Vertices then morph a few px per frame in fast descents instead of under one. 0: no limit. |
 | `colliderRadius` | number | `96` | ≥ 0, m | Collider chunks (and full-detail rendering) within this distance of every TerrainAnchor, character, and dynamic body. |
 | `skirts` | boolean | `true` |  | Walls under chunk edges that hide cracks while neighbors change level. |
+| `scatter` | null or scatter/ScatterSet ref | `null` |  | Props and foliage everywhere on the planet (*.scatter.json; needs the scatter plugin). Each biome can add its own (Biome.scatter). |
 
 ## `terrain/PlanetNav`
 

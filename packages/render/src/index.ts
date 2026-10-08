@@ -156,6 +156,16 @@ export {
   unsupportedNodes,
 } from './features'
 export {
+  type FoliageChunk,
+  FoliageLayer,
+  type FoliageLayerOptions,
+  FoliageLayerSet,
+  FoliageLayers,
+  foliagePlugin,
+} from './foliage'
+export { FoliagePath, type FoliageSupport } from './foliage-path'
+export { FOLIAGE_SHADERS, MAX_FOLIAGE_MESHES } from './foliage-shaders'
+export {
   type ForwardPluginOptions,
   type ForwardState,
   ForwardStateResource,

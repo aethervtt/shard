@@ -13,6 +13,7 @@ import { ProjectMethodParams } from '@aethervtt/shard-project'
 import { METHODS } from '@aethervtt/shard-protocol'
 import { atmosphereMethods } from '@aethervtt/shard-render'
 import { saveMethods } from '@aethervtt/shard-save'
+import { scatterMethods } from '@aethervtt/shard-scatter'
 import { tilemapMethods } from '@aethervtt/shard-sprite'
 import { terrainMethods } from '@aethervtt/shard-terrain'
 import { localeMethods } from '@aethervtt/shard-text'
@@ -68,6 +69,7 @@ const PLUGIN_METHODS = [
   ...noiseMethods,
   ...procgenMethods,
   ...terrainMethods,
+  ...scatterMethods,
   ...atmosphereMethods,
   ...metricsMethods,
   ...tilemapMethods,
@@ -347,22 +349,23 @@ export const TOOLS: Tool[] = [
   {
     name: 'preview_generator',
     description:
-      'Shows a generator output: a mesh in neutral studio light from a three-quarter view, a texture as is, entities framed on their bounds. With "seeds" ("1-9", "1,5,9", or [1, 5, 9]) it is a labelled contact sheet, one cell per seed: the main loop for tuning a generator. Change one param, preview nine seeds, compare. Example: { "generator": "star-explorer/Rock", "seeds": "1-9", "params": { "roughness": 0.6 } }.',
+      'Shows a generator output: a mesh in neutral studio light from a three-quarter view, a texture as is, entities framed on their bounds. With "seeds" ("1-9", "1,5,9", or [1, 5, 9]) it is a labelled contact sheet, one cell per seed: the main loop for tuning a generator. Change one param, preview nine seeds, compare. A *.scatter.json path instead shows the set scattered on a 64 m patch, from above and at eye level. Example: { "generator": "star-explorer/Rock", "seeds": "1-9", "params": { "roughness": 0.6 } }, or { "generator": "assets/scatter/forest.scatter.json" }.',
     inputSchema: paramsSchema('procgen.preview'),
     run: async (ctx, args) => {
       const shot = await ctx.target().request<{
         data: string
         width: number
         height: number
-        generator: string
-        keys: string[]
+        generator?: string
+        asset?: string
+        keys?: string[]
       }>('procgen.preview', args)
       return {
         content: [
           { type: 'image', data: shot.data, mimeType: 'image/png' },
           {
             type: 'text',
-            text: `${shot.generator}${args.seeds ? ` seeds ${JSON.stringify(args.seeds)}` : ''} (${shot.width}×${shot.height})`,
+            text: `${shot.generator ?? shot.asset}${args.seeds ? ` seeds ${JSON.stringify(args.seeds)}` : ''} (${shot.width}×${shot.height})`,
           },
         ],
       }
@@ -377,6 +380,16 @@ export const TOOLS: Tool[] = [
     'sample_terrain',
     'terrain.sample',
     'The surface of a planet at up to 4096 points, from the same CPU noise colliders use: height above the radius, underwater and water depth, slope, temperature, moisture, and biome weights. Points are directions from the center or [lat, lon] in degrees. Example: { "latlon": [[0, 0], [80, 20]] } to compare the equator with the arctic.',
+  ),
+  forward(
+    'describe_scatter',
+    'scatter.describe',
+    'Scatter (rocks, trees, grass) as data, per surface (a planet or a ScatterSurface mesh): ready or what it waits for, problems (an unknown rule in avoid, a density its spacing cannot fit), and per rule its kind and range; for props the chunks in range, placements and spawned entities; for foliage the GPU chunks and instances visible and casting shadows. Use it to check a ScatterSet after editing it.',
+  ),
+  forward(
+    'sample_scatter',
+    'scatter.sample',
+    'Prop placements near a point from the CPU placement, spawned or not: rule, item, position, distance, scale, and whether the game removed it. Ask what is near the landing pad and move the pad. Example: { "entity": "landing-pad", "radius": 10 }, or on a planet { "latlon": [12, 40], "radius": 30 }.',
   ),
   forward(
     'sample_atmosphere',

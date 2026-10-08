@@ -123,9 +123,12 @@ Every engine error is a `ShardError` with one of these codes.
 | `locale/invalid-table` | @aethervtt/shard-text | Map keys to strings: { "hud.fuel": "Fuel: {amount}%" }. |
 | `locale/missing-key` | @aethervtt/shard-text |  |
 | `locale/param-mismatch` | @aethervtt/shard-text | Every locale gets the same params: use the same {placeholders} in each. |
+| `mesh/bad-lod` | @aethervtt/shard-mesh | lods: [0.5, 0.2] keeps about half, then a fifth, of the triangles. |
+| `mesh/bad-shape` | @aethervtt/shard-mesh | Detail 6 is already 40 962 vertices. |
 | `mesh/invalid` | @aethervtt/shard-mesh | positions/normals: 3 per vertex, uvs/uvs1: 2, colors/tangents/joints/weights: 4; indices must be < vertex count. |
 | `mesh/invalid-artifact` | @aethervtt/shard-mesh | Re-import the source (`shard import --force`). |
 | `mesh/not-gpu` | @aethervtt/shard-mesh | Change a CPU mesh with update(). |
+| `mesh/simplifier-not-loaded` | @aethervtt/shard-mesh | await loadMeshSimplifier() once (generators get it loaded for them) before simplifying. |
 | `mirror/duplicate-key` | @aethervtt/shard-mirror | Keys are the host ids of documents: each may appear once per list. |
 | `mirror/no-diff` | @aethervtt/shard-mirror | Pass rev: (doc) => doc.rev when documents carry a revision (cheapest), or equal(prev, next). |
 | `nav/bad-cache` | @aethervtt/shard-nav |  |
@@ -234,6 +237,8 @@ Every engine error is a `ShardError` with one of these codes.
 | `render/disposed` | @aethervtt/shard-render |  |
 | `render/duplicate-node` | @aethervtt/shard-render |  |
 | `render/feature-missing` | @aethervtt/shard-render | Add materialNoisePlugin from '@aethervtt/shard-render/noise'. |
+| `render/foliage-meshes` | @aethervtt/shard-render | Fewer variants: 4–8 read as unique once scaled and rotated. |
+| `render/foliage-patch` | @aethervtt/shard-render | positions and normals: 3 floats per grid point; density: 1. |
 | `render/graph-cycle` | @aethervtt/shard-render | Check reads/writes and `after` on these nodes. |
 | `render/invalid-screen-effect` | @aethervtt/shard-render | A screen effect has a kind, a radius of at least 0, and at most 8 params. |
 | `render/material-field-clash` | @aethervtt/shard-render | Give the field another name, or use extends: "none". |
@@ -268,6 +273,16 @@ Every engine error is a `ShardError` with one of these codes.
 | `save/unknown-resource` | @aethervtt/shard-save | The resource was renamed, removed, or lost its persist option; its saved value is skipped. |
 | `save/unknown-settings` | @aethervtt/shard-save |  |
 | `save/version-mismatch` | @aethervtt/shard-save |  |
+| `scatter/bad-point` | @aethervtt/shard-scatter | Pass an entity id or a scene path. |
+| `scatter/density-too-high` | @aethervtt/shard-scatter | Lower the density or the spacing: items keep `spacing` apart on a jittered lattice. |
+| `scatter/duplicate-rule` | @aethervtt/shard-scatter | Rule names are unique within a set: saves and `avoid` refer to them. |
+| `scatter/item-not-mesh` | @aethervtt/shard-scatter | Set "generator" (a mesh generator) or "prefab". |
+| `scatter/no-items` | @aethervtt/shard-scatter | Add an item: { "generator": "shard/Rock" } or { "prefab": { "path": "…" } }. |
+| `scatter/no-surface` | @aethervtt/shard-scatter | Give a Planet (or a Biome) a scatter set, or add scatter/ScatterSurface to a mesh entity; and add the scatter plugin. |
+| `scatter/not-a-surface` | @aethervtt/shard-scatter | scatter.describe lists every surface with its entity and scene path. |
+| `scatter/not-ready` | @aethervtt/shard-scatter | Sets and item meshes load asynchronously; step a frame and ask again. |
+| `scatter/unknown-rule` | @aethervtt/shard-scatter |  |
+| `scatter/which-surface` | @aethervtt/shard-scatter | Pass surface: an entity id or a scene path (scatter.describe lists them). |
 | `scene/already-loaded` | @aethervtt/shard-scene | Use reloadScene to replace it, or pass a different id. |
 | `scene/asset-unavailable` | @aethervtt/shard-scene |  |
 | `scene/conflicting-fields` | @aethervtt/shard-scene |  |

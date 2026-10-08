@@ -40,3 +40,4 @@ orbit down to 0.4 m vertex spacing on the ground. Put the camera in the planet's
   `describe_terrain` shows `detail.lodBias` above 1 while it's coarsening.
 - Give it air: `"render/Atmosphere": {}` on the planet entity takes the planet's radius, draws
   the sky from the ground to orbit, and hazes distant terrain (tune-an-atmosphere.md).
+- Rocks, trees and grass: give biomes (or the planet) a scatter set (scatter-props-and-foliage.md).

@@ -25,10 +25,13 @@ export {
   chunkLayout,
 } from './chunk'
 export {
+  type ChunkSampling,
   COLLIDER_DELAY,
   type ColliderChunk,
   ColliderSet,
+  chunkSpec,
   collidersOf,
+  sampleChunkAsync,
   skirtDepth,
 } from './colliders'
 export {
@@ -94,6 +97,7 @@ export {
   type ChunkPoints,
   createChunkPoints,
   gridDirection,
+  NOISE_OFFSET,
   prepareChunkPoints,
   SNAP,
   sampleChunkPoints,

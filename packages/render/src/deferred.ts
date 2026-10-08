@@ -2,6 +2,7 @@ import { ShardError, type World } from '@aethervtt/shard-core'
 import { GpuBuffer } from '@aethervtt/shard-gpu'
 import { Culler } from './culling'
 import { addRenderFeatures } from './features'
+import { FoliagePath } from './foliage-path'
 import {
   drawMaterials,
   ForwardStateResource,
@@ -39,7 +40,9 @@ function fillGBuffer(ctx: NodeContext) {
   const state = ctx.world.resource(ForwardStateResource)
   const cam = cameraOf(ctx.view)!
   const pv = state.views.get(ctx.view.name)
-  if (pv) drawMaterials(ctx, state, pv, cam, cam.draws, PASS_GBUFFER)
+  if (!pv) return
+  drawMaterials(ctx, state, pv, cam, cam.draws, PASS_GBUFFER)
+  ctx.world.tryResource(FoliagePath)?.draw(ctx, cam, PASS_GBUFFER, ctx.renderPass!)
 }
 
 /** Opaque, deferrable meshes: vertex stage and surface stage, packed. No lighting. */

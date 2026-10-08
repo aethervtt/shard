@@ -11,6 +11,15 @@ export {
   type NoiseApi,
 } from './context'
 export {
+  BushGenerator,
+  CrystalGenerator,
+  ENGINE_GENERATORS,
+  GrassClumpGenerator,
+  RockGenerator,
+  TreeGenerator,
+} from './engine/generators'
+export { fbm, valueNoise } from './engine/shape-noise'
+export {
   allGenerators,
   canonicalParams,
   codeHashOf,

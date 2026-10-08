@@ -1,4 +1,4 @@
-import { assetServer } from '@aethervtt/shard-assets'
+import { assetServer, findAssetPreview } from '@aethervtt/shard-assets'
 import {
   defineSchema,
   isPlainObject,
@@ -62,6 +62,9 @@ export async function resolveGenerator(
   if (exact) return { gen: exact, params: {} }
   const matches = allGenerators().filter((g) => g.name.endsWith(`/${name}`))
   if (matches.length === 1) return { gen: matches[0]!, params: {} }
+  // A short name means the project's generator over the engine's (Rock: star-explorer/Rock, not shard/Rock).
+  const own = matches.filter((g) => !g.name.startsWith('shard/'))
+  if (own.length === 1) return { gen: own[0]!, params: {} }
   throw new ShardError('procgen/unknown-generator', `No generator "${target}"`, {
     hint: matches.length
       ? `Several match: ${matches.map((g) => g.name).join(', ')}.`
@@ -193,7 +196,7 @@ export const procgenMethods: AppMethod[] = [
   {
     name: 'procgen.preview',
     description:
-      'A PNG of a generator output: a mesh in a neutral studio light from a three-quarter view, a texture as is, entities as a scene framed on their bounds. With seeds ("1-9" or [1, 4, 9]) it is a labelled contact sheet, one cell per seed: change a param, preview nine seeds, compare.',
+      'A PNG of a generator output: a mesh in a neutral studio light from a three-quarter view, a texture as is, entities as a scene framed on their bounds. With seeds ("1-9" or [1, 4, 9]) it is a labelled contact sheet, one cell per seed: change a param, preview nine seeds, compare. A *.scatter.json path previews the set on a 64 m patch, from above and at eye level.',
     params: defineSchema('procgen/PreviewParams', {
       generator: target,
       params: t.json({ description: 'Param values.' }),
@@ -202,9 +205,22 @@ export const procgenMethods: AppMethod[] = [
       size: t.u32({ default: 256, min: 32, max: 1024, description: 'Pixels per cell.' }),
     }),
     handler: async ({ world }, p) => {
+      const size = p.size as number
+      // Another previewable asset (a *.scatter.json, 0045): its own preview.
+      const asset = assetServer(world).entry(p.generator as string)
+      if (asset && !(p.generator as string).includes('.gen.json') && findAssetPreview(asset.type)) {
+        const image = await findAssetPreview(asset.type)!(world, asset.path, size * 2, size, {})
+        const png = await encodePng(image.data, image.width, image.height)
+        return {
+          width: image.width,
+          height: image.height,
+          data: toBase64(png),
+          asset: asset.path,
+          type: asset.type,
+        }
+      }
       const found = await resolveGenerator(world, p.generator as string)
       const params = { ...found.params, ...paramsOf(p.params) }
-      const size = p.size as number
       const seeds =
         p.seeds === undefined || p.seeds === null
           ? undefined

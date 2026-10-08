@@ -37,6 +37,7 @@
     "@aethervtt/shard-render": "workspace:*",
     "@aethervtt/shard-runtime": "workspace:*",
     "@aethervtt/shard-save": "workspace:*",
+    "@aethervtt/shard-scatter": "workspace:*",
     "@aethervtt/shard-scene": "workspace:*",
     "@aethervtt/shard-sprite": "workspace:*",
     "@aethervtt/shard-structure": "workspace:*",
