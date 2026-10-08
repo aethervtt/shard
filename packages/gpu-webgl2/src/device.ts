@@ -8,6 +8,7 @@ import { ShimError, unsupported } from './errors'
 import { FramebufferCache } from './fbo'
 import { CLIP, GL } from './gl'
 import { Webgl2RenderPipeline, Webgl2ShaderModule } from './pipeline'
+import { finishQueryReads, QueryPool, Webgl2QuerySet } from './queries'
 import { Webgl2Queue } from './queue'
 import { Replayer } from './replay'
 import { Webgl2Buffer, Webgl2Sampler, Webgl2Texture } from './resources'
@@ -77,6 +78,8 @@ export interface Webgl2DeviceOptions {
 /** Extensions the device calls into, enabled by the adapter. */
 export interface Webgl2Extensions {
   clipControl: unknown
+  /** EXT_disjoint_timer_query_webgl2: TIME_ELAPSED queries time passes (0074). */
+  timer: unknown
   indexed: OES_draw_buffers_indexed | null
   lose: WEBGL_lose_context | null
 }
@@ -95,6 +98,10 @@ export class Webgl2Device extends EventTarget {
   readonly state: GlState
   readonly fbos: FramebufferCache
   readonly copier: Copier
+  /** Query objects for timed passes (`timestamp-query`, 0074). */
+  readonly queries: QueryPool
+  /** Where the next timed pass's stamps start: one timeline across frames, as GPU clocks are. */
+  timerAt = 1n
   readonly replayer: Replayer
   readonly queue: Webgl2Queue
   readonly features: ReadonlySet<string>
@@ -141,6 +148,7 @@ export class Webgl2Device extends EventTarget {
         this.raise('validation', `A framebuffer is incomplete (0x${status.toString(16)})`)
     }
     this.copier = new Copier(this)
+    this.queries = new QueryPool(gl)
     this.replayer = new Replayer(this)
     this.queue = new Webgl2Queue(this)
     // Start from known state: the context may have served a device before this one.
@@ -247,8 +255,12 @@ export class Webgl2Device extends EventTarget {
     )
   }
 
-  createQuerySet(descriptor: GPUQuerySetDescriptor): never {
-    throw unsupported(`make a ${descriptor.type} query set`)
+  /** Timestamp query sets where the timer extension exists (see queries.ts). */
+  createQuerySet(descriptor: GPUQuerySetDescriptor): Webgl2QuerySet {
+    if (descriptor.type !== 'timestamp' || !this.features.has('timestamp-query')) {
+      throw unsupported(`make a ${descriptor.type} query set`)
+    }
+    return new Webgl2QuerySet(this, descriptor)
   }
 
   createRenderBundleEncoder(): never {
@@ -305,6 +317,7 @@ export class Webgl2Device extends EventTarget {
   private lose(reason: Webgl2DeviceLostInfo['reason'], message: string): void {
     if (this.isLost) return
     this.isLost = true
+    this.queries.clear()
     // A replacement device listens on this canvas now.
     this.canvas?.removeEventListener('webglcontextlost', this.onContextLost as EventListener)
     for (const f of this.fences.splice(0)) f.resolve()
@@ -405,7 +418,7 @@ export class Webgl2Device extends EventTarget {
       return Promise.reject(error)
     }
     buffer.mapState = 'pending'
-    return this.afterGpu().then(() => {
+    return this.afterGpu().then(async () => {
       if (buffer.destroyed || buffer.mapState !== 'pending') {
         const error = new Error(`Mapping "${buffer.label}" was aborted`)
         error.name = 'AbortError'
@@ -429,6 +442,13 @@ export class Webgl2Device extends EventTarget {
           }
         }
         buffer.reads.length = 0
+      }
+      // Timer query results resolved into it (0074): written once they're available.
+      if (buffer.queryReads.length > 0) await finishQueryReads(this, buffer, bytes, offset)
+      if (buffer.destroyed || buffer.mapState !== 'pending') {
+        const error = new Error(`Mapping "${buffer.label}" was aborted`)
+        error.name = 'AbortError'
+        throw error
       }
       buffer.mapped = bytes.buffer
       buffer.mappedOffset = offset

@@ -9,6 +9,7 @@ import { type BuiltBundle, createBundler, prepareGenerators } from '@aethervtt/s
 import { createNodePlatform } from '@aethervtt/shard-platform-node'
 import { loadProject } from '@aethervtt/shard-project'
 import { DEFAULT_HUB_PORT } from '@aethervtt/shard-protocol'
+import { ISOLATION_HEADERS } from '@aethervtt/shard-verify/node'
 import { createServer, type ViteDevServer, type Plugin as VitePlugin } from 'vite'
 import type { CommandContext } from './commands'
 import { EXIT } from './output'
@@ -215,6 +216,8 @@ export async function dev(ctx: CommandContext): Promise<number> {
     server: {
       port,
       fs: { allow: [runnerDir, dirname(packagesDir()), root] },
+      // Isolated pages: a 5 µs clock and JS sampling for the profiler (0074).
+      headers: { ...ISOLATION_HEADERS },
     },
     plugins: [shardDev],
   })

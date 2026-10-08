@@ -1331,6 +1331,23 @@ browser, and so do real frame times.
 With the MCP server attached to a running page: \`metrics_reset\`, exercise the scene, then
 \`metrics_record\` returns the same record the scripts write.
 `,
+  'find-what-is-slow.md': `# Find what's slow, or what stutters
+
+The profiler is always on. Systems, schedules, the frame, render-graph encodes (\`render/<node>\`),
+GPU passes (\`gpu:<node>\`), worker jobs and asset loads are spans.
+
+- On average: \`describe_perf\` (or \`shard profile\`'s top spans) lists last, avg, p95 and max ms per
+  span over 120 frames. \`{ "spans": ["render"] }\` keeps the spans a key covers.
+- A stutter: \`capture_perf { "frames": 300 }\`, or a flight recorder that waits for one:
+  \`{ "until": { "frameMs": 30 } }\`. Read \`worst\`: each slow frame lists \`over\`, the spans that ran
+  longest above their median there. The first one is the lead.
+- Your own code: \`const SPAN = defineSpan('<project>/spawn')\` once, then in a system
+  \`const t = profiler.begin(SPAN)\` … \`profiler.end(t)\` with \`world.resource(ProfilerResource)\`.
+- The line: \`shard profile --cpu-prof\` (or \`"sample": true\`) adds the hottest functions and
+  writes a \`.cpuprofile\`. Traces go to \`.shard/captures/*.trace.json\`: open them in Perfetto.
+- In a browser, \`shard dev\`'s pages are cross-origin isolated, so timings are to 5 µs. Turn on the
+  \`perf\` overlay (\`debug_overlays\`) to watch frame time and the top spans live.
+`,
 }
 
 function agentsBlock(manifest: ManifestValue): string {
@@ -1348,6 +1365,7 @@ shard import --json       # import new and changed asset files
 shard mv <from> <to>      # move an asset and rewrite references to it
 shard tiles read <map>    # tilemap cells as rows; tiles edit <map> --cell x,y=name
 shard run --frames 600    # headless run
+shard profile --frames 600  # capture spans: the worst frames and what grew in them
 shard screenshot ${manifest.startScene} --out shot.png
 shard test --json         # gameplay tests in tests/
 shard check --json        # type-check scripts: file, line, column

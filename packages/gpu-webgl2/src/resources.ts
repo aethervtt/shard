@@ -4,6 +4,7 @@ import type { Webgl2Device } from './device'
 import { unsupported } from './errors'
 import { formatOf, type GlFormat } from './formats'
 import { GL } from './gl'
+import type { QueryRead } from './queries'
 
 // Buffers, textures, views and samplers as WebGL2 objects.
 //
@@ -48,6 +49,8 @@ export class Webgl2Buffer {
   mappedOffset = 0
   /** Texture reads into this buffer, repacked when it's mapped. */
   readonly reads: ReadJob[] = []
+  /** Timer queries resolved into this buffer, written when it's mapped (0074). */
+  readonly queryReads: QueryRead[] = []
   destroyed = false
   private readonly device: Webgl2Device
 

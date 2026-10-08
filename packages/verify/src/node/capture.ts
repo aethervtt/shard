@@ -350,3 +350,15 @@ function pageMessage(err: unknown): string {
   const message = (err as Error).message ?? String(err)
   return message.replace(/^page\.evaluate: /, '').split('\n')[0]!
 }
+
+/**
+ * Headers for pages Shard serves to measure (0074): cross-origin isolation, so `performance.now()`
+ * steps 5 µs instead of 100 µs (`credentialless` COEP keeps cross-origin loads working without
+ * CORP headers), and `Document-Policy: js-profiling` for the JS Self-Profiling API. `shard dev`,
+ * the playground and the capture server send them.
+ */
+export const ISOLATION_HEADERS: Readonly<Record<string, string>> = {
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Cross-Origin-Embedder-Policy': 'credentialless',
+  'Document-Policy': 'js-profiling',
+}

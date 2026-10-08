@@ -1,4 +1,4 @@
-import type { ShardError } from '@aethervtt/shard-core'
+import type { HeapStats, HotFunction, ShardError } from '@aethervtt/shard-core'
 import type { Workers } from './workers'
 
 /**
@@ -36,6 +36,35 @@ export interface HostPerformance {
   onLongTask?(listener: (startMs: number, durationMs: number) => void): () => void
   /** Bytes fetched so far (scripts, WASM, assets), over the wire and decoded. Absent without resource timing. */
   downloads?(): HostDownloads
+  /**
+   * The JS heap (0074): `v8.getHeapStatistics()` in Node; in a page,
+   * `performance.measureUserAgentSpecificMemory()` when isolated (at most every 5 s, so the last
+   * result), else `performance.memory` where it exists. Absent or undefined elsewhere.
+   */
+  heap?(): HeapStats | undefined
+  /** Garbage collections (Node): start on `performance.now()`'s timeline, pause, and kind. */
+  onGc?(listener: (start: number, ms: number, kind: string) => void): () => void
+  /**
+   * Starts sampling JavaScript (0074): `node:inspector`'s profiler in Node, the JS Self-Profiling
+   * API in pages served with `Document-Policy: js-profiling`. Undefined where it can't.
+   */
+  startSampler?(): Promise<HostSampler | undefined>
+  /** Shows a span in the browser's own profiler (`performance.measure` with DevTools track data). */
+  measure?(name: string, track: string, start: number, ms: number): void
+}
+
+/** A sampling profiler running for a capture's window. */
+export interface HostSampler {
+  stop(): Promise<HostSamples>
+}
+
+export interface HostSamples {
+  /** The functions with the most self time. */
+  hottest: HotFunction[]
+  /** Stretches of the same top function on `performance.now()`'s timeline (browsers). */
+  samples?: { name: string; start: number; ms: number }[]
+  /** The V8 `.cpuprofile` (Node). */
+  cpuprofile?: unknown
 }
 
 export interface HostDownloads {

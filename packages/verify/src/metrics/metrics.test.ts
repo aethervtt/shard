@@ -95,7 +95,7 @@ describe('metricsPlugin (0062)', () => {
     longTask(170, 55)
     const record = metrics.record({ fixture: 'table-small', scenario: 'idle' })
     expect(record).toMatchObject({
-      version: 1,
+      version: 2,
       renderer: 'shard@test',
       fixture: 'table-small',
       scenario: 'idle',
@@ -110,6 +110,9 @@ describe('metricsPlugin (0062)', () => {
     })
     expect(record.frameTime).toMatchObject({ p50: 16, p95: 16, p99: 40, n: 20 })
     expect(record.frameTime.gpuP95).toBeUndefined()
+    // Version 2 (0074): where the time went, from the profiler.
+    expect(record.breakdown?.cpu.map((s) => s.span)).toContain('schedule/First')
+    expect(record.breakdown?.gpu).toEqual([])
     await validates(record)
   })
 

@@ -23,6 +23,7 @@ import {
 } from './commands'
 import { dev } from './dev'
 import { createOutput, EXIT, errorJson, formatError } from './output'
+import { profile } from './profile'
 import { shaders } from './shaders-command'
 import { approve, capture, compare, perfCheck } from './verify'
 
@@ -52,7 +53,14 @@ const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; 
     run: dev,
     help: 'dev [--port 5190]               run the project in a browser, hot reloading',
   },
-  run: { run, help: 'run [--frames 600] [--scene p]   headless run; prints a world hash' },
+  run: {
+    run,
+    help: 'run [--frames 600] [--scene p] [--cpu-prof]   headless run; prints a world hash',
+  },
+  profile: {
+    run: profile,
+    help: 'profile [scene] [--frames 600] [--until-ms 50] [--cpu-prof] [--attach]   capture spans; prints the worst frames',
+  },
   screenshot: {
     run: screenshot,
     help: 'screenshot <scene> --out f.png [--size WxH] [--frames N] [--camera path]',
@@ -73,7 +81,10 @@ const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; 
     run: track,
     help: 'track <scene.json> [--out f]     record a physics track; prints its hash',
   },
-  test: { run: testCommand, help: 'test [pattern]                  gameplay tests in tests/' },
+  test: {
+    run: testCommand,
+    help: 'test [pattern] [--cpu-prof]     gameplay tests in tests/',
+  },
   bench: {
     run: bench,
     help: 'bench structure                  engine fixtures against their budgets (0055)',
@@ -154,6 +165,8 @@ export async function main(argv: string[]): Promise<number> {
         encoding: { type: 'string' },
         atlas: { type: 'string' },
         tier: { type: 'string' },
+        'cpu-prof': { type: 'boolean' },
+        'until-ms': { type: 'string' },
         manifest: { type: 'string' },
         help: { type: 'boolean', short: 'h' },
       },

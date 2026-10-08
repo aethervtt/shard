@@ -6,6 +6,7 @@ export {
   type CaptureOptions,
   type CaptureRun,
   clientUrl,
+  ISOLATION_HEADERS,
   runCapture,
 } from './capture'
 export {

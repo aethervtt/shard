@@ -130,7 +130,7 @@ export class Webgl2Adapter {
     const { caps, extensions } = capsOf(opened.gl, options.profile ?? 'native')
     this.caps = caps
     this.extensions = extensions
-    this.features = featuresOf(opened.gl, caps)
+    this.features = featuresOf(opened.gl, caps, extensions.timer !== null)
     this.limits = limitsOf(caps)
     this.info = infoOf(opened.gl)
   }
@@ -178,6 +178,7 @@ function capsOf(
   const floatLinear = ext('OES_texture_float_linear')
   const indexed = ext('OES_draw_buffers_indexed') as OES_draw_buffers_indexed | null
   const lose = gl.getExtension('WEBGL_lose_context')
+  const timer = ext('EXT_disjoint_timer_query_webgl2')
   const bc =
     ext('WEBGL_compressed_texture_s3tc') !== null &&
     ext('WEBGL_compressed_texture_s3tc_srgb') !== null &&
@@ -212,11 +213,17 @@ function capsOf(
       etc2: ext('WEBGL_compressed_texture_etc') !== null,
     },
   }
-  return { caps, extensions: { clipControl, indexed, lose } }
+  return { caps, extensions: { clipControl, indexed, lose, timer } }
 }
 
-function featuresOf(gl: WebGL2RenderingContext, caps: Webgl2Caps): ReadonlySet<string> {
+function featuresOf(
+  gl: WebGL2RenderingContext,
+  caps: Webgl2Caps,
+  timer: boolean,
+): ReadonlySet<string> {
   const features = new Set<string>(['depth32float-stencil8'])
+  // Passes timed with TIME_ELAPSED queries (0074, queries.ts).
+  if (timer) features.add('timestamp-query')
   if (caps.compression.bc) features.add('texture-compression-bc')
   if (caps.compression.astc) features.add('texture-compression-astc')
   if (caps.compression.etc2) features.add('texture-compression-etc2')

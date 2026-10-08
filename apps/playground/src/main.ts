@@ -15,7 +15,13 @@ import { connectToHub, createProtocolServer, DEFAULT_HUB_PORT } from '@aethervtt
 import { describeRender, forwardPlugin, pick, renderPlugin } from '@aethervtt/shard-render'
 import { materialNoisePlugin } from '@aethervtt/shard-render/noise'
 import { surfacePlugin } from '@aethervtt/shard-render/surface'
-import { App, animationFrameRunner } from '@aethervtt/shard-runtime'
+import {
+  App,
+  animationFrameRunner,
+  capturePerf,
+  describePerf,
+  type PerfCaptureOptions,
+} from '@aethervtt/shard-runtime'
 import { savePlugin } from '@aethervtt/shard-save'
 import { scatterPlugin } from '@aethervtt/shard-scatter'
 import { ScenePlugin } from '@aethervtt/shard-scene'
@@ -338,7 +344,15 @@ const playground = {
     return hit && { entity: hit.entity, path: hit.path, distance: hit.distance }
   },
 }
-Object.assign(globalThis, { app, describe: () => describeRender(app.world), playground })
+Object.assign(globalThis, {
+  app,
+  describe: () => describeRender(app.world),
+  /** The profiler's aggregates and clock (0074), as `perf.describe` returns them. */
+  perf: () => describePerf(app.world),
+  /** A capture of the next frames (0074): its summary, and the trace inline. */
+  capture: (options: PerfCaptureOptions = {}) => capturePerf(app.world, options),
+  playground,
+})
 
 /**
  * With ?hub (or ?hub=ws://host:port), the page dials out to a protocol hub (`shard serve` or

@@ -3,7 +3,7 @@ import type { EventReader } from '../ecs/events'
 import type { World } from '../ecs/world'
 import { ShardError } from '../error'
 import type { EventDef } from '../schema/resource'
-import type { Profiler } from './profiler'
+import { defineSpan, type Profiler, type SpanDef, TRACK } from './profiler'
 import {
   type Condition,
   conditionLabel,
@@ -71,6 +71,8 @@ class Context implements SystemContext {
 
 interface Entry {
   readonly config: SystemConfig
+  /** The system's span: its name. */
+  readonly span: SpanDef
   readonly index: number
   state: unknown
   ctx: Context | undefined
@@ -83,18 +85,25 @@ interface Entry {
  */
 export class Schedule {
   readonly label: ScheduleLabel
+  /** `schedule/<Label>`: one run of the schedule (0074). */
+  private readonly span: SpanDef
+  /** `commands/<Label>`: command application over one run. */
+  private readonly commandsSpan: SpanDef
   private readonly entries: Entry[] = []
   private readonly setConfigs: SystemSetConfig[] = []
   private order: Entry[] | undefined
 
   constructor(label: ScheduleLabel) {
     this.label = label
+    this.span = defineSpan(`schedule/${label.name}`)
+    this.commandsSpan = defineSpan(`commands/${label.name}`)
   }
 
   add(system: SystemDef<unknown> | SystemConfig): void {
     const config = system instanceof SystemConfig ? system : new SystemConfig(system)
     this.entries.push({
       config,
+      span: defineSpan(config.system.name),
       index: this.entries.length,
       state: undefined,
       ctx: undefined,
@@ -132,6 +141,9 @@ export class Schedule {
 
   run(world: World, options: ScheduleRunOptions): void {
     const order = this.resolve()
+    const profiler = options.profiler
+    const scheduleToken = profiler !== undefined ? profiler.begin(this.span) : -1
+    let commandsMs = 0
     for (let i = 0; i < order.length; i++) {
       const entry = order[i]!
       const conditions = entry.conditions
@@ -151,10 +163,11 @@ export class Schedule {
       }
       const ctx = entry.ctx
       ctx.thisRunTick = world.incrementTick()
-      const start = options.now()
+      const token = profiler !== undefined ? profiler.begin(entry.span) : -1
       try {
         system.run(entry.state, world, ctx)
       } catch (err) {
+        profiler?.cancel(scheduleToken)
         const message = err instanceof Error ? err.message : String(err)
         const code = err instanceof ShardError ? ` [${err.code}]` : ''
         throw new ShardError(
@@ -166,12 +179,30 @@ export class Schedule {
           },
         )
       }
-      options.profiler?.record(system.name, options.now() - start)
+      if (profiler !== undefined) profiler.end(token)
       ctx.lastRunTick = ctx.thisRunTick
       // Anything written from here on (commands, later systems, code outside systems between
       // frames) gets a newer tick than this run, so this system sees it as changed next time.
       world.incrementTick()
-      if (ctx.commands.length > 0) ctx.commands.apply()
+      if (ctx.commands.length > 0) {
+        if (profiler === undefined) ctx.commands.apply()
+        else {
+          const start = profiler.now()
+          try {
+            ctx.commands.apply()
+          } catch (err) {
+            profiler.cancel(scheduleToken)
+            throw err
+          }
+          const ms = profiler.now() - start
+          commandsMs += ms
+          profiler.event(this.commandsSpan, TRACK.main, start, ms)
+        }
+      }
+    }
+    if (profiler !== undefined) {
+      profiler.sample(this.commandsSpan, commandsMs)
+      profiler.end(scheduleToken)
     }
   }
 

@@ -3,16 +3,20 @@ import {
   allComponents,
   defineEvent,
   defineResource,
+  defineSpan,
   type Entity,
   isPlainObject,
   type JsonValue,
   type Owner,
   type OwnerQuota,
+  ProfilerResource,
   ShardError,
+  type SpanDef,
+  TRACK,
   type World,
 } from '@aethervtt/shard-core'
-import type { Platform } from '@aethervtt/shard-platform'
-import { DevMode, LogResource } from '@aethervtt/shard-runtime'
+import type { Platform, WorkerJobTiming } from '@aethervtt/shard-platform'
+import { DevMode, LogResource, type PerfHost, PerfHostResource } from '@aethervtt/shard-runtime'
 import { randomGuid, sha256Hex } from './hash'
 import { MissingAsset } from './missing'
 import {
@@ -261,8 +265,32 @@ class LoadsInFlight extends Map<string, Promise<void>> {
  * paths and guids, loads artifacts into stores, hot reloads, and unloads what nothing references.
  * Works without a platform too (memory only), which is how procedural and runtime assets live.
  */
+/** Asset results applied: the store updated and events sent (0074). */
+const APPLY = defineSpan('assets/apply')
+/** One asset load, from request to applied: an async span. */
+const LOAD = defineSpan('assets/load')
+
+/** Spans of worker jobs by kind (`worker/<kind>`), made once each. */
+const workerSpans = new Map<string, SpanDef>()
+
+/** The profiler's host instruments from a platform: its performance and where traces go (0074). */
+export function perfHostOf(platform: Platform): PerfHost {
+  const perf = platform.performance
+  const fs = platform.fs
+  const host: PerfHost = {}
+  if (perf?.heap) host.heap = () => perf.heap!()
+  if (perf?.onGc) host.onGc = (listener) => perf.onGc!(listener)
+  if (perf?.startSampler) host.startSampler = () => perf.startSampler!()
+  if (perf?.measure)
+    host.measure = (name, track, start, ms) => perf.measure!(name, track, start, ms)
+  if (fs.writable) host.writeText = (path, text) => fs.writeText(path, text)
+  return host
+}
+
 export class AssetServer {
   readonly world: World
+  /** Stops timing the platform's worker jobs into this world's profiler. */
+  private unobserveWorkers: (() => void) | undefined
   private platform: Platform | undefined
   private roots: readonly string[] = DEFAULT_ROOTS
   private cacheDir = '.shard/cache'
@@ -300,11 +328,35 @@ export class AssetServer {
   /** Attaches the host's file system. Call before `scan`. */
   configure(options: AssetServerOptions): this {
     this.platform = options.platform
+    this.profile(options.platform)
     if (options.roots) this.roots = options.roots
     if (options.cacheDir) this.cacheDir = options.cacheDir
     if (options.catalogPath) this.catalogPath = options.catalogPath
     this.indexLoaded = false
     return this
+  }
+
+  /**
+   * Hands the platform's profiling instruments to the app (0074): heap, GC, sampling and trace
+   * files, and the worker pool's job timings as `worker/<kind>` spans on worker tracks.
+   */
+  private profile(platform: Platform): void {
+    if (!this.world.hasResource(PerfHostResource)) {
+      this.world.insertResource(PerfHostResource, perfHostOf(platform))
+    }
+    this.unobserveWorkers?.()
+    this.unobserveWorkers = undefined
+    const profiler = this.world.tryResource(ProfilerResource)
+    const workers = platform.workers
+    if (!profiler || !workers?.observe) return
+    this.unobserveWorkers = workers.observe((job: WorkerJobTiming) => {
+      let span = workerSpans.get(job.kind)
+      if (!span) {
+        span = defineSpan(`worker/${job.kind}`)
+        workerSpans.set(job.kind, span)
+      }
+      profiler.record(span, job.ms, TRACK.worker + job.worker, job.start)
+    })
   }
 
   get assetRoots(): readonly string[] {
@@ -548,7 +600,18 @@ export class AssetServer {
     return promise
   }
 
+  /** A load from request to applied, as an async span (`assets/load`, 0074). */
   private async loadEntry(entry: AssetEntry, reload: boolean): Promise<void> {
+    const profiler = this.world.tryResource(ProfilerResource)
+    profiler?.beginAsync(LOAD, entry.guid)
+    try {
+      await this.loadEntryNow(entry, reload)
+    } finally {
+      profiler?.endAsync(LOAD, entry.guid)
+    }
+  }
+
+  private async loadEntryNow(entry: AssetEntry, reload: boolean): Promise<void> {
     if (!reload) entry.state = 'loading'
     try {
       const type = findAssetType(entry.type)
@@ -581,17 +644,23 @@ export class AssetServer {
         path: entry.path,
         resolve: (p) => this.resolve(p.startsWith('#') ? `${base}${p}` : p),
       })
-      const store = this.world.initResource(type.store)
-      // A fallback in the store is replaced, never updated in place.
-      const fallback = this.fallbacks.get(entry.guid)
-      const existing = fallback === undefined ? store.byGuid(entry.guid) : undefined
-      if (existing !== undefined && type.update) type.update(existing, item)
-      else store.set(entry.guid, item)
-      if (fallback !== undefined) this.dropFallback(entry, fallback)
-      entry.state = 'loaded'
-      entry.error = undefined
-      entry.version++
-      this.emit(entry, reload ? 'modified' : 'loaded')
+      const profiler = this.world.tryResource(ProfilerResource)
+      const token = profiler ? profiler.begin(APPLY) : -1
+      try {
+        const store = this.world.initResource(type.store)
+        // A fallback in the store is replaced, never updated in place.
+        const fallback = this.fallbacks.get(entry.guid)
+        const existing = fallback === undefined ? store.byGuid(entry.guid) : undefined
+        if (existing !== undefined && type.update) type.update(existing, item)
+        else store.set(entry.guid, item)
+        if (fallback !== undefined) this.dropFallback(entry, fallback)
+        entry.state = 'loaded'
+        entry.error = undefined
+        entry.version++
+        this.emit(entry, reload ? 'modified' : 'loaded')
+      } finally {
+        profiler?.end(token)
+      }
     } catch (err) {
       const error =
         err instanceof ShardError

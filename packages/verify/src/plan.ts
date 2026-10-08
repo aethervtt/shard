@@ -114,8 +114,25 @@ export interface ThresholdRule {
   ratio?: number
 }
 
-/** Scenario → metric path (`frameTime.p95`) → rule. */
-export type Thresholds = Record<string, Record<string, ThresholdRule>>
+/**
+ * A budget on one span of a record's `breakdown` (0074): `{ "span": "partition/spawn", "p95": 2 }`.
+ * Its p50, p95 or max (ms) must stay at or under the number given.
+ */
+export interface SpanThreshold {
+  span: string
+  p50?: number
+  p95?: number
+  max?: number
+}
+
+/** A scenario's rules: metric path (`frameTime.p95`) → rule, and span budgets under `spans`. */
+export interface ScenarioThresholds {
+  [metric: string]: ThresholdRule | readonly SpanThreshold[] | undefined
+  spans?: readonly SpanThreshold[]
+}
+
+/** Scenario → its rules. */
+export type Thresholds = Record<string, ScenarioThresholds>
 
 const tolerance: JsonSchema = {
   type: 'object',
@@ -246,6 +263,24 @@ export function capturePlanJsonSchema(): JsonSchema {
         type: 'object',
         additionalProperties: {
           type: 'object',
+          properties: {
+            spans: {
+              type: 'array',
+              description:
+                'Span budgets on records\' breakdown (spec 0074): { "span": "partition/spawn", "p95": 2 }.',
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['span'],
+                properties: {
+                  span: { type: 'string', minLength: 1 },
+                  p50: { type: 'number', minimum: 0 },
+                  p95: { type: 'number', minimum: 0 },
+                  max: { type: 'number', minimum: 0 },
+                },
+              },
+            },
+          },
           additionalProperties: {
             type: 'object',
             additionalProperties: false,

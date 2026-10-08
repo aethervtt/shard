@@ -1,10 +1,19 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { defineComponent, defineResource, defineSchema, t, World } from '@aethervtt/shard-core'
+import {
+  defineComponent,
+  defineResource,
+  defineSchema,
+  Profiler,
+  ProfilerResource,
+  t,
+  World,
+} from '@aethervtt/shard-core'
 import { budget, timeout } from '@aethervtt/shard-core/test-env'
 import type { Platform } from '@aethervtt/shard-platform'
 import { createNodePlatform } from '@aethervtt/shard-platform-node'
+import { PerfHostResource } from '@aethervtt/shard-runtime'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { AssetServer, AssetStore, defineAssetType, defineDataAsset, defineImporter } from './index'
 
@@ -91,6 +100,23 @@ beforeEach(() => {
   importCount = 0
 })
 afterEach(() => rmSync(root, { recursive: true, force: true }))
+
+describe('profiling (0074)', () => {
+  it("hands the platform's instruments to the app, and times loads and their application", async () => {
+    write('assets/a.txt', 'hello')
+    const world = new World()
+    const profiler = new Profiler()
+    world.insertResource(ProfilerResource, profiler)
+    const s = new AssetServer(world).configure({ platform })
+    const host = world.resource(PerfHostResource)
+    expect(host.heap?.()?.source).toBe('v8')
+    expect(typeof host.writeText).toBe('function')
+    await s.scan()
+    await s.load('assets/a.txt')
+    expect(profiler.timing('assets/load')?.samples).toBe(1)
+    expect(profiler.timing('assets/apply')?.samples).toBe(1)
+  })
+})
 
 describe('identity', () => {
   it('writes a .meta with a guid on first scan, and keeps it across moves', async () => {

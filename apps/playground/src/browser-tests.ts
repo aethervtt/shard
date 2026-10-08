@@ -3,7 +3,7 @@
 // SHARD_BROWSER_TESTS=required (CI), where that fails the run.
 
 import { join } from 'node:path'
-import { browserLaunch } from '@aethervtt/shard-verify/node'
+import { browserLaunch, ISOLATION_HEADERS } from '@aethervtt/shard-verify/node'
 import { chromium } from 'playwright'
 import { createServer, type ViteDevServer } from 'vite'
 
@@ -20,7 +20,8 @@ export async function servePlayground(): Promise<PlaygroundServer> {
     root,
     configFile: false,
     logLevel: 'error',
-    server: { port: 0 },
+    // Isolated, as `pnpm playground` serves it (0074).
+    server: { port: 0, headers: { ...ISOLATION_HEADERS } },
   })
   await server.listen()
   return {

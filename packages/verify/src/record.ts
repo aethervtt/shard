@@ -1,4 +1,4 @@
-import type { JsonSchema } from '@aethervtt/shard-core'
+import type { JsonSchema, SpanStats } from '@aethervtt/shard-core'
 import { ShardError } from '@aethervtt/shard-core'
 
 /**
@@ -7,7 +7,8 @@ import { ShardError } from '@aethervtt/shard-core'
  * sizes bytes.
  */
 export interface PerfRecord {
-  version: 1
+  /** 2 adds `breakdown` (0074); version 1 records still read. */
+  version: 1 | 2
   /** `shard@<sha>`, `three@0.160.1`: the part before `@` names the renderer in thresholds. */
   renderer: string
   fixture: string
@@ -32,6 +33,11 @@ export interface PerfRecord {
   gpuMemory: { bytes: number; byCategory: Record<string, number> }
   /** The page's downloads: the document, scripts, WASM, and assets. */
   download: { transferred: number; decoded: number }
+  /**
+   * Where the time went (0074, version 2): the 10 spans with the highest p95, CPU (systems,
+   * schedules, render encodes, workers) and GPU passes, over the profiler's window.
+   */
+  breakdown?: { cpu: SpanStats[]; gpu: SpanStats[] }
 }
 
 export interface PerfDevice {
@@ -45,6 +51,23 @@ export interface PerfDevice {
 
 const ms = { type: 'number', minimum: 0 }
 const count = { type: 'integer', minimum: 0 }
+const spanStats = {
+  type: 'array',
+  items: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['span', 'track', 'calls', 'total', 'p50', 'p95', 'max'],
+    properties: {
+      span: { type: 'string', minLength: 1 },
+      track: { enum: ['main', 'gpu', 'async', 'gc', 'worker'] },
+      calls: count,
+      total: ms,
+      p50: ms,
+      p95: ms,
+      max: ms,
+    },
+  },
+}
 
 /** JSON Schema for `PerfRecord` (shipped as `.shard/schemas/perf-record.schema.json`). */
 export function perfRecordJsonSchema(): JsonSchema {
@@ -73,7 +96,7 @@ export function perfRecordJsonSchema(): JsonSchema {
     ],
     properties: {
       $schema: { type: 'string' },
-      version: { const: 1 },
+      version: { enum: [1, 2] },
       renderer: {
         type: 'string',
         minLength: 1,
@@ -146,6 +169,14 @@ export function perfRecordJsonSchema(): JsonSchema {
         additionalProperties: false,
         required: ['transferred', 'decoded'],
         properties: { transferred: count, decoded: count },
+      },
+      breakdown: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['cpu', 'gpu'],
+        description:
+          'Version 2 (spec 0074): the 10 CPU and 10 GPU spans with the highest p95 over the window.',
+        properties: { cpu: spanStats, gpu: spanStats },
       },
     },
   }
