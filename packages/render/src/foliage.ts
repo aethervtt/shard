@@ -1268,6 +1268,7 @@ export const foliagePlugin = definePlugin({
     // Deferred cameras draw it into the G-buffer.
     graph.addNode('foliage/draw', {
       kind: 'render',
+      ownPass: true,
       phase: RenderPhase.Opaque + 5,
       after: ['forward-opaque'],
       enabled: (view: RenderView) => {

@@ -108,6 +108,11 @@ export interface NodeDescriptor {
   /** Runs even if nothing reads its outputs. */
   sideEffects?: boolean
   /**
+   * Render nodes: always a render pass of its own, never shared with the nodes around it (see
+   * `continues`), so its GPU time is its own: what reads it (FoliageBudget's `gpu:foliage/*`) needs it.
+   */
+  ownPass?: boolean
+  /**
    * Whether the node runs for a view (e.g. only when the camera has the effect's component).
    * Disabled nodes are removed before resolving, so what they fed is culled too.
    */
@@ -441,6 +446,48 @@ export class RenderGraph {
     return resolved
   }
 
+  /**
+   * Whether render node `order[k]` can draw in the pass `order[from]` began: the same color
+   * attachments, loaded rather than cleared, the same depth (written only if the pass writes it),
+   * and nothing it samples bound as an attachment.
+   */
+  private continues(order: readonly string[], from: number, k: number, view: RenderView): boolean {
+    const a = this.nodes.get(order[from]!)!
+    const b = this.nodes.get(order[k]!)!
+    if (a.ownPass || b.ownPass) return false
+    const aliases = view.aliases
+    const ca = colorOf(a, view)
+    const cb = colorOf(b, view)
+    if (ca.length !== cb.length) return false
+    for (let i = 0; i < ca.length; i++) {
+      const x = ca[i]!
+      const y = cb[i]!
+      if (y.clear !== undefined || (x.mip ?? 0) !== (y.mip ?? 0)) return false
+      if (canonicalOf(aliases, x.resource) !== canonicalOf(aliases, y.resource)) return false
+      if ((x.resolve === undefined) !== (y.resolve === undefined)) return false
+      if (x.resolve && canonicalOf(aliases, x.resolve) !== canonicalOf(aliases, y.resolve!))
+        return false
+    }
+    const da = a.depth
+    const db = b.depth
+    if (!da !== !db) return false
+    if (da && db) {
+      if (canonicalOf(aliases, da.resource) !== canonicalOf(aliases, db.resource)) return false
+      if (db.clear !== undefined || (da.readOnly && !db.readOnly)) return false
+    }
+    const reads = b.reads ?? []
+    for (let r = 0; r < reads.length; r++) {
+      const c = canonicalOf(aliases, reads[r]!)
+      if (da && c === canonicalOf(aliases, da.resource)) return false
+      for (let i = 0; i < ca.length; i++) {
+        const x = ca[i]!
+        if (c === canonicalOf(aliases, x.resource)) return false
+        if (x.resolve && c === canonicalOf(aliases, x.resolve)) return false
+      }
+    }
+    return true
+  }
+
   /** Whether a node after `k` loads or reads `resource` (so its contents must be stored). */
   private loadedLater(
     order: readonly string[],
@@ -576,6 +623,10 @@ export class RenderGraph {
       const timestamps = (name: string) => this.timer.allocate(name)
       const afterSubmit = (fn: () => void) => void submitted.push(fn)
 
+      // Consecutive render nodes on the same attachments share one render pass: a tile-based GPU
+      // then keeps each tile on chip between them, instead of storing and loading it again.
+      let open: GPURenderPassEncoder | undefined
+      let openFrom = -1
       for (let k = 0; k < order.length; k++) {
         const name = order[k]!
         const node = this.nodes.get(name)!
@@ -584,7 +635,13 @@ export class RenderGraph {
         const t0 = profiler !== undefined ? profiler.now() : 0
         let renderPass: GPURenderPassEncoder | undefined
         let computePass: GPUComputePassEncoder | undefined
-        if (node.kind === 'render') {
+        if (node.kind === 'render' && open && this.continues(order, openFrom, k, view)) {
+          renderPass = open
+        } else {
+          open?.end()
+          open = undefined
+        }
+        if (node.kind === 'render' && !renderPass) {
           const colors = colorOf(node, view)
           renderPass = encoder.beginRenderPass({
             label: `${view.name}/${name}`,
@@ -609,6 +666,8 @@ export class RenderGraph {
               : undefined,
             timestampWrites: this.timer.allocate(name),
           })
+          open = renderPass
+          openFrom = k
         } else if (node.kind === 'compute') {
           computePass = encoder.beginComputePass({
             label: `${view.name}/${name}`,
@@ -629,7 +688,6 @@ export class RenderGraph {
             afterSubmit,
           })
         }
-        renderPass?.end()
         computePass?.end()
         if (profiler !== undefined) {
           const ms = profiler.now() - t0
@@ -639,6 +697,8 @@ export class RenderGraph {
           profiler.event(this.nodeSpans[slot]!, TRACK.main, t0, ms)
         }
       }
+
+      open?.end()
 
       for (const capture of this.captures) {
         if (capture.view !== view.name) continue
