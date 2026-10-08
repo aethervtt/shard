@@ -1,13 +1,11 @@
-import { createRequire } from 'node:module'
-import { pathToFileURL } from 'node:url'
-import { Worker } from 'node:worker_threads'
 import { ShardError } from '@aethervtt/shard-core'
 import { budget, timeout } from '@aethervtt/shard-core/test-env'
 import { afterEach, describe, expect, it } from 'vitest'
 import golden from '../track/golden.json'
 import { type TrackScene, trackHash, trackSceneFromJson } from '../track/index'
 import { trayScene } from '../track/test-scenes'
-import { createTrackClient, type TrackClient, type TrackWorkerLike } from './index'
+import { createTrackClient, type TrackClient } from './index'
+import { nodeTrackWorker } from './testing'
 
 const GOLDEN_HASH = Number.parseInt(golden.hash, 16)
 const goldenScene = () => trackSceneFromJson(golden.scene)
@@ -17,30 +15,7 @@ function endless(): TrackScene {
   for (const b of scene.bodies) b.canSleep = false
   return scene
 }
-const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
-
-/** `test-worker.ts` in a worker thread, through the web Worker interface the client expects. */
-function nodeWorker(): TrackWorkerLike {
-  const worker = new Worker(new URL('./test-worker.ts', import.meta.url), {
-    execArgv: ['--import', tsx],
-  })
-  const listeners: Record<string, ((event: never) => void)[]> = {
-    message: [],
-    error: [],
-    messageerror: [],
-  }
-  const emit = (type: string, event: unknown) => {
-    for (const listener of listeners[type]!) listener(event as never)
-  }
-  worker.on('message', (data) => emit('message', { data }))
-  worker.on('error', (err: Error) => emit('error', { type: 'error', message: err.message }))
-  return {
-    postMessage: (message, transfer) => worker.postMessage(message, transfer as ArrayBuffer[]),
-    addEventListener: (type: string, listener: (event: never) => void) =>
-      void listeners[type]!.push(listener),
-    terminate: () => void worker.terminate(),
-  }
-}
+const nodeWorker = () => nodeTrackWorker(new URL('./test-worker.ts', import.meta.url))
 
 async function rejection(p: Promise<unknown>): Promise<ShardError> {
   const err = await p.then(
