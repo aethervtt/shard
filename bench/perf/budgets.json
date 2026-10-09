@@ -589,8 +589,7 @@
       },
       "slices": {
         "gpu": {
-          "gpu:forward-opaque": 0.35,
-          "gpu:forward-transparent": 0.1,
+          "gpu:forward-opaque": 0.45,
           "gpu:shadows": 0.2,
           "gpu:tonemap": 0.05,
           "headroom": 0.3
@@ -601,7 +600,7 @@
           "headroom": 0.55
         }
       },
-      "note": "Shares are proposals; the laptop's numbers are its first bench (2026-10-08), a known miss at the measured value plus about 10%: a 210.7 ms CPU frame p95, almost all render (210.2 ms; render/shadows/cascades encoding is most of it), and a 25.4 ms GPU frame, gpu:forward-opaque 7.43 ms and gpu:shadows 9.69 ms by ablation. The desktop is unmeasured. Keys cover the spans the pan records (structure/src/scenario.test.ts), none twice: gpu:forward-opaque (walls, floors, props), gpu:forward-transparent (windows), gpu:shadows (cascade0-3), gpu:tonemap; instance-cull and light-clusters fall in headroom. CPU: render (render systems and node encodes), structure (structure/compile, structure/doors).",
+      "note": "Shares are proposals; the laptop's numbers are its first bench (2026-10-08), a known miss at the measured value plus about 10%: a 210.7 ms CPU frame p95, almost all render (210.2 ms; render/shadows/cascades encoding is most of it), and a 25.4 ms GPU frame, gpu:forward-opaque 7.43 ms and gpu:shadows 9.69 ms by ablation. The desktop is unmeasured. Keys cover the spans the pan records (structure/src/scenario.test.ts), none twice: gpu:forward-opaque (walls, floors, props, and the windows: forward-transparent draws in its render pass since passes on the same attachments merge), gpu:shadows (cascade0-3), gpu:tonemap; instance-cull and light-clusters fall in headroom. CPU: render (render systems and node encodes), structure (structure/compile, structure/doors).",
       "overrides": {
         "laptop": {
           "gpu": {
