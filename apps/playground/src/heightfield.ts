@@ -2,10 +2,18 @@ import { defineSystem, type Entity, quat, Update, type World } from '@aethervtt/
 import { loadNoiseKernel, NoiseGraph } from '@aethervtt/shard-noise'
 import {
   AmbientLight,
+  Antialiasing,
+  AutoExposure,
+  Bloom,
   Camera3d,
+  ColorGrading,
   DebugOverlays,
   DirectionalLight,
   Exposure,
+  Fog,
+  ProceduralSky,
+  Ssao,
+  Vignette,
 } from '@aethervtt/shard-render'
 import { definePlugin, Time } from '@aethervtt/shard-runtime'
 import {
@@ -28,8 +36,9 @@ import { hudExtras } from './hud'
 /**
  * Heightfield terrain (spec 0071): a 2 km landscape at 0.5 m from a layer stack (hills, a valley
  * image, a road flattened through them and painted gravel), baked in memory on the worker pool
- * and streamed through the quadtree. W/S change speed, A/D turn, R/F pitch, L shades by depth, P
- * by page. The HUD prints the pack hash Node pins (packages/terrain heightfield tests), so the
+ * and streamed through the quadtree, under a procedural sky and a shadowed sun. W/S change speed,
+ * A/D turn, R/F pitch, L shades by depth, P by page, O toggles the post stack (`?post=0` starts
+ * without it). The HUD prints the pack hash Node pins (packages/terrain heightfield tests), so the
  * bake is byte-identical in Chrome.
  */
 
@@ -38,6 +47,28 @@ export const NODE_PACK_HASH = 'ec848bdc3cf63b92'
 /** What heightfieldWalk() prints in Node (packages/terrain heightfield/walk.test.ts). */
 export const NODE_WALK = '4e53476b'
 const SPEEDS = [0, 5, 20, 80, 300, 1000]
+
+/**
+ * A game's post stack over open terrain: TAA, SSAO, bloom, auto exposure, uniform haze that
+ * hides about half the light at 2.8 km, a grade and a vignette.
+ */
+const POST = [
+  [Antialiasing, { mode: 'taa' }],
+  [Ssao, { radius: 1 }],
+  [Bloom, { intensity: 0.05 }],
+  [AutoExposure, {}],
+  [Fog, { density: 0.00025, heightFalloff: 0, sunScattering: 0.6 }],
+  [ColorGrading, { temperature: 0.05, saturation: 1.05, contrast: 1.05 }],
+  [Vignette, { intensity: 0.2 }],
+] as const
+
+function setPost(world: World, d: Demo, on: boolean): void {
+  d.post = on
+  for (const [component, value] of POST) {
+    if (on) world.add(d.camera, component as never, value as never)
+    else if (world.has(d.camera, component)) world.remove(d.camera, component)
+  }
+}
 
 interface Demo {
   terrain: Entity
@@ -49,6 +80,7 @@ interface Demo {
   keys: Set<string>
   hash: string
   walk: string
+  post: boolean
 }
 
 let demo: Demo | undefined
@@ -141,7 +173,7 @@ export const heightfieldDemoPlugin = definePlugin({
         `packs     ${d.hash || 'hashing…'}`,
         `walk      ${d.walk || 'running headless walk…'}`,
         'w/s speed  a/d turn  r/f pitch',
-        `l lod ${o['terrain-lod'] ? 'on' : 'off'}  p pages ${o['terrain-pages'] ? 'on' : 'off'}`,
+        `l lod ${o['terrain-lod'] ? 'on' : 'off'}  p pages ${o['terrain-pages'] ? 'on' : 'off'}  o post ${d.post ? 'on' : 'off'}`,
       ]
     })
   },
@@ -155,12 +187,21 @@ export const heightfieldDemoPlugin = definePlugin({
     const terrain = world.spawn([Grid, { cellSize: 2000 }], [Terrain, { source: ref }], Transform)
     world.resource(AmbientLight).brightness = 1500
     world.spawn(
-      [DirectionalLight, { illuminance: 100_000 }],
-      [Transform, { rotation: lookAt([0, 0, 0], [-0.5, -0.6, -0.4]) }],
+      // About 25° up, with cascades out to 1 km: hills shadow the valley as far as you can see.
+      [
+        DirectionalLight,
+        {
+          illuminance: 100_000,
+          shadows: true,
+          cascades: { count: 4, maxDistance: 1000, splitLambda: 0.8 },
+        },
+      ],
+      [Transform, { rotation: lookAt([0, 0, 0], [-0.55, -0.42, -0.72]) }],
     )
     const camera = world.spawn(
       [Camera3d, { fovY: 60, near: 0.1, far: 20_000, clearColor: [0.45, 0.6, 0.85, 1] }],
       [Exposure, { ev100: 14.5 }],
+      [ProceduralSky, { turbidity: 2.5 }],
       Transform,
       FloatingOrigin,
     )
@@ -174,7 +215,9 @@ export const heightfieldDemoPlugin = definePlugin({
       keys: new Set(),
       hash: '',
       walk: '',
+      post: false,
     }
+    setPost(world, demo, new URLSearchParams(location.search).get('post') !== '0')
     placeInGrid(world, camera, terrain, demo.position)
     Object.assign(globalThis, { heightfield: demo })
     // The pack hash once the bake is done (Node's must match).
@@ -211,6 +254,7 @@ export const heightfieldDemoPlugin = definePlugin({
       if (e.code === 'KeyS') d.gear = Math.max(0, d.gear - 1)
       if (e.code === 'KeyL') toggle(world, 'terrain-lod')
       if (e.code === 'KeyP') toggle(world, 'terrain-pages')
+      if (e.code === 'KeyO') setPost(world, d, !d.post)
     })
     window.addEventListener('keyup', (e) => demo?.keys.delete(e.code))
   },
