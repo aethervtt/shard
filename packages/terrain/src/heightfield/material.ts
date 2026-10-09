@@ -128,9 +128,12 @@ fn page_height(c: Chunk, i: i32, j: i32) -> f32 {
   return ${S}.range.x + q * ((${S}.range.y - ${S}.range.x) / 65535.0);
 }
 
+/** Depth \`depth\`'s entry of a 12-entry table packed in three vec4s (selects, no array: see paint_offer). */
 fn per_depth(a: vec4f, b: vec4f, c: vec4f, depth: u32) -> f32 {
-  let v = array<vec4f, 3>(a, b, c);
-  return v[min(depth, 11u) / 4u][min(depth, 11u) % 4u];
+  let d = min(depth, 11u);
+  let v = select(select(c, b, d < 8u), a, d < 4u);
+  let i = d % 4u;
+  return select(select(select(v.w, v.z, i == 2u), v.y, i == 1u), v.x, i == 0u);
 }
 
 /**
