@@ -21,7 +21,7 @@ import {
 import { beforeAll, describe, expect, it } from 'vitest'
 import { collidersOf } from './colliders'
 import { Planet } from './components'
-import { planetHeightAt, Terrain } from './heights'
+import { planetHeightAt, TerrainWorld } from './heights'
 import { terrainPlugin } from './plugin'
 import { walkChecksum } from './testing'
 
@@ -117,7 +117,7 @@ describe('walking on a planet (headless)', () => {
       positions.push(p[0]!, p[1]!, p[2]!)
       w.despawn(c)
     }
-    const set = collidersOf(w.resource(Terrain).planets.get(planet)!)
+    const set = collidersOf(w.resource(TerrainWorld).planets.get(planet)!)
     expect(set.chunks.size).toBeGreaterThan(0)
     expect(positions.length).toBe(60)
   })

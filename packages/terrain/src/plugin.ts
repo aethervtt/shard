@@ -1,6 +1,6 @@
 import { AssetServerResource, assetServer } from '@aethervtt/shard-assets'
-import { defineSystem, onRemove, PostUpdate, type World } from '@aethervtt/shard-core'
-import type { Workers } from '@aethervtt/shard-platform'
+import { defineSystem, First, onRemove, PostUpdate, type World } from '@aethervtt/shard-core'
+import type { PlatformFileSystem, Workers } from '@aethervtt/shard-platform'
 import { computeVisibility } from '@aethervtt/shard-render'
 import { definePlugin, type Plugin } from '@aethervtt/shard-runtime'
 import { TransformSystems } from '@aethervtt/shard-transform'
@@ -8,8 +8,21 @@ import * as biomesModule from './biomes'
 import { anchorQueries, clearColliders, gatherAnchors, updateColliders } from './colliders'
 import * as componentsModule from './components'
 import { Planet, TerrainBudget } from './components'
+import { clearHeightfieldColliders } from './heightfield/colliders'
+import * as heightfieldComponentModule from './heightfield/component'
+import { Terrain } from './heightfield/component'
+import * as heightmapModule from './heightfield/heightmap'
+import * as heightfieldMaterialModule from './heightfield/material'
+import {
+  cleanupHeightfieldRender,
+  selectHeightfields,
+  uploadHeightfieldPages,
+} from './heightfield/render'
+import type { HeightfieldRuntime } from './heightfield/runtime'
+import * as sourceModule from './heightfield/source-asset'
+import { registerHeightfield, updateHeightfields } from './heightfield/system'
 import * as heightsModule from './heights'
-import { Terrain } from './heights'
+import { TerrainWorld } from './heights'
 import * as materialModule from './material'
 import { terrainMethods } from './methods'
 import { clearPlanetNav, updatePlanetNav } from './nav'
@@ -19,8 +32,13 @@ import { cleanupRender, registerNode, selectChunks } from './render'
 // Registers the terrain-lod, terrain-biomes, and terrain-colliders overlays.
 
 export interface TerrainPluginOptions {
-  /** Where collider chunks sample (default: inline on the main thread). */
-  workers?: Workers
+  /** Where collider chunks sample and heightfield blocks bake (default: inline on the main thread). */
+  workers?: Workers | undefined
+  /**
+   * Where heightfield packs are read from and baked into (`.shard/cache/terrain`). Without one,
+   * heightfields bake in memory on first use.
+   */
+  fs?: PlatformFileSystem | undefined
 }
 
 const watching = new WeakSet<World>()
@@ -31,7 +49,7 @@ function watchAssets(world: World): void {
   watching.add(world)
   assetServer(world).onEvent((event) => {
     if (event.kind === 'loaded' || event.kind === 'modified' || event.kind === 'failed')
-      world.resource(Terrain).dirty = true
+      world.resource(TerrainWorld).dirty = true
   })
 }
 
@@ -49,7 +67,7 @@ export const updatePlanets = defineSystem({
     anchors: anchorQueries(world),
   }),
   run: (s, world) => {
-    const state = world.resource(Terrain)
+    const state = world.resource(TerrainWorld)
     watchAssets(world)
     state.frame++
     const frame = state.frame
@@ -78,29 +96,55 @@ export const updatePlanets = defineSystem({
 export function terrainPlugin(options: TerrainPluginOptions = {}): Plugin {
   return definePlugin({
     name: 'terrain',
-    provides: [biomesModule, componentsModule, heightsModule, materialModule, overlaysModule],
+    provides: [
+      biomesModule,
+      componentsModule,
+      heightsModule,
+      heightfieldComponentModule,
+      heightfieldMaterialModule,
+      heightmapModule,
+      materialModule,
+      overlaysModule,
+      sourceModule,
+    ],
     dependencies: ['core/transform'],
     build(app) {
       const world = app.world
-      const state = world.initResource(Terrain)
+      const state = world.initResource(TerrainWorld)
       state.workers = options.workers
+      state.fs = options.fs
       world.initResource(TerrainBudget)
       world.observe(onRemove(Planet), ({ entity, world }) => {
-        const rt = world.resource(Terrain).planets.get(entity)
+        const rt = world.resource(TerrainWorld).planets.get(entity)
         if (!rt) return
         clearColliders(world, rt)
         clearPlanetNav(world, rt)
         cleanupRender(world, rt)
         for (const cleanup of terrainCleanups) cleanup(world, rt)
-        world.resource(Terrain).planets.delete(entity)
+        world.resource(TerrainWorld).planets.delete(entity)
+      })
+      world.observe(onRemove(Terrain), ({ entity, world }) => {
+        const rt = world.resource(TerrainWorld).heightfields.get(entity)
+        if (!rt) return
+        for (const cleanup of heightfieldCleanups) cleanup(world, rt)
+        clearHeightfieldColliders(world, rt)
+        cleanupHeightfieldRender(world, rt)
+        world.resource(TerrainWorld).heightfields.delete(entity)
       })
       app.addSystems(PostUpdate, updatePlanets.after(TransformSystems))
+      app.addSystems(PostUpdate, updateHeightfields.after(updatePlanets))
       app.addMethod(...terrainMethods)
       app.addSystems(PostUpdate, selectChunks.after(updatePlanets).before(computeVisibility))
+      app.addSystems(
+        PostUpdate,
+        selectHeightfields.after(updateHeightfields).before(computeVisibility),
+      )
+      app.addSystems(First, uploadHeightfieldPages)
       for (const extend of terrainExtensions) extend(app)
     },
     async ready(app) {
       registerNode(app)
+      registerHeightfield(app)
       for (const hook of terrainReadyHooks) await hook(app)
     },
   })
@@ -111,3 +155,4 @@ export const terrainExtensions: ((app: Parameters<Plugin['build']>[0]) => void)[
 export const terrainReadyHooks: ((app: Parameters<Plugin['build']>[0]) => Promise<void> | void)[] =
   []
 export const terrainCleanups: ((world: World, rt: PlanetRuntime) => void)[] = []
+export const heightfieldCleanups: ((world: World, rt: HeightfieldRuntime) => void)[] = []

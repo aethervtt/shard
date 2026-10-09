@@ -887,6 +887,80 @@ describe('shard tiles (0059)', () => {
   })
 })
 
+describe('shard terrain (0071)', () => {
+  it('import bakes a new terrain; terrain bake rebakes only what an edit touches; stats sizes it', () => {
+    const file = 'assets/zz-test.terrain.json'
+    const source = (at: number) =>
+      JSON.stringify({
+        size: [512, 512],
+        spacing: 1,
+        heightRange: [-100, 300],
+        height: [
+          {
+            noise: { path: 'assets/noise/terrain.noise.json' },
+            scale: 40,
+            at: [at, at],
+            size: [60, 60],
+            falloff: 10,
+          },
+        ],
+        layers: [{ name: 'grass' }, { name: 'rock' }],
+        paint: [{ layer: 'grass' }, { layer: 'rock', slope: [30, 90], blend: 4 }],
+      })
+    let guid = ''
+    try {
+      writeFileSync(join(example, file), source(100))
+      const imported = shard(['import', '--json'])
+      expect(imported.code).toBe(0)
+      const baked = imported.json().terrains as {
+        path: string
+        guid: string
+        report: { rebaked: number; blocks: number }
+      }[]
+      expect(baked).toEqual([
+        expect.objectContaining({
+          path: file,
+          report: expect.objectContaining({ rebaked: 1, blocks: 1 }),
+        }),
+      ])
+      guid = baked[0]!.guid
+      expect(existsSync(join(example, `.shard/cache/terrain/${guid}/manifest.json`))).toBe(true)
+      // Unchanged: nothing to bake. Changed: the one block it touches rebakes.
+      expect(shard(['import', '--json']).json().terrains).toEqual([])
+      writeFileSync(join(example, file), source(300))
+      const bake = shard(['terrain', 'bake', 'zz-test.terrain.json', '--json'])
+      expect(bake.code).toBe(0)
+      expect(bake.json().baked[0].report).toMatchObject({ rebaked: 1, blocks: 1 })
+      const stats = shard(['terrain', 'stats', 'zz-test.terrain.json', '--json'])
+      expect(stats.code).toBe(0)
+      expect(stats.json().terrains[0]).toMatchObject({
+        baked: true,
+        current: true,
+        size: [512, 512],
+        roots: 64,
+        depth: 0,
+        pages: 64,
+      })
+      // A bad source fails import with its code and a pointer.
+      writeFileSync(join(example, file), JSON.stringify({ ...JSON.parse(source(100)), spacing: 9 }))
+      const bad = shard(['import', '--json'])
+      expect(bad.code).toBe(1)
+      expect(bad.json().failed).toEqual([
+        expect.objectContaining({
+          path: file,
+          error: expect.objectContaining({ code: 'terrain/bad-spacing', path: '/spacing' }),
+        }),
+      ])
+    } finally {
+      rmSync(join(example, file), { force: true })
+      rmSync(join(example, `${file}.meta`), { force: true })
+      if (guid)
+        rmSync(join(example, `.shard/cache/terrain/${guid}`), { recursive: true, force: true })
+      shard(['import', '--json'])
+    }
+  })
+})
+
 describe('shard track (0053)', () => {
   const recording = resolve(here, '../../../packages/physics/src/track/golden.json')
 

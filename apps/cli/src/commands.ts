@@ -59,6 +59,7 @@ import { Hub, localTarget, type ProtocolTarget } from './hub'
 import { createMcpServer } from './mcp'
 import { EXIT, errorJson, formatError, type Output } from './output'
 import { CAPTURES_DIR, withCpuProfile } from './profile'
+import { bakeStaleTerrains } from './terrain-command'
 
 export interface CommandContext {
   out: Output
@@ -439,19 +440,28 @@ async function setupGenerators(
 }
 
 async function projectAssets(project: string) {
+  return (await openProjectAssets(project)).server
+}
+
+/** A project's asset server with its world and platform, scanned by the caller. */
+export async function openProjectAssets(project: string) {
   const platform = createNodePlatform({ root: project })
   const { manifest } = await loadProject(platform)
   await importProjectPlugin(resolve(project), manifest)
   await setupGenerators(project, manifest, platform)
   const world = new World()
-  return assetServer(world).configure({ platform, roots: manifest.assetRoots })
+  const server = assetServer(world).configure({ platform, roots: manifest.assetRoots })
+  return { server, world, platform }
 }
 
 export async function importCommand({ out, project, flags }: CommandContext): Promise<number> {
-  const assets = await projectAssets(project)
+  const { server: assets, world, platform } = await openProjectAssets(project)
   const report = await assets.scan({ force: flags.force === true })
+  // Terrains whose packs no longer match their source bake now (0071), not on first run.
+  const terrains = await bakeStaleTerrains(assets, world, platform)
   const lines = [
     `Imported ${report.imported.length}, unchanged ${report.unchanged}, failed ${report.failed.length} (${Math.round(report.ms)} ms).`,
+    ...terrains.lines,
   ]
   for (const p of report.imported) lines.push(`  imported ${p}`)
   for (const f of report.failed) {
@@ -462,8 +472,8 @@ export async function importCommand({ out, project, flags }: CommandContext): Pr
   for (const m of report.moved) lines.push(`  moved ${m.from} -> ${m.to} (without its .meta)`)
   for (const r of report.removed) lines.push(`  removed ${r}`)
   for (const o of report.orphanedMetas) lines.push(`  warning: ${o} has no source file`)
-  out.result(report, lines.join('\n'))
-  return report.failed.length > 0 ? EXIT.failed : EXIT.ok
+  out.result({ ...report, terrains: terrains.baked }, lines.join('\n'))
+  return report.failed.length > 0 || terrains.failed ? EXIT.failed : EXIT.ok
 }
 
 export async function mv({ out, project, args }: CommandContext): Promise<number> {

@@ -191,6 +191,21 @@ Files: `*.biomes.json`
 
 No import settings.
 
+## `heightmap`
+
+Files: `*.r16`, `*.r32`, `*.height.png`
+
+| Setting | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `width` | integer | `0` | ≥ 0, ≤ 4294967295 | Raw files (.r16, .r32): samples per row. |
+| `height` | integer | `0` | ≥ 0, ≤ 4294967295 | Raw files (.r16, .r32): rows. |
+
+## `terrain`
+
+Files: `*.terrain.json`
+
+No import settings.
+
 ## `data/scatter`
 
 Files: `*.scatter.json`

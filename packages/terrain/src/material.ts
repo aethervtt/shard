@@ -1,5 +1,6 @@
 import { t } from '@aethervtt/shard-core'
 import { defineMaterial } from '@aethervtt/shard-render'
+import { MORPH_WGSL } from './lod'
 
 /** Texture repeats line up every this many metres of planet space (layer scales divide it). */
 export const TEXTURE_PERIOD = 1024
@@ -131,7 +132,7 @@ fn terrain_morph(position: vec3f) -> f32 {
   let split = lock.y * ${u}.camera.w;
   if (split > 0.0) {
     let d = distance(vertex_world(position), ${u}.camera.xyz);
-    t = clamp((d - 0.5 * split) / (0.45 * split), 0.0, 1.0);
+    t = ${MORPH_WGSL};
   }
   let code = terrain_lock(grid.x, grid.y);
   if (code >= 0 && code < 4) {

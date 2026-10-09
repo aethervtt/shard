@@ -10,12 +10,13 @@ import {
   type BiomeValue,
   biomeTable,
 } from './biomes'
-import { checkResolution } from './chunk'
 import { Planet } from './components'
 import { MAX_RADIUS, maxDepthFor, nodeSpacing } from './cube'
+import { NodeTree } from './cube-sphere'
 import { PlanetFrame } from './frame'
-import { measureErrors } from './lod'
-import { createSelection, NODE_BOUNDS, NodeTree } from './quadtree'
+import { checkResolution } from './grid-mesh'
+import { capErrors, measureErrors } from './lod'
+import { createSelection, NODE_BOUNDS } from './quadtree'
 
 /** Collider chunks are the first depth whose vertices are at most this far apart (m). */
 export const COLLIDER_SPACING = 1
@@ -269,28 +270,16 @@ export class PlanetRuntime {
     world.tryResource(LogResource)?.error(err)
   }
 
-  /**
-   * Caps each depth's error at the spacing that projects to `vertexPixels` wherever it projects to
-   * `errorPixels`: a node then splits only while its children's vertices stay that far apart on
-   * screen. Rough terrain otherwise keeps splitting into sub-pixel triangles. Selection and
-   * morphing read the same capped table, so morph bands still end where splits happen.
-   */
+  /** Caps the measured errors by vertex spacing (`vertexPixels`, see `capErrors`). */
   private capErrors(bump = true): void {
     const s = this.settings
     if (!s) return
-    const k = s.vertexPixels > 0 ? s.errorPixels / s.vertexPixels : Number.POSITIVE_INFINITY
-    const cap = (raw: Float32Array, out: Float32Array): Float32Array => {
-      const o = out.length === raw.length ? out : new Float32Array(raw.length)
-      for (let d = 0; d < raw.length; d++) o[d] = Math.min(raw[d]!, k * this.spacing(d))
-      // Never growing with depth, like the measured errors: split distances shrink with depth.
-      for (let d = raw.length - 2; d >= 0; d--) o[d] = Math.max(o[d]!, o[d + 1]!)
-      return o
-    }
+    const spacing = (d: number) => this.spacing(d)
     const before = this.errors
     const same = (a: Float32Array, b: Float32Array) =>
       a.length === b.length && a.every((v, i) => v === b[i])
-    const errors = cap(this.rawErrors, new Float32Array(this.rawErrors.length))
-    const ocean = cap(this.rawOceanErrors, new Float32Array(this.rawOceanErrors.length))
+    const errors = capErrors(this.rawErrors, spacing, s.errorPixels, s.vertexPixels)
+    const ocean = capErrors(this.rawOceanErrors, spacing, s.errorPixels, s.vertexPixels)
     if (same(errors, before) && same(ocean, this.oceanErrors)) return
     this.errors = errors
     this.oceanErrors = ocean

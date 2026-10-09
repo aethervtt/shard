@@ -10,11 +10,13 @@ import { createWebAudioBackend, createWebWorkers } from '@aethervtt/shard-platfo
 import {
   exists,
   mkdir,
+  open,
   readDir,
   readFile,
   readTextFile,
   remove,
   rename,
+  SeekMode,
   type WatchEvent,
   watch,
   writeFile,
@@ -83,6 +85,22 @@ export function createTauriPlatform(options: TauriPlatformOptions): Platform {
     writable: true,
     readText: (path) => readTextFile(resolve(path)),
     readBytes: (path) => readFile(resolve(path)),
+    readRange: async (path, offset, length) => {
+      const file = await open(resolve(path), { read: true })
+      try {
+        await file.seek(offset, SeekMode.Start)
+        const out = new Uint8Array(length)
+        let got = 0
+        while (got < length) {
+          const n = await file.read(out.subarray(got))
+          if (!n) break
+          got += n
+        }
+        return got === length ? out : out.subarray(0, got)
+      } finally {
+        await file.close()
+      }
+    },
     writeText: (path, data) => writeTextFile(resolve(path), data),
     writeBytes: (path, data) => writeFile(resolve(path), data),
     exists: (path) => exists(resolve(path)),

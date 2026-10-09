@@ -36,8 +36,8 @@ import {
   BiomeSet,
   Planet,
   planetHeightAt,
-  Terrain,
   TerrainAnchor,
+  TerrainWorld,
 } from '@aethervtt/shard-terrain'
 import { FloatingOrigin, lookAt, placeInGrid, Transform } from '@aethervtt/shard-transform'
 import { hudExtras } from './hud'
@@ -118,7 +118,7 @@ const walk = defineSystem({
     const l = Math.hypot(d.position[0]!, d.position[1]!, d.position[2]!)
     let height = l - TEST_RADIUS - ground(world, d, d.position)
     // Start on the ground once the planet's heights are ready.
-    if (!d.landed && world.resource(Terrain).planets.get(d.planet)?.ready) {
+    if (!d.landed && world.resource(TerrainWorld).planets.get(d.planet)?.ready) {
       d.landed = true
       height = 1.7
     }

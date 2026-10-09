@@ -25,6 +25,7 @@ import { dev } from './dev'
 import { createOutput, EXIT, errorJson, formatError } from './output'
 import { profile } from './profile'
 import { shaders } from './shaders-command'
+import { terrain } from './terrain-command'
 import { approve, capture, compare, perfCheck } from './verify'
 
 const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; help: string }> = {
@@ -76,6 +77,10 @@ const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; 
   shaders: {
     run: shaders,
     help: 'shaders bake [--manifest f] [--out f]   WebGL2 translations into .shard/shaders/webgl2.json',
+  },
+  terrain: {
+    run: terrain,
+    help: 'terrain bake|stats [file] [--force]   bake heightfield terrains into .shard/cache/terrain; sizes and times',
   },
   track: {
     run: track,

@@ -38,6 +38,19 @@ export function createWebPlatform(options: WebPlatformOptions = {}): Platform {
     writable: false,
     readText: async (path) => (await fetchOk(path)).text(),
     readBytes: async (path) => new Uint8Array(await (await fetchOk(path)).arrayBuffer()),
+    readRange: async (path, offset, length) => {
+      const res = await fetch(new URL(path, baseUrl), {
+        headers: { Range: `bytes=${offset}-${offset + length - 1}` },
+      })
+      if (!res.ok) {
+        throw new ShardError('platform/fs-not-found', `Failed to fetch "${path}" (${res.status})`, {
+          path,
+        })
+      }
+      const bytes = new Uint8Array(await res.arrayBuffer())
+      // A server that ignores Range sends the whole file (200, not 206).
+      return res.status === 206 ? bytes : bytes.subarray(offset, offset + length)
+    },
     writeText: async (path) => readOnly(path),
     writeBytes: async (path) => readOnly(path),
     exists: async (path) => (await fetch(new URL(path, baseUrl), { method: 'HEAD' })).ok,

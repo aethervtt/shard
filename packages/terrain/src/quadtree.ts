@@ -1,25 +1,62 @@
-import { EDGE_LEFT, faceToDirection, neighborNode, nodeExtent } from './cube'
+import { EDGE_LEFT } from './cube'
 
-/** The node's mesh exists (GPU dispatched, or a CPU mesh assigned): it can render. */
+/** The node's mesh exists (GPU dispatched, a CPU mesh assigned, a page resident): it can render. */
 export const NODE_READY = 1
-/** Heights are known exactly (CPU mesh, or the GPU readback arrived). */
+/** Heights are known exactly (CPU mesh, the GPU readback arrived, or a baked page's range). */
 export const NODE_BOUNDS = 2
 
 const NONE = -1
 
-/** Test points per node for the horizon: corners, edge middles, center. */
-const POINTS = 9
+/**
+ * What a quadtree needs from the surface it covers (spec 0071): how many roots there are, each
+ * node's geometry (its bounding sphere and box at its height range), whether it's out of view or
+ * behind the horizon, and its neighbor across an edge. The cube-sphere (`CubeSphere`, six roots)
+ * and the heightfield's root grid (`RootGrid`) are the two surfaces; selection, 2:1 balance and
+ * edge locks are the same code for both.
+ */
+export interface QuadSurface {
+  /** Root nodes, 0 to roots − 1. */
+  readonly roots: number
+  /** The tree grew to `capacity` nodes: per-node data the surface keeps grows with it. */
+  grow(capacity: number): void
+  /**
+   * Sets up a new node's geometry; the tree has filled its root, depth, x, y and a height range
+   * (its parent's, or the tree's). A surface that knows the node's range (or that it's ready) may
+   * set it here, with its flags.
+   */
+  initNode(tree: QuadTree, n: number): void
+  /** The node's bounding sphere at its height range, into `tree.sphere`. */
+  updateSphere(tree: QuadTree, n: number): void
+  /** Axis-aligned bounds of the node relative to `center` (its chunk's reference point). */
+  bounds(tree: QuadTree, n: number, center: ArrayLike<number>, out: { [i: number]: number }): void
+  /** Whether the node is outside the view's frustum or below the horizon. */
+  culled(tree: QuadTree, n: number, view: SelectionView, params: SelectionParams): boolean
+  /**
+   * The same-depth node across `edge` (EDGE_BOTTOM … EDGE_LEFT), written into `out` as
+   * [root, x, y]. False where the surface ends (a heightfield's border).
+   */
+  neighbor(
+    root: number,
+    depth: number,
+    x: number,
+    y: number,
+    edge: number,
+    out: { [i: number]: number },
+  ): boolean
+}
 
 /**
- * One cube-sphere quadtree per planet surface (terrain or ocean), stored as flat typed arrays
- * indexed by node, so the per-frame walk allocates nothing. The six roots are nodes 0–5; children
- * are made on first split as a block of four consecutive nodes, and freed as a block when their
- * subtree hasn't been needed for a while.
+ * A quadtree over a surface (spec 0043, shared with 0071), stored as flat typed arrays indexed by
+ * node, so the per-frame walk allocates nothing. The roots are nodes 0 to `surface.roots − 1`;
+ * children are made on first split as a block of four consecutive nodes, and freed as a block when
+ * their subtree hasn't been needed for a while.
  */
-export class NodeTree {
+export class QuadTree {
+  readonly surface: QuadSurface
   capacity = 0
   count = 0
-  face = new Uint8Array(0)
+  /** The root each node is under (a cube face on a planet, a grid cell on a heightfield). */
+  root = new Uint8Array(0)
   depth = new Uint8Array(0)
   x = new Uint32Array(0)
   y = new Uint32Array(0)
@@ -27,13 +64,11 @@ export class NodeTree {
   /** First of four children (in order (2x, 2y), (2x+1, 2y), (2x, 2y+1), (2x+1, 2y+1)), or −1. */
   child = new Int32Array(0)
   flags = new Uint8Array(0)
-  /** Bounding sphere in the planet frame (f64): center xyz, radius. */
+  /** Bounding sphere in the surface's frame (f64): center xyz, radius. */
   sphere = new Float64Array(0)
-  /** Height range (m above radius): exact once NODE_BOUNDS, else inherited or the planet's. */
+  /** Height range (m): exact once NODE_BOUNDS, else inherited or the surface's. */
   minH = new Float32Array(0)
   maxH = new Float32Array(0)
-  /** Horizon test directions (unit, 9 per node). */
-  dirs = new Float64Array(0)
   /** Stamps: last walk (frame), rendered and culled (walk stamp), forced split, last needed (frame). */
   visited = new Uint32Array(0)
   rendered = new Uint32Array(0)
@@ -49,7 +84,7 @@ export class NodeTree {
    * Prefetched and out-of-view nodes are only `used`; a full pool evicts them first.
    */
   neededAt = new Uint32Array(0)
-  /** Render slot holding its mesh, or −1. */
+  /** Render slot holding its mesh (or its page), or −1. */
   slot = new Int32Array(0)
   /** Projected error (px) and distance when last requested: generation priority. */
   priority = new Float32Array(0)
@@ -58,23 +93,17 @@ export class NodeTree {
   locks = new Int8Array(0)
   /** Quadrants drawn when rendered (15: all; fewer while a split waits for some children). */
   mask = new Uint8Array(0)
-  /** The planet version the node's mesh was made for: older is stale (it renders until replaced). */
+  /** The content version the node's mesh was made for: older is stale (it renders until replaced). */
   gen = new Uint32Array(0)
-  /**
-   * 1 / cos(half the widest angle between neighboring test points, diagonals included): lifting
-   * the points by it puts the surface between them inside their hull (horizon test, bulge).
-   */
-  lift = new Float64Array(0)
   /** Starts of freed child blocks. */
   private blocks: number[] = []
 
-  radius = 1
-  readonly shape = new Float64Array([1, 1, 1])
   /** Height range for nodes whose heights aren't known yet. */
   lowest = 0
   highest = 0
 
-  constructor(capacity = 1024) {
+  constructor(surface: QuadSurface, capacity = 1024) {
+    this.surface = surface
     this.grow(capacity)
   }
 
@@ -89,7 +118,7 @@ export class NodeTree {
       next.set(old as never)
       return next
     }
-    this.face = re(this.face)
+    this.root = re(this.root)
     this.depth = re(this.depth)
     this.x = re(this.x)
     this.y = re(this.y)
@@ -99,7 +128,6 @@ export class NodeTree {
     this.sphere = re(this.sphere, 4)
     this.minH = re(this.minH)
     this.maxH = re(this.maxH)
-    this.dirs = re(this.dirs, POINTS * 3)
     this.visited = re(this.visited)
     this.rendered = re(this.rendered)
     this.forced = re(this.forced)
@@ -114,30 +142,23 @@ export class NodeTree {
     this.locks = re(this.locks, 4)
     this.mask = re(this.mask)
     this.gen = re(this.gen)
-    this.lift = re(this.lift)
+    this.surface.grow(capacity)
     this.capacity = capacity
   }
 
-  /** Clears every node and makes the six roots (after a planet's shape or graphs change). */
-  reset(radius: number, shape: ArrayLike<number>, lowest: number, highest: number): void {
-    this.count = 6
+  /** Clears every node and makes the roots (after the surface's shape or contents change). */
+  resetRoots(lowest: number, highest: number): void {
+    const roots = this.surface.roots
+    if (roots > this.capacity) this.grow(Math.max(roots, this.capacity * 2))
+    this.count = roots
     this.blocks.length = 0
-    this.radius = radius
-    this.shape[0] = shape[0]!
-    this.shape[1] = shape[1]!
-    this.shape[2] = shape[2]!
     this.lowest = lowest
     this.highest = highest
-    for (let f = 0; f < 6; f++) this.init(f, f, 0, 0, 0, NONE)
+    for (let r = 0; r < roots; r++) this.init(r, r, 0, 0, 0, NONE)
   }
 
-  /** Root of a face (nodes 0–5). */
-  root(face: number): number {
-    return face
-  }
-
-  private init(n: number, face: number, depth: number, x: number, y: number, parent: number): void {
-    this.face[n] = face
+  private init(n: number, root: number, depth: number, x: number, y: number, parent: number): void {
+    this.root[n] = root
     this.depth[n] = depth
     this.x[n] = x
     this.y[n] = y
@@ -158,33 +179,8 @@ export class NodeTree {
     this.gen[n] = 0
     this.mask[n] = 15
     this.locks.fill(-1, n * 4, n * 4 + 4)
-    const ext = nodeExtent(depth)
-    const u0 = -1 + x * ext
-    const v0 = -1 + y * ext
-    let k = n * POINTS * 3
-    for (let j = 0; j < 3; j++) {
-      for (let i = 0; i < 3; i++) {
-        faceToDirection(face, u0 + (ext * i) / 2, v0 + (ext * j) / 2, this.dirs, k)
-        k += 3
-      }
-    }
-    let widest = 0
-    const base = n * POINTS * 3
-    for (let a = 0; a < POINTS; a++) {
-      for (let b = a + 1; b < POINTS; b++) {
-        // Neighbors in the 3 × 3 grid, diagonals included.
-        if (Math.abs((a % 3) - (b % 3)) > 1 || Math.abs(Math.floor(a / 3) - Math.floor(b / 3)) > 1)
-          continue
-        const d = this.dirs
-        const cos =
-          d[base + a * 3]! * d[base + b * 3]! +
-          d[base + a * 3 + 1]! * d[base + b * 3 + 1]! +
-          d[base + a * 3 + 2]! * d[base + b * 3 + 2]!
-        widest = Math.max(widest, Math.acos(Math.min(1, cos)))
-      }
-    }
-    this.lift[n] = 1 / Math.cos(widest / 2) + 1e-9
-    // Children start from their parent's known range, else the planet's.
+    // Children start from their parent's known range, else the surface's; the surface may know
+    // better (a baked page's range) and say so in initNode.
     if (parent !== NONE && this.flags[parent]! & NODE_BOUNDS) {
       this.minH[n] = this.minH[parent]!
       this.maxH[n] = this.maxH[parent]!
@@ -192,7 +188,8 @@ export class NodeTree {
       this.minH[n] = this.lowest
       this.maxH[n] = this.highest
     }
-    this.updateSphere(n)
+    this.surface.initNode(this, n)
+    this.surface.updateSphere(this, n)
   }
 
   /** Children of `n`, made if needed. Returns the first (the others follow it). */
@@ -206,11 +203,11 @@ export class NodeTree {
       c = this.count
       this.count += 4
     }
-    const face = this.face[n]!
+    const root = this.root[n]!
     const depth = this.depth[n]! + 1
     const x = this.x[n]! * 2
     const y = this.y[n]! * 2
-    for (let i = 0; i < 4; i++) this.init(c + i, face, depth, x + (i & 1), y + (i >> 1), n)
+    for (let i = 0; i < 4; i++) this.init(c + i, root, depth, x + (i & 1), y + (i >> 1), n)
     this.child[n] = c
     return c
   }
@@ -242,99 +239,19 @@ export class NodeTree {
     this.updateSphere(n)
   }
 
-  /** Bounding sphere of the node's 9 test points at its lowest and highest heights, plus bulge. */
+  /** Recomputes the node's bounding sphere from its height range. */
   updateSphere(n: number): void {
-    const d = this.dirs
-    const s = this.shape
-    const lo = this.radius + this.minH[n]!
-    const hi = this.radius + this.maxH[n]!
-    let minX = Infinity
-    let minY = Infinity
-    let minZ = Infinity
-    let maxX = -Infinity
-    let maxY = -Infinity
-    let maxZ = -Infinity
-    for (let p = 0; p < POINTS; p++) {
-      const o = (n * POINTS + p) * 3
-      for (let k = 0; k < 2; k++) {
-        const r = k === 0 ? lo : hi
-        const x = d[o]! * s[0]! * r
-        const y = d[o + 1]! * s[1]! * r
-        const z = d[o + 2]! * s[2]! * r
-        if (x < minX) minX = x
-        if (y < minY) minY = y
-        if (z < minZ) minZ = z
-        if (x > maxX) maxX = x
-        if (y > maxY) maxY = y
-        if (z > maxZ) maxZ = z
-      }
-    }
-    const cx = (minX + maxX) / 2
-    const cy = (minY + maxY) / 2
-    const cz = (minZ + maxZ) / 2
-    let r2 = 0
-    for (let p = 0; p < POINTS; p++) {
-      const o = (n * POINTS + p) * 3
-      for (let k = 0; k < 2; k++) {
-        const r = k === 0 ? lo : hi
-        const x = d[o]! * s[0]! * r - cx
-        const y = d[o + 1]! * s[1]! * r - cy
-        const z = d[o + 2]! * s[2]! * r - cz
-        const q = x * x + y * y + z * z
-        if (q > r2) r2 = q
-      }
-    }
-    // The surface bulges past its sample points by the sagitta between them.
-    const bulge = hi * (this.lift[n]! - 1) + 1e-3
-    const o = n * 4
-    this.sphere[o] = cx
-    this.sphere[o + 1] = cy
-    this.sphere[o + 2] = cz
-    this.sphere[o + 3] = Math.sqrt(r2) + bulge
+    this.surface.updateSphere(this, n)
   }
 
-  /**
-   * Axis-aligned bounds of the node relative to `center` (its chunk's reference point), from its
-   * test points at its lowest and highest heights plus the bulge between them.
-   */
+  /** Axis-aligned bounds of the node relative to `center` (its chunk's reference point). */
   bounds(n: number, center: ArrayLike<number>, out: { [i: number]: number }): void {
-    const d = this.dirs
-    const s = this.shape
-    const lo = this.radius + this.minH[n]!
-    const hi = this.radius + this.maxH[n]!
-    let minX = Infinity
-    let minY = Infinity
-    let minZ = Infinity
-    let maxX = -Infinity
-    let maxY = -Infinity
-    let maxZ = -Infinity
-    for (let p = 0; p < POINTS; p++) {
-      const o = (n * POINTS + p) * 3
-      for (let k = 0; k < 2; k++) {
-        const r = k === 0 ? lo : hi
-        const x = d[o]! * s[0]! * r - center[0]!
-        const y = d[o + 1]! * s[1]! * r - center[1]!
-        const z = d[o + 2]! * s[2]! * r - center[2]!
-        if (x < minX) minX = x
-        if (y < minY) minY = y
-        if (z < minZ) minZ = z
-        if (x > maxX) maxX = x
-        if (y > maxY) maxY = y
-        if (z > maxZ) maxZ = z
-      }
-    }
-    const bulge = hi * (this.lift[n]! - 1) + 1e-3
-    out[0] = minX - bulge
-    out[1] = minY - bulge
-    out[2] = minZ - bulge
-    out[3] = maxX + bulge
-    out[4] = maxY + bulge
-    out[5] = maxZ + bulge
+    this.surface.bounds(this, n, center, out)
   }
 
-  /** The node at (face, depth, x, y) if the tree has it, else the deepest existing ancestor. */
-  find(face: number, depth: number, x: number, y: number): number {
-    let n = face
+  /** The node at (root, depth, x, y) if the tree has it, else the deepest existing ancestor. */
+  find(root: number, depth: number, x: number, y: number): number {
+    let n = root
     for (let k = 0; k < depth; k++) {
       const c = this.child[n]!
       if (c === NONE) return n
@@ -346,7 +263,7 @@ export class NodeTree {
 
   /** Frees subtrees nobody has needed since frame `before`. */
   prune(before: number, release: (node: number) => void): void {
-    for (let f = 0; f < 6; f++) this.pruneNode(f, before, release)
+    for (let r = 0; r < this.surface.roots; r++) this.pruneNode(r, before, release)
   }
 
   /** Returns whether `n` and its whole subtree are idle. */
@@ -364,7 +281,7 @@ export class NodeTree {
 
 // --- selection -------------------------------------------------------------------------------
 
-/** What selection sees of the camera, in the planet frame (f64). */
+/** What selection sees of the camera, in the surface's frame (f64). */
 export interface SelectionView {
   /** Camera position. */
   position: Float64Array
@@ -389,7 +306,7 @@ export interface SelectionParams {
   occluder: number
   /** Depth colliders use: forced near anchors, and the deepest rendered there. */
   colliderDepth: number
-  /** Anchor positions in the planet frame (xyz) and their radii; `anchors` of them. */
+  /** Anchor positions in the surface's frame (xyz) and their radii; `anchors` of them. */
   anchorPos: Float64Array
   anchorRadius: Float64Array
   anchors: number
@@ -437,15 +354,15 @@ const NEAR_VIEW = 0.5
 const OUT_OF_VIEW = 1e-3
 
 /**
- * Picks the nodes to render this frame (spec 0043): walks the six trees, culls nodes behind the
- * horizon or outside the frustum, splits a node when its children's geometric error projects past
+ * Picks the nodes to render this frame (spec 0043): walks the trees from every root, culls nodes
+ * behind the horizon or outside the frustum, splits a node when its children's geometric error projects past
  * `errorPixels` (or an anchor needs collider depth nearby, where nothing goes deeper), and renders
  * a split node's children only once all of the visible ones are ready, so a split never shows a
  * hole. Then enforces 2:1 balance between neighbors (marking coarse nodes to split and walking
  * again) and sets each rendered node's edge locks. Allocates nothing once its arrays are big enough.
  */
 export function selectNodes(
-  tree: NodeTree,
+  tree: QuadTree,
   view: SelectionView,
   params: SelectionParams,
   frame: number,
@@ -458,11 +375,11 @@ export function selectNodes(
     out.requestedCount = 0
     out.waiting = 0
     out.passes++
-    for (let f = 0; f < 6; f++) {
-      tree.visited[f] = frame
-      tree.used[f] = frame
-      if (culledNode(tree, f, view, params)) tree.culled[f] = passStamp
-      else visit(tree, f, view, params, frame, out)
+    for (let r = 0; r < tree.surface.roots; r++) {
+      tree.visited[r] = frame
+      tree.used[r] = frame
+      if (tree.surface.culled(tree, r, view, params)) tree.culled[r] = passStamp
+      else visit(tree, r, view, params, frame, out)
     }
     if (!balance(tree, frame, out)) break
   }
@@ -470,68 +387,8 @@ export function selectNodes(
   setLocks(tree, out)
 }
 
-function culledNode(
-  tree: NodeTree,
-  n: number,
-  view: SelectionView,
-  params: SelectionParams,
-): boolean {
-  const s = tree.sphere
-  const o = n * 4
-  const cx = s[o]!
-  const cy = s[o + 1]!
-  const cz = s[o + 2]!
-  const r = s[o + 3]!
-  const f = view.frustum
-  const d = tree.dirs
-  const sh = tree.shape
-  const lo = tree.radius + tree.minH[n]!
-  const hi = (tree.radius + tree.maxH[n]!) * tree.lift[n]!
-  for (let p = 0; p < view.planes; p++) {
-    const q = p * 4
-    const nx = f[q]!
-    const ny = f[q + 1]!
-    const nz = f[q + 2]!
-    const dist = nx * cx + ny * cy + nz * cz + f[q + 3]!
-    if (dist < -r) return true
-    if (dist > r) continue
-    // Tighter than the sphere: the hull of the test points at the lowest height and (lifted over
-    // the bulge) the highest holds the whole patch; all of it behind one plane is out of view.
-    let inside = false
-    for (let k = 0; k < POINTS && !inside; k++) {
-      const i = (n * POINTS + k) * 3
-      const dx = d[i]! * sh[0]!
-      const dy = d[i + 1]! * sh[1]!
-      const dz = d[i + 2]! * sh[2]!
-      const along = nx * dx + ny * dy + nz * dz
-      if (along * lo + f[q + 3]! >= 0 || along * hi + f[q + 3]! >= 0) inside = true
-    }
-    if (!inside) return true
-  }
-  if (params.occluder <= 0) return false
-  // Horizon: every test point (lifted over the bulge between them) is behind the occluder sphere
-  // (Cesium's test), in space scaled so the ellipsoid is a sphere of radius 1.
-  const inv = 1 / params.occluder
-  const px = (view.position[0]! / sh[0]!) * inv
-  const py = (view.position[1]! / sh[1]!) * inv
-  const pz = (view.position[2]! / sh[2]!) * inv
-  const vh2 = px * px + py * py + pz * pz - 1
-  if (vh2 <= 0) return false
-  const top = hi * inv
-  for (let k = 0; k < POINTS; k++) {
-    const i = (n * POINTS + k) * 3
-    const tx = d[i]! * top - px
-    const ty = d[i + 1]! * top - py
-    const tz = d[i + 2]! * top - pz
-    const dot = -(tx * px + ty * py + tz * pz)
-    if (dot <= vh2) return false
-    if ((dot * dot) / (tx * tx + ty * ty + tz * tz) <= vh2) return false
-  }
-  return true
-}
-
 /** Whether a node's bounding sphere is inside the wide frustum. */
-function nearView(tree: NodeTree, n: number, view: SelectionView): boolean {
+function nearView(tree: QuadTree, n: number, view: SelectionView): boolean {
   const s = tree.sphere
   const o = n * 4
   const f = view.wide
@@ -543,7 +400,7 @@ function nearView(tree: NodeTree, n: number, view: SelectionView): boolean {
   return true
 }
 
-function nodeDistance(tree: NodeTree, n: number, p: Float64Array): number {
+function nodeDistance(tree: QuadTree, n: number, p: Float64Array): number {
   const s = tree.sphere
   const o = n * 4
   const dx = p[0]! - s[o]!
@@ -553,7 +410,7 @@ function nodeDistance(tree: NodeTree, n: number, p: Float64Array): number {
 }
 
 /** Whether any anchor is within its radius of the node's bounds. */
-export function nearAnchor(tree: NodeTree, n: number, params: SelectionParams): boolean {
+export function nearAnchor(tree: QuadTree, n: number, params: SelectionParams): boolean {
   if (params.anchors === 0) return false
   const s = tree.sphere
   const o = n * 4
@@ -569,7 +426,7 @@ export function nearAnchor(tree: NodeTree, n: number, params: SelectionParams): 
 }
 
 function request(
-  tree: NodeTree,
+  tree: QuadTree,
   n: number,
   priority: number,
   distance: number,
@@ -589,7 +446,7 @@ function request(
   out.requested[out.requestedCount++] = n
 }
 
-function render(tree: NodeTree, n: number, frame: number, out: Selection, mask: number): void {
+function render(tree: QuadTree, n: number, frame: number, out: Selection, mask: number): void {
   tree.rendered[n] = passStamp
   tree.neededAt[n] = frame
   tree.mask[n] = mask
@@ -603,7 +460,7 @@ function render(tree: NodeTree, n: number, frame: number, out: Selection, mask: 
 
 /** Visits a node already known to be in view. */
 function visit(
-  tree: NodeTree,
+  tree: QuadTree,
   n: number,
   view: SelectionView,
   params: SelectionParams,
@@ -635,7 +492,7 @@ function visit(
       // A split node's children stay in the pool even out of view: evicting one and seeing it
       // again would show the whole parent instead.
       tree.neededAt[k] = frame
-      if (culledNode(tree, k, view, params)) {
+      if (tree.surface.culled(tree, k, view, params)) {
         tree.culled[k] = passStamp
         // Out of view now, but generated anyway (sooner when just outside), so moving or turning
         // toward it shows it ready instead of its parent.
@@ -683,7 +540,7 @@ function visit(
       if (tree.flags[k]! & NODE_READY) continue
       const d = nodeDistance(tree, k, view.position)
       const e = (view.pixelsPerRadian * params.errors[depth + 1]!) / Math.max(d, 1e-3)
-      const scale = !culledNode(tree, k, view, params)
+      const scale = !tree.surface.culled(tree, k, view, params)
         ? 1
         : nearView(tree, k, view)
           ? NEAR_VIEW
@@ -703,14 +560,15 @@ function visit(
  * Finds rendered nodes more than one level coarser than a rendered neighbor and marks them to
  * split. Returns whether it marked any (selection walks again).
  */
-function balance(tree: NodeTree, frame: number, out: Selection): boolean {
+function balance(tree: QuadTree, frame: number, out: Selection): boolean {
   let marked = false
   for (let r = 0; r < out.renderedCount; r++) {
     const n = out.rendered[r]!
     const depth = tree.depth[n]!
     if (depth < 2) continue
     for (let edge = 0; edge <= EDGE_LEFT; edge++) {
-      neighborNode(tree.face[n]!, depth, tree.x[n]!, tree.y[n]!, edge, neighbor)
+      if (!tree.surface.neighbor(tree.root[n]!, depth, tree.x[n]!, tree.y[n]!, edge, neighbor))
+        continue
       const m = tree.find(neighbor[0]!, depth, neighbor[1]!, neighbor[2]!)
       const k = renderedAbove(tree, m)
       if (k === NONE) continue
@@ -725,20 +583,22 @@ function balance(tree: NodeTree, frame: number, out: Selection): boolean {
 }
 
 /** The node rendered by the current walk at or above `m`, or −1. */
-function renderedAbove(tree: NodeTree, m: number): number {
+function renderedAbove(tree: QuadTree, m: number): number {
   for (let k = m; k !== NONE; k = tree.parent[k]!) if (tree.rendered[k] === passStamp) return k
   return NONE
 }
 
 /** Edge locks per rendered node: 1 toward a coarser neighbor, 0 toward a finer one, else −1. */
-function setLocks(tree: NodeTree, out: Selection): void {
+function setLocks(tree: QuadTree, out: Selection): void {
   for (let r = 0; r < out.renderedCount; r++) {
     const n = out.rendered[r]!
     const depth = tree.depth[n]!
     for (let edge = 0; edge <= EDGE_LEFT; edge++) {
       let lock = -1
-      if (depth > 0) {
-        neighborNode(tree.face[n]!, depth, tree.x[n]!, tree.y[n]!, edge, neighbor)
+      if (
+        depth > 0 &&
+        tree.surface.neighbor(tree.root[n]!, depth, tree.x[n]!, tree.y[n]!, edge, neighbor)
+      ) {
         const m = tree.find(neighbor[0]!, depth, neighbor[1]!, neighbor[2]!)
         const k = renderedAbove(tree, m)
         if (k !== NONE) lock = tree.depth[k]! < depth ? 1 : -1

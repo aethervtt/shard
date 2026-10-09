@@ -13,6 +13,7 @@ import {
   createDomInputSource,
   createIndexedDbStorage,
   createWebPerformance,
+  createWebWorkers,
 } from '@aethervtt/shard-platform-web'
 import { procgenPlugin } from '@aethervtt/shard-procgen'
 import { connectToHub, createProtocolServer, DEFAULT_HUB_PORT } from '@aethervtt/shard-protocol'
@@ -63,6 +64,7 @@ import { iblPlugin, skyPlugin } from './environment'
 import { fpsGraphPlugin } from './fps-graph'
 import { galaxyPlugin, Population } from './galaxy'
 import { gridsDemoPlugin } from './grids'
+import { heightfieldDemoPlugin } from './heightfield'
 import { applyResolution, hudPlugin } from './hud'
 import { ikDemoPlugin } from './ik'
 import { interiorDemoPlugin } from './interior'
@@ -304,6 +306,14 @@ if (demo === 'galaxy') {
   )
 } else if (demo === 'terrain') {
   app.addPlugin(TransformPlugin, forwardPlugin(), terrainPlugin(), hudPlugin, terrainDemoPlugin)
+} else if (demo === 'heightfield') {
+  app.addPlugin(
+    TransformPlugin,
+    forwardPlugin(),
+    terrainPlugin({ workers: createWebWorkers() }),
+    hudPlugin,
+    heightfieldDemoPlugin,
+  )
 } else if (demo === 'scatter') {
   app.addPlugin(
     TransformPlugin,

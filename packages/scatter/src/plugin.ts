@@ -17,7 +17,13 @@ import {
   Shaders,
 } from '@aethervtt/shard-render'
 import { definePlugin, type Plugin } from '@aethervtt/shard-runtime'
-import { Planet, Terrain, updatePlanets } from '@aethervtt/shard-terrain'
+import {
+  Planet,
+  Terrain,
+  TerrainWorld,
+  updateHeightfields,
+  updatePlanets,
+} from '@aethervtt/shard-terrain'
 import { GlobalTransform, TransformSystems } from '@aethervtt/shard-transform'
 import * as componentsModule from './components'
 import {
@@ -31,6 +37,7 @@ import {
 } from './components'
 import * as foliageModule from './foliage'
 import { applyWind, clearFoliage, updateFoliage, Wind } from './foliage'
+import { HeightfieldSurface } from './heightfield-surface'
 import * as materialModule from './material'
 import { SCATTER_SHADERS } from './material'
 import { MeshSurface } from './mesh-surface'
@@ -92,7 +99,7 @@ export const updateScatter = defineSystem({
     const dirty = state.dirty
     state.dirty = false
     recordRemovals(world)
-    const terrain = world.tryResource(Terrain)
+    const terrain = world.tryResource(TerrainWorld)
     if (terrain) {
       for (const rt of terrain.planets.values()) {
         if (!world.isAlive(rt.entity) || !rt.ready) continue
@@ -112,6 +119,36 @@ export const updateScatter = defineSystem({
             continue
           }
           if (!refreshSurface(world, ss, sources, rt.settings!.seed, content)) continue
+        }
+        updateProps(world, ss, frame, budget, state.workers)
+        updateFoliage(world, ss, frame, state.workers)
+        ss.ms = performance.now() - start
+      }
+    }
+    // Heightfield terrains (0071) with Terrain.scatter.
+    if (terrain) {
+      const sets = world.initResource(ScatterSet.store)
+      for (const rt of terrain.heightfields.values()) {
+        if (!world.isAlive(rt.entity) || !rt.ready || !world.has(rt.entity, Terrain)) continue
+        const own = world.get(rt.entity, Terrain).scatter
+        let ss = state.surfaces.get(rt.entity)
+        if (!own && !ss) continue
+        if (!ss) {
+          ss = new SurfaceScatter(new HeightfieldSurface(world, rt, s.cameras))
+          state.surfaces.set(rt.entity, ss)
+        }
+        const start = performance.now()
+        const content = `${rt.version}:${rt.asset?.hash}`
+        if (dirty || ss.content !== content || !ss.ready) {
+          const set = resolveAsset(world, own, (g) => sets.get({ guid: g }))
+          if (!set) {
+            ss.waiting = `scatter set ${own?.path ?? own?.guid ?? '(none)'}`
+            continue
+          }
+          ;(ss.surface as HeightfieldSurface).setTerrain()
+          ss.content = content
+          const sources = [{ path: own?.path ?? own?.guid ?? '', set, biome: -1 }]
+          if (!refreshSurface(world, ss, sources, rt.asset!.source.seed, content)) continue
         }
         updateProps(world, ss, frame, budget, state.workers)
         updateFoliage(world, ss, frame, state.workers)
@@ -244,7 +281,11 @@ export function scatterPlugin(options: ScatterPluginOptions = {}): Plugin {
       })
       app.addSystems(
         PostUpdate,
-        updateScatter.after(updatePlanets).after(TransformSystems).before(computeVisibility),
+        updateScatter
+          .after(updatePlanets)
+          .after(updateHeightfields)
+          .after(TransformSystems)
+          .before(computeVisibility),
       )
       app.addMethod(...scatterMethods)
     },

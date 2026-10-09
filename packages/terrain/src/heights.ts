@@ -1,26 +1,32 @@
 import { defineResource, type Entity, ShardError, type World } from '@aethervtt/shard-core'
-import type { Workers } from '@aethervtt/shard-platform'
+import type { PlatformFileSystem, Workers } from '@aethervtt/shard-platform'
 import { biomeWeights, dominantBiome, MAX_BIOMES } from './biomes'
+import type { HeightfieldRuntime } from './heightfield/runtime'
 import type { PlanetRuntime } from './planet'
 import { samplePoint } from './points'
 
-/** Every planet's runtime state, and the frame counter terrain systems stamp with. */
+/** Every planet's and heightfield's runtime state, and the frame counter terrain systems stamp with. */
 export class TerrainState {
   readonly planets = new Map<Entity, PlanetRuntime>()
+  /** Heightfield terrains (0071), by `Terrain` entity. */
+  readonly heightfields = new Map<Entity, HeightfieldRuntime>()
   frame = 0
   workers: Workers | undefined
+  /** Where heightfield packs are read and baked (`.shard/cache/terrain`); memory without one. */
+  fs: PlatformFileSystem | undefined
   /** Set when a graph or biome asset (re)loaded: planets re-resolve their assets. */
   dirty = true
 }
 
-export const Terrain = defineResource<TerrainState>('terrain/Terrain', {
-  description: 'Per-planet terrain state: quadtrees, collider chunks, and resolved assets.',
+export const TerrainWorld = defineResource<TerrainState>('terrain/World', {
+  description:
+    'Terrain state per planet and heightfield: quadtrees, pages, collider chunks, and resolved assets.',
   init: () => new TerrainState(),
 })
 
 /** The runtime for a planet entity, ready to sample, or a `terrain/not-ready` error. */
 export function planetRuntime(world: World, planet: Entity): PlanetRuntime {
-  const rt = world.tryResource(Terrain)?.planets.get(planet)
+  const rt = world.tryResource(TerrainWorld)?.planets.get(planet)
   if (!rt) {
     throw new ShardError('terrain/not-a-planet', `Entity ${planet} has no terrain/Planet`, {
       hint: 'Add terrain/Planet (and a Grid) to the planet entity, and the terrain plugin to the app.',

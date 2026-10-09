@@ -13,6 +13,7 @@ import { ISOLATION_HEADERS } from '@aethervtt/shard-verify/node'
 import { createServer, type ViteDevServer, type Plugin as VitePlugin } from 'vite'
 import type { CommandContext } from './commands'
 import { EXIT } from './output'
+import { bakeStaleTerrains } from './terrain-command'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const runnerDir = resolve(here, '../runner')
@@ -121,10 +122,17 @@ export async function dev(ctx: CommandContext): Promise<number> {
     }
   }
   await defineProjectTypes(current, false)
-  const assets = assetServer(new World()).configure({ platform, roots: manifest.assetRoots })
+  const assetWorld = new World()
+  const assets = assetServer(assetWorld).configure({ platform, roots: manifest.assetRoots })
   const firstScan = await assets.scan()
   for (const f of firstScan.failed)
     ctx.out.say(`asset import failed: ${f.path}: ${f.error.message}`)
+  // Heightfield terrains (0071) bake here, where the cache is writable; the page streams the packs.
+  const bakeTerrains = async () => {
+    const baked = await bakeStaleTerrains(assets, assetWorld, platform)
+    for (const line of baked.lines) ctx.out.say(line.trim())
+  }
+  await bakeTerrains()
 
   const hubPort = Number(ctx.flags.hub ?? process.env.SHARD_HUB_PORT ?? DEFAULT_HUB_PORT)
   // Budgets (0075) for the page's perf.budgets, overlay and adapting features. A page can't read
@@ -253,9 +261,10 @@ export async function dev(ctx: CommandContext): Promise<number> {
       // A changed data type (or generator) re-imports its files; the page reads the catalog.
       .then(() => defineProjectTypes(result, true))
       .then(() => assets.scan())
-      .then((report) => {
+      .then(async (report) => {
         for (const f of report.failed)
           ctx.out.say(`asset import failed: ${f.path}: ${f.error.message}`)
+        if (report.imported.length > 0) await bakeTerrains()
         if (report.imported.length + report.failed.length > 0)
           send('shard:assets', { imported: report.imported, removed: report.removed })
       })

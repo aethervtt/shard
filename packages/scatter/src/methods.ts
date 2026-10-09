@@ -241,7 +241,7 @@ function pointOf(world: World, ss: SurfaceScatter, p: Record<string, unknown>): 
         hint: 'Pass an entity id or a scene path.',
       })
     }
-    if (ss.surface.kind === 'planet') {
+    if (ss.surface.kind === 'planet' || ss.surface.kind === 'heightfield') {
       return Array.from(worldPosition64(world, e, new Float64Array(3), ss.surface.entity))
     }
     // A mesh surface: through its inverse world transform, then into metres.

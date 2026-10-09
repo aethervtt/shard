@@ -21,7 +21,7 @@ import {
 import { beforeAll, describe, expect, it } from 'vitest'
 import { Planet, PlanetNav } from './components'
 import { keyString, nodeAt } from './cube'
-import { planetHeightAt, Terrain } from './heights'
+import { planetHeightAt, TerrainWorld } from './heights'
 import { planetNavMesh } from './nav'
 import { terrainPlugin } from './plugin'
 
@@ -56,7 +56,7 @@ describe('navigation on a planet (spec 0043)', () => {
       Transform,
     )
     app.update(1 / 60)
-    const rt = w.resource(Terrain).planets.get(planet)!
+    const rt = w.resource(TerrainWorld).planets.get(planet)!
     // Start and goal: 120 m apart along the surface.
     const n = [0.2, 0.9, 0.39].map((v, _, a) => v / Math.hypot(a[0]!, a[1]!, a[2]!))
     const east = [n[2]!, 0, -n[0]!]

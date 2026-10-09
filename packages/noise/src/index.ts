@@ -21,6 +21,7 @@ export {
   BLOCK,
   computeOrigins,
   directionToFace,
+  evalProgram,
   faceToDirection,
   gridOrigin,
   gridPoints,
@@ -31,6 +32,7 @@ export {
 } from './kernel'
 export {
   loadNoiseKernel,
+  NOISE_KERNEL_MODULE,
   type NoiseKernel,
   noiseKernel,
   simdSupported,

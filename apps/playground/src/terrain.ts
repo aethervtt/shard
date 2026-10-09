@@ -14,8 +14,8 @@ import {
   Planet,
   type PlanetRender,
   planetHeightAt,
-  Terrain,
   TerrainBudget,
+  TerrainWorld,
 } from '@aethervtt/shard-terrain'
 import { walkChecksum } from '@aethervtt/shard-terrain/testing'
 import { FloatingOrigin, lookAt, placeInGrid, Transform } from '@aethervtt/shard-transform'
@@ -108,7 +108,7 @@ function basis(d: Demo): void {
 
 /** Ground height under a planet-frame point (sea level while the planet's graphs load). */
 function ground(world: World, d: Demo, p: ArrayLike<number>): number {
-  if (!world.resource(Terrain).planets.get(d.planet)?.ready) return 0
+  if (!world.resource(TerrainWorld).planets.get(d.planet)?.ready) return 0
   return Math.max(0, planetHeightAt(world, d.planet, p))
 }
 
@@ -162,7 +162,7 @@ export const terrainDemoPlugin = definePlugin({
     hudExtras.push((world) => {
       const d = demo
       if (!d) return []
-      const rt = world.resource(Terrain).planets.get(d.planet)
+      const rt = world.resource(TerrainWorld).planets.get(d.planet)
       if (!rt?.ready) return ['', `planet    waiting for ${rt?.waiting ?? 'its runtime'}`]
       const pr = rt.parts.get('render') as PlanetRender | undefined
       let lo = 99

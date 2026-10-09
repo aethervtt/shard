@@ -118,7 +118,8 @@ export function buildApp(options: BuildAppOptions): App {
   if (names.has('ui')) app.addPlugin(uiPlugin)
   if (names.has('nav')) app.addPlugin(navPlugin)
   else if (names.has('nav/grid')) app.addPlugin(navGridPlugin)
-  if (names.has('terrain')) app.addPlugin(terrainPlugin({ workers: options.platform?.workers }))
+  if (names.has('terrain'))
+    app.addPlugin(terrainPlugin({ workers: options.platform?.workers, fs: options.platform?.fs }))
   if (names.has('scatter')) app.addPlugin(scatterPlugin({ workers: options.platform?.workers }))
   // noise.sample and noise.stats, whatever the manifest says: graphs are data every project can use.
   app.addPlugin(noisePlugin)
