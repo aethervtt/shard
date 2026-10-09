@@ -220,6 +220,41 @@ fn layer_tint(l: u32) -> vec4f {
   return textureLoad(${S}_layerTable, vec2i(1, i32(l)), 0);
 }
 
+/** The two heaviest layers so far (l0 first), and their summed weights (-1 before any). */
+struct Top2 {
+  l0: u32,
+  w0: f32,
+  l1: u32,
+  w1: f32,
+}
+
+/**
+ * Offers layer \`id\` (its entry's weight \`own\`, all its entries' \`total\`) to the top two, in the
+ * order the control texels list them: a layer already first, or with no weight here, is skipped,
+ * and ties keep the layer listed first. Plain values only: arrays indexed at run time spill out of
+ * registers on some GPUs (Apple's), which cost more than the rest of the terrain's shading.
+ */
+fn paint_offer(s: Top2, id: u32, own: f32, total: f32) -> Top2 {
+  if (own <= 0.0 || (s.w0 >= 0.0 && id == s.l0)) { return s; }
+  var r = s;
+  if (total > s.w0) {
+    r.l1 = s.l0;
+    r.w1 = s.w0;
+    r.l0 = id;
+    r.w0 = total;
+  } else if (total > s.w1) {
+    r.l1 = id;
+    r.w1 = total;
+  }
+  return r;
+}
+
+/** A layer's summed weight over the four texels' two entries each. */
+fn paint_total(id: u32, la: vec4u, lb: vec4u, wa: vec4f, wb: vec4f) -> f32 {
+  let x = vec4u(id);
+  return dot(select(vec4f(0.0), wa, la == x), vec4f(1.0)) + dot(select(vec4f(0.0), wb, lb == x), vec4f(1.0));
+}
+
 struct Layered {
   albedo: vec3f,
   normal: vec3f,
@@ -299,35 +334,31 @@ override fn pbr_input(in: VertexOutput) -> PbrInput {
   let pc = uv * cells;
   let c0 = clamp(vec2i(floor(pc)), vec2i(0), vec2i(i32(cells) - 1));
   let f = pc - vec2f(c0);
-  var ids = array<u32, 8>(0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u);
-  var ws = array<f32, 8>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-  var used = 0u;
-  for (var k = 0u; k < 4u; k++) {
-    let o = vec2i(i32(k & 1u), i32(k >> 1u));
-    let bw = select(1.0 - f.x, f.x, o.x == 1) * select(1.0 - f.y, f.y, o.y == 1);
-    let t = textureLoad(${S}_control, ccorner + c0 + o, cell.z, 0);
-    let la = u32(t.r * 255.0 + 0.5);
-    let lb = u32(t.g * 255.0 + 0.5);
-    for (var e = 0u; e < 2u; e++) {
-      let id = select(la, lb, e == 1u);
-      let w = bw * select(1.0 - t.b, t.b, e == 1u);
-      if (w <= 0.0) { continue; }
-      var found = false;
-      for (var m = 0u; m < used; m++) {
-        if (ids[m] == id) { ws[m] += w; found = true; }
-      }
-      if (!found && used < 8u) { ids[used] = id; ws[used] = w; used++; }
-    }
-  }
-  var a0 = 0u;
-  var a1 = 0u;
-  var w0 = -1.0;
-  var w1 = -1.0;
-  for (var m = 0u; m < used; m++) {
-    if (ws[m] > w0) { a1 = a0; w1 = w0; a0 = m; w0 = ws[m]; } else if (ws[m] > w1) { a1 = m; w1 = ws[m]; }
-  }
-  let l0 = ids[a0];
-  let l1 = select(l0, ids[a1], w1 > 0.0);
+  // Texels (0,0), (1,0), (0,1), (1,1) in x, y, z, w; each lists two layers and the second's share.
+  let base = ccorner + c0;
+  let t0 = textureLoad(${S}_control, base, cell.z, 0);
+  let t1 = textureLoad(${S}_control, base + vec2i(1, 0), cell.z, 0);
+  let t2 = textureLoad(${S}_control, base + vec2i(0, 1), cell.z, 0);
+  let t3 = textureLoad(${S}_control, base + vec2i(1, 1), cell.z, 0);
+  let bw = vec4f((1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y);
+  let sh = vec4f(t0.b, t1.b, t2.b, t3.b);
+  let la = vec4u(vec4f(t0.r, t1.r, t2.r, t3.r) * 255.0 + 0.5);
+  let lb = vec4u(vec4f(t0.g, t1.g, t2.g, t3.g) * 255.0 + 0.5);
+  let wa = bw * (1.0 - sh);
+  let wb = bw * sh;
+  var top = Top2(0u, -1.0, 0u, -1.0);
+  top = paint_offer(top, la.x, wa.x, paint_total(la.x, la, lb, wa, wb));
+  top = paint_offer(top, lb.x, wb.x, paint_total(lb.x, la, lb, wa, wb));
+  top = paint_offer(top, la.y, wa.y, paint_total(la.y, la, lb, wa, wb));
+  top = paint_offer(top, lb.y, wb.y, paint_total(lb.y, la, lb, wa, wb));
+  top = paint_offer(top, la.z, wa.z, paint_total(la.z, la, lb, wa, wb));
+  top = paint_offer(top, lb.z, wb.z, paint_total(lb.z, la, lb, wa, wb));
+  top = paint_offer(top, la.w, wa.w, paint_total(la.w, la, lb, wa, wb));
+  top = paint_offer(top, lb.w, wb.w, paint_total(lb.w, la, lb, wa, wb));
+  let l0 = top.l0;
+  let w0 = top.w0;
+  let w1 = top.w1;
+  let l1 = select(l0, top.l1, w1 > 0.0);
   let share = select(0.0, w1 / max(1e-6, w0 + w1), w1 > 0.0);
   let debug = u32(${S}.debug.x + 0.5);
   if (debug == 1u) {
