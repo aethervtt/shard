@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { findComponent, ShardError } from '@aethervtt/shard-core'
+import { timeout as scaled } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { type HeadlessProject, openProject } from '@aethervtt/shard-node'
@@ -237,7 +238,10 @@ function projectRoot(): string {
   return process.env.SHARD_PROJECT_ROOT ?? process.cwd()
 }
 
-/** A gameplay test. Each test gets a fresh game; the GPU is shared across a file. */
+/**
+ * A gameplay test. Each test gets a fresh game; the GPU is shared across a file. `timeout` is
+ * scaled like `timeout()` from test-env (5x in CI, which renders on a software GPU).
+ */
 export function test(
   name: string,
   fn: (ctx: { game: Game }) => Promise<void> | void,
@@ -258,7 +262,7 @@ export function test(
       open.push(project)
       await fn({ game: new Game(project) })
     },
-    timeout,
+    scaled(timeout),
   )
 }
 
