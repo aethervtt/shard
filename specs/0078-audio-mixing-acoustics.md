@@ -1,6 +1,6 @@
 # 0078 — Audio mixers, snapshots, effects and acoustics
 
-- **Status:** accepted (implementation in progress)
+- **Status:** implemented
 - **Packages:** `@aethervtt/shard-audio`, `@aethervtt/shard-platform`,
   `@aethervtt/shard-platform-web`, `@aethervtt/shard-project`, `apps/cli`, `apps/playground`
 - **Depends on:** 0077, 0031, 0038, 0040, 0062, 0074, 0075
@@ -198,25 +198,25 @@ Errors include `audio/mixer-cycle`, `audio/invalid-effect`, `audio/mixer-capacit
 
 ## Acceptance criteria
 
-- [ ] A child and parent at 0.5 linear gain render a unit signal at 0.25 before other processing;
+- [x] A child and parent at 0.5 linear gain render a unit signal at 0.25 before other processing;
       no doubled ancestor attenuation. Parent inserts process descendant audio exactly once.
-- [ ] Cycles/unknown buses/effects fail with paths; invalid hot edits preserve the running graph.
-- [ ] Pre/post-fader sends differ as specified; zero user category volume or mute silences both
+- [x] Cycles/unknown buses/effects fail with paths; invalid hot edits preserve the running graph.
+- [x] Pre/post-fader sends differ as specified; zero user category volume or mute silences both
       dry/wet output, while unrelated categories remain audible.
-- [ ] Snapshot overlap/release is order-independent at equal priority; underwater + dialogue +
+- [x] Snapshot overlap/release is order-independent at equal priority; underwater + dialogue +
       pause tests preserve user volume and return to current base values without stale restores.
-- [ ] Offline probes verify a low-pass attenuates a 10 kHz tone by at least 12 dB relative to
+- [x] Offline probes verify a low-pass attenuates a 10 kHz tone by at least 12 dB relative to
       100 Hz with 800 Hz cutoff; delay impulse timing is within one sample; reverb tails persist
       through dry stop and end by their cap. Test gain ramps against specified envelopes.
-- [ ] Five overlapping zones blend continuously as ranks swap; only four returns activate. A
+- [x] Five overlapping zones blend continuously as ranks swap; only four returns activate. A
       floating-origin rebase leaves influences and obstruction segments unchanged.
-- [ ] With 512 potential emitters, the fake query provider is called at most 16 times/frame;
+- [x] With 512 potential emitters, the fake query provider is called at most 16 times/frame;
       stale ages are observable; no provider leaves dry/clear playback correct.
-- [ ] Browser preview produces WAV + trace + measured peak/RMS and reports missing capabilities;
+- [x] Browser preview produces WAV + trace + measured peak/RMS and reports missing capabilities;
       headless meters never fabricate measured values. No microphone or audio output is needed.
-- [ ] An Aether-style room-switch demo, an underwater demo and overlapping dialogue/pause states
+- [x] An Aether-style room-switch demo, an underwater demo and overlapping dialogue/pause states
       work through JSON assets, live parameter edits and headless assertions.
-- [ ] Add proposed `audio/mix` (32 buses/64 inserts/16 snapshots: 0.2 ms median) and
+- [x] Add proposed `audio/mix` (32 buses/64 inserts/16 snapshots: 0.2 ms median) and
       `audio/acoustics` (64 physical voices/32 zones: 0.2 ms median, fake queries) for both named
       machines, each twice `audio/update`'s current target. Register 0075 keys on implementation;
       instrument real provider cost separately. Warm engine updates allocate nothing; browser

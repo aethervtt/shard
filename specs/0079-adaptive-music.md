@@ -1,6 +1,6 @@
 # 0079 — Adaptive music and scheduled audio transport
 
-- **Status:** accepted (implementation in progress)
+- **Status:** implemented
 - **Packages:** `@aethervtt/shard-audio`, `@aethervtt/shard-platform`,
   `@aethervtt/shard-platform-web`, `@aethervtt/shard-project`, `@aethervtt/shard-save`,
   `apps/cli`, `apps/playground`
@@ -164,27 +164,27 @@ Errors include `audio/music-invalid`, `audio/music-unprepared`, `audio/music-cap
 
 ## Acceptance criteria
 
-- [ ] An authored exploration/combat program uses at least four stems, two sections, intensity
+- [x] An authored exploration/combat program uses at least four stems, two sections, intensity
       curves and one stinger; a tabletop scene can request the same transitions without physics.
-- [ ] Headless runs at different render-frame cadences produce identical boundary/selection
+- [x] Headless runs at different render-frame cadences produce identical boundary/selection
       traces for identical timestamped controls, seed and readiness schedule.
-- [ ] Offline browser rendering starts four decoded impulse stems within one output sample of
+- [x] Offline browser rendering starts four decoded impulse stems within one output sample of
       each other. At 123 BPM, boundaries after 30 minutes of simulated scheduling differ from
       the absolute formula by at most one sample; this does not claim wall-clock/device accuracy.
-- [ ] Prepared loop periods conform to that grid; a rendered 60-second impulse-loop test at
+- [x] Prepared loop periods conform to that grid; a rendered 60-second impulse-loop test at
       123 BPM has no cumulative phase error beyond one output sample. Reject disallowed/excessive
       rate conform. Bar transitions in 3/8 and 7/8 use exact ticks, with documented quarter-note beats.
-- [ ] Beat/bar/marker transitions, equal-power/linear fades and event-relative stinger delays
+- [x] Beat/bar/marker transitions, equal-power/linear fades and event-relative stinger delays
       match scheduled output samples. No half-started section when voice/memory reservation fails.
-- [ ] A fake clock plus 250 ms scheduler stall triggers the chosen missed-deadline policy exactly
+- [x] A fake clock plus 250 ms scheduler stall triggers the chosen missed-deadline policy exactly
       once; the current loop continues. Browser tests separately confirm scheduled-node behavior.
-- [ ] Cancel, rapid replacement, seek and pause before/after commit never duplicate stems or play
+- [x] Cancel, rapid replacement, seek and pause before/after commit never duplicate stems or play
       stale stingers; context suspension/resume remaps epoch and preserves phase as specified.
-- [ ] Running without render-frame requests for 30 seconds keeps music scheduling active.
+- [x] Running without render-frame requests for 30 seconds keeps music scheduling active.
       Unsupported media/scheduling backends fail before starting a rhythmic program.
-- [ ] Checkpoint restoration preserves section/parameters/phase and releases previous transport
+- [x] Checkpoint restoration preserves section/parameters/phase and releases previous transport
       leases; missing revisions yield the documented entry-section fallback.
-- [ ] Add proposed `audio/music-schedule`: 8 transports × 8 stems, 32 queued requests, median
+- [x] Add proposed `audio/music-schedule`: 8 transports × 8 stems, 32 queued requests, median
       0.1 ms per scheduler wake on both named machines (same proposed CPU allowance as current
       `audio/update`). Register 0075 key at implementation, measure worst deadline miss separately,
       and enforce no steady-state engine allocation after preparation. Node creation at section

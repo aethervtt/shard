@@ -86,16 +86,17 @@ UI, navigation, and saves. Each one exposes its state to agents as data.
 | [0036](0036-ui.md) | UI and HUD (flexbox, themes, world-anchored) | implemented |
 | [0037](0037-navigation.md) | Navigation (grid A*, navmesh, agents) | implemented |
 | [0038](0038-save-settings-localization.md) | Save/load, settings, and localization | implemented |
-| [0077](0077-audio-events-runtime.md) | Audio events, shared parameters, reliable playback, sessions and residency | draft |
-| [0078](0078-audio-mixing-acoustics.md) | Audio mixers, snapshots, effects, reverb zones and bounded acoustics | draft |
-| [0079](0079-adaptive-music.md) | Adaptive music (synchronized stems, transport, transitions and stingers) | draft |
+| [0077](0077-audio-events-runtime.md) | Audio events, shared parameters, reliable playback, sessions and residency | implemented |
+| [0078](0078-audio-mixing-acoustics.md) | Audio mixers, snapshots, effects, reverb zones and bounded acoustics | implemented |
+| [0079](0079-adaptive-music.md) | Adaptive music (synchronized stems, transport, transitions and stingers) | implemented |
 
 Audio expansion starts with 0077's runtime corrections, then its preparation/session/event layer.
 0078 and 0079 independently build on 0077; neither requires the procedural-world work. 0050
 reuses their shared parameters, mixer and preview facilities for soundscapes. The intended users
 include Aether/embedded applications and ordinary 2D/3D games as well as the proof project.
 See the [audio audit and research](research/audio-system-2026-10-17.md) for current capabilities,
-confirmed gaps, primary sources and validation limits. The new contracts remain drafts.
+baseline gaps, primary sources and validation limits. The completed contracts and measured
+acceptance evidence are mapped in [the implementation checklist](research/audio-implementation-checklist.md).
 
 ## M7 — Procedural generation and large worlds
 

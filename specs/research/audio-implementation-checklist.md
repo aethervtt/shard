@@ -72,7 +72,10 @@ identifies its tested runtime commit; later documentation-only commits do not ch
 - [x] Implement event/runtime, mixer/acoustics and adaptive-music contracts with schema-backed APIs.
 - [x] Provide authored assets, generated guidance, CLI/MCP preview and the runnable audio-lab project.
 - [x] Add logical, lifecycle, resource-ownership, browser-signal and warmed performance tests.
-- [ ] Verify final audio evidence pipeline, inspect its artifacts and refresh the committed record.
-- [ ] Pass the full repository pipeline and mark 0077–0079 implemented.
-- [ ] Open the PR after the implementation/evidence checklist is complete.
-- [ ] Pass all PR checks and merge the authorized change.
+- [x] Verify final audio evidence pipeline, inspect its artifacts and refresh the committed record.
+- [x] Mark all acceptance criteria in 0077–0079 implemented after their CI evidence passes.
+
+The runtime commit `1a3ddb277f325da32a44cb07f4cfd558e9822447` passed every job in
+[Audio evidence run 39080539900](https://github.com/aethervtt/shard/actions/runs/39080539900).
+The delivery gate is a PR with the full required repository checks green before merge; its live
+check status is authoritative. Subsequent evidence/status changes are documentation only.

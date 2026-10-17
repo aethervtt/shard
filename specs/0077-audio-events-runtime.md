@@ -1,6 +1,6 @@
 # 0077 — Audio events, parameters, and runtime reliability
 
-- **Status:** accepted (implementation in progress)
+- **Status:** implemented
 - **Packages:** `@aethervtt/shard-audio`, `@aethervtt/shard-platform`,
   `@aethervtt/shard-platform-web`, `@aethervtt/shard-assets`, `@aethervtt/shard-project`,
   `@aethervtt/shard-save`, `@aethervtt/shard-testing`, `apps/cli`, `apps/playground`
@@ -212,27 +212,27 @@ types. `game.audioLog()` stays compatible and gains instance/parameter assertion
 
 ## Acceptance criteria
 
-- [ ] All 0035 correctness tests pass; live bus/loop/panning/distance edits match backend state
+- [x] All 0035 correctness tests pass; live bus/loop/panning/distance edits match backend state
       and calculated gain. The audit's x=10/refDistance=5 repro measures 0.5 on the new bus.
-- [ ] JSON/schema/API reject equivalent invalid ranges, NaN, cycles and references with paths.
-- [ ] Surface-switched footsteps, RPM-blended engine loops and layered spell events are authored
+- [x] JSON/schema/API reject equivalent invalid ranges, NaN, cycles and references with paths.
+- [x] Surface-switched footsteps, RPM-blended engine loops and layered spell events are authored
       entirely as assets. Equal seeds/commands yield identical selections and logical traces.
-- [ ] Local/global scope, smoothing, gates, cooldowns and every concurrency policy have headless
+- [x] Local/global scope, smoothing, gates, cooldowns and every concurrency policy have headless
       tests, including virtual-to-real transitions without rerolls or duplicated child voices.
-- [ ] Fake delayed/failed/cancelled decoders prove no ghost start, false rendering state or leaked
+- [x] Fake delayed/failed/cancelled decoders prove no ghost start, false rendering state or leaked
       lease; browser tests cover gesture suspension, resume and unsupported codecs.
-- [ ] At timeScale 0, 0.5 and 2, default and pitch-linked modes preserve the specified sample
+- [x] At timeScale 0, 0.5 and 2, default and pitch-linked modes preserve the specified sample
       cursor/completion behavior through pause and virtual/resume; inspect decision and sample clocks.
-- [ ] Two apps sharing a context have independent buses/listeners; disposing one leaves the other
+- [x] Two apps sharing a context have independent buses/listeners; disposing one leaves the other
       playing. Distinct listener poses produce correct session-relative panning. Repeating
       create/play/dispose 100 times returns owned resource counters to baseline.
-- [ ] Collection eviction respects 64 MiB decoded budget; active pins survive unload; complete
+- [x] Collection eviction respects 64 MiB decoded budget; active pins survive unload; complete
       unload revokes URLs. URL media mode loads without allocating a whole-file encoded buffer.
-- [ ] Invalid hot edits keep last-good data; active revisions remain stable; save/load restores
+- [x] Invalid hot edits keep last-good data; active revisions remain stable; save/load restores
       opt-in sustained state and never replays transient one-shots or accepts stale completions.
-- [ ] Ten minutes of voice churn and saturated telemetry stay within configured capacities;
+- [x] Ten minutes of voice churn and saturated telemetry stay within configured capacities;
       cursor gaps are reported. No steady-state allocations in warmed engine evaluation.
-- [ ] Preserve `audio/update` and `audio/update-virtual` budgets. Add proposed
+- [x] Preserve `audio/update` and `audio/update-virtual` budgets. Add proposed
       `audio/events` (128 instances × 4 layers, 16 global parameters: 0.2 ms median on both named
       machines, twice the existing 48-source target) and `audio/commands` (256 queued changes:
       0.2 ms median). Register keys/measurements in 0075's budgets when implementing; test churn

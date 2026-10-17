@@ -37,31 +37,31 @@
       "kind": "target",
       "laptop": 0.2,
       "desktop": 0.2,
-      "note": "0078: 64 physical voices, 32 zones and bounded fake transmission queries."
+      "note": "0078: 64 physical voices, 32 zones and bounded fake transmission queries. Laptop/desktop targets are proposed. Actions on AMD EPYC 7763 measured 0.063960 ms at 1a3ddb2; see specs/research/audio-runtime-evidence.json (unknown-host timings, not named-machine enforcement)."
     },
     "audio/commands": {
       "kind": "target",
       "laptop": 0.2,
       "desktop": 0.2,
-      "note": "0077: batch of 256 parameter changes on prepared instances."
+      "note": "0077: batch of 256 parameter changes on prepared instances. Laptop/desktop targets are proposed. Actions on AMD EPYC 7763 measured 0.089999 ms at 1a3ddb2; see specs/research/audio-runtime-evidence.json (unknown-host timings, not named-machine enforcement)."
     },
     "audio/events": {
       "kind": "target",
       "laptop": 0.2,
       "desktop": 0.2,
-      "note": "0077: 128 sustained instances \u00d7 4 layers, 16 shared parameters; warmed engine evaluation."
+      "note": "0077: 128 sustained instances \u00d7 4 layers, 16 shared parameters; warmed engine evaluation. Laptop/desktop targets are proposed. Actions on AMD EPYC 7763 measured 0.192380 ms at 1a3ddb2; see specs/research/audio-runtime-evidence.json (unknown-host timings, not named-machine enforcement)."
     },
     "audio/mix": {
       "kind": "target",
       "laptop": 0.2,
       "desktop": 0.2,
-      "note": "0078: 32 buses, 64 inserts and 16 blended snapshots; warmed control evaluation."
+      "note": "0078: 32 buses, 64 inserts and 16 blended snapshots; warmed control evaluation. Laptop/desktop targets are proposed. Actions on AMD EPYC 7763 measured 0.026229 ms at 1a3ddb2; see specs/research/audio-runtime-evidence.json (unknown-host timings, not named-machine enforcement)."
     },
     "audio/music-schedule": {
       "kind": "target",
       "laptop": 0.1,
       "desktop": 0.1,
-      "note": "0079: 8 transports \u00d7 8 stems, 32 request replacements, warmed scheduler wakes; source changes measured separately."
+      "note": "0079: 8 transports \u00d7 8 stems, 32 request replacements, warmed scheduler wakes; source changes measured separately. Laptop/desktop targets are proposed. Actions on AMD EPYC 7763 measured 0.012924 ms at 1a3ddb2; see specs/research/audio-runtime-evidence.json (unknown-host timings, not named-machine enforcement)."
     },
     "audio/update": {
       "kind": "target",
