@@ -6,11 +6,28 @@ on:
       - 'packages/audio/**'
       - 'packages/platform*/**'
       - 'packages/assets/**'
+      - 'packages/save/**'
+      - 'packages/project/**'
+      - 'packages/testing/**'
       - 'apps/playground/src/audio*'
       - 'apps/cli/**'
+      - 'examples/audio-lab/**'
+      - 'bench/perf/budgets.json'
       - '.github/workflows/audio-evidence.yml'
   push:
-    branches: [feat/audio-events-mixing-music]
+    branches: [main]
+    paths:
+      - 'packages/audio/**'
+      - 'packages/platform*/**'
+      - 'packages/assets/**'
+      - 'packages/save/**'
+      - 'packages/project/**'
+      - 'packages/testing/**'
+      - 'apps/playground/src/audio*'
+      - 'apps/cli/**'
+      - 'examples/audio-lab/**'
+      - 'bench/perf/budgets.json'
+      - '.github/workflows/audio-evidence.yml'
   workflow_dispatch:
 
 concurrency:
