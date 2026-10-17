@@ -28,6 +28,10 @@
         {
           "target": "room",
           "gainDb": -9
+        },
+        {
+          "target": "hall",
+          "gainDb": -9
         }
       ]
     },
@@ -50,6 +54,19 @@
           "seconds": 0.13,
           "feedback": 0.35,
           "tailSeconds": 0.8
+        }
+      ]
+    },
+    {
+      "id": "hall",
+      "return": true,
+      "effects": [
+        {
+          "id": "echo",
+          "kind": "delay",
+          "seconds": 0.23,
+          "feedback": 0.5,
+          "tailSeconds": 1
         }
       ]
     }

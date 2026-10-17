@@ -1,6 +1,7 @@
 import { defineAssetSchema } from '@aethervtt/shard-assets'
 import { defineResource, defineSchema, type Infer, ShardError, t } from '@aethervtt/shard-core'
 import type { AppMethod } from '@aethervtt/shard-runtime'
+import { ReverbZone } from './zone'
 
 /** Portable, deterministic signal probe plan. Asset IDs are local to the plan. */
 export const AudioPreviewPlan = defineSchema('audio/PreviewPlan', {
@@ -17,6 +18,7 @@ export const AudioPreviewPlan = defineSchema('audio/PreviewPlan', {
     }),
   ),
   mixer: t.handle('audio/AudioMixer'),
+  zones: t.list(t.struct({ position: t.vec3(), zone: t.struct(ReverbZone.fields) })),
   events: t.list(
     t.struct({
       id: t.string({ required: true }),
@@ -127,6 +129,11 @@ export function validateAudioPreview(plan: AudioPreviewPlanValue): void {
     voices.add(voice.id)
   }
   const ids = new Set<string>()
+  if (plan.zones.length > 128 || (plan.zones.length && !plan.mixer))
+    throw new ShardError(
+      'audio/preview-unavailable',
+      'Preview zones need a mixer and are capped at 128',
+    )
   const eventTimes = new Map(plan.events.map((e) => [e.id, e.at]))
   const musicTimes = new Map(plan.music.map((e) => [e.id, e.at]))
   for (const item of [...plan.events, ...plan.music]) {

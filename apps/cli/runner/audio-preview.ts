@@ -1,11 +1,13 @@
 import { assetServer } from '@aethervtt/shard-assets'
 import {
+  AudioAcoustics,
   AudioClips,
   AudioListener,
   AudioPreviewPlan,
   type AudioPreviewPlanValue,
   AudioTransport,
   acquireAudioSnapshot,
+  audioAcousticsPlugin,
   audioEvents,
   audioEventsPlugin,
   audioMixerPlugin,
@@ -21,6 +23,7 @@ import {
   prepareAudio,
   prepareMusic,
   prepareMusicSection,
+  ReverbZone,
   releaseAudioSnapshot,
   requestMusicSection,
   resumeMusic,
@@ -83,6 +86,7 @@ async function render(bundle: Bundle) {
     audioPlugin({ backend, maxVoices: 4096 }),
     audioEventsPlugin(),
     audioMixerPlugin(),
+    ...(plan.zones.length ? [audioAcousticsPlugin()] : []),
     audioMusicPlugin(),
   )
   const world = app.world
@@ -120,6 +124,10 @@ async function render(bundle: Bundle) {
           parameters: entry.parameters as Record<string, number | string>,
         }),
       )
+    for (const entry of plan.zones)
+      world.spawn([Transform, { translation: entry.position }], [ReverbZone, entry.zone])
+    const zoneTrace: { at: number; buses: string[] }[] = []
+    let lastZones = ''
     const listener = world.spawn(Transform, AudioListener)
     const voices = plan.voices.map((voice) =>
       runtime.play({
@@ -251,6 +259,15 @@ async function render(bundle: Bundle) {
         for (const id of voices) runtime.cancel(id)
       }
       app.update(now - last)
+      const acoustics = world.tryResource(AudioAcoustics)
+      if (acoustics) {
+        const buses = acoustics.slots.filter((slot) => slot.weight > 0).map((slot) => slot.bus)
+        const key = buses.join(',')
+        if (key !== lastZones) {
+          zoneTrace.push({ at: now, buses })
+          lastZones = key
+        }
+      }
       updateMusic(world)
       last = now
       await runtime.flush()
@@ -296,6 +313,7 @@ async function render(bundle: Bundle) {
     if (measured.nonfinite)
       throw new ShardError('audio/preview-unavailable', 'Rendered nonfinite samples')
     const trace = {
+      zones: zoneTrace,
       events: describeAudioEvents(world).trace,
       music: describeMusic(world).trace,
       controls: applied,

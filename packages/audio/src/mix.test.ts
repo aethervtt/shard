@@ -2,9 +2,16 @@ import { App } from '@aethervtt/shard-runtime'
 import { TransformPlugin } from '@aethervtt/shard-transform'
 import { describe, expect, it } from 'vitest'
 import { playSound, setAudioUserBus, setBus } from './api'
+import { captureAudioCheckpoint, resetAudioForLoad, restoreAudioCheckpoint } from './checkpoint'
 import { AudioClips, audioClip } from './clip'
 import { AudioEvent } from './event-assets'
-import { audioEventsPlugin, playAudioEvent, prepareAudio, setAudioParameter } from './events'
+import {
+  AudioTransport,
+  audioEventsPlugin,
+  playAudioEvent,
+  prepareAudio,
+  setAudioParameter,
+} from './events'
 import { HeadlessAudioBackend } from './headless'
 import {
   AudioMixer,
@@ -142,7 +149,7 @@ describe('authored audio mixing', () => {
       ],
     })
     const lease = await prepareAudio(world, event)
-    const a = playAudioEvent(world, event, { parameters: { wet: 0 } })
+    const a = playAudioEvent(world, event, { parameters: { wet: 0 }, persist: true })
     playAudioEvent(world, event, { parameters: { wet: 1 } })
     app.update(0.01)
     expect(backend.active.map((v) => v.sends.get('room'))).toEqual([0.01, 1])
@@ -154,6 +161,20 @@ describe('authored audio mixing', () => {
     expect(() => playAudioEvent(world, event)).toThrow()
     expect(backend.active).toHaveLength(2)
     invalid.release()
+    world.resource(AudioTransport).paused = true
+    app.update(0.01)
+    await expect(
+      configureAudioMixer(
+        world,
+        AudioMixer.deserialize({ buses: [{ id: 'master', parent: '' }, { id: 'sfx' }] }),
+      ),
+    ).rejects.toMatchObject({ code: 'audio/unknown-bus' })
+    captureAudioCheckpoint(world)
+    resetAudioForLoad(world)
+    expect(await restoreAudioCheckpoint(world)).toEqual([])
+    world.resource(AudioTransport).paused = false
+    app.update(0.01)
+    expect(backend.active.map((v) => v.sends.get('room'))).toEqual([0.1])
     lease.release()
     await app.dispose()
   })

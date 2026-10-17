@@ -354,6 +354,7 @@ async function restore(
           if (previous.active && previous.selected >= 0) {
             const audio = audioState(world),
               voice = newVoice(audio, null, audio.frame)
+            voice.sends = layer.sends
             voice.managed = true
             voice.virtualizable = true
             voice.clip = instance.plan!.clips[i]![previous.selected]!

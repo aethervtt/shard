@@ -233,6 +233,9 @@ export class HeadlessAudioBackend implements AudioBackend, AudioRuntimeExtension
   reconfigure(id: number, desc: AudioVoiceDesc): boolean {
     const voice = this.byId.get(id)
     if (!voice) return false
+    this.validateRoutes(desc)
+    voice.sends.clear()
+    for (const send of desc.sends ?? []) voice.sends.set(send.target, send.gain)
     voice.bus = desc.bus
     voice.loop = desc.loop
     voice.spatial = desc.spatial
@@ -386,7 +389,26 @@ export class HeadlessAudioBackend implements AudioBackend, AudioRuntimeExtension
   private readonly byId = new Map<number, HeadlessVoice>()
   private next = 1
 
+  private validateRoutes(desc: AudioVoiceDesc): void {
+    if (
+      (desc.sends?.length ?? 0) > 8 ||
+      new Set(desc.sends?.map((send) => send.target)).size !== (desc.sends?.length ?? 0)
+    )
+      throw new ShardError('audio/capacity', 'At most eight unique voice sends')
+    for (const send of desc.sends ?? [])
+      if (
+        !Number.isFinite(send.gain) ||
+        send.gain < 0 ||
+        send.gain > 16 ||
+        !this.mixer?.buses
+          .find((bus) => bus.id === desc.bus)
+          ?.sends.some((route) => route.target === send.target)
+      )
+        throw new ShardError('audio/unknown-bus', `Invalid voice send ${desc.bus}/${send.target}`)
+  }
+
   play(desc: AudioScheduledVoice): number {
+    this.validateRoutes(desc)
     if (this.byId.size >= this.maxVoices)
       throw new ShardError('audio/capacity', 'Physical voice limit reached', {
         hint: 'Stop or virtualize a voice before starting another.',

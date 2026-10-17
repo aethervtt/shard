@@ -258,9 +258,31 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
     panner.positionZ.setValueAtTime(z, at)
   }
 
+  private validateRoutes(desc: AudioVoiceDesc): void {
+    if (
+      (desc.sends?.length ?? 0) > 8 ||
+      new Set(desc.sends?.map((send) => send.target)).size !== (desc.sends?.length ?? 0)
+    )
+      throw new ShardError('audio/capacity', 'At most eight voice sends')
+    for (const send of desc.sends ?? []) {
+      if (
+        !Number.isFinite(send.gain) ||
+        send.gain < 0 ||
+        send.gain > 16 ||
+        !this.graph?.sendInputs.get(desc.bus)?.has(send.target)
+      )
+        throw new ShardError('audio/unknown-bus', `Invalid voice send ${desc.bus}/${send.target}`)
+    }
+  }
+
   private route(voice: Voice): void {
     voice.highpass.disconnect()
     voice.panner?.disconnect()
+    for (const [target, node] of voice.sends)
+      if (!voice.desc.sends?.some((send) => send.target === target)) {
+        node.disconnect()
+        voice.sends.delete(target)
+      }
     const spatial = voice.desc.spatial
     if (spatial) {
       const node = voice.panner ?? this.context.createPanner()
@@ -282,7 +304,11 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
         node = this.context.createGain()
         node.gain.value = send.gain
         voice.sends.set(send.target, node)
-      } else node.disconnect()
+      } else {
+        node.disconnect()
+        node.gain.cancelAndHoldAtTime(this.context.currentTime)
+        node.gain.setValueAtTime(send.gain, this.context.currentTime)
+      }
       const input = this.graph?.sendInputs.get(voice.desc.bus)?.get(send.target)
       if (!input) throw new ShardError('audio/unknown-bus', `Missing voice send ${send.target}`)
       ;(voice.panner ?? voice.highpass).connect(node).connect(input)
@@ -369,17 +395,7 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
     if (this.host.offline && desc.clip.stream)
       throw new ShardError('audio/unsupported-capability', 'Offline rendering needs decoded clips')
     this.input(desc.bus)
-    if ((desc.sends?.length ?? 0) > 8)
-      throw new ShardError('audio/capacity', 'At most eight voice sends')
-    for (const send of desc.sends ?? []) {
-      if (
-        !Number.isFinite(send.gain) ||
-        send.gain < 0 ||
-        send.gain > 16 ||
-        !this.graph?.sendInputs.get(desc.bus)?.has(send.target)
-      )
-        throw new ShardError('audio/unknown-bus', `Invalid voice send ${desc.bus}/${send.target}`)
-    }
+    this.validateRoutes(desc)
     if (!this.reserved) this.reserveVoices(1)
     this.reserved--
     this.host.reserved--
@@ -643,6 +659,8 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
   reconfigure(id: number, desc: AudioVoiceDesc): boolean {
     const voice = this.voices.get(id)
     if (!voice || voice.desc.clip.bytes !== desc.clip.bytes) return false
+    this.input(desc.bus)
+    this.validateRoutes(desc)
     voice.desc = { ...voice.desc, ...desc }
     if (voice.source) {
       voice.source.loop = desc.loop

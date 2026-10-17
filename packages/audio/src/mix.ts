@@ -225,6 +225,8 @@ interface SnapshotHandle {
   definition: AudioSnapshotDefinition
   indices: Int32Array
   weight: number
+  from: number
+  elapsed: number
   target: number
   removing: boolean
 }
@@ -368,6 +370,25 @@ export async function configureAudioMixer(
         points: new Float64Array(curve.points.flat()),
       }
     })
+    // Virtual/paused layers must retain their routes too: they have no native voice to inspect.
+    for (const instance of audioEvents(world).instances) {
+      if (!instance || instance.state === 'ended' || instance.state === 'failed') continue
+      const event = instance.plan?.definition ?? instance.definition
+      if (!event) continue
+      for (const layer of event.layers) {
+        const route = buses.find((bus) => bus.id === (layer.bus || event.bus))
+        if (
+          !route ||
+          layer.sends.some(
+            (send) => !route.sends.some((candidate) => candidate.target === send.target),
+          )
+        )
+          throw new ShardError(
+            'audio/unknown-bus',
+            'Mixer edit removes an active logical event route',
+          )
+      }
+    }
     await runtime.configureMixer({ buses, maxNodes: state.maxNodes })
   } catch (error) {
     if (shared) releaseAudioGlobals(audioEvents(world), shared.key)
@@ -453,6 +474,8 @@ export async function acquireAudioSnapshot(
     definition,
     indices,
     weight: definition.attack ? 0 : weight,
+    from: 0,
+    elapsed: 0,
     target: weight,
     removing: false,
   })
@@ -467,12 +490,16 @@ export function setAudioSnapshotWeight(world: World, id: number, weight: number)
   const handle = world.resource(AudioMixState).snapshots.find((handle) => handle.id === id)
   if (!handle || handle.removing)
     throw new ShardError('audio/stale-handle', 'Snapshot handle is released')
+  handle.from = handle.weight
+  handle.elapsed = 0
   handle.target = weight
 }
 export function releaseAudioSnapshot(world: World, id: number): boolean {
   const handle = world.resource(AudioMixState).snapshots.find((handle) => handle.id === id)
   if (!handle || handle.removing) return false
   handle.removing = true
+  handle.from = handle.weight
+  handle.elapsed = 0
   handle.target = 0
   return true
 }
@@ -485,10 +512,10 @@ export function updateAudioMix(world: World, delta: number): void {
   for (let i = 0; i < handles.length; i++) {
     const handle = handles[i]!,
       seconds = handle.target < handle.weight ? handle.definition.release : handle.definition.attack
-    const step = seconds ? delta / seconds : 1
-    handle.weight +=
-      Math.sign(handle.target - handle.weight) *
-      Math.min(Math.abs(handle.target - handle.weight), step)
+    handle.elapsed += delta
+    handle.weight = seconds
+      ? handle.from + (handle.target - handle.from) * Math.min(1, handle.elapsed / seconds)
+      : handle.target
   }
   for (let i = 0; i < state.curves.length; i++) {
     const curve = state.curves[i]!

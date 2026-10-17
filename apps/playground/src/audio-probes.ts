@@ -1,12 +1,20 @@
 import {
   AudioClips,
+  AudioEvent,
   audioClip,
   audioEventsPlugin,
   audioMusicPlugin,
   audioPlugin,
+  audioState,
   MusicProgram,
+  pauseMusic,
+  playMusicStinger,
   prepareMusic,
+  prepareMusicSection,
+  requestMusicSection,
+  setMusicParameter,
   startMusic,
+  updateMusic,
 } from '@aethervtt/shard-audio'
 import type {
   AudioClipSource,
@@ -260,6 +268,164 @@ async function instanceSendProbe() {
   return result
 }
 
+async function domainTailProbe() {
+  const context = new OfflineAudioContext(1, 72000, 48000)
+  const host = createWebAudioBackend({ context, fixedListener: true })
+  const mixer = graph(0)
+  mixer.buses[1]!.sends = [{ target: 'echo', gain: 0, pre: true }]
+  mixer.buses = [
+    ...mixer.buses,
+    {
+      id: 'music',
+      parent: 'master',
+      return: false,
+      gain: 0,
+      userGain: 1,
+      effects: [],
+      sends: [{ target: 'echo', gain: 1, pre: true }],
+    },
+    {
+      id: 'echo',
+      parent: 'master',
+      return: true,
+      gain: 1,
+      userGain: 1,
+      sends: [],
+      effects: [effect('delay', { seconds: 0.2, feedback: 0.5, tailSeconds: 0.8 })],
+    },
+  ]
+  await host.runtime.configureMixer(mixer)
+  const sustained = host.runtime.play({
+    ...voice(clip('constant', 100, 2), 'sfx', 0.05),
+    loop: true,
+    sends: [{ target: 'echo', gain: 1 }],
+  })
+  host.runtime.play(voice(clip('impulse', 100, 0.01), 'music', 0.1))
+  await host.runtime.flush()
+  const stop1 = context.suspend(0.3)
+  const rendering = context.startRendering()
+  await stop1
+  host.runtime.setMixerValue('sfx', 'userGain', 0, 0)
+  mixer.buses[1]!.userGain = 0
+  await host.runtime.configureMixer(mixer)
+  const overlap = host.runtime.memory().nodes
+  host.runtime.play(voice(clip('impulse', 100, 0.01), 'music', 0.6))
+  await host.runtime.flush()
+  const stop2 = context.suspend(1.3)
+  await context.resume()
+  await stop2
+  host.runtime.cancel(sustained)
+  host.runtime.collect()
+  const retired = host.runtime.memory().nodes
+  await context.resume()
+  const samples = (await rendering).getChannelData(0)
+  const result = {
+    muted: rms(samples, 21000, 23000),
+    unrelatedOldTail: samples[24000]!,
+    newMusic: samples[38400]!,
+    overlap,
+    retired,
+  }
+  host.dispose?.()
+  return result
+}
+
+async function musicTransitionProbe(curve: 'linear' | 'equal-power') {
+  const context = new OfflineAudioContext(1, 4 * 48000, 48000)
+  const host = createWebAudioBackend({ context, fixedListener: true })
+  const app = new App().addPlugin(
+    TransformPlugin,
+    audioPlugin({ backend: host }),
+    audioEventsPlugin(),
+    audioMusicPlugin(),
+  )
+  await app.init()
+  const world = app.world,
+    runtime = audioState(world).backend.runtime!
+  try {
+    const source = world.resource(AudioClips).add(audioClip(clip('constant', 100, 2).bytes))
+    const impulse = world.resource(AudioClips).add(audioClip(clip('impulse', 100, 0.01).bytes))
+    const stinger = world.resource(AudioEvent.store).add(
+      AudioEvent.deserialize({
+        layers: [
+          { id: 'hit', choices: [{ clip: { guid: impulse.guid } }], delay: 0.1, release: 0 },
+        ],
+      }),
+    )
+    const program = await prepareMusic(
+      world,
+      MusicProgram.deserialize({
+        bpm: 120,
+        entry: 'a',
+        parameters: [{ name: 'level' }],
+        sections: [
+          {
+            id: 'a',
+            bars: 1,
+            markers: [{ id: 'cue', tick: 3840 - 1 }],
+            stems: [{ id: 'a', clip: { guid: source.guid }, endSample: 96000 }],
+          },
+          {
+            id: 'b',
+            bars: 1,
+            stems: [
+              {
+                id: 'b',
+                clip: { guid: source.guid },
+                endSample: 96000,
+                curves: [
+                  {
+                    parameter: 'level',
+                    property: 'gainDb',
+                    points: [
+                      [0, 0],
+                      [1, -6.020599913279624],
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        stingers: [{ id: 'hit', event: { guid: stinger.guid } }],
+      }),
+    )
+    await prepareMusicSection(world, program, 'b')
+    const id = startMusic(world, program, { at: 0.05 })
+    const request = requestMusicSection(world, id, 'b', { quantize: 'bar', fadeBeats: 2, curve })
+    const hit = await playMusicStinger(world, id, 'hit', { quantize: 'beat' })
+    await runtime.flush()
+    const suspend1 = context.suspend(1.96)
+    const rendering = context.startRendering()
+    await suspend1
+    updateMusic(world)
+    await runtime.flush()
+    const suspend2 = context.suspend(2.8)
+    await context.resume()
+    await suspend2
+    setMusicParameter(world, id, 'level', 1)
+    updateMusic(world)
+    const suspend3 = context.suspend(3.5)
+    await context.resume()
+    await suspend3
+    pauseMusic(world, id)
+    await context.resume()
+    const samples = (await rendering).getChannelData(0)
+    const result = {
+      at: request.at,
+      middle: samples[Math.round((request.at + 0.5) * 48000)]!,
+      after: samples[Math.round((request.at + 1.3) * 48000)]!,
+      stinger: samples[Math.round((hit.at + 0.1) * 48000)]!,
+      paused: rms(samples, 175000, 185000),
+    }
+    program.release()
+    return result
+  } finally {
+    await app.dispose()
+    host.dispose?.()
+  }
+}
+
 export async function audioProbes() {
   const source = clip('constant'),
     hierarchy = graph(0.5)
@@ -369,6 +535,11 @@ export async function audioProbes() {
   host.dispose?.()
   return {
     instanceSends: await instanceSendProbe(),
+    domainTails: await domainTailProbe(),
+    musicTransitions: {
+      linear: await musicTransitionProbe('linear'),
+      equalPower: await musicTransitionProbe('equal-power'),
+    },
     musicLoops,
     session,
     delayBeforeCap: rms(capped.buffer.getChannelData(0), 14000, 18000),

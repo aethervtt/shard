@@ -1,38 +1,21 @@
 import {
-  defineComponent,
   defineResource,
   defineSystem,
   type Entity,
   PostUpdate,
   ShardError,
-  t,
   type World,
 } from '@aethervtt/shard-core'
 import { definePlugin, Time } from '@aethervtt/shard-runtime'
-import { GlobalTransform, Transform } from '@aethervtt/shard-transform'
+import { GlobalTransform } from '@aethervtt/shard-transform'
 import { AudioInspectors } from './inspection'
 import { AudioMixState, updateAudioMix } from './mix'
 import { AudioConfig, audioState, updateAudio } from './mixer'
 import { audioNumber } from './validation'
 
-export const ReverbZone = defineComponent(
-  'audio/ReverbZone',
-  {
-    shape: t.enum(['sphere', 'box']),
-    radius: t.f64({ default: 5, min: 0.00001, unit: 'm' }),
-    halfExtents: t.vec3({ default: [5, 5, 5], min: 0.00001 }),
-    blendDistance: t.f64({ default: 2, min: 0, unit: 'm' }),
-    returnBus: t.string({ required: true }),
-    wet: t.f64({ default: 1, min: 0, max: 1 }),
-    priority: t.i32(),
-    indoor: t.bool(),
-  },
-  {
-    requires: [Transform],
-    description:
-      'Listener-based acoustic zone. Its return is prepared in the mixer; moving between zones never decodes on a frame.',
-  },
-)
+import { ReverbZone } from './zone'
+
+export { ReverbZone } from './zone'
 
 export type AcousticQuery = (from: Float64Array, to: Float64Array, out: Float64Array) => void
 interface ZoneRecord {
@@ -66,6 +49,7 @@ export interface AudioAcousticsValue {
   to: Float64Array
   result: Float64Array
   queries: number
+  managedReturns: Set<string>
   buses: string[]
   time: number
 }
@@ -221,6 +205,7 @@ export const updateAudioAcoustics = defineSystem({
             extents[e + 2]!,
             blend[r]!,
           ) * wet[r]!
+        state.managedReturns.add(buses[r]!)
         if (weight <= 0) continue
         if (state.count >= state.zones.length)
           throw new ShardError('audio/invalid-zone', 'Zone capacity exceeded')
@@ -261,7 +246,12 @@ export const updateAudioAcoustics = defineSystem({
     const mix = world.resource(AudioMixState)
     for (let i = 0; i < mix.fields.length; i++) {
       const field = mix.fields[i]!
-      if (!field.field.startsWith('send/') || !state.buses.includes(field.bus)) continue
+      if (
+        !field.field.startsWith('send/') ||
+        !state.buses.includes(field.bus) ||
+        !state.managedReturns.has(field.sendTarget)
+      )
+        continue
       let weight = 0
       for (let s = 0; s < 4; s++)
         if (field.sendTarget === state.slots[s]!.bus) weight += state.slots[s]!.weight
@@ -388,6 +378,7 @@ export function audioAcousticsPlugin(
         result: new Float64Array(1),
         queries: 0,
         buses: options.buses ?? ['sfx', 'ambience', 'voice'],
+        managedReturns: new Set<string>(),
         time: 0,
       })
       app.addSystems(PostUpdate, updateAudioAcoustics.after(updateAudio))

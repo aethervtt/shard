@@ -95,7 +95,7 @@
     {
       "at": 5,
       "kind": "listener.position",
-      "position": [5, 0, 0]
+      "position": [10, 0, 0]
     },
     {
       "at": 5.5,
@@ -137,6 +137,24 @@
       "target": "score",
       "name": "intensity",
       "value": 0
+    }
+  ],
+  "zones": [
+    {
+      "position": [0, 0, 0],
+      "zone": {
+        "shape": "box",
+        "halfExtents": [4, 3, 4],
+        "returnBus": "room"
+      }
+    },
+    {
+      "position": [10, 0, 0],
+      "zone": {
+        "shape": "box",
+        "halfExtents": [4, 3, 4],
+        "returnBus": "hall"
+      }
     }
   ]
 }

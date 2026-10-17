@@ -19,6 +19,20 @@
           "indoor": true
         }
       }
+    },
+    {
+      "name": "hall",
+      "components": {
+        "core/Transform": {
+          "translation": [10, 0, 0]
+        },
+        "audio/ReverbZone": {
+          "shape": "box",
+          "halfExtents": [4, 3, 4],
+          "returnBus": "hall",
+          "indoor": true
+        }
+      }
     }
   ]
 }

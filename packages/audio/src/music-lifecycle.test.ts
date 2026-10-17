@@ -1,9 +1,10 @@
+import { assetServer } from '@aethervtt/shard-assets'
 import { App } from '@aethervtt/shard-runtime'
 import { TransformPlugin } from '@aethervtt/shard-transform'
 import { describe, expect, it } from 'vitest'
 import { captureAudioCheckpoint, resetAudioForLoad, restoreAudioCheckpoint } from './checkpoint'
 import { AudioClips, audioClip } from './clip'
-import { audioEventsPlugin } from './events'
+import { audioEvents, audioEventsPlugin } from './events'
 import { HeadlessAudioBackend } from './headless'
 import {
   AudioMusicState,
@@ -185,6 +186,73 @@ describe('music ownership and recovery', () => {
     expect(describeMusic(world).transports[0]!.section).toBe('c')
     program.release()
     app.dispose()
+  })
+
+  it('smooths shared parameters without render frames and keeps cadences equivalent', async () => {
+    const run = async (cadence: number) => {
+      const { app, world, backend, definition } = await setup()
+      const globals = world
+        .resource(AudioParameters.store)
+        .add(AudioParameters.deserialize({ parameters: [{ name: 'level', smooth: 0.1 }] }))
+      definition.globals = globals
+      definition.sections[0]!.stems[0]!.curves = [
+        {
+          parameter: 'level',
+          property: 'gainDb',
+          points: [
+            [0, -40],
+            [1, 0],
+          ],
+        },
+      ]
+      const program = await prepareMusic(world, definition)
+      const id = startMusic(world, program)
+      setMusicParameter(world, id, 'level', 1)
+      requestMusicSection(world, id, 'b', { quantize: 'bar' })
+      await ready(program)
+      for (let i = 0; i < 1200; i++) {
+        backend.advance(0.025)
+        if (cadence && i % cadence === 0) app.update(0)
+        if (i === 39) expect(program.globals.values[0]).toBeGreaterThan(0.99)
+      }
+      const trace = world
+        .resource(AudioMusicState)
+        .trace.read()
+        .entries.map(({ frame: _frame, ...entry }) => entry)
+      expect(trace.some((entry) => entry.kind === 'music-transition')).toBe(true)
+      expect(audioEvents(world).globalList).toHaveLength(1)
+      program.release()
+      await app.dispose()
+      return trace
+    }
+    expect(await run(1)).toEqual(await run(7))
+    expect(await run(0)).toEqual(await run(1))
+  })
+
+  it('rejects metadata completions from before a save reset without retaining a program', async () => {
+    const { app, world, backend, definition } = await setup()
+    let complete!: () => void
+    const barrier = new Promise<void>((resolve) => {
+      complete = resolve
+    })
+    assetServer(world).virtual(
+      'delayed-score',
+      'score.audio-music.json',
+      'audio/MusicProgram',
+      async () => {
+        await barrier
+        return definition
+      },
+      { lazy: true },
+    )
+    const preparing = prepareMusic(world, 'score.audio-music.json')
+    resetAudioForLoad(world)
+    complete()
+    await expect(preparing).rejects.toMatchObject({ code: 'audio/music-capacity' })
+    expect(world.resource(AudioMusicState).programs.size).toBe(0)
+    backend.collect()
+    expect(backend.memory().pinned).toBe(0)
+    await app.dispose()
   })
 
   it('restores parameters before scheduling the initial stem gain', async () => {
