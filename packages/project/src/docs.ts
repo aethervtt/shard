@@ -1483,7 +1483,9 @@ spatialization and preserve the originating category's user gate. Event \`tags\`
 only physically rendering voices trigger it by default. Duck rules also include descendant buses.
 
 Parent inserts process the summed children once. Pre/post sends feed named returns, and user
-category mute gates that category's dry and wet output. Delay and convolution tails are finite;
+category mute gates that category's dry and wet output. Apply imported mixer edits with
+\`await configureAudioMixer(world, ref)\`: scalar edits preserve effect history; topology/IR
+changes crossfade within the overlap budget. Delay and convolution tails are finite;
 decoded PCM and generated DSP kernels have separate bounded memory budgets. Snapshots compose
 by priority and stable identity; they do not overwrite user volume settings.
 Player controls apply to master and ordinary direct-child categories; nested/return controls reject.
@@ -1492,6 +1494,7 @@ Use \`setAudioUserBus(world, 'music', { volume: 0.5, muted: false })\` for playe
 are \`effectId/parameter\` (for example \`water/frequency\`), and send fields are \`send/returnBus\`.
 Zones use spheres or world-axis boxes and at most four smoothly handed-off returns. Obstruction
 comes from an injected bounded query provider; headless tests can supply deterministic queries.
+Optional \`gainCurve\` and \`lowpassCurve\` map transmission to dB and Hz.
 
 Music programs use decoded stems, fixed tempo/meter, source sample markers and a 960-PPQ grid.
 Rate conform is explicit and pitch changing, bounded by authored cents. Prepare then start a

@@ -3,6 +3,7 @@ import type { AssetRef } from '@aethervtt/shard-core'
 import { App } from '@aethervtt/shard-runtime'
 import { TransformPlugin } from '@aethervtt/shard-transform'
 import { expect, it } from 'vitest'
+import { preloadSound } from './api'
 import { audioClip } from './clip'
 import { AudioCollection, AudioEvent } from './event-assets'
 import { audioEvents, audioEventsPlugin, playAudioEvent, prepareAudio } from './events'
@@ -114,6 +115,8 @@ it('resolves path-only handles and GUID collections before store lookup and shar
     )
     const byGuid = await prepareAudio(world, 'collection-guid')
     expect(byGuid.events[0]).toBe(lease.events[0])
+    preloadSound(world, handle('AudioClip', 'tone.wav'))
+    expect(backend.preloaded).toHaveLength(1)
     const id = playAudioEvent(world, handle(AudioEvent.name, 'tone.audio-event.json'))
     app.update(0.01)
     expect(audioEvents(world).instances.find((instance) => instance?.id === id)?.key).toBe(

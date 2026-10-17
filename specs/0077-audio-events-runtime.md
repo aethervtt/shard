@@ -177,8 +177,8 @@ skip-with-diagnostic policy. Ordinary one-shots do not replay on load; user volu
 ```ts
 app.addPlugin(audioPlugin({ backend: platform.audio }))
 app.addPlugin(audioEventsPlugin({ maxInstances: 256, decodedBudgetMiB: 64 }))
-const lease = await prepareAudio(world, { path: 'data/audio/ship.audio-collection.json' })
-const engine = playAudioEvent(world, { path: 'data/audio/engine.audio-event.json' }, {
+const lease = await prepareAudio(world, 'data/audio/ship.audio-collection.json')
+const engine = playAudioEvent(world, 'data/audio/engine.audio-event.json', {
   entity: ship, parameters: { rpm: 0.2 }, clock: 'simulation',
 })
 setAudioParameter(world, engine, 'rpm', 0.8)
@@ -248,3 +248,14 @@ types. `game.audioLog()` stays compatible and gains instance/parameter assertion
 Session-global smoothing advances once from the backend clock, including scheduler wakes without
 visual frames. Local event parameters follow their event decision clock. This prevents a shared
 music/mixer parameter from freezing or advancing twice when frame cadence changes.
+
+## As built
+
+Catalog references canonicalize to GUID before lookup, including path-only schema handles and
+collections requested by GUID. GUID identity takes precedence over a stale path. Tauri's scoped
+media URL resolver is injected by its host; without one it retains encoded-byte playback and does
+not advertise an unusable URL. Public instance IDs are monotonic and never reused; internal
+generations reject stale asynchronous work.
+
+Acceptance evidence and hosted-hardware measurement limits are recorded in
+[the implementation checklist](research/audio-implementation-checklist.md).

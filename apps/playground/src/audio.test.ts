@@ -162,6 +162,7 @@ describe('audio offline browser evidence', () => {
             globalThis as unknown as { inspectLiveAudioProbe: typeof inspectLiveAudioProbe }
           ).inspectLiveAudioProbe(),
         )
+        expect(waiting.presentation).toBe('blocked')
         expect(waiting.time).toBe(suspended.time)
         expect(waiting.memory.nodes).toBe(suspended.memory.nodes)
         await page.click('#audio-resume')
@@ -177,6 +178,7 @@ describe('audio offline browser evidence', () => {
             globalThis as unknown as { inspectLiveAudioProbe: typeof inspectLiveAudioProbe }
           ).inspectLiveAudioProbe(),
         )
+        expect(resumed.presentation).toBe('rendering')
         const destination = process.env.SHARD_AUDIO_EVIDENCE
         if (destination) {
           await mkdir(destination, { recursive: true })

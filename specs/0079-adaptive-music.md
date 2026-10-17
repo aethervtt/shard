@@ -78,8 +78,8 @@ For each boundary, calculate absolute time from epoch + tick / 960 × 60 / BPM, 
 nearest output sample once. This avoids accumulated sample-rounding drift at fractional BPM.
 All stems use the same rounded timestamp. Call scheduled source start and gain automation with
 that timestamp; do not play stems in separate immediate calls. Backend telemetry distinguishes
-requested/scheduled times, engine-observed callbacks and output latency estimates. A callback
-arrival time does not claim to measure the moment a speaker emitted a sample.
+requested/scheduled times and engine-observed presentation state. Device output latency remains
+unmeasured; a callback arrival time does not claim when a speaker emitted a sample.
 
 Default lookahead is 100 ms, scheduler wake interval 25 ms, minimum commit lead 20 ms; these
 are configurable, reported settings. Wake scheduling is a platform service independent of visual
@@ -131,8 +131,8 @@ explicit transport time so saving cannot race scheduler callbacks.
 
 ```ts
 app.addPlugin(audioMusicPlugin({ lookahead: 0.1, commitLead: 0.02 }))
-const music = await prepareMusic(world, { path: 'data/audio/exploration.audio-music.json' })
-const transport = startMusic(world, music, { section: 'explore', clock: 'realtime' })
+const music = await prepareMusic(world, 'data/audio/exploration.audio-music.json')
+const transport = startMusic(world, music, { section: 'explore' })
 setMusicParameter(world, transport, 'intensity', 0.8)
 requestMusicSection(world, transport, 'combat', { quantize: 'bar' })
 playMusicStinger(world, transport, 'discovery', { quantize: 'beat' })
@@ -195,3 +195,13 @@ Errors include `audio/music-invalid`, `audio/music-unprepared`, `audio/music-cap
 - None blocking this initial scope. Deferred: tempo maps, sample-accurate streamed stems and
   live time stretching. AudioWorklet streaming requires its own codec/buffer/underrun design;
   secure contexts are required, and SharedArrayBuffer transport additionally needs isolation.
+
+## As built
+
+Music always follows backend audio time; it has no game-clock option. `startMusic({ paused: true })`
+prepares an initially silent transport. Save restoration holds all transports paused until every
+program/global bank is ready, then resumes; obsolete destinations are discarded on entry fallback.
+Missing non-entry clips also fall back to the prepared entry with a diagnostic.
+
+Acceptance evidence and hosted-hardware measurement limits are recorded in
+[the implementation checklist](research/audio-implementation-checklist.md).

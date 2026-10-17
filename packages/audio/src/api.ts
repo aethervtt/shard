@@ -11,6 +11,7 @@ import {
   pickInRange,
   unknownBus,
 } from './mixer'
+import { resolveAudioRef } from './references'
 import { audioNumber, audioRange } from './validation'
 
 /** A [min, max] range: each play picks a value in it. */
@@ -147,7 +148,7 @@ export function playSound(
  */
 export function preloadSound(world: World, clip: AssetRef | AudioClipAsset): void {
   const state = audioState(world)
-  const asset = isClip(clip) ? clip : world.resource(AudioClips).get(clip)
+  const asset = isClip(clip) ? clip : world.resource(AudioClips).get(resolveAudioRef(world, clip))
   if (asset) state.backend.preload?.(asset)
 }
 

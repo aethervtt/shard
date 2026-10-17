@@ -206,8 +206,16 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
   private stateChanged = (): void => {
     this.maintainGraphs()
     if (this.state === 'running')
-      for (const voice of this.voices.values())
+      for (const voice of this.voices.values()) {
         if (!voice.started && !voice.loading) this.start(voice)
+        else if (voice.started && voice.presentation.state === 'blocked')
+          voice.presentation.state =
+            voice.presentation.scheduledAt > this.context.currentTime ? 'scheduled' : 'rendering'
+      }
+    else
+      for (const voice of this.voices.values())
+        if (voice.presentation.state === 'rendering' || voice.presentation.state === 'scheduled')
+          voice.presentation.state = 'blocked'
   }
 
   async resume(): Promise<void> {
@@ -635,7 +643,9 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
 
   presentation(id: number): Readonly<AudioPresentation> | undefined {
     const status = this.statuses.get(id)
-    if (status?.state === 'scheduled' && this.context.currentTime >= status.scheduledAt)
+    if (status && this.state !== 'running' && this.voices.has(id)) {
+      if (status.state === 'rendering' || status.state === 'scheduled') status.state = 'blocked'
+    } else if (status?.state === 'scheduled' && this.context.currentTime >= status.scheduledAt)
       status.state = 'rendering'
     return status
   }

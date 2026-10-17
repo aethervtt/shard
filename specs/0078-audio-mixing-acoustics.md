@@ -39,7 +39,7 @@ topologically sorted graph, with one master output per 0077 session. Each ordina
 one parent; additional edges are explicit sends to return buses. Return buses have one output
 parent and may send onward only if the complete graph stays acyclic. Reject unknown destinations,
 self routes and cycles with the involved asset/edge paths. Cap at 64 buses, 128 sends and 128
-inserts per session by default; exceeding a configurable cap fails graph compilation.
+inserts per session as schema safety limits; a configurable node cap also bounds graph compilation.
 
 Signal order is clip → voice gain/filter → spatializer → bus input → ordered bus inserts →
 bus fader → parent. A pre-fader send taps after inserts, before the fader; post-fader taps after
@@ -115,8 +115,8 @@ weight in [0,1]. Unmentioned properties stay untouched. Targets are `offset` (ga
 dB/semitones only) or `override`. Resolve overrides from low to high priority; at the same
 priority, form a weighted mean target and blend from the lower-priority result by
 `min(1, sum(weights))`. Then add all weighted offsets. Equal priority is independent of activation
-order. Continuous values interpolate in schema units; frequencies use log Hz. Booleans select
-the highest-priority target with effective weight ≥ 0.5, ties by stable snapshot asset ID.
+order. Targets are numeric mixer fields; continuous values interpolate in schema units and
+frequencies use log Hz. Player mute is a separate user control, outside snapshot composition.
 
 Attack/release animate weight, not stored asset values. Removing one snapshot recomputes the
 composition from current inputs, avoiding stale restoration of another snapshot's state.
@@ -155,9 +155,9 @@ occlusion callback supported without requiring both paths to run or applying gai
 ### API sketch
 
 ```ts
-app.addPlugin(audioMixerPlugin({ mixer: { path: 'data/audio/main.audio-mixer.json' } }))
+app.addPlugin(audioMixerPlugin({ mixer: 'data/audio/main.audio-mixer.json' }))
 app.addPlugin(audioAcousticsPlugin({ query: physicsTransmission, maxQueriesPerFrame: 16 }))
-const underwater = acquireAudioSnapshot(world, { path: 'data/audio/underwater.audio-snapshot.json' })
+const underwater = await acquireAudioSnapshot(world, 'data/audio/underwater.audio-snapshot.json')
 setAudioSnapshotWeight(world, underwater, 0.75)
 releaseAudioSnapshot(world, underwater) // uses authored release
 setBus(world, 'music', { volume: 0.5 }) // compatibility control, not snapshot mutation
@@ -167,7 +167,7 @@ setBus(world, 'music', { volume: 0.5 }) // compatibility control, not snapshot m
 
 `audio.describe` exposes routes, inserts, effective/user/authored gains, snapshot contributions,
 zones, obstruction ages and capabilities. `audio.meters` reports optional bus peak/RMS sampled
-at at most 20 Hz, with domain/window/sample rate and dropped samples. A headless backend returns
+at at most 20 Hz, with bus identity, window size, sample rate and audio timestamp. A headless backend returns
 `available: false` for signal meters; analytical gains are never labeled measured loudness.
 Main-thread work uses 0074 spans; browser DSP CPU time is unknown unless actually instrumented.
 
@@ -227,3 +227,15 @@ Errors include `audio/mixer-cycle`, `audio/invalid-effect`, `audio/mixer-capacit
 - None blocking. Deferred: portals/diffraction, multiple listeners, true peak/loudness standards,
   custom AudioWorklet DSP and external sidechain compression. Add only with dedicated requirements,
   capability contracts and measurements; do not imply FMOD DSP/plugin parity.
+
+## As built
+
+`configureAudioMixer` is the explicit apply boundary after importing an edited mixer. Compatible
+fader/effect/send edits preserve nodes, unchanged automation and acoustic factors; changed IR bytes
+or topology crossfade to a replacement within the overlap budget. Snapshot targets are numeric;
+player mute stays outside gameplay composition. Obstruction `gainCurve` and `lowpassCurve` options
+replace the default transmission mapping without adding a physics dependency.
+
+Meters are pull-based 2,048-sample windows refreshed at most 20 Hz, with timestamp/sample rate;
+they do not infer dropped device samples. Output-device latency and browser DSP CPU remain
+unmeasured. Acceptance evidence is in [the implementation checklist](research/audio-implementation-checklist.md).

@@ -1,72 +1,78 @@
 # Audio implementation evidence
 
-Working checklist for 0077–0079. An implementation or a passing logical test alone does not
-establish signal behavior. Acceptance checkboxes in the specs remain unchecked until the final
-evidence review.
+Acceptance map for specs [0077](../0077-audio-events-runtime.md),
+[0078](../0078-audio-mixing-acoustics.md), and [0079](../0079-adaptive-music.md).
+Tests distinguish logical decisions, rendered signals, resource ownership, and performance.
+Builds and strict allocation/performance runs execute in GitHub Actions.
 
-## Recorded checkpoints
+## Acceptance map
 
-- Branch: `feat/audio-events-mixing-music`.
-- First implementation checkpoint: `290f1de`.
-- First remote evidence run: https://github.com/aethervtt/shard/actions/runs/39073776316
-  - Passed repository typecheck/lint, audio/assets/save correctness and Chromium signal probes.
-  - Passed build.
-  - Failed strict 48-source allocation assertion (one collection); investigating and fixing.
-  - Full bundle 3722.5 KiB exceeded prior 3643.8 KiB allowance; renderer-min remained within its
-    budget. Review optional loading and measured feature cost before updating the full allowance.
-  - Packaging smoke was not reached after the size failure.
-- Local correctness: 48 audio tests before lifecycle additions; five additional lifecycle tests
-  pass (revision replacement, global release/cooldown bounds, delayed cancellation/disposal,
-  sustained checkpoint restoration, no-render-frame realtime pumping).
-- Local Chromium probes passed: hierarchical gain, low-pass rejection, delay timing, simultaneous
-  decoded starts, equal-power fade and shared-session cache ownership.
-- Builds and strict benchmarks run in Actions, per the user's preference. Hosted-machine numbers
-  must retain the actual CPU identity; they are not measurements of the named laptop/desktop.
+Paths below are relative to the repository root. The numbered rows follow each spec's
+acceptance criteria in order; one row may require several complementary tests.
 
-## Verified runtime checkpoint
+| Spec / criterion | Implementation and evidence |
+| --- | --- |
+| 0077 / 1 — legacy playback and live edits | `packages/audio/src/audio.test.ts`, `runtime.test.ts`: all 0035 scenarios, live route/loop/spatial edits, x=10/refDistance=5 produces gain 0.5 without a second logical start. |
+| 0077 / 2 — schema/API validation | `runtime.test.ts`, `events.test.ts`, `mix.test.ts`, `music.test.ts`; schema-derived data import validation in `packages/assets/src/data.test.ts`. Invalid input fails before admission/stealing. |
+| 0077 / 3 — authored footsteps, engine and spell | `examples/audio-lab/assets/`; `apps/cli/src/audio-preview.test.ts` renders the authored showcase twice, compares exact decisions and PCM within two 16-bit LSBs. |
+| 0077 / 4 — parameters, selectors, gates and concurrency | `events.test.ts`, `event-lifecycle.test.ts`, `lifecycle.test.ts`, `mix.test.ts`: shared globals, smoothing, release/reopen, command-ordered admission, cooldowns, validation before stealing, sequence history and per-instance sends. |
+| 0077 / 5 — readiness, cancellation and autoplay | `lifecycle.test.ts`, `event-lifecycle.test.ts`, `music-lifecycle.test.ts`; `apps/playground/src/audio.test.ts` uses a real trusted browser gesture, invalid encoded bytes, suspension and resumed audio-clock retirement. |
+| 0077 / 6 — clocks and virtualization | `event-lifecycle.test.ts`: scale 0/0.5/2, default and pitch-linked cursors; `events.test.ts` and `lifecycle.test.ts`: pause, virtual state and no-frame realtime pumping. |
+| 0077 / 7 — independent sessions | `apps/playground/src/audio-probes.ts`: two listener poses produce opposite panning, shared decode survives one session's disposal, 100-session churn returns owned counters to baseline, host group reservations arbitrate atomically. |
+| 0077 / 8 — collection/cache/media ownership | `runtime.test.ts`, `references.test.ts`, asset lazy-byte tests; browser probes measure shared/collected decoded bytes and owned Blob URL 1→0 versus external URL ownership 0. Tauri media URL resolution is an optional injected host capability. |
+| 0077 / 9 — revision and save lifecycle | `event-lifecycle.test.ts`, `lifecycle.test.ts`, `packages/save/src/audio-save.test.ts`: pinned revisions, source GUID, sustained state, cooldown/history rewind, legacy saves, stale async completions and no transient replay. |
+| 0077 / 10 — bounded retention/allocation | `runtime.test.ts`: 36,000 frames of churn and saturated 4,096-record trace; strict warmed allocation checks in `perf.test.ts` and `advanced-perf.test.ts`. |
+| 0077 / 11 — registered performance | `bench/perf/budgets.json`: `audio/update`, `audio/update-virtual`, `audio/events`, `audio/commands`; Actions report preserves actual CPU identity and enforcement state. |
+| 0078 / 1 — hierarchical routing and parent inserts | `mix.test.ts`; browser hierarchy signal and two-child compressor versus a single equivalent summed input. |
+| 0078 / 2 — validation and transactional edits | `mix.test.ts`, `acoustics.test.ts`: invalid topology keeps old graph, scalar edits retain nodes/zone factors, changed IR bytes rebuild. Browser scalar edit probe verifies a previously excited delay tail survives a fader edit with no replacement-node capacity. |
+| 0078 / 3 — sends and category controls | Browser pre/post-send, independent-instance-send and domain-tail probes; mute suppresses one category's old/new wet output while unrelated old/new music remains audible. |
+| 0078 / 4 — snapshot composition | `mix.test.ts`: equal-priority order independence, overlapping handles, user volume/mute, current-base restoration and full-duration weight fades without visual frames. |
+| 0078 / 5 — measured filters/envelopes/tails | Browser low-pass rejection, one-sample delay timing, finite delay/reverb caps, category-tail retirement and native fades. These use actual OfflineAudioContext output. |
+| 0078 / 6 — zones and rebase | `acoustics.test.ts`: five-zone rank swap, four slots, 100 ms handoff, unchanged influence/Doppler after floating-origin rebase; authored room→empty→hall preview trace. |
+| 0078 / 7 — bounded queries | `acoustics.test.ts`: 512 emitters, at most 16 provider calls/frame, observable stale age and optional provider. |
+| 0078 / 8 — preview and meters | `preview.test.ts` protocol roundtrip/missing-host error; `apps/cli/src/audio-preview.test.ts` actual WAV, decisions, peak/RMS, clipping/nonfinite counts; headless meters report unavailable. |
+| 0078 / 9 — runnable authored showcase | `examples/audio-lab`: two rooms, underwater/dialogue/pause snapshots, live RPM and intensity controls; `apps/cli/src/audio-project.test.ts` opens the real project and reloads its script without duplicate sustained events or music. |
+| 0078 / 10 — performance | `advanced-perf.test.ts`: 32 buses/64 inserts/16 snapshots and 64 voices/32 zones; `audio/mix`, `audio/acoustics` registered keys and strict warmed allocation checks. |
+| 0079 / 1 — authored adaptive program | Audio-lab four-stem exploration/combat program and stinger; authored CLI preview and project lifecycle tests. No physics dependency. |
+| 0079 / 2 — render cadence independence | `music-lifecycle.test.ts`: equal controls/readiness across different frame cadences and shared smoothing without frames. |
+| 0079 / 3 — start alignment/long absolute grid | Browser four-impulse alignment; `music.test.ts` checks 123 BPM after 30 simulated minutes within one sample of the absolute formula. |
+| 0079 / 4 — actual loop period/compound meter | Browser renders 60 seconds at 123 BPM, compares every detected peak and rejects extra peaks; `music.test.ts` validates explicit rate conform and exact 3/8 and 7/8 bar ticks. |
+| 0079 / 5 — transitions/fades/stingers/reservations | `music.test.ts`, `music-lifecycle.test.ts`; browser actual MusicProgram linear/equal-power crossfades, parameter change during fade, relative stinger delay, host reservation rejection and group stealing. |
+| 0079 / 6 — missed deadline | `music.test.ts`: injected 250 ms stall reports exactly one miss and retains the current loop; browser evidence separately verifies scheduled sources. |
+| 0079 / 7 — cancellation/seek/pause | `music-lifecycle.test.ts`: cancellation before/after promotion, failed readiness recovery, rules after resume/seek, per-transport stinger histories; browser pause output is silent and suspended audio time/tails remain frozen. |
+| 0079 / 8 — no-frame scheduling/capabilities | `music.test.ts`, `music-lifecycle.test.ts`: 30 seconds without visual updates, capability rejection before admission and stale preparation rejection. |
+| 0079 / 9 — save/load | `packages/save/src/audio-save.test.ts`: non-entry section, phase, parameters, paused/running variants, committed destination and old voice cleanup. `music-lifecycle.test.ts`: all preparations finish before any restored native source starts, changed/missing section fallback retains entry playback. |
+| 0079 / 10 — performance | `advanced-perf.test.ts`: eight eight-stem transports after 32 request replacements; `audio/music-schedule` span/key, strict warmed allocation check and separately observable deadline misses. |
 
-- Commit `d8e3ca44e33ce0838bccf36d6510c072a07cd868`: all jobs passed in
-  https://github.com/aethervtt/shard/actions/runs/39076437602.
-- Passed repository typecheck/lint; audio/assets/save correctness; real Chromium signals;
-  strict audio allocation/performance scenarios; build, bundle size and release smoke.
-- Artifacts: `audio-signals-d8e3ca44e33ce0838bccf36d6510c072a07cd868` and
-  `audio-performance-d8e3ca44e33ce0838bccf36d6510c072a07cd868` in that run. Hosted timings retain
-  their actual machine identity. These are not named-hardware budget measurements.
-- Local audio correctness: 78 tests across 12 files. New lifecycle regression evidence covers
-  command-ordered admission, binding validation before stealing, release-time gate reopening,
-  scale 0/0.5/2 cursors, no-frame blocked expiry, history across lease release, revision-aware
-  checkpoints, audible music cancellation before/after reconciliation, rules after resume/seek,
-  failed preparation cleanup, three branches under a two-section PCM budget and restored gains.
-- The next checkpoint adds authored browser preview, CLI/MCP integration, generated guides and
-  the runnable audio-lab example. Its new end-to-end tests are intentionally run in CI because
-  project import compiles project scripts; no local build or strict benchmark was run.
+Additional integration checks cover schema/provides/dependency direction, generated audio guidance,
+CLI/MCP method registration, bundle size and release-package installation/use. `references.test.ts`
+covers path-only handles across every authored asset type, collections addressed by GUID, shared
+canonical global banks, and GUID precedence over an outdated path.
 
-## Remaining implementation and evidence review
+## Measured evidence and limits
 
-- [ ] Complete every acceptance scenario in 0077, 0078 and 0079, linking each to test/artifact.
-- [ ] Event assets: surface switch, RPM blending, layered spell; all selectors/concurrency/gates.
-- [ ] Validation parity and semantic importer checks, invalid hot-reload transaction preservation.
-- [ ] Global parameter sharing in music/mixing; per-event send automation.
-- [ ] Preparation deduplication, asset pins, in-flight revision ordering and all capacity races.
-- [ ] Admission before side effects; layer-ID RNG independence and stable GUID cache keys.
-- [ ] Autoplay expiry/restart/wait, codec failures, explicit listener selection, host arbitration.
-- [ ] Default/pitch-linked clocks at 0/0.5/2; pause and virtualization without cursor/reroll errors.
-- [ ] Session listener panning, 100-session disposal churn, Blob URL and lazy-media ownership.
-- [ ] Tauri optional scoped media URL resolver; existing hosts must not advertise broken URLs.
-- [ ] Full save integration tests and missing-revision diagnostic/fallback behavior.
-- [ ] Ten-minute churn and packed legacy telemetry; no steady-state allocations.
-- [ ] Mixer snapshot value validation, domains, return controls, aggregate parent compressor.
-- [ ] Graph replacement input crossfade, bounded tails, meter reconnect and overlapping node caps.
-- [ ] Finite effect-tail cap; pre/post sends and unrelated category tail mute signal tests.
-- [ ] Four-zone hysteresis/handoff and floating-origin tests; bounded obstruction queries.
-- [ ] CLI/MCP preview and all command wrappers; authored events/music timeline preview.
-- [ ] Runnable room/underwater/dialogue/pause and exploration/combat demos with assets.
-- [ ] Music authored predicate rules, queued destination markers, public-operation reconciliation.
-- [ ] Music cancellation after promotion/stingers, pause guards, transactional automation rollback.
-- [ ] Stinger readiness deadlines, overlap replacement, no-repeat and release semantics.
-- [ ] Actual browser 123-BPM loop-period, transition-envelope and long-grid evidence.
-- [ ] Music source/memory reservations and lazy candidate-section retirement.
-- [ ] Register 0075 budget keys and meaningful warmed event/mix/acoustic/music benchmarks.
-- [ ] Generated docs and gameplay assertions; schema/provides/dependency tests.
-- [ ] Complete repository tests and all required CI; inspect artifacts against the final commit.
-- [ ] Open PR after implementation checklist completion; green required checks, then merge.
+The machine-readable record is [audio-runtime-evidence.json](audio-runtime-evidence.json).
+Downloadable Actions artifacts contain the complete performance report, browser signal/live
+measurements, rendered showcase WAV and its JSON decisions/measurements. The committed record
+identifies its tested runtime commit; later documentation-only commits do not change that runtime.
+
+- Web Audio evidence measures Chromium's rendered samples, not speakers, device latency or subjective
+  HRTF quality. Preview control dispatch is 60 Hz aligned to 128-sample render quanta; native music
+  starts and envelopes use audio timestamps. Requested and actual control times are recorded.
+- Hosted CPU timings retain the detected machine identity. The named laptop/desktop budget entries
+  remain proposed until measured on those machines; unknown-host timings are reported against the
+  reference allowance, not falsely marked as named-hardware enforcement. Allocation checks still run.
+- Browser decode/node memory overhead, DSP CPU, network buffering, acoustic-provider cost and real
+  device output latency are not included in engine-owned PCM/node counts or warmed engine timings.
+- No claim of FMOD plugin/DAW parity, streamed sample-accurate stems, time stretching, portals,
+  multilistener mixing within one session, or cross-client synchronized playback is made.
+
+## Completion gates
+
+- [x] Implement event/runtime, mixer/acoustics and adaptive-music contracts with schema-backed APIs.
+- [x] Provide authored assets, generated guidance, CLI/MCP preview and the runnable audio-lab project.
+- [x] Add logical, lifecycle, resource-ownership, browser-signal and warmed performance tests.
+- [ ] Verify final audio evidence pipeline, inspect its artifacts and refresh the committed record.
+- [ ] Pass the full repository pipeline and mark 0077–0079 implemented.
+- [ ] Open the PR after the implementation/evidence checklist is complete.
+- [ ] Pass all PR checks and merge the authorized change.
