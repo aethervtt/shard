@@ -40,6 +40,8 @@ export const audioEventMethods: AppMethod[] = [
       'Start an authored event. Returns a logical instance ID; inspect presentation separately.',
     params: defineSchema('audio/EventPlayParams', {
       event: t.string({ required: true }),
+      entity: t.entity(),
+      pitchLinked: t.bool(),
       parameters: t.json({ default: {} }),
       position: t.vec3(),
       clock: t.enum(['simulation', 'realtime']),
@@ -47,6 +49,8 @@ export const audioEventMethods: AppMethod[] = [
     }),
     handler: ({ world }, p) => ({
       instance: playAudioEvent(world, p.event as string, {
+        entity: typeof p.entity === 'number' && p.entity >= 0 ? p.entity : undefined,
+        pitchLinked: p.pitchLinked as boolean,
         parameters: p.parameters as Record<string, number | string>,
         position: p.position as number[],
         clock: p.clock as 'simulation' | 'realtime',
@@ -86,7 +90,7 @@ export const audioEventMethods: AppMethod[] = [
   {
     name: 'audio.events.inspect',
     description: 'Inspect logical instances, parameters and bounded decision trace.',
-    params: defineSchema('audio/EventsInspectParams', {}),
-    handler: ({ world }) => describeAudioEvents(world),
+    params: defineSchema('audio/EventsInspectParams', { cursor: t.u32() }),
+    handler: ({ world }, p) => describeAudioEvents(world, p.cursor as number),
   },
 ]

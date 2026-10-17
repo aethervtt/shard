@@ -15,9 +15,10 @@ It needs no GPU or audio output. Listen to the WAV and inspect its adjacent `.wa
 `shard dev` starts an automatic tour; click the page to unlock browser audio.
 
 The assets demonstrate surface-selected footsteps, two RPM layers with smoothed gain/pitch,
-a delayed two-layer spell, a room return, underwater/dialogue/pause snapshots, and four decoded
+a delayed two-layer spell, two room returns, underwater/dialogue/pause snapshots, and four decoded
 123-BPM stems transitioning between exploration and combat with a beat-aligned stinger.
-The scene includes a box reverb zone. Its box is aligned to world axes.
+The scene includes two box reverb zones aligned to world axes. The preview moves from the first
+room into the hall and records the bounded fade between their returns.
 
 The preview applies controls at a deterministic 60-Hz evaluation rate, rounded upward to the
 128-sample browser render quantum; its trace records requested and actual control times.

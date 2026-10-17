@@ -9,6 +9,7 @@ import {
 
 export const AudioEventFields = {
   mode: t.enum(['oneshot', 'sustain']),
+  tags: t.list(t.string()),
   parameters: t.list(t.struct(AudioParameterFields)),
   globals: t.handle('audio/AudioParameters'),
   bus: t.string({ default: 'sfx' }),
@@ -82,6 +83,14 @@ export type AudioEventLayer = AudioEventDefinition['layers'][number]
 
 export function validateAudioEvent(event: AudioEventDefinition): void {
   validateParameters(event.parameters)
+  if (
+    event.tags.length > 32 ||
+    event.tags.some((tag) => !tag) ||
+    new Set(event.tags).size !== event.tags.length
+  )
+    throw new ShardError('audio/invalid-event', 'Events support at most 32 unique nonempty tags', {
+      path: '/tags',
+    })
   if (!event.layers.length || event.layers.length > 16)
     throw new ShardError('audio/invalid-event', 'Events require 1–16 layers', { path: '/layers' })
   const names = new Set<string>()

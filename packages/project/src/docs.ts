@@ -1477,10 +1477,16 @@ starts their timeline again after unlock. Choose an explicit AudioListener with 
 the fallback is the lowest live listener entity ID. There is one audio session per app/protocol target.
 
 Mixer domain buses (music/sfx/ui/voice) are direct children of master. Put submixes below them.
+Each event layer can declare up to eight \`sends\` with \`target\`, \`gainDb\`, and an optional
+parameter/points curve. Declare those routes in its mixer bus first. Per-instance sends tap after
+spatialization and preserve the originating category's user gate. Event \`tags\` can drive ducking;
+only physically rendering voices trigger it by default. Duck rules also include descendant buses.
+
 Parent inserts process the summed children once. Pre/post sends feed named returns, and user
 category mute gates that category's dry and wet output. Delay and convolution tails are finite;
 decoded PCM and generated DSP kernels have separate bounded memory budgets. Snapshots compose
 by priority and stable identity; they do not overwrite user volume settings.
+Player controls apply to master and ordinary direct-child categories; nested/return controls reject.
 Use \`setAudioUserBus(world, 'music', { volume: 0.5, muted: false })\` for player settings;
 \`setBus\` remains the independent gameplay fader. Effect target fields
 are \`effectId/parameter\` (for example \`water/frequency\`), and send fields are \`send/returnBus\`.

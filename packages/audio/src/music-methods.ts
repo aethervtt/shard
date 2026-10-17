@@ -117,7 +117,7 @@ export const audioMusicMethods: AppMethod[] = [
   {
     name: 'audio.music.inspect',
     description: 'Inspect transport phase, active stems, readiness, deadlines and trace.',
-    params: defineSchema('audio/MusicInspectParams', {}),
-    handler: ({ world }) => describeMusic(world),
+    params: defineSchema('audio/MusicInspectParams', { cursor: t.u32() }),
+    handler: ({ world }, p) => describeMusic(world, p.cursor as number),
   },
 ]

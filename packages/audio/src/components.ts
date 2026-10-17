@@ -112,6 +112,8 @@ export interface AudioBus {
 }
 
 export interface AudioDuck {
+  tags?: readonly string[]
+  includeVirtual?: boolean
   /** How much of the gain is taken away while ducked: 0.3 plays at 70%. */
   by: number
   /** Seconds to go down once a trigger voice starts. */

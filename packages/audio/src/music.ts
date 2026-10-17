@@ -124,6 +124,11 @@ export function validateMusicProgram(program: MusicProgramDefinition): void {
     })
   if (!program.sections.length || program.sections.length > 64)
     throw new ShardError('audio/music-invalid', 'Programs require 1–64 sections')
+  if (program.transitions.length > 256 || program.stingers.length > 64)
+    throw new ShardError(
+      'audio/music-capacity',
+      'Programs support 256 transition rules and 64 stingers',
+    )
   const sections = new Map<string, SectionDefinition>()
   for (const section of program.sections) {
     if (!section.id || sections.has(section.id))
@@ -256,6 +261,7 @@ export interface MusicTransport {
   lastCommand: number
   lastDecision: number
   stingers: { id: number; name: string; at: number; end: number; voices: number[] }[]
+  histories: Map<string, { previous: Int32Array; cursor: number; sequence: number }[]>
   cooldowns: Map<string, number>
   stopped: boolean
   lastWake: number
@@ -402,7 +408,8 @@ export async function prepareMusic(
     const value = store.get(typeof ref === 'string' ? server.resolve(ref) : ref)
     if (!value) throw new ShardError('audio/music-invalid', 'Music program asset is missing')
     source = value
-    key = typeof ref === 'string' ? ref : (ref.guid ?? ref.path ?? '')
+    const canonical = typeof ref === 'string' ? server.resolve(ref) : ref
+    key = canonical?.guid ?? canonical?.path ?? (typeof ref === 'string' ? ref : '')
   }
   const definition = MusicProgram.deserialize(MusicProgram.serialize(source))
   validateMusicProgram(definition)
@@ -552,6 +559,10 @@ export function startMusic(
     runtime = runtimeOf(world)
   if (program.released || state.transports.filter((t) => !t.stopped).length >= 8)
     throw new ShardError('audio/music-capacity', 'Program released or transport capacity reached')
+  let kept = 0
+  for (let i = 0; i < state.transports.length; i++)
+    if (!state.transports[i]!.stopped) state.transports[kept++] = state.transports[i]!
+  state.transports.length = kept
   const section = program.sections.get(options.section ?? program.definition.entry)
   if (!section)
     throw new ShardError('audio/music-unprepared', 'Prepare the entry section before starting')
@@ -578,12 +589,13 @@ export function startMusic(
     lastCommand: 0,
     lastDecision: -1,
     stingers: [],
+    histories: new Map(),
     cooldowns: new Map(),
     stopped: false,
     lastWake: runtime.clock.now(),
     misses: 0,
     persist: options.persist ?? false,
-    rng: new Rng(state.nextTransport),
+    rng: new Rng(audioEvents(world).seed ^ state.nextTransport),
   }
   for (const name in options.parameters) transport.parameters.set(name, options.parameters[name]!)
   if (options.values || options.targets) {
@@ -943,16 +955,34 @@ export async function playMusicStinger(
       )
         throw new ShardError('audio/unknown-bus', `Invalid stinger send ${bus}/${send.target}`)
     }
+  let histories = transport.histories.get(name)
+  if (!histories) {
+    histories = event.histories.map((history) => ({
+      previous: new Int32Array(history.previous.length).fill(-1),
+      cursor: 0,
+      sequence: 0,
+    }))
+    transport.histories.set(name, histories)
+  }
+  const rngBefore = transport.rng.getState()
+  const historyBefore = histories.map((history) => ({
+    previous: history.previous.slice(),
+    cursor: history.cursor,
+    sequence: history.sequence,
+  }))
+  const decisions: { at: number; layer: string; choice: number }[] = []
   const releaseReservation = runtime.reserveVoices(event.definition.layers.length)
   let end = target.at
   try {
+    const commandRng = new Rng(transport.rng.nextU32())
     for (let i = 0; i < event.definition.layers.length; i++) {
       const layer = event.definition.layers[i]!,
-        choices = event.clips[i]!
+        choices = event.clips[i]!,
+        rng = commandRng.fork(layer.id)
       let choice = 0
-      if (layer.selector === 'sequence') choice = event.histories[i]!.sequence++ % choices.length
+      if (layer.selector === 'sequence') choice = histories[i]!.sequence++ % choices.length
       else if (layer.selector !== 'single') {
-        const history = event.histories[i]!
+        const history = histories[i]!
         let exclude = layer.selector === 'no-repeat'
         let total = 0
         for (let c = 0; c < layer.choices.length; c++)
@@ -968,7 +998,7 @@ export async function playMusicStinger(
             layer.id,
           )
         }
-        let pick = transport.rng.float() * total
+        let pick = rng.float() * total
         for (; choice < choices.length - 1; choice++) {
           if (exclude && history.previous.includes(choice)) continue
           pick -= layer.choices[choice]!.weight
@@ -976,17 +1006,13 @@ export async function playMusicStinger(
         }
       }
       if (layer.selector === 'no-repeat') {
-        const history = event.histories[i]!
+        const history = histories[i]!
         history.previous[history.cursor++ % history.previous.length] = choice
       }
       const clip = choices[choice]!,
         pitch =
-          2 **
-          ((layer.pitchSemitones +
-            transport.rng.range(layer.pitchRandom[0], layer.pitchRandom[1])) /
-            12)
-      const gain =
-        10 ** ((layer.gainDb + transport.rng.range(layer.gainRandom[0], layer.gainRandom[1])) / 20)
+          2 ** ((layer.pitchSemitones + rng.range(layer.pitchRandom[0], layer.pitchRandom[1])) / 12)
+      const gain = 10 ** ((layer.gainDb + rng.range(layer.gainRandom[0], layer.gainRandom[1])) / 20)
       const at = target.at + layer.delay,
         duration = layer.duration || clip.duration / pitch
       const voice = runtime.play({
@@ -1015,14 +1041,29 @@ export async function playMusicStinger(
           duration: Math.min(duration, layer.release),
         })
       end = Math.max(end, at + duration)
-      state.trace.write(0, at, 'music-stinger-layer', command, layer.id, choice)
+      decisions.push({ at, layer: layer.id, choice })
     }
   } catch (error) {
+    transport.rng.setState(rngBefore)
+    for (let i = 0; i < histories.length; i++) {
+      histories[i]!.previous.set(historyBefore[i]!.previous)
+      histories[i]!.cursor = historyBefore[i]!.cursor
+      histories[i]!.sequence = historyBefore[i]!.sequence
+    }
     for (const voice of voices) runtime.cancel(voice)
     throw error
   } finally {
     releaseReservation()
   }
+  for (const decision of decisions)
+    state.trace.write(
+      0,
+      decision.at,
+      'music-stinger-layer',
+      command,
+      decision.layer,
+      decision.choice,
+    )
   if (definition.overlap === 'replace') {
     for (let i = transport.stingers.length - 1; i >= 0; i--) {
       const stinger = transport.stingers[i]!
@@ -1249,7 +1290,7 @@ export function updateMusic(world: World): void {
   state.transports.length = count
 }
 
-export function describeMusic(world: World) {
+export function describeMusic(world: World, cursor = 0) {
   const state = musicState(world),
     now = runtimeOf(world).clock.now()
   for (const transport of state.transports)
@@ -1289,7 +1330,7 @@ export function describeMusic(world: World) {
           ? { id: t.committed.id, at: t.committed.at, section: t.committed.section }
           : null,
       })),
-    trace: state.trace.read(),
+    trace: state.trace.read(cursor),
   }
 }
 

@@ -192,6 +192,8 @@ export function setBus(
 }
 
 export interface DuckOptions {
+  tags?: readonly string[]
+  includeVirtual?: boolean
   /** How much gain to take away while ducked: 0.3 plays the bus at 70%. */
   by: number
   /** Seconds to go down. Default 0.1. */
@@ -227,16 +229,25 @@ export function duck(world: World, bus: string, options: DuckOptions | null): vo
   }
   const when =
     options.when === undefined
-      ? ['voice']
+      ? options.tags?.length
+        ? []
+        : ['voice']
       : Array.isArray(options.when)
         ? options.when
         : [options.when]
   for (const name of when) if (!buses[name]) throw unknownBus(name, buses)
+  if (
+    (options.tags?.length ?? 0) > 32 ||
+    options.tags?.some((tag) => typeof tag !== 'string' || !tag)
+  )
+    throw new ShardError('audio/invalid-duck', 'Duck tags must be at most 32 nonempty strings')
   buses[bus]!.duck = {
     by: options.by,
     attack: options.attack ?? 0.1,
     release: options.release ?? 0.5,
     when,
+    tags: options.tags,
+    includeVirtual: options.includeVirtual,
   }
 }
 
@@ -274,4 +285,11 @@ export function setAudioUserBus(
   if (options.volume !== undefined) current.volume = options.volume
   if (options.muted !== undefined) current.muted = options.muted
   controls[name] = current
+  if (buses[name]!.userDomain !== undefined)
+    audioState(world).backend.runtime!.setMixerValue(
+      name,
+      'userGain',
+      current.muted || buses[name]!.muted ? 0 : current.volume,
+      0,
+    )
 }

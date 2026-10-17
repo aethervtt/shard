@@ -60,10 +60,10 @@ export class HeadlessAudioBackend implements AudioBackend, AudioRuntimeExtension
   private readonly statuses = new Map<number, AudioPresentation>()
   private readonly schedules = new Map<number, { desc: AudioScheduledVoice; end: number }>()
   private readonly prepared = new Map<
-    Uint8Array | string,
+    object | string,
     { pins: number; bytes: number; encoded: number }
   >()
-  private readonly voicePins = new Map<number, Uint8Array | string>()
+  private readonly voicePins = new Map<number, object | string>()
   private budgetBytes: number
   private maxVoices: number
   private mixer: AudioMixerGraph | null = null
@@ -153,8 +153,19 @@ export class HeadlessAudioBackend implements AudioBackend, AudioRuntimeExtension
     }
   }
 
+  private readonly cacheKeys = new WeakMap<Uint8Array, { media: object; decoded: object }>()
+  private cacheKey(clip: AudioClipSource): object | string {
+    if (clip.url) return `${clip.stream ? 'media' : 'decoded'}:${clip.url}`
+    let keys = this.cacheKeys.get(clip.bytes)
+    if (!keys) {
+      keys = { media: {}, decoded: {} }
+      this.cacheKeys.set(clip.bytes, keys)
+    }
+    return clip.stream ? keys.media : keys.decoded
+  }
+
   async prepare(clip: AudioClipSource) {
-    const key = clip.url ?? clip.bytes
+    const key = this.cacheKey(clip)
     let record = this.prepared.get(key)
     const rate = clip.sampleRate ?? 48000
     const channels = clip.channels ?? 1
@@ -449,7 +460,7 @@ export class HeadlessAudioBackend implements AudioBackend, AudioRuntimeExtension
               ? Number.POSITIVE_INFINITY
               : at + (desc.clip.duration - desc.offset) / desc.pitch,
       })
-    const key = desc.clip.url ?? desc.clip.bytes
+    const key = this.cacheKey(desc.clip)
     const prepared = this.prepared.get(key)
     if (prepared) {
       prepared.pins++

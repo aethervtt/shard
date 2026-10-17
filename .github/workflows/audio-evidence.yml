@@ -35,6 +35,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @aethervtt/shard-playground exec playwright install --with-deps chromium
       - run: pnpm typecheck
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
       - run: pnpm --filter audio-lab check
       - run: pnpm lint
       - run: pnpm --filter @aethervtt/shard-audio --filter @aethervtt/shard-assets --filter @aethervtt/shard-save test
@@ -48,6 +49,10 @@ jobs:
         env:
           SHARD_BROWSER_TESTS: 'required'
           SHARD_AUDIO_EVIDENCE: ${{ github.workspace }}/audio-evidence
+      - run: pnpm --filter @aethervtt/shard-cli exec vitest run src/audio-project.test.ts
+        env:
+          SHARD_AUDIO_PROJECT_TESTS: 'required'
+          SHARD_CI: '1'
       - uses: actions/upload-artifact@v4
         if: always()
         with:

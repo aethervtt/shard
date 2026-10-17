@@ -83,6 +83,7 @@ export interface Voice {
   sentLoop: boolean
   sentSpatial: AudioSpatialDesc | null
   /** Event layers own their sample cursor and can survive physical voice stealing. */
+  tags: readonly string[] | null
   managed: boolean
   suppressed: boolean
   virtualizable: boolean
@@ -330,6 +331,7 @@ export function newVoice(state: AudioStateValue, entity: Entity | null, frame: n
     sentBus: '',
     sentLoop: false,
     sentSpatial: null,
+    tags: null,
     managed: false,
     suppressed: false,
     virtualizable: false,
@@ -791,7 +793,28 @@ export const updateAudio = defineSystem({
       let triggered = false
       for (let i = 0; i < voices.length && !triggered; i++) {
         const v = voices[i]!
-        if (!isEnded(v) && v.state !== 'pending' && when.includes(v.bus)) triggered = true
+        if (isEnded(v) || v.state === 'pending' || v.suppressed) continue
+        if (
+          !duck.includeVirtual &&
+          (v.state === 'virtual' ||
+            v.backend < 0 ||
+            (backend.runtime && backend.runtime.presentation(v.backend)?.state !== 'rendering'))
+        )
+          continue
+        let sourceBus = v.bus
+        for (let depth = 0; depth < 64 && sourceBus; depth++) {
+          if (when.includes(sourceBus)) {
+            triggered = true
+            break
+          }
+          sourceBus = buses[sourceBus]?.parent ?? (sourceBus === 'master' ? '' : 'master')
+        }
+        if (!triggered && v.tags && duck.tags)
+          for (let tag = 0; tag < duck.tags.length; tag++)
+            if (v.tags.includes(duck.tags[tag]!)) {
+              triggered = true
+              break
+            }
       }
       const by = Math.min(1, Math.max(0, duck.by ?? 0.5))
       const floor = 1 - by

@@ -1111,6 +1111,7 @@ function updateInstance(
         }
         if (!layer.voice || layer.voice.id <= 0) {
           const voice = newVoice(audio, null, audio.frame)
+          voice.tags = plan.definition.tags
           voice.sends = layer.sends
           voice.managed = true
           voice.fresh = true
@@ -1224,7 +1225,7 @@ export const updateAudioEvents = defineSystem({
       runtime = audioState(world).backend.runtime!
     state.inFrame = true
     try {
-      runtime.advance?.(time.delta)
+      if (time.delta > 0) runtime.advance?.(time.delta)
     } finally {
       state.inFrame = false
     }
@@ -1275,7 +1276,7 @@ export const updateAudioEvents = defineSystem({
   },
 })
 
-export function describeAudioEvents(world: World) {
+export function describeAudioEvents(world: World, cursor = 0) {
   const state = audioEvents(world)
   return {
     transport: world.resource(AudioTransport),
@@ -1285,6 +1286,22 @@ export function describeAudioEvents(world: World) {
       .map((instance) => ({
         id: instance!.id,
         event: instance!.key,
+        mode: instance!.plan?.definition.mode ?? instance!.definition?.mode ?? null,
+        entity: instance!.entity,
+        position: [instance!.x, instance!.y, instance!.z],
+        clock: instance!.clock,
+        pitchLinked: instance!.pitchLinked,
+        layers: instance!.layers.map((layer) => ({
+          id: layer.definition.id,
+          choice: layer.selected,
+          cursor: layer.cursor,
+          voice: layer.voice?.id ?? null,
+          presentation:
+            layer.voice && layer.voice.backend >= 0
+              ? audioState(world).backend.runtime!.presentation(layer.voice.backend)?.state
+              : 'virtual',
+          sends: layer.sends.map((send) => ({ target: send.target, gain: send.gain })),
+        })),
         state: instance!.state,
         error: instance!.error,
         revision: instance!.plan ? hash(instance!.plan.revision) : null,
@@ -1303,7 +1320,7 @@ export function describeAudioEvents(world: World) {
             )
           : {},
       })),
-    trace: state.trace.read(),
+    trace: state.trace.read(cursor),
   }
 }
 

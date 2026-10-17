@@ -10,7 +10,8 @@ import {
   type World,
 } from '@aethervtt/shard-core'
 import type { AudioBusDesc, AudioEffectDesc, AudioMixerGraph } from '@aethervtt/shard-platform'
-import { definePlugin, Time } from '@aethervtt/shard-runtime'
+import { definePlugin } from '@aethervtt/shard-runtime'
+import { AudioCheckpointHooks } from './checkpoint-bridge'
 import { type AudioClipAsset, AudioClips } from './clip'
 import { AudioBuses, AudioUserControls } from './components'
 import { acquireAudioGlobals, audioEvents, releaseAudioGlobals } from './events'
@@ -231,6 +232,8 @@ interface SnapshotHandle {
   removing: boolean
 }
 export interface AudioMixStateValue {
+  lastClock: number
+  wake: (() => void) | null
   definition: AudioMixerDefinition | null
   graph: AudioMixerGraph | null
   fields: MixField[]
@@ -408,6 +411,8 @@ export async function configureAudioMixer(
   state.userSent = new Float64Array(buses.length).fill(Number.NaN)
   for (let i = 0; i < state.snapshots.length; i++) state.snapshots[i]!.indices = mappings[i]!
   const legacy = world.resource(AudioBuses)
+  for (const name of Object.keys(legacy))
+    if (!buses.some((bus) => bus.id === name)) delete legacy[name]
   for (const bus of buses)
     legacy[bus.id] = {
       volume: legacy[bus.id]?.volume ?? 1,
@@ -509,6 +514,7 @@ export function updateAudioMix(world: World, delta: number): void {
   if (!state.graph) return
   const runtime = audioState(world).backend.runtime!,
     handles = state.snapshots
+  state.lastClock = runtime.clock.now()
   for (let i = 0; i < handles.length; i++) {
     const handle = handles[i]!,
       seconds = handle.target < handle.weight ? handle.definition.release : handle.definition.attack
@@ -588,7 +594,14 @@ export function updateAudioMix(world: World, delta: number): void {
 }
 const mixSystem = defineSystem({
   name: 'audio/mix',
-  run: (_state, world) => updateAudioMix(world, world.resource(Time).delta),
+  run: (_state, world) =>
+    updateAudioMix(
+      world,
+      Math.max(
+        0,
+        audioState(world).backend.runtime!.clock.now() - world.resource(AudioMixState).lastClock,
+      ),
+    ),
 })
 
 export function describeAudioMix(world: World) {
@@ -626,6 +639,8 @@ export function audioMixerPlugin(options: { mixer?: AssetRef | string; maxNodes?
       app.world.initResource(AudioMixer.store)
       app.world.initResource(AudioSnapshot.store)
       app.world.insertResource(AudioMixState, {
+        lastClock: audioState(app.world).backend.runtime!.clock.now(),
+        wake: null,
         definition: null,
         graph: null,
         fields: [],
@@ -639,9 +654,19 @@ export function audioMixerPlugin(options: { mixer?: AssetRef | string; maxNodes?
         curves: [],
         scratch: new Float64Array(1),
       })
+      const state = app.world.resource(AudioMixState)
+      state.wake = audioState(app.world).backend.runtime!.clock.wake(() => {
+        if (audioEvents(app.world).inFrame || app.world.tryResource(AudioCheckpointHooks)?.loading)
+          return
+        updateAudioMix(
+          app.world,
+          Math.max(0, audioState(app.world).backend.runtime!.clock.now() - state.lastClock),
+        )
+      }, 0.025)
       app.addSystems(PostUpdate, mixSystem.after(updateAudio))
     },
     dispose(app) {
+      app.world.resource(AudioMixState).wake?.()
       releaseAudioGlobals(audioEvents(app.world), app.world.resource(AudioMixState).globalKey)
     },
     async ready(app) {

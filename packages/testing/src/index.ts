@@ -113,8 +113,8 @@ export class Game {
   /** Audio inspection and cursor-aware traces; assertions remain ordinary test assertions. */
   readonly audio = {
     describe: async (): Promise<Json> => this.call('audio.describe'),
-    events: async (): Promise<Json> => this.call('audio.events.inspect'),
-    music: async (): Promise<Json> => this.call('audio.music.inspect'),
+    events: async (cursor = 0): Promise<Json> => this.call('audio.events.inspect', { cursor }),
+    music: async (cursor = 0): Promise<Json> => this.call('audio.music.inspect', { cursor }),
     mix: async (): Promise<Json> => this.call('audio.mix.inspect'),
     log: async (
       cursor = 0,

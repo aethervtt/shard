@@ -3,7 +3,13 @@ import { join } from 'node:path'
 import { timeout } from '@aethervtt/shard-core/test-env'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import type { audioProbes } from './audio-probes'
+import type {
+  audioProbes,
+  disposeLiveAudioProbe,
+  inspectLiveAudioProbe,
+  startLiveAudioProbe,
+  suspendLiveAudioProbe,
+} from './audio-probes'
 import { checkRequired, type PlaygroundServer, servePlayground } from './browser-tests'
 
 describe('audio offline browser evidence', () => {
@@ -44,6 +50,10 @@ describe('audio offline browser evidence', () => {
             JSON.stringify(evidence, null, 2),
           )
         }
+        expect(evidence.reservations).toEqual({ rejected: true, preserved: 4, low: 0, high: 2 })
+        expect(evidence.compressor.sum).toBeGreaterThan(0.001)
+        expect(evidence.compressor.sum).toBeLessThan(0.5)
+        expect(evidence.compressor.sum).toBeCloseTo(evidence.compressor.reference, 5)
         expect(evidence.domainTails.muted).toBeLessThan(1e-6)
         expect(evidence.domainTails.unrelatedOldTail).toBeCloseTo(0.25, 4)
         expect(evidence.domainTails.newMusic).toBeCloseTo(0.5, 4)
@@ -94,5 +104,69 @@ describe('audio offline browser evidence', () => {
       }
     },
     timeout(60000),
+  )
+  it(
+    'unlocks from a real gesture, rejects unsupported decode and retires tails only on audio time',
+    async (ctx) => {
+      if (unavailable) {
+        ctx.skip()
+        return
+      }
+      const browser = await chromium.launch({
+        headless: true,
+        args: ['--autoplay-policy=user-gesture-required'],
+      })
+      try {
+        const page = await browser.newPage()
+        await page.goto(`${server.base}/audio.html`)
+        await page.waitForFunction(() => 'startLiveAudioProbe' in globalThis)
+        const initial = await page.evaluate(() =>
+          (
+            globalThis as unknown as { startLiveAudioProbe: typeof startLiveAudioProbe }
+          ).startLiveAudioProbe(),
+        )
+        expect(initial).toMatchObject({
+          state: 'suspended',
+          codec: 'audio/decode-failed',
+          presentation: 'blocked',
+        })
+        await page.click('#audio-resume')
+        await page.waitForFunction(
+          () =>
+            (
+              globalThis as unknown as { inspectLiveAudioProbe: typeof inspectLiveAudioProbe }
+            ).inspectLiveAudioProbe().presentation === 'rendering',
+        )
+        const suspended = await page.evaluate(() =>
+          (
+            globalThis as unknown as { suspendLiveAudioProbe: typeof suspendLiveAudioProbe }
+          ).suspendLiveAudioProbe(),
+        )
+        await page.waitForTimeout(300)
+        const waiting = await page.evaluate(() =>
+          (
+            globalThis as unknown as { inspectLiveAudioProbe: typeof inspectLiveAudioProbe }
+          ).inspectLiveAudioProbe(),
+        )
+        expect(waiting.time).toBe(suspended.time)
+        expect(waiting.memory.nodes).toBe(suspended.memory.nodes)
+        await page.click('#audio-resume')
+        await page.waitForFunction(
+          (nodes) =>
+            (
+              globalThis as unknown as { inspectLiveAudioProbe: typeof inspectLiveAudioProbe }
+            ).inspectLiveAudioProbe().memory.nodes < nodes,
+          suspended.memory.nodes,
+        )
+        await page.evaluate(() =>
+          (
+            globalThis as unknown as { disposeLiveAudioProbe: typeof disposeLiveAudioProbe }
+          ).disposeLiveAudioProbe(),
+        )
+      } finally {
+        await browser.close()
+      }
+    },
+    timeout(30000),
   )
 })

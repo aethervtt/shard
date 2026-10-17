@@ -1,7 +1,7 @@
 import { App } from '@aethervtt/shard-runtime'
 import { TransformPlugin } from '@aethervtt/shard-transform'
 import { describe, expect, it } from 'vitest'
-import { playSound, setAudioUserBus, setBus } from './api'
+import { duck, playSound, setAudioUserBus, setBus } from './api'
 import { captureAudioCheckpoint, resetAudioForLoad, restoreAudioCheckpoint } from './checkpoint'
 import { AudioClips, audioClip } from './clip'
 import { AudioEvent } from './event-assets'
@@ -96,6 +96,7 @@ describe('authored audio mixing', () => {
   it('preserves user mute through gameplay gain, snapshots and graph replacement', async () => {
     const { app, world, backend, mixer } = await setup()
     setAudioUserBus(world, 'sfx', { volume: 0 })
+    expect(backend.buses.get('steps')).toBe(0)
     setBus(world, 'sfx', { volume: 2 })
     const id = await acquireAudioSnapshot(
       world,
@@ -182,6 +183,55 @@ describe('authored audio mixing', () => {
   it('rejects independent controls on nested user domains explicitly', async () => {
     const { app, world } = await setup()
     expect(() => setAudioUserBus(world, 'steps', { muted: true })).toThrowError(/direct child/)
+    await app.dispose()
+  })
+
+  it('advances snapshot fades from their current weight without visual frames', async () => {
+    const { app, world, backend } = await setup()
+    const id = await acquireAudioSnapshot(
+      world,
+      AudioSnapshot.deserialize({
+        attack: 0.2,
+        release: 0.2,
+        targets: [{ bus: 'sfx', value: -20 }],
+      }),
+      0.5,
+    )
+    backend.advance(0.1)
+    expect(describeAudioMix(world).snapshots[0]!.weight).toBeCloseTo(0.25)
+    backend.advance(0.1)
+    expect(describeAudioMix(world).snapshots[0]!.weight).toBeCloseTo(0.5)
+    releaseAudioSnapshot(world, id)
+    backend.advance(0.1)
+    expect(describeAudioMix(world).snapshots[0]!.weight).toBeCloseTo(0.25)
+    backend.advance(0.11)
+    expect(describeAudioMix(world).snapshots).toHaveLength(0)
+    await app.dispose()
+  })
+
+  it('ducks descendant buses and tagged events only while physically rendering', async () => {
+    const { app, world, backend } = await setup()
+    const clip = world.resource(AudioClips).add(audioClip(sineWav(2)))
+    const event = AudioEvent.deserialize({
+      mode: 'sustain',
+      tags: ['dialogue'],
+      bus: 'steps',
+      layers: [{ id: 'loop', loop: true, choices: [{ clip: { guid: clip.guid } }] }],
+    })
+    const lease = await prepareAudio(world, event)
+    playAudioEvent(world, event)
+    duck(world, 'master', { when: 'sfx', by: 0.5, attack: 0, release: 0 })
+    app.update(0.01)
+    app.update(0.01)
+    expect(backend.buses.get('master')).toBe(0.5)
+    duck(world, 'master', { tags: ['dialogue'], by: 0.75, attack: 0, release: 0 })
+    app.update(0.01)
+    expect(backend.buses.get('master')).toBe(0.25)
+    world.resource(AudioTransport).paused = true
+    app.update(0.01)
+    app.update(0.01)
+    expect(backend.buses.get('master')).toBe(1)
+    lease.release()
     await app.dispose()
   })
 

@@ -4,6 +4,7 @@ import { TransformPlugin } from '@aethervtt/shard-transform'
 import { describe, expect, it } from 'vitest'
 import { captureAudioCheckpoint, resetAudioForLoad, restoreAudioCheckpoint } from './checkpoint'
 import { AudioClips, audioClip } from './clip'
+import { AudioEvent } from './event-assets'
 import { audioEvents, audioEventsPlugin } from './events'
 import { HeadlessAudioBackend } from './headless'
 import {
@@ -13,6 +14,7 @@ import {
   describeMusic,
   MusicProgram,
   pauseMusic,
+  playMusicStinger,
   prepareMusic,
   requestMusicSection,
   resumeMusic,
@@ -252,6 +254,43 @@ describe('music ownership and recovery', () => {
     expect(world.resource(AudioMusicState).programs.size).toBe(0)
     backend.collect()
     expect(backend.memory().pinned).toBe(0)
+    await app.dispose()
+  })
+
+  it('keeps stinger histories per transport and never selects zero-weight exclusions', async () => {
+    const { app, world, backend, definition } = await setup()
+    const a = world.resource(AudioClips).add(audioClip(sineWav(0.01), { id: 'hit-a' }))
+    const b = world.resource(AudioClips).add(audioClip(sineWav(0.01), { id: 'hit-b' }))
+    const event = world.resource(AudioEvent.store).add(
+      AudioEvent.deserialize({
+        layers: [
+          {
+            id: 'hit',
+            selector: 'no-repeat',
+            noRepeat: 1,
+            release: 0,
+            choices: [
+              { clip: { guid: a.guid }, weight: 1 },
+              { clip: { guid: b.guid }, weight: 0 },
+            ],
+          },
+        ],
+      }),
+    )
+    definition.stingers = [{ id: 'hit', event, cooldown: 0, overlap: 'allow' }]
+    const program = await prepareMusic(world, definition)
+    const first = startMusic(world, program),
+      second = startMusic(world, program)
+    await playMusicStinger(world, first, 'hit')
+    advance(backend, 0.6)
+    await playMusicStinger(world, first, 'hit')
+    await playMusicStinger(world, second, 'hit')
+    const entries = world.resource(AudioMusicState).trace.read().entries
+    expect(
+      entries.filter((entry) => entry.kind === 'music-stinger-layer').map((entry) => entry.choice),
+    ).toEqual([0, 0, 0])
+    expect(entries.filter((entry) => entry.kind === 'history-reduced')).toHaveLength(1)
+    program.release()
     await app.dispose()
   })
 

@@ -11,6 +11,7 @@ import { GlobalTransform } from '@aethervtt/shard-transform'
 import { AudioInspectors } from './inspection'
 import { AudioMixState, updateAudioMix } from './mix'
 import { AudioConfig, audioState, updateAudio } from './mixer'
+import { sampleAudioCurve, validateCurve } from './parameters'
 import { audioNumber } from './validation'
 
 import { ReverbZone } from './zone'
@@ -38,6 +39,8 @@ interface ZoneSlot {
   fadeTarget: number
 }
 export interface AudioAcousticsValue {
+  gainCurve: Float64Array
+  lowpassCurve: Float64Array
   query: AcousticQuery | null
   maxQueries: number
   interval: number
@@ -49,6 +52,7 @@ export interface AudioAcousticsValue {
   to: Float64Array
   result: Float64Array
   queries: number
+  graphRevision: number
   managedReturns: Set<string>
   buses: string[]
   time: number
@@ -179,6 +183,11 @@ export const updateAudioAcoustics = defineSystem({
       delta = world.resource(Time).delta
     state.time += delta
     state.count = 0
+    const revision = world.resource(AudioMixState).revision
+    if (state.graphRevision !== revision) {
+      state.managedReturns.clear()
+      state.graphRevision = revision
+    }
     for (let t = 0; t < zones.tables.length; t++) {
       const table = zones.tables[t]!,
         matrix = table.column(GlobalTransform, 'matrix')
@@ -205,8 +214,6 @@ export const updateAudioAcoustics = defineSystem({
             extents[e + 2]!,
             blend[r]!,
           ) * wet[r]!
-        state.managedReturns.add(buses[r]!)
-        if (weight <= 0) continue
         if (state.count >= state.zones.length)
           throw new ShardError('audio/invalid-zone', 'Zone capacity exceeded')
         const preparedBuses = world.resource(AudioMixState).graph?.buses
@@ -220,6 +227,8 @@ export const updateAudioAcoustics = defineSystem({
             'audio/invalid-zone',
             `Zone return ${buses[r]} is not a prepared return bus`,
           )
+        state.managedReturns.add(buses[r]!)
+        if (weight <= 0) continue
         const zone = state.zones[state.count++]!
         zone.entity = table.entities[r]!
         zone.bus = buses[r]!
@@ -304,9 +313,11 @@ export const updateAudioAcoustics = defineSystem({
       voice.transmission +=
         (target - voice.transmission) *
         (1 - Math.exp(-delta / (target < voice.transmission ? 0.05 : 0.2)))
-      voice.acousticGain = state.query ? 10 ** ((-18 * (1 - voice.transmission)) / 20) : 1
+      sampleAudioCurve(state.gainCurve, voice.transmission, state.result, 0)
+      voice.acousticGain = state.query ? 10 ** (state.result[0]! / 20) : 1
       if (Math.abs(target - voice.transmission) < 1e-7) voice.transmission = target
-      voice.acousticLowpass = state.query && voice.spatial ? 800 * 25 ** voice.transmission : 20000
+      sampleAudioCurve(state.lowpassCurve, voice.transmission, state.result, 0)
+      voice.acousticLowpass = state.query && voice.spatial ? Math.exp(state.result[0]!) : 20000
     }
   },
 })
@@ -331,6 +342,8 @@ export function audioAcousticsPlugin(
     maxQueriesPerFrame?: number
     maxZones?: number
     buses?: string[]
+    gainCurve?: readonly (readonly [number, number])[]
+    lowpassCurve?: readonly (readonly [number, number])[]
   } = {},
 ) {
   return definePlugin({
@@ -348,7 +361,29 @@ export function audioAcousticsPlugin(
           'audio/invalid-effect',
           'Choose either acoustic queries or the legacy occlusion callback',
         )
+      const gainCurve = options.gainCurve ?? [
+        [0, -18],
+        [1, 0],
+      ]
+      const lowpassCurve = options.lowpassCurve ?? [
+        [0, 800],
+        [1, 20000],
+      ]
+      validateCurve(gainCurve, 'gainCurve')
+      validateCurve(lowpassCurve, 'lowpassCurve')
+      for (const point of gainCurve) {
+        audioNumber(point[0], 'gainCurve/x', 0, 1)
+        audioNumber(point[1], 'gainCurve/y', -120, 24)
+      }
+      for (const point of lowpassCurve) {
+        audioNumber(point[0], 'lowpassCurve/x', 0, 1)
+        audioNumber(point[1], 'lowpassCurve/y', 10, 24000)
+      }
       app.world.insertResource(AudioAcoustics, {
+        gainCurve: new Float64Array(gainCurve.flat()),
+        lowpassCurve: new Float64Array(
+          lowpassCurve.flatMap((point) => [point[0], Math.log(point[1]!)]),
+        ),
         query: options.query ?? null,
         maxQueries,
         interval: 0.1,
@@ -378,6 +413,7 @@ export function audioAcousticsPlugin(
         result: new Float64Array(1),
         queries: 0,
         buses: options.buses ?? ['sfx', 'ambience', 'voice'],
+        graphRevision: -1,
         managedReturns: new Set<string>(),
         time: 0,
       })

@@ -426,6 +426,69 @@ async function musicTransitionProbe(curve: 'linear' | 'equal-power') {
   }
 }
 
+async function reservationProbe() {
+  const context = new OfflineAudioContext(1, 48000, 48000)
+  const host = createWebAudioBackend({ context, fixedListener: true, maxHostVoices: 4 })
+  const low = host.createSession!({ priority: 1 }),
+    high = host.createSession!({ priority: 2 })
+  const source = clip('constant')
+  await low.runtime!.prepare(source)
+  await high.runtime!.prepare(source)
+  const release = low.runtime!.reserveVoices(4)
+  try {
+    for (let i = 0; i < 4; i++) low.play({ ...voice(source), loop: true })
+  } finally {
+    release()
+  }
+  let rejected = false
+  try {
+    high.runtime!.reserveVoices(5)
+  } catch {
+    rejected = true
+  }
+  const preserved = low.runtime!.activeVoices
+  const reserveHigh = high.runtime!.reserveVoices(2)
+  try {
+    high.play(voice(source))
+    high.play(voice(source))
+  } finally {
+    reserveHigh()
+  }
+  const result = {
+    rejected,
+    preserved,
+    low: low.runtime!.activeVoices,
+    high: high.runtime!.activeVoices,
+  }
+  low.dispose?.()
+  high.dispose?.()
+  host.dispose?.()
+  return result
+}
+
+async function compressorProbe() {
+  const mixer = graph(1, [effect('compressor', { threshold: -24, ratio: 8 })])
+  mixer.buses = [
+    ...mixer.buses,
+    { id: 'child', parent: 'sfx', gain: 1, userGain: 1, return: false, sends: [], effects: [] },
+  ]
+  const source = clip('constant')
+  const sum = await renderAudioPreview({
+    duration: 1,
+    mixer,
+    voices: [voice(source, 'child'), voice(source, 'child')],
+  })
+  const reference = await renderAudioPreview({
+    duration: 1,
+    mixer,
+    voices: [{ ...voice(source), gain: 2 }],
+  })
+  return {
+    sum: rms(sum.buffer.getChannelData(0), 24000, 40000),
+    reference: rms(reference.buffer.getChannelData(0), 24000, 40000),
+  }
+}
+
 export async function audioProbes() {
   const source = clip('constant'),
     hierarchy = graph(0.5)
@@ -534,6 +597,8 @@ export async function audioProbes() {
   const collectedBytes = host.runtime.memory().decodedBytes
   host.dispose?.()
   return {
+    reservations: await reservationProbe(),
+    compressor: await compressorProbe(),
     instanceSends: await instanceSendProbe(),
     domainTails: await domainTailProbe(),
     musicTransitions: {
@@ -564,3 +629,52 @@ export async function audioProbes() {
 }
 
 Object.assign(globalThis, { audioProbes })
+
+let liveHost: ReturnType<typeof createWebAudioBackend> | undefined
+let liveContext: AudioContext | undefined
+export async function startLiveAudioProbe() {
+  liveContext = new AudioContext()
+  await liveContext.suspend()
+  liveHost = createWebAudioBackend({ context: liveContext, fixedListener: true })
+  liveHost.output.gain.value = 0
+  await liveHost.runtime.configureMixer(
+    graph(1, [effect('delay', { seconds: 0.05, tailSeconds: 0.15 })]),
+  )
+  let codec = ''
+  try {
+    await liveHost.runtime.prepare({ ...clip('constant'), bytes: new Uint8Array([1, 2, 3]) })
+  } catch (error) {
+    codec = (error as { code: string }).code
+  }
+  liveHost.play({ ...voice(clip('constant'), 'sfx', 0), loop: true })
+  await liveHost.runtime.flush()
+  const button = document.createElement('button')
+  button.id = 'audio-resume'
+  button.textContent = 'Resume audio'
+  document.body.append(button)
+  return { state: liveHost.state, codec, presentation: liveHost.runtime.presentation(1)?.state }
+}
+export function inspectLiveAudioProbe() {
+  liveHost!.runtime.collect()
+  return {
+    state: liveHost!.state,
+    time: liveContext!.currentTime,
+    memory: liveHost!.runtime.memory(),
+    presentation: liveHost!.runtime.presentation(1)?.state,
+  }
+}
+export async function suspendLiveAudioProbe() {
+  await liveContext!.suspend()
+  await liveHost!.runtime.configureMixer(graph())
+  return inspectLiveAudioProbe()
+}
+export async function disposeLiveAudioProbe() {
+  liveHost!.dispose?.()
+  await liveContext!.close()
+}
+Object.assign(globalThis, {
+  startLiveAudioProbe,
+  inspectLiveAudioProbe,
+  suspendLiveAudioProbe,
+  disposeLiveAudioProbe,
+})
