@@ -136,6 +136,12 @@ export const AudioBuses = defineResource<AudioBusesValue>('audio/Buses', {
   }),
 })
 
+/** Player-owned output controls, separate from scene/gameplay faders and snapshots. */
+export const AudioUserControls = defineResource<Record<string, { volume: number; muted: boolean }>>(
+  'audio/UserControls',
+  { init: () => ({}) },
+)
+
 export interface AudioFinishedData {
   /** The source's entity, or null for a one-shot from playSound. */
   entity: Entity | null

@@ -229,6 +229,7 @@ export const updateAudioAcoustics = defineSystem({
         if (preparedBuses)
           for (let b = 0; b < preparedBuses.length; b++)
             if (preparedBuses[b]!.id === buses[r] && preparedBuses[b]!.return) validReturn = true
+        if (!preparedBuses) continue
         if (!validReturn)
           throw new ShardError(
             'audio/invalid-zone',

@@ -168,7 +168,7 @@ export async function renderProjectAudio(
                 }>
               }
             ).previewAudio(payload),
-          serializeBytes({ plan, assets: packed }),
+          serializeBytes({ plan: AudioPreviewPlan.serialize(plan), assets: packed }),
         )
         const out = resolve(project, output),
           evidencePath = `${out}.json`

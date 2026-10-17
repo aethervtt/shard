@@ -1480,7 +1480,9 @@ Mixer domain buses (music/sfx/ui/voice) are direct children of master. Put submi
 Parent inserts process the summed children once. Pre/post sends feed named returns, and user
 category mute gates that category's dry and wet output. Delay and convolution tails are finite;
 decoded PCM and generated DSP kernels have separate bounded memory budgets. Snapshots compose
-by priority and stable identity; they do not overwrite user volume settings. Effect target fields
+by priority and stable identity; they do not overwrite user volume settings.
+Use \`setAudioUserBus(world, 'music', { volume: 0.5, muted: false })\` for player settings;
+\`setBus\` remains the independent gameplay fader. Effect target fields
 are \`effectId/parameter\` (for example \`water/frequency\`), and send fields are \`send/returnBus\`.
 Zones use spheres or world-axis boxes and at most four smoothly handed-off returns. Obstruction
 comes from an injected bounded query provider; headless tests can supply deterministic queries.

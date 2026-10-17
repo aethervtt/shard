@@ -10,6 +10,7 @@ export {
   preloadSound,
   type SoundRange,
   setAudioListener,
+  setAudioUserBus,
   setBus,
   stopSound,
 } from './api'
@@ -33,6 +34,7 @@ export {
   AudioListener,
   AudioSource,
   type AudioSourceValue,
+  AudioUserControls,
   DEFAULT_BUSES,
   PANNING_MODELS,
   ROLLOFF_MODELS,

@@ -111,6 +111,15 @@ async function render(bundle: Bundle) {
       musicIds = new Map<string, number>(),
       emitters = new Map<string, Entity>(),
       snapshots = new Map<string, number>()
+    for (const entry of plan.music)
+      musicIds.set(
+        entry.id,
+        startMusic(world, programs.get(entry.id)!, {
+          section: entry.section || undefined,
+          at: entry.at,
+          parameters: entry.parameters as Record<string, number | string>,
+        }),
+      )
     const listener = world.spawn(Transform, AudioListener)
     const voices = plan.voices.map((voice) =>
       runtime.play({
@@ -170,17 +179,6 @@ async function render(bundle: Bundle) {
             }),
           )
         }
-      for (const entry of plan.music)
-        if (!musicIds.has(entry.id) && now >= entry.at) {
-          musicIds.set(
-            entry.id,
-            startMusic(world, programs.get(entry.id)!, {
-              section: entry.section || undefined,
-              at: now,
-              parameters: entry.parameters as Record<string, number | string>,
-            }),
-          )
-        }
       while (nextControl < controls.length && controls[nextControl]!.control.at <= now) {
         const { control: c, index } = controls[nextControl++]!,
           opts = c.options as Record<string, unknown>
@@ -223,6 +221,7 @@ async function render(bundle: Bundle) {
             seekMusic(world, target(musicIds, c.target), Number(c.value))
             break
           case 'snapshot.acquire':
+            if (snapshots.has(c.target)) releaseAudioSnapshot(world, snapshots.get(c.target)!)
             snapshots.set(
               c.target,
               await acquireAudioSnapshot(world, c.asset!, c.value == null ? 1 : Number(c.value)),
@@ -313,8 +312,11 @@ async function render(bundle: Bundle) {
       },
     }
   } finally {
-    app.dispose()
-    backend.dispose?.()
+    try {
+      await app.dispose()
+    } finally {
+      backend.dispose?.()
+    }
   }
 }
 

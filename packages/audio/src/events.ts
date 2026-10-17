@@ -586,6 +586,8 @@ function admit(
   instance: AudioEventInstance,
   plan: Pick<PreparedAudioEvent, 'key' | 'definition' | 'globals'>,
 ): void {
+  if (instance.entity !== null && !world.isAlive(instance.entity))
+    throw new ShardError('audio/stale-handle', 'Emitter was removed before admission')
   const local = new AudioParameterBank(plan.definition.parameters)
   for (const name in instance.options.parameters)
     local.set(name, instance.options.parameters[name]!)
@@ -714,6 +716,11 @@ function activate(
 ): void {
   if (instance.state !== 'preparing' || state.disposed) {
     releasePlan(state, plan)
+    return
+  }
+  if (instance.entity !== null && !_world.isAlive(instance.entity)) {
+    releasePlan(state, plan)
+    finishInstance(_world, state, instance, 'removed')
     return
   }
   instance.plan = plan
@@ -1179,6 +1186,10 @@ export const updateAudioEvents = defineSystem({
     for (let i = 0; i < state.instances.length; i++) {
       const instance = state.instances[i]
       if (!instance || instance.state === 'ended' || instance.state === 'failed') continue
+      if (instance.entity !== null && !world.isAlive(instance.entity)) {
+        finishInstance(world, state, instance, 'removed')
+        continue
+      }
       if (instance.state === 'preparing' || audioState(world).backend.state === 'suspended') {
         instance.waitAge += waitDelta
         instance.wasBlocked = true

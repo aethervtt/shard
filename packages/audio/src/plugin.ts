@@ -6,7 +6,7 @@ import { AudioCheckpointHooks } from './checkpoint-bridge'
 import * as clipModule from './clip'
 import { AudioClips } from './clip'
 import * as componentsModule from './components'
-import { AudioBuses } from './components'
+import { AudioBuses, AudioUserControls } from './components'
 import { AudioInspectors } from './inspection'
 import { audioMethods } from './methods'
 import * as mixerModule from './mixer'
@@ -55,6 +55,7 @@ export function audioPlugin(options: AudioPluginOptions = {}): Plugin {
       })
       w.initResource(AudioClips)
       w.initResource(AudioBuses)
+      w.initResource(AudioUserControls)
       const config = w.initResource(AudioConfig)
       if (options.maxVoices !== undefined) config.maxVoices = options.maxVoices
       if (options.maxVoicesPerClip !== undefined) config.maxVoicesPerClip = options.maxVoicesPerClip

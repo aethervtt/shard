@@ -12,7 +12,7 @@ import {
 import type { AudioBusDesc, AudioEffectDesc, AudioMixerGraph } from '@aethervtt/shard-platform'
 import { definePlugin, Time } from '@aethervtt/shard-runtime'
 import { type AudioClipAsset, AudioClips } from './clip'
-import { AudioBuses } from './components'
+import { AudioBuses, AudioUserControls } from './components'
 import { acquireAudioGlobals, audioEvents, releaseAudioGlobals } from './events'
 import { AudioInspectors } from './inspection'
 import { audioMixMethods } from './mix-methods'
@@ -516,7 +516,14 @@ export function updateAudioMix(world: World, delta: number): void {
       field.min,
       Math.min(field.max, (field.logarithmic ? Math.exp(value) : value) + offset),
     )
-    const output = field.linearGain ? 10 ** (field.value / 20) * field.factor : field.value
+    const authored =
+      field.field === 'gainDb'
+        ? (world.resource(AudioBuses)[field.bus]?.volume ?? 1) *
+          (audioState(world).duckLevels.get(field.bus) ?? 1)
+        : 1
+    const output = field.linearGain
+      ? 10 ** (field.value / 20) * field.factor * authored
+      : field.value
     if (output !== field.sent) {
       runtime.setMixerValue(
         field.bus,
@@ -528,11 +535,11 @@ export function updateAudioMix(world: World, delta: number): void {
     }
   }
   const legacy = world.resource(AudioBuses),
-    audio = audioState(world)
+    users = world.resource(AudioUserControls)
   for (let i = 0; i < state.graph.buses.length; i++) {
     const bus = state.graph.buses[i]!,
-      control = legacy[bus.id]
-    const value = control?.muted ? 0 : (control?.volume ?? 1) * (audio.duckLevels.get(bus.id) ?? 1)
+      control = users[bus.id]
+    const value = control?.muted || legacy[bus.id]?.muted ? 0 : (control?.volume ?? 1)
     if (value !== state.userSent[i]) {
       runtime.setMixerValue(bus.id, 'userGain', value, value === 0 ? 0 : 0.01)
       state.userSent[i] = value

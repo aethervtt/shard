@@ -1,7 +1,7 @@
 import { App } from '@aethervtt/shard-runtime'
 import { TransformPlugin } from '@aethervtt/shard-transform'
 import { describe, expect, it } from 'vitest'
-import { playSound, setBus } from './api'
+import { playSound, setAudioUserBus, setBus } from './api'
 import { audioClip } from './clip'
 import { audioEventsPlugin } from './events'
 import { HeadlessAudioBackend } from './headless'
@@ -83,6 +83,24 @@ describe('authored audio mixing', () => {
       return result
     }
     expect(await run(false)).toBe(await run(true))
+  })
+
+  it('preserves user mute through gameplay gain, snapshots and graph replacement', async () => {
+    const { app, world, backend, mixer } = await setup()
+    setAudioUserBus(world, 'sfx', { volume: 0 })
+    setBus(world, 'sfx', { volume: 2 })
+    const id = await acquireAudioSnapshot(
+      world,
+      AudioSnapshot.deserialize({ attack: 0, release: 0, targets: [{ bus: 'sfx', value: 6 }] }),
+    )
+    updateAudioMix(world, 0)
+    expect(backend.buses.get('steps')).toBe(0)
+    releaseAudioSnapshot(world, id)
+    await configureAudioMixer(world, mixer)
+    updateAudioMix(world, 0)
+    expect(backend.buses.get('steps')).toBe(0)
+    expect(backend.buses.get('master')).toBe(1)
+    await app.dispose()
   })
 
   it('models scheduled fades without applying future values early', () => {

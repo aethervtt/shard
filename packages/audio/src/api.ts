@@ -1,7 +1,7 @@
 import { type AssetRef, type Entity, type Rng, ShardError, type World } from '@aethervtt/shard-core'
 import type { AudioDistanceModel, AudioPanningModel } from '@aethervtt/shard-platform'
 import { type AudioClipAsset, AudioClips } from './clip'
-import { type AudioBus, AudioBuses, AudioListener } from './components'
+import { type AudioBus, AudioBuses, AudioListener, AudioUserControls } from './components'
 import {
   AudioConfig,
   audioState,
@@ -250,4 +250,20 @@ export function setAudioListener(world: World, entity: Entity | null): void {
   if (entity !== null && (!world.isAlive(entity) || !world.has(entity, AudioListener)))
     throw new ShardError('audio/stale-handle', 'Selected listener must be a live AudioListener')
   world.resource(AudioConfig).listener = entity
+}
+
+/** Player settings are an independent final output gate; gameplay uses setBus. */
+export function setAudioUserBus(
+  world: World,
+  name: string,
+  options: { volume?: number; muted?: boolean },
+): void {
+  const buses = world.resource(AudioBuses)
+  if (!buses[name]) throw new ShardError('audio/unknown-bus', `Unknown user bus ${name}`)
+  if (options.volume !== undefined) audioNumber(options.volume, 'user.volume')
+  const controls = world.initResource(AudioUserControls)
+  const current = controls[name] ?? { volume: 1, muted: false }
+  if (options.volume !== undefined) current.volume = options.volume
+  if (options.muted !== undefined) current.muted = options.muted
+  controls[name] = current
 }

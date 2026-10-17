@@ -600,7 +600,7 @@ export async function loadGame(world: World, slot: string | SaveFile): Promise<L
   if (control) control.paused = true
   const ids = new Map<string, Entity>()
   try {
-    resetAudioForLoad(world)
+    resetAudioForLoad(world, true)
     // Out with the current game.
     const authored = authoredEntities(world)
     for (const e of runtimeEntities(world, authored)) if (world.isAlive(e)) world.despawn(e)
@@ -730,7 +730,7 @@ export async function loadGame(world: World, slot: string | SaveFile): Promise<L
     }
 
     // Then what changed in the scenes.
-    const index = world.resource(SceneIndex)
+    const index = world.initResource(SceneIndex)
     for (const id of sceneIds) {
       const saved = file.scenes[id]!
       const scene = index.get(id)!

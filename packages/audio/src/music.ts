@@ -378,7 +378,9 @@ export async function prepareMusic(
   ref: MusicProgramDefinition | AssetRef | string,
 ): Promise<PreparedMusic> {
   const state = musicState(world),
-    runtime = runtimeOf(world)
+    runtime = runtimeOf(world),
+    session = audioEvents(world),
+    generation = session.generation
   if (!runtime.capabilities.scheduled || !runtime.capabilities.automation)
     throw new ShardError(
       'audio/unsupported-capability',
@@ -403,6 +405,13 @@ export async function prepareMusic(
   const definition = MusicProgram.deserialize(MusicProgram.serialize(source))
   validateMusicProgram(definition)
   const shared = definition.globals ? await acquireAudioGlobals(world, definition.globals) : null
+  if (state.disposed || session.generation !== generation || state.programs.size >= 32) {
+    if (shared) releaseAudioGlobals(session, shared.key)
+    throw new ShardError(
+      'audio/music-capacity',
+      'Music preparation was superseded or capacity reached',
+    )
+  }
   const id = state.nextProgram++
   const program: PreparedMusic = {
     id,
@@ -431,6 +440,8 @@ export async function prepareMusic(
       if (rule.parameter && !definition.parameters.some((p) => p.name === rule.parameter))
         program.globals.index(rule.parameter)
     await prepareMusicSection(world, program, definition.entry)
+    if (state.disposed || session.generation !== generation || program.released)
+      throw new ShardError('audio/music-invalid', 'Music session changed during preparation')
     return program
   } catch (error) {
     program.release()

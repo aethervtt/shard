@@ -27,6 +27,7 @@ import {
   AudioFinished,
   AudioListener,
   AudioSource,
+  AudioUserControls,
   PANNING_MODELS,
   ROLLOFF_MODELS,
 } from './components'
@@ -458,6 +459,7 @@ export function busOf(
 function busGain(
   buses: Record<string, Partial<AudioBus>>,
   ducks: Map<string, number>,
+  users: Record<string, { volume: number; muted: boolean }>,
   name: string,
   out: Float64Array,
 ): void {
@@ -481,7 +483,10 @@ function busGain(
     const b = buses[current]
     if (!b) throw unknownBus(current, buses)
     audioNumber(b.volume ?? 1, 'bus.volume')
-    gain *= (b.muted ? 0 : (b.volume ?? 1)) * (ducks.get(current) ?? 1)
+    const user = users[current]
+    gain *=
+      (b.muted || user?.muted ? 0 : (b.volume ?? 1) * (user?.volume ?? 1)) *
+      (ducks.get(current) ?? 1)
     current = b.parent ?? (current === 'master' ? '' : 'master')
   }
   out[0] = gain
@@ -798,7 +803,7 @@ export const updateAudio = defineSystem({
       state.duckLevels.set(name, level)
     }
     for (const name in buses) {
-      busGain(buses, state.duckLevels, name, num)
+      busGain(buses, state.duckLevels, world.resource(AudioUserControls), name, num)
       const gain = num[0]!
       state.busGains.set(name, gain)
       if (state.busSent.get(name) !== gain) {

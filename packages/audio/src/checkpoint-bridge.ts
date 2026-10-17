@@ -3,7 +3,7 @@ import { defineResource, type Entity, type ShardError, type World } from '@aethe
 /** Optional audio hooks keep save-only projects independent of authored audio engines. */
 export const AudioCheckpointHooks = defineResource<{
   capture(world: World, entityRef: (entity: Entity) => string | null): void
-  reset(world: World): void
+  reset(world: World, clearCheckpoint?: boolean): void
   restore(world: World, resolve: (ref: string) => Entity | undefined): Promise<ShardError[]>
 }>('audio/CheckpointHooks')
 
@@ -14,8 +14,8 @@ export function captureAudioCheckpoint(
   world.tryResource(AudioCheckpointHooks)?.capture(world, entityRef)
 }
 
-export function resetAudioForLoad(world: World): void {
-  world.tryResource(AudioCheckpointHooks)?.reset(world)
+export function resetAudioForLoad(world: World, clearCheckpoint = false): void {
+  world.tryResource(AudioCheckpointHooks)?.reset(world, clearCheckpoint)
 }
 
 export async function restoreAudioCheckpoint(

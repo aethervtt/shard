@@ -1,6 +1,6 @@
 import { defineSchema, type Entity, findComponent, t, type World } from '@aethervtt/shard-core'
 import type { AppMethod } from '@aethervtt/shard-runtime'
-import { AudioBuses } from './components'
+import { AudioBuses, AudioUserControls } from './components'
 import { inspectAudioExtensions } from './inspection'
 import { AudioConfig, type AudioLogEntry, audioState, busOf, clipLabel } from './mixer'
 
@@ -39,6 +39,8 @@ export function describeAudio(world: World) {
       return {
         name,
         volume: bus.volume,
+        userVolume: world.resource(AudioUserControls)[name]?.volume ?? 1,
+        userMuted: world.resource(AudioUserControls)[name]?.muted ?? false,
         muted: bus.muted,
         parent: bus.parent,
         gain: round(state.busGains.get(name) ?? 1),

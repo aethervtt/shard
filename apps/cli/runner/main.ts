@@ -106,7 +106,7 @@ async function start() {
   await loadProjectNavCache(app, platform)
 
   // Project shaders: shaders/water/foam.wesl is project::water::foam.
-  const shaders = app.world.resource(Shaders)
+  const shaders = app.world.tryResource(Shaders)
   const registerShader = ({ file, source }: { file: string; source: string }) => {
     const module = `project::${file
       .replace(/^shaders\//, '')
@@ -114,7 +114,7 @@ async function start() {
       .split('/')
       .join('::')}`
     try {
-      shaders.register(module, source, file)
+      shaders?.register(module, source, file)
     } catch (err) {
       app.world.resource(LogResource).error(err)
     }

@@ -7,14 +7,19 @@ import {
   setMusicParameter,
   startMusic,
 } from '@aethervtt/shard-audio'
-import { defineResource, defineSystem, Update } from '@aethervtt/shard-core'
+import { defineResource, defineSystem, Update, type World } from '@aethervtt/shard-core'
 import { defineProject } from '@aethervtt/shard-project'
-import { Time } from '@aethervtt/shard-runtime'
+import { LogResource, Time } from '@aethervtt/shard-runtime'
 
 const Demo = defineResource<{ engine: number; score: number; beat: number }>('audio-lab/Demo')
 const tour = defineSystem({
   name: 'audio-lab/tour',
-  run(_, world) {
+  setup: () => ({ started: false }),
+  run(state, world) {
+    if (!state.started) {
+      state.started = true
+      void initialize(world).catch((error) => world.resource(LogResource).error(error))
+    }
     const demo = world.tryResource(Demo)
     if (!demo) return
     const seconds = world.resource(Time).elapsed
@@ -36,16 +41,16 @@ export default defineProject({
   build(app) {
     app.addSystems(Update, tour)
   },
-  async ready(app) {
-    const world = app.world
-    await configureAudioMixer(world, 'data/audio/main.audio-mixer.json')
-    await prepareAudio(world, 'data/audio/kit.audio-collection.json')
-    const program = await prepareMusic(world, 'data/audio/score.audio-music.json')
-    const score = startMusic(world, program)
-    program.release()
-    const engine = playAudioEvent(world, 'data/audio/engine.audio-event.json', {
-      position: [2, 0, -3],
-    })
-    world.insertResource(Demo, { engine, score, beat: -1 })
-  },
 })
+
+async function initialize(world: World) {
+  await configureAudioMixer(world, 'data/audio/main.audio-mixer.json')
+  await prepareAudio(world, 'data/audio/kit.audio-collection.json')
+  const program = await prepareMusic(world, 'data/audio/score.audio-music.json')
+  const score = startMusic(world, program)
+  program.release()
+  const engine = playAudioEvent(world, 'data/audio/engine.audio-event.json', {
+    position: [2, 0, -3],
+  })
+  world.insertResource(Demo, { engine, score, beat: -1 })
+}

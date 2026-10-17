@@ -42,6 +42,15 @@ export const CheckpointSchema = defineSchema('audio/CheckpointData', {
   seed: t.u32(),
   ordinal: t.u32(),
   nextEvent: t.u32({ default: 1 }),
+  selectorHistories: t.list(
+    t.struct({
+      key: t.string(),
+      layers: t.list(t.struct({ previous: t.list(t.i32()), cursor: t.u32(), sequence: t.u32() })),
+    }),
+  ),
+  cooldowns: t.list(
+    t.struct({ group: t.string(), entity: t.string(), remaining: t.f64({ min: 0 }) }),
+  ),
   transport: t.struct({ paused: t.bool(), timeScale: t.f64({ default: 1, min: 0, max: 16 }) }),
   globals: t.list(t.struct({ key: t.string(), values: t.list(t.f64()), targets: t.list(t.f64()) })),
   events: t.list(
@@ -126,6 +135,24 @@ function capture(world: World, entityRef: (entity: Entity) => string | null = ()
   data.seed = state.seed
   data.ordinal = state.ordinal
   data.nextEvent = state.nextId
+  data.selectorHistories = [...state.histories].map(([key, layers]) => ({
+    key,
+    layers: layers.map((h) => ({
+      previous: [...h.previous],
+      cursor: h.cursor,
+      sequence: h.sequence,
+    })),
+  }))
+  data.cooldowns = []
+  const now = audioState(world).backend.runtime!.clock.now()
+  for (const [key, expiry] of state.cooldowns) {
+    if (expiry <= now) continue
+    const split = key.lastIndexOf(':'),
+      suffix = key.slice(split + 1)
+    const entity = suffix === 'session' ? '' : entityRef(Number(suffix) as Entity)
+    if (entity !== null)
+      data.cooldowns.push({ group: key.slice(0, split), entity, remaining: expiry - now })
+  }
   data.transport = { ...world.resource(AudioTransport) }
   data.globals = [...state.globalBanks].map(([key, bank]) => ({
     key,
@@ -205,7 +232,8 @@ function capture(world: World, entityRef: (entity: Entity) => string | null = ()
 }
 
 /** Runs before scene teardown so detached voices and stale async completions cannot survive a load. */
-function reset(world: World): void {
+function reset(world: World, clearCheckpoint = false): void {
+  if (clearCheckpoint) world.removeResource(AudioCheckpoint)
   const state = world.tryResource(AudioEventsState)
   if (state) {
     state.generation++
@@ -213,6 +241,7 @@ function reset(world: World): void {
       if (instance) stopAudioEvent(world, instance.id, { release: 0 })
     for (const lease of state.leases.values()) lease.release()
     state.cooldowns.clear()
+    state.histories.clear()
   }
   const music = world.tryResource(AudioMusicState)
   if (music) {
@@ -232,6 +261,23 @@ async function restore(
     state = world.tryResource(AudioEventsState),
     warnings: ShardError[] = []
   if (!data || !state) return warnings
+  if (data.selectorHistories.length > 256 || data.cooldowns.length > 4096)
+    return [new ShardError('audio/restore', 'Checkpoint exceeds bounded history/cooldown capacity')]
+  state.histories.clear()
+  for (const saved of data.selectorHistories) {
+    if (saved.layers.length > 16 || saved.layers.some((h) => h.previous.length > 128)) {
+      warnings.push(new ShardError('audio/restore', 'Checkpoint selector history exceeds capacity'))
+      continue
+    }
+    state.histories.set(
+      saved.key,
+      saved.layers.map((h) => ({
+        previous: new Int32Array(h.previous),
+        cursor: h.cursor,
+        sequence: h.sequence,
+      })),
+    )
+  }
   state.seed = data.seed
   state.ordinal = data.ordinal
   state.nextId = Math.max(state.nextId, data.nextEvent)
@@ -431,6 +477,12 @@ async function restore(
       bank.values.set(global.values)
       bank.targets.set(global.targets)
     }
+  }
+  state.cooldowns.clear()
+  const now = audioState(world).backend.runtime!.clock.now()
+  for (const saved of data.cooldowns) {
+    const entity = saved.entity ? resolveEntity(saved.entity) : 'session'
+    if (entity !== undefined) state.cooldowns.set(`${saved.group}:${entity}`, now + saved.remaining)
   }
   state.lastClock = audioState(world).backend.runtime!.clock.now()
   state.lastWall = audioState(world).backend.runtime!.clock.wallNow?.() ?? state.lastWall

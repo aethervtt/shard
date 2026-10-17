@@ -127,6 +127,8 @@ export function validateAudioPreview(plan: AudioPreviewPlanValue): void {
     voices.add(voice.id)
   }
   const ids = new Set<string>()
+  const eventTimes = new Map(plan.events.map((e) => [e.id, e.at]))
+  const musicTimes = new Map(plan.music.map((e) => [e.id, e.at]))
   for (const item of [...plan.events, ...plan.music]) {
     if (!item.id || !item.asset || ids.has(item.id) || item.at >= plan.duration)
       throw new ShardError(
@@ -138,8 +140,10 @@ export function validateAudioPreview(plan: AudioPreviewPlanValue): void {
   for (const control of plan.controls) {
     if (
       control.at >= plan.duration ||
-      ((control.kind.startsWith('event.') || control.kind.startsWith('music.')) &&
-        !ids.has(control.target))
+      (control.kind.startsWith('event.') &&
+        (!eventTimes.has(control.target) || control.at < eventTimes.get(control.target)!)) ||
+      (control.kind.startsWith('music.') &&
+        (!musicTimes.has(control.target) || control.at < musicTimes.get(control.target)!))
     )
       throw new ShardError('audio/preview-unavailable', 'Preview control target/time is invalid')
   }
@@ -180,7 +184,9 @@ export const audioPreviewMethods: AppMethod[] = [
           'audio/preview-unavailable',
           'This host does not provide offline audio preview',
         )
-      const plan = AudioPreviewPlan.deserialize(params.plan)
+      const plan = AudioPreviewPlan.deserialize(
+        AudioPreviewPlan.serialize(params.plan as AudioPreviewPlanValue),
+      )
       validateAudioPreview(plan)
       return host(plan, params.out as string)
     },
