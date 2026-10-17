@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Shard · Foil atelier</title>
+    <link rel="stylesheet" href="/src/cards.css" />
+  </head>
+  <body>
+    <header><a class="brand" href="/">◇ SHARD</a><span class="divider"></span><span>Material studies <b>/ 076</b></span><div class="header-right"><span class="live-dot"></span>LIVE PLAYGROUND <span id="backend-host"></span></div></header>
+    <main>
+      <section class="stage">
+        <div class="intro"><div><p class="eyebrow">THE COLLECTOR’S SERIES</p><h1>Foil atelier<span>.</span></h1><p class="subtitle">Light, texture, and a little magic. Move across a card to reveal its finish.</p></div><nav class="view-switch" aria-label="Card layout"><button type="button" data-layout="gallery" class="active">Gallery</button><button type="button" data-layout="hand">Hand</button><button type="button" data-layout="stack">Deck</button><button type="button" data-layout="inspect">Inspect</button></nav></div>
+        <div class="canvas-wrap"><canvas id="cards" aria-label="Interactive card gallery. Select a card, move to tilt, double click to flip." tabindex="0"></canvas><div id="loading">Preparing artwork and foil layers…</div><div class="stage-mark">SHARD / FINISH LIBRARY</div></div>
+        <div class="captions"><button type="button" data-card="0"><span>01 — AMBER ETCHING</span><strong>Ninetales</strong><small>Engraved sunlight · flowing lines</small></button><button type="button" data-card="1"><span>02 — CELESTIAL PRISM</span><strong>Umbreon VMAX</strong><small>Aurora spectrum · star foil</small></button><button type="button" data-card="2"><span>03 — MEADOW OPAL</span><strong>Pawmi</strong><small>Pearlescent petals · leaf confetti</small></button></div>
+        <footer><span id="interaction">Hover to tilt · click to select · double click to flip · drag to move</span><span id="stats">SHARD CARDS</span></footer>
+      </section>
+      <aside>
+        <div class="panel-top"><p class="eyebrow">FINISH INSPECTOR</p><h2 id="selected-name">Ninetales</h2><span id="selected-note">Amber etching</span></div>
+        <section><label class="field-label" for="finish">Primary finish <span>CUSTOM SHADER</span></label><select id="finish"></select><p class="hint" id="finish-description">Fine etched lines catch warm light as the card turns.</p><label class="field-label" for="card-size">Card dimensions</label><select id="card-size"><option value="poker">Poker · 63 × 88 mm</option><option value="bridge">Bridge · 57 × 88 mm</option><option value="tarot">Tarot · 70 × 120 mm</option><option value="square">Square · 80 × 80 mm</option></select></section>
+        <section class="layers"><div class="section-title">FOIL LAYERS <span>GRAYSCALE COVERAGE</span></div><label class="layer"><span><input type="checkbox" id="layer0" checked /> 01 &nbsp; Artwork foil</span><output id="strength0-value">80%</output></label><input id="strength0" type="range" min="0" max="1" step="0.01" value="0.8" /><label class="layer"><span><input type="checkbox" id="layer1" checked /> <span id="pattern-name">02 &nbsp; Flowing etching</span></span><output id="strength1-value">55%</output></label><input id="strength1" type="range" min="0" max="1" step="0.01" value="0.55" /><p class="hint">Black: no foil. White: full foil.<br />Every shade of gray blends proportionally.</p><div class="mask-row"><button type="button" id="mask0">View mask 01</button><button type="button" id="mask1">View mask 02</button></div></section>
+        <section><label class="field-label" for="lighting">Lighting model</label><select id="lighting"><option value="pbr">PBR · scene lighting</option><option value="unlit">Unlit · print luminance</option></select><p class="hint">Changing the lighting model reloads this scene.</p><label class="toggle"><span>Scene lights</span><input id="scene-lights" type="checkbox" checked /></label><label class="toggle"><span>Shadow example</span><input id="shadow-example" type="checkbox" /></label><label class="field-label" for="gloss">Surface gloss <output id="gloss-value">35%</output></label><input id="gloss" type="range" min="0" max="1" step="0.01" value="0.35" /><label class="field-label" for="light">Light direction</label><input id="light" type="range" min="-1" max="1" step="0.01" value="-0.4" /></section>
+        <section><label class="toggle"><span>Automatic foil motion</span><input id="automatic" type="checkbox" /></label><label class="toggle"><span>Also tilt the card</span><input id="automatic-tilt" type="checkbox" disabled /></label><label class="field-label" for="automatic-seconds">Time between points <output id="automatic-seconds-value">4 s</output></label><input id="automatic-seconds" type="range" min="1" max="12" step="0.5" value="4" disabled /><p class="hint">A virtual pointer glides between points. Optional tilt applies to gallery, inspect, or a raised hand card. Reduced motion pauses the effect.</p></section>
+        <section><label class="toggle"><span id="tilt-label">Pointer tilt</span><input id="tilt" type="checkbox" checked /></label><label class="toggle"><span>Slow light sweep</span><input id="sweep" type="checkbox" /></label><label class="toggle"><span>Reduced motion</span><input id="reduced" type="checkbox" /></label></section>
+        <section><div class="actions"><button type="button" id="flip" class="primary">↻ &nbsp; Flip card</button><button type="button" id="reset">Reset pose</button></div><div class="actions"><button type="button" id="plain">Hold for plain print</button><button type="button" id="shuffle">Shuffle hand</button></div></section>
+        <div class="panel-bottom"><span class="live-dot"></span><span id="status">Two independent finish layers</span><p>Three custom finish shaders. One shared card material. Your original artwork.</p></div>
+      </aside>
+    </main>
+    <script type="module" src="/src/cards.ts"></script>
+  </body>
+</html>

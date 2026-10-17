@@ -1,0 +1,21 @@
+{
+  "tool": "built-in image_gen",
+  "masks": [
+    {
+      "key": "ninetales",
+      "path": "/var/folders/mq/wwkdh0qs37z57g5xtdlp92r80000gn/T/codex-clipboard-UIQryV.png",
+      "prompt": "Use case: precise-object-edit. Asset type: grayscale foil coverage mask for a real-time card shader. Convert the supplied Ninetales card to a perfectly registered grayscale foil mask, same portrait composition and framing, preserving all silhouette positions. This is a data texture, NOT a finished card image. On pure black: fine elegant white-to-gray engraved flowing lines following the nine tails, white specks in the sunny leaf canopy, soft medium gray regions of warm sunlight, delicate gold-leaf-like flecks but entirely grayscale. Ninetales body mostly dark charcoal with bright fine contours, forest trunks mostly black, printed text and icons and all borders solid black so text remains readable under foil. Use varied 0-255 grays for strength, tiny bright etched details, flowing organic guilloche engraving. No new text, no colors, no perspective, no surrounding space. Output only the aligned full card mask, opaque black background."
+    },
+    {
+      "key": "umbreon",
+      "path": "/var/folders/mq/wwkdh0qs37z57g5xtdlp92r80000gn/T/codex-clipboard-3W01Ok.png",
+      "prompt": "Use case: precise-object-edit. Asset type: grayscale foil coverage mask for a real-time card shader. Convert the supplied Umbreon card to a perfectly registered grayscale foil mask at the same portrait framing and layout. DATA TEXTURE ONLY, not a card illustration. Pure black base. The moon should be bright soft white, sky should contain many delicate white and midgray four-point stars and fine concentric celestial orbit lines; flowing aurora ribbons in the sky in medium gray; water with thin gray wave engraving. Umbreon silhouette mostly black, its rings and outline softly white, roofs and all text and icons black. Grayscale 0 through 255, use lots of subtle midtones for selective holographic shine. No colors, no new letters, no perspective, no surrounding margins. Output only the aligned opaque black/gray/white foil mask."
+    },
+    {
+      "key": "pawmi",
+      "path": "/var/folders/mq/wwkdh0qs37z57g5xtdlp92r80000gn/T/codex-clipboard-BmxTpk.png",
+      "prompt": "Use case: precise-object-edit. Asset type: grayscale foil coverage mask for real-time collectible card shader. Convert the supplied Pawmi card into a perfectly registered grayscale foil mask at the identical framing and composition. DATA TEXTURE ONLY. Pure black base with delicate white and midgray flower petals and leaf veins in the meadow, dappled sun shafts as a soft gray veil, tiny white fairy-dust flecks in the sunlit parts; moss has elegant thin etched contours. Pawmi characters mostly charcoal with gentle gray highlights on edges, keep their faces dark. All typography/icons/border black. Vary gray levels continuously, white strongest, black absent. No color, no new text, no perspective. Output only the full aligned opaque grayscale mask."
+    }
+  ],
+  "stars": "Use case: stylized-concept. Asset type: seamless grayscale foil mask texture for a GPU shader. Square flat texture of tiny elegant four-point stars, sparse six-point stars, fine glitter pinpoints and very small diamond-like crystalline facets on pure black. Crisp micro-engraved collectible trading card holographic star foil pattern. White = strongest, lots of medium gray and dim gray stars, soft falloffs, mostly black negative space. No color, no letters, no card, no borders, no object silhouette, no lighting or vignette across the canvas. Evenly distributed, truly tileable on all edges. Fine intricate detail, stars vary in size from tiny specks to a few medium starbursts. This is a data texture, not a metallic rendering."
+}

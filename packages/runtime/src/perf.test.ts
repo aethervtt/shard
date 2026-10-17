@@ -273,7 +273,8 @@ describe('profiler overhead (0074)', () => {
       const always = Math.min(best(on), best(on))
       const capture = capturePerf(on.world, { frames: 2_100, events: 1 << 18 })
       await started(on.world)
-      const capturing = best(on)
+      // Match the two baseline samples and advance past the 2,100-frame capture.
+      const capturing = Math.min(best(on), best(on))
       for (let i = 0; i < 200; i++) on.update(1 / 60)
       await capture
       console.log(

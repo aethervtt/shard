@@ -45,6 +45,12 @@
       "desktop": 0.5,
       "note": "0035: audio/update with 512 sources over the 64-voice limit, median frame. audio/src/perf.test.ts."
     },
+    "cards/update": {
+      "kind": "target",
+      "laptop": 0.8,
+      "desktop": 0.8,
+      "note": "0076 initial package: mean CPU update of 1,000 settled cards over 600 frames after warmup. Proposed 10% of an 8 ms frame; separate from the deferred cards-table GPU scenario."
+    },
     "fog/redraw": {
       "kind": "target",
       "laptop": 50,

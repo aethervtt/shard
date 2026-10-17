@@ -160,7 +160,9 @@ fallback (0064) ran in parallel, in three stages, without blocking the WebGPU re
 shaders read engine data through its `@data` declarations. Dice entrances and screen
 effects (0065) build on 0054 and 0063 once 0054 is implemented. Structure grows after 0055: curved
 walls (0066) and groups (0067), then surface variation (0068), per-view visibility and cutaways
-(0070), and interior lighting (0069).
+(0070), and interior lighting (0069). Cards (0076) add decks, interaction and extensible foil
+finishes alongside dice; they reuse the embedding, material and gesture foundations and do not
+depend on the structure or open-world work.
 
 | Spec | Title | Status |
 |---|---|---|
@@ -183,3 +185,4 @@ walls (0066) and groups (0067), then surface variation (0068), per-view visibili
 | [0068](0068-surface-variation.md) | Surface variation and contact shade (repetition-breaking variation any material can use; noisy fake AO where walls meet walls and floors) | implemented |
 | [0069](0069-interior-lighting.md) | Interior lighting (sky visibility from the plan, spill through openings, lights blocked by walls) | implemented |
 | [0070](0070-view-visibility-cutaways.md) | Per-view visibility and cutaways (hide entities from one camera; cut roofs and walls open around reveal points) | accepted |
+| [0076](0076-cards.md) | Cards and decks (front/back art, sizes, masked extensible foil, instanced layouts, picking and optional tilt) | draft |
