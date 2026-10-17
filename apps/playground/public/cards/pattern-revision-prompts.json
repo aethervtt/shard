@@ -1,0 +1,38 @@
+{
+  "tool": "built-in image_gen",
+  "revision": "Distinct per-card patterns and source-registered Umbreon coverage",
+  "assets": [
+    {
+      "key": "ember-flow",
+      "prompt": "Use case: stylized-concept. Asset type: seamless grayscale foil COVERAGE DATA TEXTURE for a card shader. Generate a square flat tileable engraved flowing-line pattern on solid black. Fine organic parallel curves, elegant long wavy flame/woodgrain guilloche lines weaving into soft swirls, medium scale flowing contour lines with occasional tiny leaf-shaped engraving accents. Crisp hairlines in varied white, medium gray and dim gray; most of the background pure black. Coverage mask only, no shading, no colored metal or rendered lighting. Restrained flowing organic gold-engraving style but ENTIRELY neutral grayscale. No stars, no sparkles, no dots, no text, no borders, no objects, no vignette. Uniform density to all four edges, seamlessly repeating. Pattern should stay legible when sampled on a small trading card.",
+      "output": "ember-flow-foil.png",
+      "status": "used"
+    },
+    {
+      "key": "petals",
+      "prompt": "Use case: stylized-concept. Asset type: seamless grayscale foil COVERAGE DATA TEXTURE for a card shader. Square flat tileable botanical confetti pattern on pure black. Small scattered oval flower petals, little paired teardrop leaves, occasional tiny five-petal blossom outlines with rounded petals, each detached and with air between them. Organic petal shapes varied in orientation and scale, sparse enough to preserve black negative space, even distribution across all edges. White and multiple shades of gray for graded foil strength. Delicate botanical micro-engraving but clear shapes readable at trading-card scale. No stars, no four-point sparkles, no starbursts, no glitter dots, no text, no frame, no color, no vignette or lighting gradient. Output only the flat seamless mask, not a rendered metallic material.",
+      "output": "petals-foil.png",
+      "status": "used"
+    }
+  ],
+  "umbreon": {
+    "status": "generated revisions discarded because outlines still moved",
+    "attempts": [
+      {
+        "prompt": "Use case: precise-object-edit. Edit target: the supplied original 719x1000 Umbreon VMAX trading card. Primary request: produce an exactly registered opaque grayscale foil coverage mask by photometric conversion/selection of THIS EXACT IMAGE, with identical aspect ratio, framing, object boundaries and normalized pixel positions. DO NOT redraw, reinterpret, clean up, zoom, crop, expand the art, move objects, or generate replacement art. The entire original card including its typography regions and margins occupies exactly the same canvas. Map original turquoise/green/blue sky and water into midgray foil coverage following their existing cloud and wave details; original moon white; original Umbreon black fur and dark tower roofs almost black; existing yellow character rings and highlights light gray. Preserve the exact Umbreon pose, eye, ear outlines, paw and tail rings and buildings. Do NOT draw new stars, aurora ribbons, outlines or glow; pattern will be a separate layer. Preserve geometry pixel-for-pixel: moon center approximately x=0.266 y=0.113, Umbreon forehead ring x=0.556 y=0.205, visible eye x=0.571 y=0.231, left tower finial x=0.2 y=0.328, right tower finial x=0.721 y=0.206, left foreleg ring x=0.53 y=0.408. Retain all text and icon shapes at their exact positions but map those printed shapes to black as protection; do NOT remove type by extending the illustration into its area. No new details, no decorative imagery. This is a technical grayscale mask registered to the ORIGINAL CARD, not a new monochrome illustration. Output only the full-card black/gray/white data mask, opaque background, same aspect ratio as input.",
+        "result": "image tool output safety rejection"
+      },
+      {
+        "prompt": "Edit this user-provided image into a grayscale technical coverage mask. Keep the exact same canvas, aspect ratio, crop, composition, all outlines, and every object's position unchanged. Make a faithful grayscale conversion of the existing pixels, with the already-dark animal and buildings near black, sky and water medium gray, and moon and bright rings light gray. Do not add details, ornaments, new stars, new outlines, or new textures. Do not remove or reposition anything. This will overlay the original image at identical UV coordinates, so preserving alignment is the overriding requirement. Output the complete opaque grayscale image.",
+        "result": "generated grayscale art still changed object geometry"
+      }
+    ],
+    "activeMask": {
+      "source": "umbreon.png",
+      "channel": "g",
+      "space": "art",
+      "sampling": "linear data, no sRGB decoding",
+      "reason": "Reuse the original pixels rather than a redrawn silhouette; shares source UVs with the printed art."
+    }
+  }
+}

@@ -57,6 +57,21 @@ Every engine error is a `ShardError` with one of these codes.
 | `audio/no-plugin` | @aethervtt/shard-audio | Add "audio" to plugins in shard.json (or app.addPlugin(audioPlugin())). |
 | `audio/unknown-bus` | @aethervtt/shard-audio |  |
 | `audio/unsupported-format` | @aethervtt/shard-audio | Audio clips are WAV (PCM or float), Ogg Vorbis, Ogg Opus, MP3, or FLAC. |
+| `cards/capacity` | @aethervtt/shard-cards |  |
+| `cards/disposed` | @aethervtt/shard-cards |  |
+| `cards/duplicate-finish` | @aethervtt/shard-cards |  |
+| `cards/duplicate-id` | @aethervtt/shard-cards |  |
+| `cards/finish-animation` | @aethervtt/shard-cards |  |
+| `cards/finish-fields` | @aethervtt/shard-cards |  |
+| `cards/invalid-finish` | @aethervtt/shard-cards |  |
+| `cards/invalid-index` | @aethervtt/shard-cards |  |
+| `cards/invalid-layer` | @aethervtt/shard-cards |  |
+| `cards/invalid-size` | @aethervtt/shard-cards | Use dimensions in metres; poker is [0.063, 0.088]. |
+| `cards/invalid-transfer` | @aethervtt/shard-cards |  |
+| `cards/layer-limit` | @aethervtt/shard-cards |  |
+| `cards/texture-budget` | @aethervtt/shard-cards | Use a visible subset or a smaller resolution; prepare an inspection page separately. |
+| `cards/texture-size` | @aethervtt/shard-cards |  |
+| `cards/unknown-finish` | @aethervtt/shard-cards |  |
 | `controls/no-controls` | @aethervtt/shard-controls | syncViews takes two cameras that each have a control. |
 | `controls/no-plugin` | @aethervtt/shard-controls | Add "controls" to plugins in shard.json (or app.addPlugin(controlsPlugin)). |
 | `controls/not-draggable` | @aethervtt/shard-controls | PlaneDrag moves an entity by its Transform. |

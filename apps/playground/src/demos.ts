@@ -122,4 +122,5 @@ export const DEMO_GROUPS: readonly { name: string; demos: readonly (readonly [De
 export const PAGES: readonly (readonly [string, string])[] = [
   ['embedding.html', 'Embedding in a page'],
   ['dice.html', 'Dice'],
+  ['cards.html', 'Cards · Foil atelier'],
 ]
