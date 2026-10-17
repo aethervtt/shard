@@ -42,7 +42,12 @@ import { AudioParameters } from './parameters'
 import { audioPlugin } from './plugin'
 import { sineWav } from './testing-utils'
 
-async function measure(key: string, step: () => void, allocations = true): Promise<void> {
+async function measure(
+  key: string,
+  step: () => void,
+  limit: () => number,
+  allocations = true,
+): Promise<void> {
   step()
   if (timingMode !== 'bench') return
   for (let i = 0; i < 1000; i++) step()
@@ -60,7 +65,7 @@ async function measure(key: string, step: () => void, allocations = true): Promi
   samples.sort()
   const median = samples[samples.length >> 1]!
   console.log(`${key}: ${median.toFixed(5)} ms median; GC events: ${collections}`)
-  expect(median).toBeLessThan(budget(key))
+  expect(median).toBeLessThan(limit())
   if (allocationChecks && allocations) expect(collections).toBe(0)
 }
 
@@ -111,7 +116,7 @@ it(
       context.lastRunTick = world.tick
       updateAudioEvents.run(undefined, world, context as never)
     }
-    await measure('audio/events', step)
+    await measure('audio/events', step, () => budget('audio/events'))
     // Physical ranking has its own audio/update-virtual budget. Validate the combined result.
     updateAudio.run(setup, world, context as never)
     expect(audioState(world).voices.filter((v) => v.id > 0)).toHaveLength(512)
@@ -123,6 +128,7 @@ it(
         value = 1 - value
         for (let i = 0; i < 256; i++) setAudioParameter(world, ids[i % 128]!, 'rpm', value)
       },
+      () => budget('audio/commands'),
       false,
     )
     lease.release()
@@ -164,14 +170,22 @@ it(
         AudioSnapshot.deserialize({ attack: 0, targets: [{ bus: 'sfx', value: -i }] }),
         0.5,
       )
-    await measure('audio/mix', () => updateAudioMix(world, 1 / 60))
+    await measure(
+      'audio/mix',
+      () => updateAudioMix(world, 1 / 60),
+      () => budget('audio/mix'),
+    )
     const ref = world.resource(AudioClips).add(audioClip(sineWav(2, { rate: 8000 })))
     for (let i = 0; i < 64; i++) world.spawn([AudioSource, { clip: ref, loop: true }], Transform)
     for (let i = 0; i < 32; i++)
       world.spawn([ReverbZone, { returnBus: `bus${28 + (i % 4)}` }], Transform)
     app.update(1 / 60)
     const setup = updateAudioAcoustics.setup!(world)
-    await measure('audio/acoustics', () => updateAudioAcoustics.run(setup, world, {} as never))
+    await measure(
+      'audio/acoustics',
+      () => updateAudioAcoustics.run(setup, world, {} as never),
+      () => budget('audio/acoustics'),
+    )
     expect(world.resource(AudioAcoustics).queries).toBeLessThanOrEqual(16)
     expect(backend.activeVoices).toBe(64)
     app.dispose()
@@ -210,10 +224,14 @@ it(
     await prepareMusicSection(world, program, 'b')
     const transports = Array.from({ length: 8 }, () => startMusic(world, program))
     for (let i = 0; i < 32; i++) requestMusicSection(world, transports[i % 8]!, 'b')
-    await measure('audio/music-schedule', () => {
-      backend.advance(0.025)
-      updateMusic(world)
-    })
+    await measure(
+      'audio/music-schedule',
+      () => {
+        backend.advance(0.025)
+        updateMusic(world)
+      },
+      () => budget('audio/music-schedule'),
+    )
     expect(backend.activeVoices).toBe(64)
     expect(world.resource(Time).frame).toBe(0)
     program.release()
