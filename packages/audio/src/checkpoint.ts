@@ -15,6 +15,7 @@ import {
   t,
   type World,
 } from '@aethervtt/shard-core'
+import type { AudioClipAsset } from './clip'
 import { AudioEvent } from './event-assets'
 import {
   AudioEventsState,
@@ -47,6 +48,9 @@ export const CheckpointSchema = defineSchema('audio/CheckpointData', {
     t.struct({
       definition: t.struct(AudioEvent.fields),
       source: t.handle('audio/AudioEvent'),
+      clips: t.list(t.string()),
+      stopping: t.bool(),
+      release: t.f64({ default: -1 }),
       entity: t.string(),
       clock: t.enum(['simulation', 'realtime']),
       pitchLinked: t.bool(),
@@ -64,6 +68,8 @@ export const CheckpointSchema = defineSchema('audio/CheckpointData', {
           cursor: t.f64(),
           age: t.f64(),
           active: t.bool(),
+          ending: t.bool(),
+          releasedAt: t.f64(),
           gate: t.bool(),
           triggered: t.bool(),
           gainDb: t.f64(),
@@ -80,6 +86,7 @@ export const CheckpointSchema = defineSchema('audio/CheckpointData', {
       definition: t.struct(MusicProgram.fields),
       key: t.string(),
       revision: t.string(),
+      clips: t.list(t.string()),
       section: t.string(),
       phase: t.f64(),
       paused: t.bool(),
@@ -95,6 +102,21 @@ export const AudioCheckpoint = defineResource<Infer<typeof CheckpointSchema>>('a
   persist: true,
   init: () => CheckpointSchema.deserialize({}),
 })
+
+function clipRevision(clip: AudioClipAsset): string {
+  let hash = 2166136261
+  if (clip.bytes)
+    for (let i = 0; i < clip.bytes.length; i++) hash = Math.imul(hash ^ clip.bytes[i]!, 16777619)
+  return JSON.stringify([
+    hash >>> 0,
+    clip.bytes?.length,
+    clip.url,
+    clip.duration,
+    clip.loopStart,
+    clip.loopEnd,
+    clip.stream,
+  ])
+}
 
 /** Explicit synchronous checkpoint boundary. Never stores backend timestamps or transient sounds. */
 function capture(world: World, entityRef: (entity: Entity) => string | null = () => null): void {
@@ -125,6 +147,9 @@ function capture(world: World, entityRef: (entity: Entity) => string | null = ()
     data.events.push({
       definition: AudioEvent.deserialize(AudioEvent.serialize(instance.plan.definition)),
       source: instance.plan.source ? { ...instance.plan.source, type: 'audio/AudioEvent' } : null,
+      clips: instance.plan.clips.flat().map(clipRevision),
+      stopping: instance.state === 'stopping',
+      release: instance.release,
       entity,
       clock: instance.clock,
       pitchLinked: instance.pitchLinked,
@@ -141,6 +166,8 @@ function capture(world: World, entityRef: (entity: Entity) => string | null = ()
         cursor: layer.voice?.time ?? layer.cursor,
         age: layer.age,
         active: !!layer.voice && layer.voice.id > 0,
+        ending: layer.ending,
+        releasedAt: layer.releasedAt,
         gate: layer.gate,
         triggered: layer.triggered,
         gainDb: layer.gainDb,
@@ -165,6 +192,7 @@ function capture(world: World, entityRef: (entity: Entity) => string | null = ()
       definition: MusicProgram.deserialize(MusicProgram.serialize(transport.program.definition)),
       key: transport.program.key,
       revision: transport.program.revision,
+      clips: transport.section.stems.map((stem) => clipRevision(stem.clip)),
       section: transport.section.definition.id,
       phase,
       paused: transport.paused,
@@ -209,20 +237,52 @@ async function restore(
   state.nextId = Math.max(state.nextId, data.nextEvent)
   Object.assign(world.resource(AudioTransport), data.transport)
   for (const saved of data.events) {
+    let restored: number | null = null
     try {
       const entity = saved.entity ? resolveEntity(saved.entity) : undefined
       if (saved.entity && entity === undefined)
         throw new ShardError('audio/stale-handle', `Saved emitter ${saved.entity} no longer exists`)
-      const lease = await prepareAudio(world, saved.definition)
+      const source = saved.source ?? saved.definition
+      const lease = await prepareAudio(world, source)
       try {
-        const id = playAudioEvent(world, saved.definition, {
-          entity,
-          position: saved.position,
-          clock: saved.clock,
-          pitchLinked: saved.pitchLinked,
-          persist: true,
-        })
+        const plan = lease.events[0]!
+        if (
+          plan.revision !== JSON.stringify(AudioEvent.serialize(saved.definition)) ||
+          JSON.stringify(plan.clips.flat().map(clipRevision)) !== JSON.stringify(saved.clips)
+        )
+          throw new ShardError('audio/stale-handle', 'Saved event or clip revision is unavailable')
+        if (
+          saved.layers.length !== plan.definition.layers.length ||
+          saved.histories.length !== plan.histories.length ||
+          saved.values.length !== plan.definition.parameters.length ||
+          saved.targets.length !== saved.values.length ||
+          saved.rng.length !== 4
+        )
+          throw new ShardError('audio/restore', 'Saved event state has invalid dimensions')
+        for (let i = 0; i < saved.layers.length; i++)
+          if (
+            saved.layers[i]!.rng.length !== 4 ||
+            saved.histories[i]!.previous.length !== plan.histories[i]!.previous.length ||
+            saved.layers[i]!.selected >= plan.clips[i]!.length
+          )
+            throw new ShardError('audio/restore', 'Saved layer state is invalid')
+        let id: number
+        state.restoring = true
+        try {
+          id = playAudioEvent(world, source, {
+            entity,
+            position: saved.position,
+            clock: saved.clock,
+            pitchLinked: saved.pitchLinked,
+            persist: true,
+          })
+          restored = id
+        } finally {
+          state.restoring = false
+        }
         const instance = audioEvents(world).instances.find((value) => value?.id === id)!
+        instance.state = saved.stopping ? 'stopping' : 'active'
+        instance.release = saved.release
         instance.ordinal = saved.ordinal
         instance.rng.setState(saved.rng)
         instance.decisionTime = saved.decisionTime
@@ -238,6 +298,8 @@ async function restore(
             selected: previous.selected,
             cursor: previous.cursor,
             age: previous.age,
+            ending: previous.ending,
+            releasedAt: previous.releasedAt,
             gate: previous.gate,
             triggered: previous.triggered,
             gainDb: previous.gainDb,
@@ -278,12 +340,91 @@ async function restore(
         lease.release()
       }
     } catch (cause) {
+      if (restored !== null) stopAudioEvent(world, restored, { release: 0 })
       warnings.push(
         new ShardError('audio/restore', 'Sustained audio could not be restored', { cause }),
       )
     }
   }
   state.ordinal = data.ordinal
+  if (world.tryResource(AudioMusicState))
+    for (const saved of data.music) {
+      let restored: number | null = null
+      try {
+        const program = await prepareMusic(
+          world,
+          saved.key === 'inline' ? saved.definition : saved.key,
+        )
+        try {
+          // Candidate preparation uses the same admission path; release its temporary transport.
+          let section = saved.section,
+            phase = saved.phase
+          if (
+            program.revision !== saved.revision ||
+            !program.definition.sections.some((s) => s.id === section)
+          ) {
+            section = program.definition.entry
+            phase = 0
+            warnings.push(
+              new ShardError(
+                'audio/music-restore',
+                'Saved music revision or section is unavailable; restarting current entry',
+              ),
+            )
+          }
+          const { prepareMusicSection } = await import('./music')
+          const prepared = await prepareMusicSection(world, program, section)
+          if (
+            JSON.stringify(prepared.stems.map((stem) => clipRevision(stem.clip))) !==
+            JSON.stringify(saved.clips)
+          ) {
+            section = program.definition.entry
+            phase = 0
+            await prepareMusicSection(world, program, section)
+            warnings.push(
+              new ShardError(
+                'audio/music-restore',
+                'Saved clip revision changed; restarting current entry',
+              ),
+            )
+          }
+          for (const global of data.globals) {
+            const bank = state.globalBanks.get(global.key)
+            if (
+              bank &&
+              bank.values.length === global.values.length &&
+              bank.targets.length === global.targets.length
+            ) {
+              bank.values.set(global.values)
+              bank.targets.set(global.targets)
+            }
+          }
+          const sameRevision = program.revision === saved.revision
+          const id = startMusic(world, program, {
+            section,
+            phase,
+            persist: true,
+            values: sameRevision ? saved.values : undefined,
+            targets: sameRevision ? saved.targets : undefined,
+            rng: saved.rng,
+          })
+          restored = id
+          if (
+            saved.destination &&
+            program.definition.sections.some((s) => s.id === saved.destination)
+          )
+            requestMusicSection(world, id, saved.destination, { quantize: 'bar' })
+          if (saved.paused) pauseMusic(world, id)
+        } finally {
+          program.release()
+        }
+      } catch (cause) {
+        if (restored !== null) stopMusic(world, restored)
+        warnings.push(
+          new ShardError('audio/music-restore', 'Music could not be restored', { cause }),
+        )
+      }
+    }
   for (const global of data.globals) {
     const bank = state.globalBanks.get(global.key)
     if (bank && bank.values.length === global.values.length) {
@@ -291,41 +432,8 @@ async function restore(
       bank.targets.set(global.targets)
     }
   }
-  if (world.tryResource(AudioMusicState))
-    for (const saved of data.music) {
-      try {
-        const program = await prepareMusic(world, saved.definition)
-        try {
-          // Candidate preparation uses the same admission path; release its temporary transport.
-          let section = saved.section,
-            phase = saved.phase
-          if (!program.definition.sections.some((s) => s.id === section)) {
-            section = program.definition.entry
-            phase = 0
-            warnings.push(
-              new ShardError('audio/music-restore', 'Saved section is missing; restarting entry'),
-            )
-          }
-          const { prepareMusicSection } = await import('./music')
-          await prepareMusicSection(world, program, section)
-          const id = startMusic(world, program, { section, phase, persist: true })
-          const transport = world.resource(AudioMusicState).transports.find((t) => t.id === id)!
-          transport.parameters.values.set(saved.values)
-          transport.parameters.targets.set(saved.targets)
-          transport.rng.setState(saved.rng)
-          if (saved.destination)
-            requestMusicSection(world, id, saved.destination, { quantize: 'bar' })
-          if (saved.paused) pauseMusic(world, id)
-        } finally {
-          program.release()
-        }
-      } catch (cause) {
-        warnings.push(
-          new ShardError('audio/music-restore', 'Music could not be restored', { cause }),
-        )
-      }
-    }
   state.lastClock = audioState(world).backend.runtime!.clock.now()
+  state.lastWall = audioState(world).backend.runtime!.clock.wallNow?.() ?? state.lastWall
   return warnings
 }
 

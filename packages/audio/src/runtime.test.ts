@@ -66,9 +66,9 @@ describe('0077 playback foundation', () => {
     app.dispose()
   })
 
-  it('bounds retained history and reports cursor loss through voice churn', async () => {
+  it('bounds ten minutes of 60-Hz voice churn and reports cursor loss', async () => {
     const { app, world, backend, clip } = await setup()
-    for (let i = 0; i < 2300; i++) {
+    for (let i = 0; i < 36000; i++) {
       const id = playSound(world, clip)
       app.update(1 / 60)
       stopSound(world, id)

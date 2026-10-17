@@ -168,6 +168,7 @@ export interface AudioStateValue {
   byEntity: Map<Entity, Voice>
   nextId: number
   log: AudioLogEntry[]
+  voiceTrace: AudioVoiceTrace
   /** Log entries dropped from the front (the log keeps the last LOG_LIMIT). */
   logOffset: number
   listener: Float64Array
@@ -185,7 +186,7 @@ export interface AudioStateValue {
   /** Unknown buses already reported. */
   reported: Set<string>
   // Scratch for voice limits.
-  ranked: Voice[]
+  ranked: (Voice | null)[]
   /** Per clip: [stamp, count], reset lazily by stamp (Map.clear would allocate every frame). */
   clipCounts: WeakMap<AudioClipAsset, Int32Array>
   countStamp: number
@@ -197,18 +198,61 @@ export interface AudioStateValue {
 
 const LOG_LIMIT = 4096
 
+/** Packed legacy telemetry; only inspection constructs records and position tuples. */
+export class AudioVoiceTrace {
+  next = 0
+  readonly numeric = new Float64Array(LOG_LIMIT * 8)
+  readonly events: AudioLogEntry['event'][] = new Array(LOG_LIMIT).fill('start')
+  readonly clips: (string | null)[] = new Array(LOG_LIMIT).fill(null)
+  readonly paths: (string | null)[] = new Array(LOG_LIMIT).fill(null)
+  readonly buses: string[] = new Array(LOG_LIMIT).fill('')
+  readonly reasons: AudioLogEntry['reason'][] = new Array(LOG_LIMIT).fill(undefined)
+  readonly entities: (Entity | null)[] = new Array(LOG_LIMIT).fill(null)
+  readonly spatial = new Uint8Array(LOG_LIMIT)
+  read(cursor = 0) {
+    const oldestCursor = Math.max(0, this.next - LOG_LIMIT),
+      entries: AudioLogEntry[] = []
+    for (let i = Math.max(cursor, oldestCursor); i < this.next; i++) {
+      const slot = i % LOG_LIMIT,
+        n = slot * 8
+      entries.push({
+        frame: this.numeric[n]!,
+        voice: this.numeric[n + 1]!,
+        event: this.events[slot]!,
+        clip: this.clips[slot]!,
+        path: this.paths[slot]!,
+        bus: this.buses[slot]!,
+        entity: this.entities[slot]!,
+        position: this.spatial[slot]
+          ? [this.numeric[n + 2]!, this.numeric[n + 3]!, this.numeric[n + 4]!]
+          : null,
+        gain: this.numeric[n + 5]!,
+        pan: this.numeric[n + 6]!,
+        ...(this.reasons[slot] ? { reason: this.reasons[slot] } : {}),
+      })
+    }
+    return { entries, oldestCursor, nextCursor: this.next, truncated: cursor < oldestCursor }
+  }
+}
+
 export const AudioState = defineResource<AudioStateValue>('audio/State', {
   description: 'Voices, the backend, bus gains, and the audio log. Internal: use audio.describe.',
 })
 
 export function createAudioState(backend: AudioBackend, rng = new Rng(0)): AudioStateValue {
+  const voiceTrace = new AudioVoiceTrace()
   return {
     backend,
     voices: [],
     byEntity: new Map(),
     nextId: 1,
-    log: [],
-    logOffset: 0,
+    voiceTrace,
+    get log() {
+      return voiceTrace.read().entries
+    },
+    get logOffset() {
+      return Math.max(0, voiceTrace.next - LOG_LIMIT)
+    },
     listener: new Float64Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]),
     listenerEntity: null,
     listenerPrev: new Float64Array(3),
@@ -329,21 +373,23 @@ function record(
   event: AudioLogEntry['event'],
   reason?: AudioLogEntry['reason'],
 ): void {
-  const entry: AudioLogEntry = {
-    frame: state.frame,
-    event,
-    voice: voice.id,
-    clip: clipLabel(voice),
-    entity: voice.entity,
-    path: scenePath(world, voice.entity),
-    bus: voice.bus,
-    position: voice.spatial ? [voice.x, voice.y, voice.z] : null,
-    gain: voice.gain,
-    pan: voice.pan,
-  }
-  if (reason) entry.reason = reason
-  if (state.log.length < LOG_LIMIT) state.log.push(entry)
-  else state.log[state.logOffset++ % LOG_LIMIT] = entry
+  const trace = state.voiceTrace,
+    slot = trace.next++ % LOG_LIMIT,
+    n = slot * 8
+  trace.numeric[n] = state.frame
+  trace.numeric[n + 1] = voice.id
+  trace.numeric[n + 2] = voice.x
+  trace.numeric[n + 3] = voice.y
+  trace.numeric[n + 4] = voice.z
+  trace.numeric[n + 5] = voice.gain
+  trace.numeric[n + 6] = voice.pan
+  trace.events[slot] = event
+  trace.clips[slot] = clipLabel(voice)
+  trace.entities[slot] = voice.entity
+  trace.paths[slot] = scenePath(world, voice.entity)
+  trace.buses[slot] = voice.bus
+  trace.reasons[slot] = reason
+  trace.spatial[slot] = voice.spatial ? 1 : 0
 }
 
 /** Ends a voice: stops its backend voice and logs why (voices never started just disappear). */
@@ -489,8 +535,33 @@ function clipCount(state: AudioStateValue, clip: AudioClipAsset): number {
 }
 
 /** Higher priority first; then louder; then newer (older voices are stolen first). */
-function rank(a: Voice, b: Voice): number {
-  return b.priority - a.priority || b.gain - a.gain || b.id - a.id
+function worse(a: Voice, b: Voice): boolean {
+  return (
+    a.priority < b.priority ||
+    (a.priority === b.priority && (a.gain < b.gain || (a.gain === b.gain && a.id < b.id)))
+  )
+}
+
+/** In-place heapsort avoids Array.sort's temporary merge storage at high voice counts. */
+function rankVoices(voices: (Voice | null)[], count: number): void {
+  for (let start = (count >> 1) - 1; start >= 0; start--) siftVoices(voices, start, count)
+  for (let end = count - 1; end > 0; end--) {
+    const first = voices[0]!
+    voices[0] = voices[end]!
+    voices[end] = first
+    siftVoices(voices, 0, end)
+  }
+}
+function siftVoices(voices: (Voice | null)[], root: number, end: number): void {
+  const value = voices[root]!
+  while (root * 2 + 1 < end) {
+    let child = root * 2 + 1
+    if (child + 1 < end && worse(voices[child + 1]!, voices[child]!)) child++
+    if (!worse(voices[child]!, value)) break
+    voices[root] = voices[child]!
+    root = child
+  }
+  voices[root] = value
 }
 
 /** Scratch for numbers computed out of line (a returned double would be boxed). */
@@ -786,15 +857,16 @@ export const updateAudio = defineSystem({
     }
     if (audible > maxVoices || overClip) {
       const ranked = state.ranked
-      ranked.length = 0
+      let rankCount = 0
       for (let i = 0; i < voices.length; i++) {
         const v = voices[i]!
-        if (!isEnded(v) && v.state === 'active') ranked.push(v)
+        if (!isEnded(v) && v.state === 'active') ranked[rankCount++] = v
       }
-      ranked.sort(rank)
+      for (let i = rankCount; i < ranked.length; i++) ranked[i] = null
+      rankVoices(ranked, rankCount)
       state.countStamp++
       let real = 0
-      for (let i = 0; i < ranked.length; i++) {
+      for (let i = 0; i < rankCount; i++) {
         const v = ranked[i]!
         if (real < maxVoices && clipCount(state, v.clip!) < perClip) {
           real++
@@ -812,7 +884,6 @@ export const updateAudio = defineSystem({
           endVoice(world, state, v, 'stolen', 0)
         }
       }
-      ranked.length = 0
     }
 
     // Release virtualized slots before admitting replacements, including fades in the hard cap.

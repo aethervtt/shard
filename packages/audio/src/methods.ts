@@ -84,14 +84,7 @@ export function audioLog(world: World, since = 0): AudioLogEntry[] {
 }
 
 export function readAudioLog(world: World, cursor = 0) {
-  const state = audioState(world)
-  const oldestCursor = state.logOffset
-  const nextCursor = oldestCursor + state.log.length
-  const entries: AudioLogEntry[] = []
-  for (let i = Math.max(cursor, oldestCursor); i < nextCursor; i++) {
-    entries.push(state.log[i % state.log.length]!)
-  }
-  return { entries, oldestCursor, nextCursor, truncated: cursor < oldestCursor }
+  return audioState(world).voiceTrace.read(cursor)
 }
 
 export const audioMethods: AppMethod[] = [

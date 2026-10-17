@@ -33,7 +33,7 @@ export const AudioEventFields = {
         }),
       ),
       selectParameter: t.string(),
-      defaultChoice: t.u32(),
+      defaultChoice: t.i32({ default: -1 }),
       noRepeat: t.u32({ default: 1 }),
       trigger: t.enum(['start', 'while']),
       condition: t.struct({
@@ -102,7 +102,10 @@ export function validateAudioEvent(event: AudioEventDefinition): void {
         'No-repeat window must be smaller than the choice pool',
         { path },
       )
-    if (layer.defaultChoice >= layer.choices.length)
+    if (
+      layer.defaultChoice >= layer.choices.length ||
+      (layer.selector === 'switch' && layer.defaultChoice < 0)
+    )
       throw new ShardError(
         'audio/invalid-event',
         'Switch default must reference an existing choice',

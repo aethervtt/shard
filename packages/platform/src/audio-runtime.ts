@@ -14,6 +14,8 @@ export interface AudioCapabilities {
 export interface AudioClock {
   /** Seconds on the rendering clock, frozen while the context is suspended. */
   now(): number
+  /** Monotonic expiry clock, including suspension. Falls back to frame time in legacy hosts. */
+  wallNow?(): number
   /** Independent of rendering frames. Returns an idempotent unsubscribe. */
   wake(callback: () => void, intervalSeconds: number): () => void
 }
@@ -135,6 +137,9 @@ export interface AudioRuntimeExtension {
   readonly capabilities: Readonly<AudioCapabilities>
   readonly clock: AudioClock
   readonly activeVoices: number
+  setDecodedBudget(bytes: number): void
+  /** Reserve a synchronous batch before starting any stem; release unused slots in finally. */
+  reserveVoices(count: number): () => void
   prepare(clip: AudioClipSource): Promise<AudioPreparation>
   /** Reclaims unpinned cache entries. Active voices retain their own pins. */
   collect(): void

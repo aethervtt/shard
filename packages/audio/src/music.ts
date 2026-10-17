@@ -15,6 +15,7 @@ import type {
 } from '@aethervtt/shard-platform'
 import { definePlugin } from '@aethervtt/shard-runtime'
 import { type AudioClipAsset, AudioClips } from './clip'
+import { AudioBuses } from './components'
 import {
   type AudioLease,
   AudioTrace,
@@ -244,7 +245,7 @@ export interface MusicTransport {
   rate: number
   parameters: AudioParameterBank
   voices: StemVoice[]
-  retiring: { voices: StemVoice[]; at: number }[]
+  retiring: { voices: StemVoice[]; at: number; section: PreparedSection }[]
   pending: MusicRequest | null
   committed: MusicRequest | null
   paused: boolean
@@ -327,15 +328,16 @@ export async function prepareMusicSection(
           clip,
           lease,
           rate: 1,
-          curves: stem.curves.map((curve) => ({
-            parameter: program.definition.parameters.some((p) => p.name === curve.parameter)
-              ? program.definition.parameters.findIndex((p) => p.name === curve.parameter)
-              : program.globals.index(curve.parameter),
-            global: !program.definition.parameters.some((p) => p.name === curve.parameter),
-            points: new Float64Array(curve.points.flat()),
-          })),
+          curves: [],
         }
         stems.push(record)
+        record.curves = stem.curves.map((curve) => ({
+          parameter: program.definition.parameters.some((p) => p.name === curve.parameter)
+            ? program.definition.parameters.findIndex((p) => p.name === curve.parameter)
+            : program.globals.index(curve.parameter),
+          global: !program.definition.parameters.some((p) => p.name === curve.parameter),
+          points: new Float64Array(curve.points.flat()),
+        }))
         const sourceRate = source.sampleRate ?? lease.sampleRate
         clip.loopStart =
           Math.round((stem.startSample / sourceRate) * lease.sampleRate) / lease.sampleRate
@@ -425,6 +427,9 @@ export async function prepareMusic(
   }
   state.programs.set(id, program)
   try {
+    for (const rule of definition.transitions)
+      if (rule.parameter && !definition.parameters.some((p) => p.name === rule.parameter))
+        program.globals.index(rule.parameter)
     await prepareMusicSection(world, program, definition.entry)
     return program
   } catch (error) {
@@ -464,6 +469,13 @@ function startSection(
       'audio/music-capacity',
       'The entire section cannot fit the physical voice budget',
     )
+  for (const stem of section.stems)
+    if (
+      !world.resource(AudioBuses)[stem.definition.bus] ||
+      !Number.isFinite(stemGain(state, transport, stem))
+    )
+      throw new ShardError('audio/music-invalid', 'Incoming section has an invalid route or gain')
+  const releaseReservation = runtime.reserveVoices(section.stems.length)
   try {
     for (const stem of section.stems) {
       const gain = stemGain(state, transport, stem)
@@ -504,13 +516,24 @@ function startSection(
   } catch (error) {
     for (const voice of voices) runtime.cancel(voice.id)
     throw error
+  } finally {
+    releaseReservation()
   }
 }
 
 export function startMusic(
   world: World,
   program: PreparedMusic,
-  options: { section?: string; persist?: boolean; at?: number; phase?: number } = {},
+  options: {
+    section?: string
+    persist?: boolean
+    at?: number
+    phase?: number
+    parameters?: Readonly<Record<string, number | string>>
+    values?: readonly number[]
+    targets?: readonly number[]
+    rng?: readonly number[]
+  } = {},
 ): number {
   const state = musicState(world),
     runtime = runtimeOf(world)
@@ -549,6 +572,19 @@ export function startMusic(
     persist: options.persist ?? false,
     rng: new Rng(state.nextTransport),
   }
+  for (const name in options.parameters) transport.parameters.set(name, options.parameters[name]!)
+  if (options.values || options.targets) {
+    if (
+      options.values?.length !== transport.parameters.values.length ||
+      options.targets?.length !== transport.parameters.targets.length
+    )
+      throw new ShardError('audio/music-invalid', 'Parameter checkpoint dimensions do not match')
+    for (let i = 0; i < options.values.length; i++) {
+      transport.parameters.values[i] = transport.parameters.encode(i, options.values[i]!)
+      transport.parameters.targets[i] = transport.parameters.encode(i, options.targets[i]!)
+    }
+  }
+  if (options.rng) transport.rng.setState([...options.rng])
   transport.voices = startSection(world, transport, section, at, phase, 0, 'linear')
   program.refs++
   state.transports.push(transport)
@@ -667,6 +703,16 @@ export function requestMusicSection(
         if (request.state !== 'cancelled') {
           request.state = 'failed'
           request.error = error instanceof ShardError ? error.code : 'audio/music-unprepared'
+          if (transport.pending === request) transport.pending = null
+          state.trace.write(
+            0,
+            runtime.clock.now(),
+            'music-reject',
+            request.id,
+            section,
+            -1,
+            request.error,
+          )
         }
       })
   state.trace.write(0, request.at, 'music-request', request.id, section)
@@ -685,12 +731,17 @@ export function setMusicParameter(
     : transport.program.globals
   bank.set(name, value)
 }
-function cancelSources(runtime: AudioRuntimeExtension, transport: MusicTransport): void {
+function cancelSources(
+  runtime: AudioRuntimeExtension,
+  transport: MusicTransport,
+  release?: (id: number) => void,
+): void {
   transport.generation++
-  for (const voice of transport.voices) runtime.cancel(voice.id)
+  for (const voice of transport.voices) release ? release(voice.id) : runtime.cancel(voice.id)
   for (const retiring of transport.retiring)
-    for (const voice of retiring.voices) runtime.cancel(voice.id)
-  for (const stinger of transport.stingers) for (const id of stinger.voices) runtime.cancel(id)
+    for (const voice of retiring.voices) release ? release(voice.id) : runtime.cancel(voice.id)
+  for (const stinger of transport.stingers)
+    for (const id of stinger.voices) release ? release(id) : runtime.cancel(id)
   if (transport.pending) transport.pending.state = 'cancelled'
   if (transport.committed) {
     for (const voice of transport.committed.voices) runtime.cancel(voice.id)
@@ -718,6 +769,7 @@ export function resumeMusic(world: World, id: number): void {
   const at = runtimeOf(world).clock.now() + musicState(world).commitLead
   transport.epoch = at - ((transport.phase / MUSIC_PPQ) * 60) / transport.program.definition.bpm
   transport.sectionStartTick = 0
+  transport.lastDecision = Math.floor(transport.phase / MUSIC_PPQ) - 1
   transport.voices = startSection(
     world,
     transport,
@@ -752,6 +804,7 @@ export function cancelMusicRequest(
 ): 'cancelled' | 'already-started' | 'ended' {
   const transport = transportOf(world, id),
     runtime = runtimeOf(world)
+  reconcileMusic(world, transport, runtime.clock.now())
   if (transport.pending?.id === command) {
     transport.pending.state = 'cancelled'
     transport.pending = null
@@ -766,13 +819,11 @@ export function cancelMusicRequest(
   }
   if (transport.committed?.id !== command) {
     if (transport.lastCommand !== command) return 'ended'
-    // Promotion does not erase command identity. Cancel the audible destination with release.
-    for (const voice of transport.voices) audioState(world).backend.stop(voice.id, 0.02)
-    transport.voices = []
-    transport.lastCommand = 0
     transport.phase =
       Math.max(0, tickNow(transport, runtime.clock.now()) - transport.sectionStartTick) %
       transport.section.ticks
+    cancelSources(runtime, transport, (voice) => audioState(world).backend.stop(voice, 0.02))
+    transport.lastCommand = 0
     transport.paused = true
     return 'already-started'
   }
@@ -849,14 +900,6 @@ export async function playMusicStinger(
       transport.stingers.some((s) => s.name === name && s.end > now))
   )
     throw new ShardError('audio/music-capacity', 'Stinger cooldown or overlap limit')
-  if (definition.overlap === 'replace') {
-    for (let i = transport.stingers.length - 1; i >= 0; i--) {
-      const stinger = transport.stingers[i]!
-      if (stinger.name !== name) continue
-      for (const voice of stinger.voices) runtime.cancel(voice)
-      transport.stingers.splice(i, 1)
-    }
-  }
   if (
     transport.stingers.length >= 32 ||
     runtime.memory().voices + event.definition.layers.length > world.resource(AudioConfig).maxVoices
@@ -872,6 +915,10 @@ export async function playMusicStinger(
   }
   const command = state.nextCommand++,
     voices: number[] = []
+  for (const layer of event.definition.layers)
+    if (!world.resource(AudioBuses)[layer.bus || event.definition.bus])
+      throw new ShardError('audio/unknown-bus', 'Stinger route is unavailable')
+  const releaseReservation = runtime.reserveVoices(event.definition.layers.length)
   let end = target.at
   try {
     for (let i = 0; i < event.definition.layers.length; i++) {
@@ -936,6 +983,16 @@ export async function playMusicStinger(
   } catch (error) {
     for (const voice of voices) runtime.cancel(voice)
     throw error
+  } finally {
+    releaseReservation()
+  }
+  if (definition.overlap === 'replace') {
+    for (let i = transport.stingers.length - 1; i >= 0; i--) {
+      const stinger = transport.stingers[i]!
+      if (stinger.name !== name) continue
+      for (const voice of stinger.voices) runtime.cancel(voice)
+      transport.stingers.splice(i, 1)
+    }
   }
   transport.stingers.push({ id: command, name, at: target.at, end, voices })
   transport.cooldowns.set(name, now)
@@ -947,6 +1004,7 @@ function reconcileMusic(world: World, transport: MusicTransport, now: number): v
   const committed = transport.committed
   if (committed && now >= committed.at) {
     transport.retiring.push({
+      section: transport.section,
       voices: transport.voices,
       at: committed.at + (committed.fadeBeats * 60) / transport.program.definition.bpm,
     })
@@ -963,6 +1021,30 @@ function reconcileMusic(world: World, transport: MusicTransport, now: number): v
   }
 }
 
+/** Resident PCM follows active/current/queued/crossfading sections, not every visited branch. */
+function collectSections(world: World, program: PreparedMusic): void {
+  const transports = musicState(world).transports
+  for (const [id, section] of program.sections) {
+    let used = false
+    for (const transport of transports) {
+      if (transport.stopped || transport.program !== program) continue
+      if (
+        transport.section === section ||
+        transport.pending?.section === id ||
+        transport.committed?.section === id ||
+        transport.retiring.some((r) => r.section === section)
+      ) {
+        used = true
+        break
+      }
+    }
+    if (!used) {
+      for (const stem of section.stems) stem.lease.release()
+      program.sections.delete(id)
+    }
+  }
+}
+
 export function updateMusic(world: World): void {
   const state = musicState(world),
     runtime = runtimeOf(world),
@@ -973,6 +1055,7 @@ export function updateMusic(world: World): void {
     transport.parameters.update(Math.max(0, now - transport.lastWake))
     transport.lastWake = now
     let write = 0
+    const hadRetiring = transport.retiring.length
     for (let j = 0; j < transport.retiring.length; j++) {
       const retired = transport.retiring[j]!
       if (now >= retired.at) {
@@ -980,11 +1063,33 @@ export function updateMusic(world: World): void {
       } else transport.retiring[write++] = retired
     }
     transport.retiring.length = write
+    if (write !== hadRetiring) collectSections(world, transport.program)
     write = 0
     for (let j = 0; j < transport.stingers.length; j++)
       if (transport.stingers[j]!.end > now) transport.stingers[write++] = transport.stingers[j]!
     transport.stingers.length = write
     reconcileMusic(world, transport, now)
+    let lost = false
+    for (let v = 0; v < transport.voices.length; v++) {
+      const feedback = runtime.presentation(transport.voices[v]!.id)
+      if (feedback?.error || feedback?.state === 'failed' || feedback?.state === 'ended') {
+        lost = true
+        break
+      }
+    }
+    if (lost) {
+      pauseMusic(world, transport.id)
+      state.trace.write(
+        0,
+        now,
+        'music-suspended',
+        transport.id,
+        transport.section.definition.id,
+        -1,
+        'source-lost',
+      )
+      continue
+    }
     for (let v = 0; v < transport.voices.length; v++) {
       const voice = transport.voices[v]!,
         gain = stemGain(state, transport, voice.stem)
@@ -1120,6 +1225,10 @@ export function describeMusic(world: World) {
       .map((t) => ({
         id: t.id,
         program: t.program.key,
+        revision: t.program.revision,
+        rng: t.rng.getState(),
+        residentSections: [...t.program.sections.keys()],
+        reservedVoices: t.committed?.voices.length ?? 0,
         section: t.section.definition.id,
         bpm: t.program.definition.bpm,
         epoch: t.epoch,

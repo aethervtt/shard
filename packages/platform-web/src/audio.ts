@@ -38,6 +38,7 @@ function automatedValue(track: AutomationTrack, at: number): number {
 }
 
 interface Voice {
+  group: number
   id: number
   desc: AudioScheduledVoice
   params: AudioVoiceParams
@@ -71,6 +72,8 @@ interface Host {
   offline: boolean
   maxVoices: number
   voices: number
+  reserved: number
+  nextSession: number
 }
 
 export interface WebAudioBackend extends AudioBackend {
@@ -116,6 +119,10 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
   >()
   private graph: WebAudioGraph | null = null
   private graphRevision = 0
+  private reserved = 0
+  private group = 0
+  private readonly ordinal: number
+  private readonly priority: number
   private maxVoices: number
   private budgetBytes: number
   private readonly pendingStarts = new Set<Promise<void>>()
@@ -124,6 +131,10 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
 
   constructor(host: Host, root: boolean, options: AudioSessionOptions = {}) {
     this.host = host
+    this.ordinal = host.nextSession++
+    this.priority = options.priority ?? 0
+    if (!Number.isFinite(this.priority))
+      throw new ShardError('audio/invalid-range', 'Session priority must be finite')
     this.root = root
     this.context = host.context
     this.output = host.context.createGain()
@@ -141,6 +152,7 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
     }
     this.clock = {
       now: () => this.context.currentTime,
+      wallNow: () => performance.now() / 1000,
       wake: (callback, seconds) => {
         if (host.offline || this.disposed) return () => {}
         const handle = setInterval(callback, Math.max(1, seconds * 1000))
@@ -265,15 +277,78 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
     }
   }
 
+  setDecodedBudget(bytes: number): void {
+    if (!Number.isFinite(bytes) || bytes < this.ownPreparedBytes)
+      throw new ShardError('audio/memory-budget', 'Budget is invalid or below pinned PCM')
+    this.budgetBytes = bytes
+  }
+
+  reserveVoices(count: number): () => void {
+    if (
+      !Number.isInteger(count) ||
+      count < 1 ||
+      this.voices.size + this.reserved + count > this.maxVoices
+    )
+      throw new ShardError('audio/capacity', 'Physical voice reservation cannot fit')
+    const needed = Math.max(0, this.host.voices + this.host.reserved + count - this.host.maxVoices)
+    if (needed) {
+      const candidates: { session: WebSession; voice: Voice }[] = []
+      for (const session of this.host.sessions) {
+        if (
+          session === this ||
+          session.priority > this.priority ||
+          (session.priority === this.priority && session.ordinal < this.ordinal)
+        )
+          continue
+        for (const voice of session.voices.values()) candidates.push({ session, voice })
+      }
+      candidates.sort(
+        (a, b) =>
+          a.session.priority - b.session.priority ||
+          b.session.ordinal - a.session.ordinal ||
+          b.voice.id - a.voice.id,
+      )
+      if (candidates.length < needed)
+        throw new ShardError('audio/capacity', 'Higher-ranked sessions own the host voice budget')
+      let freed = 0
+      for (let i = 0; i < candidates.length && freed < needed; i++) {
+        const victim = candidates[i]!
+        if (victim.voice.finished) continue
+        // A reserved stem/stinger group is indivisible, including when another session wins.
+        for (const voice of victim.session.voices.values())
+          if (voice.group === victim.voice.group) {
+            voice.presentation.error = 'audio/host-stolen'
+            victim.session.finish(voice)
+            freed++
+          }
+      }
+    }
+    const previous = this.reserved
+    this.group++
+    this.reserved += count
+    this.host.reserved += count
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      const unused = Math.max(0, this.reserved - previous)
+      this.reserved -= unused
+      this.host.reserved -= unused
+    }
+  }
+
   play(desc: AudioScheduledVoice): number {
     if (this.disposed) throw new ShardError('audio/prepare-failed', 'Audio session is disposed')
-    if (this.voices.size >= this.maxVoices || this.host.voices >= this.host.maxVoices)
+    if (this.voices.size >= this.maxVoices)
       throw new ShardError('audio/capacity', 'Physical audio voice budget is exhausted', {
         hint: 'Release a voice or increase the session/host voice budget.',
       })
     if (this.host.offline && desc.clip.stream)
       throw new ShardError('audio/unsupported-capability', 'Offline rendering needs decoded clips')
     this.input(desc.bus)
+    if (!this.reserved) this.reserveVoices(1)
+    this.reserved--
+    this.host.reserved--
     const id = this.nextId++
     const gain = this.context.createGain()
     gain.gain.value = desc.gain
@@ -292,6 +367,7 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
       error: null,
     }
     const voice: Voice = {
+      group: this.group,
       id,
       desc: { ...desc },
       params: { gain: desc.gain, pitch: desc.pitch, x: desc.x, y: desc.y, z: desc.z },
@@ -317,8 +393,13 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
     this.voices.set(id, voice)
     this.statuses.set(id, presentation)
     this.host.voices++
-    this.route(voice)
-    this.start(voice)
+    try {
+      this.route(voice)
+      this.start(voice)
+    } catch (error) {
+      this.finish(voice)
+      throw error
+    }
     return id
   }
 
@@ -328,79 +409,86 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
       voice.presentation.state = 'blocked'
       return
     }
+    const ready = this.host.cache.acquireReady(voice.desc.clip)
+    if (ready) {
+      this.startPrepared(voice, this.ownLease(ready))
+      return
+    }
     voice.loading = true
     const pending = this.acquireOwned(voice.desc.clip)
-      .then((lease) => {
-        voice.loading = false
-        if (voice.finished || this.disposed) {
-          lease.release()
-          return
-        }
-        voice.lease = lease
-        const desc = voice.desc,
-          now = this.context.currentTime
-        let offset = desc.offset
-        if (desc.when === undefined && !this.host.offline)
-          offset += ((performance.now() - voice.requestedAt) / 1000) * voice.params.pitch
-        const end = desc.clip.loopEnd || desc.clip.duration,
-          start = desc.clip.loopStart
-        if (desc.loop && offset >= end) offset = start + ((offset - start) % (end - start))
-        if (!desc.loop && offset >= desc.clip.duration) {
-          this.finish(voice)
-          return
-        }
-        if (this.state !== 'running') {
-          voice.lease.release()
-          voice.lease = null
-          voice.presentation.state = 'blocked'
-          return
-        }
-        if (desc.clip.stream) {
-          const media = new Audio(lease.value.url!)
-          voice.media = media
-          media.loop = desc.loop
-          media.preservesPitch = false
-          media.playbackRate = voice.params.pitch
-          media.currentTime = offset
-          voice.mediaNode = (this.context as AudioContext).createMediaElementSource(media)
-          voice.mediaNode.connect(voice.gain)
-          media.onended = () => this.finish(voice)
-          media.onerror = () =>
-            this.fail(voice, new ShardError('audio/decode-failed', `Cannot play ${desc.clip.id}`))
-          voice.started = true
-          void media.play().then(
-            () => {
-              if (!voice.finished) voice.presentation.state = 'rendering'
-            },
-            (error) => this.fail(voice, error),
-          )
-        } else {
-          const source = this.context.createBufferSource()
-          voice.source = source
-          source.buffer = lease.value.buffer
-          source.loop = desc.loop
-          source.loopStart = start
-          source.loopEnd = end
-          source.playbackRate.value = voice.params.pitch
-          voice.norm = desc.clip.normalize && lease.value.peak > 0 ? 1 / lease.value.peak : 1
-          voice.gain.gain.value = voice.params.gain * voice.norm
-          source.connect(voice.gain)
-          source.onended = () => this.finish(voice)
-          if (desc.when !== undefined && desc.when < now)
-            throw new ShardError('audio/music-late', 'Prepared source missed its scheduled start')
-          const when = desc.when ?? now
-          voice.presentation.scheduledAt = when
-          voice.presentation.state = when > now ? 'scheduled' : 'rendering'
-          voice.started = true
-          for (const command of voice.automation) this.automate(voice.id, command)
-          voice.automation.length = 0
-          source.start(when, offset)
-          if (desc.duration !== undefined) source.stop(when + desc.duration)
-        }
-      })
+      .then((lease) => this.startPrepared(voice, lease))
       .catch((error) => this.fail(voice, error))
       .finally(() => this.pendingStarts.delete(pending))
     this.pendingStarts.add(pending)
+  }
+
+  private startPrepared(voice: Voice, lease: AudioPreparation & { value: PreparedAudio }): void {
+    voice.loading = false
+    if (voice.finished || this.disposed) {
+      lease.release()
+      return
+    }
+    voice.lease = lease
+    const desc = voice.desc,
+      now = this.context.currentTime
+    let offset = desc.offset
+    if (desc.when === undefined && !this.host.offline)
+      offset += ((performance.now() - voice.requestedAt) / 1000) * voice.params.pitch
+    const end = desc.clip.loopEnd || desc.clip.duration,
+      start = desc.clip.loopStart
+    if (desc.loop && offset >= end) offset = start + ((offset - start) % (end - start))
+    if (!desc.loop && offset >= desc.clip.duration) {
+      this.finish(voice)
+      return
+    }
+    if (this.state !== 'running') {
+      voice.lease.release()
+      voice.lease = null
+      voice.presentation.state = 'blocked'
+      return
+    }
+    if (desc.clip.stream) {
+      const media = new Audio(lease.value.url!)
+      voice.media = media
+      media.loop = desc.loop
+      media.preservesPitch = false
+      media.playbackRate = voice.params.pitch
+      media.currentTime = offset
+      voice.mediaNode = (this.context as AudioContext).createMediaElementSource(media)
+      voice.mediaNode.connect(voice.gain)
+      media.onended = () => this.finish(voice)
+      media.onerror = () =>
+        this.fail(voice, new ShardError('audio/decode-failed', `Cannot play ${desc.clip.id}`))
+      voice.started = true
+      void media.play().then(
+        () => {
+          if (!voice.finished) voice.presentation.state = 'rendering'
+        },
+        (error) => this.fail(voice, error),
+      )
+    } else {
+      const source = this.context.createBufferSource()
+      voice.source = source
+      source.buffer = lease.value.buffer
+      source.loop = desc.loop
+      source.loopStart = start
+      source.loopEnd = end
+      source.playbackRate.value = voice.params.pitch
+      voice.norm = desc.clip.normalize && lease.value.peak > 0 ? 1 / lease.value.peak : 1
+      voice.gain.gain.value = voice.params.gain * voice.norm
+      source.connect(voice.gain)
+      source.onended = () => this.finish(voice)
+      if (desc.when !== undefined && desc.when < now)
+        throw new ShardError('audio/music-late', 'Prepared source missed its scheduled start')
+      const when = desc.when ?? now
+      voice.presentation.scheduledAt = when
+      voice.presentation.state = when > now ? 'scheduled' : 'rendering'
+      voice.started = true
+      for (const command of voice.automation) this.automate(voice.id, command)
+      voice.automation.length = 0
+      source.start(when, offset)
+      if (desc.duration !== undefined) source.stop(when + desc.duration)
+    }
   }
 
   private fail(voice: Voice, error: unknown): void {
@@ -626,7 +714,13 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
     clip: AudioClipSource,
   ): Promise<AudioPreparation & { value: PreparedAudio }> {
     if (this.disposed) throw new ShardError('audio/prepare-failed', 'Session is disposed')
-    const lease = await this.host.cache.acquire(clip)
+    return this.ownLease(await this.host.cache.acquire(clip))
+  }
+
+  private ownLease(
+    lease: AudioPreparation & { value: PreparedAudio },
+  ): AudioPreparation & { value: PreparedAudio } {
+    const clip = lease.clip
     const pinned = this.preparationPins.get(lease.value)
     if (
       this.disposed ||
@@ -840,6 +934,8 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
     }
     this.retired.clear()
     this.output.disconnect()
+    this.host.reserved -= this.reserved
+    this.reserved = 0
     this.host.sessions.delete(this)
     if (this.root) {
       for (const session of this.host.sessions) session.dispose()
@@ -886,6 +982,8 @@ export function createWebAudioBackend(
     sessions: new Set(),
     maxVoices: options.maxHostVoices ?? 256,
     voices: 0,
+    reserved: 0,
+    nextSession: 0,
   }
   return new WebSession(host, true, options)
 }

@@ -100,8 +100,7 @@ export class AudioCache {
     }
   }
 
-  async acquire(clip: AudioClipSource): Promise<AudioPreparation & { value: PreparedAudio }> {
-    if (this.closed) throw new ShardError('audio/prepare-failed', 'The audio host was disposed')
+  private key(clip: AudioClipSource): object | string {
     let key: object | string
     if (clip.url) key = `${clip.stream ? 'media' : 'decoded'}:${clip.url}`
     else {
@@ -112,6 +111,23 @@ export class AudioCache {
       }
       key = clip.stream ? keys.media : keys.decoded
     }
+    return key
+  }
+
+  /** Already prepared sources can be scheduled synchronously as one reserved group. */
+  acquireReady(clip: AudioClipSource): (AudioPreparation & { value: PreparedAudio }) | null {
+    if (this.closed) return null
+    const key = this.key(clip),
+      entry = this.entries.get(key)
+    if (!entry?.value) return null
+    entry.refs++
+    entry.touched = this.stamp++
+    return this.lease(clip, key, entry, entry.value)
+  }
+
+  async acquire(clip: AudioClipSource): Promise<AudioPreparation & { value: PreparedAudio }> {
+    if (this.closed) throw new ShardError('audio/prepare-failed', 'The audio host was disposed')
+    const key = this.key(clip)
     let entry = this.entries.get(key)
     if (!entry) {
       const bytes = clip.stream
@@ -159,6 +175,15 @@ export class AudioCache {
       this.remove(key, owned)
       throw new ShardError('audio/prepare-failed', 'Audio preparation was cancelled by disposal')
     }
+    return this.lease(clip, key, owned, value)
+  }
+
+  private lease(
+    clip: AudioClipSource,
+    key: object | string,
+    owned: Entry,
+    value: PreparedAudio,
+  ): AudioPreparation & { value: PreparedAudio } {
     let released = false
     return {
       clip,

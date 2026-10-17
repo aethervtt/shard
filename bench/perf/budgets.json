@@ -90,8 +90,8 @@
     "gizmos/draw": {
       "kind": "unit",
       "per": "line",
-      "laptop": 1e-05,
-      "desktop": 1e-05,
+      "laptop": 1e-5,
+      "desktop": 1e-5,
       "note": "0027: 100k gizmo lines drawn in under 1 ms (best frame). render/src/gizmos.test.ts."
     },
     "gltf/import": {
@@ -448,10 +448,7 @@
   "scenarios": {
     "post-stack": {
       "what": "the playground's #post courtyard with every post effect on, flown along postCamera",
-      "resolution": [
-        1920,
-        1080
-      ],
+      "resolution": [1920, 1080],
       "renderScale": 1,
       "fps": 120,
       "frame": {
@@ -484,10 +481,7 @@
     },
     "scatter-walk": {
       "what": "star-explorer's planet, walking through forest with grass",
-      "resolution": [
-        1920,
-        1080
-      ],
+      "resolution": [1920, 1080],
       "renderScale": 1,
       "fps": 60,
       "frame": {
@@ -528,10 +522,7 @@
     },
     "planet-descent": {
       "what": "0043's Earth descent",
-      "resolution": [
-        1920,
-        1080
-      ],
+      "resolution": [1920, 1080],
       "renderScale": 1,
       "fps": 60,
       "frame": {
@@ -569,10 +560,7 @@
     },
     "open-world-fly": {
       "what": "0071's 300 m/s flight over the 16 km heightfield",
-      "resolution": [
-        1920,
-        1080
-      ],
+      "resolution": [1920, 1080],
       "renderScale": 1,
       "fps": 60,
       "frame": {
@@ -603,10 +591,7 @@
     },
     "crowd": {
       "what": "0022's 200k instances",
-      "resolution": [
-        1920,
-        1080
-      ],
+      "resolution": [1920, 1080],
       "renderScale": 1,
       "fps": 60,
       "frame": {
@@ -643,10 +628,7 @@
     },
     "tabletop-max": {
       "what": "0055's max structure fixture",
-      "resolution": [
-        1920,
-        1080
-      ],
+      "resolution": [1920, 1080],
       "renderScale": 1,
       "fps": 60,
       "frame": {

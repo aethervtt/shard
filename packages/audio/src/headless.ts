@@ -74,6 +74,7 @@ export class HeadlessAudioBackend implements AudioBackend, AudioRuntimeExtension
     this.maxVoices = options.maxVoices ?? 64
     this.clock = {
       now: () => this.seconds,
+      wallNow: () => this.seconds,
       wake: (callback, interval) => {
         if (!Number.isFinite(interval) || interval <= 0)
           throw new ShardError('audio/invalid-range', 'Wake interval must be positive')
@@ -125,6 +126,30 @@ export class HeadlessAudioBackend implements AudioBackend, AudioRuntimeExtension
     if (this.seconds >= scheduled.end) this.stop(id)
     else if (this.seconds >= status.scheduledAt && status.state !== 'stopping')
       status.state = 'rendering'
+  }
+
+  private reserved = 0
+  setDecodedBudget(bytes: number): void {
+    if (!Number.isFinite(bytes) || bytes < this.memory().decodedBytes)
+      throw new ShardError('audio/memory-budget', 'Budget is invalid or below resident PCM')
+    this.budgetBytes = bytes
+  }
+  reserveVoices(count: number): () => void {
+    if (
+      !Number.isInteger(count) ||
+      count < 1 ||
+      this.byId.size + this.reserved + count > this.maxVoices
+    )
+      throw new ShardError('audio/capacity', 'Physical voice reservation cannot fit')
+    const previous = this.reserved
+    this.reserved += count
+    let released = false
+    return () => {
+      if (!released) {
+        released = true
+        this.reserved = Math.min(previous, this.reserved)
+      }
+    }
   }
 
   async prepare(clip: AudioClipSource) {
@@ -335,7 +360,7 @@ export class HeadlessAudioBackend implements AudioBackend, AudioRuntimeExtension
     this.mixer = null
   }
   readonly kind = 'headless'
-  readonly state = 'headless' as const
+  readonly state: AudioBackend['state'] = 'headless'
   /** Bounded completed/started history; materialized in order only when inspected. */
   private readonly records: HeadlessVoice[] = []
   private historyCursor = 0
@@ -356,6 +381,7 @@ export class HeadlessAudioBackend implements AudioBackend, AudioRuntimeExtension
       throw new ShardError('audio/capacity', 'Physical voice limit reached', {
         hint: 'Stop or virtualize a voice before starting another.',
       })
+    if (this.reserved > 0) this.reserved--
     const voice: HeadlessVoice = {
       id: this.next++,
       clip: desc.clip.id,
