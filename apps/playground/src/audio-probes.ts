@@ -633,19 +633,23 @@ Object.assign(globalThis, { audioProbes })
 let liveHost: ReturnType<typeof createWebAudioBackend> | undefined
 let liveContext: AudioContext | undefined
 export async function startLiveAudioProbe() {
+  document.body.dataset.audioStage = 'context'
   liveContext = new AudioContext()
-  await liveContext.suspend()
+  if (liveContext.state === 'running') await liveContext.suspend()
   liveHost = createWebAudioBackend({ context: liveContext, fixedListener: true })
+  document.body.dataset.audioStage = 'graph'
   liveHost.output.gain.value = 0
   await liveHost.runtime.configureMixer(
     graph(1, [effect('delay', { seconds: 0.05, tailSeconds: 0.15 })]),
   )
+  document.body.dataset.audioStage = 'codec'
   let codec = ''
   try {
     await liveHost.runtime.prepare({ ...clip('constant'), bytes: new Uint8Array([1, 2, 3]) })
   } catch (error) {
     codec = (error as { code: string }).code
   }
+  document.body.dataset.audioStage = 'blocked-play'
   liveHost.play({ ...voice(clip('constant'), 'sfx', 0), loop: true })
   await liveHost.runtime.flush()
   const button = document.createElement('button')

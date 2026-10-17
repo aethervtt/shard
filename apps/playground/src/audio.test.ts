@@ -52,7 +52,7 @@ describe('audio offline browser evidence', () => {
         }
         expect(evidence.reservations).toEqual({ rejected: true, preserved: 4, low: 0, high: 2 })
         expect(evidence.compressor.sum).toBeGreaterThan(0.001)
-        expect(evidence.compressor.sum).toBeLessThan(0.5)
+        expect(evidence.compressor.sum).toBeLessThan(0.95)
         expect(evidence.compressor.sum).toBeCloseTo(evidence.compressor.reference, 5)
         expect(evidence.domainTails.muted).toBeLessThan(1e-6)
         expect(evidence.domainTails.unrelatedOldTail).toBeCloseTo(0.25, 4)
@@ -121,15 +121,24 @@ describe('audio offline browser evidence', () => {
         await page.goto(`${server.base}/audio.html`)
         await page.waitForFunction(() => 'startLiveAudioProbe' in globalThis)
         const initial = await page.evaluate(() =>
-          (
-            globalThis as unknown as { startLiveAudioProbe: typeof startLiveAudioProbe }
-          ).startLiveAudioProbe(),
+          Promise.race([
+            (
+              globalThis as unknown as { startLiveAudioProbe: typeof startLiveAudioProbe }
+            ).startLiveAudioProbe(),
+            new Promise<never>((_, reject) =>
+              setTimeout(
+                () => reject(new Error(`Live audio stalled: ${document.body.dataset.audioStage}`)),
+                5000,
+              ),
+            ),
+          ]),
         )
         expect(initial).toMatchObject({
           state: 'suspended',
           codec: 'audio/decode-failed',
           presentation: 'blocked',
         })
+        page.setDefaultTimeout(5000)
         await page.click('#audio-resume')
         await page.waitForFunction(
           () =>

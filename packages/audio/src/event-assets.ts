@@ -6,6 +6,7 @@ import {
   validateCurve,
   validateParameters,
 } from './parameters'
+import { audioNumber } from './validation'
 
 export const AudioEventFields = {
   mode: t.enum(['oneshot', 'sustain']),
@@ -164,6 +165,17 @@ export function validateAudioEvent(event: AudioEventDefinition): void {
     }
     for (const curve of layer.curves) {
       validateCurve(curve.points, `${path}/curves`)
+      const min =
+        curve.property === 'gainDb'
+          ? -120
+          : curve.property === 'pitchSemitones'
+            ? -48
+            : curve.property === 'lowpass'
+              ? 10
+              : 0
+      const max =
+        curve.property === 'gainDb' ? 24 : curve.property === 'pitchSemitones' ? 48 : 24000
+      for (const point of curve.points) audioNumber(point[1]!, `${path}/curves/points`, min, max)
       if (
         !local.has(curve.parameter) &&
         !event.globals &&

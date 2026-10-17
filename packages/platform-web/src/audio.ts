@@ -13,10 +13,12 @@ import type {
   AudioVoiceDesc,
   AudioVoiceParams,
 } from '@aethervtt/shard-platform'
+import { validateAudioAutomation } from '@aethervtt/shard-platform'
 import { AudioCache, type PreparedAudio } from './audio-cache'
 import { WebAudioGraph } from './audio-graph'
 
 interface AutomationTrack {
+  depth: number
   command: AudioAutomation
   start: number
   previous: AutomationTrack | null
@@ -674,6 +676,7 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
   }
 
   automate(id: number, command: AudioAutomation): void {
+    validateAudioAutomation(command)
     const voice = this.voices.get(id)
     if (!voice) return
     if (!voice.source && !voice.media) {
@@ -699,6 +702,13 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
       )
     const value = command.value * (command.property === 'gain' ? voice.norm : 1)
     const previous = voice.tracks.get(command.property)
+    if (previous && this.context.currentTime >= previous.command.at) {
+      previous.previous = null
+      previous.depth = 1
+    }
+    const depth = command.at > this.context.currentTime ? (previous?.depth ?? 0) + 1 : 1
+    if (depth > 128)
+      throw new ShardError('audio/capacity', 'Voice future automation capacity reached')
     const initial =
       command.property === 'envelope'
         ? 1
@@ -711,6 +721,7 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
               : (voice.desc.highpass ?? 0)
     const start = previous ? automatedValue(previous, command.at) : initial
     voice.tracks.set(command.property, {
+      depth,
       command: { ...command, value },
       start,
       previous: command.at > this.context.currentTime ? (previous ?? null) : null,
@@ -857,7 +868,11 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
       next.nodes.length +
         (this.graph?.nodes.length ?? 0) +
         [...this.retired.keys()].reduce((sum, graph) => sum + graph.nodes.length, 0) >
-        graph.maxNodes
+        graph.maxNodes ||
+      next.generatedBytes +
+        (this.graph?.generatedBytes ?? 0) +
+        [...this.retired.keys()].reduce((sum, old) => sum + old.generatedBytes, 0) >
+        64 * 1024 * 1024
     ) {
       next.dispose()
       output.disconnect()

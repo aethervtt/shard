@@ -1,3 +1,4 @@
+import { ShardError } from '@aethervtt/shard-core'
 import type { AudioClipSource, AudioVoiceDesc, AudioVoiceParams } from './index'
 
 /** Optional, host-neutral extensions. Legacy AudioBackend implementations remain valid. */
@@ -160,4 +161,32 @@ export interface AudioRuntimeExtension {
   /** Headless clocks are explicitly advanced; live clocks ignore this. */
   advance?(seconds: number): void
   update(id: number, params: AudioVoiceParams): void
+}
+
+/** Shared host validation, also used by the headless scheduling model. */
+export function validateAudioAutomation(command: AudioAutomation): void {
+  if (
+    !Number.isFinite(command.at) ||
+    command.at < 0 ||
+    !Number.isFinite(command.duration) ||
+    command.duration < 0 ||
+    !Number.isFinite(command.value) ||
+    command.value < 0 ||
+    ((command.property === 'pitch' || command.property === 'lowpass') && command.value === 0)
+  )
+    throw new ShardError(
+      'audio/invalid-range',
+      'Automation requires finite nonnegative times and values, and positive pitch/cutoff',
+      { path: '/automation' },
+    )
+  if (
+    command.property !== 'gain' &&
+    command.property !== 'envelope' &&
+    command.property !== 'pitch' &&
+    command.property !== 'lowpass' &&
+    command.property !== 'highpass'
+  )
+    throw new ShardError('audio/invalid-range', 'Unknown automation property', {
+      path: '/automation/property',
+    })
 }

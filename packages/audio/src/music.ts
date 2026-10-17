@@ -2,7 +2,9 @@ import { assetServer, defineDataType } from '@aethervtt/shard-assets'
 import {
   type AssetRef,
   defineResource,
+  defineSpan,
   type Infer,
+  ProfilerResource,
   Rng,
   ShardError,
   t,
@@ -39,6 +41,7 @@ import {
 } from './parameters'
 import { audioNumber } from './validation'
 
+export const MusicScheduleSpan = defineSpan('audio/music-schedule')
 export const MUSIC_PPQ = 960
 export const MusicProgram = defineDataType(
   'audio/MusicProgram',
@@ -1124,6 +1127,16 @@ function collectSections(world: World, program: PreparedMusic): void {
 }
 
 export function updateMusic(world: World): void {
+  const profiler = world.tryResource(ProfilerResource)
+  const token = profiler?.begin(MusicScheduleSpan) ?? -1
+  try {
+    updateMusicInner(world)
+  } finally {
+    if (profiler) profiler.end(token)
+  }
+}
+
+function updateMusicInner(world: World): void {
   if (world.tryResource(AudioCheckpointHooks)?.loading) return
   const state = musicState(world),
     runtime = runtimeOf(world),
@@ -1340,7 +1353,7 @@ export function audioMusicPlugin(
   return definePlugin({
     name: 'audio/music',
     dependencies: ['audio/events'],
-    provides: [{ MusicProgram, AudioMusicState }],
+    provides: [{ MusicProgram, AudioMusicState, MusicScheduleSpan }],
     build(app) {
       app.world.initResource(AudioInspectors).set('music', describeMusic)
       app.addMethod(...audioMusicMethods)

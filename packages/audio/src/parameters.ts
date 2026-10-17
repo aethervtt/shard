@@ -21,10 +21,10 @@ export function validateParameters(parameters: readonly AudioParameterDefinition
   for (let i = 0; i < parameters.length; i++) {
     const p = parameters[i]!,
       path = `/parameters/${i}`
-    if (!p.name || names.has(p.name))
+    if (!p.name || names.has(p.name) || p.name === 'distance' || p.name === 'speed')
       throw new ShardError(
         'audio/unknown-parameter',
-        'Parameter names must be nonempty and unique',
+        'Parameter names must be unique, nonempty, and not reserved distance/speed inputs',
         { path },
       )
     names.add(p.name)

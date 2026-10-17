@@ -3,6 +3,7 @@ import type { AudioRuntimeExtension, AudioSessionOptions } from './audio-runtime
 import type { Workers } from './workers'
 
 export type * from './audio-runtime'
+export { validateAudioAutomation } from './audio-runtime'
 
 /**
  * Everything the engine needs from its host. The engine only talks to this interface;

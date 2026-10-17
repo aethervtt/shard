@@ -13,6 +13,7 @@ import type {
   AudioVoiceDesc,
   AudioVoiceParams,
 } from '@aethervtt/shard-platform'
+import { validateAudioAutomation } from '@aethervtt/shard-platform'
 import { distanceGain, listenerRelative } from './spatial'
 
 /** One voice the headless backend was asked to play, with what a Web Audio graph would make of it. */
@@ -33,6 +34,7 @@ export interface HeadlessVoice {
 }
 
 interface AutomationTrack {
+  depth: number
   command: AudioAutomation
   start: number
   previous: AutomationTrack | null
@@ -290,6 +292,7 @@ export class HeadlessAudioBackend implements AudioBackend, AudioRuntimeExtension
   }
 
   automate(id: number, command: AudioAutomation): void {
+    validateAudioAutomation(command)
     const voice = this.byId.get(id)
     if (!voice) return
     let commands = this.automation.get(id)
@@ -298,6 +301,13 @@ export class HeadlessAudioBackend implements AudioBackend, AudioRuntimeExtension
       this.automation.set(id, commands)
     }
     const previous = commands.get(command.property)
+    if (previous && this.seconds >= previous.command.at) {
+      previous.previous = null
+      previous.depth = 1
+    }
+    const depth = command.at > this.seconds ? (previous?.depth ?? 0) + 1 : 1
+    if (depth > 128)
+      throw new ShardError('audio/capacity', 'Voice future automation capacity reached')
     if (previous) this.sampleAutomation(previous, command.at)
     const start = previous
       ? this.automationScratch[0]!
@@ -314,7 +324,8 @@ export class HeadlessAudioBackend implements AudioBackend, AudioRuntimeExtension
     const track =
       previous && command.at <= this.seconds
         ? previous
-        : { command: { ...command }, start, previous: previous ?? null }
+        : { depth, command: { ...command }, start, previous: previous ?? null }
+    track.depth = depth
     track.start = start
     if (track === previous) {
       Object.assign(track.command, command)
