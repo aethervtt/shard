@@ -1,6 +1,7 @@
 import { defineSchema, type Entity, findComponent, t, type World } from '@aethervtt/shard-core'
 import type { AppMethod } from '@aethervtt/shard-runtime'
 import { AudioBuses } from './components'
+import { inspectAudioExtensions } from './inspection'
 import { AudioConfig, type AudioLogEntry, audioState, busOf, clipLabel } from './mixer'
 
 const round = (x: number, digits = 4) => Math.round(x * 10 ** digits) / 10 ** digits
@@ -20,6 +21,7 @@ export function describeAudio(world: World) {
   const L = state.listener
   const voices = state.voices.filter((v) => v.id > 0)
   return {
+    ...inspectAudioExtensions(world),
     backend: state.backend.kind,
     capabilities: state.backend.runtime?.capabilities ?? null,
     memory: state.backend.runtime?.memory() ?? null,

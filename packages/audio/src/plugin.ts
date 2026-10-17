@@ -2,10 +2,12 @@ import { PostUpdate } from '@aethervtt/shard-core'
 import type { AudioBackend } from '@aethervtt/shard-platform'
 import { definePlugin, GlobalRng, LogResource, type Plugin } from '@aethervtt/shard-runtime'
 import { OriginShift, TransformSystems } from '@aethervtt/shard-transform'
+import { AudioCheckpointHooks } from './checkpoint-bridge'
 import * as clipModule from './clip'
 import { AudioClips } from './clip'
 import * as componentsModule from './components'
 import { AudioBuses } from './components'
+import { AudioInspectors } from './inspection'
 import { audioMethods } from './methods'
 import * as mixerModule from './mixer'
 import {
@@ -33,10 +35,24 @@ export function audioPlugin(options: AudioPluginOptions = {}): Plugin {
   let unshift: (() => void) | undefined
   return definePlugin({
     name: 'audio',
-    provides: [clipModule, componentsModule, mixerModule],
+    provides: [
+      clipModule,
+      componentsModule,
+      mixerModule,
+      { AudioInspectors, AudioCheckpointHooks },
+    ],
     dependencies: ['core/transform'],
     build(app) {
       const w = app.world
+      w.initResource(AudioInspectors)
+      w.insertResource(AudioCheckpointHooks, {
+        capture() {},
+        restore: async () => [],
+        reset(world) {
+          const state = world.tryResource(AudioState)
+          if (state) for (const voice of state.voices) endVoice(world, state, voice, 'stopped', 0)
+        },
+      })
       w.initResource(AudioClips)
       w.initResource(AudioBuses)
       const config = w.initResource(AudioConfig)

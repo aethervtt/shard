@@ -70,6 +70,10 @@ export async function audioCommand(ctx: CommandContext): Promise<number> {
         revision: 0,
         maxNodes: 2048,
         userSent: new Float64Array(0),
+        globals: null,
+        globalKey: '',
+        curves: [],
+        scratch: new Float64Array(1),
       })
       await configureAudioMixer(world, plan.mixer)
       mixer = world.resource(AudioMixState).graph ?? undefined

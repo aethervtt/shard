@@ -81,6 +81,7 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - uses: oven-sh/setup-bun@v2
       - run: pnpm build
       - run: pnpm size --check
       - run: pnpm release --check

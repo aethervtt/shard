@@ -14,7 +14,6 @@ import type {
   AudioRuntimeExtension,
 } from '@aethervtt/shard-platform'
 import { definePlugin } from '@aethervtt/shard-runtime'
-import { audioMusicMethods } from './advanced-methods'
 import { type AudioClipAsset, AudioClips } from './clip'
 import {
   type AudioLease,
@@ -24,7 +23,9 @@ import {
   prepareAudio,
   releaseAudioGlobals,
 } from './events'
+import { AudioInspectors } from './inspection'
 import { AudioConfig, audioState } from './mixer'
+import { audioMusicMethods } from './music-methods'
 import {
   AudioCurveFields,
   AudioParameterBank,
@@ -1153,6 +1154,7 @@ export function audioMusicPlugin(
     dependencies: ['audio/events'],
     provides: [{ MusicProgram, AudioMusicState }],
     build(app) {
+      app.world.initResource(AudioInspectors).set('music', describeMusic)
       app.addMethod(...audioMusicMethods)
       const lookahead = options.lookahead ?? 0.1,
         interval = options.interval ?? 0.025,

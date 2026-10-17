@@ -183,6 +183,7 @@ export class HeadlessAudioBackend implements AudioBackend, AudioRuntimeExtension
     return {
       decodedBytes,
       encodedBytes,
+      effectBytes: 0,
       pinned,
       evictable,
       budgetBytes: this.budgetBytes,

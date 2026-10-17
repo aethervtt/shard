@@ -10,7 +10,8 @@ import {
 } from '@aethervtt/shard-core'
 import { definePlugin, Time } from '@aethervtt/shard-runtime'
 import { GlobalTransform, Transform } from '@aethervtt/shard-transform'
-import { AudioMixState } from './mix'
+import { AudioInspectors } from './inspection'
+import { AudioMixState, updateAudioMix } from './mix'
 import { AudioConfig, audioState, updateAudio } from './mixer'
 import { audioNumber } from './validation'
 
@@ -49,6 +50,9 @@ interface ZoneSlot {
   pending: Entity | null
   pendingBus: string
   pendingWeight: number
+  from: number
+  elapsed: number
+  fadeTarget: number
 }
 export interface AudioAcousticsValue {
   query: AcousticQuery | null
@@ -159,8 +163,13 @@ export function updateZoneSlots(state: AudioAcousticsValue, delta: number): void
   for (let i = 0; i < 4; i++) {
     const slot = state.slots[i]!,
       target = slot.pending !== null ? 0 : slot.target
-    slot.weight +=
-      Math.sign(target - slot.weight) * Math.min(Math.abs(target - slot.weight), delta / 0.1)
+    if (target !== slot.fadeTarget) {
+      slot.from = slot.weight
+      slot.elapsed = 0
+      slot.fadeTarget = target
+    }
+    slot.elapsed = Math.min(0.1, slot.elapsed + delta)
+    slot.weight = slot.from + (target - slot.from) * (slot.elapsed / 0.1)
     if (slot.weight === 0) {
       if (slot.pending !== null) {
         slot.entity = slot.pending
@@ -215,6 +224,16 @@ export const updateAudioAcoustics = defineSystem({
         if (weight <= 0) continue
         if (state.count >= state.zones.length)
           throw new ShardError('audio/invalid-zone', 'Zone capacity exceeded')
+        const preparedBuses = world.resource(AudioMixState).graph?.buses
+        let validReturn = false
+        if (preparedBuses)
+          for (let b = 0; b < preparedBuses.length; b++)
+            if (preparedBuses[b]!.id === buses[r] && preparedBuses[b]!.return) validReturn = true
+        if (!validReturn)
+          throw new ShardError(
+            'audio/invalid-zone',
+            `Zone return ${buses[r]} is not a prepared return bus`,
+          )
         const zone = state.zones[state.count++]!
         zone.entity = table.entities[r]!
         zone.bus = buses[r]!
@@ -247,6 +266,7 @@ export const updateAudioAcoustics = defineSystem({
         if (field.sendTarget === state.slots[s]!.bus) weight += state.slots[s]!.weight
       field.factor = Math.min(1, weight)
     }
+    updateAudioMix(world, 0)
     state.queries = 0
     if (state.query) {
       // Oldest query first, then loudest and stable voice ID; no sort or per-query allocation.
@@ -327,6 +347,7 @@ export function audioAcousticsPlugin(
     dependencies: ['audio/mixer'],
     provides: [{ ReverbZone, AudioAcoustics }],
     build(app) {
+      app.world.initResource(AudioInspectors).set('acoustics', describeAudioAcoustics)
       const maxQueries = options.maxQueriesPerFrame ?? 16,
         maxZones = options.maxZones ?? 128
       audioNumber(maxQueries, 'maxQueriesPerFrame', 0, 512)
@@ -357,6 +378,9 @@ export function audioAcousticsPlugin(
           pending: null,
           pendingBus: '',
           pendingWeight: 0,
+          from: 0,
+          elapsed: 0,
+          fadeTarget: 0,
         })),
         from: new Float64Array(3),
         to: new Float64Array(3),

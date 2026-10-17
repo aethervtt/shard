@@ -682,7 +682,9 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
       nodes += 4 + Number(!!voice.panner) + Number(!!voice.source || !!voice.mediaNode)
     nodes += this.graph ? this.graph.nodes.length + 1 : 0
     for (const graph of this.retired.keys()) nodes += graph.nodes.length + 1
-    return { ...this.host.cache.memory(), voices: this.voices.size, nodes }
+    let effectBytes = this.graph?.generatedBytes ?? 0
+    for (const graph of this.retired.keys()) effectBytes += graph.generatedBytes
+    return { ...this.host.cache.memory(), effectBytes, voices: this.voices.size, nodes }
   }
 
   async configureMixer(graph: AudioMixerGraph): Promise<void> {

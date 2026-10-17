@@ -110,6 +110,20 @@ export class Game {
     return (await this.call<{ entries: Json[] }>('audio.log', { since })).entries
   }
 
+  /** Audio inspection and cursor-aware traces; assertions remain ordinary test assertions. */
+  readonly audio = {
+    describe: async (): Promise<Json> => this.call('audio.describe'),
+    events: async (): Promise<Json> => this.call('audio.events.inspect'),
+    music: async (): Promise<Json> => this.call('audio.music.inspect'),
+    mix: async (): Promise<Json> => this.call('audio.mix.inspect'),
+    log: async (
+      cursor = 0,
+    ): Promise<{ entries: Json[]; oldestCursor: number; nextCursor: number; truncated: boolean }> =>
+      this.call('audio.log', { cursor }),
+    parameter: async (instance: number, name: string, value: string | number): Promise<Json> =>
+      this.call('audio.parameter.set', { instance, name, value }),
+  }
+
   /** UI (ui plugin): read the HUD as data and press buttons by path, without pixel coordinates. */
   readonly ui = {
     /** `ui.describe`: every tree with rects, text, widget state, focus, and anchors. */

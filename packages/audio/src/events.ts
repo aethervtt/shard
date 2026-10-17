@@ -21,7 +21,6 @@ import {
   Time,
 } from '@aethervtt/shard-runtime'
 import { GlobalTransform, OriginShift, TransformSystems } from '@aethervtt/shard-transform'
-import { audioEventMethods } from './advanced-methods'
 import { AudioCheckpoint, CheckpointSchema, installAudioCheckpoints } from './checkpoint'
 import { type AudioClipAsset, AudioClips } from './clip'
 import { AudioBuses } from './components'
@@ -32,6 +31,8 @@ import {
   type AudioEventDefinition,
   type AudioEventLayer,
 } from './event-assets'
+import { audioEventMethods } from './event-methods'
+import { AudioInspectors } from './inspection'
 import { audioState, endVoice, newVoice, updateAudio, type Voice } from './mixer'
 import * as parameters from './parameters'
 import { AudioParameterBank, AudioParameters, sampleAudioCurve } from './parameters'
@@ -1130,6 +1131,7 @@ export function audioEventsPlugin(
       },
     ],
     build(app) {
+      app.world.initResource(AudioInspectors).set('events', describeAudioEvents)
       app.addMethod(...audioEventMethods)
       const world = app.world,
         audio = audioState(world),

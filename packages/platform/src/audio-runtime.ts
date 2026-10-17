@@ -30,6 +30,8 @@ export interface AudioPreparation {
 }
 
 export interface AudioMemory {
+  /** Additional bounded finite-effect kernels, separate from decoded asset PCM. */
+  effectBytes: number
   encodedBytes: number
   decodedBytes: number
   budgetBytes: number

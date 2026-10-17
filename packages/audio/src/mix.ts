@@ -2,7 +2,6 @@ import { assetServer, defineDataType } from '@aethervtt/shard-assets'
 import {
   type AssetRef,
   defineResource,
-  defineSchema,
   defineSystem,
   type Infer,
   PostUpdate,
@@ -12,10 +11,13 @@ import {
 } from '@aethervtt/shard-core'
 import type { AudioBusDesc, AudioEffectDesc, AudioMixerGraph } from '@aethervtt/shard-platform'
 import { definePlugin, Time } from '@aethervtt/shard-runtime'
-import { audioMixMethods } from './advanced-methods'
 import { type AudioClipAsset, AudioClips } from './clip'
 import { AudioBuses } from './components'
+import { acquireAudioGlobals, audioEvents, releaseAudioGlobals } from './events'
+import { AudioInspectors } from './inspection'
+import { audioMixMethods } from './mix-methods'
 import { audioState, updateAudio } from './mixer'
+import { type AudioParameterBank, sampleAudioCurve, validateCurve } from './parameters'
 import { AudioPreviewPlan } from './preview'
 import { audioNumber } from './validation'
 
@@ -37,6 +39,15 @@ export const AudioEffectFields = {
 export const AudioMixer = defineDataType(
   'audio/AudioMixer',
   {
+    globals: t.handle('audio/AudioParameters'),
+    curves: t.list(
+      t.struct({
+        bus: t.string({ required: true }),
+        field: t.string({ default: 'gainDb' }),
+        parameter: t.string({ required: true }),
+        points: t.list(t.vec2),
+      }),
+    ),
     buses: t.list(
       t.struct({
         id: t.string({ required: true }),
@@ -65,6 +76,9 @@ export type AudioMixerDefinition = Infer<typeof AudioMixer>
 export function validateAudioMixer(value: AudioMixerDefinition): void {
   if (!value.buses.length || value.buses.length > 64)
     throw new ShardError('audio/mixer-capacity', 'Mixer requires 1–64 buses', { path: '/buses' })
+  if (value.curves.length && !value.globals)
+    throw new ShardError('audio/unknown-parameter', 'Mixer curves require a global parameter asset')
+  for (const curve of value.curves) validateCurve(curve.points, '/curves')
   const buses = new Map<string, AudioMixerDefinition['buses'][number]>()
   let effects = 0,
     sends = 0
@@ -193,6 +207,8 @@ export const AudioSnapshot = defineDataType(
 )
 export type AudioSnapshotDefinition = Infer<typeof AudioSnapshot>
 export interface MixField {
+  min: number
+  max: number
   sendTarget: string
   factor: number
   bus: string
@@ -221,6 +237,10 @@ export interface AudioMixStateValue {
   revision: number
   maxNodes: number
   userSent: Float64Array
+  globals: AudioParameterBank | null
+  globalKey: string
+  curves: { field: number; parameter: number; points: Float64Array }[]
+  scratch: Float64Array
 }
 export const AudioMixState = defineResource<AudioMixStateValue>('audio/MixState')
 
@@ -259,6 +279,18 @@ export async function configureAudioMixer(
     fields: MixField[] = []
   const addField = (bus: string, field: string, base: number, linearGain = false) =>
     fields.push({
+      min:
+        field === 'gainDb' || field.startsWith('send/')
+          ? -120
+          : ((AudioEffectFields[
+              field.split('/').at(-1)! as keyof typeof AudioEffectFields
+            ]?.jsonSchema().minimum as number | undefined) ?? -Number.MAX_VALUE),
+      max:
+        field === 'gainDb' || field.startsWith('send/')
+          ? 24
+          : ((AudioEffectFields[
+              field.split('/').at(-1)! as keyof typeof AudioEffectFields
+            ]?.jsonSchema().maximum as number | undefined) ?? Number.MAX_VALUE),
       sendTarget: field.startsWith('send/') ? field.slice(5) : '',
       factor: 1,
       bus,
@@ -310,8 +342,38 @@ export async function configureAudioMixer(
   }
   // Validate snapshot destinations before committing a topology edit.
   const mappings = state.snapshots.map((handle) => snapshotIndices(handle.definition, fields))
-  await runtime.configureMixer({ buses, maxNodes: state.maxNodes })
-  if (revision !== state.revision) return
+  const shared = definition.globals ? await acquireAudioGlobals(world, definition.globals) : null
+  let curves: AudioMixStateValue['curves']
+  try {
+    curves = definition.curves.map((curve) => {
+      const index = fields.findIndex(
+        (field) => field.bus === curve.bus && field.field === curve.field,
+      )
+      if (index < 0)
+        throw new ShardError('audio/invalid-effect', 'Unknown mixer curve target', {
+          path: '/curves',
+        })
+      for (const point of curve.points)
+        audioNumber(point[1]!, '/curves/points', fields[index]!.min, fields[index]!.max)
+      return {
+        field: index,
+        parameter: shared!.bank.index(curve.parameter),
+        points: new Float64Array(curve.points.flat()),
+      }
+    })
+    await runtime.configureMixer({ buses, maxNodes: state.maxNodes })
+  } catch (error) {
+    if (shared) releaseAudioGlobals(audioEvents(world), shared.key)
+    throw error
+  }
+  if (revision !== state.revision) {
+    if (shared) releaseAudioGlobals(audioEvents(world), shared.key)
+    return
+  }
+  if (state.globalKey) releaseAudioGlobals(audioEvents(world), state.globalKey)
+  state.globals = shared?.bank ?? null
+  state.globalKey = shared?.key ?? ''
+  state.curves = curves
   state.definition = definition
   state.graph = { buses, maxNodes: state.maxNodes }
   state.fields = fields
@@ -338,6 +400,20 @@ function snapshotIndices(definition: AudioSnapshotDefinition, fields: MixField[]
         `Unknown mixer target ${target.bus}/${target.field}`,
       )
     const field = fields[index]!
+    if (target.mode === 'offset' && target.field !== 'gainDb' && !target.field.endsWith('/gainDb'))
+      throw new ShardError('audio/invalid-snapshot', 'Offsets require dB units')
+    if (
+      definition.targets.some(
+        (other, j) => j < i && other.bus === target.bus && other.field === target.field,
+      )
+    )
+      throw new ShardError('audio/invalid-snapshot', 'Duplicate snapshot target')
+    audioNumber(
+      target.value,
+      `/targets/${i}/value`,
+      target.mode === 'offset' ? -Number.MAX_VALUE : field.min,
+      target.mode === 'offset' ? Number.MAX_VALUE : field.max,
+    )
     if (field.logarithmic && target.value <= 0)
       throw new ShardError('audio/invalid-snapshot', 'Frequency must be positive')
     indices[i] = index
@@ -405,6 +481,11 @@ export function updateAudioMix(world: World, delta: number): void {
       Math.sign(handle.target - handle.weight) *
       Math.min(Math.abs(handle.target - handle.weight), step)
   }
+  for (let i = 0; i < state.curves.length; i++) {
+    const curve = state.curves[i]!
+    sampleAudioCurve(curve.points, state.globals!.values[curve.parameter]!, state.scratch, 0)
+    state.fields[curve.field]!.base = state.scratch[0]!
+  }
   for (let i = 0; i < state.fields.length; i++) {
     const field = state.fields[i]!
     let value = field.logarithmic ? Math.log(field.base) : field.base,
@@ -431,7 +512,10 @@ export function updateAudioMix(world: World, delta: number): void {
         }
     }
     if (weight > 0) value += (sum / weight - value) * Math.min(1, weight)
-    field.value = (field.logarithmic ? Math.exp(value) : value) + offset
+    field.value = Math.max(
+      field.min,
+      Math.min(field.max, (field.logarithmic ? Math.exp(value) : value) + offset),
+    )
     const output = field.linearGain ? 10 ** (field.value / 20) * field.factor : field.value
     if (output !== field.sent) {
       runtime.setMixerValue(
@@ -492,6 +576,7 @@ export function audioMixerPlugin(options: { mixer?: AssetRef | string; maxNodes?
     dependencies: ['audio/events'],
     provides: [{ AudioMixer, AudioSnapshot, AudioMixState, AudioPreviewPlan }],
     build(app) {
+      app.world.initResource(AudioInspectors).set('mix', describeAudioMix)
       app.addMethod(...audioMixMethods)
       if (!audioState(app.world).backend.runtime?.capabilities.mixer)
         throw new ShardError('audio/unsupported-capability', 'Backend has no mixer graph support')
@@ -506,14 +591,15 @@ export function audioMixerPlugin(options: { mixer?: AssetRef | string; maxNodes?
         revision: 0,
         maxNodes: options.maxNodes ?? 2048,
         userSent: new Float64Array(0),
+        globals: null,
+        globalKey: '',
+        curves: [],
+        scratch: new Float64Array(1),
       })
       app.addSystems(PostUpdate, mixSystem.after(updateAudio))
-      app.addMethod({
-        name: 'audio.mix.inspect',
-        description: 'Inspect authored mixer, effective fields, user controls and snapshots.',
-        params: defineSchema('audio/MixInspect', {}),
-        handler: ({ world }) => describeAudioMix(world),
-      })
+    },
+    dispose(app) {
+      releaseAudioGlobals(audioEvents(app.world), app.world.resource(AudioMixState).globalKey)
     },
     async ready(app) {
       if (options.mixer) await configureAudioMixer(app.world, options.mixer)
