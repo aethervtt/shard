@@ -8,11 +8,22 @@ import {
   t,
   type World,
 } from '@aethervtt/shard-core'
-import type { AudioPreparation, AudioRuntimeExtension } from '@aethervtt/shard-platform'
+import type {
+  AudioAutomation,
+  AudioPreparation,
+  AudioRuntimeExtension,
+} from '@aethervtt/shard-platform'
 import { definePlugin } from '@aethervtt/shard-runtime'
 import { audioMusicMethods } from './advanced-methods'
 import { type AudioClipAsset, AudioClips } from './clip'
-import { type AudioLease, AudioTrace, prepareAudio } from './events'
+import {
+  type AudioLease,
+  AudioTrace,
+  acquireAudioGlobals,
+  audioEvents,
+  prepareAudio,
+  releaseAudioGlobals,
+} from './events'
 import { AudioConfig, audioState } from './mixer'
 import {
   AudioCurveFields,
@@ -33,6 +44,7 @@ export const MusicProgram = defineDataType(
     denominator: t.u8({ default: 4 }),
     entry: t.string({ required: true }),
     parameters: t.list(t.struct(AudioParameterFields)),
+    globals: t.handle('audio/AudioParameters'),
     sections: t.list(
       t.struct({
         id: t.string({ required: true }),
@@ -126,7 +138,7 @@ export function validateMusicProgram(program: MusicProgramDefinition): void {
         validateCurve(curve.points, '/curves')
         if (
           curve.property !== 'gainDb' ||
-          !program.parameters.some((p) => p.name === curve.parameter)
+          (!program.globals && !program.parameters.some((p) => p.name === curve.parameter))
         )
           throw new ShardError(
             'audio/music-invalid',
@@ -153,7 +165,9 @@ export function validateMusicProgram(program: MusicProgramDefinition): void {
       !transition.id ||
       ids.has(transition.id) ||
       transition.min > transition.max ||
-      (transition.parameter && !program.parameters.some((p) => p.name === transition.parameter)) ||
+      (transition.parameter &&
+        !program.globals &&
+        !program.parameters.some((p) => p.name === transition.parameter)) ||
       (!['immediate', 'beat', 'bar'].includes(transition.quantize) &&
         !from.markers.some((m) => m.id === transition.quantize)) ||
       (transition.entryMarker && !to.markers.some((m) => m.id === transition.entryMarker))
@@ -176,7 +190,7 @@ interface PreparedStem {
   clip: AudioClipAsset
   lease: AudioPreparation
   rate: number
-  curves: { parameter: number; points: Float64Array }[]
+  curves: { parameter: number; global: boolean; points: Float64Array }[]
 }
 interface PreparedSection {
   definition: SectionDefinition
@@ -188,6 +202,8 @@ export interface PreparedMusic {
   id: number
   key: string
   revision: string
+  globals: AudioParameterBank
+  releaseGlobals: () => void
   definition: MusicProgramDefinition
   sections: Map<string, PreparedSection>
   pending: Map<string, Promise<PreparedSection>>
@@ -200,6 +216,7 @@ interface StemVoice {
   id: number
   stem: PreparedStem
   gain: number
+  command: AudioAutomation
 }
 export interface MusicRequest {
   id: number
@@ -275,6 +292,7 @@ function releaseProgram(state: MusicStateValue, program: PreparedMusic): void {
   for (const section of program.sections.values())
     for (const stem of section.stems) stem.lease.release()
   for (const lease of program.stingers.values()) lease.release()
+  program.releaseGlobals()
   program.sections.clear()
   program.stingers.clear()
   state.programs.delete(program.id)
@@ -309,7 +327,10 @@ export async function prepareMusicSection(
           lease,
           rate: 1,
           curves: stem.curves.map((curve) => ({
-            parameter: program.definition.parameters.findIndex((p) => p.name === curve.parameter),
+            parameter: program.definition.parameters.some((p) => p.name === curve.parameter)
+              ? program.definition.parameters.findIndex((p) => p.name === curve.parameter)
+              : program.globals.index(curve.parameter),
+            global: !program.definition.parameters.some((p) => p.name === curve.parameter),
             points: new Float64Array(curve.points.flat()),
           })),
         }
@@ -378,10 +399,15 @@ export async function prepareMusic(
   }
   const definition = MusicProgram.deserialize(MusicProgram.serialize(source))
   validateMusicProgram(definition)
+  const shared = definition.globals ? await acquireAudioGlobals(world, definition.globals) : null
   const id = state.nextProgram++
   const program: PreparedMusic = {
     id,
     key,
+    globals: shared?.bank ?? new AudioParameterBank([]),
+    releaseGlobals: () => {
+      if (shared) releaseAudioGlobals(audioEvents(world), shared.key)
+    },
     revision: JSON.stringify(MusicProgram.serialize(definition)),
     definition,
     sections: new Map(),
@@ -410,7 +436,12 @@ function stemGain(state: MusicStateValue, transport: MusicTransport, stem: Prepa
   let db = stem.definition.gainDb
   for (let i = 0; i < stem.curves.length; i++) {
     const curve = stem.curves[i]!
-    sampleAudioCurve(curve.points, transport.parameters.values[curve.parameter]!, state.scratch, 0)
+    sampleAudioCurve(
+      curve.points,
+      (curve.global ? transport.program.globals : transport.parameters).values[curve.parameter]!,
+      state.scratch,
+      0,
+    )
     db += state.scratch[0]!
   }
   return 10 ** (db / 20)
@@ -451,7 +482,12 @@ function startSection(
         y: 0,
         z: 0,
       })
-      voices.push({ id, stem, gain })
+      voices.push({
+        id,
+        stem,
+        gain,
+        command: { property: 'gain', at, value: gain, duration: 0.01 },
+      })
       if (fade) {
         runtime.automate(id, { property: 'envelope', at, value: 0, duration: 0 })
         runtime.automate(id, {
@@ -642,7 +678,11 @@ export function setMusicParameter(
   name: string,
   value: number | string,
 ): void {
-  transportOf(world, id).parameters.set(name, value)
+  const transport = transportOf(world, id)
+  const bank = transport.parameters.indices.has(name)
+    ? transport.parameters
+    : transport.program.globals
+  bank.set(name, value)
 }
 function cancelSources(runtime: AudioRuntimeExtension, transport: MusicTransport): void {
   transport.generation++
@@ -716,10 +756,28 @@ export function cancelMusicRequest(
     transport.pending = null
     return 'cancelled'
   }
-  if (transport.committed?.id !== command) return 'ended'
+  const stinger = transport.stingers.find((item) => item.id === command)
+  if (stinger) {
+    const audible = runtime.clock.now() >= stinger.at
+    for (const voice of stinger.voices) audioState(world).backend.stop(voice, audible ? 0.02 : 0)
+    stinger.end = runtime.clock.now()
+    return audible ? 'already-started' : 'cancelled'
+  }
+  if (transport.committed?.id !== command) {
+    if (transport.lastCommand !== command) return 'ended'
+    // Promotion does not erase command identity. Cancel the audible destination with release.
+    for (const voice of transport.voices) audioState(world).backend.stop(voice.id, 0.02)
+    transport.voices = []
+    transport.lastCommand = 0
+    transport.phase =
+      Math.max(0, tickNow(transport, runtime.clock.now()) - transport.sectionStartTick) %
+      transport.section.ticks
+    transport.paused = true
+    return 'already-started'
+  }
   const request = transport.committed,
     audible = runtime.clock.now() >= request.at
-  for (const voice of request.voices) runtime.cancel(voice.id)
+  for (const voice of request.voices) audioState(world).backend.stop(voice.id, audible ? 0.02 : 0)
   request.state = 'cancelled'
   transport.committed = null
   // Restore the outgoing section's gain; cancellation must also cancel its future fade.
@@ -747,6 +805,11 @@ export async function playMusicStinger(
   const definition = transport.program.definition.stingers.find((s) => s.id === name)
   if (!definition) throw new ShardError('audio/music-invalid', `Unknown stinger ${name}`)
   const generation = transport.generation
+  const requested = boundary(
+    transport,
+    options.quantize ?? 'beat',
+    runtime.clock.now() + state.commitLead,
+  )
   let lease = transport.program.stingers.get(name)
   if (!lease) {
     lease = await prepareAudio(world, definition.event!)
@@ -785,16 +848,28 @@ export async function playMusicStinger(
       transport.stingers.some((s) => s.name === name && s.end > now))
   )
     throw new ShardError('audio/music-capacity', 'Stinger cooldown or overlap limit')
+  if (definition.overlap === 'replace') {
+    for (let i = transport.stingers.length - 1; i >= 0; i--) {
+      const stinger = transport.stingers[i]!
+      if (stinger.name !== name) continue
+      for (const voice of stinger.voices) runtime.cancel(voice)
+      transport.stingers.splice(i, 1)
+    }
+  }
   if (
     transport.stingers.length >= 32 ||
     runtime.memory().voices + event.definition.layers.length > world.resource(AudioConfig).maxVoices
   )
     throw new ShardError('audio/music-capacity', 'Entire stinger cannot fit')
-  if (definition.overlap === 'replace')
-    for (const stinger of transport.stingers)
-      if (stinger.name === name) for (const voice of stinger.voices) runtime.cancel(voice)
-  const target = boundary(transport, options.quantize ?? 'beat', now + state.commitLead),
-    command = state.nextCommand++,
+  const target =
+    requested.at < now + state.commitLead
+      ? boundary(transport, options.quantize ?? 'beat', now + state.commitLead)
+      : requested
+  if (target.at !== requested.at) {
+    transport.misses++
+    state.trace.write(0, now, 'music-late', id, name, -1, 'stinger-readiness')
+  }
+  const command = state.nextCommand++,
     voices: number[] = []
   let end = target.at
   try {
@@ -804,13 +879,21 @@ export async function playMusicStinger(
       let choice = 0
       if (layer.selector === 'sequence') choice = event.histories[i]!.sequence++ % choices.length
       else if (layer.selector !== 'single') {
+        const history = event.histories[i]!
+        const exclude = layer.selector === 'no-repeat'
         let total = 0
-        for (const option of layer.choices) total += option.weight
+        for (let c = 0; c < layer.choices.length; c++)
+          if (!exclude || !history.previous.includes(c)) total += layer.choices[c]!.weight
         let pick = transport.rng.float() * total
         for (; choice < choices.length - 1; choice++) {
+          if (exclude && history.previous.includes(choice)) continue
           pick -= layer.choices[choice]!.weight
           if (pick < 0) break
         }
+      }
+      if (layer.selector === 'no-repeat') {
+        const history = event.histories[i]!
+        history.previous[history.cursor++ % history.previous.length] = choice
       }
       const clip = choices[choice]!,
         pitch =
@@ -839,6 +922,13 @@ export async function playMusicStinger(
       voices.push(voice)
       if (layer.attack)
         runtime.automate(voice, { property: 'gain', at, value: gain, duration: layer.attack })
+      if (layer.release)
+        runtime.automate(voice, {
+          property: 'envelope',
+          at: at + Math.max(0, duration - layer.release),
+          value: 0,
+          duration: Math.min(duration, layer.release),
+        })
       end = Math.max(end, at + duration)
       state.trace.write(0, at, 'music-stinger-layer', command, layer.id, choice)
     }
@@ -898,7 +988,9 @@ export function updateMusic(world: World): void {
       const voice = transport.voices[v]!,
         gain = stemGain(state, transport, voice.stem)
       if (gain !== voice.gain && !transport.committed) {
-        runtime.automate(voice.id, { property: 'gain', at: now, value: gain, duration: 0.01 })
+        voice.command.at = now
+        voice.command.value = gain
+        runtime.automate(voice.id, voice.command)
         voice.gain = gain
       }
     }
@@ -915,7 +1007,15 @@ export function updateMusic(world: World): void {
         )
           continue
         const value = rule.parameter
-          ? transport.parameters.values[transport.parameters.index(rule.parameter)]!
+          ? (transport.parameters.indices.has(rule.parameter)
+              ? transport.parameters
+              : transport.program.globals
+            ).values[
+              (transport.parameters.indices.has(rule.parameter)
+                ? transport.parameters
+                : transport.program.globals
+              ).index(rule.parameter)
+            ]!
           : 0
         if (rule.parameter && (value < rule.min || value > rule.max)) continue
         if (
@@ -1008,6 +1108,8 @@ export function updateMusic(world: World): void {
 export function describeMusic(world: World) {
   const state = musicState(world),
     now = runtimeOf(world).clock.now()
+  for (const transport of state.transports)
+    if (!transport.stopped && !transport.paused) reconcileMusic(world, transport, now)
   return {
     lookahead: state.lookahead,
     commitLead: state.commitLead,

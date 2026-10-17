@@ -31,6 +31,11 @@ export interface HeadlessVoice {
   fade: number
 }
 
+interface AutomationTrack {
+  command: AudioAutomation
+  start: number
+  previous: AutomationTrack | null
+}
 const scratch = new Float64Array(2)
 
 /**
@@ -53,16 +58,16 @@ export class HeadlessAudioBackend implements AudioBackend, AudioRuntimeExtension
   private readonly wakes = new Map<() => void, { interval: number; next: number }>()
   private readonly statuses = new Map<number, AudioPresentation>()
   private readonly schedules = new Map<number, { desc: AudioScheduledVoice; end: number }>()
-  private readonly prepared = new Map<AudioClipSource, { pins: number; bytes: number }>()
-  private readonly voicePins = new Map<number, AudioClipSource>()
+  private readonly prepared = new Map<
+    Uint8Array | string,
+    { pins: number; bytes: number; encoded: number }
+  >()
+  private readonly voicePins = new Map<number, Uint8Array | string>()
   private budgetBytes: number
   private maxVoices: number
   private mixer: AudioMixerGraph | null = null
   private readonly mixValues = new Map<string, number>()
-  private readonly automation = new Map<
-    number,
-    Map<string, { command: AudioAutomation; start: number }>
-  >()
+  private readonly automation = new Map<number, Map<string, AutomationTrack>>()
 
   constructor(options: AudioSessionOptions = {}) {
     this.budgetBytes = options.decodedBudgetBytes ?? 64 * 1024 * 1024
@@ -70,6 +75,8 @@ export class HeadlessAudioBackend implements AudioBackend, AudioRuntimeExtension
     this.clock = {
       now: () => this.seconds,
       wake: (callback, interval) => {
+        if (!Number.isFinite(interval) || interval <= 0)
+          throw new ShardError('audio/invalid-range', 'Wake interval must be positive')
         this.wakes.set(callback, { interval, next: this.seconds + interval })
         return () => {
           this.wakes.delete(callback)
@@ -82,30 +89,47 @@ export class HeadlessAudioBackend implements AudioBackend, AudioRuntimeExtension
     if (!Number.isFinite(seconds) || seconds < 0)
       throw new ShardError('audio/invalid-range', 'Clock delta must be finite and nonnegative')
     this.seconds += seconds
-    for (const [id, commands] of this.automation) {
-      const voice = this.byId.get(id)
-      if (!voice) continue
-      for (const [property, automation] of commands) {
-        const value = this.automationValue(automation, this.seconds)
-        if (property === 'envelope') voice.envelope = value
-        else if (property === 'gain') voice.params.gain = value
-        else if (property === 'pitch') voice.params.pitch = value
-      }
+    this.automation.forEach(this.advanceVoice)
+    this.wakes.forEach(this.advanceWake)
+    this.schedules.forEach(this.advanceSchedule)
+  }
+
+  // Map.forEach reuses these callbacks; Map entry iterators allocate tuples on every tick.
+  private automationVoice: HeadlessVoice | null = null
+  private readonly advanceVoice = (commands: Map<string, AutomationTrack>, id: number): void => {
+    this.automationVoice = this.byId.get(id) ?? null
+    if (this.automationVoice) commands.forEach(this.advanceProperty)
+  }
+  private readonly advanceProperty = (track: AutomationTrack, property: string): void => {
+    const voice = this.automationVoice!
+    this.sampleAutomation(track, this.seconds)
+    if (property === 'envelope') voice.envelope = this.automationScratch[0]!
+    else if (property === 'gain') voice.params.gain = this.automationScratch[0]!
+    else if (property === 'pitch') voice.params.pitch = this.automationScratch[0]!
+    if (this.seconds >= track.command.at) track.previous = null
+  }
+  private readonly advanceWake = (
+    wake: { interval: number; next: number },
+    callback: () => void,
+  ): void => {
+    if (this.seconds >= wake.next) {
+      wake.next = this.seconds + wake.interval
+      callback()
     }
-    for (const [callback, wake] of this.wakes)
-      if (this.seconds >= wake.next) {
-        wake.next = this.seconds + wake.interval
-        callback()
-      }
-    for (const [id, scheduled] of this.schedules) {
-      const status = this.statuses.get(id)!
-      if (this.seconds >= scheduled.end) this.stop(id)
-      else if (this.seconds >= status.scheduledAt) status.state = 'rendering'
-    }
+  }
+  private readonly advanceSchedule = (
+    scheduled: { desc: AudioScheduledVoice; end: number },
+    id: number,
+  ): void => {
+    const status = this.statuses.get(id)!
+    if (this.seconds >= scheduled.end) this.stop(id)
+    else if (this.seconds >= status.scheduledAt && status.state !== 'stopping')
+      status.state = 'rendering'
   }
 
   async prepare(clip: AudioClipSource) {
-    let record = this.prepared.get(clip)
+    const key = clip.url ?? clip.bytes
+    let record = this.prepared.get(key)
     const rate = clip.sampleRate ?? 48000
     const channels = clip.channels ?? 1
     const samples = Math.ceil(clip.duration * rate)
@@ -117,8 +141,8 @@ export class HeadlessAudioBackend implements AudioBackend, AudioRuntimeExtension
           hint: 'Release unused preparation leases or increase decodedBudgetMiB.',
         })
       }
-      record = { pins: 0, bytes }
-      this.prepared.set(clip, record)
+      record = { pins: 0, bytes, encoded: clip.bytes.byteLength }
+      this.prepared.set(key, record)
     }
     record.pins++
     let released = false
@@ -150,9 +174,9 @@ export class HeadlessAudioBackend implements AudioBackend, AudioRuntimeExtension
     let encodedBytes = 0
     let pinned = 0
     let evictable = 0
-    for (const [clip, record] of this.prepared) {
+    for (const record of this.prepared.values()) {
       decodedBytes += record.bytes
-      encodedBytes += clip.bytes.byteLength
+      encodedBytes += record.encoded
       if (record.pins) pinned++
       else evictable++
     }
@@ -167,6 +191,10 @@ export class HeadlessAudioBackend implements AudioBackend, AudioRuntimeExtension
       nodes: 0,
       urls: 0,
     }
+  }
+
+  get activeVoices(): number {
+    return this.byId.size
   }
 
   async flush(): Promise<void> {}
@@ -191,21 +219,24 @@ export class HeadlessAudioBackend implements AudioBackend, AudioRuntimeExtension
     return true
   }
 
-  private automationValue(
-    automation: { command: AudioAutomation; start: number },
-    now: number,
-  ): number {
-    const { command, start } = automation
-    if (now < command.at) return start
+  private readonly automationScratch = new Float64Array(1)
+  private sampleAutomation(track: AutomationTrack, now: number): void {
+    while (now < track.command.at && track.previous) track = track.previous
+    const { command, start } = track
+    if (now < command.at) {
+      this.automationScratch[0] = start
+      return
+    }
     const t =
       command.duration > 0 ? Math.max(0, Math.min(1, (now - command.at) / command.duration)) : 1
+    let value = start + (command.value - start) * t
     if (command.curve === 'equal-power-in')
-      return start + (command.value - start) * Math.sin((t * Math.PI) / 2)
-    if (command.curve === 'equal-power-out')
-      return command.value + (start - command.value) * Math.cos((t * Math.PI) / 2)
-    if (command.curve === 'exponential' && start > 0 && command.value > 0)
-      return start * (command.value / start) ** t
-    return start + (command.value - start) * t
+      value = start + (command.value - start) * Math.sin((t * Math.PI) / 2)
+    else if (command.curve === 'equal-power-out')
+      value = command.value + (start - command.value) * Math.cos((t * Math.PI) / 2)
+    else if (command.curve === 'exponential' && start > 0 && command.value > 0)
+      value = start * (command.value / start) ** t
+    this.automationScratch[0] = value
   }
 
   automate(id: number, command: AudioAutomation): void {
@@ -217,20 +248,32 @@ export class HeadlessAudioBackend implements AudioBackend, AudioRuntimeExtension
       this.automation.set(id, commands)
     }
     const previous = commands.get(command.property)
+    if (previous) this.sampleAutomation(previous, command.at)
     const start = previous
-      ? this.automationValue(previous, command.at)
+      ? this.automationScratch[0]!
       : command.property === 'gain'
         ? voice.params.gain
         : command.property === 'pitch'
           ? voice.params.pitch
-          : command.property === 'lowpass'
-            ? 20000
-            : 0
-    commands.set(command.property, { command: { ...command }, start })
-    const value = this.automationValue({ command, start }, this.seconds)
-    if (command.property === 'envelope') voice.envelope = value
-    else if (command.property === 'gain') voice.params.gain = value
-    else if (command.property === 'pitch') voice.params.pitch = value
+          : command.property === 'envelope'
+            ? voice.envelope
+            : command.property === 'lowpass'
+              ? 20000
+              : 0
+    // An immediate change replaces any future command. Future commands preserve the earlier curve.
+    const track =
+      previous && command.at <= this.seconds
+        ? previous
+        : { command: { ...command }, start, previous: previous ?? null }
+    track.start = start
+    if (track === previous) {
+      Object.assign(track.command, command)
+      track.command.curve = command.curve
+      track.previous = null
+    }
+    commands.set(command.property, track)
+    this.automationVoice = voice
+    this.advanceProperty(track, command.property)
   }
 
   cancel(id: number): 'cancelled' | 'already-started' | 'ended' {
@@ -346,10 +389,11 @@ export class HeadlessAudioBackend implements AudioBackend, AudioRuntimeExtension
               ? Number.POSITIVE_INFINITY
               : at + (desc.clip.duration - desc.offset) / desc.pitch,
       })
-    const prepared = this.prepared.get(desc.clip)
+    const key = desc.clip.url ?? desc.clip.bytes
+    const prepared = this.prepared.get(key)
     if (prepared) {
       prepared.pins++
-      this.voicePins.set(voice.id, desc.clip)
+      this.voicePins.set(voice.id, key)
     }
     if (this.statuses.size > 4096) {
       for (const [id, status] of this.statuses)
@@ -381,6 +425,13 @@ export class HeadlessAudioBackend implements AudioBackend, AudioRuntimeExtension
     if (!voice) return
     voice.stopped = true
     voice.fade = fade
+    const schedule = this.schedules.get(id)
+    if (fade > 0 && schedule && this.seconds >= this.statuses.get(id)!.scheduledAt) {
+      this.automate(id, { property: 'envelope', at: this.seconds, value: 0, duration: fade })
+      schedule.end = Math.min(schedule.end, this.seconds + fade)
+      this.statuses.get(id)!.state = 'stopping'
+      return
+    }
     this.byId.delete(id)
     const status = this.statuses.get(id)
     if (status) {

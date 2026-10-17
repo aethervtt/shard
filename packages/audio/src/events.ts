@@ -1,4 +1,4 @@
-import { assetServer } from '@aethervtt/shard-assets'
+import { AssetServerResource, assetServer } from '@aethervtt/shard-assets'
 import {
   type AssetRef,
   defineResource,
@@ -20,9 +20,9 @@ import {
   LogResource,
   Time,
 } from '@aethervtt/shard-runtime'
-import { GlobalTransform, TransformSystems } from '@aethervtt/shard-transform'
+import { GlobalTransform, OriginShift, TransformSystems } from '@aethervtt/shard-transform'
 import { audioEventMethods } from './advanced-methods'
-import { AudioCheckpoint, CheckpointSchema } from './checkpoint'
+import { AudioCheckpoint, CheckpointSchema, installAudioCheckpoints } from './checkpoint'
 import { type AudioClipAsset, AudioClips } from './clip'
 import { AudioBuses } from './components'
 import * as definitions from './event-assets'
@@ -39,6 +39,7 @@ import { audioNumber } from './validation'
 
 export interface PreparedAudioEvent {
   readonly key: string
+  readonly releasePins: () => void
   readonly revision: string
   readonly definition: AudioEventDefinition
   readonly clips: readonly (readonly AudioClipAsset[])[]
@@ -65,6 +66,7 @@ interface Binding {
   points: Float64Array
 }
 interface LayerState {
+  rng: Rng
   definition: AudioEventLayer
   voice: Voice | null
   selected: number
@@ -95,6 +97,10 @@ export interface AudioEventInstance {
   decisionTime: number
   sampleTime: number
   requestedAt: number
+  waitAge: number
+  maxAge: number
+  blocked: string
+  transient: boolean
   clock: 'simulation' | 'realtime'
   pitchLinked: boolean
   x: number
@@ -190,6 +196,9 @@ export class AudioTrace {
 export interface AudioEventsStateValue {
   instances: (AudioEventInstance | null)[]
   plans: Map<string, PreparedAudioEvent>
+  preparations: Map<string, Promise<PreparedAudioEvent>>
+  nextPlan: number
+  globalList: AudioParameterBank[]
   globalBanks: Map<string, AudioParameterBank>
   globalRefs: Map<string, number>
   generation: number
@@ -203,6 +212,8 @@ export interface AudioEventsStateValue {
   trace: AudioTrace
   scratch: Float64Array
   disposed: boolean
+  inFrame: boolean
+  unshift: (() => void) | null
   pending: number
   maxPending: number
   wake: (() => void) | null
@@ -310,6 +321,14 @@ async function prepareEventInner(
       'audio/unsupported-capability',
       'Events require preparation-aware playback',
     )
+  for (let i = 0; i < state.instances.length; i++) {
+    const instance = state.instances[i]
+    if (instance?.state === 'preparing' && instance.key === key) {
+      instance.maxAge = definition.maxAge
+      instance.blocked = definition.blocked
+      instance.transient = definition.mode === 'oneshot'
+    }
+  }
   const revision = JSON.stringify(AudioEvent.serialize(definition))
   const existing = state.plans.get(key)
   if (existing && existing.revision === revision && planFresh(world, existing)) {
@@ -318,34 +337,47 @@ async function prepareEventInner(
   }
   if (state.plans.size >= 256)
     throw new ShardError('audio/capacity', 'At most 256 prepared event definitions per session')
+  const pendingKey = `${key}:${revision}`
+  const pending = state.preparations.get(pendingKey)
+  if (pending) {
+    const plan = await pending
+    if (planFresh(world, plan)) {
+      plan.refs++
+      return plan
+    }
+    return prepareEventInner(world, ref, generation)
+  }
+  const operation = compileEvent(world, ref, key, definition, revision, generation)
+  state.preparations.set(pendingKey, operation)
+  try {
+    return await operation
+  } finally {
+    if (state.preparations.get(pendingKey) === operation) state.preparations.delete(pendingKey)
+  }
+}
+
+async function compileEvent(
+  world: World,
+  ref: AudioEventRef,
+  key: string,
+  definition: AudioEventDefinition,
+  revision: string,
+  generation: number,
+): Promise<PreparedAudioEvent> {
+  const state = audioEvents(world),
+    runtime = audioState(world).backend.runtime!
+  const server = world.tryResource(AssetServerResource)
+  const owner = `audio:plan:${state.nextPlan++}`
+  if (!isDefinition(ref)) server?.pin(ref, owner)
   const leases: AudioPreparation[] = []
   const clips: AudioClipAsset[][] = []
   let globals = new AudioParameterBank([])
   let globalKey = ''
   try {
     if (definition.globals) {
-      const globalsKey = refKey(definition.globals)
-      globalKey = globalsKey
-      const store = world.initResource(AudioParameters.store)
-      if (!store.get(definition.globals)) await assetServer(world).load(definition.globals)
-      const value = store.get(definition.globals)
-      if (!value)
-        throw new ShardError('audio/unknown-parameter', 'Global parameter asset is missing')
-      const current = state.globalBanks.get(globalsKey)
-      if (current && JSON.stringify(current.definitions) !== JSON.stringify(value.parameters)) {
-        throw new ShardError(
-          'audio/unknown-parameter',
-          'Global parameter schema changed while in use',
-          { hint: 'Release active events before replacing the shared parameter schema.' },
-        )
-      }
-      globals =
-        current ??
-        new AudioParameterBank(
-          AudioParameters.deserialize(AudioParameters.serialize(value)).parameters,
-        )
-      state.globalBanks.set(globalsKey, globals)
-      state.globalRefs.set(globalsKey, (state.globalRefs.get(globalsKey) ?? 0) + 1)
+      const shared = await acquireAudioGlobals(world, definition.globals)
+      globalKey = shared.key
+      globals = shared.bank
     }
     const unique = new Map<string, AudioClipAsset>()
     const buses = world.resource(AudioBuses)
@@ -360,6 +392,7 @@ async function prepareEventInner(
         const clipKey = refKey(choice.clip!)
         let clip = unique.get(clipKey)
         if (!clip) {
+          server?.pin(choice.clip!, owner)
           clip = await resolveClip(world, choice.clip!)
           unique.set(clipKey, clip)
           leases.push(await runtime.prepare(clip))
@@ -374,6 +407,7 @@ async function prepareEventInner(
       throw new ShardError('audio/capacity', 'Prepared event capacity reached')
     const plan: PreparedAudioEvent = {
       key,
+      releasePins: () => server?.unpin(owner),
       revision,
       definition,
       clips,
@@ -392,20 +426,51 @@ async function prepareEventInner(
         sequence: 0,
       })),
     }
-    state.plans.set(key, plan)
+    if (planFresh(world, plan)) state.plans.set(key, plan)
     return plan
   } catch (error) {
     for (const lease of leases) lease.release()
-    releaseGlobal(state, globalKey)
+    server?.unpin(owner)
+    releaseAudioGlobals(state, globalKey)
     throw error
   }
 }
 
-function releaseGlobal(state: AudioEventsStateValue, key: string): void {
+/** One parameter bank per asset in this session, shared by events, mixing and music. */
+export async function acquireAudioGlobals(
+  world: World,
+  ref: AssetRef,
+): Promise<{ key: string; bank: AudioParameterBank }> {
+  const state = audioEvents(world),
+    store = world.initResource(AudioParameters.store)
+  if (!store.get(ref)) await assetServer(world).load(ref)
+  const value = store.get(ref)
+  if (!value) throw new ShardError('audio/unknown-parameter', 'Global parameter asset is missing')
+  const key = refKey(ref),
+    current = state.globalBanks.get(key)
+  if (current && JSON.stringify(current.definitions) !== JSON.stringify(value.parameters))
+    throw new ShardError(
+      'audio/unknown-parameter',
+      'Global parameter schema changed while in use',
+      { hint: 'Release its users before replacing the schema.' },
+    )
+  const bank =
+    current ??
+    new AudioParameterBank(AudioParameters.deserialize(AudioParameters.serialize(value)).parameters)
+  if (!current) state.globalList.push(bank)
+  state.globalBanks.set(key, bank)
+  state.globalRefs.set(key, (state.globalRefs.get(key) ?? 0) + 1)
+  return { key, bank }
+}
+
+export function releaseAudioGlobals(state: AudioEventsStateValue, key: string): void {
   if (!key) return
   const count = (state.globalRefs.get(key) ?? 0) - 1
   if (count <= 0) {
     state.globalRefs.delete(key)
+    const bank = state.globalBanks.get(key)
+    const index = bank ? state.globalList.indexOf(bank) : -1
+    if (index >= 0) state.globalList.splice(index, 1)
     state.globalBanks.delete(key)
   } else state.globalRefs.set(key, count)
 }
@@ -413,7 +478,8 @@ function releaseGlobal(state: AudioEventsStateValue, key: string): void {
 function releasePlan(state: AudioEventsStateValue, plan: PreparedAudioEvent): void {
   if (--plan.refs !== 0) return
   for (const lease of plan.leases) lease.release()
-  releaseGlobal(state, plan.globalKey)
+  plan.releasePins()
+  releaseAudioGlobals(state, plan.globalKey)
   if (state.plans.get(plan.key) === plan) state.plans.delete(plan.key)
 }
 
@@ -545,6 +611,11 @@ function activate(
       throw new ShardError('audio/capacity', 'Event concurrency limit reached')
     stopAudioEvent(world, victim.id, { release: 0 })
   }
+  if (plan.definition.cooldown > 0) {
+    for (const [key, expiry] of state.cooldowns) if (expiry <= now) state.cooldowns.delete(key)
+    if (state.cooldowns.size >= 4096 && !state.cooldowns.has(group))
+      throw new ShardError('audio/capacity', 'Cooldown capacity reached')
+  }
   const layers: LayerState[] = []
   for (const layer of plan.definition.layers) {
     const bindings: Binding[] = []
@@ -570,6 +641,7 @@ function activate(
         ? bank.encode(condition.index, layer.condition.label)
         : -1
     layers.push({
+      rng: new Rng(hash(layer.id, hash(plan.key, state.seed ^ state.ordinal))),
       definition: layer,
       voice: null,
       selected: -1,
@@ -594,10 +666,11 @@ function activate(
   instance.ordinal = state.ordinal++
   instance.rng = new Rng(hash(plan.key, state.seed ^ instance.ordinal))
   instance.state = 'active'
+  instance.maxAge = plan.definition.maxAge
+  instance.blocked = plan.definition.blocked
+  instance.transient = plan.definition.mode === 'oneshot'
   if (plan.definition.cooldown > 0) {
     for (const [key, expiry] of state.cooldowns) if (expiry <= now) state.cooldowns.delete(key)
-    if (state.cooldowns.size >= 4096)
-      throw new ShardError('audio/capacity', 'Cooldown capacity reached')
     state.cooldowns.set(group, now + plan.definition.cooldown)
   }
   state.trace.write(audioState(world).frame, now, 'event-start', instance.id)
@@ -629,7 +702,11 @@ export function playAudioEvent(
     for (let i = 0; i < 3; i++) audioNumber(options.position[i]!, 'position', -Number.MAX_VALUE)
   const key = isDefinition(ref)
     ? `inline:${hash(JSON.stringify(AudioEvent.serialize(ref)))}`
-    : refKey(ref)
+    : refKey(
+        world
+          .tryResource(AssetServerResource)
+          ?.resolve(typeof ref === 'string' ? ref : (ref.path ?? ref.guid ?? '')) ?? ref,
+      )
   const id = state.nextId++
   const instance: AudioEventInstance = {
     id,
@@ -644,6 +721,10 @@ export function playAudioEvent(
     decisionTime: 0,
     sampleTime: 0,
     requestedAt: audioState(world).backend.runtime!.clock.now(),
+    waitAge: 0,
+    maxAge: isDefinition(ref) ? ref.maxAge : 0.25,
+    blocked: isDefinition(ref) ? ref.blocked : 'drop',
+    transient: isDefinition(ref) ? ref.mode === 'oneshot' : true,
     clock: options.clock ?? 'simulation',
     pitchLinked: options.pitchLinked ?? false,
     x: options.position?.[0] ?? 0,
@@ -775,7 +856,7 @@ function select(instance: AudioEventInstance, layer: LayerState, index: number):
   const reduce = total <= 0
   if (reduce)
     for (let i = 0; i < definition.choices.length; i++) total += definition.choices[i]!.weight
-  let pick = instance.rng.float() * total,
+  let pick = layer.rng.float() * total,
     selected = definition.defaultChoice
   for (let i = 0; i < definition.choices.length; i++) {
     if (exclude && !reduce && history.previous.includes(i)) continue
@@ -816,23 +897,27 @@ function updateInstance(
       finishInstance(world, state, instance, 'removed')
       return
     }
-    const transform = world.tryGet(instance.entity, GlobalTransform)
-    if (transform) {
-      const m = transform.matrix,
-        dx = m[3] - instance.x,
-        dy = m[7] - instance.y,
-        dz = m[11] - instance.z
+    const table = world.entityTableUnchecked(instance.entity)
+    if (table.has(GlobalTransform)) {
+      const m = table.column(GlobalTransform, 'matrix'),
+        row = world.entityRowUnchecked(instance.entity) * 12
+      const x = m[row + 3]!,
+        y = m[row + 7]!,
+        z = m[row + 11]!
+      const dx = x - instance.x,
+        dy = y - instance.y,
+        dz = z - instance.z
       instance.speed = unscaled > 0 ? Math.sqrt(dx * dx + dy * dy + dz * dz) / unscaled : 0
-      instance.x = m[3]
-      instance.y = m[7]
-      instance.z = m[11]
+      instance.x = x
+      instance.y = y
+      instance.z = z
     }
   }
   const dx = instance.x - audio.listener[3]!,
     dy = instance.y - audio.listener[7]!,
     dz = instance.z - audio.listener[11]!
   instance.distance = Math.sqrt(dx * dx + dy * dy + dz * dz)
-  let live = false,
+  let live = paused,
     real = false
   for (let i = 0; i < instance.layers.length; i++) {
     const layer = instance.layers[i]!,
@@ -859,14 +944,15 @@ function updateInstance(
         if (layer.selected < 0 || def.loopPolicy === 'restart') {
           layer.selected = select(instance, layer, i)
           layer.gainDb =
-            def.gainRandom[0] + instance.rng.float() * (def.gainRandom[1] - def.gainRandom[0])
+            def.gainRandom[0] + layer.rng.float() * (def.gainRandom[1] - def.gainRandom[0])
           layer.pitchSemitones =
-            def.pitchRandom[0] + instance.rng.float() * (def.pitchRandom[1] - def.pitchRandom[0])
+            def.pitchRandom[0] + layer.rng.float() * (def.pitchRandom[1] - def.pitchRandom[0])
           if (def.loopPolicy === 'restart') layer.cursor = 0
         }
         if (!layer.voice || layer.voice.id <= 0) {
           const voice = newVoice(audio, null, audio.frame)
           voice.managed = true
+          voice.fresh = true
           voice.virtualizable = plan.definition.mode === 'sustain'
           voice.clip = plan.clips[i]![layer.selected]!
           voice.bus = def.bus || plan.definition.bus
@@ -898,7 +984,7 @@ function updateInstance(
     if (voice && voice.id > 0) {
       layer.age += decisionDelta
       voice.suppressed = paused
-      if (layer.age > decisionDelta) voice.time += sampleDelta * voice.pitch
+      if (!voice.fresh) voice.time += sampleDelta * voice.pitch
       layer.cursor = voice.time
       voice.elapsed += decisionDelta
       voice.x = instance.x
@@ -937,6 +1023,8 @@ function updateInstance(
       const release = instance.release >= 0 ? instance.release : def.release
       if (layer.ending)
         envelope *= release > 0 ? Math.max(0, 1 - (layer.age - layer.releasedAt) / release) : 0
+      voice.lowpass = scratch[2]!
+      voice.highpass = scratch[3]!
       voice.volume = 10 ** (scratch[0]! / 20) * envelope
       voice.pitch = 2 ** (scratch[1]! / 12) * (instance.pitchLinked ? transport.timeScale : 1)
       if (layer.ending && envelope === 0) {
@@ -961,20 +1049,31 @@ export const updateAudioEvents = defineSystem({
     const state = audioEvents(world),
       time = world.resource(Time),
       runtime = audioState(world).backend.runtime!
-    runtime.advance?.(time.delta)
+    state.inFrame = true
+    try {
+      runtime.advance?.(time.delta)
+    } finally {
+      state.inFrame = false
+    }
     const now = runtime.clock.now(),
       unscaled = Math.max(0, now - state.lastClock)
     state.lastClock = now
-    for (const bank of state.globalBanks.values()) bank.update(time.delta)
+    for (let b = 0; b < state.globalList.length; b++) state.globalList[b]!.update(time.delta)
     for (let i = 0; i < state.instances.length; i++) {
       const instance = state.instances[i]
-      if (
-        !instance ||
-        instance.state === 'ended' ||
-        instance.state === 'failed' ||
-        instance.state === 'preparing'
-      )
-        continue
+      if (!instance || instance.state === 'ended' || instance.state === 'failed') continue
+      if (instance.state === 'preparing' || audioState(world).backend.state === 'suspended') {
+        instance.waitAge += time.delta
+        if (
+          instance.transient &&
+          instance.blocked === 'drop' &&
+          instance.waitAge > instance.maxAge
+        ) {
+          finishInstance(world, state, instance, 'expired')
+          continue
+        }
+        if (instance.state === 'preparing') continue
+      }
       updateInstance(world, state, instance, time.delta, unscaled)
     }
   },
@@ -1021,7 +1120,14 @@ export function audioEventsPlugin(
     provides: [
       definitions,
       parameters,
-      { AudioTransport, AudioEventsState, TransportSchema, AudioCheckpoint, CheckpointSchema },
+      {
+        AudioTransport,
+        AudioEventsState,
+        TransportSchema,
+        AudioCheckpoint,
+        CheckpointSchema,
+        installAudioCheckpoints,
+      },
     ],
     build(app) {
       app.addMethod(...audioEventMethods)
@@ -1042,6 +1148,9 @@ export function audioEventsPlugin(
       world.insertResource(AudioEventsState, {
         instances: new Array(maxInstances).fill(null),
         plans: new Map(),
+        preparations: new Map(),
+        nextPlan: 1,
+        globalList: [],
         globalBanks: new Map(),
         globalRefs: new Map(),
         generation: 0,
@@ -1055,9 +1164,40 @@ export function audioEventsPlugin(
         trace: new AudioTrace(),
         scratch: new Float64Array(8),
         disposed: false,
+        inFrame: false,
+        unshift: null,
         pending: 0,
         maxPending: options.maxPending ?? 2048,
         wake: null,
+      })
+      installAudioCheckpoints(world)
+      const state = audioEvents(world),
+        mixerSetup = updateAudio.setup!(world)
+      const context = { lastRunTick: world.tick }
+      const pump = () => {
+        if (state.disposed || state.inFrame) return
+        const time = world.tryResource(Time)
+        if (!time) return
+        const delta = time.delta
+        time.delta = 0
+        try {
+          context.lastRunTick = world.tick
+          updateAudioEvents.run(undefined, world, context as never)
+          updateAudio.run(mixerSetup, world, context as never)
+        } finally {
+          time.delta = delta
+        }
+      }
+      state.wake = runtime.clock.wake(pump, 0.025)
+      state.unshift = world.observe(OriginShift, ({ data }) => {
+        for (let i = 0; i < state.instances.length; i++) {
+          const instance = state.instances[i]
+          if (instance) {
+            instance.x += data.offset[0]
+            instance.y += data.offset[1]
+            instance.z += data.offset[2]
+          }
+        }
       })
       app.addSystems(PostUpdate, updateAudioEvents.after(TransformSystems).before(updateAudio))
     },
@@ -1067,11 +1207,13 @@ export function audioEventsPlugin(
       state.disposed = true
       state.generation++
       state.wake?.()
+      state.unshift?.()
       for (let i = 0; i < state.instances.length; i++)
         if (state.instances[i]) finishInstance(world, state, state.instances[i]!, 'disposed')
       for (const lease of state.leases.values()) lease.release()
       state.plans.clear()
       state.globalBanks.clear()
+      state.globalList.length = 0
       state.globalRefs.clear()
       state.cooldowns.clear()
     },

@@ -290,6 +290,22 @@ export function defineDataAsset(
     schema,
     fileSchema: published,
     import: (source, ctx) => importData(source, ctx, type, schema, extension, options.validate),
+    check: (json) => {
+      const errors = schema.validate(json)
+      if (errors.length) return errors
+      try {
+        options.validate?.(schema.deserialize(json) as Record<string, unknown>)
+        return []
+      } catch (error) {
+        return [
+          error instanceof ShardError
+            ? error
+            : new ShardError('assets/import-failed', 'Semantic data validation failed', {
+                cause: error,
+              }),
+        ]
+      }
+    },
   })
 }
 
@@ -356,6 +372,8 @@ export function defineDataType<const N extends string, const F extends Fields>(
     extension: options.extension,
     version: options.version ?? null,
     description: options.description ?? null,
+    lazyDependencies: options.lazyDependencies ?? false,
+    semantic: options.validate?.toString() ?? null,
     fields: Object.entries(fields).map(([key, field]) => [key, field.jsonSchema()]),
   })
   const existing = dataTypes.get(name)

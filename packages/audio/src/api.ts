@@ -1,8 +1,16 @@
-import { type AssetRef, type Rng, ShardError, type World } from '@aethervtt/shard-core'
+import { type AssetRef, type Entity, type Rng, ShardError, type World } from '@aethervtt/shard-core'
 import type { AudioDistanceModel, AudioPanningModel } from '@aethervtt/shard-platform'
 import { type AudioClipAsset, AudioClips } from './clip'
-import { type AudioBus, AudioBuses } from './components'
-import { audioState, busOf, endVoice, newVoice, pickInRange, unknownBus } from './mixer'
+import { type AudioBus, AudioBuses, AudioListener } from './components'
+import {
+  AudioConfig,
+  audioState,
+  busOf,
+  endVoice,
+  newVoice,
+  pickInRange,
+  unknownBus,
+} from './mixer'
 import { audioNumber, audioRange } from './validation'
 
 /** A [min, max] range: each play picks a value in it. */
@@ -229,4 +237,11 @@ export function duck(world: World, bus: string, options: DuckOptions | null): vo
 /** A bus's settings with defaults filled in, or undefined. */
 export function getBus(world: World, name: string): AudioBus | undefined {
   return busOf(world.resource(AudioBuses), name)
+}
+
+/** Select this session's listener. Null restores stable entity-ID selection. */
+export function setAudioListener(world: World, entity: Entity | null): void {
+  if (entity !== null && (!world.isAlive(entity) || !world.has(entity, AudioListener)))
+    throw new ShardError('audio/stale-handle', 'Selected listener must be a live AudioListener')
+  world.resource(AudioConfig).listener = entity
 }

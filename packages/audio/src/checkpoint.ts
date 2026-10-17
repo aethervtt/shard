@@ -1,3 +1,11 @@
+import { AudioCheckpointHooks } from './checkpoint-bridge'
+
+export {
+  captureAudioCheckpoint,
+  resetAudioForLoad,
+  restoreAudioCheckpoint,
+} from './checkpoint-bridge'
+
 import {
   defineResource,
   defineSchema,
@@ -51,6 +59,7 @@ export const CheckpointSchema = defineSchema('audio/CheckpointData', {
       targets: t.list(t.f64()),
       layers: t.list(
         t.struct({
+          rng: t.list(t.u32()),
           selected: t.i32(),
           cursor: t.f64(),
           age: t.f64(),
@@ -88,10 +97,7 @@ export const AudioCheckpoint = defineResource<Infer<typeof CheckpointSchema>>('a
 })
 
 /** Explicit synchronous checkpoint boundary. Never stores backend timestamps or transient sounds. */
-export function captureAudioCheckpoint(
-  world: World,
-  entityRef: (entity: Entity) => string | null = () => null,
-): void {
+function capture(world: World, entityRef: (entity: Entity) => string | null = () => null): void {
   const state = world.tryResource(AudioEventsState)
   if (!state) return
   const data = world.initResource(AudioCheckpoint)
@@ -130,6 +136,7 @@ export function captureAudioCheckpoint(
       values: [...instance.parameters!.values],
       targets: [...instance.parameters!.targets],
       layers: instance.layers.map((layer) => ({
+        rng: layer.rng.getState(),
         selected: layer.selected,
         cursor: layer.voice?.time ?? layer.cursor,
         age: layer.age,
@@ -170,7 +177,7 @@ export function captureAudioCheckpoint(
 }
 
 /** Runs before scene teardown so detached voices and stale async completions cannot survive a load. */
-export function resetAudioForLoad(world: World): void {
+function reset(world: World): void {
   const state = world.tryResource(AudioEventsState)
   if (state) {
     state.generation++
@@ -189,7 +196,7 @@ export function resetAudioForLoad(world: World): void {
     for (const voice of audio.voices) if (voice.id > 0) endVoice(world, audio, voice, 'stopped')
 }
 
-export async function restoreAudioCheckpoint(
+async function restore(
   world: World,
   resolveEntity: (ref: string) => Entity | undefined = () => undefined,
 ): Promise<ShardError[]> {
@@ -226,6 +233,7 @@ export async function restoreAudioCheckpoint(
           const previous = saved.layers[i]!,
             layer = instance.layers[i]!,
             definition = layer.definition
+          if (previous.rng.length === 4) layer.rng.setState(previous.rng)
           Object.assign(layer, {
             selected: previous.selected,
             cursor: previous.cursor,
@@ -319,4 +327,8 @@ export async function restoreAudioCheckpoint(
     }
   state.lastClock = audioState(world).backend.runtime!.clock.now()
   return warnings
+}
+
+export function installAudioCheckpoints(world: World): void {
+  world.insertResource(AudioCheckpointHooks, { capture, reset, restore })
 }

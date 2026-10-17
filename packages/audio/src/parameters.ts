@@ -28,6 +28,10 @@ export function validateParameters(parameters: readonly AudioParameterDefinition
         { path },
       )
     names.add(p.name)
+    audioNumber(p.min, `${path}/min`, -Number.MAX_VALUE)
+    audioNumber(p.smooth, `${path}/smooth`)
+    if (p.kind === 'discrete' && (!Number.isInteger(p.min) || !Number.isInteger(p.max)))
+      throw new ShardError('audio/invalid-range', 'Discrete bounds must be integers', { path })
     audioNumber(p.max, `${path}/max`, p.min)
     if (p.kind === 'label') {
       if (!p.labels.length || new Set(p.labels).size !== p.labels.length)
@@ -114,7 +118,7 @@ export class AudioParameterBank {
     for (let i = 0; i < this.values.length; i++) {
       const tau = this.definitions[i]!.smooth
       this.values[i] =
-        tau > 0
+        tau > 0 && Math.abs(this.targets[i]! - this.values[i]!) > 1e-7
           ? this.values[i]! + (this.targets[i]! - this.values[i]!) * (1 - Math.exp(-delta / tau))
           : this.targets[i]!
     }

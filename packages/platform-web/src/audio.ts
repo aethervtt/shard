@@ -103,7 +103,7 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
   private readonly busGains = new Map<string, number>()
   private readonly leases = new Set<AudioPreparation>()
   private readonly wakes = new Set<ReturnType<typeof setInterval>>()
-  private readonly retired = new Set<WebAudioGraph>()
+  private readonly retired = new Map<WebAudioGraph, number>()
   private readonly timers = new Set<ReturnType<typeof setTimeout>>()
   private readonly listener = identity.slice()
   private readonly meters = new Map<
@@ -151,11 +151,16 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
         }
       },
     }
+    if (!host.offline) this.wakes.add(setInterval(this.maintainGraphs, 20))
     host.sessions.add(this)
     this.context.addEventListener('statechange', this.stateChanged)
     if (!host.offline)
       for (const gesture of gestures)
         window.addEventListener(gesture, this.unlock, { capture: true })
+  }
+
+  get activeVoices(): number {
+    return this.voices.size
   }
 
   get state(): 'running' | 'suspended' | 'closed' {
@@ -184,6 +189,7 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
     )
   }
   private stateChanged = (): void => {
+    this.maintainGraphs()
     if (this.state === 'running')
       for (const voice of this.voices.values())
         if (!voice.started && !voice.loading) this.start(voice)
@@ -666,15 +672,16 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
   }
 
   collect(): void {
+    this.maintainGraphs()
     this.host.cache.collect()
   }
 
   memory() {
     let nodes = 1 + this.buses.size + this.meters.size
     for (const voice of this.voices.values())
-      nodes += 3 + Number(!!voice.panner) + Number(!!voice.source || !!voice.mediaNode)
-    nodes += this.graph?.nodes.length ?? 0
-    for (const graph of this.retired) nodes += graph.nodes.length
+      nodes += 4 + Number(!!voice.panner) + Number(!!voice.source || !!voice.mediaNode)
+    nodes += this.graph ? this.graph.nodes.length + 1 : 0
+    for (const graph of this.retired.keys()) nodes += graph.nodes.length + 1
     return { ...this.host.cache.memory(), voices: this.voices.size, nodes }
   }
 
@@ -697,7 +704,7 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
       revision !== this.graphRevision ||
       next.nodes.length +
         (this.graph?.nodes.length ?? 0) +
-        [...this.retired].reduce((sum, graph) => sum + graph.nodes.length, 0) >
+        [...this.retired.keys()].reduce((sum, graph) => sum + graph.nodes.length, 0) >
         graph.maxNodes
     ) {
       next.dispose()
@@ -728,39 +735,42 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
     for (const meter of this.meters.values()) meter.node.disconnect()
     this.meters.clear()
     if (old) {
-      this.retired.add(old)
+      const tailEnd = at + fade + old.tailSeconds
+      this.retired.set(old, tailEnd + 0.02)
       for (const input of old.inputs.values()) {
         input.gain.cancelAndHoldAtTime(at)
         input.gain.linearRampToValueAtTime(0, at + fade)
       }
-      old.output.gain.setValueAtTime(1, at + Math.max(fade, old.tailSeconds))
-      old.output.gain.linearRampToValueAtTime(0, at + Math.max(fade, old.tailSeconds) + 0.02)
-      if (!this.host.offline) {
-        const timer = setTimeout(
-          () => {
-            this.timers.delete(timer)
-            for (const voice of this.voices.values())
-              for (const input of old.inputs.values()) {
-                try {
-                  ;(voice.panner ?? voice.highpass).disconnect(input)
-                } catch {
-                  /* Not connected. */
-                }
-              }
-            old.dispose()
-            old.output.disconnect()
-            this.retired.delete(old)
-          },
-          Math.max(fade, old.tailSeconds) * 1000 + 25,
-        )
-        this.timers.add(timer)
-      }
+      old.output.gain.setValueAtTime(1, tailEnd)
+      old.output.gain.linearRampToValueAtTime(0, tailEnd + 0.02)
     }
+  }
+
+  private readonly maintainGraphs = (): void => {
+    this.graph?.tick()
+    this.retired.forEach(this.maintainRetired)
+  }
+  private readonly maintainRetired = (deadline: number, old: WebAudioGraph): void => {
+    if (this.context.currentTime < deadline) return
+    for (const voice of this.voices.values())
+      for (const input of old.inputs.values()) {
+        try {
+          ;(voice.panner ?? voice.highpass).disconnect(input)
+        } catch {
+          /* Not connected. */
+        }
+      }
+    old.dispose()
+    old.output.disconnect()
+    this.retired.delete(old)
   }
 
   setMixerValue(bus: string, field: string, value: number, rampSeconds = 0.01): void {
     if (!this.graph) throw new ShardError('audio/unsupported-capability', 'No mixer is installed')
     this.graph.set(bus, field, value, rampSeconds)
+    if (field === 'userGain')
+      for (const old of this.retired.keys())
+        if (old.hasBus(bus)) old.set(bus, field, value, rampSeconds)
   }
 
   private emptyMeter() {
@@ -822,7 +832,7 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
     this.graph?.dispose()
     this.graph?.output.disconnect()
     this.graph = null
-    for (const graph of this.retired) {
+    for (const graph of this.retired.keys()) {
       graph.dispose()
       graph.output.disconnect()
     }

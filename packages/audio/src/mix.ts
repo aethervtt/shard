@@ -193,6 +193,7 @@ export const AudioSnapshot = defineDataType(
 )
 export type AudioSnapshotDefinition = Infer<typeof AudioSnapshot>
 export interface MixField {
+  sendTarget: string
   factor: number
   bus: string
   field: string
@@ -258,6 +259,7 @@ export async function configureAudioMixer(
     fields: MixField[] = []
   const addField = (bus: string, field: string, base: number, linearGain = false) =>
     fields.push({
+      sendTarget: field.startsWith('send/') ? field.slice(5) : '',
       factor: 1,
       bus,
       field,

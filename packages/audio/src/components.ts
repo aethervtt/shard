@@ -95,7 +95,7 @@ export type AudioSourceValue = Infer<typeof AudioSource>
 
 export const AudioListener = defineTag('audio/AudioListener', {
   description:
-    'Where the player hears from: put it on the camera. The first one found is used; without one, the world origin looking down -Z.',
+    'Where the player hears from: put it on the camera. Use setAudioListener to select one; otherwise the lowest entity ID is used; without one, the world origin looking down -Z.',
   requires: [Transform],
 })
 

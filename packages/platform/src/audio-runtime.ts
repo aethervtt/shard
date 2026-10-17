@@ -132,6 +132,7 @@ export interface AudioMeter {
 export interface AudioRuntimeExtension {
   readonly capabilities: Readonly<AudioCapabilities>
   readonly clock: AudioClock
+  readonly activeVoices: number
   prepare(clip: AudioClipSource): Promise<AudioPreparation>
   /** Reclaims unpinned cache entries. Active voices retain their own pins. */
   collect(): void

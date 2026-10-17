@@ -184,7 +184,6 @@ export const updateAudioAcoustics = defineSystem({
     const state = world.resource(AudioAcoustics),
       audio = audioState(world),
       delta = world.resource(Time).delta
-    const runtime = audio.backend.runtime!
     state.time += delta
     state.count = 0
     for (let t = 0; t < zones.tables.length; t++) {
@@ -245,7 +244,7 @@ export const updateAudioAcoustics = defineSystem({
       if (!field.field.startsWith('send/') || !state.buses.includes(field.bus)) continue
       let weight = 0
       for (let s = 0; s < 4; s++)
-        if (field.field === `send/${state.slots[s]!.bus}`) weight += state.slots[s]!.weight
+        if (field.sendTarget === state.slots[s]!.bus) weight += state.slots[s]!.weight
       field.factor = Math.min(1, weight)
     }
     state.queries = 0
@@ -295,13 +294,8 @@ export const updateAudioAcoustics = defineSystem({
         (target - voice.transmission) *
         (1 - Math.exp(-delta / (target < voice.transmission ? 0.05 : 0.2)))
       voice.acousticGain = state.query ? 10 ** ((-18 * (1 - voice.transmission)) / 20) : 1
-      if (state.query && voice.backend >= 0 && voice.spatial)
-        runtime.automate(voice.backend, {
-          property: 'lowpass',
-          at: runtime.clock.now(),
-          value: 800 * 25 ** voice.transmission,
-          duration: 0.01,
-        })
+      if (Math.abs(target - voice.transmission) < 1e-7) voice.transmission = target
+      voice.acousticLowpass = state.query && voice.spatial ? 800 * 25 ** voice.transmission : 20000
     }
   },
 })

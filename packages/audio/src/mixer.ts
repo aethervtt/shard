@@ -10,6 +10,7 @@ import {
   type World,
 } from '@aethervtt/shard-core'
 import type {
+  AudioAutomation,
   AudioBackend,
   AudioDistanceModel,
   AudioPanningModel,
@@ -92,6 +93,12 @@ export interface Voice {
   distanceGain: number
   pan: number
   rate: number
+  lowpass: number
+  highpass: number
+  acousticLowpass: number
+  sentLowpass: number
+  sentHighpass: number
+  filterCommand: AudioAutomation
   acousticGain: number
   transmission: number
   acousticTarget: number
@@ -122,6 +129,8 @@ export interface AudioLogEntry {
 }
 
 export interface AudioConfigValue {
+  /** Explicit listener; null selects the lowest live listener entity ID. */
+  listener: Entity | null
   /** Real voices at once, across all clips. */
   maxVoices: number
   /** Real voices of one clip at once. */
@@ -144,7 +153,13 @@ export interface AudioConfigValue {
 export const AudioConfig = defineResource<AudioConfigValue>('audio/Config', {
   description:
     'Voice limits (maxVoices 64, maxVoicesPerClip 8), speed of sound, and the occlusion hook.',
-  init: () => ({ maxVoices: 64, maxVoicesPerClip: 8, speedOfSound: 343, occlusion: null }),
+  init: () => ({
+    listener: null,
+    maxVoices: 64,
+    maxVoicesPerClip: 8,
+    speedOfSound: 343,
+    occlusion: null,
+  }),
 })
 
 export interface AudioStateValue {
@@ -278,6 +293,12 @@ export function newVoice(state: AudioStateValue, entity: Entity | null, frame: n
     distanceGain: 1,
     pan: 0,
     rate: 1,
+    lowpass: 20000,
+    highpass: 0,
+    acousticLowpass: 20000,
+    sentLowpass: Number.NaN,
+    sentHighpass: Number.NaN,
+    filterCommand: { property: 'lowpass', at: 0, value: 20000, duration: 0.01 },
     acousticGain: 1,
     transmission: 1,
     acousticTarget: 1,
@@ -500,24 +521,35 @@ export const updateAudio = defineSystem({
     const frame = time.frame
     state.frame = frame
 
-    // Listener: the first AudioListener, else the origin.
+    // Explicit listener selection is independent of archetype/query order.
     const L = state.listener
-    const prevX = L[3]!
-    const prevY = L[7]!
-    const prevZ = L[11]!
+    const prevX = L[3]!,
+      prevY = L[7]!,
+      prevZ = L[11]!
     let listenerEntity: Entity | null = null
     let listenerChanged = false
-    for (let t = 0; t < listeners.tables.length && listenerEntity === null; t++) {
+    for (let t = 0; t < listeners.tables.length; t++) {
       const table = listeners.tables[t]!
-      if (table.count === 0) continue
-      listenerEntity = table.entities[0]!
-      const m = table.column(GlobalTransform, 'matrix')
-      for (let i = 0; i < 12; i++) {
-        if (L[i] !== m[i]) {
-          L[i] = m[i]!
+      for (let row = 0; row < table.count; row++) {
+        const entity = table.entities[row]!
+        if (
+          config.listener !== null
+            ? entity !== config.listener
+            : listenerEntity !== null && entity >= listenerEntity
+        )
+          continue
+        listenerEntity = entity
+      }
+    }
+    if (listenerEntity !== null) {
+      const table = world.entityTableUnchecked(listenerEntity)
+      const m = table.column(GlobalTransform, 'matrix'),
+        row = world.entityRowUnchecked(listenerEntity) * 12
+      for (let i = 0; i < 12; i++)
+        if (L[i] !== m[row + i]) {
+          L[i] = m[row + i]!
           listenerChanged = true
         }
-      }
     }
     if (listenerEntity === null && state.listenerEntity !== null) {
       L.fill(0)
@@ -591,6 +623,19 @@ export const updateAudio = defineSystem({
           state.voices.push(voice)
           state.byEntity.set(entity, voice)
         }
+        if (
+          voice.volume !== volume[row]! * voice.volumeScale ||
+          voice.pitch !== pitch[row]! * voice.pitchScale ||
+          voice.minDistance !== minD[row] ||
+          voice.maxDistance !== maxD[row] ||
+          voice.rolloffFactor !== factor[row]
+        ) {
+          audioNumber(volume[row]!, 'volume')
+          audioNumber(pitch[row]!, 'pitch', 0.01, 16)
+          audioNumber(minD[row]!, 'minDistance')
+          audioNumber(maxD[row]!, 'maxDistance', minD[row]!)
+          audioNumber(factor[row]!, 'rolloffFactor')
+        }
         voice.seen = frame
         voice.bus = (busCol[row] as string | undefined) || 'sfx'
         voice.volume = volume[row]! * voice.volumeScale
@@ -604,11 +649,6 @@ export const updateAudio = defineSystem({
         voice.rolloffFactor = factor[row]!
         voice.panning = PANNING_MODELS[panning[row]!]!
         voice.doppler = doppler[row]!
-        audioNumber(voice.volume, 'volume')
-        audioNumber(pitch[row]!, 'pitch', 0.01, 16)
-        audioNumber(voice.minDistance, 'minDistance')
-        audioNumber(voice.maxDistance, 'maxDistance', voice.minDistance)
-        audioNumber(voice.rolloffFactor, 'rolloffFactor')
         voice.x = matrix[row * 12 + 3]!
         voice.y = matrix[row * 12 + 7]!
         voice.z = matrix[row * 12 + 11]!
@@ -650,9 +690,9 @@ export const updateAudio = defineSystem({
       }
       const end =
         voice.loop && clip.loopEnd > 0 ? Math.min(clip.loopEnd, clip.duration) : clip.duration
+      const start = clip.loopEnd > 0 && clip.loopStart < end ? clip.loopStart : 0
       if (voice.time >= end - 1e-6) {
         if (voice.loop) {
-          const start = clip.loopEnd > 0 && clip.loopStart < end ? clip.loopStart : 0
           const span = end - start
           voice.time = span > 0 ? start + ((voice.time - end) % span) : start
         } else {
@@ -732,7 +772,10 @@ export const updateAudio = defineSystem({
     }
 
     // Voice limits: highest priority, then loudest, keep a real voice.
-    const maxVoices = config.maxVoices
+    let ownVoices = 0
+    for (let i = 0; i < voices.length; i++) if (voices[i]!.backend >= 0) ownVoices++
+    const externalVoices = Math.max(0, (backend.runtime?.activeVoices ?? ownVoices) - ownVoices)
+    const maxVoices = Math.max(0, config.maxVoices - externalVoices)
     const perClip = config.maxVoicesPerClip
     state.countStamp++
     let overClip = false
@@ -766,16 +809,31 @@ export const updateAudio = defineSystem({
           state.ended++
           v.id = -v.id
         } else {
-          endVoice(world, state, v, 'stolen', 0.02)
+          endVoice(world, state, v, 'stolen', 0)
         }
       }
       ranked.length = 0
     }
 
+    // Release virtualized slots before admitting replacements, including fades in the hard cap.
+    for (let i = 0; i < voices.length; i++) {
+      const voice = voices[i]!
+      if (voice.state === 'virtual' && voice.backend >= 0) {
+        backend.stop(voice.backend, 0)
+        voice.backend = -1
+      }
+    }
     // Log starts, then drive the backend.
     for (let i = 0; i < voices.length; i++) {
       const voice = voices[i]!
       if (isEnded(voice) || voice.state === 'pending') continue
+      if (voice.backend >= 0) {
+        const presentation = backend.runtime?.presentation(voice.backend)
+        if (presentation?.state === 'failed' || presentation?.state === 'ended') {
+          endVoice(world, state, voice, presentation.state === 'ended' ? 'ended' : 'stopped', 0)
+          continue
+        }
+      }
       if (voice.fresh) {
         record(world, state, voice, 'start')
         voice.fresh = false
@@ -837,8 +895,28 @@ export const updateAudio = defineSystem({
         voice.sentBus = targetBus
         voice.sentLoop = voice.loop
         voice.sentSpatial = spatialDesc
+        voice.sentLowpass = Number.NaN
+        voice.sentHighpass = Number.NaN
       } else {
         backend.update(voice.backend, params)
+      }
+      const runtime = backend.runtime
+      if (runtime?.capabilities.automation) {
+        const lowpass = Math.min(voice.lowpass, voice.acousticLowpass),
+          command = voice.filterCommand
+        command.at = runtime.clock.now()
+        if (voice.sentLowpass !== lowpass) {
+          command.property = 'lowpass'
+          command.value = lowpass
+          runtime.automate(voice.backend, command)
+          voice.sentLowpass = lowpass
+        }
+        if (voice.sentHighpass !== voice.highpass) {
+          command.property = 'highpass'
+          command.value = voice.highpass
+          runtime.automate(voice.backend, command)
+          voice.sentHighpass = voice.highpass
+        }
       }
     }
 

@@ -85,6 +85,13 @@ Scheduling/automation uses audio time; engine evaluation emits changes only when
 Short ramps default to 10 ms for abrupt fader changes, with exact zero at ramp completion.
 Sample start boundaries and deliberately percussive envelopes may request zero ramp explicitly.
 Changing a ramp mid-flight starts from its current effective value, not its old target.
+Web delay uses a finite impulse response: echo amplitudes follow the authored feedback series,
+truncated at `tailSeconds`. Reverb IRs longer than the cap are truncated with a final 5 ms fade.
+Delay edits rebuild one of two preallocated kernels and crossfade over 20 ms; faster edits coalesce
+to the latest target. Generated effect kernels have a separate 64 MiB graph ceiling. Cascaded
+inserts add their tails; parallel paths take their maximum. Graph retirement starts after its
+20 ms input fade and waits for this longest path in audio-context time, including suspension.
+
 Stopping dry playback allows bounded delay/reverb tails; `tailSeconds` is required for effects
 without an analytic finite tail, capped at 10 seconds by default. Hard session disposal cancels
 tails. A hard user mute suppresses returns too; ordinary musical fades preserve tails.

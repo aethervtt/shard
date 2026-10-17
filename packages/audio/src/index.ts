@@ -9,10 +9,12 @@ export {
   playSound,
   preloadSound,
   type SoundRange,
+  setAudioListener,
   setBus,
   stopSound,
 } from './api'
-export * from './checkpoint'
+export { AudioCheckpoint, CheckpointSchema } from './checkpoint'
+export * from './checkpoint-bridge'
 export {
   type AudioClipAsset,
   AudioClipAssetType,
@@ -39,7 +41,7 @@ export * from './event-assets'
 export * from './events'
 export { AUDIO_CODECS, type AudioCodec, type AudioInfo, probeAudio } from './formats'
 export { createHeadlessAudioBackend, HeadlessAudioBackend, type HeadlessVoice } from './headless'
-export { audioLog, audioMethods, describeAudio } from './methods'
+export { audioLog, audioMethods, describeAudio, readAudioLog } from './methods'
 export * from './mix'
 export {
   AudioConfig,

@@ -1,3 +1,13 @@
+import {
+  AudioClips,
+  audioClip,
+  audioEventsPlugin,
+  audioMusicPlugin,
+  audioPlugin,
+  MusicProgram,
+  prepareMusic,
+  startMusic,
+} from '@aethervtt/shard-audio'
 import type {
   AudioClipSource,
   AudioEffectDesc,
@@ -5,6 +15,8 @@ import type {
   AudioScheduledVoice,
 } from '@aethervtt/shard-platform'
 import { createWebAudioBackend, renderAudioPreview } from '@aethervtt/shard-platform-web'
+import { App } from '@aethervtt/shard-runtime'
+import { TransformPlugin } from '@aethervtt/shard-transform'
 
 function clip(
   kind: 'constant' | 'impulse' | 'sine',
@@ -107,6 +119,100 @@ function rms(samples: Float32Array, start: number, end: number): number {
   return Math.sqrt(sum / (end - start))
 }
 
+async function musicLoopProbe() {
+  const bpm = 123,
+    period = (4 * 60) / bpm,
+    rate = 48000
+  const context = new OfflineAudioContext(1, Math.ceil((period * 5 + 0.1) * rate), rate)
+  const host = createWebAudioBackend({ context, fixedListener: true })
+  const app = new App().addPlugin(
+    TransformPlugin,
+    audioPlugin({ backend: host }),
+    audioEventsPlugin(),
+    audioMusicPlugin(),
+  )
+  await app.init()
+  const source = clip('impulse', 100, period)
+  const ref = app.world.resource(AudioClips).add(audioClip(source.bytes))
+  const definition = MusicProgram.deserialize({
+    bpm,
+    entry: 'explore',
+    sections: [
+      {
+        id: 'explore',
+        bars: 1,
+        stems: Array.from({ length: 4 }, (_, i) => ({
+          id: `stem${i}`,
+          clip: { guid: ref.guid },
+          endSample: Math.round(period * rate),
+          rateConform: true,
+        })),
+      },
+    ],
+  })
+  const program = await prepareMusic(app.world, definition)
+  startMusic(app.world, program, { at: 0.05 })
+  // Flush the app-owned child session, then render the actual native looping sources.
+  await app.world
+    .resource((await import('@aethervtt/shard-audio')).AudioState)
+    .backend.runtime!.flush()
+  const buffer = await context.startRendering(),
+    data = buffer.getChannelData(0),
+    peaks: number[] = []
+  for (let loop = 0; loop < 5; loop++) {
+    const target = Math.round((0.05 + loop * period) * rate)
+    let peak = target - 3
+    for (let i = target - 2; i <= target + 3; i++)
+      if (Math.abs(data[i]!) > Math.abs(data[peak]!)) peak = i
+    peaks.push(peak)
+  }
+  app.dispose()
+  program.release()
+  host.dispose?.()
+  return { peaks, expected: peaks.map((_, i) => Math.round((0.05 + i * period) * rate)) }
+}
+
+async function sessionProbe() {
+  const context = new OfflineAudioContext(2, 24000, 48000),
+    host = createWebAudioBackend({ context, fixedListener: true })
+  const source = clip('impulse', 100, 0.02),
+    a = host.createSession!(),
+    b = host.createSession!()
+  const leftPose = new Float64Array([1, 0, 0, 20, 0, 1, 0, 0, 0, 0, 1, 0])
+  b.setListener(leftPose)
+  const spatial = {
+    panning: 'equal-power' as const,
+    distanceModel: 'inverse' as const,
+    refDistance: 1,
+    maxDistance: 100,
+    rolloffFactor: 1,
+  }
+  a.play({ ...voice(source, 'sfx', 0.05), spatial, x: 10 })
+  b.play({ ...voice(source, 'sfx', 0.15), spatial, x: 10 })
+  await Promise.all([a.runtime!.flush(), b.runtime!.flush()])
+  const rendered = await context.startRendering()
+  const result = {
+    aLeft: rendered.getChannelData(0)[2400]!,
+    aRight: rendered.getChannelData(1)[2400]!,
+    bLeft: rendered.getChannelData(0)[7200]!,
+    bRight: rendered.getChannelData(1)[7200]!,
+  }
+  a.dispose!()
+  b.dispose!()
+  for (let i = 0; i < 100; i++) {
+    const session = host.createSession!()
+    const lease = await session.runtime!.prepare(source)
+    session.play(voice(source))
+    await session.runtime!.flush()
+    lease.release()
+    session.dispose!()
+  }
+  host.runtime.collect()
+  const memory = host.runtime.memory()
+  host.dispose?.()
+  return { ...result, memory }
+}
+
 export async function audioProbes() {
   const source = clip('constant'),
     hierarchy = graph(0.5)
@@ -177,6 +283,28 @@ export async function audioProbes() {
       },
     ],
   })
+  const capped = await renderAudioPreview({
+    duration: 0.8,
+    voices: [voice(clip('impulse', 100, 0.01))],
+    mixer: graph(1, [effect('delay', { feedback: 0.9, seconds: 0.1, tailSeconds: 0.35 })]),
+  })
+  const reverb = await renderAudioPreview({
+    duration: 0.8,
+    voices: [voice(clip('impulse', 100, 0.01))],
+    mixer: graph(1, [effect('reverb', { ir: clip('constant', 100, 0.7), tailSeconds: 0.3 })]),
+  })
+  const postGraph = graph(0)
+  postGraph.buses = delayGraph.buses.map((bus) => ({
+    ...bus,
+    sends: bus.sends.map((send) => ({ ...send, pre: false })),
+  }))
+  const post = await renderAudioPreview({
+    duration: 0.5,
+    voices: [voice(clip('impulse'))],
+    mixer: postGraph,
+  })
+  const musicLoops = await musicLoopProbe(),
+    session = await sessionProbe()
   const context = new OfflineAudioContext(1, 4800, 48000),
     host = createWebAudioBackend({ context, fixedListener: true })
   const a = host.createSession!(),
@@ -193,6 +321,13 @@ export async function audioProbes() {
   const collectedBytes = host.runtime.memory().decodedBytes
   host.dispose?.()
   return {
+    musicLoops,
+    session,
+    delayBeforeCap: rms(capped.buffer.getChannelData(0), 14000, 18000),
+    delayAfterCap: rms(capped.buffer.getChannelData(0), 20000, 35000),
+    reverbBeforeCap: rms(reverb.buffer.getChannelData(0), 8000, 12000),
+    reverbAfterCap: rms(reverb.buffer.getChannelData(0), 20000, 35000),
+    postFaderSilent: post.measured.peak,
     hierarchy: parent.buffer.getChannelData(0)[12000],
     attenuationDb: 20 * Math.log10(high.measured.rms / low.measured.rms),
     delaySample: impulse,

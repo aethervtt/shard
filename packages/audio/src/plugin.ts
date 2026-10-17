@@ -1,7 +1,7 @@
 import { PostUpdate } from '@aethervtt/shard-core'
 import type { AudioBackend } from '@aethervtt/shard-platform'
 import { definePlugin, GlobalRng, LogResource, type Plugin } from '@aethervtt/shard-runtime'
-import { TransformSystems } from '@aethervtt/shard-transform'
+import { OriginShift, TransformSystems } from '@aethervtt/shard-transform'
 import * as clipModule from './clip'
 import { AudioClips } from './clip'
 import * as componentsModule from './components'
@@ -30,6 +30,7 @@ export interface AudioPluginOptions {
  */
 export function audioPlugin(options: AudioPluginOptions = {}): Plugin {
   let ownedSession = false
+  let unshift: (() => void) | undefined
   return definePlugin({
     name: 'audio',
     provides: [clipModule, componentsModule, mixerModule],
@@ -51,10 +52,30 @@ export function audioPlugin(options: AudioPluginOptions = {}): Plugin {
       // Pitch and volume ranges draw from the app's seed, so a replay picks the same values.
       const rng = w.tryResource(GlobalRng)?.stream('audio')
       w.insertResource(AudioState, createAudioState(backend, rng))
+      unshift = w.observe(OriginShift, ({ data }) => {
+        const state = w.resource(AudioState),
+          offset = data.offset
+        state.listener[3] = state.listener[3]! + offset[0]
+        state.listener[7] = state.listener[7]! + offset[1]
+        state.listener[11] = state.listener[11]! + offset[2]
+        state.listenerPrev[0] = state.listenerPrev[0]! + offset[0]
+        state.listenerPrev[1] = state.listenerPrev[1]! + offset[1]
+        state.listenerPrev[2] = state.listenerPrev[2]! + offset[2]
+        for (let i = 0; i < state.voices.length; i++) {
+          const voice = state.voices[i]!
+          voice.x += offset[0]
+          voice.y += offset[1]
+          voice.z += offset[2]
+          voice.px += offset[0]
+          voice.py += offset[1]
+          voice.pz += offset[2]
+        }
+      })
       app.addSystems(PostUpdate, updateAudio.after(TransformSystems))
       app.addMethod(...audioMethods)
     },
     dispose(app) {
+      unshift?.()
       // Silence this app's voices; a host's backend may be another app's too, so it stays (0052).
       const state = app.world.tryResource(AudioState)
       if (!state) return
