@@ -51,6 +51,8 @@ describe('audio offline browser evidence', () => {
           )
         }
         expect(evidence.reservations).toEqual({ rejected: true, preserved: 4, low: 0, high: 2 })
+        expect(evidence.scalarMixer.after).toBe(evidence.scalarMixer.before)
+        expect(evidence.scalarMixer.tail).toBeCloseTo(0.25, 4)
         expect(evidence.compressor.sum).toBeGreaterThan(0.001)
         expect(evidence.compressor.sum).toBeLessThan(0.95)
         expect(evidence.compressor.sum).toBeCloseTo(evidence.compressor.reference, 5)
@@ -137,6 +139,9 @@ describe('audio offline browser evidence', () => {
           state: 'suspended',
           codec: 'audio/decode-failed',
           presentation: 'blocked',
+          ownedUrls: 1,
+          releasedUrls: 0,
+          externalUrls: 0,
         })
         page.setDefaultTimeout(5000)
         await page.click('#audio-resume')
@@ -167,6 +172,19 @@ describe('audio offline browser evidence', () => {
             ).inspectLiveAudioProbe().memory.nodes < nodes,
           suspended.memory.nodes,
         )
+        const resumed = await page.evaluate(() =>
+          (
+            globalThis as unknown as { inspectLiveAudioProbe: typeof inspectLiveAudioProbe }
+          ).inspectLiveAudioProbe(),
+        )
+        const destination = process.env.SHARD_AUDIO_EVIDENCE
+        if (destination) {
+          await mkdir(destination, { recursive: true })
+          await writeFile(
+            join(destination, 'browser-live.json'),
+            JSON.stringify({ initial, suspended, waiting, resumed }, null, 2),
+          )
+        }
         await page.evaluate(() =>
           (
             globalThis as unknown as { disposeLiveAudioProbe: typeof disposeLiveAudioProbe }

@@ -1,6 +1,6 @@
 import { App } from '@aethervtt/shard-runtime'
 import { TransformPlugin } from '@aethervtt/shard-transform'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { duck, playSound, setAudioUserBus, setBus } from './api'
 import { captureAudioCheckpoint, resetAudioForLoad, restoreAudioCheckpoint } from './checkpoint'
 import { AudioClips, audioClip } from './clip'
@@ -58,6 +58,45 @@ describe('authored audio mixing', () => {
     })
     expect(backend.measure(backend.active[0]!).gain).toBeCloseTo(0.25)
     app.dispose()
+  })
+
+  it('applies compatible scalar edits without allocating a replacement graph', async () => {
+    const { app, world, backend, mixer } = await setup()
+    const configure = vi.spyOn(backend.runtime, 'configureMixer')
+    playSound(world, audioClip(sineWav(1)), { bus: 'steps' })
+    app.update(0.01)
+    mixer.buses[1]!.gainDb = -20
+    await configureAudioMixer(world, mixer)
+    expect(configure).not.toHaveBeenCalled()
+    expect(backend.measure(backend.active[0]!).gain).toBeCloseTo(0.05)
+    mixer.buses[1]!.effects.push(
+      AudioMixer.deserialize({ buses: [{ id: 'x', effects: [{ id: 'filter', kind: 'lowpass' }] }] })
+        .buses[0]!.effects[0]!,
+    )
+    await configureAudioMixer(world, mixer)
+    expect(configure).toHaveBeenCalledTimes(1)
+    mixer.buses[1]!.effects[0]!.frequency = 400
+    await configureAudioMixer(world, mixer)
+    expect(configure).toHaveBeenCalledTimes(1)
+    await app.dispose()
+  })
+
+  it('rebuilds a reverb after in-place clip revision changes, while faders preserve its graph', async () => {
+    const { app, world, backend, mixer } = await setup()
+    const impulse = audioClip(sineWav(0.1))
+    const ref = world.resource(AudioClips).add(impulse)
+    mixer.buses[1]!.effects = AudioMixer.deserialize({
+      buses: [{ id: 'x', effects: [{ id: 'room', kind: 'reverb', ir: { guid: ref.guid } }] }],
+    }).buses[0]!.effects
+    await configureAudioMixer(world, mixer)
+    const configure = vi.spyOn(backend.runtime, 'configureMixer')
+    mixer.buses[1]!.gainDb = -12
+    await configureAudioMixer(world, mixer)
+    expect(configure).not.toHaveBeenCalled()
+    impulse.bytes = sineWav(0.1, { frequency: 1000 })
+    await configureAudioMixer(world, mixer)
+    expect(configure).toHaveBeenCalledTimes(1)
+    await app.dispose()
   })
 
   it('composes equal-priority snapshots independently of activation order and preserves user settings', async () => {

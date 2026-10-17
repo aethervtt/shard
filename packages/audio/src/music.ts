@@ -550,6 +550,7 @@ export function startMusic(
   options: {
     section?: string
     persist?: boolean
+    paused?: boolean
     at?: number
     phase?: number
     parameters?: Readonly<Record<string, number | string>>
@@ -586,7 +587,7 @@ export function startMusic(
     retiring: [],
     pending: null,
     committed: null,
-    paused: false,
+    paused: options.paused ?? false,
     phase,
     generation: 0,
     lastCommand: 0,
@@ -613,7 +614,8 @@ export function startMusic(
     }
   }
   if (options.rng) transport.rng.setState([...options.rng])
-  transport.voices = startSection(world, transport, section, at, phase, 0, 'linear')
+  if (!transport.paused)
+    transport.voices = startSection(world, transport, section, at, phase, 0, 'linear')
   program.refs++
   state.transports.push(transport)
   state.trace.write(0, at, 'music-start', transport.id, section.definition.id)

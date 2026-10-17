@@ -2,12 +2,22 @@ import {
   AudioCheckpoint,
   AudioClips,
   AudioEvent,
+  AudioMusicState,
   audioEvents,
   audioEventsPlugin,
+  audioMusicPlugin,
   audioPlugin,
+  describeMusic,
   HeadlessAudioBackend,
+  MusicProgram,
+  pauseMusic,
   playAudioEvent,
   prepareAudio,
+  prepareMusic,
+  prepareMusicSection,
+  requestMusicSection,
+  setMusicParameter,
+  startMusic,
   stopAudioEvent,
 } from '@aethervtt/shard-audio'
 import { App } from '@aethervtt/shard-runtime'
@@ -24,6 +34,7 @@ async function setup() {
     ScenePlugin,
     audioPlugin({ backend }),
     audioEventsPlugin(),
+    audioMusicPlugin(),
     savePlugin(),
   )
   await app.init()
@@ -54,7 +65,7 @@ async function setup() {
       },
     ],
   })
-  return { app, world: app.world, backend, event }
+  return { app, world: app.world, backend, event, clips: [a, b] }
 }
 
 describe('saved audio integration', () => {
@@ -78,6 +89,59 @@ describe('saved audio integration', () => {
     lease.release()
     await app.dispose()
   })
+
+  it.each([false, true])(
+    'restores section, phase and parameters through loadGame, paused=%s',
+    async (paused) => {
+      const { app, world, backend, clips } = await setup()
+      const definition = MusicProgram.deserialize({
+        entry: 'a',
+        bpm: 120,
+        parameters: [{ name: 'intensity' }],
+        sections: clips.map((clip, i) => ({
+          id: i === 0 ? 'a' : 'b',
+          bars: 1,
+          stems: [{ id: 'stem', clip: { guid: clip.guid }, endSample: 16000 }],
+        })),
+      })
+      const program = await prepareMusic(world, definition)
+      await prepareMusicSection(world, program, 'b')
+      const id = startMusic(world, program, { section: 'b', persist: true })
+      setMusicParameter(world, id, 'intensity', 0.75)
+      backend.advance(0.52)
+      if (paused) pauseMusic(world, id)
+      else {
+        requestMusicSection(world, id, 'a', { quantize: 'immediate' })
+        await Promise.all(program.pending.values())
+        backend.advance(0)
+      }
+      const file = captureGame(world)
+      const saved = world.resource(AudioCheckpoint).music[0]!
+      expect(saved.section).toBe('b')
+      expect(saved.phase).toBeGreaterThan(0)
+      expect(saved.destination).toBe(paused ? '' : 'a')
+      const oldVoices = backend.active.map((voice) => voice.id)
+      const result = await loadGame(world, file)
+      expect(result.warnings).toEqual([])
+      if (!paused) backend.advance(world.resource(AudioMusicState).commitLead)
+      const transports = describeMusic(world).transports
+      expect(transports).toHaveLength(1)
+      expect(transports[0]).toMatchObject({ section: 'b', paused })
+      expect(transports[0]!.tick).toBeCloseTo(saved.phase)
+      expect(backend.active.every((voice) => !oldVoices.includes(voice.id))).toBe(true)
+      captureGame(world)
+      const restored = world.resource(AudioCheckpoint).music[0]!
+      expect(restored.values[0]).toBe(0.75)
+      if (paused) expect(backend.active).toHaveLength(0)
+      else
+        expect(
+          world.resource(AudioMusicState).transports.find((transport) => !transport.stopped)!
+            .pending?.section,
+        ).toBe('a')
+      program.release()
+      await app.dispose()
+    },
+  )
 
   it('rewinds session selection history and restores cooldown remainder independently of live sounds', async () => {
     const { app, world, backend, event } = await setup()

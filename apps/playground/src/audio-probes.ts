@@ -1,11 +1,15 @@
 import {
   AudioClips,
   AudioEvent,
+  AudioMixer,
+  AudioMixState,
   audioClip,
   audioEventsPlugin,
+  audioMixerPlugin,
   audioMusicPlugin,
   audioPlugin,
   audioState,
+  configureAudioMixer,
   MusicProgram,
   pauseMusic,
   playMusicStinger,
@@ -489,6 +493,48 @@ async function compressorProbe() {
   }
 }
 
+async function scalarMixerProbe() {
+  const context = new OfflineAudioContext(1, 24000, 48000)
+  const host = createWebAudioBackend({ context, fixedListener: true })
+  const app = new App().addPlugin(
+    TransformPlugin,
+    audioPlugin({ backend: host }),
+    audioEventsPlugin(),
+    audioMixerPlugin(),
+  )
+  await app.init()
+  try {
+    const world = app.world,
+      runtime = audioState(world).backend.runtime!
+    const mixer = AudioMixer.deserialize({
+      buses: [
+        { id: 'master', parent: '' },
+        {
+          id: 'sfx',
+          effects: [{ id: 'echo', kind: 'delay', seconds: 0.2, feedback: 0, tailSeconds: 0.3 }],
+        },
+      ],
+    })
+    await configureAudioMixer(world, mixer)
+    runtime.play(voice(clip('impulse', 100, 0.01), 'sfx', 0.05))
+    await runtime.flush()
+    const suspended = context.suspend(0.1),
+      rendering = context.startRendering()
+    await suspended
+    const before = runtime.memory().nodes
+    world.resource(AudioMixState).maxNodes = before
+    mixer.buses[1]!.gainDb = 20 * Math.log10(0.5)
+    await configureAudioMixer(world, mixer)
+    const after = runtime.memory().nodes
+    await context.resume()
+    const buffer = await rendering
+    return { before, after, tail: buffer.getChannelData(0)[12000]! }
+  } finally {
+    await app.dispose()
+    host.dispose?.()
+  }
+}
+
 export async function audioProbes() {
   const source = clip('constant'),
     hierarchy = graph(0.5)
@@ -599,6 +645,7 @@ export async function audioProbes() {
   return {
     reservations: await reservationProbe(),
     compressor: await compressorProbe(),
+    scalarMixer: await scalarMixerProbe(),
     instanceSends: await instanceSendProbe(),
     domainTails: await domainTailProbe(),
     musicTransitions: {
@@ -642,6 +689,18 @@ export async function startLiveAudioProbe() {
   await liveHost.runtime.configureMixer(
     graph(1, [effect('delay', { seconds: 0.05, tailSeconds: 0.15 })]),
   )
+  const streamed = await liveHost.runtime.prepare({ ...clip('constant'), stream: true })
+  const ownedUrls = liveHost.runtime.memory().urls
+  streamed.release()
+  const releasedUrls = liveHost.runtime.memory().urls
+  const external = await liveHost.runtime.prepare({
+    ...clip('constant'),
+    bytes: new Uint8Array(0),
+    stream: true,
+    url: 'blob:external-owner',
+  })
+  const externalUrls = liveHost.runtime.memory().urls
+  external.release()
   document.body.dataset.audioStage = 'codec'
   let codec = ''
   try {
@@ -650,13 +709,20 @@ export async function startLiveAudioProbe() {
     codec = (error as { code: string }).code
   }
   document.body.dataset.audioStage = 'blocked-play'
-  liveHost.play({ ...voice(clip('constant'), 'sfx', 0), loop: true })
+  liveHost.runtime.play({ ...voice(clip('constant'), 'sfx'), when: undefined, loop: true })
   await liveHost.runtime.flush()
   const button = document.createElement('button')
   button.id = 'audio-resume'
   button.textContent = 'Resume audio'
   document.body.append(button)
-  return { state: liveHost.state, codec, presentation: liveHost.runtime.presentation(1)?.state }
+  return {
+    state: liveHost.state,
+    codec,
+    presentation: liveHost.runtime.presentation(1)?.state,
+    ownedUrls,
+    releasedUrls,
+    externalUrls,
+  }
 }
 export function inspectLiveAudioProbe() {
   liveHost!.runtime.collect()

@@ -2,7 +2,12 @@ import { assetServer } from '@aethervtt/shard-assets'
 import { App } from '@aethervtt/shard-runtime'
 import { TransformPlugin } from '@aethervtt/shard-transform'
 import { describe, expect, it } from 'vitest'
-import { captureAudioCheckpoint, resetAudioForLoad, restoreAudioCheckpoint } from './checkpoint'
+import {
+  AudioCheckpoint,
+  captureAudioCheckpoint,
+  resetAudioForLoad,
+  restoreAudioCheckpoint,
+} from './checkpoint'
 import { AudioClips, audioClip } from './clip'
 import { AudioEvent } from './event-assets'
 import { audioEvents, audioEventsPlugin } from './events'
@@ -16,6 +21,7 @@ import {
   pauseMusic,
   playMusicStinger,
   prepareMusic,
+  prepareMusicSection,
   requestMusicSection,
   resumeMusic,
   seekMusic,
@@ -290,6 +296,78 @@ describe('music ownership and recovery', () => {
       entries.filter((entry) => entry.kind === 'music-stinger-layer').map((entry) => entry.choice),
     ).toEqual([0, 0, 0])
     expect(entries.filter((entry) => entry.kind === 'history-reduced')).toHaveLength(1)
+    program.release()
+    await app.dispose()
+  })
+
+  it('keeps every restored transport silent until all program preparation completes', async () => {
+    const { app, world, backend, definition } = await setup()
+    const first = await prepareMusic(world, definition)
+    const second = await prepareMusic(world, { ...definition, entry: 'b' })
+    startMusic(world, first, { persist: true })
+    startMusic(world, second, { persist: true })
+    advance(backend, 0.25)
+    captureAudioCheckpoint(world)
+    resetAudioForLoad(world)
+    const prepare = backend.runtime.prepare.bind(backend.runtime)
+    let release!: () => void, entered!: () => void
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const waiting = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    backend.runtime.prepare = async (clip) => {
+      if (clip.id === 'b') {
+        entered()
+        await blocked
+      }
+      return prepare(clip)
+    }
+    const restoration = restoreAudioCheckpoint(world)
+    await waiting
+    advance(backend, 2)
+    expect(backend.active).toHaveLength(0)
+    expect(describeMusic(world).transports.every((transport) => transport.paused)).toBe(true)
+    release()
+    expect(await restoration).toEqual([])
+    expect(backend.active).toHaveLength(2)
+    first.release()
+    second.release()
+    await app.dispose()
+  })
+
+  it('restarts a changed program entry without replaying its obsolete committed destination', async () => {
+    const { app, world, backend, definition } = await setup()
+    const program = await prepareMusic(world, definition)
+    startMusic(world, program, { persist: true })
+    advance(backend, 0.5)
+    captureAudioCheckpoint(world)
+    const saved = world.resource(AudioCheckpoint).music[0]!
+    saved.definition.entry = 'b'
+    saved.destination = 'b'
+    resetAudioForLoad(world)
+    const warnings = await restoreAudioCheckpoint(world)
+    expect(warnings.length).toBeGreaterThan(0)
+    expect(warnings.every((warning) => warning.code === 'audio/music-restore')).toBe(true)
+    expect(describeMusic(world).transports).toMatchObject([{ section: 'b', paused: false }])
+    expect(backend.active).toHaveLength(1)
+    program.release()
+    await app.dispose()
+  })
+
+  it('falls back to the ready entry when a saved non-entry clip is missing', async () => {
+    const { app, world, backend, definition } = await setup()
+    const program = await prepareMusic(world, definition)
+    await prepareMusicSection(world, program, 'b')
+    startMusic(world, program, { section: 'b', persist: true })
+    advance(backend, 0.5)
+    captureAudioCheckpoint(world)
+    resetAudioForLoad(world)
+    world.resource(AudioClips).delete(definition.sections[1]!.stems[0]!.clip!.guid!)
+    expect(await restoreAudioCheckpoint(world)).toMatchObject([{ code: 'audio/music-restore' }])
+    expect(describeMusic(world).transports).toMatchObject([{ section: 'a', paused: false }])
+    expect(backend.active).toHaveLength(1)
     program.release()
     await app.dispose()
   })

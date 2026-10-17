@@ -6,7 +6,7 @@ import { AudioClips, audioClip } from './clip'
 import { AudioListener, AudioSource } from './components'
 import { audioEventsPlugin } from './events'
 import { HeadlessAudioBackend } from './headless'
-import { AudioMixer, audioMixerPlugin, configureAudioMixer } from './mix'
+import { AudioMixer, AudioMixState, audioMixerPlugin, configureAudioMixer } from './mix'
 import { audioState } from './mixer'
 import { audioPlugin } from './plugin'
 import { sineWav } from './testing-utils'
@@ -59,6 +59,19 @@ describe('bounded acoustics', () => {
     expect(state.slots.filter((s) => s.weight > 0)).toHaveLength(1)
     expect(state.slots.find((s) => s.entity === zones[4])!.weight).toBeCloseTo(1)
     app.dispose()
+  })
+
+  it('preserves out-of-zone send suppression across scalar mixer edits without a visual frame', async () => {
+    const { app, world } = await setup()
+    world.spawn([ReverbZone, { returnBus: 'room0' }], [Transform, { translation: [100, 0, 0] }])
+    app.update(0.1)
+    const mix = world.resource(AudioMixState)
+    expect(mix.fields.find((field) => field.field === 'send/room0')!.factor).toBe(0)
+    const changed = AudioMixer.deserialize(AudioMixer.serialize(mix.definition!))
+    changed.buses[1]!.gainDb = -6
+    await configureAudioMixer(world, changed)
+    expect(mix.fields.find((field) => field.field === 'send/room0')!.factor).toBe(0)
+    await app.dispose()
   })
 
   it('bounds queries among 512 emitters and observes stale voices', async () => {

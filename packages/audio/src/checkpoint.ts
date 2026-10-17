@@ -30,9 +30,9 @@ import {
   AudioMusicState,
   describeMusic,
   MusicProgram,
-  pauseMusic,
   prepareMusic,
   requestMusicSection,
+  resumeMusic,
   startMusic,
   stopMusic,
   updateMusic,
@@ -257,6 +257,20 @@ async function restore(
   world: World,
   resolveEntity: (ref: string) => Entity | undefined = () => undefined,
 ): Promise<ShardError[]> {
+  const hooks = world.resource(AudioCheckpointHooks),
+    loading = hooks.loading
+  hooks.loading = true
+  try {
+    return await restoreState(world, resolveEntity)
+  } finally {
+    hooks.loading = loading
+  }
+}
+
+async function restoreState(
+  world: World,
+  resolveEntity: (ref: string) => Entity | undefined = () => undefined,
+): Promise<ShardError[]> {
   const data = world.tryResource(AudioCheckpoint),
     state = world.tryResource(AudioEventsState),
     warnings: ShardError[] = []
@@ -395,6 +409,7 @@ async function restore(
     }
   }
   state.ordinal = data.ordinal
+  const resumes: { id: number; destination: string }[] = []
   if (world.tryResource(AudioMusicState))
     for (const saved of data.music) {
       let restored: number | null = null
@@ -406,13 +421,15 @@ async function restore(
         try {
           // Candidate preparation uses the same admission path; release its temporary transport.
           let section = saved.section,
-            phase = saved.phase
+            phase = saved.phase,
+            fallback = false
           if (
             program.revision !== saved.revision ||
             !program.definition.sections.some((s) => s.id === section)
           ) {
             section = program.definition.entry
             phase = 0
+            fallback = true
             warnings.push(
               new ShardError(
                 'audio/music-restore',
@@ -421,13 +438,31 @@ async function restore(
             )
           }
           const { prepareMusicSection } = await import('./music')
-          const prepared = await prepareMusicSection(world, program, section)
+          let prepared: Awaited<ReturnType<typeof prepareMusicSection>>
+          try {
+            prepared = await prepareMusicSection(world, program, section)
+          } catch (cause) {
+            if (section === program.definition.entry) throw cause
+            section = program.definition.entry
+            phase = 0
+            fallback = true
+            prepared = await prepareMusicSection(world, program, section)
+            warnings.push(
+              new ShardError(
+                'audio/music-restore',
+                'Saved section could not be prepared; restarting current entry',
+                { cause },
+              ),
+            )
+          }
           if (
+            !fallback &&
             JSON.stringify(prepared.stems.map((stem) => clipRevision(stem.clip))) !==
-            JSON.stringify(saved.clips)
+              JSON.stringify(saved.clips)
           ) {
             section = program.definition.entry
             phase = 0
+            fallback = true
             await prepareMusicSection(world, program, section)
             warnings.push(
               new ShardError(
@@ -452,17 +487,20 @@ async function restore(
             section,
             phase,
             persist: true,
+            paused: true,
             values: sameRevision ? saved.values : undefined,
             targets: sameRevision ? saved.targets : undefined,
             rng: saved.rng,
           })
           restored = id
-          if (
-            saved.destination &&
-            program.definition.sections.some((s) => s.id === saved.destination)
-          )
-            requestMusicSection(world, id, saved.destination, { quantize: 'bar' })
-          if (saved.paused) pauseMusic(world, id)
+          if (!saved.paused)
+            resumes.push({
+              id,
+              destination:
+                !fallback && program.definition.sections.some((s) => s.id === saved.destination)
+                  ? saved.destination
+                  : '',
+            })
         } finally {
           program.release()
         }
@@ -482,6 +520,17 @@ async function restore(
     ) {
       bank.values.set(global.values)
       bank.targets.set(global.targets)
+    }
+  }
+  // Publish native sources only after every saved program and global bank is prepared.
+  for (const saved of resumes) {
+    try {
+      resumeMusic(world, saved.id)
+      if (saved.destination)
+        requestMusicSection(world, saved.id, saved.destination, { quantize: 'bar', reenter: true })
+    } catch (cause) {
+      stopMusic(world, saved.id)
+      warnings.push(new ShardError('audio/music-restore', 'Music could not be resumed', { cause }))
     }
   }
   state.cooldowns.clear()

@@ -267,6 +267,37 @@ async function loadData<T>(
   return value as T
 }
 
+/** Scalar edits preserve stateful effect history and need no overlapping replacement graph. */
+function compatibleMixer(a: AudioMixerGraph | null, buses: AudioBusDesc[]): boolean {
+  if (!a || a.buses.length !== buses.length) return false
+  return a.buses.every((old, i) => {
+    const next = buses[i]!
+    return (
+      old.id === next.id &&
+      old.parent === next.parent &&
+      old.return === next.return &&
+      old.sends.length === next.sends.length &&
+      old.sends.every(
+        (send, j) => send.target === next.sends[j]!.target && send.pre === next.sends[j]!.pre,
+      ) &&
+      old.effects.length === next.effects.length &&
+      old.effects.every((effect, j) => {
+        const other = next.effects[j]!
+        return (
+          effect.id === other.id &&
+          effect.kind === other.kind &&
+          effect.tailSeconds === other.tailSeconds &&
+          effect.ir?.bytes === other.ir?.bytes &&
+          effect.ir?.url === other.ir?.url &&
+          effect.ir?.sampleRate === other.ir?.sampleRate &&
+          effect.ir?.channels === other.ir?.channels &&
+          effect.ir?.normalize === other.ir?.normalize
+        )
+      })
+    )
+  })
+}
+
 export async function configureAudioMixer(
   world: World,
   ref: AudioMixerDefinition | AssetRef | string,
@@ -297,7 +328,9 @@ export async function configureAudioMixer(
               field.split('/').at(-1)! as keyof typeof AudioEffectFields
             ]?.jsonSchema().maximum as number | undefined) ?? Number.MAX_VALUE),
       sendTarget: field.startsWith('send/') ? field.slice(5) : '',
-      factor: 1,
+      factor:
+        state.fields.find((previous) => previous.bus === bus && previous.field === field)?.factor ??
+        1,
       bus,
       field,
       base,
@@ -318,7 +351,7 @@ export async function configureAudioMixer(
         if (!ir || ir.stream)
           throw new ShardError('audio/invalid-effect', 'Reverb requires a decoded impulse response')
       }
-      effects.push({ ...effect, ir: ir ?? undefined })
+      effects.push({ ...effect, ir: ir ? { ...ir } : undefined })
       const names =
         effect.kind === 'compressor'
           ? ['threshold', 'ratio', 'attack', 'release']
@@ -392,7 +425,12 @@ export async function configureAudioMixer(
           )
       }
     }
-    await runtime.configureMixer({ buses, maxNodes: state.maxNodes })
+    if (revision !== state.revision) {
+      if (shared) releaseAudioGlobals(audioEvents(world), shared.key)
+      return
+    }
+    if (!compatibleMixer(state.graph, buses))
+      await runtime.configureMixer({ buses, maxNodes: state.maxNodes })
   } catch (error) {
     if (shared) releaseAudioGlobals(audioEvents(world), shared.key)
     throw error
