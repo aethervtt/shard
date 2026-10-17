@@ -1,342 +1,879 @@
 import { ShardError } from '@aethervtt/shard-core'
 import type {
+  AudioAutomation,
   AudioBackend,
   AudioClipSource,
-  AudioContextState,
+  AudioClock,
+  AudioMixerGraph,
+  AudioPreparation,
+  AudioPresentation,
+  AudioRuntimeExtension,
+  AudioScheduledVoice,
+  AudioSessionOptions,
   AudioVoiceDesc,
   AudioVoiceParams,
 } from '@aethervtt/shard-platform'
+import { AudioCache, type PreparedAudio } from './audio-cache'
+import { WebAudioGraph } from './audio-graph'
 
-interface Decoded {
-  buffer: AudioBuffer
-  /** 1 / peak when the clip normalizes, else 1. */
-  norm: number
+interface AutomationTrack {
+  command: AudioAutomation
+  start: number
+  previous: AutomationTrack | null
+}
+function automatedValue(track: AutomationTrack, at: number): number {
+  if (at < track.command.at)
+    return track.previous ? automatedValue(track.previous, at) : track.start
+  const command = track.command,
+    start = track.start
+  const t =
+    command.duration > 0 ? Math.max(0, Math.min(1, (at - command.at) / command.duration)) : 1
+  if (command.curve === 'equal-power-in')
+    return start + (command.value - start) * Math.sin((t * Math.PI) / 2)
+  if (command.curve === 'equal-power-out')
+    return command.value + (start - command.value) * Math.cos((t * Math.PI) / 2)
+  if (command.curve === 'exponential' && start > 0 && command.value > 0)
+    return start * (command.value / start) ** t
+  return start + (command.value - start) * t
 }
 
-interface WebVoice {
-  desc: AudioVoiceDesc
+interface Voice {
+  id: number
+  desc: AudioScheduledVoice
   params: AudioVoiceParams
   gain: GainNode
+  envelope: GainNode
+  lowpass: BiquadFilterNode
+  highpass: BiquadFilterNode
   panner: PannerNode | null
   source: AudioBufferSourceNode | null
-  element: HTMLAudioElement | null
-  norm: number
-  /** performance.now() when the plugin asked for it, to start in step after a wait. */
-  requestedAt: number
+  media: HTMLAudioElement | null
+  mediaNode: MediaElementAudioSourceNode | null
+  lease: AudioPreparation | null
+  presentation: AudioPresentation
+  loading: boolean
   started: boolean
-  stopped: boolean
+  finished: boolean
+  requestedAt: number
+  norm: number
+  timer: ReturnType<typeof setTimeout> | null
+  automation: AudioAutomation[]
+  tracks: Map<string, AutomationTrack>
 }
 
-const GESTURES = ['pointerdown', 'keydown', 'touchend'] as const
-/** Time constant for parameter changes: smooth enough not to click, quick enough to follow. */
-const SMOOTH = 0.015
-/** Shortest stop fade, so stopping never clicks. */
-const MIN_FADE = 0.008
-
-const MIME: Record<string, string> = {
-  wav: 'audio/wav',
-  vorbis: 'audio/ogg; codecs="vorbis"',
-  opus: 'audio/ogg; codecs="opus"',
-  mp3: 'audio/mpeg',
-  flac: 'audio/flac',
+interface Host {
+  context: BaseAudioContext
+  cache: AudioCache
+  output: GainNode
+  sessions: Set<WebSession>
+  ownsContext: boolean
+  fixedListener: boolean
+  offline: boolean
+  maxVoices: number
+  voices: number
 }
 
-/** Web Audio in a browser or webview: one context, a gain node per bus, a PannerNode per spatial voice. */
 export interface WebAudioBackend extends AudioBackend {
-  readonly context: AudioContext
-  /** Everything mixed (before the destination), for meters. */
+  readonly context: BaseAudioContext
   readonly output: GainNode
-  /** A bus's gain node (after its gain), for meters. */
+  readonly runtime: AudioRuntimeExtension
   busNode(name: string): GainNode
-  /** Resumes the context (browsers need a user gesture first). */
   resume(): Promise<void>
 }
 
-/**
- * The Web Audio backend. The context starts suspended in most browsers; it resumes on the first
- * pointer, key, or touch, and voices asked for before then start in step at that moment.
- */
-export function createWebAudioBackend(options: { context?: AudioContext } = {}): WebAudioBackend {
-  const ctx = options.context ?? new AudioContext({ latencyHint: 'interactive' })
-  const output = ctx.createGain()
-  output.connect(ctx.destination)
-  const buses = new Map<string, GainNode>()
-  const busGains = new Map<string, number>()
-  const voices = new Map<number, WebVoice>()
-  const decoded = new WeakMap<Uint8Array, Promise<Decoded>>()
-  const urls = new WeakMap<Uint8Array, string>()
-  let next = 1
+const gestures = ['pointerdown', 'keydown', 'touchend'] as const
+const identity = new Float64Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0])
 
-  const report = (err: ShardError) => {
-    if (backend.onError) backend.onError(err)
-    else console.error(err)
-  }
-
-  const resume = async () => {
-    if (ctx.state !== 'running' && ctx.state !== 'closed') await ctx.resume().catch(() => {})
-  }
-  const onGesture = () => void resume()
-  for (const g of GESTURES) window.addEventListener(g, onGesture, { capture: true })
-  ctx.addEventListener('statechange', () => {
-    if (ctx.state === 'running') {
-      for (const g of GESTURES) window.removeEventListener(g, onGesture, { capture: true })
-      for (const voice of voices.values()) if (!voice.started) start(voice)
+/** Every application owns a session. Only the host owns a context and the shared decode cache. */
+class WebSession implements WebAudioBackend, AudioRuntimeExtension {
+  readonly kind = 'web'
+  readonly runtime = this
+  readonly context: BaseAudioContext
+  readonly output: GainNode
+  readonly clock: AudioClock
+  readonly capabilities
+  readonly host: Host
+  readonly root: boolean
+  onError?: AudioBackend['onError']
+  private disposed = false
+  private nextId = 1
+  private readonly voices = new Map<number, Voice>()
+  private readonly statuses = new Map<number, AudioPresentation>()
+  private readonly buses = new Map<string, GainNode>()
+  private readonly busGains = new Map<string, number>()
+  private readonly leases = new Set<AudioPreparation>()
+  private readonly wakes = new Set<ReturnType<typeof setInterval>>()
+  private readonly retired = new Set<WebAudioGraph>()
+  private readonly timers = new Set<ReturnType<typeof setTimeout>>()
+  private readonly listener = identity.slice()
+  private readonly meters = new Map<
+    string,
+    {
+      node: AnalyserNode
+      data: Float32Array<ArrayBuffer>
+      value: ReturnType<WebSession['emptyMeter']>
     }
-  })
+  >()
+  private graph: WebAudioGraph | null = null
+  private graphRevision = 0
+  private maxVoices: number
+  private budgetBytes: number
+  private readonly pendingStarts = new Set<Promise<void>>()
+  private ownPreparedBytes = 0
+  private readonly preparationPins = new Map<PreparedAudio, { count: number; bytes: number }>()
 
-  function bus(name: string): GainNode {
-    let node = buses.get(name)
+  constructor(host: Host, root: boolean, options: AudioSessionOptions = {}) {
+    this.host = host
+    this.root = root
+    this.context = host.context
+    this.output = host.context.createGain()
+    this.output.connect(host.output)
+    this.maxVoices = options.maxVoices ?? 64
+    this.budgetBytes = options.decodedBudgetBytes ?? host.cache.budgetBytes
+    this.capabilities = {
+      scheduled: true,
+      automation: true,
+      mixer: true,
+      media: !host.offline,
+      meters: !host.offline,
+      offline: host.offline,
+      sessions: root && host.fixedListener,
+    }
+    this.clock = {
+      now: () => this.context.currentTime,
+      wake: (callback, seconds) => {
+        if (host.offline || this.disposed) return () => {}
+        const handle = setInterval(callback, Math.max(1, seconds * 1000))
+        this.wakes.add(handle)
+        return () => {
+          clearInterval(handle)
+          this.wakes.delete(handle)
+        }
+      },
+    }
+    host.sessions.add(this)
+    this.context.addEventListener('statechange', this.stateChanged)
+    if (!host.offline)
+      for (const gesture of gestures)
+        window.addEventListener(gesture, this.unlock, { capture: true })
+  }
+
+  get state(): 'running' | 'suspended' | 'closed' {
+    if (this.disposed || this.context.state === 'closed') return 'closed'
+    return this.host.offline || this.context.state === 'running' ? 'running' : 'suspended'
+  }
+
+  createSession(options?: AudioSessionOptions): WebAudioBackend {
+    if (!this.root || !this.host.fixedListener || this.disposed)
+      throw new ShardError(
+        'audio/unsupported-capability',
+        'Independent sessions require a managed fixed listener',
+        { hint: 'Use a Shard-owned context or grant fixedListener ownership.' },
+      )
+    return new WebSession(this.host, false, options)
+  }
+
+  private unlock = (): void => {
+    void this.resume().catch(this.report)
+  }
+  private report = (error: unknown): void => {
+    this.onError?.(
+      error instanceof ShardError
+        ? error
+        : new ShardError('audio/prepare-failed', 'Audio operation failed', { cause: error }),
+    )
+  }
+  private stateChanged = (): void => {
+    if (this.state === 'running')
+      for (const voice of this.voices.values())
+        if (!voice.started && !voice.loading) this.start(voice)
+  }
+
+  async resume(): Promise<void> {
+    if (this.host.offline || this.state === 'running') return
+    if (this.state === 'closed') throw new ShardError('audio/prepare-failed', 'Audio is closed')
+    await (this.context as AudioContext).resume()
+  }
+
+  busNode(name: string): GainNode {
+    const output = this.graph?.outputs.get(name)
+    if (output) return output
+    let node = this.buses.get(name)
     if (!node) {
-      node = ctx.createGain()
-      node.gain.value = busGains.get(name) ?? 1
-      node.connect(output)
-      buses.set(name, node)
+      node = this.context.createGain()
+      node.gain.value = this.busGains.get(name) ?? 1
+      node.connect(this.output)
+      this.buses.set(name, node)
     }
     return node
   }
 
-  function decode(clip: AudioClipSource): Promise<Decoded> {
-    let p = decoded.get(clip.bytes)
-    if (!p) {
-      // decodeAudioData detaches its buffer, so hand it a copy.
-      const copy = clip.bytes.slice().buffer
-      p = ctx.decodeAudioData(copy).then(
-        (buffer) => ({ buffer, norm: clip.normalize ? normalization(buffer) : 1 }),
-        (cause: unknown) => {
-          throw new ShardError('audio/decode-failed', `Can't decode ${clip.id} (${clip.codec})`, {
-            hint:
-              clip.codec === 'opus'
-                ? "This browser can't decode Opus (Safari before 18.4). Use Ogg Vorbis or MP3."
-                : 'The file may be damaged, or this browser lacks the codec. Re-export it as Ogg Vorbis or MP3.',
-            cause,
-          })
-        },
-      )
-      decoded.set(clip.bytes, p)
+  private input(name: string): AudioNode {
+    if (!this.graph) return this.busNode(name)
+    const input = this.graph.inputs.get(name)
+    if (!input) throw new ShardError('audio/unknown-bus', `No ordinary mixer input ${name}`)
+    return input
+  }
+
+  private place(voice: Voice): void {
+    const panner = voice.panner
+    if (!panner) return
+    let x = voice.params.x,
+      y = voice.params.y,
+      z = voice.params.z
+    if (this.host.fixedListener) {
+      const m = this.listener
+      const dx = x - m[3]!,
+        dy = y - m[7]!,
+        dz = z - m[11]!
+      const sx = Math.sqrt(m[0]! ** 2 + m[4]! ** 2 + m[8]! ** 2) || 1
+      const sy = Math.sqrt(m[1]! ** 2 + m[5]! ** 2 + m[9]! ** 2) || 1
+      const sz = Math.sqrt(m[2]! ** 2 + m[6]! ** 2 + m[10]! ** 2) || 1
+      x = (dx * m[0]! + dy * m[4]! + dz * m[8]!) / sx
+      y = (dx * m[1]! + dy * m[5]! + dz * m[9]!) / sy
+      z = (dx * m[2]! + dy * m[6]! + dz * m[10]!) / sz
     }
-    return p
+    const at = this.context.currentTime
+    panner.positionX.setValueAtTime(x, at)
+    panner.positionY.setValueAtTime(y, at)
+    panner.positionZ.setValueAtTime(z, at)
   }
 
-  function mediaUrl(clip: AudioClipSource): string {
-    let url = urls.get(clip.bytes)
-    if (!url) {
-      const blob = new Blob([clip.bytes.slice().buffer], { type: MIME[clip.codec] ?? 'audio/*' })
-      url = URL.createObjectURL(blob)
-      urls.set(clip.bytes, url)
+  private route(voice: Voice): void {
+    voice.highpass.disconnect()
+    voice.panner?.disconnect()
+    const spatial = voice.desc.spatial
+    if (spatial) {
+      const node = voice.panner ?? this.context.createPanner()
+      voice.panner = node
+      node.panningModel = spatial.panning === 'hrtf' ? 'HRTF' : 'equalpower'
+      node.distanceModel = spatial.distanceModel
+      node.refDistance = Math.max(0.00001, spatial.refDistance)
+      node.maxDistance = Math.max(spatial.maxDistance, node.refDistance + 0.00001)
+      node.rolloffFactor = spatial.rolloffFactor
+      this.place(voice)
+      voice.highpass.connect(node).connect(this.input(voice.desc.bus))
+    } else {
+      voice.panner = null
+      voice.highpass.connect(this.input(voice.desc.bus))
     }
-    return url
   }
 
-  /** Where to start: the offset asked for plus the wait since, wrapped into the loop region. */
-  function offsetNow(voice: WebVoice, duration: number): number {
-    const d = voice.desc
-    let t = d.offset + ((performance.now() - voice.requestedAt) / 1000) * voice.params.pitch
-    if (!d.loop) return t
-    const end = d.clip.loopEnd > 0 ? Math.min(d.clip.loopEnd, duration) : duration
-    const begin = d.clip.loopEnd > 0 && d.clip.loopStart < end ? d.clip.loopStart : 0
-    if (t >= end && end > begin) t = begin + ((t - end) % (end - begin))
-    return t
+  play(desc: AudioScheduledVoice): number {
+    if (this.disposed) throw new ShardError('audio/prepare-failed', 'Audio session is disposed')
+    if (this.voices.size >= this.maxVoices || this.host.voices >= this.host.maxVoices)
+      throw new ShardError('audio/capacity', 'Physical audio voice budget is exhausted', {
+        hint: 'Release a voice or increase the session/host voice budget.',
+      })
+    if (this.host.offline && desc.clip.stream)
+      throw new ShardError('audio/unsupported-capability', 'Offline rendering needs decoded clips')
+    this.input(desc.bus)
+    const id = this.nextId++
+    const gain = this.context.createGain()
+    gain.gain.value = desc.gain
+    const lowpass = this.context.createBiquadFilter()
+    lowpass.type = 'lowpass'
+    lowpass.frequency.value = desc.lowpass ?? this.context.sampleRate / 2
+    const highpass = this.context.createBiquadFilter()
+    highpass.type = 'highpass'
+    highpass.frequency.value = desc.highpass ?? 0
+    const envelope = this.context.createGain()
+    gain.connect(envelope).connect(lowpass).connect(highpass)
+    const presentation: AudioPresentation = {
+      state: 'preparing',
+      scheduledAt: desc.when ?? this.context.currentTime,
+      endedAt: -1,
+      error: null,
+    }
+    const voice: Voice = {
+      id,
+      desc: { ...desc },
+      params: { gain: desc.gain, pitch: desc.pitch, x: desc.x, y: desc.y, z: desc.z },
+      gain,
+      envelope,
+      lowpass,
+      highpass,
+      panner: null,
+      source: null,
+      media: null,
+      mediaNode: null,
+      lease: null,
+      presentation,
+      loading: false,
+      started: false,
+      finished: false,
+      norm: 1,
+      requestedAt: performance.now(),
+      timer: null,
+      automation: [],
+      tracks: new Map(),
+    }
+    this.voices.set(id, voice)
+    this.statuses.set(id, presentation)
+    this.host.voices++
+    this.route(voice)
+    this.start(voice)
+    return id
   }
 
-  function start(voice: WebVoice): void {
-    if (voice.stopped || voice.started || ctx.state !== 'running') return
-    const d = voice.desc
-    if (d.clip.stream) {
-      voice.started = true
-      const el = new Audio(mediaUrl(d.clip))
-      el.loop = d.loop
-      el.preservesPitch = false
-      el.playbackRate = voice.params.pitch
-      el.currentTime = offsetNow(voice, d.clip.duration) % Math.max(d.clip.duration, 1e-3)
-      ctx.createMediaElementSource(el).connect(voice.gain)
-      voice.element = el
-      el.play().catch((cause: unknown) =>
-        report(
-          new ShardError('audio/decode-failed', `Can't stream ${d.clip.id} (${d.clip.codec})`, {
-            cause,
-          }),
-        ),
-      )
+  private start(voice: Voice): void {
+    if (voice.finished || voice.started || voice.loading) return
+    if (this.state !== 'running') {
+      voice.presentation.state = 'blocked'
       return
     }
-    decode(d.clip).then(
-      ({ buffer, norm }) => {
-        if (voice.stopped || voice.started || ctx.state !== 'running') return
-        const offset = offsetNow(voice, buffer.duration)
-        if (!d.loop && offset >= buffer.duration) return
-        voice.started = true
-        voice.norm = norm
-        voice.gain.gain.value = voice.params.gain * norm
-        const src = ctx.createBufferSource()
-        src.buffer = buffer
-        src.loop = d.loop
-        if (d.loop && d.clip.loopEnd > 0) {
-          src.loopStart = d.clip.loopStart
-          src.loopEnd = d.clip.loopEnd
+    voice.loading = true
+    const pending = this.acquireOwned(voice.desc.clip)
+      .then((lease) => {
+        voice.loading = false
+        if (voice.finished || this.disposed) {
+          lease.release()
+          return
         }
-        src.playbackRate.value = voice.params.pitch
-        src.connect(voice.gain)
-        src.start(0, offset)
-        voice.source = src
-      },
-      (err: ShardError) => report(err),
-    )
-  }
-
-  function place(panner: PannerNode, x: number, y: number, z: number, at: number): void {
-    if (panner.positionX) {
-      panner.positionX.setTargetAtTime(x, at, SMOOTH)
-      panner.positionY.setTargetAtTime(y, at, SMOOTH)
-      panner.positionZ.setTargetAtTime(z, at, SMOOTH)
-    } else panner.setPosition(x, y, z)
-  }
-
-  const backend: WebAudioBackend = {
-    kind: 'web',
-    context: ctx,
-    output,
-    get state(): AudioContextState {
-      const s = ctx.state as string
-      return s === 'running' ? 'running' : s === 'closed' ? 'closed' : 'suspended'
-    },
-    resume,
-    busNode: bus,
-
-    play(desc) {
-      const id = next++
-      const gain = ctx.createGain()
-      gain.gain.value = desc.gain
-      let panner: PannerNode | null = null
-      const s = desc.spatial
-      if (s) {
-        panner = ctx.createPanner()
-        panner.panningModel = s.panning === 'hrtf' ? 'HRTF' : 'equalpower'
-        panner.distanceModel = s.distanceModel
-        panner.refDistance = s.refDistance
-        panner.maxDistance = Math.max(s.maxDistance, s.refDistance + 1e-3)
-        panner.rolloffFactor = s.rolloffFactor
-        if (panner.positionX) {
-          panner.positionX.value = desc.x
-          panner.positionY.value = desc.y
-          panner.positionZ.value = desc.z
-        } else panner.setPosition(desc.x, desc.y, desc.z)
-        gain.connect(panner).connect(bus(desc.bus))
-      } else gain.connect(bus(desc.bus))
-      const voice: WebVoice = {
-        desc,
-        params: { gain: desc.gain, pitch: desc.pitch, x: desc.x, y: desc.y, z: desc.z },
-        gain,
-        panner,
-        source: null,
-        element: null,
-        norm: 1,
-        requestedAt: performance.now(),
-        started: false,
-        stopped: false,
-      }
-      voices.set(id, voice)
-      start(voice)
-      return id
-    },
-
-    preload(clip) {
-      // Streamed clips play through a media element: nothing to decode ahead.
-      if (!clip.stream) decode(clip).catch((err: ShardError) => backend.onError?.(err))
-    },
-
-    update(id, params) {
-      const v = voices.get(id)
-      if (!v) return
-      const now = ctx.currentTime
-      const p = v.params
-      if (p.gain !== params.gain) v.gain.gain.setTargetAtTime(params.gain * v.norm, now, SMOOTH)
-      if (p.pitch !== params.pitch) {
-        if (v.source) v.source.playbackRate.setTargetAtTime(params.pitch, now, SMOOTH)
-        if (v.element) v.element.playbackRate = params.pitch
-      }
-      if (v.panner && (p.x !== params.x || p.y !== params.y || p.z !== params.z)) {
-        place(v.panner, params.x, params.y, params.z, now)
-      }
-      p.gain = params.gain
-      p.pitch = params.pitch
-      p.x = params.x
-      p.y = params.y
-      p.z = params.z
-    },
-
-    stop(id, fade = 0) {
-      const v = voices.get(id)
-      if (!v) return
-      voices.delete(id)
-      v.stopped = true
-      const now = ctx.currentTime
-      const f = Math.max(fade, MIN_FADE)
-      v.gain.gain.cancelScheduledValues(now)
-      v.gain.gain.setValueAtTime(v.gain.gain.value, now)
-      v.gain.gain.linearRampToValueAtTime(0, now + f)
-      const release = () => {
-        v.gain.disconnect()
-        v.panner?.disconnect()
-        if (v.element) {
-          v.element.pause()
-          v.element.removeAttribute('src')
+        voice.lease = lease
+        const desc = voice.desc,
+          now = this.context.currentTime
+        let offset = desc.offset
+        if (desc.when === undefined && !this.host.offline)
+          offset += ((performance.now() - voice.requestedAt) / 1000) * voice.params.pitch
+        const end = desc.clip.loopEnd || desc.clip.duration,
+          start = desc.clip.loopStart
+        if (desc.loop && offset >= end) offset = start + ((offset - start) % (end - start))
+        if (!desc.loop && offset >= desc.clip.duration) {
+          this.finish(voice)
+          return
         }
-      }
-      if (v.source) {
-        v.source.onended = release
-        v.source.stop(now + f)
-      } else setTimeout(release, f * 1000 + 50)
-    },
-
-    setListener(m) {
-      const l = ctx.listener
-      const fl = Math.sqrt(m[2]! * m[2]! + m[6]! * m[6]! + m[10]! * m[10]!) || 1
-      const ul = Math.sqrt(m[1]! * m[1]! + m[5]! * m[5]! + m[9]! * m[9]!) || 1
-      const fx = -m[2]! / fl
-      const fy = -m[6]! / fl
-      const fz = -m[10]! / fl
-      const ux = m[1]! / ul
-      const uy = m[5]! / ul
-      const uz = m[9]! / ul
-      if (l.positionX) {
-        const now = ctx.currentTime
-        l.positionX.setTargetAtTime(m[3]!, now, SMOOTH)
-        l.positionY.setTargetAtTime(m[7]!, now, SMOOTH)
-        l.positionZ.setTargetAtTime(m[11]!, now, SMOOTH)
-        l.forwardX.setTargetAtTime(fx, now, SMOOTH)
-        l.forwardY.setTargetAtTime(fy, now, SMOOTH)
-        l.forwardZ.setTargetAtTime(fz, now, SMOOTH)
-        l.upX.setTargetAtTime(ux, now, SMOOTH)
-        l.upY.setTargetAtTime(uy, now, SMOOTH)
-        l.upZ.setTargetAtTime(uz, now, SMOOTH)
-      } else {
-        l.setPosition(m[3]!, m[7]!, m[11]!)
-        l.setOrientation(fx, fy, fz, ux, uy, uz)
-      }
-    },
-
-    setBus(name, gain) {
-      busGains.set(name, gain)
-      bus(name).gain.setTargetAtTime(gain, ctx.currentTime, SMOOTH)
-    },
-
-    dispose() {
-      for (const g of GESTURES) window.removeEventListener(g, onGesture, { capture: true })
-      for (const id of [...voices.keys()]) backend.stop(id)
-      void ctx.close()
-    },
+        if (this.state !== 'running') {
+          voice.lease.release()
+          voice.lease = null
+          voice.presentation.state = 'blocked'
+          return
+        }
+        if (desc.clip.stream) {
+          const media = new Audio(lease.value.url!)
+          voice.media = media
+          media.loop = desc.loop
+          media.preservesPitch = false
+          media.playbackRate = voice.params.pitch
+          media.currentTime = offset
+          voice.mediaNode = (this.context as AudioContext).createMediaElementSource(media)
+          voice.mediaNode.connect(voice.gain)
+          media.onended = () => this.finish(voice)
+          media.onerror = () =>
+            this.fail(voice, new ShardError('audio/decode-failed', `Cannot play ${desc.clip.id}`))
+          voice.started = true
+          void media.play().then(
+            () => {
+              if (!voice.finished) voice.presentation.state = 'rendering'
+            },
+            (error) => this.fail(voice, error),
+          )
+        } else {
+          const source = this.context.createBufferSource()
+          voice.source = source
+          source.buffer = lease.value.buffer
+          source.loop = desc.loop
+          source.loopStart = start
+          source.loopEnd = end
+          source.playbackRate.value = voice.params.pitch
+          voice.norm = desc.clip.normalize && lease.value.peak > 0 ? 1 / lease.value.peak : 1
+          voice.gain.gain.value = voice.params.gain * voice.norm
+          source.connect(voice.gain)
+          source.onended = () => this.finish(voice)
+          if (desc.when !== undefined && desc.when < now)
+            throw new ShardError('audio/music-late', 'Prepared source missed its scheduled start')
+          const when = desc.when ?? now
+          voice.presentation.scheduledAt = when
+          voice.presentation.state = when > now ? 'scheduled' : 'rendering'
+          voice.started = true
+          for (const command of voice.automation) this.automate(voice.id, command)
+          voice.automation.length = 0
+          source.start(when, offset)
+          if (desc.duration !== undefined) source.stop(when + desc.duration)
+        }
+      })
+      .catch((error) => this.fail(voice, error))
+      .finally(() => this.pendingStarts.delete(pending))
+    this.pendingStarts.add(pending)
   }
-  return backend
-}
 
-function normalization(buffer: AudioBuffer): number {
-  let peak = 0
-  for (let c = 0; c < buffer.numberOfChannels; c++) {
-    const data = buffer.getChannelData(c)
-    for (let i = 0; i < data.length; i++) {
-      const a = Math.abs(data[i]!)
-      if (a > peak) peak = a
+  private fail(voice: Voice, error: unknown): void {
+    if (voice.finished) return
+    voice.presentation.error = error instanceof ShardError ? error.code : 'audio/decode-failed'
+    this.finish(voice, true)
+    this.report(error)
+  }
+
+  private finish(voice: Voice, failed = false): void {
+    if (voice.finished) return
+    voice.finished = true
+    if (voice.timer !== null) clearTimeout(voice.timer)
+    if (voice.source) {
+      voice.source.onended = null
+      try {
+        voice.source.stop()
+      } catch {
+        /* Already ended. */
+      }
+      voice.source.disconnect()
+    }
+    if (voice.media) {
+      voice.media.onended = null
+      voice.media.onerror = null
+      voice.media.pause()
+      voice.media.removeAttribute('src')
+      voice.media.load()
+    }
+    voice.mediaNode?.disconnect()
+    voice.gain.disconnect()
+    voice.envelope.disconnect()
+    voice.lowpass.disconnect()
+    voice.highpass.disconnect()
+    voice.panner?.disconnect()
+    voice.lease?.release()
+    voice.lease = null
+    this.voices.delete(voice.id)
+    this.host.voices--
+    voice.presentation.state = failed ? 'failed' : 'ended'
+    voice.presentation.endedAt = this.context.currentTime
+    if (this.statuses.size > 4096)
+      for (const [id, status] of this.statuses) {
+        if (status.state === 'ended' || status.state === 'failed') this.statuses.delete(id)
+        if (this.statuses.size <= 4096) break
+      }
+  }
+
+  stop(id: number, fade = 0): void {
+    const voice = this.voices.get(id)
+    if (!voice || voice.finished) return
+    if (fade <= 0 || !voice.started || this.state !== 'running') {
+      this.finish(voice)
+      return
+    }
+    voice.presentation.state = 'stopping'
+    const at = this.context.currentTime
+    voice.gain.gain.cancelAndHoldAtTime(at)
+    voice.gain.gain.linearRampToValueAtTime(0, at + fade)
+    if (voice.source) voice.source.stop(at + fade)
+    if (voice.media && !this.host.offline) {
+      if (voice.timer !== null) clearTimeout(voice.timer)
+      const finishAt = at + fade
+      const poll = () => {
+        if (this.context.currentTime >= finishAt) this.finish(voice)
+        else voice.timer = setTimeout(poll, 25)
+      }
+      voice.timer = setTimeout(poll, 25)
     }
   }
-  return peak > 0 ? 1 / peak : 1
+
+  cancel(id: number): 'cancelled' | 'already-started' | 'ended' {
+    const voice = this.voices.get(id)
+    if (!voice) return 'ended'
+    const started = voice.started && this.context.currentTime >= voice.presentation.scheduledAt
+    this.stop(id, started ? 0.01 : 0)
+    return started ? 'already-started' : 'cancelled'
+  }
+
+  async flush(): Promise<void> {
+    await Promise.all(this.pendingStarts)
+    for (const status of this.statuses.values())
+      if (status.state === 'failed')
+        throw new ShardError(
+          status.error ?? 'audio/prepare-failed',
+          'Audio source preparation failed',
+        )
+  }
+
+  presentation(id: number): Readonly<AudioPresentation> | undefined {
+    const status = this.statuses.get(id)
+    if (status?.state === 'scheduled' && this.context.currentTime >= status.scheduledAt)
+      status.state = 'rendering'
+    return status
+  }
+
+  update(id: number, params: AudioVoiceParams): void {
+    const voice = this.voices.get(id)
+    if (!voice) return
+    const at = this.context.currentTime
+    if (voice.params.gain !== params.gain)
+      voice.gain.gain.setTargetAtTime(params.gain * voice.norm, at, 0.015)
+    if (voice.params.pitch !== params.pitch) {
+      voice.source?.playbackRate.setValueAtTime(params.pitch, at)
+      if (voice.media) voice.media.playbackRate = params.pitch
+    }
+    voice.params.gain = params.gain
+    voice.params.pitch = params.pitch
+    voice.params.x = params.x
+    voice.params.y = params.y
+    voice.params.z = params.z
+    this.place(voice)
+  }
+
+  reconfigure(id: number, desc: AudioVoiceDesc): boolean {
+    const voice = this.voices.get(id)
+    if (!voice || voice.desc.clip.bytes !== desc.clip.bytes) return false
+    voice.desc = { ...voice.desc, ...desc }
+    if (voice.source) {
+      voice.source.loop = desc.loop
+      voice.source.loopStart = desc.clip.loopStart
+      voice.source.loopEnd = desc.clip.loopEnd || desc.clip.duration
+    }
+    if (voice.media) voice.media.loop = desc.loop
+    this.route(voice)
+    this.update(id, desc)
+    return true
+  }
+
+  automate(id: number, command: AudioAutomation): void {
+    const voice = this.voices.get(id)
+    if (!voice) return
+    if (!voice.source && !voice.media) {
+      if (voice.automation.length >= 128)
+        throw new ShardError('audio/capacity', 'Voice automation queue is full')
+      voice.automation.push({ ...command })
+      return
+    }
+    const param =
+      command.property === 'envelope'
+        ? voice.envelope.gain
+        : command.property === 'gain'
+          ? voice.gain.gain
+          : command.property === 'pitch'
+            ? voice.source?.playbackRate
+            : command.property === 'lowpass'
+              ? voice.lowpass.frequency
+              : voice.highpass.frequency
+    if (!param)
+      throw new ShardError(
+        'audio/unsupported-capability',
+        'Pitch automation needs a prepared decoded source',
+      )
+    const value = command.value * (command.property === 'gain' ? voice.norm : 1)
+    const previous = voice.tracks.get(command.property)
+    const initial =
+      command.property === 'envelope'
+        ? 1
+        : command.property === 'gain'
+          ? voice.params.gain * voice.norm
+          : command.property === 'pitch'
+            ? voice.params.pitch
+            : command.property === 'lowpass'
+              ? (voice.desc.lowpass ?? this.context.sampleRate / 2)
+              : (voice.desc.highpass ?? 0)
+    const start = previous ? automatedValue(previous, command.at) : initial
+    voice.tracks.set(command.property, {
+      command: { ...command, value },
+      start,
+      previous: command.at > this.context.currentTime ? (previous ?? null) : null,
+    })
+    param.cancelAndHoldAtTime(command.at)
+    param.setValueAtTime(start, command.at)
+    if (command.duration <= 0) param.setValueAtTime(value, command.at)
+    else if (command.curve === 'exponential')
+      param.exponentialRampToValueAtTime(Math.max(value, 0.000001), command.at + command.duration)
+    else if (command.curve === 'equal-power-in' || command.curve === 'equal-power-out') {
+      const samples = new Float32Array(129)
+      for (let i = 0; i < samples.length; i++) {
+        const phase = ((i / (samples.length - 1)) * Math.PI) / 2
+        samples[i] =
+          command.curve === 'equal-power-in'
+            ? start + (value - start) * Math.sin(phase)
+            : value + (start - value) * Math.cos(phase)
+      }
+      param.setValueCurveAtTime(samples, command.at, command.duration)
+    } else param.linearRampToValueAtTime(value, command.at + command.duration)
+  }
+
+  setListener(matrix: ArrayLike<number>): void {
+    for (let i = 0; i < 12; i++) this.listener[i] = matrix[i]!
+    if (this.host.fixedListener) for (const voice of this.voices.values()) this.place(voice)
+    else {
+      const listener = this.context.listener
+      listener.positionX.value = matrix[3]!
+      listener.positionY.value = matrix[7]!
+      listener.positionZ.value = matrix[11]!
+      listener.forwardX.value = -matrix[2]!
+      listener.forwardY.value = -matrix[6]!
+      listener.forwardZ.value = -matrix[10]!
+      listener.upX.value = matrix[1]!
+      listener.upY.value = matrix[5]!
+      listener.upZ.value = matrix[9]!
+    }
+  }
+
+  setBus(name: string, gain: number): void {
+    this.busGains.set(name, gain)
+    if (!this.graph) this.busNode(name).gain.setTargetAtTime(gain, this.context.currentTime, 0.015)
+  }
+
+  preload(clip: AudioClipSource): void {
+    void this.prepare(clip)
+      .then((lease) => lease.release())
+      .catch(this.report)
+  }
+
+  async prepare(clip: AudioClipSource): Promise<AudioPreparation> {
+    return this.acquireOwned(clip)
+  }
+
+  private async acquireOwned(
+    clip: AudioClipSource,
+  ): Promise<AudioPreparation & { value: PreparedAudio }> {
+    if (this.disposed) throw new ShardError('audio/prepare-failed', 'Session is disposed')
+    const lease = await this.host.cache.acquire(clip)
+    const pinned = this.preparationPins.get(lease.value)
+    if (
+      this.disposed ||
+      this.ownPreparedBytes + (pinned ? 0 : lease.decodedBytes) > this.budgetBytes
+    ) {
+      lease.release()
+      throw new ShardError(
+        this.disposed ? 'audio/prepare-failed' : 'audio/memory-budget',
+        'Session cannot retain preparation',
+      )
+    }
+    const pin = pinned ?? { count: 0, bytes: lease.decodedBytes }
+    if (!pinned) {
+      this.preparationPins.set(lease.value, pin)
+      this.ownPreparedBytes += pin.bytes
+    }
+    pin.count++
+    let released = false
+    const owned: AudioPreparation & { value: PreparedAudio } = {
+      clip,
+      value: lease.value,
+      decodedBytes: lease.decodedBytes,
+      encodedBytes: lease.encodedBytes,
+      sampleRate: lease.sampleRate,
+      samples: lease.samples,
+      channels: lease.channels,
+      get released() {
+        return released
+      },
+      release: () => {
+        if (released) return
+        released = true
+        if (--pin.count === 0) {
+          this.preparationPins.delete(lease.value)
+          this.ownPreparedBytes -= pin.bytes
+        }
+        this.leases.delete(owned)
+        lease.release()
+      },
+    }
+    this.leases.add(owned)
+    return owned
+  }
+
+  collect(): void {
+    this.host.cache.collect()
+  }
+
+  memory() {
+    let nodes = 1 + this.buses.size + this.meters.size
+    for (const voice of this.voices.values())
+      nodes += 3 + Number(!!voice.panner) + Number(!!voice.source || !!voice.mediaNode)
+    nodes += this.graph?.nodes.length ?? 0
+    for (const graph of this.retired) nodes += graph.nodes.length
+    return { ...this.host.cache.memory(), voices: this.voices.size, nodes }
+  }
+
+  async configureMixer(graph: AudioMixerGraph): Promise<void> {
+    const revision = ++this.graphRevision,
+      output = this.context.createGain()
+    output.gain.value = 0
+    output.connect(this.output)
+    let next: WebAudioGraph
+    try {
+      next = await WebAudioGraph.build(this.context, graph, output, {
+        acquire: (clip) => this.acquireOwned(clip),
+      })
+    } catch (error) {
+      output.disconnect()
+      throw error
+    }
+    if (
+      this.disposed ||
+      revision !== this.graphRevision ||
+      next.nodes.length +
+        (this.graph?.nodes.length ?? 0) +
+        [...this.retired].reduce((sum, graph) => sum + graph.nodes.length, 0) >
+        graph.maxNodes
+    ) {
+      next.dispose()
+      output.disconnect()
+      throw new ShardError(
+        'audio/mixer-capacity',
+        'Graph replacement cancelled or exceeds overlap budget',
+      )
+    }
+    for (const voice of this.voices.values())
+      if (!next.inputs.has(voice.desc.bus)) {
+        next.dispose()
+        output.disconnect()
+        throw new ShardError('audio/unknown-bus', `Graph removes active route ${voice.desc.bus}`)
+      }
+    const old = this.graph
+    this.graph = next
+    for (const voice of this.voices.values()) {
+      const input = next.inputs.get(voice.desc.bus)
+      if (input) (voice.panner ?? voice.highpass).connect(input)
+    }
+    const at = this.context.currentTime,
+      fade = old ? 0.02 : 0
+    output.gain.setValueAtTime(fade ? 0 : 1, at)
+    if (fade) output.gain.linearRampToValueAtTime(1, at + fade)
+    for (const node of this.buses.values()) node.disconnect()
+    this.buses.clear()
+    for (const meter of this.meters.values()) meter.node.disconnect()
+    this.meters.clear()
+    if (old) {
+      this.retired.add(old)
+      for (const input of old.inputs.values()) {
+        input.gain.cancelAndHoldAtTime(at)
+        input.gain.linearRampToValueAtTime(0, at + fade)
+      }
+      old.output.gain.setValueAtTime(1, at + Math.max(fade, old.tailSeconds))
+      old.output.gain.linearRampToValueAtTime(0, at + Math.max(fade, old.tailSeconds) + 0.02)
+      if (!this.host.offline) {
+        const timer = setTimeout(
+          () => {
+            this.timers.delete(timer)
+            for (const voice of this.voices.values())
+              for (const input of old.inputs.values()) {
+                try {
+                  ;(voice.panner ?? voice.highpass).disconnect(input)
+                } catch {
+                  /* Not connected. */
+                }
+              }
+            old.dispose()
+            old.output.disconnect()
+            this.retired.delete(old)
+          },
+          Math.max(fade, old.tailSeconds) * 1000 + 25,
+        )
+        this.timers.add(timer)
+      }
+    }
+  }
+
+  setMixerValue(bus: string, field: string, value: number, rampSeconds = 0.01): void {
+    if (!this.graph) throw new ShardError('audio/unsupported-capability', 'No mixer is installed')
+    this.graph.set(bus, field, value, rampSeconds)
+  }
+
+  private emptyMeter() {
+    return {
+      available: !this.host.offline,
+      peak: 0,
+      rms: 0,
+      samples: 0,
+      sampleRate: this.context.sampleRate,
+      at: -1,
+    }
+  }
+
+  meter(bus: string) {
+    if (this.host.offline) return this.emptyMeter()
+    let meter = this.meters.get(bus)
+    if (!meter) {
+      const node = this.context.createAnalyser()
+      node.fftSize = 2048
+      this.busNode(bus).connect(node)
+      meter = { node, data: new Float32Array(2048), value: this.emptyMeter() }
+      this.meters.set(bus, meter)
+    }
+    if (this.context.currentTime - meter.value.at < 0.05) return meter.value
+    meter.node.getFloatTimeDomainData(meter.data)
+    let peak = 0,
+      sum = 0
+    for (let i = 0; i < meter.data.length; i++) {
+      const v = meter.data[i]!
+      peak = Math.max(peak, Math.abs(v))
+      sum += v * v
+    }
+    meter.value.peak = peak
+    meter.value.rms = Math.sqrt(sum / meter.data.length)
+    meter.value.samples = meter.data.length
+    meter.value.at = this.context.currentTime
+    return meter.value
+  }
+
+  dispose(): void {
+    if (this.disposed) return
+    this.disposed = true
+    this.graphRevision++
+    for (const handle of this.wakes) clearInterval(handle)
+    for (const handle of this.timers) clearTimeout(handle)
+    this.wakes.clear()
+    this.timers.clear()
+    this.context.removeEventListener('statechange', this.stateChanged)
+    if (!this.host.offline)
+      for (const gesture of gestures)
+        window.removeEventListener(gesture, this.unlock, { capture: true })
+    for (const voice of this.voices.values()) this.finish(voice)
+    for (const lease of this.leases) lease.release()
+    for (const node of this.buses.values()) node.disconnect()
+    for (const meter of this.meters.values()) meter.node.disconnect()
+    this.buses.clear()
+    this.meters.clear()
+    this.statuses.clear()
+    this.graph?.dispose()
+    this.graph?.output.disconnect()
+    this.graph = null
+    for (const graph of this.retired) {
+      graph.dispose()
+      graph.output.disconnect()
+    }
+    this.retired.clear()
+    this.output.disconnect()
+    this.host.sessions.delete(this)
+    if (this.root) {
+      for (const session of this.host.sessions) session.dispose()
+      this.host.cache.dispose()
+      this.host.output.disconnect()
+      if (this.host.ownsContext && !this.host.offline) void (this.context as AudioContext).close()
+    } else this.host.cache.collect()
+  }
+}
+
+/** fixedListener:true explicitly grants Shard ownership of an external context's listener. */
+export function createWebAudioBackend(
+  options: AudioSessionOptions & {
+    context?: BaseAudioContext
+    fixedListener?: boolean
+    maxHostVoices?: number
+  } = {},
+): WebAudioBackend {
+  const context = options.context ?? new AudioContext({ latencyHint: 'interactive' })
+  const offline =
+    typeof OfflineAudioContext !== 'undefined' && context instanceof OfflineAudioContext
+  const output = context.createGain()
+  output.connect(context.destination)
+  const fixedListener = options.context ? options.fixedListener === true : true
+  if (fixedListener) {
+    const listener = context.listener
+    listener.positionX.value = 0
+    listener.positionY.value = 0
+    listener.positionZ.value = 0
+    listener.forwardX.value = 0
+    listener.forwardY.value = 0
+    listener.forwardZ.value = -1
+    listener.upX.value = 0
+    listener.upY.value = 1
+    listener.upZ.value = 0
+  }
+  const host: Host = {
+    context,
+    output,
+    offline,
+    fixedListener,
+    ownsContext: !options.context,
+    cache: new AudioCache(context, options.decodedBudgetBytes, options.maxDecodes),
+    sessions: new Set(),
+    maxVoices: options.maxHostVoices ?? 256,
+    voices: 0,
+  }
+  return new WebSession(host, true, options)
 }

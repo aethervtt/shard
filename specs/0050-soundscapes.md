@@ -5,6 +5,24 @@
   `@aethervtt/shard-weather`, `@aethervtt/shard-creatures`
 - **Depends on:** 0035, 0042, 0043, 0046, 0048, 0049
 
+## Proposed integration amendment — 2026-10-17
+
+The original proposal remains accepted and unimplemented. This amendment is **draft**, pending
+acceptance of [0077](0077-audio-events-runtime.md) and [0078](0078-audio-mixing-acoustics.md): add
+those dependencies and use their shared parameters/curves, event lifecycle, mixer effects and
+`ReverbZone` instead of implementing parallel primitives here. Keep `SoundscapeParams` and
+`setSoundscapeParam` as domain-facing adapters to the shared parameter registry. Beds/spots
+compile to sustained/transient events; biome/weather rules and procedural generators stay here.
+
+Under that amendment, `soundscape.preview` uses 0078's browser-hosted `OfflineAudioContext`
+runner; the pure Node backend still produces decision records, not a WAV mix. Deterministic
+procedural PCM is a separate generator guarantee, not a guarantee about browser decoding,
+resampling, HRTF or final mixed samples. Acceptance must define a portable DSP arithmetic path
+before claiming cross-host bit identity. The soundscape evaluation budget moves to a proposed
+`audio/soundscape` key (12 beds + 8 spots, 0.2 ms median on both named machines, twice current
+`audio/update`); register and measure it under 0075 when implementing. Adaptive music belongs
+to draft [0079](0079-adaptive-music.md) and is not a dependency of soundscapes.
+
 ## Context
 
 A generated planet that is silent, or plays the same forest loop everywhere, breaks the illusion

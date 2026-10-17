@@ -1,6 +1,7 @@
 import { resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { ShardError } from '@aethervtt/shard-core'
+import { audioCommand } from './audio-command'
 import { bench } from './bench'
 import {
   bake,
@@ -29,6 +30,10 @@ import { terrain } from './terrain-command'
 import { approve, capture, compare, perfCheck } from './verify'
 
 const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; help: string }> = {
+  audio: {
+    run: audioCommand,
+    help: 'audio preview plan.json --out mix.wav   render offline WAV with signal measurements',
+  },
   init: {
     run: init,
     help: 'init <dir> [--template explorer|empty] [--name n]   scaffold a project',

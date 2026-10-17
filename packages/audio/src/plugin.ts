@@ -29,6 +29,7 @@ export interface AudioPluginOptions {
  * voice limits, and the audio log. Sound goes to the backend the host gives it.
  */
 export function audioPlugin(options: AudioPluginOptions = {}): Plugin {
+  let ownedSession = false
   return definePlugin({
     name: 'audio',
     provides: [clipModule, componentsModule, mixerModule],
@@ -40,7 +41,12 @@ export function audioPlugin(options: AudioPluginOptions = {}): Plugin {
       const config = w.initResource(AudioConfig)
       if (options.maxVoices !== undefined) config.maxVoices = options.maxVoices
       if (options.maxVoicesPerClip !== undefined) config.maxVoicesPerClip = options.maxVoicesPerClip
-      const backend = options.backend ?? defaultBackend()
+      const supplied = options.backend ?? defaultBackend()
+      const backend =
+        supplied.runtime?.capabilities.sessions && supplied.createSession
+          ? supplied.createSession({ maxVoices: config.maxVoices })
+          : supplied
+      ownedSession = backend !== supplied || !options.backend
       backend.onError = (err) => w.tryResource(LogResource)?.error(err)
       // Pitch and volume ranges draw from the app's seed, so a replay picks the same values.
       const rng = w.tryResource(GlobalRng)?.stream('audio')
@@ -54,7 +60,7 @@ export function audioPlugin(options: AudioPluginOptions = {}): Plugin {
       if (!state) return
       for (const voice of state.voices) endVoice(app.world, state, voice, 'removed')
       state.voices.length = 0
-      if (!options.backend) state.backend.dispose?.()
+      if (ownedSession) state.backend.dispose?.()
     },
   })
 }

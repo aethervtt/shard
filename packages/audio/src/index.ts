@@ -1,3 +1,5 @@
+export * from './acoustics'
+export * from './advanced-methods'
 export {
   type DuckOptions,
   duck,
@@ -10,6 +12,7 @@ export {
   setBus,
   stopSound,
 } from './api'
+export * from './checkpoint'
 export {
   type AudioClipAsset,
   AudioClipAssetType,
@@ -32,9 +35,12 @@ export {
   PANNING_MODELS,
   ROLLOFF_MODELS,
 } from './components'
+export * from './event-assets'
+export * from './events'
 export { AUDIO_CODECS, type AudioCodec, type AudioInfo, probeAudio } from './formats'
 export { createHeadlessAudioBackend, HeadlessAudioBackend, type HeadlessVoice } from './headless'
 export { audioLog, audioMethods, describeAudio } from './methods'
+export * from './mix'
 export {
   AudioConfig,
   type AudioConfigValue,
@@ -42,9 +48,13 @@ export {
   AudioState,
   type AudioStateValue,
   audioState,
+  createAudioState,
   updateAudio,
   type Voice,
   type VoiceState,
 } from './mixer'
+export * from './music'
+export * from './parameters'
 export { type AudioPluginOptions, audioPlugin } from './plugin'
+export * from './preview'
 export { distanceGain, equalPowerGains, listenerRelative, reachesZero } from './spatial'

@@ -1,5 +1,10 @@
 import { assetServer } from '@aethervtt/shard-assets'
 import {
+  captureAudioCheckpoint,
+  resetAudioForLoad,
+  restoreAudioCheckpoint,
+} from '@aethervtt/shard-audio'
+import {
   type AnyField,
   allResources,
   ChildOf,
@@ -227,6 +232,7 @@ export function captureGame(world: World, options: CaptureOptions = {}): SaveFil
     }
     return null
   }
+  captureAudioCheckpoint(world, refOf)
   const refs = (def: ComponentDef, json: Record<string, JsonValue>) => {
     if (hasEntityFields(def.fields))
       mapEntities(def.fields, json, (v) => (typeof v === 'number' ? refOf(v) : v))
@@ -594,6 +600,7 @@ export async function loadGame(world: World, slot: string | SaveFile): Promise<L
   if (control) control.paused = true
   const ids = new Map<string, Entity>()
   try {
+    resetAudioForLoad(world)
     // Out with the current game.
     const authored = authoredEntities(world)
     for (const e of runtimeEntities(world, authored)) if (world.isAlive(e)) world.despawn(e)
@@ -809,6 +816,7 @@ export async function loadGame(world: World, slot: string | SaveFile): Promise<L
     // Instances whose overrides changed respawn their children now.
     updateInstances(world)
     for (const id of sceneIds) await whenSceneReady(world, id)
+    warnings.push(...(await restoreAudioCheckpoint(world, (ref) => resolveEntity(world, ids, ref))))
     const log = world.tryResource(LogResource)
     for (const w of warnings)
       log?.log('warn', w.message, { code: w.code, path: w.path, hint: w.hint })

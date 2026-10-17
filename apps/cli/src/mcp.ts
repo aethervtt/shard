@@ -2,7 +2,12 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { animationMethods } from '@aethervtt/shard-animation'
 import { allImporters, findImporter } from '@aethervtt/shard-assets'
-import { audioMethods } from '@aethervtt/shard-audio'
+import {
+  audioEventMethods,
+  audioMethods,
+  audioMixMethods,
+  audioMusicMethods,
+} from '@aethervtt/shard-audio'
 import { allComponents, findComponent, type JsonSchema, ShardError } from '@aethervtt/shard-core'
 import { navMethods } from '@aethervtt/shard-nav'
 import { listScenes } from '@aethervtt/shard-node'
@@ -63,6 +68,9 @@ const PLUGIN_METHODS = [
   ...physicsMethods,
   ...animationMethods,
   ...audioMethods,
+  ...audioEventMethods,
+  ...audioMixMethods,
+  ...audioMusicMethods,
   ...uiMethods,
   ...navMethods,
   ...saveMethods,
@@ -556,6 +564,9 @@ export const TOOLS: Tool[] = [
     'animation_describe',
     'animation.describe',
     "What an AnimationPlayer is doing (animation plugin): each layer's clip, time, duration, weight, loop, blend, mask, and fade, how many targets bound, channels whose target is missing (a wrong path), and this frame's root motion. With an Animator (animation graph): each graph layer's current state, transition in progress and its progress, time in state, blend-space weights, and the parameter values. Without an entity: every player.",
+  ),
+  ...[...audioEventMethods, ...audioMixMethods, ...audioMusicMethods].map((method) =>
+    forward(method.name.replaceAll('.', '_'), method.name, method.description),
   ),
   forward(
     'audio_describe',

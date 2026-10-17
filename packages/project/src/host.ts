@@ -1,6 +1,12 @@
 import { animationPlugin } from '@aethervtt/shard-animation'
 // Also registers the audio importer and the AudioClip asset type for every project host.
-import { audioPlugin } from '@aethervtt/shard-audio'
+import {
+  audioAcousticsPlugin,
+  audioEventsPlugin,
+  audioMixerPlugin,
+  audioMusicPlugin,
+  audioPlugin,
+} from '@aethervtt/shard-audio'
 import { controlsPlugin } from '@aethervtt/shard-controls'
 // Also registers the dice data types (skins, layouts, recipes, definitions) for every project host.
 import { dicePlugin } from '@aethervtt/shard-dice'
@@ -69,6 +75,9 @@ export function buildApp(options: BuildAppOptions): App {
     names.add('gestures')
     names.add('render/forward')
   }
+  if (names.has('audio/acoustics')) names.add('audio/mixer')
+  if (names.has('audio/music') || names.has('audio/mixer')) names.add('audio/events')
+  if (names.has('audio/events')) names.add('audio')
   if (names.has('gestures')) names.add('input')
   if (names.has('render/forward')) {
     names.add('render')
@@ -115,6 +124,10 @@ export function buildApp(options: BuildAppOptions): App {
   if (names.has('gestures')) app.addPlugin(gesturesPlugin)
   if (names.has('controls')) app.addPlugin(controlsPlugin)
   if (names.has('audio')) app.addPlugin(audioPlugin({ backend: options.audio }))
+  if (names.has('audio/events')) app.addPlugin(audioEventsPlugin())
+  if (names.has('audio/mixer')) app.addPlugin(audioMixerPlugin())
+  if (names.has('audio/acoustics')) app.addPlugin(audioAcousticsPlugin())
+  if (names.has('audio/music')) app.addPlugin(audioMusicPlugin())
   if (names.has('ui')) app.addPlugin(uiPlugin)
   if (names.has('nav')) app.addPlugin(navPlugin)
   else if (names.has('nav/grid')) app.addPlugin(navGridPlugin)

@@ -93,7 +93,9 @@ async function start() {
     // `shard shaders bake`'s output, read only on WebGL2 (a missing file is one 404 there).
     webgl2Shaders: `${location.origin}/@aethervtt/shard-files/.shard/shaders/webgl2.json`,
     inputSource: createDomInputSource(canvas),
-    audio: manifest.plugins.includes('audio') ? platform.audio : undefined,
+    audio: manifest.plugins.some((name) => name === 'audio' || name.startsWith('audio/'))
+      ? platform.audio
+      : undefined,
     platform,
   })
   // Performance records over the protocol (metrics.record), the same way scripts take them (0062).

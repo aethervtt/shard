@@ -4,6 +4,14 @@
 - **Packages:** `@aethervtt/shard-audio` (new), `@aethervtt/shard-platform`, `@aethervtt/shard-platform-web`, `@aethervtt/shard-project`
 - **Depends on:** 0003, 0004, 0014
 
+## Follow-up proposals — 2026-10-17
+
+This remains the implemented clip/spatial baseline. The [current audit](research/audio-system-2026-10-17.md)
+records validation limits and a confirmed live-source/backend mismatch; checked historical criteria
+below do not certify the proposed expansion. Draft [0077](0077-audio-events-runtime.md) covers
+runtime corrections, events and parameters; [0078](0078-audio-mixing-acoustics.md) adds mixing and
+acoustics; [0079](0079-adaptive-music.md) adds music transport. Their scope is not implemented here.
+
 ## Context
 
 Engines hum, lasers zap, footsteps crunch, and music changes when you land. Audio is half of what

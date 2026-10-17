@@ -13,6 +13,8 @@ import type { AssetStore } from './store'
 export interface Artifact {
   readonly bytes?: Uint8Array
   readonly json?: JsonValue
+  /** Immutable imported-byte location, resolved by a host that supports lazy media URLs. */
+  readonly url?: string
 }
 
 export interface LoadContext {
@@ -43,6 +45,9 @@ export interface FallbackContext {
 }
 
 export interface AssetTypeDef<T = unknown> {
+  readonly lazyDependencies?: boolean
+  /** Return true to use a host URL rather than eagerly reading artifact bytes. */
+  lazyBytes?(json: JsonValue | undefined): boolean
   readonly name: string
   readonly store: ResourceDef<AssetStore<T>>
   /** Turns an artifact into the runtime object. */

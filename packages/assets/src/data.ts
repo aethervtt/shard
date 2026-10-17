@@ -159,6 +159,7 @@ async function importData(
   type: string,
   schema: ComponentDef,
   extension: string,
+  validate?: (value: Record<string, unknown>) => void,
 ): Promise<ImportResult> {
   const own = parseDataFile(source.path, source.text())
   // The chain from this file down to its root base: each layer merges over the one before it.
@@ -217,7 +218,9 @@ async function importData(
       { path: first.path, hint: first.hint, details: errors },
     )
   }
-  const value = schema.serialize(schema.deserialize(merged))
+  const normalized = schema.deserialize(merged)
+  validate?.(normalized as Record<string, unknown>)
+  const value = schema.serialize(normalized)
 
   // Any asset path the data mentions (a material's textures, a weapon's prefab) loads first.
   const dependencies = new Set<string>()
@@ -261,7 +264,7 @@ async function importData(
 export function defineDataAsset(
   type: string,
   schema: ComponentDef,
-  options: { extension: string },
+  options: { extension: string; validate?: (value: Record<string, unknown>) => void },
 ): ImporterDef {
   const name = `data/${options.extension}`
   const extension = `.${options.extension}.json`
@@ -286,7 +289,7 @@ export function defineDataAsset(
     dataType: type,
     schema,
     fileSchema: published,
-    import: (source, ctx) => importData(source, ctx, type, schema, extension),
+    import: (source, ctx) => importData(source, ctx, type, schema, extension, options.validate),
   })
 }
 
@@ -308,6 +311,10 @@ export interface DataTypeOptions extends Pick<ComponentOptions, 'version' | 'mig
   /** Files are `*.<extension>.json`. Unique across importers. */
   extension: string
   description?: string
+  /** Semantic validation after schema defaults, before import/load or hot replacement commits. */
+  validate?: (value: Record<string, unknown>) => void
+  /** Keep dependency metadata, but load referenced content only when explicitly requested. */
+  lazyDependencies?: boolean
 }
 
 const dataTypes = new Map<string, DataType>()
@@ -367,9 +374,11 @@ export function defineDataType<const N extends string, const F extends Fields>(
     init: () => new AssetStore<InferFields<F>, N>(name),
   })
   const type = defineAssetType<InferFields<F>>(name, {
+    lazyDependencies: options.lazyDependencies,
     store: store as unknown as ResourceDef<AssetStore<InferFields<F>>>,
     load: (artifact, ctx) => {
       const value = schema.deserialize(artifact.json) as Record<string, unknown>
+      options.validate?.(value)
       resolveHandles(fields, value, ctx)
       return value as InferFields<F>
     },
@@ -379,7 +388,10 @@ export function defineDataType<const N extends string, const F extends Fields>(
       Object.assign(target, next)
     },
   })
-  const importer = defineDataAsset(name, schema, { extension: options.extension })
+  const importer = defineDataAsset(name, schema, {
+    extension: options.extension,
+    validate: options.validate,
+  })
   const def: DataType<F, N> = {
     ...schema,
     name,

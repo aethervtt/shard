@@ -3,6 +3,7 @@ import type { AudioDistanceModel, AudioPanningModel } from '@aethervtt/shard-pla
 import { type AudioClipAsset, AudioClips } from './clip'
 import { type AudioBus, AudioBuses } from './components'
 import { audioState, busOf, endVoice, newVoice, pickInRange, unknownBus } from './mixer'
+import { audioNumber, audioRange } from './validation'
 
 /** A [min, max] range: each play picks a value in it. */
 export type SoundRange = readonly [min: number, max: number]
@@ -61,6 +62,24 @@ function isClip(value: unknown): value is AudioClipAsset {
   )
 }
 
+function validateSoundOptions(options: PlaySoundOptions): void {
+  const volume = options.volume ?? 1
+  const pitch = options.pitch ?? 1
+  if (typeof volume === 'number') audioNumber(volume, 'volume')
+  else audioRange(volume[0], volume[1], false, 'volume')
+  if (typeof pitch === 'number') audioNumber(pitch, 'pitch', Number.MIN_VALUE)
+  else audioRange(pitch[0], pitch[1], true, 'pitch')
+  audioNumber(options.priority ?? 128, 'priority', 0, 255)
+  audioNumber(options.offset ?? 0, 'offset')
+  audioNumber(options.minDistance ?? 1, 'minDistance')
+  audioNumber(options.maxDistance ?? 100, 'maxDistance', options.minDistance ?? 1)
+  audioNumber(options.rolloffFactor ?? 1, 'rolloffFactor')
+  if (options.position)
+    for (let i = 0; i < 3; i++) {
+      audioNumber(options.position[i]!, 'position', -Number.MAX_VALUE)
+    }
+}
+
 /**
  * Plays a clip once without an entity (shots, impacts, UI clicks) and returns its voice id. A clip
  * that isn't loaded yet starts when it is. The sound is logged in `audio.log` like any other.
@@ -79,6 +98,7 @@ export function playSound(
   const bus = options.bus ?? 'sfx'
   const buses = world.resource(AudioBuses)
   if (!buses[bus]) throw unknownBus(bus, buses)
+  validateSoundOptions(options)
   const voice = newVoice(state, null, state.frame)
   if (isClip(clip)) voice.clip = clip
   else
@@ -119,6 +139,7 @@ export function preloadSound(world: World, clip: AssetRef | AudioClipAsset): voi
 
 /** Stops a voice from playSound, fading out over `fade` seconds. False if it already ended. */
 export function stopSound(world: World, voice: number, fade = 0): boolean {
+  audioNumber(fade, 'fade')
   const state = audioState(world)
   const v = state.voices.find((x) => x.id === voice)
   if (!v) return false
@@ -140,6 +161,19 @@ export function setBus(
   const buses = world.resource(AudioBuses)
   const bus = buses[name]
   if (!bus) throw unknownBus(name, buses)
+  audioNumber(settings.volume ?? bus.volume ?? 1, 'volume')
+  let parent = settings.parent ?? bus.parent ?? (name === 'master' ? '' : 'master')
+  const visited = new Set<string>([name])
+  while (parent !== '') {
+    if (visited.has(parent))
+      throw new ShardError('audio/bus-cycle', `Bus ${name} forms a cycle`, {
+        path: 'parent',
+        hint: 'Route every bus to master without cycles.',
+      })
+    if (!buses[parent]) throw unknownBus(parent, buses)
+    visited.add(parent)
+    parent = buses[parent]!.parent ?? (parent === 'master' ? '' : 'master')
+  }
   Object.assign(bus, settings)
 }
 
@@ -170,6 +204,8 @@ export function duck(world: World, bus: string, options: DuckOptions | null): vo
     buses[bus]!.duck = null
     return
   }
+  audioNumber(options.attack ?? 0.1, 'attack')
+  audioNumber(options.release ?? 0.5, 'release')
   if (!(options.by >= 0 && options.by <= 1)) {
     throw new ShardError('audio/invalid-duck', `duck by must be 0 to 1, got ${options.by}`, {
       hint: 'by is the share of gain taken away: 0.3 plays the bus at 70%.',

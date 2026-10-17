@@ -1,0 +1,86 @@
+name: Audio evidence
+
+on:
+  pull_request:
+    paths:
+      - 'packages/audio/**'
+      - 'packages/platform*/**'
+      - 'packages/assets/**'
+      - 'apps/playground/src/audio*'
+      - 'apps/cli/**'
+      - '.github/workflows/audio-evidence.yml'
+  push:
+    branches: [feat/audio-events-mixing-music]
+  workflow_dispatch:
+
+concurrency:
+  group: audio-evidence-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  signal:
+    name: Browser audio signals and correctness
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @aethervtt/shard-playground exec playwright install --with-deps chromium
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm --filter @aethervtt/shard-audio --filter @aethervtt/shard-assets --filter @aethervtt/shard-save test
+        env:
+          SHARD_CI: '1'
+      - run: pnpm --filter @aethervtt/shard-playground exec vitest run src/audio.test.ts
+        env:
+          SHARD_BROWSER_TESTS: required
+          SHARD_AUDIO_EVIDENCE: ${{ github.workspace }}/audio-evidence
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: audio-signals-${{ github.sha }}
+          path: audio-evidence/
+          if-no-files-found: warn
+  performance:
+    name: Audio performance measurements
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Hosted hardware is reported honestly by 0075. It is not labeled as either named machine.
+      - run: pnpm bench --filter=@aethervtt/shard-audio
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: audio-performance-${{ github.sha }}
+          path: bench/perf/report.json
+          if-no-files-found: warn
+  packaging:
+    name: Build and package checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm size --check
+      - run: pnpm release --check

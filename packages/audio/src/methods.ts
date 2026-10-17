@@ -21,6 +21,8 @@ export function describeAudio(world: World) {
   const voices = state.voices.filter((v) => v.id > 0)
   return {
     backend: state.backend.kind,
+    capabilities: state.backend.runtime?.capabilities ?? null,
+    memory: state.backend.runtime?.memory() ?? null,
     context: state.backend.state,
     listener:
       state.listenerEntity === null
@@ -44,6 +46,8 @@ export function describeAudio(world: World) {
     }),
     voices: voices.map((v) => ({
       voice: v.id,
+      presentation:
+        v.backend !== -1 ? (state.backend.runtime?.presentation(v.backend) ?? null) : null,
       clip: clipLabel(v),
       entity: v.entity,
       path: scenePath(world, v.entity),
@@ -74,7 +78,18 @@ export function describeAudio(world: World) {
 
 /** Voices started, stopped, and dropped from frame `since` on. */
 export function audioLog(world: World, since = 0): AudioLogEntry[] {
-  return audioState(world).log.filter((e) => e.frame >= since)
+  return readAudioLog(world, 0).entries.filter((e) => e.frame >= since)
+}
+
+export function readAudioLog(world: World, cursor = 0) {
+  const state = audioState(world)
+  const oldestCursor = state.logOffset
+  const nextCursor = oldestCursor + state.log.length
+  const entries: AudioLogEntry[] = []
+  for (let i = Math.max(cursor, oldestCursor); i < nextCursor; i++) {
+    entries.push(state.log[i % state.log.length]!)
+  }
+  return { entries, oldestCursor, nextCursor, truncated: cursor < oldestCursor }
 }
 
 export const audioMethods: AppMethod[] = [
@@ -91,7 +106,16 @@ export const audioMethods: AppMethod[] = [
       'Voices started, stopped, and dropped, by frame: { frame, event: start | stop | dropped, voice, clip, entity, path, bus, position, gain, pan, reason: ended | stopped | stolen | removed | voice-limit }. Gameplay tests assert on it.',
     params: defineSchema('audio/LogParams', {
       since: t.u32({ description: 'Only entries from this frame on.' }),
+      cursor: t.u32({
+        description: 'Monotonic log cursor; zero starts at the oldest retained entry.',
+      }),
     }),
-    handler: ({ world }, p) => ({ entries: audioLog(world, (p.since as number | undefined) ?? 0) }),
+    handler: ({ world }, p) => {
+      const result = readAudioLog(world, (p.cursor as number | undefined) ?? 0)
+      result.entries = result.entries.filter(
+        (e) => e.frame >= ((p.since as number | undefined) ?? 0),
+      )
+      return result
+    },
   },
 ]

@@ -1,5 +1,8 @@
 import type { HeapStats, HotFunction, ShardError } from '@aethervtt/shard-core'
+import type { AudioRuntimeExtension, AudioSessionOptions } from './audio-runtime'
 import type { Workers } from './workers'
+
+export type * from './audio-runtime'
 
 /**
  * Everything the engine needs from its host. The engine only talks to this interface;
@@ -163,6 +166,8 @@ export interface FileChangeEvent {
 }
 
 export interface PlatformFileSystem {
+  /** A media/fetch URL for an existing host file; absent when the host cannot expose one. */
+  resolveUrl?(path: string): string | undefined
   /** False on hosts that can only read (for example a static web build). */
   readonly writable: boolean
   readText(path: string): Promise<string>
@@ -248,6 +253,10 @@ export interface AudioClipSource {
   readonly id: string
   /** The file as imported (WAV, Ogg, MP3, FLAC). A new array means new contents. */
   readonly bytes: Uint8Array
+  /** Resolved immutable imported-artifact URL for lazy media playback. Bytes may be empty. */
+  readonly url?: string
+  readonly channels?: number
+  readonly sampleRate?: number
   /** `wav`, `vorbis`, `opus`, `mp3`, or `flac`. */
   readonly codec: string
   /** Seconds. */
@@ -303,6 +312,10 @@ export type AudioContextState = 'running' | 'suspended' | 'closed' | 'headless'
  * voices; a backend only makes the sound (or, headless, records it).
  */
 export interface AudioBackend {
+  /** Advanced features are opt-in; unsupported operations must not silently degrade. */
+  readonly runtime?: AudioRuntimeExtension
+  /** An independent session under a shared host context/cache. */
+  createSession?(options?: AudioSessionOptions): AudioBackend
   /** `web`, `headless`, ... */
   readonly kind: string
   /** Browsers keep the context suspended until a user gesture; voices wait until then. */
