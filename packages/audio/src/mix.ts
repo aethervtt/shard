@@ -20,6 +20,7 @@ import { audioMixMethods } from './mix-methods'
 import { audioState, updateAudio } from './mixer'
 import { type AudioParameterBank, sampleAudioCurve, validateCurve } from './parameters'
 import { AudioPreviewPlan } from './preview'
+import { resolveAudioRef } from './references'
 import { audioNumber } from './validation'
 
 export const AudioEffectFields = {
@@ -255,10 +256,10 @@ async function loadData<T>(
   type: { store: Parameters<World['initResource']>[0] },
 ): Promise<T> {
   const server = assetServer(world)
-  const resolved = typeof ref === 'string' ? (server.resolve(ref) ?? (await server.load(ref))) : ref
+  const resolved = resolveAudioRef(world, ref)
   const store = world.initResource(type.store) as { get(ref: unknown): unknown }
   if (!store.get(resolved)) await server.load(ref)
-  const value = store.get(typeof ref === 'string' ? server.resolve(ref) : ref)
+  const value = store.get(resolved)
   if (!value)
     throw new ShardError(
       'audio/prepare-failed',
@@ -346,8 +347,9 @@ export async function configureAudioMixer(
       let ir: AudioClipAsset | undefined
       if (effect.ir) {
         const store = world.resource(AudioClips)
-        if (!store.get(effect.ir)) await assetServer(world).load(effect.ir)
-        ir = store.get(effect.ir)
+        const reference = resolveAudioRef(world, effect.ir)
+        if (!store.get(reference)) await assetServer(world).load(reference)
+        ir = store.get(reference)
         if (!ir || ir.stream)
           throw new ShardError('audio/invalid-effect', 'Reverb requires a decoded impulse response')
       }
@@ -389,6 +391,7 @@ export async function configureAudioMixer(
   const mappings = state.snapshots.map((handle) => snapshotIndices(handle.definition, fields))
   const shared = definition.globals ? await acquireAudioGlobals(world, definition.globals) : null
   let curves: AudioMixStateValue['curves']
+  let compatible = false
   try {
     curves = definition.curves.map((curve) => {
       const index = fields.findIndex(
@@ -429,8 +432,8 @@ export async function configureAudioMixer(
       if (shared) releaseAudioGlobals(audioEvents(world), shared.key)
       return
     }
-    if (!compatibleMixer(state.graph, buses))
-      await runtime.configureMixer({ buses, maxNodes: state.maxNodes })
+    compatible = compatibleMixer(state.graph, buses)
+    if (!compatible) await runtime.configureMixer({ buses, maxNodes: state.maxNodes })
   } catch (error) {
     if (shared) releaseAudioGlobals(audioEvents(world), shared.key)
     throw error
@@ -445,8 +448,14 @@ export async function configureAudioMixer(
   state.curves = curves
   state.definition = definition
   state.graph = { buses, maxNodes: state.maxNodes }
+  if (compatible)
+    for (const field of fields)
+      field.sent =
+        state.fields.find(
+          (previous) => previous.bus === field.bus && previous.field === field.field,
+        )?.sent ?? Number.NaN
   state.fields = fields
-  state.userSent = new Float64Array(buses.length).fill(Number.NaN)
+  if (!compatible) state.userSent = new Float64Array(buses.length).fill(Number.NaN)
   for (let i = 0; i < state.snapshots.length; i++) state.snapshots[i]!.indices = mappings[i]!
   const legacy = world.resource(AudioBuses)
   for (const name of Object.keys(legacy))
@@ -459,7 +468,7 @@ export async function configureAudioMixer(
       userDomain: !bus.return,
       duck: legacy[bus.id]?.duck,
     }
-  updateAudioMix(world, 0)
+  updateAudioMix(world, 0, compatible ? 0.01 : 0)
 }
 
 function snapshotIndices(definition: AudioSnapshotDefinition, fields: MixField[]): Int32Array {
@@ -547,7 +556,11 @@ export function releaseAudioSnapshot(world: World, id: number): boolean {
   return true
 }
 
-export function updateAudioMix(world: World, delta: number): void {
+export function updateAudioMix(
+  world: World,
+  delta: number,
+  rampSeconds = delta === 0 ? 0 : 0.01,
+): void {
   const state = world.resource(AudioMixState)
   if (!state.graph) return
   const runtime = audioState(world).backend.runtime!,
@@ -609,7 +622,7 @@ export function updateAudioMix(world: World, delta: number): void {
         field.bus,
         field.field === 'gainDb' ? 'gain' : field.field,
         output,
-        delta === 0 ? 0 : 0.01,
+        rampSeconds,
       )
       field.sent = output
     }

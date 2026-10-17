@@ -39,6 +39,7 @@ import { audioState, endVoice, newVoice, updateAudio, type Voice } from './mixer
 import * as parameters from './parameters'
 import { AudioParameterBank, AudioParameters, sampleAudioCurve } from './parameters'
 import * as preview from './preview'
+import { resolveAudioRef } from './references'
 import { audioNumber } from './validation'
 
 export interface PreparedAudioEvent {
@@ -269,10 +270,7 @@ async function eventDefinition(
     return { key: `inline:${hash(JSON.stringify(AudioEvent.serialize(definition)))}`, definition }
   }
   const server = assetServer(world)
-  const resolved =
-    typeof ref === 'string'
-      ? (server.resolve(ref) ?? { path: ref, type: 'audio/AudioEvent', guid: undefined })
-      : ref
+  const resolved = resolveAudioRef(world, ref)
   const store = world.initResource(AudioEvent.store)
   if (!store.get(resolved)) await server.load(resolved)
   const value = store.get(resolved)
@@ -282,6 +280,7 @@ async function eventDefinition(
 }
 
 async function resolveClip(world: World, ref: AssetRef): Promise<AudioClipAsset> {
+  ref = resolveAudioRef(world, ref)
   const store = world.resource(AudioClips)
   if (!store.get(ref)) await assetServer(world).load(ref)
   const clip = store.get(ref)
@@ -315,7 +314,9 @@ function planFresh(world: World, plan: PreparedAudioEvent): boolean {
   const store = world.resource(AudioClips)
   for (let i = 0; i < plan.definition.layers.length; i++)
     for (let j = 0; j < plan.definition.layers[i]!.choices.length; j++) {
-      const current = store.get(plan.definition.layers[i]!.choices[j]!.clip),
+      const current = store.get(
+          resolveAudioRef(world, plan.definition.layers[i]!.choices[j]!.clip!),
+        ),
         pinned = plan.clips[i]![j]!
       if (
         !current ||
@@ -439,11 +440,7 @@ async function compileEvent(
       globals,
       refs: 1,
       globalKey,
-      source: isDefinition(ref)
-        ? null
-        : typeof ref === 'string'
-          ? (assetServer(world).resolve(ref) ?? null)
-          : ref,
+      source: isDefinition(ref) ? null : resolveAudioRef(world, ref),
       histories:
         state.histories.get(`${key}:${revision}`) ??
         definition.layers.map((layer) => ({
@@ -471,6 +468,7 @@ export async function acquireAudioGlobals(
   world: World,
   ref: AssetRef,
 ): Promise<{ key: string; bank: AudioParameterBank }> {
+  ref = resolveAudioRef(world, ref)
   const state = audioEvents(world),
     store = world.initResource(AudioParameters.store)
   if (!store.get(ref)) await assetServer(world).load(ref)
@@ -522,16 +520,11 @@ export async function prepareAudio(world: World, ref: AudioEventRef): Promise<Au
   const events: PreparedAudioEvent[] = []
   const clips: AudioPreparation[] = []
   try {
-    const key = isDefinition(ref) ? '' : refKey(ref)
-    if (
-      key.endsWith('.audio-collection.json') ||
-      (!isDefinition(ref) && typeof ref !== 'string' && ref.type === 'audio/AudioCollection')
-    ) {
+    const resolvedRef = isDefinition(ref) ? null : resolveAudioRef(world, ref)
+    const key = resolvedRef ? refKey(resolvedRef) : ''
+    if (key.endsWith('.audio-collection.json') || resolvedRef?.type === 'audio/AudioCollection') {
       const server = assetServer(world)
-      const resolved =
-        typeof ref === 'string'
-          ? (server.resolve(ref) ?? { path: ref, type: 'audio/AudioCollection', guid: undefined })
-          : (ref as AssetRef)
+      const resolved = resolvedRef!
       const store = world.initResource(AudioCollection.store)
       if (!store.get(resolved)) await server.load(resolved)
       const collection = store.get(resolved)
@@ -810,11 +803,7 @@ export function playAudioEvent(
     for (let i = 0; i < 3; i++) audioNumber(options.position[i]!, 'position', -Number.MAX_VALUE)
   const key = isDefinition(ref)
     ? `inline:${hash(JSON.stringify(AudioEvent.serialize(ref)))}`
-    : refKey(
-        world
-          .tryResource(AssetServerResource)
-          ?.resolve(typeof ref === 'string' ? ref : (ref.path ?? ref.guid ?? '')) ?? ref,
-      )
+    : refKey(resolveAudioRef(world, ref))
   const id = state.nextId++
   const instance: AudioEventInstance = {
     id,
@@ -896,9 +885,9 @@ export function playAudioEvent(
         let globals = new AudioParameterBank([])
         if (metadata.definition.globals) {
           const store = world.resource(AudioParameters.store)
-          if (!store.get(metadata.definition.globals))
-            await assetServer(world).load(metadata.definition.globals)
-          const value = store.get(metadata.definition.globals)
+          const reference = resolveAudioRef(world, metadata.definition.globals)
+          if (!store.get(reference)) await assetServer(world).load(reference)
+          const value = store.get(reference)
           if (!value)
             throw new ShardError('audio/unknown-parameter', 'Global parameter asset is missing')
           globals = new AudioParameterBank(value.parameters)

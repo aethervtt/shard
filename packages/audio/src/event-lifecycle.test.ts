@@ -194,15 +194,6 @@ describe('event admission, gates and blocked clocks', () => {
     const { app, world, event } = await setup()
     event.cooldown = 5
     const ref = world.resource(AudioEvent.store).add(event)
-    // A loaded ref needs no filesystem/server.
-    const { AssetServerResource } = await import('@aethervtt/shard-assets')
-    world.insertResource(AssetServerResource, {
-      pin() {},
-      unpin() {},
-      resolve() {
-        return ref
-      },
-    } as never)
     const lease = await prepareAudio(world, ref)
     const id = playAudioEvent(world, ref, { persist: true })
     app.update(0.01)

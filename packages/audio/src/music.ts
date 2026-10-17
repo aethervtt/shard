@@ -39,6 +39,7 @@ import {
   validateCurve,
   validateParameters,
 } from './parameters'
+import { resolveAudioRef } from './references'
 import { audioNumber } from './validation'
 
 export const MusicScheduleSpan = defineSpan('audio/music-schedule')
@@ -328,8 +329,9 @@ export async function prepareMusicSection(
     try {
       for (const stem of definition.stems) {
         const store = world.resource(AudioClips)
-        if (!store.get(stem.clip)) await assetServer(world).load(stem.clip!)
-        const source = store.get(stem.clip)
+        const reference = resolveAudioRef(world, stem.clip!)
+        if (!store.get(reference)) await assetServer(world).load(reference)
+        const source = store.get(reference)
         if (!source || source.stream)
           throw new ShardError('audio/music-unprepared', 'Rhythmic stems require decoded clips')
         const clip = { ...source }
@@ -406,13 +408,12 @@ export async function prepareMusic(
   } else {
     const server = assetServer(world),
       store = world.resource(MusicProgram.store)
-    const resolved = typeof ref === 'string' ? server.resolve(ref) : ref
+    const resolved = resolveAudioRef(world, ref)
     if (!store.get(resolved)) await server.load(ref)
-    const value = store.get(typeof ref === 'string' ? server.resolve(ref) : ref)
+    const value = store.get(resolved)
     if (!value) throw new ShardError('audio/music-invalid', 'Music program asset is missing')
     source = value
-    const canonical = typeof ref === 'string' ? server.resolve(ref) : ref
-    key = canonical?.guid ?? canonical?.path ?? (typeof ref === 'string' ? ref : '')
+    key = resolved.guid ?? resolved.path ?? ''
   }
   const definition = MusicProgram.deserialize(MusicProgram.serialize(source))
   validateMusicProgram(definition)

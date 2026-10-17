@@ -383,12 +383,16 @@ export class WebAudioGraph {
     let matched = false
     for (const delay of this.delays) {
       if (key === `${delay.key}seconds`) {
-        delay.seconds = value
-        delay.dirty = true
+        if (delay.seconds !== value) {
+          delay.seconds = value
+          delay.dirty = true
+        }
         matched = true
       } else if (key === `${delay.key}feedback`) {
-        delay.feedback = value
-        delay.dirty = true
+        if (delay.feedback !== value) {
+          delay.feedback = value
+          delay.dirty = true
+        }
         matched = true
       }
     }
