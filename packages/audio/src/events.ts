@@ -22,6 +22,7 @@ import {
 } from '@aethervtt/shard-runtime'
 import { GlobalTransform, OriginShift, TransformSystems } from '@aethervtt/shard-transform'
 import { AudioCheckpoint, CheckpointSchema, installAudioCheckpoints } from './checkpoint'
+import { AudioCheckpointHooks } from './checkpoint-bridge'
 import { type AudioClipAsset, AudioClips } from './clip'
 import { AudioBuses } from './components'
 import * as definitions from './event-assets'
@@ -33,6 +34,7 @@ import {
 } from './event-assets'
 import { audioEventMethods } from './event-methods'
 import { AudioInspectors } from './inspection'
+import { AudioMixState } from './mix'
 import { audioState, endVoice, newVoice, updateAudio, type Voice } from './mixer'
 import * as parameters from './parameters'
 import { AudioParameterBank, AudioParameters, sampleAudioCurve } from './parameters'
@@ -80,6 +82,15 @@ interface LayerState {
   releasedAt: number
   gainDb: number
   pitchSemitones: number
+  sends: {
+    target: string
+    gain: number
+    sent: number
+    parameter: number
+    global: boolean
+    builtin: number
+    points: Float64Array
+  }[]
   bindings: Binding[]
   condition: number
   conditionGlobal: boolean
@@ -612,6 +623,33 @@ function admit(
         points: new Float64Array(curve.points.flat()),
       })
     }
+    const sends = layer.sends.map((send) => {
+      const bus = layer.bus || plan.definition.bus
+      if (
+        !world
+          .tryResource(AudioMixState)
+          ?.graph?.buses.find((route) => route.id === bus)
+          ?.sends.some((route) => route.target === send.target)
+      )
+        throw new ShardError(
+          'audio/unknown-bus',
+          `Declare mixer route ${bus} -> ${send.target} before preparing an event send`,
+        )
+      const builtin = send.parameter === 'distance' ? 1 : send.parameter === 'speed' ? 2 : 0
+      const parameter =
+        send.parameter && !builtin
+          ? resolveParameter(local, plan.globals, send.parameter)
+          : { index: -1, global: false }
+      return {
+        target: send.target,
+        gain: 10 ** (send.gainDb / 20),
+        sent: Number.NaN,
+        parameter: parameter.index,
+        global: parameter.global,
+        builtin,
+        points: new Float64Array(send.points.flat()),
+      }
+    })
     const condition = layer.condition.parameter
       ? resolveParameter(local, plan.globals, layer.condition.parameter)
       : { index: -1, global: false }
@@ -634,6 +672,7 @@ function admit(
       gainDb: 0,
       pitchSemitones: 0,
       bindings,
+      sends,
       condition: condition.index,
       conditionGlobal: condition.global,
       conditionLabel: label,
@@ -1072,6 +1111,7 @@ function updateInstance(
         }
         if (!layer.voice || layer.voice.id <= 0) {
           const voice = newVoice(audio, null, audio.frame)
+          voice.sends = layer.sends
           voice.managed = true
           voice.fresh = true
           voice.virtualizable = plan.definition.mode === 'sustain'
@@ -1144,6 +1184,18 @@ function updateInstance(
       const release = instance.release >= 0 ? instance.release : def.release
       if (layer.ending)
         envelope *= release > 0 ? Math.max(0, 1 - (layer.age - layer.releasedAt) / release) : 0
+      for (let sendIndex = 0; sendIndex < layer.sends.length; sendIndex++) {
+        const send = layer.sends[sendIndex]!
+        if (!send.points.length) continue
+        const value =
+          send.builtin === 1
+            ? instance.distance
+            : send.builtin === 2
+              ? instance.speed
+              : (send.global ? plan.globals : instance.parameters!).values[send.parameter]!
+        sampleAudioCurve(send.points, value, scratch, 4)
+        send.gain = 10 ** (scratch[4]! / 20)
+      }
       voice.lowpass = scratch[2]!
       voice.highpass = scratch[3]!
       voice.volume = 10 ** (scratch[0]! / 20) * envelope
@@ -1182,7 +1234,7 @@ export const updateAudioEvents = defineSystem({
     const wall = runtime.clock.wallNow?.() ?? state.lastWall + time.delta
     const waitDelta = Math.max(0, wall - state.lastWall)
     state.lastWall = wall
-    for (let b = 0; b < state.globalList.length; b++) state.globalList[b]!.update(time.delta)
+    for (let b = 0; b < state.globalList.length; b++) state.globalList[b]!.update(unscaled)
     for (let i = 0; i < state.instances.length; i++) {
       const instance = state.instances[i]
       if (!instance || instance.state === 'ended' || instance.state === 'failed') continue
@@ -1331,7 +1383,8 @@ export function audioEventsPlugin(
         mixerSetup = updateAudio.setup!(world)
       const context = { lastRunTick: world.tick }
       const pump = () => {
-        if (state.disposed || state.inFrame) return
+        if (state.disposed || state.inFrame || world.tryResource(AudioCheckpointHooks)?.loading)
+          return
         const time = world.tryResource(Time)
         if (!time) return
         const delta = time.delta

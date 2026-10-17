@@ -68,7 +68,9 @@ retain domain partitioning. Ordinary buses sum their children into one insert ch
 control domain. Descendant faders preserve existing tails. Master cannot own sends, delay or
 reverb: after category signals merge their nonlinear histories cannot be separated for independent
 mute. A master compressor operates on the aggregate signal. Master user gain is applied only at
-master. Expose all factors separately.
+master. `setAudioUserBus` accepts master and ordinary direct-child categories; nested and return
+buses reject independent player controls because their wet history belongs to the category.
+`setBus` remains the gameplay fader, independent from player volume/mute. Expose all factors separately.
 
 ### Effects and automation
 
@@ -81,6 +83,11 @@ sample rate; preparation rejects unusable IRs. A delay's internal feedback is en
 restricted to absolute gain < 1; it cannot introduce external graph feedback.
 
 Use 0077's curves/parameters; event automation may target voice gain/pitch/filters and send level.
+Each layer declares at most eight unique sends (`target`, `gainDb`, optional parameter/points
+curve in dB). These additive taps are after voice gain/filter/spatialization and before the bus
+inserts/fader. The source bus must declare the return route (its bus send can be -120 dB); this
+prepares the return's category partition before playback. One instance's send automation never
+changes another's send. Graph replacement preserves these routes or rejects the edit.
 Scheduling/automation uses audio time; engine evaluation emits changes only when needed.
 Short ramps default to 10 ms for abrupt fader changes, with exact zero at ramp completion.
 Sample start boundaries and deliberately percussive envelopes may request zero ramp explicitly.

@@ -3,6 +3,7 @@ import {
   captureAudioCheckpoint,
   resetAudioForLoad,
   restoreAudioCheckpoint,
+  setAudioLoading,
 } from '@aethervtt/shard-audio'
 import {
   type AnyField,
@@ -600,6 +601,7 @@ export async function loadGame(world: World, slot: string | SaveFile): Promise<L
   if (control) control.paused = true
   const ids = new Map<string, Entity>()
   try {
+    setAudioLoading(world, true)
     resetAudioForLoad(world, true)
     // Out with the current game.
     const authored = authoredEntities(world)
@@ -822,6 +824,7 @@ export async function loadGame(world: World, slot: string | SaveFile): Promise<L
       log?.log('warn', w.message, { code: w.code, path: w.path, hint: w.hint })
     assetServer(world).collect()
   } finally {
+    setAudioLoading(world, false)
     if (control) control.paused = wasPaused
   }
   return { scenes: sceneIds, spawned: ids.size, warnings }

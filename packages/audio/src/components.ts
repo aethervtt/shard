@@ -101,6 +101,8 @@ export const AudioListener = defineTag('audio/AudioListener', {
 
 /** One mixing bus. `parent` chains buses: a bus's gain is multiplied by its parent's. */
 export interface AudioBus {
+  /** False for authored return buses; player controls belong to ordinary category domains. */
+  userDomain?: boolean
   volume: number
   muted: boolean
   /** The bus it feeds; '' for the root (master). */

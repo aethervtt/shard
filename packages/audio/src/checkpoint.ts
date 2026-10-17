@@ -473,7 +473,11 @@ async function restore(
     }
   for (const global of data.globals) {
     const bank = state.globalBanks.get(global.key)
-    if (bank && bank.values.length === global.values.length) {
+    if (
+      bank &&
+      bank.values.length === global.values.length &&
+      bank.targets.length === global.targets.length
+    ) {
       bank.values.set(global.values)
       bank.targets.set(global.targets)
     }
@@ -490,5 +494,5 @@ async function restore(
 }
 
 export function installAudioCheckpoints(world: World): void {
-  world.insertResource(AudioCheckpointHooks, { capture, reset, restore })
+  world.insertResource(AudioCheckpointHooks, { loading: false, capture, reset, restore })
 }

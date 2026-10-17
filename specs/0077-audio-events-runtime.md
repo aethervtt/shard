@@ -242,3 +242,9 @@ types. `game.audioLog()` stays compatible and gains instance/parameter assertion
 
 - None blocking acceptance of this scope. Deferred: strict streaming via AudioWorklet, nested
   events, multiple simultaneous listeners within one session and synchronized remote playback.
+
+### Shared parameter clock clarification
+
+Session-global smoothing advances once from the backend clock, including scheduler wakes without
+visual frames. Local event parameters follow their event decision clock. This prevents a shared
+music/mixer parameter from freezing or advancing twice when frame cadence changes.

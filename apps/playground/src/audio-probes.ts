@@ -123,7 +123,7 @@ async function musicLoopProbe() {
   const bpm = 123,
     period = (4 * 60) / bpm,
     rate = 48000
-  const context = new OfflineAudioContext(1, Math.ceil((period * 5 + 0.1) * rate), rate)
+  const context = new OfflineAudioContext(1, 60 * rate, rate)
   const host = createWebAudioBackend({ context, fixedListener: true })
   const app = new App().addPlugin(
     TransformPlugin,
@@ -158,18 +158,29 @@ async function musicLoopProbe() {
     .backend.runtime!.flush()
   const buffer = await context.startRendering(),
     data = buffer.getChannelData(0),
-    peaks: number[] = []
-  for (let loop = 0; loop < 5; loop++) {
+    peaks: number[] = [],
+    amplitudes: number[] = []
+  for (let loop = 0; 0.05 + loop * period < 60; loop++) {
     const target = Math.round((0.05 + loop * period) * rate)
     let peak = target - 3
     for (let i = target - 2; i <= target + 3; i++)
       if (Math.abs(data[i]!) > Math.abs(data[peak]!)) peak = i
     peaks.push(peak)
+    amplitudes.push(Math.abs(data[peak]!))
   }
-  app.dispose()
+  await app.dispose()
   program.release()
   host.dispose?.()
-  return { peaks, expected: peaks.map((_, i) => Math.round((0.05 + i * period) * rate)) }
+  let unexpected = 0
+  for (let i = 0; i < data.length; i++)
+    if (Math.abs(data[i]!) > 0.001 && !peaks.some((peak) => Math.abs(i - peak) <= 4)) unexpected++
+  return {
+    duration: 60,
+    amplitudes,
+    unexpected,
+    peaks,
+    expected: peaks.map((_, i) => Math.round((0.05 + i * period) * rate)),
+  }
 }
 
 async function sessionProbe() {
@@ -211,6 +222,42 @@ async function sessionProbe() {
   const memory = host.runtime.memory()
   host.dispose?.()
   return { ...result, memory }
+}
+
+async function instanceSendProbe() {
+  const context = new OfflineAudioContext(1, 24000, 48000)
+  const host = createWebAudioBackend({ context, fixedListener: true })
+  const mixer = graph(0)
+  mixer.buses[1]!.sends = [{ target: 'echo', gain: 0, pre: true }]
+  mixer.buses = [
+    ...mixer.buses,
+    {
+      id: 'echo',
+      parent: 'master',
+      return: true,
+      gain: 1,
+      userGain: 1,
+      sends: [],
+      effects: [effect('delay', { seconds: 0.2, tailSeconds: 0.3 })],
+    },
+  ]
+  await host.runtime.configureMixer(mixer)
+  const source = clip('impulse', 100, 0.01)
+  host.runtime.play({ ...voice(source, 'sfx', 0.05), sends: [{ target: 'echo', gain: 0.25 }] })
+  const b = host.runtime.play({
+    ...voice(source, 'sfx', 0.15),
+    sends: [{ target: 'echo', gain: 0.75 }],
+  })
+  await host.runtime.flush()
+  const suspended = context.suspend(0.1)
+  const rendered = context.startRendering()
+  await suspended
+  host.runtime.setVoiceSend(b, 'echo', 0.5, 0)
+  await context.resume()
+  const samples = (await rendered).getChannelData(0)
+  const result = { first: samples[12000]!, second: samples[16800]! }
+  host.dispose?.()
+  return result
 }
 
 export async function audioProbes() {
@@ -321,6 +368,7 @@ export async function audioProbes() {
   const collectedBytes = host.runtime.memory().decodedBytes
   host.dispose?.()
   return {
+    instanceSends: await instanceSendProbe(),
     musicLoops,
     session,
     delayBeforeCap: rms(capped.buffer.getChannelData(0), 14000, 18000),

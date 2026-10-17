@@ -25,6 +25,7 @@ export interface HeadlessVoice {
   spatial: AudioSpatialDesc | null
   /** Latest parameters (volume × occlusion, pitch, position). */
   params: AudioVoiceParams
+  sends: Map<string, number>
   envelope: number
   stopped: boolean
   /** Fade the stop asked for, in seconds. */
@@ -265,6 +266,15 @@ export class HeadlessAudioBackend implements AudioBackend, AudioRuntimeExtension
     this.automationScratch[0] = value
   }
 
+  setVoiceSend(id: number, target: string, gain: number, seconds: number): void {
+    if (!Number.isFinite(gain) || gain < 0 || gain > 16 || !Number.isFinite(seconds) || seconds < 0)
+      throw new ShardError('audio/invalid-range', 'Invalid voice send automation')
+    const voice = this.byId.get(id)
+    if (!voice?.sends.has(target))
+      throw new ShardError('audio/unknown-bus', `Missing voice send ${target}`)
+    voice.sends.set(target, gain)
+  }
+
   automate(id: number, command: AudioAutomation): void {
     const voice = this.byId.get(id)
     if (!voice) return
@@ -390,6 +400,7 @@ export class HeadlessAudioBackend implements AudioBackend, AudioRuntimeExtension
       offset: desc.offset,
       spatial: desc.spatial,
       params: { gain: desc.gain, pitch: desc.pitch, x: desc.x, y: desc.y, z: desc.z },
+      sends: new Map(desc.sends?.map((send) => [send.target, send.gain])),
       envelope: 1,
       stopped: false,
       fade: 0,

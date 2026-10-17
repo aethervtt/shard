@@ -85,11 +85,11 @@ async function render(bundle: Bundle) {
     audioMixerPlugin(),
     audioMusicPlugin(),
   )
-  await app.init()
-  const world = app.world,
-    assets = assetServer(world),
-    runtime = audioState(world).backend.runtime!
+  const world = app.world
   try {
+    await app.init()
+    const assets = assetServer(world),
+      runtime = audioState(world).backend.runtime!
     for (const item of bundle.assets)
       assets.virtual(item.guid, item.path, item.type, () => item.value, { lazy: true })
     for (const item of bundle.assets) await assets.load(item.guid)
@@ -164,6 +164,7 @@ async function render(bundle: Bundle) {
     }
     async function tick() {
       const now = context.currentTime
+      Object.assign(globalThis, { audioPreviewProgress: { stage: 'tick', time: now, nextControl } })
       for (const entry of plan.events)
         if (!eventIds.has(entry.id) && now >= entry.at) {
           const entity = world.spawn(Transform)
@@ -270,13 +271,18 @@ async function render(bundle: Bundle) {
       )
       const at =
         (Math.max(
-          Math.floor((last * plan.sampleRate) / 128) + 1,
+          Math.round((last * plan.sampleRate) / 128) + 1,
           Math.ceil((wanted * plan.sampleRate) / 128),
         ) *
           128) /
         plan.sampleRate
       if (at >= total) break
-      const suspended = context.suspend(at)
+      // A half-sample bias prevents floating-point division from rounding a quantum
+      // boundary into the previous (already suspended) quantum.
+      Object.assign(globalThis, {
+        audioPreviewProgress: { stage: 'suspend', time: context.currentTime, target: at },
+      })
+      const suspended = context.suspend(at + 0.5 / plan.sampleRate)
       if (!rendering) rendering = context.startRendering()
       else await context.resume()
       await suspended

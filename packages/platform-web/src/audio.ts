@@ -46,6 +46,7 @@ interface Voice {
   envelope: GainNode
   lowpass: BiquadFilterNode
   highpass: BiquadFilterNode
+  sends: Map<string, GainNode>
   panner: PannerNode | null
   source: AudioBufferSourceNode | null
   media: HTMLAudioElement | null
@@ -275,6 +276,28 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
       voice.panner = null
       voice.highpass.connect(this.input(voice.desc.bus))
     }
+    for (const send of voice.desc.sends ?? []) {
+      let node = voice.sends.get(send.target)
+      if (!node) {
+        node = this.context.createGain()
+        node.gain.value = send.gain
+        voice.sends.set(send.target, node)
+      } else node.disconnect()
+      const input = this.graph?.sendInputs.get(voice.desc.bus)?.get(send.target)
+      if (!input) throw new ShardError('audio/unknown-bus', `Missing voice send ${send.target}`)
+      ;(voice.panner ?? voice.highpass).connect(node).connect(input)
+    }
+  }
+
+  setVoiceSend(id: number, target: string, gain: number, seconds: number): void {
+    if (!Number.isFinite(gain) || gain < 0 || gain > 16 || !Number.isFinite(seconds) || seconds < 0)
+      throw new ShardError('audio/invalid-range', 'Invalid voice send automation')
+    const node = this.voices.get(id)?.sends.get(target)
+    if (!node) throw new ShardError('audio/unknown-bus', `Missing voice send ${target}`)
+    const at = this.context.currentTime
+    node.gain.cancelAndHoldAtTime(at)
+    if (seconds) node.gain.linearRampToValueAtTime(gain, at + seconds)
+    else node.gain.setValueAtTime(gain, at)
   }
 
   setDecodedBudget(bytes: number): void {
@@ -346,6 +369,17 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
     if (this.host.offline && desc.clip.stream)
       throw new ShardError('audio/unsupported-capability', 'Offline rendering needs decoded clips')
     this.input(desc.bus)
+    if ((desc.sends?.length ?? 0) > 8)
+      throw new ShardError('audio/capacity', 'At most eight voice sends')
+    for (const send of desc.sends ?? []) {
+      if (
+        !Number.isFinite(send.gain) ||
+        send.gain < 0 ||
+        send.gain > 16 ||
+        !this.graph?.sendInputs.get(desc.bus)?.has(send.target)
+      )
+        throw new ShardError('audio/unknown-bus', `Invalid voice send ${desc.bus}/${send.target}`)
+    }
     if (!this.reserved) this.reserveVoices(1)
     this.reserved--
     this.host.reserved--
@@ -375,6 +409,7 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
       envelope,
       lowpass,
       highpass,
+      sends: new Map(),
       panner: null,
       source: null,
       media: null,
@@ -524,6 +559,8 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
     voice.lowpass.disconnect()
     voice.highpass.disconnect()
     voice.panner?.disconnect()
+    for (const node of voice.sends.values()) node.disconnect()
+    voice.sends.clear()
     voice.lease?.release()
     voice.lease = null
     this.voices.delete(voice.id)
@@ -773,7 +810,8 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
   memory() {
     let nodes = 1 + this.buses.size + this.meters.size
     for (const voice of this.voices.values())
-      nodes += 4 + Number(!!voice.panner) + Number(!!voice.source || !!voice.mediaNode)
+      nodes +=
+        4 + voice.sends.size + Number(!!voice.panner) + Number(!!voice.source || !!voice.mediaNode)
     nodes += this.graph ? this.graph.nodes.length + 1 : 0
     for (const graph of this.retired.keys()) nodes += graph.nodes.length + 1
     let effectBytes = this.graph?.generatedBytes ?? 0
@@ -811,7 +849,10 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
       )
     }
     for (const voice of this.voices.values())
-      if (!next.inputs.has(voice.desc.bus)) {
+      if (
+        !next.inputs.has(voice.desc.bus) ||
+        [...voice.sends.keys()].some((target) => !next.sendInputs.get(voice.desc.bus)?.has(target))
+      ) {
         next.dispose()
         output.disconnect()
         throw new ShardError('audio/unknown-bus', `Graph removes active route ${voice.desc.bus}`)
@@ -821,6 +862,8 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
     for (const voice of this.voices.values()) {
       const input = next.inputs.get(voice.desc.bus)
       if (input) (voice.panner ?? voice.highpass).connect(input)
+      for (const [target, node] of voice.sends)
+        node.connect(next.sendInputs.get(voice.desc.bus)!.get(target)!)
     }
     const at = this.context.currentTime,
       fade = old ? 0.02 : 0
@@ -837,6 +880,11 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
         input.gain.cancelAndHoldAtTime(at)
         input.gain.linearRampToValueAtTime(0, at + fade)
       }
+      for (const routes of old.sendInputs.values())
+        for (const input of routes.values()) {
+          input.gain.cancelAndHoldAtTime(at)
+          input.gain.linearRampToValueAtTime(0, at + fade)
+        }
       old.output.gain.setValueAtTime(1, tailEnd)
       old.output.gain.linearRampToValueAtTime(0, tailEnd + 0.02)
     }
@@ -855,6 +903,16 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
         } catch {
           /* Not connected. */
         }
+      }
+    for (const voice of this.voices.values())
+      for (const [target, node] of voice.sends) {
+        const input = old.sendInputs.get(voice.desc.bus)?.get(target)
+        if (input)
+          try {
+            node.disconnect(input)
+          } catch {
+            /* Already rerouted. */
+          }
       }
     old.dispose()
     old.output.disconnect()

@@ -156,18 +156,37 @@ export async function renderProjectAudio(
         await page.goto(`${server.resolvedUrls!.local[0]}audio-preview.html`)
         await page.waitForFunction(() => 'previewAudio' in globalThis)
         const result = await page.evaluate(
-          async (payload) =>
-            (
-              globalThis as unknown as {
-                previewAudio(plan: unknown): Promise<{
-                  wav: string
-                  measured: unknown
-                  trace: unknown
-                  backend: unknown
-                  capabilities: unknown
-                }>
-              }
-            ).previewAudio(payload),
+          async (payload) => {
+            let timer: ReturnType<typeof setTimeout> | undefined
+            try {
+              return await Promise.race([
+                (
+                  globalThis as unknown as {
+                    previewAudio(plan: unknown): Promise<{
+                      wav: string
+                      measured: unknown
+                      trace: unknown
+                      backend: unknown
+                      capabilities: unknown
+                    }>
+                  }
+                ).previewAudio(payload),
+                new Promise<never>((_, reject) => {
+                  timer = setTimeout(
+                    () =>
+                      reject(
+                        new Error(
+                          `Audio preview stalled: ${JSON.stringify((globalThis as unknown as { audioPreviewProgress: unknown }).audioPreviewProgress)}`,
+                        ),
+                      ),
+                    30000,
+                  )
+                }),
+              ])
+            } finally {
+              if (timer !== undefined) clearTimeout(timer)
+            }
+          },
           serializeBytes({ plan: AudioPreviewPlan.serialize(plan), assets: packed }),
         )
         const out = resolve(project, output),

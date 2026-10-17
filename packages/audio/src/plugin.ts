@@ -46,6 +46,7 @@ export function audioPlugin(options: AudioPluginOptions = {}): Plugin {
       const w = app.world
       w.initResource(AudioInspectors)
       w.insertResource(AudioCheckpointHooks, {
+        loading: false,
         capture() {},
         restore: async () => [],
         reset(world) {

@@ -260,6 +260,14 @@ export function setAudioUserBus(
 ): void {
   const buses = world.resource(AudioBuses)
   if (!buses[name]) throw new ShardError('audio/unknown-bus', `Unknown user bus ${name}`)
+  if (buses[name]!.userDomain === false || (name !== 'master' && buses[name]!.parent !== 'master'))
+    throw new ShardError(
+      'audio/unsupported-capability',
+      'Independent user controls require master or a direct child category',
+      { hint: 'Control the category containing this nested bus; sends share that category gate.' },
+    )
+  if (options.muted !== undefined && typeof options.muted !== 'boolean')
+    throw new ShardError('audio/invalid-range', 'User mute must be boolean')
   if (options.volume !== undefined) audioNumber(options.volume, 'user.volume')
   const controls = world.initResource(AudioUserControls)
   const current = controls[name] ?? { volume: 1, muted: false }

@@ -14,6 +14,7 @@ import type {
   AudioRuntimeExtension,
 } from '@aethervtt/shard-platform'
 import { definePlugin } from '@aethervtt/shard-runtime'
+import { AudioCheckpointHooks } from './checkpoint-bridge'
 import { type AudioClipAsset, AudioClips } from './clip'
 import { AudioBuses } from './components'
 import {
@@ -25,6 +26,7 @@ import {
   releaseAudioGlobals,
 } from './events'
 import { AudioInspectors } from './inspection'
+import { AudioMixState } from './mix'
 import { AudioConfig, audioState } from './mixer'
 import { audioMusicMethods } from './music-methods'
 import {
@@ -895,6 +897,7 @@ export async function playMusicStinger(
         layer.trigger !== 'start' ||
         layer.condition.parameter ||
         layer.curves.length ||
+        layer.sends.some((send) => !!send.parameter) ||
         layer.selector === 'switch' ||
         event.clips[i]!.some((clip) => clip.stream),
     )
@@ -929,6 +932,17 @@ export async function playMusicStinger(
   for (const layer of event.definition.layers)
     if (!world.resource(AudioBuses)[layer.bus || event.definition.bus])
       throw new ShardError('audio/unknown-bus', 'Stinger route is unavailable')
+  for (const layer of event.definition.layers)
+    for (const send of layer.sends) {
+      const bus = layer.bus || event.definition.bus
+      if (
+        !world
+          .tryResource(AudioMixState)
+          ?.graph?.buses.find((route) => route.id === bus)
+          ?.sends.some((route) => route.target === send.target)
+      )
+        throw new ShardError('audio/unknown-bus', `Invalid stinger send ${bus}/${send.target}`)
+    }
   const releaseReservation = runtime.reserveVoices(event.definition.layers.length)
   let end = target.at
   try {
@@ -939,10 +953,21 @@ export async function playMusicStinger(
       if (layer.selector === 'sequence') choice = event.histories[i]!.sequence++ % choices.length
       else if (layer.selector !== 'single') {
         const history = event.histories[i]!
-        const exclude = layer.selector === 'no-repeat'
+        let exclude = layer.selector === 'no-repeat'
         let total = 0
         for (let c = 0; c < layer.choices.length; c++)
           if (!exclude || !history.previous.includes(c)) total += layer.choices[c]!.weight
+        if (total <= 0) {
+          exclude = false
+          for (let c = 0; c < layer.choices.length; c++) total += layer.choices[c]!.weight
+          state.trace.write(
+            audioState(world).frame,
+            runtime.clock.now(),
+            'history-reduced',
+            transport.id,
+            layer.id,
+          )
+        }
         let pick = transport.rng.float() * total
         for (; choice < choices.length - 1; choice++) {
           if (exclude && history.previous.includes(choice)) continue
@@ -967,6 +992,7 @@ export async function playMusicStinger(
       const voice = runtime.play({
         clip,
         bus: layer.bus || event.definition.bus,
+        sends: layer.sends.map((send) => ({ target: send.target, gain: 10 ** (send.gainDb / 20) })),
         when: at,
         duration,
         offset: 0,
@@ -1057,6 +1083,7 @@ function collectSections(world: World, program: PreparedMusic): void {
 }
 
 export function updateMusic(world: World): void {
+  if (world.tryResource(AudioCheckpointHooks)?.loading) return
   const state = musicState(world),
     runtime = runtimeOf(world),
     now = runtime.clock.now()

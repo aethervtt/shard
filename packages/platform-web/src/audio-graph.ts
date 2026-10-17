@@ -30,6 +30,7 @@ interface FiniteDelay {
 export class WebAudioGraph {
   readonly inputs = new Map<string, GainNode>()
   readonly outputs = new Map<string, GainNode>()
+  readonly sendInputs = new Map<string, Map<string, GainNode>>()
   readonly nodes: AudioNode[] = []
   readonly leases: AudioPreparation[] = []
   private readonly values = new Map<string, AudioParam[]>()
@@ -324,12 +325,16 @@ export class WebAudioGraph {
           result.bind(`${bus.id}/userGain`, user.gain)
           nodes.post.connect(user).connect(ordinary.get(bus.parent)!.input)
         }
+        const voiceRoutes = new Map<string, GainNode>()
+        result.sendInputs.set(bus.id, voiceRoutes)
         for (const send of bus.sends) {
+          const destination = await routeReturn(send.target, domain)
+          const input = result.own(context.createGain())
+          input.connect(destination)
+          voiceRoutes.set(send.target, input)
           const gain = result.own(context.createGain())
           gain.gain.value = send.gain
-          ;(send.pre ? nodes.pre : nodes.post)
-            .connect(gain)
-            .connect(await routeReturn(send.target, domain))
+          ;(send.pre ? nodes.pre : nodes.post).connect(gain).connect(destination)
           result.bind(`${bus.id}/send/${send.target}`, gain.gain)
         }
       }

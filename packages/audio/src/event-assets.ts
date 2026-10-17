@@ -60,6 +60,14 @@ export const AudioEventFields = {
       rolloffFactor: t.f64({ default: 1, min: 0 }),
       panning: t.enum(['equal-power', 'hrtf']),
       curves: t.list(t.struct(AudioCurveFields)),
+      sends: t.list(
+        t.struct({
+          target: t.string({ required: true }),
+          gainDb: t.f64({ default: -120, min: -120, max: 24 }),
+          parameter: t.string(),
+          points: t.list(t.vec2),
+        }),
+      ),
     }),
   ),
 }
@@ -126,6 +134,25 @@ export function validateAudioEvent(event: AudioEventDefinition): void {
       layer.condition.max < layer.condition.min
     )
       throw new ShardError('audio/invalid-range', 'Range endpoints must be ordered', { path })
+    if (
+      layer.sends.length > 8 ||
+      new Set(layer.sends.map((send) => send.target)).size !== layer.sends.length
+    )
+      throw new ShardError('audio/capacity', 'Layers support at most eight unique sends', {
+        path: `${path}/sends`,
+      })
+    for (const send of layer.sends) {
+      if (!send.target)
+        throw new ShardError('audio/unknown-bus', 'Send target is required', { path })
+      if (send.parameter) validateCurve(send.points, `${path}/sends/points`)
+      else if (send.points.length)
+        throw new ShardError('audio/unknown-parameter', 'Send curve requires a parameter', { path })
+      for (const point of send.points)
+        if (point[1]! < -120 || point[1]! > 24)
+          throw new ShardError('audio/invalid-range', 'Send curve gain must be -120..24 dB', {
+            path,
+          })
+    }
     for (const curve of layer.curves) {
       validateCurve(curve.points, `${path}/curves`)
       if (

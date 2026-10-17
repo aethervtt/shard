@@ -44,6 +44,12 @@ describe('audio offline browser evidence', () => {
             JSON.stringify(evidence, null, 2),
           )
         }
+        expect(evidence.instanceSends.first).toBeCloseTo(0.125, 4)
+        expect(evidence.instanceSends.second).toBeCloseTo(0.25, 4)
+        expect(evidence.musicLoops.duration).toBe(60)
+        expect(evidence.musicLoops.peaks).toHaveLength(31)
+        expect(Math.min(...evidence.musicLoops.amplitudes)).toBeGreaterThan(0.4)
+        expect(evidence.musicLoops.unexpected).toBe(0)
         expect(evidence.delayBeforeCap).toBeGreaterThan(0.001)
         expect(evidence.delayAfterCap).toBeLessThan(1e-6)
         expect(evidence.reverbBeforeCap).toBeGreaterThan(0.1)

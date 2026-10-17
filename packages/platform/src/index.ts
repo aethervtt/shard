@@ -295,6 +295,8 @@ export interface AudioVoiceParams {
 }
 
 export interface AudioVoiceDesc extends AudioVoiceParams {
+  /** Additive post-spatial sends; routes must be declared by the source bus mixer sends. */
+  readonly sends?: readonly { target: string; gain: number }[]
   readonly clip: AudioClipSource
   /** Bus name; the backend mixes it at the gain last given to `setBus`. */
   readonly bus: string

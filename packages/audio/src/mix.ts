@@ -331,8 +331,15 @@ export async function configureAudioMixer(
       parent: bus.parent,
       return: bus.return,
       effects,
-      gain: 10 ** (bus.gainDb / 20),
-      userGain: 1,
+      gain:
+        10 ** (bus.gainDb / 20) *
+        (world.resource(AudioBuses)[bus.id]?.volume ?? 1) *
+        (audioState(world).duckLevels.get(bus.id) ?? 1),
+      userGain:
+        world.resource(AudioUserControls)[bus.id]?.muted ||
+        world.resource(AudioBuses)[bus.id]?.muted
+          ? 0
+          : (world.resource(AudioUserControls)[bus.id]?.volume ?? 1),
       sends: bus.sends.map((send) => ({
         target: send.target,
         gain: 10 ** (send.gainDb / 20),
@@ -385,8 +392,10 @@ export async function configureAudioMixer(
       volume: legacy[bus.id]?.volume ?? 1,
       muted: legacy[bus.id]?.muted ?? false,
       parent: bus.parent,
+      userDomain: !bus.return,
       duck: legacy[bus.id]?.duck,
     }
+  updateAudioMix(world, 0)
 }
 
 function snapshotIndices(definition: AudioSnapshotDefinition, fields: MixField[]): Int32Array {

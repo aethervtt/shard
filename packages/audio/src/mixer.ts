@@ -94,6 +94,7 @@ export interface Voice {
   distanceGain: number
   pan: number
   rate: number
+  sends: { target: string; gain: number; sent: number }[] | null
   lowpass: number
   highpass: number
   acousticLowpass: number
@@ -338,6 +339,7 @@ export function newVoice(state: AudioStateValue, entity: Entity | null, frame: n
     distanceGain: 1,
     pan: 0,
     rate: 1,
+    sends: null,
     lowpass: 20000,
     highpass: 0,
     acousticLowpass: 20000,
@@ -936,6 +938,7 @@ export const updateAudio = defineSystem({
       ) {
         const applied = backend.runtime?.reconfigure(voice.backend, {
           clip: voice.clip!,
+          sends: voice.sends ?? undefined,
           bus: targetBus,
           loop: voice.loop,
           offset: voice.time,
@@ -958,6 +961,7 @@ export const updateAudio = defineSystem({
       if (voice.backend === -1) {
         voice.backend = backend.play({
           clip: voice.clip!,
+          sends: voice.sends ?? undefined,
           bus: targetBus,
           loop: voice.loop,
           offset: voice.time,
@@ -971,12 +975,27 @@ export const updateAudio = defineSystem({
         voice.sentBus = targetBus
         voice.sentLoop = voice.loop
         voice.sentSpatial = spatialDesc
+        if (voice.sends)
+          for (let j = 0; j < voice.sends.length; j++) voice.sends[j]!.sent = Number.NaN
         voice.sentLowpass = Number.NaN
         voice.sentHighpass = Number.NaN
       } else {
         backend.update(voice.backend, params)
       }
       const runtime = backend.runtime
+      if (runtime && voice.sends)
+        for (let j = 0; j < voice.sends.length; j++) {
+          const send = voice.sends[j]!
+          if (send.sent !== send.gain) {
+            runtime.setVoiceSend(
+              voice.backend,
+              send.target,
+              send.gain,
+              Number.isNaN(send.sent) ? 0 : 0.01,
+            )
+            send.sent = send.gain
+          }
+        }
       if (runtime?.capabilities.automation) {
         const lowpass = Math.min(voice.lowpass, voice.acousticLowpass),
           command = voice.filterCommand

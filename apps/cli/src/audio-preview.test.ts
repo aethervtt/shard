@@ -80,6 +80,11 @@ describe.skipIf(!available)('CLI offline audio evidence', () => {
       expect(trace.music.entries.some((e) => e.kind === 'music-transition')).toBe(true)
       expect(trace.music.entries.some((e) => e.kind === 'music-stinger-layer')).toBe(true)
       expect(trace.controls).toHaveLength(plan.controls.length)
+      const repeat = await renderProjectAudio(dir, plan, 'captures/repeated.wav')
+      expect(repeat.trace).toEqual(result.trace)
+      const firstWav = await readFile(result.out),
+        secondWav = await readFile(repeat.out)
+      expect(secondWav.equals(firstWav)).toBe(true)
       if (process.env.SHARD_AUDIO_EVIDENCE) {
         const { mkdir } = await import('node:fs/promises')
         await mkdir(process.env.SHARD_AUDIO_EVIDENCE, { recursive: true })

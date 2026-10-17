@@ -151,6 +151,7 @@ export interface AudioRuntimeExtension {
   /** In-place route/loop/spatial edits; false asks the caller to recreate at the current phase. */
   reconfigure(id: number, desc: AudioVoiceDesc): boolean
   automate(id: number, command: AudioAutomation): void
+  setVoiceSend(id: number, target: string, gain: number, rampSeconds: number): void
   /** Cancels a scheduled start; stops an already audible voice, with a truthful result. */
   cancel(id: number): 'cancelled' | 'already-started' | 'ended'
   configureMixer(graph: AudioMixerGraph): Promise<void>

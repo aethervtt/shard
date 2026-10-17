@@ -2,8 +2,9 @@ import { App } from '@aethervtt/shard-runtime'
 import { TransformPlugin } from '@aethervtt/shard-transform'
 import { describe, expect, it } from 'vitest'
 import { playSound, setAudioUserBus, setBus } from './api'
-import { audioClip } from './clip'
-import { audioEventsPlugin } from './events'
+import { AudioClips, audioClip } from './clip'
+import { AudioEvent } from './event-assets'
+import { audioEventsPlugin, playAudioEvent, prepareAudio, setAudioParameter } from './events'
 import { HeadlessAudioBackend } from './headless'
 import {
   AudioMixer,
@@ -97,9 +98,69 @@ describe('authored audio mixing', () => {
     expect(backend.buses.get('steps')).toBe(0)
     releaseAudioSnapshot(world, id)
     await configureAudioMixer(world, mixer)
-    updateAudioMix(world, 0)
     expect(backend.buses.get('steps')).toBe(0)
     expect(backend.buses.get('master')).toBe(1)
+    await app.dispose()
+  })
+
+  it('automates independent event sends and validates routes before stealing', async () => {
+    const { app, world, backend } = await setup()
+    await configureAudioMixer(
+      world,
+      AudioMixer.deserialize({
+        buses: [
+          { id: 'master', parent: '' },
+          { id: 'sfx', sends: [{ target: 'room', gainDb: -120 }] },
+          {
+            id: 'room',
+            return: true,
+            effects: [{ id: 'echo', kind: 'delay', seconds: 0.1, tailSeconds: 0.2 }],
+          },
+        ],
+      }),
+    )
+    const clip = world.resource(AudioClips).add(audioClip(sineWav(2)))
+    const event = AudioEvent.deserialize({
+      mode: 'sustain',
+      parameters: [{ name: 'wet' }],
+      layers: [
+        {
+          id: 'loop',
+          loop: true,
+          choices: [{ clip: { guid: clip.guid } }],
+          sends: [
+            {
+              target: 'room',
+              parameter: 'wet',
+              points: [
+                [0, -40],
+                [1, 0],
+              ],
+            },
+          ],
+        },
+      ],
+    })
+    const lease = await prepareAudio(world, event)
+    const a = playAudioEvent(world, event, { parameters: { wet: 0 } })
+    playAudioEvent(world, event, { parameters: { wet: 1 } })
+    app.update(0.01)
+    expect(backend.active.map((v) => v.sends.get('room'))).toEqual([0.01, 1])
+    setAudioParameter(world, a, 'wet', 0.5)
+    app.update(0.01)
+    expect(backend.active.map((v) => v.sends.get('room'))).toEqual([0.1, 1])
+    event.layers[0]!.sends[0]!.target = 'missing'
+    const invalid = await prepareAudio(world, event)
+    expect(() => playAudioEvent(world, event)).toThrow()
+    expect(backend.active).toHaveLength(2)
+    invalid.release()
+    lease.release()
+    await app.dispose()
+  })
+
+  it('rejects independent controls on nested user domains explicitly', async () => {
+    const { app, world } = await setup()
+    expect(() => setAudioUserBus(world, 'steps', { muted: true })).toThrowError(/direct child/)
     await app.dispose()
   })
 
