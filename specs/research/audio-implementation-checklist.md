@@ -23,22 +23,23 @@ evidence review.
 - Builds and strict benchmarks run in Actions, per the user's preference. Hosted-machine numbers
   must retain the actual CPU identity; they are not measurements of the named laptop/desktop.
 
-## Latest implementation checkpoint (pending next CI run)
+## Verified runtime checkpoint
 
-- Remote run https://github.com/aethervtt/shard/actions/runs/39075319186 passed the original
-  48-source allocation check (zero collections), mixing/acoustics/music scheduler allocation
-  scenarios, build and size checks. Event scenario still reported one collection; retained
-  heap-ranking scratch storage and separate event/mixer measurements are now awaiting CI.
-- Release smoke reached execution but lacked a software GPU adapter; the workflow now installs
-  Mesa Vulkan drivers. This is an environment fix, not evidence that release smoke has passed.
-- Local repository typecheck passed. All 78 audio correctness tests across 12 files passed.
-  New regression evidence: command-ordered admission before decoding, binding validation before
-  stealing, release-time gate reopening, scale 0/0.5/2 cursor behavior, blocked expiry without
-  frames, history across lease release, revision-aware event checkpoint restoration, audible
-  music cancellation before/after reconciliation, rule evaluation after resume/seek, failed
-  preparation cleanup, three music branches under a two-section PCM budget and restored gains.
-- Browser session arbitration, synchronous prepared starts, packed voice telemetry and bounded
-  DSP-tail ownership remain subject to the next browser/performance run.
+- Commit `d8e3ca44e33ce0838bccf36d6510c072a07cd868`: all jobs passed in
+  https://github.com/aethervtt/shard/actions/runs/39076437602.
+- Passed repository typecheck/lint; audio/assets/save correctness; real Chromium signals;
+  strict audio allocation/performance scenarios; build, bundle size and release smoke.
+- Artifacts: `audio-signals-d8e3ca44e33ce0838bccf36d6510c072a07cd868` and
+  `audio-performance-d8e3ca44e33ce0838bccf36d6510c072a07cd868` in that run. Hosted timings retain
+  their actual machine identity. These are not named-hardware budget measurements.
+- Local audio correctness: 78 tests across 12 files. New lifecycle regression evidence covers
+  command-ordered admission, binding validation before stealing, release-time gate reopening,
+  scale 0/0.5/2 cursors, no-frame blocked expiry, history across lease release, revision-aware
+  checkpoints, audible music cancellation before/after reconciliation, rules after resume/seek,
+  failed preparation cleanup, three branches under a two-section PCM budget and restored gains.
+- The next checkpoint adds authored browser preview, CLI/MCP integration, generated guides and
+  the runnable audio-lab example. Its new end-to-end tests are intentionally run in CI because
+  project import compiles project scripts; no local build or strict benchmark was run.
 
 ## Remaining implementation and evidence review
 

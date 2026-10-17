@@ -36,6 +36,7 @@ import { AudioInspectors } from './inspection'
 import { audioState, endVoice, newVoice, updateAudio, type Voice } from './mixer'
 import * as parameters from './parameters'
 import { AudioParameterBank, AudioParameters, sampleAudioCurve } from './parameters'
+import * as preview from './preview'
 import { audioNumber } from './validation'
 
 export interface PreparedAudioEvent {
@@ -1252,6 +1253,7 @@ export function audioEventsPlugin(
     provides: [
       definitions,
       parameters,
+      preview,
       {
         AudioTransport,
         AudioEventsState,
@@ -1263,7 +1265,7 @@ export function audioEventsPlugin(
     ],
     build(app) {
       app.world.initResource(AudioInspectors).set('events', describeAudioEvents)
-      app.addMethod(...audioEventMethods)
+      app.addMethod(...audioEventMethods, ...preview.audioPreviewMethods)
       const world = app.world,
         audio = audioState(world),
         runtime = audio.backend.runtime

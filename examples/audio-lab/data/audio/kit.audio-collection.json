@@ -1,0 +1,13 @@
+{
+  "events": [
+    {
+      "path": "data/audio/footstep.audio-event.json"
+    },
+    {
+      "path": "data/audio/engine.audio-event.json"
+    },
+    {
+      "path": "data/audio/spell.audio-event.json"
+    }
+  ]
+}

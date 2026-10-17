@@ -72,7 +72,7 @@ export function formatSummary(result: CaptureResponse): string {
 }
 
 /** Waits for an app to attach to the hub. */
-async function attached(hub: Hub): Promise<ProtocolTarget> {
+export async function attached(hub: Hub): Promise<ProtocolTarget> {
   const now = hub.current()
   if (now) return now
   return new Promise((resolve, reject) => {

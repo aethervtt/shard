@@ -1,0 +1,27 @@
+{
+  "layers": [
+    {
+      "id": "impact",
+      "choices": [
+        {
+          "clip": {
+            "path": "assets/sfx/spell.wav"
+          }
+        }
+      ],
+      "gainRandom": [-3, 0]
+    },
+    {
+      "id": "air",
+      "delay": 0.04,
+      "gainDb": -6,
+      "choices": [
+        {
+          "clip": {
+            "path": "assets/sfx/air.wav"
+          }
+        }
+      ]
+    }
+  ]
+}

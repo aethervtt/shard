@@ -3,10 +3,12 @@ import { join } from 'node:path'
 import { animationMethods } from '@aethervtt/shard-animation'
 import { allImporters, findImporter } from '@aethervtt/shard-assets'
 import {
+  AudioPreviewPlan,
   audioEventMethods,
   audioMethods,
   audioMixMethods,
   audioMusicMethods,
+  audioPreviewMethods,
 } from '@aethervtt/shard-audio'
 import { allComponents, findComponent, type JsonSchema, ShardError } from '@aethervtt/shard-core'
 import { navMethods } from '@aethervtt/shard-nav'
@@ -71,6 +73,7 @@ const PLUGIN_METHODS = [
   ...audioEventMethods,
   ...audioMixMethods,
   ...audioMusicMethods,
+  ...audioPreviewMethods,
   ...uiMethods,
   ...navMethods,
   ...saveMethods,
@@ -565,13 +568,29 @@ export const TOOLS: Tool[] = [
     'animation.describe',
     "What an AnimationPlayer is doing (animation plugin): each layer's clip, time, duration, weight, loop, blend, mask, and fade, how many targets bound, channels whose target is missing (a wrong path), and this frame's root motion. With an Animator (animation graph): each graph layer's current state, transition in progress and its progress, time in state, blend-space weights, and the parameter values. Without an entity: every player.",
   ),
+  {
+    name: 'audio_preview',
+    description:
+      'Render a bounded authored audio timeline to a local WAV plus measured signal and decision evidence. Runs Chromium offline without GPU, microphone, or audio output.',
+    inputSchema: paramsSchema('audio.preview'),
+    run: async (ctx, args) => {
+      const { renderProjectAudio } = await import('./audio-command')
+      return text(
+        await renderProjectAudio(
+          ctx.root,
+          AudioPreviewPlan.deserialize(args.plan),
+          String(args.out ?? 'mix.wav'),
+        ),
+      )
+    },
+  },
   ...[...audioEventMethods, ...audioMixMethods, ...audioMusicMethods].map((method) =>
     forward(method.name.replaceAll('.', '_'), method.name, method.description),
   ),
   forward(
     'audio_describe',
     'audio.describe',
-    "What's playing (audio plugin): the backend and whether its context is suspended, the listener, buses (volume, mute, final gain, ducking), and every voice: clip, source entity, bus, state (active, virtual, pending), gain after bus and distance, pan (-1 left, +1 right), distance, clip time, pitch, priority. An agent can't hear: this is how to check a sound plays, where, and how loud.",
+    "Audio state including optional authored events, mix, music and acoustics. Headless values are analytical; use audio_preview for measured signals. What's playing (audio plugin): the backend and whether its context is suspended, the listener, buses (volume, mute, final gain, ducking), and every voice: clip, source entity, bus, state (active, virtual, pending), gain after bus and distance, pan (-1 left, +1 right), distance, clip time, pitch, priority. An agent can't hear: this is how to check a sound plays, where, and how loud.",
   ),
   forward(
     'ui_describe',

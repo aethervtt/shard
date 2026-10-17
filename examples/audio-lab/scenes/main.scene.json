@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "entities": [
+    {
+      "name": "listener",
+      "components": {
+        "core/Transform": {},
+        "audio/AudioListener": {}
+      }
+    },
+    {
+      "name": "room",
+      "components": {
+        "core/Transform": {},
+        "audio/ReverbZone": {
+          "shape": "box",
+          "halfExtents": [4, 3, 4],
+          "returnBus": "room",
+          "indoor": true
+        }
+      }
+    }
+  ]
+}

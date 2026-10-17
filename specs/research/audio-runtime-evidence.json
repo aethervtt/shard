@@ -1,0 +1,201 @@
+{
+  "commit": "d8e3ca44e33ce0838bccf36d6510c072a07cd868",
+  "run": "https://github.com/aethervtt/shard/actions/runs/39076437602",
+  "timingBudgetsEnforced": false,
+  "machine": {
+    "machine": null,
+    "source": "unknown",
+    "detected": null,
+    "closest": "laptop",
+    "warnings": [
+      {
+        "code": "perf/unknown-machine",
+        "message": "No machine in machines.json matches (CPU \"AMD EPYC 9V74 80-Core Processor\", GPU \"none\"): budgets are unlimited; reporting against \"laptop\""
+      }
+    ],
+    "cpu": "AMD EPYC 9V74 80-Core Processor",
+    "adapter": null
+  },
+  "audioTimings": {
+    "audio/acoustics": {
+      "kind": "target",
+      "budget": 0.2,
+      "limit": 0.2,
+      "measured": 0.04567799999995259,
+      "verdict": "pass",
+      "tests": [
+        {
+          "test": "32 buses, 64 inserts, 16 snapshots; 64 voices and 32 zones",
+          "file": "/home/runner/work/shard/shard/packages/audio/src/advanced-perf.test.ts",
+          "measured": 0.04567799999995259,
+          "limit": 0.2
+        }
+      ]
+    },
+    "audio/commands": {
+      "kind": "target",
+      "budget": 0.2,
+      "limit": 0.2,
+      "measured": 0.06180299999982708,
+      "verdict": "pass",
+      "tests": [
+        {
+          "test": "128 four-layer instances and 16 global parameters; 256 parameter commands",
+          "file": "/home/runner/work/shard/shard/packages/audio/src/advanced-perf.test.ts",
+          "measured": 0.06180299999982708,
+          "limit": 0.2
+        }
+      ]
+    },
+    "audio/events": {
+      "kind": "target",
+      "budget": 0.2,
+      "limit": 0.2,
+      "measured": 0.13323099999979604,
+      "verdict": "pass",
+      "tests": [
+        {
+          "test": "128 four-layer instances and 16 global parameters; 256 parameter commands",
+          "file": "/home/runner/work/shard/shard/packages/audio/src/advanced-perf.test.ts",
+          "measured": 0.13323099999979604,
+          "limit": 0.2
+        }
+      ]
+    },
+    "audio/mix": {
+      "kind": "target",
+      "budget": 0.2,
+      "limit": 0.2,
+      "measured": 0.03151700000034907,
+      "verdict": "pass",
+      "tests": [
+        {
+          "test": "32 buses, 64 inserts, 16 snapshots; 64 voices and 32 zones",
+          "file": "/home/runner/work/shard/shard/packages/audio/src/advanced-perf.test.ts",
+          "measured": 0.03151700000034907,
+          "limit": 0.2
+        }
+      ]
+    },
+    "audio/music-schedule": {
+      "kind": "target",
+      "budget": 0.1,
+      "limit": 0.1,
+      "measured": 0.022352999999839085,
+      "verdict": "pass",
+      "tests": [
+        {
+          "test": "eight independent eight-stem transports after a 32-request replacement burst",
+          "file": "/home/runner/work/shard/shard/packages/audio/src/advanced-perf.test.ts",
+          "measured": 0.022352999999839085,
+          "limit": 0.1
+        }
+      ]
+    },
+    "audio/update": {
+      "kind": "target",
+      "budget": 0.1,
+      "limit": 0.1,
+      "measured": 0.012758999999959997,
+      "verdict": "pass",
+      "tests": [
+        {
+          "test": "performance > 48 moving spatial sources: under 0.1 ms a frame, allocating nothing",
+          "file": "/home/runner/work/shard/shard/packages/audio/src/perf.test.ts",
+          "measured": 0.012758999999959997,
+          "limit": 0.1
+        }
+      ]
+    },
+    "audio/update-virtual": {
+      "kind": "target",
+      "budget": 0.5,
+      "limit": 0.5,
+      "measured": 0.13934900000003836,
+      "verdict": "pass",
+      "tests": [
+        {
+          "test": "performance > 512 sources over the 64-voice limit: under 0.5 ms a frame",
+          "file": "/home/runner/work/shard/shard/packages/audio/src/perf.test.ts",
+          "measured": 0.13934900000003836,
+          "limit": 0.5
+        }
+      ]
+    }
+  },
+  "browserSignals": {
+    "musicLoops": {
+      "peaks": [
+        2400,
+        96059,
+        189717,
+        283376,
+        377034
+      ],
+      "expected": [
+        2400,
+        96059,
+        189717,
+        283376,
+        377034
+      ]
+    },
+    "session": {
+      "aLeft": 3.061710396076985e-18,
+      "aRight": 0.05000152811408043,
+      "bLeft": 0.05000152811408043,
+      "bRight": 0,
+      "memory": {
+        "decodedBytes": 0,
+        "encodedBytes": 0,
+        "pinned": 0,
+        "evictable": 0,
+        "urls": 0,
+        "budgetBytes": 67108864,
+        "loading": 0,
+        "effectBytes": 0,
+        "voices": 0,
+        "nodes": 1
+      }
+    },
+    "delayBeforeCap": 0.006403806892935494,
+    "delayAfterCap": 3.79934787855479e-11,
+    "reverbBeforeCap": 0.2500152591541411,
+    "reverbAfterCap": 0,
+    "postFaderSilent": 0,
+    "hierarchy": 0.12500381469726562,
+    "attenuationDb": -46.469820785136385,
+    "delaySample": 12000,
+    "stemIndex": 2400,
+    "stemPeak": 2.00006103515625,
+    "fadeMiddle": 0.35356417298316956,
+    "fadeEnd": 3.06171043743583e-17,
+    "sharedBytes": 192000,
+    "survivingBytes": 192000,
+    "collectedBytes": 0,
+    "measured": {
+      "peak": 0.12500381469726562,
+      "rms": 0.11858903119589724,
+      "clipped": 0,
+      "nonfinite": 0,
+      "sampleRate": 48000,
+      "channels": 2,
+      "frames": 24000,
+      "duration": 0.5
+    },
+    "backend": {
+      "kind": "web-audio-offline",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+      "sampleRate": 48000
+    },
+    "capabilities": {
+      "scheduled": true,
+      "automation": true,
+      "mixer": true,
+      "media": false,
+      "meters": false,
+      "offline": true,
+      "sessions": true
+    }
+  }
+}

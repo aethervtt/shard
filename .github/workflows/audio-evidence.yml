@@ -35,6 +35,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @aethervtt/shard-playground exec playwright install --with-deps chromium
       - run: pnpm typecheck
+      - run: pnpm --filter audio-lab check
       - run: pnpm lint
       - run: pnpm --filter @aethervtt/shard-audio --filter @aethervtt/shard-assets --filter @aethervtt/shard-save test
         env:
@@ -42,6 +43,10 @@ jobs:
       - run: pnpm --filter @aethervtt/shard-playground exec vitest run src/audio.test.ts
         env:
           SHARD_BROWSER_TESTS: required
+          SHARD_AUDIO_EVIDENCE: ${{ github.workspace }}/audio-evidence
+      - run: pnpm --filter @aethervtt/shard-cli exec vitest run src/audio-preview.test.ts
+        env:
+          SHARD_BROWSER_TESTS: 'required'
           SHARD_AUDIO_EVIDENCE: ${{ github.workspace }}/audio-evidence
       - uses: actions/upload-artifact@v4
         if: always()

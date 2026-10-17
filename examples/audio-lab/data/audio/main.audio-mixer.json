@@ -1,0 +1,57 @@
+{
+  "globals": {
+    "path": "data/audio/globals.audio-parameters.json"
+  },
+  "curves": [
+    {
+      "bus": "sfx",
+      "field": "gainDb",
+      "parameter": "weather",
+      "points": [[0, 0], [1, -3]]
+    }
+  ],
+  "buses": [
+    {
+      "id": "master",
+      "parent": ""
+    },
+    {
+      "id": "sfx",
+      "effects": [
+        {
+          "id": "water",
+          "kind": "lowpass",
+          "frequency": 12000
+        }
+      ],
+      "sends": [
+        {
+          "target": "room",
+          "gainDb": -9
+        }
+      ]
+    },
+    {
+      "id": "music"
+    },
+    {
+      "id": "ui"
+    },
+    {
+      "id": "voice"
+    },
+    {
+      "id": "room",
+      "return": true,
+      "effects": [
+        {
+          "id": "echo",
+          "kind": "delay",
+          "seconds": 0.13,
+          "feedback": 0.35,
+          "tailSeconds": 0.8
+        }
+      ]
+    }
+  ]
+}

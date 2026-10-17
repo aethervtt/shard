@@ -1,0 +1,9 @@
+{
+  "parameters": [
+    {
+      "name": "weather",
+      "min": 0,
+      "max": 1
+    }
+  ]
+}
