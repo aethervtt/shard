@@ -42,7 +42,7 @@ with no build step. Published packages contain JavaScript and TypeScript declara
 only the packages you need, keeping them on the same version:
 
 ```sh
-npm install --save-exact @aethervtt/shard-runtime@0.2.0 @aethervtt/shard-audio@0.2.0
+npm install --save-exact @aethervtt/shard-runtime@0.2.1 @aethervtt/shard-audio@0.2.1
 ```
 
 See [CHANGELOG.md](CHANGELOG.md) for release notes and [RELEASING.md](RELEASING.md) for publishing.

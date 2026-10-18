@@ -9,5 +9,5 @@
     "noEmit": true,
     "skipLibCheck": false
   },
-  "include": ["main.ts"]
+  "include": ["main.ts", "api-types.ts"]
 }

@@ -17,7 +17,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { createRequire } from 'node:module'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -72,6 +72,28 @@ function rewriteSpecifiers(code, sourceFile) {
 }
 
 // --- one package -------------------------------------------------------------------------------
+
+function inside(path) {
+  return path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path)
+}
+
+// tsc points preserved path references back at the original .d.ts in src. The release copies
+// those files into dist with the same layout, so references must follow the shipped copy.
+function rewriteDeclarationReferences(code, file, sourceRoot, outputRoot) {
+  return code.replace(
+    /(^\s*\/\/\/\s*<reference\s+path=)(['"])([^'"]+)\2/gm,
+    (_, prefix, quote, path) => {
+      let referenced = resolve(dirname(file), path)
+      const sourceRelative = relative(sourceRoot, referenced)
+      if (inside(sourceRelative)) referenced = join(outputRoot, sourceRelative)
+      if (!inside(relative(outputRoot, referenced)) || !existsSync(referenced)) {
+        throw new Error(`Unshipped declaration reference in ${relative(out, file)}: ${path}`)
+      }
+      const published = relative(dirname(file), referenced).split(sep).join('/')
+      return `${prefix}${quote}${published.startsWith('.') ? '' : './'}${published}${quote}`
+    },
+  )
+}
 
 function walk(dir) {
   const files = []
@@ -149,7 +171,11 @@ function buildPackage(name) {
   for (const file of walk(join(target, 'dist'))) {
     if (!file.endsWith('.d.ts')) continue
     const source = join(dir, 'src', relative(join(target, 'dist'), file)).replace(/\.d\.ts$/, '.ts')
-    writeFileSync(file, rewriteSpecifiers(readFileSync(file, 'utf8'), source))
+    const code = rewriteSpecifiers(readFileSync(file, 'utf8'), source)
+    writeFileSync(
+      file,
+      rewriteDeclarationReferences(code, file, join(dir, 'src'), join(target, 'dist')),
+    )
   }
 
   // Files loaded at runtime by URL, next to dist as they are next to src.

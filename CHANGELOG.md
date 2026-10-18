@@ -3,7 +3,15 @@
 All engine packages share one version. During `0.x`, minor releases may change APIs;
 patch releases preserve compatibility. Apps and examples are not published.
 
-## 0.2.0
+## 0.2.1
+
+- Preserve and relocate the text package's reference to its bundled `opentype.js` declarations
+  in emitted `.d.ts` files. Strict TypeScript consumers of text, dice, cards, and related APIs no longer need
+  to supply an additional ambient declaration (0056).
+- Expand the packed consumer's declaration check to cover audio, the audio editor and preview,
+  cards, dice, effects, scatter, and text, in addition to the renderer example (0056).
+
+## 0.2.0 — 2026-10-18
 
 47 packages, including five new packages: `audio-editor`, `audio-preview`, `cards`, `effects`,
 and `scatter` (each under `@aethervtt/shard-`).
