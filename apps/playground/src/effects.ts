@@ -21,6 +21,7 @@ import { createWebAudioBackend, type WebAudioBackend } from '@aethervtt/shard-pl
 import {
   AmbientLight,
   Camera3d,
+  describeRender,
   Exposure,
   forwardPlugin,
   Gpu,
@@ -109,10 +110,12 @@ async function main() {
   const session = audioState(world).backend as WebAudioBackend
   session.output.connect(analyser)
   const samples = new Float32Array(analyser.fftSize)
+  let stepping = false
   let disposed = false
   let instance: EffectInstance | null = null
   const inspect = () => ({
     backend: world.resource(Gpu).backend,
+    render: describeRender(world),
     effects: describeEffects(world),
     audio: describeAudioEvents(world),
     voices: describeAudio(world),
@@ -174,11 +177,19 @@ async function main() {
     play: cast,
     inspect,
     async step(frames: number) {
-      for (let i = 0; i < frames; i++) {
-        app.update(1 / 60)
-        await world.resource(Shaders).whenIdle()
-        await new Promise(requestAnimationFrame)
+      stepping = true
+      try {
+        for (let i = 0; i < frames; i++) {
+          app.update(1 / 60)
+          await world.resource(Shaders).whenIdle()
+          await new Promise(requestAnimationFrame)
+        }
+      } finally {
+        stepping = false
       }
+      // Rendering continues with zero simulation delta between manual steps. Wait for the
+      // renderer's GPU + compositor fence, not just the CPU finishing its last update.
+      await app.whenPresented()
       drawUi()
       return inspect()
     },
@@ -213,6 +224,7 @@ async function main() {
   const frame = (now: number) => {
     if (disposed) return
     if (!manual) app.update(Math.min(0.1, (now - previous) / 1000))
+    else if (!stepping) app.update(0)
     previous = now
     if (now - uiAt > 100) {
       drawUi()

@@ -59,6 +59,23 @@ describe('project data types', () => {
       duration: 0.2,
       tracks: [{ id: 'reveal', kind: 'marker', start: 0.1, marker: 'reveal' }],
     })
+    write('data/child.effect-sequence.json', {
+      duration: 1,
+      targets: [{ id: 'actor' }],
+      tracks: [
+        {
+          id: 'move',
+          kind: 'property',
+          target: 'actor',
+          targetPath: 'Tip',
+          duration: 1,
+          component: 'core/Transform',
+          field: 'translation',
+          from: [0, 0, 0],
+          to: [1, 0, 0],
+        },
+      ],
+    })
     const app = buildApp({
       manifest: Manifest.deserialize({ name: 'effects-project', plugins: ['effects'] }),
     })
@@ -67,6 +84,9 @@ describe('project data types', () => {
       platform: createNodePlatform({ root, logTo: () => {} }),
     })
     expect((await assets.scan()).failed).toEqual([])
+    // Child entity paths are not file dependencies. Only typed asset handles use `path`.
+    expect(assets.info('data/child.effect-sequence.json').dependencies).toEqual([])
+    expect(assets.info('data/reveal.effect-sequence.json').dependencies).toEqual([])
     const server = createProtocolServer(app)
     const call = (method: string, params = {}) =>
       server.handle({ jsonrpc: '2.0', id: 1, method, params })

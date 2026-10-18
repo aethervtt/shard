@@ -1536,7 +1536,9 @@ multiplier). Animation and particle tracks require owned targets. Audio tracks u
 AudioEvent assets. Marker tracks record presentation milestones; gameplay applies damage itself.
 
 Use prepareEffect(world, source), then playEffect(world, preparation, { bindings, parameters,
-seed, ownerEntity }). Release the preparation when no more plays are needed: active instances
+seed, parent, ownerEntity }). The optional parent anchors owned targets in a local frame, so
+one prepared spell can play at different positions/orientations. Removing the parent cancels
+the effect unless another ownerEntity was supplied. Release the preparation when no more plays are needed: active instances
 retain it. cancelEffect restores borrowed fields, stops audio and removes owned prefab trees.
 pauseEffect pauses only that instance. Keep claimed fields free of other writers while playing.
 No runtime file picker, URL fetcher or persistence backend is assumed.

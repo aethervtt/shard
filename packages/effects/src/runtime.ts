@@ -324,6 +324,8 @@ export interface PlayEffectOptions {
   parameters?: Readonly<Record<string, number>>
   seed?: number
   ownerEntity?: Entity
+  /** Parent frame for owned targets; their authored transforms stay local. */
+  parent?: Entity
 }
 
 /** Synchronous after preparation: validation and binding finish before any track starts. */
@@ -343,6 +345,8 @@ export function playEffect(
     effectError('Seed must be a u32', '/seed')
   if (options.ownerEntity !== undefined && !world.isAlive(options.ownerEntity))
     effectError('Owner entity is dead', '', 'dead-target')
+  if (options.parent !== undefined && !world.isAlive(options.parent))
+    effectError('Parent entity is dead', '/parent', 'dead-target')
   const parameters = new Map(plan.document.parameters.map((p) => [p.id, p.value]))
   for (const [key, value] of Object.entries(options.parameters ?? {})) {
     const p = plan.document.parameters.find((p) => p.id === key)
@@ -361,7 +365,7 @@ export function playEffect(
     seed,
     plan,
     owner,
-    ownerEntity: options.ownerEntity,
+    ownerEntity: options.ownerEntity ?? options.parent,
     targets: new Map(),
     time: 0,
     state: 'playing',
@@ -377,7 +381,7 @@ export function playEffect(
     for (const target of plan.document.targets) {
       let entity: Entity | undefined
       if (target.prefab) {
-        entity = spawnPrefab(world, target.prefab)
+        entity = spawnPrefab(world, target.prefab, { parent: options.parent })
         // Adopting the root adopts its complete existing child tree too (0061).
         world.owners.adopt(owner, entity)
       } else entity = options.bindings?.[target.id]
@@ -389,9 +393,10 @@ export function playEffect(
     for (let i = 0; i < plan.document.tracks.length; i++) {
       const d = plan.document.tracks[i]!
       let entity = d.kind === 'marker' ? null : instance.targets.get(d.target)!
-      if (entity !== null && d.path) entity = descendantPaths(world, entity).get(d.path) ?? null
+      if (entity !== null && d.targetPath)
+        entity = descendantPaths(world, entity).get(d.targetPath) ?? null
       if (d.kind !== 'marker' && entity === null)
-        effectError(`Missing target path for ${d.id}`, `/tracks/${i}/path`, 'dead-target')
+        effectError(`Missing target path for ${d.id}`, `/tracks/${i}/targetPath`, 'dead-target')
       const factor = d.parameter ? parameters.get(d.parameter)! : 1
       let slot: FieldSlot | null = null
       if (d.kind === 'property') {

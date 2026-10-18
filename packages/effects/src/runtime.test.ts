@@ -1,9 +1,9 @@
 import { AnimationClips, animationPlugin, parsePropertyClip } from '@aethervtt/shard-animation'
 import { assetServer } from '@aethervtt/shard-assets'
-import { defineComponent, t } from '@aethervtt/shard-core'
+import { Children, defineComponent, t } from '@aethervtt/shard-core'
 import { App, FrameDemand } from '@aethervtt/shard-runtime'
 import { registerPrefab, ScenePlugin } from '@aethervtt/shard-scene'
-import { Transform, TransformPlugin } from '@aethervtt/shard-transform'
+import { Transform, TransformPlugin, worldPosition } from '@aethervtt/shard-transform'
 import { describe, expect, it } from 'vitest'
 import { EffectSequence, parseEffect } from './document'
 import { effectsPlugin } from './plugin'
@@ -237,11 +237,16 @@ describe('effect runtime', () => {
           duration: 1,
           animation: { guid: 'clip-id' },
         },
+        { ...move, id: 'tipMove', target: 'spell', targetPath: 'tip', to: [2, 0, 0] },
       ],
     })
-    const instance = playEffect(world, plan)
+    const anchor = world.spawn([Transform, { translation: [10, 0, 0] }])
+    const instance = playEffect(world, plan, { parent: anchor })
     const root = instance.targets.get('spell')!
     app.update(0.5)
+    expect(worldPosition(world, root)).toEqual([10, 0, 0])
+    const tip = world.get(root, Children).entities[0]!
+    expect(worldPosition(world, tip)).toEqual([12, 0, 0])
     expect(world.resource(AnimationClips).byGuid('clip-id')).toBeDefined()
     expect(world.get(root, Transform).scale).toEqual([2, 2, 2])
     const borrowed = await prepareEffect(world, {
@@ -256,6 +261,12 @@ describe('effect runtime', () => {
     expect(world.get(root, Transform).scale).toEqual([3, 3, 3])
     cancelEffect(world, instance.id)
     expect(world.isAlive(root)).toBe(false)
+    expect(world.isAlive(tip)).toBe(false)
+    expect(world.isAlive(anchor)).toBe(true)
+    const attached = playEffect(world, plan, { parent: anchor })
+    world.despawn(anchor)
+    app.update(0.1)
+    expect(attached.state).toBe('cancelled')
     expect(world.isAlive(actor)).toBe(true)
     const failing = await prepareEffect(world, {
       duration: 1,

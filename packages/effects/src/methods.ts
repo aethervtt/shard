@@ -38,6 +38,7 @@ export const effectMethods: AppMethod[] = [
       parameters: t.json({ default: {} }),
       seed: t.u32(),
       ownerEntity: t.entity(),
+      parent: t.entity(),
     }),
     handler: ({ world }, p) => {
       const plan = world.resource(Effects).plans.get(p.preparation as number)
@@ -52,6 +53,7 @@ export const effectMethods: AppMethod[] = [
           bindings: p.bindings as Record<string, Entity>,
           parameters: p.parameters as Record<string, number>,
           seed: p.seed as number,
+          parent: typeof p.parent === 'number' && p.parent >= 0 ? p.parent : undefined,
           ownerEntity:
             typeof p.ownerEntity === 'number' && p.ownerEntity >= 0 ? p.ownerEntity : undefined,
         }).id,

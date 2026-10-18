@@ -38,15 +38,17 @@ snapshots: edits affect the next preparation, not an active instance.
 
 The document has `duration`, named numeric `parameters` (default/min/max), `targets`, and
 `tracks`. A target has an `id` and optional `prefab` handle. Prefab targets are owned and
-spawned per play; other targets must be supplied by the caller as entity bindings. Tracks
-may address a relative child `path` under that target. Preparation loads and pins prefab,
+spawned per play; other targets must be supplied by the caller as entity bindings. An optional play-time `parent`
+anchors owned targets in a host entity's local frame, enabling placement/orientation without
+rewriting or preparing another document. The parent is also the default owner entity. Tracks
+may address a relative child `targetPath` under that target. Preparation loads and pins prefab,
 animation, particle and authored audio assets; failures unwind all leases. No visible work
 starts until preparation succeeds. Releasing a preparation is idempotent; active instances
 retain it until they finish. Disposal invalidates pending preparation.
 
 ### Tracks
 
-Every track has a unique `id`, `kind`, `target`, `path`, `start` and `duration` in seconds.
+Every track has a unique `id`, `kind`, `target`, `targetPath`, `start` and `duration` in seconds.
 All times are finite and within the document duration. Markers have zero duration; other
 tracks have positive duration. Starts and ends are ordered by time then document order;
 ends precede starts at the same time (1 ns tolerance for decimal times), permitting adjacent tracks on one field.
@@ -71,7 +73,7 @@ fails the whole instance and cleans up everything still owned.
 ```ts
 const prepared = await prepareEffect(world, documentOrAssetRef)
 const instance = playEffect(world, prepared, {
-  bindings: { caster, camera }, parameters: { power: 1.5 }, seed: 42,
+  bindings: { caster, camera }, parent: castAnchor, parameters: { power: 1.5 }, seed: 42,
 })
 prepared.release() // instance keeps its lease
 cancelEffect(world, instance.id)
@@ -127,7 +129,7 @@ backward scrubbing is deferred because audio and particles carry simulation stat
 - [ ] GUID-only and direct documents prepare; failure, disposal during load, release-before-end
   and repeated release leave no retained leases or spawned entities.
 - [ ] Headless tests cover time zero, boundaries, large steps, markers, parameter overrides,
-  deterministic replay, pause/resume, cancellation, dead targets, archetype moves and conflicts.
+  deterministic replay, parent-frame placement, pause/resume, cancellation, dead targets, archetype moves and conflicts.
 - [ ] Animation, particles, audio and field tracks use existing runtimes; cleanup restores
   borrowed state and removes only owned trees, including failure during activation.
 - [ ] Protocol/MCP/project integration works, with bounded trace and useful errors.

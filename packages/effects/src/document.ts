@@ -9,7 +9,7 @@ export const EffectTrack = t.struct({
   id: t.string({ required: true }),
   kind: t.enum(['property', 'animation', 'particles', 'audio', 'marker']),
   target: t.string(),
-  path: t.string(),
+  targetPath: t.string(),
   start: t.f64({ min: 0 }),
   duration: t.f64({ min: 0 }),
   component: t.string(),
@@ -83,8 +83,8 @@ export function validateEffect(v: EffectDocument): void {
       continue
     }
     if (!targets.has(a.target)) effectError('Unknown target', `${path}/target`)
-    if (a.path.split('/').some((p) => p === '..' || p === '.'))
-      effectError('Use a relative child path', `${path}/path`)
+    if (a.targetPath.split('/').some((p) => p === '..' || p === '.'))
+      effectError('Use a relative child path', `${path}/targetPath`)
     if (a.kind === 'property') {
       if (
         !a.component ||
@@ -109,7 +109,7 @@ export function validateEffect(v: EffectDocument): void {
       const b = v.tracks[j]!
       if (
         a.target !== b.target ||
-        a.path !== b.path ||
+        a.targetPath !== b.targetPath ||
         a.start >= b.start + b.duration - 1e-9 ||
         b.start >= a.start + a.duration - 1e-9
       )

@@ -51,7 +51,8 @@ describe('effect sequence browser evidence', () => {
             timeout: timeout(45_000),
           })
           await page.evaluate(() => window.effectsProbe.step(3))
-          const before = await page.locator('canvas').screenshot()
+          const clip = (await page.locator('canvas').boundingBox())!
+          const before = await page.screenshot({ clip })
           await page.click('#play')
           await page.waitForFunction(
             () => window.effectsProbe.inspect().instance?.state === 'playing',
@@ -77,7 +78,7 @@ describe('effect sequence browser evidence', () => {
           await page.waitForTimeout(150)
           const rms = await page.evaluate(() => window.effectsProbe.rms())
           expect(rms).toBeGreaterThan(0.00001)
-          const during = await page.locator('canvas').screenshot()
+          const during = await page.screenshot({ clip })
           const a = await decodePng(before),
             b = await decodePng(during)
           let changed = 0
