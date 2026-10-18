@@ -68,7 +68,7 @@ async function main() {
     setTimeout(() => URL.revokeObjectURL(url), 0)
   }
   document.querySelector('#status')!.textContent =
-    'Two independent audio sessions. Changes stay in this tab until downloaded.'
+    'Drag a panel’s lower corner to resize. Two independent audio sessions; changes stay in this tab until downloaded.'
   Object.assign(globalThis, {
     audioEditorDemo: {
       session,

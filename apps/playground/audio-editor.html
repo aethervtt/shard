@@ -35,13 +35,13 @@
 <body>
   <header class="brandbar"><div class="brand"><span class="brand-mark" aria-hidden="true"></span>SHARD</div><span>AUDIO WORKSPACE / PLAYGROUND</span></header>
   <div class="intro"><h1>Shape your sound.</h1><p>Build layered events, mix buses, and audition your changes.</p></div>
-  <div class="controls" role="group" aria-label="Workspace options">
-    <label class="example">Document <select id="example" aria-label="Example"></select></label>
+  <section class="controls" aria-label="Workspace options">
+    <label class="example">Document <select id="example"></select></label>
     <label>Theme <select id="theme"><option value="dark">Dark</option><option value="light">Light</option></select></label>
     <button id="narrow" type="button">300 px panels</button>
     <button id="wide" type="button">Wide workspace</button>
     <button id="download" type="button">Download document JSON</button>
-  </div>
+  </section>
   <main class="docks"><div id="full" class="dock"></div><div id="compact" class="dock"></div></main>
   <div id="status" role="status">Loading host catalog…</div>
   <script type="module" src="/src/audio-editor.ts"></script>
