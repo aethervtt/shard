@@ -11,6 +11,15 @@ interface Demo {
   session: AudioEditorSession
   compactSession: AudioEditorSession
   host: ReturnType<typeof createDemoAudioHost>
+  createAudioEditorSession: typeof import('@aethervtt/shard-audio-editor/model').createAudioEditorSession
+  mountAudioEditor: typeof import('@aethervtt/shard-audio-editor/dom').mountAudioEditor
+}
+interface MeterFixture {
+  calls: number
+  failed: boolean
+  container: HTMLElement
+  session: AudioEditorSession
+  view: ReturnType<Demo['mountAudioEditor']>
 }
 const browserName = process.env.SHARD_EDITOR_BROWSER ?? 'chromium'
 const engine = browserName === 'firefox' ? firefox : browserName === 'webkit' ? webkit : chromium
@@ -23,7 +32,7 @@ async function reach(page: Page, locator: Locator): Promise<void> {
     await page.keyboard.press('Tab')
   }
   throw new Error(
-    `Keyboard tab order could not reach ${(await locator.getAttribute('aria-label')) ?? (await locator.textContent())}`,
+    `Keyboard tab order could not reach ${(await locator.getAttribute('aria-label')) ?? (await locator.textContent())}: ${JSON.stringify(await locator.evaluate((node) => ({ disabled: (node as HTMLButtonElement).disabled, active: (node.getRootNode() as ShadowRoot).activeElement?.outerHTML.slice(0, 250) })))}`,
   )
 }
 async function activate(page: Page, locator: Locator): Promise<void> {
@@ -236,6 +245,20 @@ describe(`audio editor keyboard authoring (${browserName})`, () => {
                 .document!.value,
           ),
         ).toBe(false)
+        await activate(page, full.locator('details[data-group="/layers/0"] > summary'))
+        await enter(page, full.locator('[data-path="/layers/0/gainDb"]'), '-9')
+        await activate(
+          page,
+          full.getByRole('button', { name: 'Reset layers override', exact: true }),
+        )
+        await page.waitForFunction(
+          () =>
+            !(
+              'layers' in
+              (globalThis as unknown as { audioEditorDemo: Demo }).audioEditorDemo.session.state
+                .document!.value
+            ),
+        )
         await tab(page, full, 0)
         await activate(page, full.getByRole('button', { name: 'World parameters', exact: true }))
         await activate(page, full.locator('details[data-group="rename"] > summary'))
@@ -272,5 +295,118 @@ describe(`audio editor keyboard authoring (${browserName})`, () => {
       }
     },
     timeout(120000),
+  )
+
+  it(
+    'stops meter requests when hidden, idle, disconnected or disposed',
+    async (ctx) => {
+      if (unavailable) return ctx.skip()
+      const browser = await engine.launch()
+      try {
+        const page = await browser.newPage()
+        await page.goto(`${server.base}/audio-editor.html`)
+        await page.waitForFunction(() => 'audioEditorDemo' in globalThis)
+        await page.evaluate(async () => {
+          const demo = (globalThis as unknown as { audioEditorDemo: Demo }).audioEditorDemo
+          const container = document.createElement('div')
+          container.style.cssText = 'position:fixed;top:0;left:0;width:300px;height:500px'
+          document.body.append(container)
+          const fixture = { calls: 0, failed: false, container } as unknown as MeterFixture
+          const session = demo.createAudioEditorSession({
+            ...demo.host,
+            preview: {
+              mode: 'audition',
+              capabilities: { play: true, control: true },
+              async play() {
+                return { configured: true }
+              },
+              stop() {},
+              inspect() {
+                return {}
+              },
+              dispose() {},
+              command() {
+                fixture.calls++
+                if (fixture.failed) throw new Error('Disconnected fixture')
+                return { available: true, peak: 0.5, rms: 0.25, at: 1 }
+              },
+            },
+          })
+          await session.open(
+            [...demo.host.records.values()].find((record) => record.type === 'audio/AudioMixer')!
+              .id,
+          )
+          fixture.session = session
+          fixture.view = demo.mountAudioEditor(container, { session, layout: 'compact' })
+          Object.assign(globalThis, { audioEditorMeterFixture: fixture })
+          await session.play()
+        })
+        const count = () =>
+          page.evaluate(
+            () =>
+              (globalThis as unknown as { audioEditorMeterFixture: MeterFixture })
+                .audioEditorMeterFixture.calls,
+          )
+        await page.waitForFunction(
+          () =>
+            (globalThis as unknown as { audioEditorMeterFixture: MeterFixture })
+              .audioEditorMeterFixture.calls > 0,
+        )
+        await page.evaluate(() => {
+          ;(
+            globalThis as unknown as { audioEditorMeterFixture: MeterFixture }
+          ).audioEditorMeterFixture.container.hidden = true
+        })
+        await page.waitForTimeout(150)
+        const hidden = await count()
+        await page.waitForTimeout(300)
+        expect(await count()).toBe(hidden)
+        await page.evaluate(() => {
+          ;(
+            globalThis as unknown as { audioEditorMeterFixture: MeterFixture }
+          ).audioEditorMeterFixture.container.hidden = false
+        })
+        await page.waitForFunction(
+          (before) =>
+            (globalThis as unknown as { audioEditorMeterFixture: MeterFixture })
+              .audioEditorMeterFixture.calls > before,
+          hidden,
+        )
+        await page.evaluate(async () => {
+          await (
+            globalThis as unknown as { audioEditorMeterFixture: MeterFixture }
+          ).audioEditorMeterFixture.session.stop()
+        })
+        const idle = await count()
+        await page.waitForTimeout(300)
+        expect(await count()).toBe(idle)
+        await page.evaluate(async () => {
+          const fixture = (globalThis as unknown as { audioEditorMeterFixture: MeterFixture })
+            .audioEditorMeterFixture
+          fixture.failed = true
+          await fixture.session.play()
+        })
+        await page.waitForFunction(
+          (before) =>
+            (globalThis as unknown as { audioEditorMeterFixture: MeterFixture })
+              .audioEditorMeterFixture.calls > before,
+          idle,
+        )
+        const disconnected = await count()
+        await page.waitForTimeout(300)
+        expect(await count()).toBe(disconnected)
+        await page.evaluate(async () => {
+          const fixture = (globalThis as unknown as { audioEditorMeterFixture: MeterFixture })
+            .audioEditorMeterFixture
+          fixture.view.dispose()
+          await fixture.session.dispose()
+        })
+        await page.waitForTimeout(300)
+        expect(await count()).toBe(disconnected)
+      } finally {
+        await browser.close()
+      }
+    },
+    timeout(30000),
   )
 })

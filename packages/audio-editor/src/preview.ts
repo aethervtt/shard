@@ -112,7 +112,7 @@ export function createIsolatedAudioPreview(
       checkScope()
       const combined = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
       // An existing browser context must receive resume before any async host validation.
-      const unlocking = runtime?.unlock()
+      runtime?.unlock()
       const pending = ensure(combined)
       void pending.catch(() => {})
       const result = await validateAudioDocument(
@@ -123,7 +123,6 @@ export function createIsolatedAudioPreview(
       )
       assertLive(combined)
       if (result.errors.length) throw result.errors[0]
-      await unlocking
       const active = await pending
       assertLive(combined)
       return active.play(result.effective ?? document, combined)

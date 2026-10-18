@@ -31,7 +31,8 @@
     "@aethervtt/shard-platform-web": "workspace:*",
     "@aethervtt/shard-project": "workspace:*",
     "@aethervtt/shard-runtime": "workspace:*",
-    "@aethervtt/shard-transform": "workspace:*"
+    "@aethervtt/shard-transform": "workspace:*",
+    "@aethervtt/shard-audio-preview": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^26.6.2",

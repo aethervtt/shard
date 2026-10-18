@@ -1,4 +1,4 @@
-import type { Platform } from '@aethervtt/shard-platform'
+import type { FileChangeEvent, Platform } from '@aethervtt/shard-platform'
 import { describe, expect, it } from 'vitest'
 import { sineWav } from '../../audio/src/testing-utils'
 import { openAudioProject } from './project'
@@ -40,6 +40,56 @@ function host(writable = true) {
 }
 
 describe('project audio host', () => {
+  it('refreshes external additions, removals and sidecar identity changes', async () => {
+    const fixture = host()
+    let notify: ((event: FileChangeEvent) => void) | undefined
+    fixture.platform.fs.watch = async (_path, listener) => {
+      notify = listener
+      return () => {}
+    }
+    const project = await openAudioProject(fixture.platform)
+    const changed = (event: FileChangeEvent) =>
+      new Promise<void>((resolve) => {
+        const unsubscribe = project.assets.subscribe!(() => {
+          unsubscribe()
+          resolve()
+        })
+        notify!(event)
+      })
+    fixture.files.set('data/new.wav', '')
+    fixture.files.set('data/new.wav.meta', '{"guid":"new-clip"}')
+    await changed({ kind: 'create', path: 'data/new.wav' })
+    expect((await project.assets.get('new-clip')).type).toBe('AudioClip')
+    fixture.files.set('data/new.wav.meta', '{"guid":"renamed-clip"}')
+    await changed({ kind: 'modify', path: 'data/new.wav.meta' })
+    await expect(project.assets.get('new-clip')).rejects.toMatchObject({
+      code: 'audio-editor/asset-unavailable',
+    })
+    expect((await project.assets.get('renamed-clip')).id).toBe('renamed-clip')
+    fixture.files.delete('data/new.wav')
+    await changed({ kind: 'remove', path: 'data/new.wav' })
+    await expect(project.assets.get('renamed-clip')).rejects.toMatchObject({
+      code: 'audio-editor/asset-unavailable',
+    })
+    expect((await project.assets.list({ type: 'AudioClip' })).items).toEqual([])
+    project.dispose()
+  })
+  it('watches only declared source roots and releases watches once', async () => {
+    const fixture = host(),
+      watched: string[] = []
+    let released = 0
+    fixture.platform.fs.watch = async (path) => {
+      watched.push(path)
+      return () => {
+        released++
+      }
+    }
+    const project = await openAudioProject(fixture.platform)
+    expect(watched).toEqual(['data'])
+    project.dispose()
+    project.dispose()
+    expect(released).toBe(1)
+  })
   it('resolves project import settings with authorized clip bytes', async () => {
     const fixture = host()
     fixture.files.set('data/tone.wav', '')

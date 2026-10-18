@@ -228,7 +228,6 @@ describe(`audio editor real previews (${browserName})`, () => {
           const listenerCount = () =>
             [...listeners.values()].reduce((sum, types) => sum + types.size, 0)
           const root = demo.createWebAudioBackend()
-          await root.resume()
           const event = demo.session.state.document
           const original = root.createSession!.bind(root)
           const children: ReturnType<typeof original>[] = []

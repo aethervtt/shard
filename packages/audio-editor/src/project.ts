@@ -1,3 +1,4 @@
+import { sha256Hex } from '@aethervtt/shard-assets'
 import { AudioImportSettings, audioClip } from '@aethervtt/shard-audio'
 import { type JsonObject, ShardError } from '@aethervtt/shard-core'
 import type { Platform } from '@aethervtt/shard-platform'
@@ -34,15 +35,16 @@ export async function openAudioProject(platform: Platform, scope = 'project') {
   const paths = new Map<string, { path: string; type: string; name: string }>()
   const aliases = new Map<string, string>()
   const listeners = new Set<(ids: readonly string[]) => void>()
+  let catalogError: ShardError | undefined
   let disposed = false
   const check = (signal?: AbortSignal) => {
     if (disposed) throw new ShardError('audio-editor/disposed', 'The project adapter is closed')
     signal?.throwIfAborted()
   }
-  const scan = async (dir: string) => {
+  const scan = async (dir: string, index = paths, sourceAliases = aliases) => {
     for (const entry of await fs.list!(dir)) {
       const path = `${dir}/${entry.name}`
-      if (entry.kind === 'dir') await scan(path)
+      if (entry.kind === 'dir') await scan(path, index, sourceAliases)
       else {
         const suffix = /\.([^.]+)\.json$/.exec(path)?.[1]
         const type = suffix
@@ -54,15 +56,30 @@ export async function openAudioProject(platform: Platform, scope = 'project') {
         let id = path
         if (await fs.exists(`${path}.meta`)) {
           const meta = JSON.parse(await fs.readText(`${path}.meta`)) as { guid?: string }
-          if (meta.guid) id = meta.guid
+          if (typeof meta.guid !== 'string' || !meta.guid)
+            throw new ShardError(
+              'audio-editor/invalid-document',
+              'Audio sidecar has no stable GUID',
+              {
+                path: `${path}.meta`,
+                hint: 'Restore its GUID or re-import the source through the project host.',
+              },
+            )
+          id = meta.guid
         }
-        paths.set(id, { path, type, name: entry.name })
-        aliases.set(path, id)
+        if (index.has(id) && index.get(id)!.path !== path)
+          throw new ShardError('audio-editor/invalid-document', 'Audio sources share a GUID', {
+            path: `${path}.meta`,
+            hint: 'Assign a unique GUID to the copied asset before importing it.',
+          })
+        index.set(id, { path, type, name: entry.name })
+        sourceAliases.set(path, id)
       }
     }
   }
   for (const root of manifest.assetRoots) await scan(root)
   const lookup = (id: string) => {
+    if (catalogError) throw catalogError
     const item = paths.get(id) ?? paths.get(aliases.get(id) ?? '')
     if (!item)
       throw new ShardError('audio-editor/asset-unavailable', `Unknown project audio asset: ${id}`, {
@@ -205,6 +222,7 @@ export async function openAudioProject(platform: Platform, scope = 'project') {
     scope,
     async list(query) {
       check(query.signal)
+      if (catalogError) throw catalogError
       const all = [...paths]
         .sort(([, a], [, b]) => a.name.localeCompare(b.name))
         .filter(
@@ -259,21 +277,83 @@ export async function openAudioProject(platform: Platform, scope = 'project') {
       return () => listeners.delete(listener)
     },
   }
-  const unwatch = await fs.watch?.('', (event) => {
-    const id = aliases.get(event.path)
-    if (id) for (const listener of listeners) listener([id])
-  })
+  const refresh = () => {
+    const operation = pending.then(async () => {
+      check()
+      const next = new Map<string, { path: string; type: string; name: string }>()
+      const nextAliases = new Map<string, string>()
+      for (const root of manifest.assetRoots) await scan(root, next, nextAliases)
+      check()
+      const changed = [...new Set([...paths.keys(), ...next.keys()])]
+      paths.clear()
+      aliases.clear()
+      for (const [id, value] of next) paths.set(id, value)
+      for (const [path, id] of nextAliases) aliases.set(path, id)
+      catalogError = undefined
+      for (const listener of listeners) listener(changed)
+    })
+    pending = operation.then(
+      () => {},
+      () => {},
+    )
+    return operation
+  }
+  let refreshing = false,
+    refreshAgain = false
+  const queueRefresh = () => {
+    if (disposed) return
+    if (refreshing) {
+      refreshAgain = true
+      return
+    }
+    refreshing = true
+    void refresh()
+      .catch((cause: unknown) => {
+        if (disposed) return
+        catalogError = new ShardError(
+          'audio-editor/asset-unavailable',
+          'The project audio catalog could not refresh',
+          { cause, hint: 'Check changed audio sidecars and refresh the project.' },
+        )
+        for (const listener of listeners) listener([...paths.keys()])
+      })
+      .finally(() => {
+        refreshing = false
+        if (refreshAgain) {
+          refreshAgain = false
+          queueRefresh()
+        }
+      })
+  }
+  const watchers: (() => void)[] = []
+  try {
+    // Watch source roots, never node_modules or the project's generated caches. Workspace
+    // symlinks can otherwise make a recursive native watcher traverse unrelated projects.
+    if (fs.watch)
+      for (const root of manifest.assetRoots) {
+        if (!(await fs.exists(root))) continue
+        watchers.push(
+          await fs.watch(root, (event) => {
+            const id = aliases.get(event.path)
+            if (event.kind !== 'modify' || event.path.endsWith('.meta') || !id) queueRefresh()
+            else for (const listener of listeners) listener([id])
+          }),
+        )
+      }
+  } catch (error) {
+    for (const unwatch of watchers) unwatch()
+    throw error
+  }
   return {
     name: manifest.name,
     documents,
     assets,
+    refresh,
     dispose() {
       if (disposed) return
       disposed = true
-      unwatch?.()
+      for (const unwatch of watchers) unwatch()
       listeners.clear()
     },
   }
 }
-
-import { sha256Hex } from '@aethervtt/shard-assets'

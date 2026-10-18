@@ -23,6 +23,10 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 describe('audio editor document sessions', () => {
   it('imports without a DOM and edits, validates, saves and reopens opaque IDs', async () => {
     expect(typeof document).toBe('undefined')
+    const entry = await import('./index')
+    const dom = await import('./dom')
+    expect(typeof entry.createAudioEditorSession).toBe('function')
+    expect(typeof dom.mountAudioEditor).toBe('function')
     const host = createMemoryAudioHost({ documents: [mixer()] })
     const editor = createAudioEditorSession(host)
     await editor.open('opaque:1')
@@ -84,6 +88,12 @@ describe('audio editor document sessions', () => {
     const editor = createAudioEditorSession(createMemoryAudioHost({ documents: [parent, child] }))
     await editor.open(child.id)
     expect(() => editor.edit({ path: '/buses/invalid', value: {} })).toThrow('Invalid array index')
+    expect(() => editor.edit({ path: '/buses/invalid/gainDb', value: -8 })).toThrow(
+      'Invalid array index',
+    )
+    expect(() => editor.edit({ path: '/buses/500/gainDb', value: -8 })).toThrow(
+      'Invalid array index',
+    )
     expect(editor.state.document?.value).toEqual(child.value)
     expect(editor.state.dirty).toBe(false)
     expect(editor.state.canUndo).toBe(false)

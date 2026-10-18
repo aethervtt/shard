@@ -2,6 +2,7 @@ import { HeadlessAudioBackend } from '@aethervtt/shard-audio'
 import { describe, expect, it, vi } from 'vitest'
 import { createMemoryAudioHost } from './memory'
 import { createAttachedAudioPreview, createIsolatedAudioPreview } from './preview'
+import { createPreviewRuntime } from './preview-runtime'
 import type { AudioDocument } from './types'
 
 function wav() {
@@ -66,6 +67,36 @@ function fixture() {
 }
 
 describe('isolated host-backed audition', () => {
+  it.each([true, false])(
+    'disposes sessions even when browser resume never settles (borrowed=%s)',
+    async (borrowed) => {
+      const { host, root, children, dispose } = fixture()
+      Object.assign(root, { resume: () => new Promise<void>(() => {}) })
+      const runtime = await createPreviewRuntime({
+        ...host,
+        ...(borrowed ? { backend: root } : { createBackend: () => root }),
+      })
+      const close = vi.spyOn(children[0]!, 'dispose')
+      await runtime.play(event)
+      await runtime.dispose()
+      expect(close).toHaveBeenCalled()
+      expect(dispose).toHaveBeenCalledTimes(borrowed ? 0 : 1)
+      expect(children[0]!.memory().pinned).toBe(0)
+    },
+  )
+
+  it('reports a rejected browser resume without an unhandled promise or losing disposal', async () => {
+    const { host, root, dispose } = fixture()
+    Object.assign(root, { resume: () => Promise.reject(new Error('No audio device')) })
+    const preview = createIsolatedAudioPreview({ ...host, backend: root })
+    await preview.play(event)
+    expect(preview.inspect()).toMatchObject({
+      auditionError: { code: 'audio-editor/playback-blocked' },
+    })
+    await preview.dispose()
+    expect(dispose).not.toHaveBeenCalled()
+  })
+
   it('rejects a nonisolatable host backend before replacing its handlers or disposing it', async () => {
     const { host } = fixture()
     const onError = vi.fn()
@@ -122,6 +153,21 @@ describe('isolated host-backed audition', () => {
     expect(prepare).toHaveBeenCalledWith(
       expect.objectContaining({ normalize: true, loopStart: 0.125, loopEnd: 0.5 }),
     )
+    await preview.dispose()
+  })
+
+  it('reuses authorized immutable clip revisions across repeated audition without duplicate decode leases', async () => {
+    const { host, root, children, release } = fixture()
+    const preview = createIsolatedAudioPreview({ ...host, backend: root })
+    await preview.play(event)
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    preview.inspect()
+    const bytes = children[0]!.memory().decodedBytes
+    await preview.play(event)
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    expect(preview.inspect()).toMatchObject({ counts: { active: 2 } })
+    expect(children[0]!.memory().decodedBytes).toBe(bytes)
+    expect(release).toHaveBeenCalledOnce()
     await preview.dispose()
   })
 

@@ -1,7 +1,7 @@
 # 0080 — Embeddable audio editor
 
 - **Status:** accepted
-- **Packages:** new `@aethervtt/shard-audio-editor`, `@aethervtt/shard-audio`,
+- **Packages:** new `@aethervtt/shard-audio-editor`, `@aethervtt/shard-audio-preview`, `@aethervtt/shard-audio`,
   `@aethervtt/shard-project`, `@aethervtt/shard-platform-tauri`, `apps/studio`, `apps/playground`
 - **Depends on:** 0031, 0056, 0061, 0062, 0077, 0078, 0079
 
@@ -178,6 +178,8 @@ frame. A worker can derive envelopes from explicitly requested data; metadata-on
 listing never decodes the library. Default editor envelope cache is 32 MiB with LRU eviction;
 runtime PCM retains 0077's separate accounting. Cancel jobs and release leases on close.
 
+The optional `shard-audio-preview` browser-tooling package shares the offline renderer between
+the CLI and editor without depending on editor/model/DOM packages. Engine runtimes never import it.
 Preview export reuses 0078's render plan and produces WAV plus trace/measurement JSON through
 a host export adapter. Capability absence disables export with a reason. Reports preserve seed,
 asset revisions and controls, and distinguish rendered measurements from logical assertions.

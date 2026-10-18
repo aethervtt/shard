@@ -57,8 +57,31 @@ export async function createPreviewRuntime(options: {
     supplied ??
     options.createBackend?.() ??
     (await import('@aethervtt/shard-platform-web')).createWebAudioBackend()
+  let auditionError: ShardError | undefined
+  const unlock = () => {
+    const failed = (cause: unknown) => {
+      auditionError = new ShardError(
+        'audio-editor/playback-blocked',
+        'Audio output could not resume',
+        {
+          cause,
+          hint: 'Check the host audio device and browser permission, then press Play again.',
+        },
+      )
+    }
+    // Browsers may leave resume pending until a later gesture or device becomes available.
+    // Runtime ownership and disposal must not wait for that browser promise.
+    try {
+      const pending = (backend as AudioBackend & { resume?: () => Promise<void> }).resume?.()
+      void pending?.then(() => {
+        auditionError = undefined
+      }, failed)
+    } catch (cause) {
+      failed(cause)
+    }
+  }
   // Called synchronously by the preloaded adapter from the user's Play gesture.
-  const unlocking = (backend as AudioBackend & { resume?: () => Promise<void> }).resume?.()
+  unlock()
   const app = new App().addPlugin(
     TransformPlugin,
     audioPlugin({ backend }),
@@ -68,7 +91,6 @@ export async function createPreviewRuntime(options: {
   )
   try {
     await app.init()
-    await unlocking
   } catch (error) {
     await app.dispose()
     if (!supplied) backend.dispose?.()
@@ -92,6 +114,7 @@ export async function createPreviewRuntime(options: {
   const snapshots = new Set<number>()
   const releases: (() => void)[] = []
   const removals: (() => void)[] = []
+  const definitions = new Map<string, AssetRef>()
   let disposed = false
   let serial = 0
   let last = owned.runtime!.clock.now()
@@ -117,11 +140,11 @@ export async function createPreviewRuntime(options: {
     snapshots.clear()
     while (releases.length) releases.pop()!()
     while (removals.length) removals.pop()!()
+    definitions.clear()
     owned.runtime!.collect()
   }
 
   async function install(document: AudioDocument, signal?: AbortSignal): Promise<AssetRef> {
-    const revision = ++serial
     const resolved = new Map<string, AssetRef>()
     const pending = new Set<string>()
     const scope = options.assets.scope
@@ -155,6 +178,13 @@ export async function createPreviewRuntime(options: {
       }
       const metadata = await options.assets.get(id, signal)
       check()
+      const guid = JSON.stringify([scope, id, metadata.revision])
+      const store = app.world.resource(AudioClips)
+      const result = { type, guid, path: undefined }
+      if (store.has(guid)) {
+        resolved.set(key, result)
+        return result
+      }
       const content = await options.assets.resolve(id, signal)
       try {
         check()
@@ -167,8 +197,6 @@ export async function createPreviewRuntime(options: {
               hint: 'Have the host resolver return encoded bytes for decoded preview playback.',
             },
           )
-        const guid = JSON.stringify([scope, id, metadata.revision, revision])
-        const store = app.world.resource(AudioClips)
         store.set(
           guid,
           audioClip(Uint8Array.from(content.bytes), { ...content.settings, id: guid }),
@@ -176,7 +204,6 @@ export async function createPreviewRuntime(options: {
         removals.push(() => {
           store.delete(guid)
         })
-        const result = { type, guid, path: undefined }
         resolved.set(key, result)
         return result
       } finally {
@@ -223,13 +250,25 @@ export async function createPreviewRuntime(options: {
       for (const [name, definition] of Object.entries(schema.fields))
         value[name] = await fieldValue(definition, value[name])
       check()
-      const guid = JSON.stringify([docsScope, source.id, source.revision, revision])
+      const signature = JSON.stringify([docsScope, source.id, source.revision, value])
+      const previous = definitions.get(signature)
+      if (previous) {
+        resolved.set(key, previous)
+        pending.delete(key)
+        return previous
+      }
+      if (definitions.size >= 256)
+        throw new ShardError('audio/capacity', 'Preview retains at most 256 document revisions', {
+          hint: 'Stop audition to release pinned preview revisions before preparing more.',
+        })
+      const guid = JSON.stringify([docsScope, source.id, source.revision, ++serial])
       const store = app.world.initResource(schema.store)
       store.set(guid, value)
       removals.push(() => {
         store.delete(guid)
       })
       const ref = { type: source.type, guid, path: undefined }
+      definitions.set(signature, ref)
       resolved.set(key, ref)
       pending.delete(key)
       return ref
@@ -238,15 +277,11 @@ export async function createPreviewRuntime(options: {
   }
 
   return {
-    unlock() {
-      const resumable = backend as AudioBackend & { resume?: () => Promise<void> }
-      return resumable.resume?.()
-    },
+    unlock,
     async play(document: AudioDocument, signal?: AbortSignal) {
       assertLive(signal)
       // Resume before the first host read so an existing context receives this user gesture.
-      const resumable = backend as AudioBackend & { resume?: () => Promise<void> }
-      await resumable.resume?.()
+      unlock()
       const ref = await install(document, signal)
       assertLive(signal)
       const world = app.world
@@ -350,7 +385,10 @@ export async function createPreviewRuntime(options: {
       assertLive()
       tick()
       // Backend presentation records mutate on stop; editor observations are snapshots.
-      return structuredClone(describeAudio(app.world))
+      return {
+        ...structuredClone(describeAudio(app.world)),
+        ...(auditionError ? { auditionError: auditionError.toJSON() } : {}),
+      }
     },
     stop,
     dispose() {

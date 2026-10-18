@@ -5,6 +5,7 @@ on:
     paths:
       - 'packages/audio/**'
       - 'packages/audio-editor/**'
+      - 'packages/audio-preview/**'
       - 'packages/platform*/**'
       - 'packages/assets/**'
       - 'packages/save/**'
@@ -20,6 +21,7 @@ on:
     paths:
       - 'packages/audio/**'
       - 'packages/audio-editor/**'
+      - 'packages/audio-preview/**'
       - 'packages/platform*/**'
       - 'packages/assets/**'
       - 'packages/save/**'

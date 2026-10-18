@@ -1,16 +1,22 @@
 // Actual Tauri/WebKitGTK journey through W3C WebDriver. No browser engine substitution.
 // https://v2.tauri.app/develop/tests/webdriver/manual-setup/
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { cp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { resolve } from 'node:path'
+import { resolve, sep } from 'node:path'
 
 const repository = resolve(import.meta.dirname, '../../..')
 const fixture = resolve(homedir(), 'shard-audio-editor-fixture')
 const evidence = resolve(process.env.SHARD_AUDIO_EDITOR_EVIDENCE ?? 'audio-editor-evidence')
 await mkdir(evidence, { recursive: true })
-await cp(resolve(repository, 'examples/audio-lab'), fixture, { recursive: true })
+await cp(resolve(repository, 'examples/audio-lab'), fixture, {
+  recursive: true,
+  // Native authoring reads project sources; workspace install links and generated caches
+  // are not part of this standalone fixture or its authorized asset catalog.
+  filter: (source) =>
+    !source.split(sep).some((part) => part === 'node_modules' || part === '.shard'),
+})
 let reader
 let readerOutput = ''
 if (process.env.SHARD_SCREEN_READER === '1') {
@@ -221,6 +227,8 @@ try {
     )
   }
 } finally {
+  // Capture the X server independently when WebDriver itself is stalled.
+  spawnSync('scrot', [resolve(evidence, 'studio-desktop-state.png')], { timeout: 10000 })
   if (session) {
     await request(`/session/${session}/screenshot`, undefined, 'GET')
       .then((shot) =>

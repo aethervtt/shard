@@ -97,13 +97,16 @@ export function mountPanel(
   const cursors: (string | undefined)[] = []
   let libraryPage: { items: AudioAssetEntry[]; nextCursor?: string; total?: number } | undefined
   let inspection: unknown
+  let presentationInspection: JsonObject = {}
   let waveformId = ''
   let waveform: { peaks: Float32Array; duration: number; sampleRate: number } | undefined
   let rendering = false
+  let pendingFocus: string | undefined
   let dragging = false
   let visible = true
   let meterTimer: ReturnType<typeof setInterval> | undefined
   let meterBusy = false
+  let meterSuspended = false
   const meters = new Map<string, { meter: HTMLMeterElement; label: HTMLElement }>()
   const downloadUrls = new Set<string>()
   const layerWaveforms = new Map<string, Promise<AudioWaveform>>()
@@ -174,6 +177,15 @@ export function mountPanel(
     error = cause instanceof Error ? cause.message : String(cause)
     render()
   }
+  async function inspectPresentation(): Promise<void> {
+    const inspected = object(await session.preview?.inspect())
+    if (disposed) return
+    presentationInspection = object(inspected.audio ?? inspected)
+  }
+  async function audition(): Promise<void> {
+    await session.play()
+    await inspectPresentation()
+  }
   function download(bytes: BlobPart, mime: string, filename: string): void {
     if (disposed) return
     const url = URL.createObjectURL(new Blob([bytes], { type: mime }))
@@ -218,7 +230,8 @@ export function mountPanel(
     try {
       const focused = root.activeElement as HTMLInputElement | null
       const focusPath = focused?.dataset.path
-      const focusAction = focused?.dataset.focus
+      const focusAction =
+        focused?.dataset.focus ?? (doc.activeElement === doc.body ? pendingFocus : undefined)
       const scrollTop = body.scrollTop
       const state = session.state
       toolbar.replaceChildren()
@@ -237,7 +250,7 @@ export function mountPanel(
         ),
         button(
           'Play',
-          () => session.play(),
+          audition,
           !session.preview ||
             session.preview.capabilities.play === false ||
             !state.document ||
@@ -245,6 +258,21 @@ export function mountPanel(
         ),
         button('Stop', () => session.stop(), !session.preview),
       )
+      if (state.previewState === 'playing')
+        toolbar.append(
+          button(
+            state.document?.type === 'audio/AudioMixer' ? 'Apply draft' : 'Restart',
+            async () => {
+              const errors = await session.validate()
+              if (errors.length) throw errors[0]
+              if (state.document?.type !== 'audio/AudioMixer') await session.stop()
+              await audition()
+            },
+            !session.preview ||
+              session.preview.capabilities.play === false ||
+              state.diagnostics.length > 0,
+          ),
+        )
       if (state.dirty && state.document?.revision && !state.conflict)
         toolbar.append(button('Discard changes', () => session.reload(), state.saving))
       tabs.replaceChildren()
@@ -269,6 +297,17 @@ export function mountPanel(
       body.replaceChildren()
       meters.clear()
       if (error) body.append(el('div', 'error notice', error))
+      if (presentationInspection.auditionError)
+        body.append(
+          el(
+            'div',
+            'error notice',
+            String(
+              object(presentationInspection.auditionError).message ??
+                'Audio output could not start. Press Play to try again.',
+            ),
+          ),
+        )
       if (state.conflict) {
         const conflict = el('div', 'notice')
         conflict.append(
@@ -301,7 +340,12 @@ export function mountPanel(
       status.textContent = [
         state.loading ? 'Loading' : state.dirty ? 'Unsaved changes' : 'Saved',
         `${state.diagnostics.length} issue${state.diagnostics.length === 1 ? '' : 's'}`,
-        `Preview: ${state.previewState}`,
+        `Preview request: ${state.previewState}`,
+        presentationInspection.context === 'suspended'
+          ? 'Output blocked · press Play to enable audio'
+          : presentationInspection.context
+            ? `Context: ${presentationInspection.context}`
+            : '',
         session.preview?.mode === 'attached'
           ? `Attached: ${session.preview.target ?? 'runtime'}`
           : session.preview
@@ -311,7 +355,27 @@ export function mountPanel(
       ]
         .filter(Boolean)
         .join(' · ')
+      const focusCounts = new Map<string, number>()
+      for (const control of root.querySelectorAll<HTMLElement>(
+        'button,summary,input,select,textarea',
+      )) {
+        if (control.dataset.focus || control.dataset.path) continue
+        const group = control.closest<HTMLDetailsElement>('details')?.dataset.group ?? ''
+        const label =
+          control.tagName === 'SUMMARY'
+            ? 'summary'
+            : (control.getAttribute('aria-label') ??
+              (control.tagName === 'BUTTON'
+                ? control.textContent
+                : control.closest('label')?.querySelector('.field-label')?.textContent) ??
+              control.tagName)
+        const key = `${group}:${label === 'Saving…' ? 'Save' : label}`
+        const count = focusCounts.get(key) ?? 0
+        focusCounts.set(key, count + 1)
+        control.dataset.focus = `${key}:${count}`
+      }
       body.scrollTop = scrollTop
+      pendingFocus = focusAction
       if (focusPath || focusAction) {
         for (const candidate of root.querySelectorAll<HTMLElement>('[data-path],[data-focus]')) {
           if (
@@ -319,9 +383,16 @@ export function mountPanel(
             (focusAction && candidate.dataset.focus === focusAction)
           ) {
             candidate.focus({ preventScroll: true })
+            if (root.activeElement === candidate) pendingFocus = undefined
             break
           }
         }
+      }
+      if (!root.activeElement && picker && focusAction) {
+        root
+          .querySelector<HTMLElement>('[data-focus="catalog-search"]')
+          ?.focus({ preventScroll: true })
+        pendingFocus = undefined
       }
     } finally {
       rendering = false
@@ -330,12 +401,14 @@ export function mountPanel(
   }
 
   function updateMeterPolling(): void {
+    if (session.state.previewState !== 'playing') meterSuspended = false
     const enabled =
       !disposed &&
       visible &&
       !doc.hidden &&
       active === 'mixer' &&
       meters.size > 0 &&
+      !meterSuspended &&
       session.state.previewState === 'playing' &&
       !!session.preview?.command
     if (!enabled && meterTimer !== undefined) {
@@ -352,7 +425,14 @@ export function mountPanel(
     meterBusy = true
     try {
       for (const [bus, controls] of [...meters]) {
-        if (disposed || !visible || doc.hidden) break
+        if (
+          disposed ||
+          !visible ||
+          doc.hidden ||
+          active !== 'mixer' ||
+          session.state.previewState !== 'playing'
+        )
+          break
         const measurement = object(await session.preview!.command!('audio.meters', { bus }))
         if (disposed || !controls.meter.isConnected) continue
         controls.meter.value = measurement.available
@@ -363,6 +443,11 @@ export function mountPanel(
           : 'Measured meter unavailable on this backend'
       }
     } catch {
+      meterSuspended = true
+      if (meterTimer !== undefined) {
+        clearInterval(meterTimer)
+        meterTimer = undefined
+      }
       for (const controls of meters.values())
         controls.label.textContent = 'Measured meter unavailable: preview disconnected'
     } finally {
@@ -578,10 +663,22 @@ export function mountPanel(
       target ? target.edit({ path, value }) : session.edit({ path, value })
     const displayName = title(name)
     const resolved = value ?? field.toJson(field.defaultValue())
+    const inherited = !target && typeof state.document?.value.$extends === 'string'
+    const authored = at(target?.value ?? state.document?.value, path) !== undefined
+    // Arrays override their inherited aggregate. Resetting one item would silently use schema
+    // defaults instead of the parent's value, so expose reset at the aggregate boundary only.
+    const resettable = inherited && authored && !path.split('/').some((part) => /^\d+$/.test(part))
+    const resetOverride = (container: HTMLElement) => {
+      if (resettable)
+        container.append(
+          button(`Reset ${name} override`, () => session.edit({ path, remove: true }), readonly),
+        )
+    }
     if (field.kind === 'struct' && field.fields) {
       const group = details(displayName, path, depth < 1)
       for (const [key, child] of Object.entries(field.fields))
         renderField(group, key, child, pointer(path, key), object(resolved)[key], depth + 1, target)
+      resetOverride(group)
       parent.append(group)
       return
     }
@@ -636,6 +733,7 @@ export function mountPanel(
           readonly,
         ),
       )
+      resetOverride(group)
       parent.append(group)
       return
     }
@@ -742,17 +840,8 @@ export function mountPanel(
       )
     }
     if (field.options.description) wrap.append(el('p', 'hint', field.options.description))
-    const authored = at(target?.value ?? state.document?.value, path) !== undefined
-    if (!authored && state.document?.value.$extends) wrap.append(el('span', 'hint', 'Inherited'))
-    else if (authored && state.document?.value.$extends)
-      wrap.append(
-        button(
-          `Reset ${name} override`,
-          () =>
-            target ? target.edit({ path, remove: true }) : session.edit({ path, remove: true }),
-          readonly,
-        ),
-      )
+    if (!authored && inherited) wrap.append(el('span', 'hint', 'Inherited'))
+    resetOverride(wrap)
     for (const diagnostic of target ? [] : state.diagnostics)
       if (diagnostic.path === path) wrap.append(el('p', 'error', diagnostic.message))
     parent.append(wrap)
@@ -1176,10 +1265,12 @@ export function mountPanel(
                   limit: 60,
                   signal: abort.signal,
                 })
+                if (disposed || session.state.document?.id !== document.id) return
                 for (const entry of page.items) {
                   if (entry.id === document.id || seen.has(entry.id)) continue
                   seen.add(entry.id)
                   const dependent = await session.documents.read(entry.id, abort.signal)
+                  if (disposed || session.state.document?.id !== document.id) return
                   allDocuments.push({
                     id: dependent.id,
                     name: dependent.name,
@@ -1288,6 +1379,7 @@ export function mountPanel(
         'Refresh preview inspection',
         async () => {
           inspection = await session.preview?.inspect()
+          presentationInspection = object(object(inspection).audio ?? inspection)
         },
         !session.preview,
       ),

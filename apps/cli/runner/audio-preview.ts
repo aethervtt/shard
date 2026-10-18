@@ -1,9 +1,6 @@
-import {
-  type AudioEditorRenderBundle,
-  renderAudioEditorBundle,
-} from '@aethervtt/shard-audio-editor/preview-render'
+import { type AudioRenderBundle, renderAudioBundle } from '@aethervtt/shard-audio-preview'
 
-function hydrate(serialized: { value: unknown; bytes: string[] }): AudioEditorRenderBundle {
+function hydrate(serialized: { value: unknown; bytes: string[] }): AudioRenderBundle {
   const buffers = serialized.bytes.map((base64) => {
     const binary = atob(base64),
       bytes = new Uint8Array(binary.length)
@@ -17,11 +14,11 @@ function hydrate(serialized: { value: unknown; bytes: string[] }): AudioEditorRe
     if (typeof object.$audioBytes === 'number') return buffers[object.$audioBytes]
     return Object.fromEntries(Object.entries(object).map(([key, item]) => [key, decode(item)]))
   }
-  return decode(serialized.value) as AudioEditorRenderBundle
+  return decode(serialized.value) as AudioRenderBundle
 }
 
 async function previewAudio(serialized: Parameters<typeof hydrate>[0]) {
-  const result = await renderAudioEditorBundle(hydrate(serialized), {
+  const result = await renderAudioBundle(hydrate(serialized), {
     progress: (value) => Object.assign(globalThis, { audioPreviewProgress: value }),
   })
   let binary = ''

@@ -94,7 +94,8 @@ Stop and disposal only affect editor-owned instances; borrowed host audio roots 
 The optional attached preview adapter defaults to inspection; live commands and applying drafts
 require explicit host capabilities. The host supplies its existing authenticated protocol call.
 
-Offline preview reuses the CLI's authored render-plan renderer. Export produces a WAV plus
+Offline preview and the CLI share the optional `@aethervtt/shard-audio-preview` renderer;
+neither the CLI nor engine runtime depends on editor UI packages. Export produces a WAV plus
 measured peak/RMS, control trace, seed and asset revisions. Event and music documents have default
 plans. A mixer needs a plan naming test voices/events to produce sound; the mixer alone is silent.
 Browser support is capability checked, including scheduled offline suspend/resume; an unavailable

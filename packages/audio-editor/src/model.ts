@@ -204,7 +204,13 @@ export class AudioEditorSession {
       next[top] = clone(this.current.effective[top]!)
     let parent: JsonObject | JsonValue[] = next
     for (let i = 0; i < parts.length - 1; i++) {
-      const key = parts[i]!
+      let key = parts[i]!
+      if (Array.isArray(parent)) {
+        const index = key === '-' ? parent.length : Number(key)
+        if (!Number.isInteger(index) || index < 0 || index > parent.length)
+          throw editorError('invalid-document', 'Invalid array index.', edit.path)
+        key = String(index)
+      }
       let child: JsonValue | undefined = (parent as JsonObject)[key]
       if (!child || typeof child !== 'object') {
         child = {}

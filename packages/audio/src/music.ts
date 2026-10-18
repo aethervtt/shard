@@ -352,12 +352,22 @@ export async function prepareMusicSection(
           points: new Float64Array(curve.points.flat()),
         }))
         const sourceRate = source.sampleRate ?? lease.sampleRate
-        clip.loopStart =
-          Math.round((stem.startSample / sourceRate) * lease.sampleRate) / lease.sampleRate
-        clip.loopEnd =
-          Math.round((stem.endSample / sourceRate) * lease.sampleRate) / lease.sampleRate
-        if (clip.loopEnd * lease.sampleRate > lease.samples || clip.loopEnd <= clip.loopStart)
+        const start = Math.round((stem.startSample / sourceRate) * lease.sampleRate)
+        let end = Math.round((stem.endSample / sourceRate) * lease.sampleRate)
+        const sourceSamples = Math.round(source.duration * sourceRate)
+        // WebKit's resampler omits the interpolation tail after the final source sample
+        // (12k→48k produces 4N−3 frames). Only the actual source-end marker may use that
+        // shortened boundary, within one source-sample interval. Trim markers stay exact.
+        if (
+          stem.endSample === sourceSamples &&
+          end > lease.samples &&
+          end - lease.samples <= Math.max(1, Math.ceil(lease.sampleRate / sourceRate) - 1)
+        )
+          end = lease.samples
+        if (stem.endSample > sourceSamples || end > lease.samples || end <= start)
           throw new ShardError('audio/music-invalid', 'Stem markers exceed decoded samples')
+        clip.loopStart = start / lease.sampleRate
+        clip.loopEnd = end / lease.sampleRate
         record.rate = (clip.loopEnd - clip.loopStart) / seconds
         const cents = Math.abs(1200 * Math.log2(record.rate))
         if (

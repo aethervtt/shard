@@ -137,7 +137,7 @@ export async function exportAudioEditorPreview(
   const resolvedPlan = (await fields(AudioPreviewPlan.fields, plan)) as unknown as typeof plan
   check()
   const result = await renderAudioEditorBundle(
-    { plan: AudioPreviewPlan.serialize(resolvedPlan) as unknown as typeof plan, assets },
+    { plan: AudioPreviewPlan.serialize(resolvedPlan), assets },
     { signal },
   )
   check()
