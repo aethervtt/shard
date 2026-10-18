@@ -68,6 +68,33 @@ use one active view at a time. Dense timelines scroll inside the panel. No field
 action becomes unreachable; enlarging the dock improves overview without being required to edit.
 The host owns dragging, docking and resizing; every panel responds to its container, not the viewport.
 
+### Visual authoring layout
+
+The visual design separates document identity, transport, navigation, the authoring surface and
+the schema inspector. Wide containers place the authoring surface beside its inspector; narrow
+containers stack them. A selected document opens its matching authoring view. Library browsing
+remains an explicit tab and never resolves audio merely to decorate its rows.
+
+Use restrained graphite/light neutral surfaces, a teal action accent, consistent line icons,
+compact typography, clear focus rings and deliberate spacing. Selection, playback and validation
+must remain understandable without color. Controls have deliberate hover, disabled and focus
+states; icons supplement accessible names. Preserve existing CSS token overrides and CSP support.
+
+Event layers show actual source waveforms with named tracks and authored timing/gain metadata.
+Selecting a layer opens and focuses its schema controls. An expandable seconds view shares a
+time scale for authored durations and marks source-length layers without inventing an end time.
+Mixer strips align routing, gain and real meter readouts in a horizontally scrollable desk,
+adapting to stacked horizontal controls in a small dock. Waveforms, meter activity and transport state must never be decorative simulations.
+The standalone example demonstrates the same styled widgets in a restrained resizable workspace;
+its theme selector also themes the host page. No remote fonts or UI framework are required.
+
+Visual verification captures event, mixer and library views in dark/light themes at 300 px and
+wide sizes, alongside existing keyboard, zoom, persistence and preview journeys. Reference
+patterns: [FMOD event editor](https://fmod.com/docs/2.04/studio/authoring-events.html),
+[FMOD mixer](https://fmod.com/docs/2.04/studio/mixing.html), and
+[Ableton mixing](https://www.ableton.com/en/live-manual/12/mixing/). These inform hierarchy and
+channel alignment; Shard retains its own visual design and host-owned asset/document contracts.
+
 ### Panels and authoring workflows
 
 | Panel | Required authoring and inspection |

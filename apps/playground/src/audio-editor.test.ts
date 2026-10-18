@@ -24,6 +24,87 @@ describe(`embeddable audio editor (${browserName})`, () => {
     await server?.close()
   })
   it(
+    'keeps authoring and properties usable across dock sizes and themes',
+    async (ctx) => {
+      if (unavailable) return ctx.skip()
+      const browser = await engine.launch()
+      try {
+        const page = await browser.newPage({ viewport: { width: 1440, height: 1080 } })
+        await page.goto(`${server.base}/audio-editor.html`)
+        await page.waitForFunction(() => 'audioEditorDemo' in globalThis)
+        const full = page.locator('#full')
+        expect(
+          await full.getByRole('tab', { name: 'Event', exact: true }).getAttribute('aria-selected'),
+        ).toBe('true')
+        // A waveform track is a keyboard-accessible route to the actual schema inspector.
+        await full.getByRole('button', { name: 'Edit layer low', exact: true }).click()
+        expect(
+          await full.locator('details[data-group="/layers/0"]').getAttribute('open'),
+        ).not.toBeNull()
+        expect(await full.locator('[data-path="/layers/0/gainDb"]').isVisible()).toBe(true)
+        const destination = process.env.SHARD_AUDIO_EDITOR_EVIDENCE
+        if (destination) await mkdir(destination, { recursive: true })
+        for (const theme of ['dark', 'light']) {
+          await page.locator('#theme').selectOption(theme)
+          expect(await page.locator('html').getAttribute('data-theme')).toBe(theme)
+          for (const width of [960, 300]) {
+            await full.evaluate((element, width) => {
+              element.style.width = `${width}px`
+            }, width)
+            for (const [document, panel] of [
+              ['Engine', 'Event'],
+              ['Tavern mixer', 'Mixer'],
+              ['Explore and combat', 'Music'],
+              ['World parameters', 'Parameters'],
+            ] as const) {
+              await page.locator('#example').selectOption({ label: document })
+              await full.getByRole('tab', { name: panel, exact: true, selected: true }).waitFor()
+              const overview = await full.locator('.overview').boundingBox()
+              const inspector = await full.locator('.inspector').boundingBox()
+              expect(overview).not.toBeNull()
+              expect(inspector).not.toBeNull()
+              if (width === 960)
+                expect(inspector!.x).toBeGreaterThan(overview!.x + overview!.width - 1)
+              else expect(inspector!.y).toBeGreaterThan(overview!.y + overview!.height - 1)
+              expect(
+                await full
+                  .locator('.body')
+                  .evaluate((element) => element.scrollWidth - element.clientWidth),
+              ).toBeLessThanOrEqual(1)
+              if (panel === 'Mixer') {
+                const fader = await full
+                  .getByRole('slider', { name: 'master authored gain (dB)', exact: true })
+                  .boundingBox()
+                expect(fader).not.toBeNull()
+                if (width === 960) expect(fader!.height).toBeGreaterThan(fader!.width)
+                else expect(fader!.width).toBeGreaterThan(fader!.height)
+              }
+              await full.locator('.body').evaluate((element) => {
+                element.scrollTop = 0
+              })
+              if (destination)
+                await full.screenshot({
+                  path: join(
+                    destination,
+                    `${browserName}-${theme}-${width}-${panel.toLowerCase()}.png`,
+                  ),
+                })
+            }
+            await full.getByRole('tab', { name: 'Library', exact: true }).click()
+            await full.locator('.catalog-row').first().waitFor()
+            if (destination)
+              await full.screenshot({
+                path: join(destination, `${browserName}-${theme}-${width}-library.png`),
+              })
+          }
+        }
+      } finally {
+        await browser.close()
+      }
+    },
+    timeout(60000),
+  )
+  it(
     'edits, saves and resizes independent shadow widgets at 300 px in both themes',
     async (ctx) => {
       if (unavailable) return ctx.skip()

@@ -7,6 +7,7 @@ import {
   ShardError,
 } from '@aethervtt/shard-core'
 import { drawAudioWaveform } from '../drawing'
+import { audioIcon } from '../icons'
 import type { AudioEditorSession } from '../model'
 import { audioEditorTypes } from '../schema'
 import { audioEditorStyles } from '../styles'
@@ -66,6 +67,11 @@ function title(value: string): string {
 function object(value: unknown): JsonObject {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as JsonObject) : {}
 }
+/** References remain host-owned: even a project path is resolved through the catalog. */
+function assetId(value: unknown): string {
+  const ref = object(value)
+  return typeof ref.guid === 'string' ? ref.guid : typeof ref.path === 'string' ? ref.path : ''
+}
 function at(value: unknown, path: string): unknown {
   let current = value
   for (const part of path.split('/').slice(1)) {
@@ -86,7 +92,14 @@ export function mountPanel(
   const abort = new AbortController()
   let disposed = false
   let generation = 0
-  let active: AudioEditorPanel = fixedPanel ?? (options.layout === 'compact' ? 'mixer' : 'library')
+  let selectedDocument = session.state.document?.id
+  let active: AudioEditorPanel =
+    fixedPanel ??
+    (session.state.document
+      ? panelFor(session.state.document.type)
+      : options.layout === 'compact'
+        ? 'mixer'
+        : 'library')
   let error = ''
   let picker:
     | { path: string; type: string; label: string; edit?: AudioEditorSceneSelection['edit'] }
@@ -204,7 +217,13 @@ export function mountPanel(
     }, 0)
   }
   function button(name: string, action: () => unknown, disabled = false): HTMLButtonElement {
-    const node = el('button', '', name)
+    const node = el('button')
+    node.append(el('span', 'button-label', name))
+    node.dataset.command = name
+    if (['Undo', 'Redo', 'Save', 'Play', 'Stop'].includes(name))
+      node.prepend(audioIcon(doc, name.toLowerCase()))
+    if (name.startsWith('Remove ')) node.dataset.intent = 'danger'
+    if (name.startsWith('Add ')) node.dataset.intent = 'add'
     node.type = 'button'
     node.disabled = disabled
     node.addEventListener('click', () => run(action))
@@ -239,7 +258,23 @@ export function mountPanel(
       const scrollTop = body.scrollTop
       const state = session.state
       toolbar.replaceChildren()
-      toolbar.append(el('span', 'title', state.document?.name ?? 'Audio editor'))
+      const identity = el('div', 'document-identity')
+      identity.dataset.dirty = String(state.dirty)
+      const mark = el('span', 'document-mark')
+      mark.append(audioIcon(doc, state.document ? panelFor(state.document.type) : 'library'))
+      const identityText = el('div', 'document-text')
+      identityText.append(
+        el(
+          'span',
+          'document-kind',
+          state.document
+            ? title(state.document.type.replace(/^audio\//, '').replace(/^Audio/, ''))
+            : 'Audio workspace',
+        ),
+        el('span', 'title', state.document?.name ?? 'Audio editor'),
+      )
+      identity.append(mark, identityText)
+      toolbar.append(identity)
       toolbar.append(
         button('Undo', () => session.undo(), !state.canUndo || state.readOnly),
         button('Redo', () => session.redo(), !state.canRedo || state.readOnly),
@@ -292,6 +327,7 @@ export function mountPanel(
           picker = undefined
           return panel === 'library' ? loadLibrary() : undefined
         })
+        tab.prepend(audioIcon(doc, panel))
         tab.setAttribute('role', 'tab')
         tab.setAttribute('aria-selected', String(active === panel))
         tab.tabIndex = active === panel ? 0 : -1
@@ -341,6 +377,7 @@ export function mountPanel(
       else if (active === 'library') renderLibrary(false)
       else if (active === 'diagnostics') renderDiagnostics(state)
       else renderAuthoring(state)
+      status.dataset.state = state.previewState
       status.textContent = [
         state.loading ? 'Loading' : state.dirty ? 'Unsaved changes' : 'Saved',
         `${state.diagnostics.length} issue${state.diagnostics.length === 1 ? '' : 's'}`,
@@ -535,7 +572,14 @@ export function mountPanel(
         }
       })
       select.title = `${asset.name} (${asset.id})`
-      row.append(select, el('span', 'badge', asset.type.replace('audio/', '')))
+      const symbol = el('span', 'catalog-symbol')
+      symbol.append(audioIcon(doc, asset.type === 'AudioClip' ? 'clip' : panelFor(asset.type)))
+      row.dataset.selected = String(session.state.document?.id === asset.id)
+      row.append(
+        symbol,
+        select,
+        el('span', 'badge', asset.type.replace('audio/', '').replace(/^Audio/, '')),
+      )
       list.append(row)
     }
     if (!libraryPage?.items.length) list.append(el('p', 'empty', 'No matching assets.'))
@@ -619,10 +663,28 @@ export function mountPanel(
       return
     }
     const value = state.effective ?? state.document.value
-    if (active === 'event') renderEvent(value)
-    if (active === 'music') renderMusic(value)
-    if (active === 'mixer') renderMixer(value)
-    if (active === 'parameters') renderParameters(value)
+    const layout = el('div', 'authoring-layout')
+    const overview = el('section', 'overview')
+    const inspector = el('section', 'inspector')
+    const heading = el('div', 'overview-heading')
+    const headings: Partial<Record<AudioEditorPanel, string>> = {
+      event: 'Layers & waveforms',
+      mixer: 'Mixing desk',
+      music: 'Music arrangement',
+      parameters: 'Parameter controls',
+    }
+    heading.append(
+      el('span', 'eyebrow', 'AUTHORING'),
+      el('h2', '', headings[active] ?? 'Audio document'),
+    )
+    overview.append(heading)
+    inspector.setAttribute('aria-label', 'Document properties')
+    layout.append(overview, inspector)
+    body.append(layout)
+    if (active === 'event') renderEvent(value, overview)
+    if (active === 'music') renderMusic(value, overview)
+    if (active === 'mixer') renderMixer(value, overview)
+    if (active === 'parameters') renderParameters(value, overview)
     if (fixedPanel)
       body.append(
         button('Browse documents', () => {
@@ -630,16 +692,16 @@ export function mountPanel(
           return loadLibrary()
         }),
       )
-    const propertyHeading = el('h3', '', 'Properties')
-    body.append(propertyHeading)
+    const propertyHeading = el('h3', 'inspector-heading', 'Properties')
+    inspector.append(propertyHeading)
     const properties = el('div', 'properties')
     for (const [name, field] of Object.entries(state.schema.fields)) {
       if (field.options.hidden) continue
       if (active === 'parameters' && name !== 'parameters' && name !== 'globals') continue
       renderField(properties, name, field, pointer('', name), value[name], 0)
     }
-    body.append(properties)
-    renderWaveform()
+    inspector.append(properties)
+    renderWaveform(overview)
     const raw = details('Document JSON', 'raw')
     const json = el('textarea')
     json.value = JSON.stringify(state.document.value, null, 2)
@@ -648,7 +710,7 @@ export function mountPanel(
       json,
       button('Apply JSON draft', () => session.replace(JSON.parse(json.value)), state.readOnly),
     )
-    body.append(raw)
+    inspector.append(raw)
   }
   function renderField(
     parent: HTMLElement,
@@ -743,8 +805,7 @@ export function mountPanel(
     }
     const wrap = el('div', 'field')
     if (field.kind === 'handle') {
-      const ref = object(resolved)
-      const id = typeof ref.guid === 'string' ? ref.guid : ''
+      const id = assetId(resolved)
       wrap.append(
         el('span', 'field-label', displayName),
         el('span', 'hint', id || 'No asset selected'),
@@ -850,56 +911,76 @@ export function mountPanel(
       if (diagnostic.path === path) wrap.append(el('p', 'error', diagnostic.message))
     parent.append(wrap)
   }
-  function renderEvent(value: JsonObject): void {
+  function renderEvent(value: JsonObject, target: HTMLElement = body): void {
     const layers = Array.isArray(value.layers) ? value.layers : []
     const waveKey = `${session.assets.scope}:${session.state.document?.id}:${session.state.document?.revision}`
     if (waveKey !== waveformDocument) {
       layerWaveforms.clear()
       waveformDocument = waveKey
     }
-    if (!layers.length) return
-    body.append(
+    target.append(
       el(
         'p',
         'hint',
-        'Layer timing in seconds. Edit exact delay, duration and envelope values below.',
+        `${layers.length} layers · Source waveforms. Timing and gain are authored per layer.`,
       ),
     )
-    const timeline = el('div', 'timeline')
-    timeline.setAttribute('aria-label', 'Event layer timing')
-    for (const layerValue of layers) {
-      const layer = object(layerValue)
-      const lane = el('div', 'timeline-lane')
-      const clip = el(
-        'span',
-        'timeline-clip',
-        `${layer.id ?? 'Layer'} · ${layer.delay ?? 0}s + ${layer.duration || 'clip'}s`,
-      )
-      clip.style.insetInlineStart = `${Math.min(80, Number(layer.delay ?? 0) * 10)}%`
-      clip.style.width = `${Math.min(100, Math.max(15, Number(layer.duration || 1) * 10))}%`
-      lane.append(clip)
-      timeline.append(lane)
-    }
-    body.append(timeline)
+    if (!layers.length)
+      target.append(el('p', 'empty', 'Add a layer in Properties to start building this event.'))
     const waves = el('div', 'event-waves')
-    for (const layerValue of layers) {
-      const layer = object(layerValue)
-      const choice = object(Array.isArray(layer.choices) ? layer.choices[0] : undefined)
-      const clip = object(choice.clip)
-      if (typeof clip.guid !== 'string' || !session.preview?.waveform) continue
+    for (let index = 0; index < layers.length; index++) {
+      const layer = object(layers[index])
+      const choices = Array.isArray(layer.choices) ? layer.choices : []
+      const clipId = assetId(object(choices[0]).clip)
       const lane = el('div', 'wave-lane')
-      lane.append(el('span', 'wave-label', String(layer.id ?? 'Layer')))
+      const header = el('div', 'track-header')
+      const selectLayer = button(String(layer.id ?? 'Layer'), () => {
+        expanded.set('/layers', true)
+        expanded.set(`/layers/${index}`, true)
+        render()
+        const summary = root.querySelector<HTMLElement>(
+          `details[data-group="/layers/${index}"] > summary`,
+        )
+        summary?.focus()
+        summary?.scrollIntoView({ block: 'nearest' })
+      })
+      selectLayer.className = 'track-name'
+      selectLayer.setAttribute('aria-label', `Edit layer ${layer.id ?? index + 1}`)
+      header.append(
+        el('span', 'track-number', String(index + 1).padStart(2, '0')),
+        selectLayer,
+        el('span', 'badge', layer.loop ? 'Loop' : 'One-shot'),
+      )
+      lane.append(header)
+      const metadata = el('div', 'track-meta')
+      metadata.append(
+        el('span', '', `Delay ${layer.delay ?? 0}s`),
+        el('span', '', layer.duration ? `Duration ${layer.duration}s` : 'Source length'),
+        el('span', '', `${layer.gainDb ?? 0} dB`),
+      )
+      if (choices.length > 1) metadata.append(el('span', '', `First of ${choices.length} choices`))
+      waves.append(lane)
+      if (!clipId || !session.preview?.waveform) {
+        lane.append(
+          el(
+            'div',
+            'wave-placeholder',
+            clipId ? 'Waveform unavailable' : 'Choose an audio asset in Properties',
+          ),
+          metadata,
+        )
+        continue
+      }
       const canvas = el('canvas')
       canvas.width = 1024
       canvas.height = 96
       canvas.setAttribute('role', 'img')
       canvas.setAttribute('aria-label', `${layer.id} audio waveform`)
-      lane.append(canvas)
-      waves.append(lane)
-      let pending = layerWaveforms.get(clip.guid)
+      lane.append(canvas, metadata)
+      let pending = layerWaveforms.get(clipId)
       if (!pending) {
-        pending = session.preview.waveform(clip.guid, 512, abort.signal)
-        layerWaveforms.set(clip.guid, pending)
+        pending = session.preview.waveform(clipId, 512, abort.signal)
+        layerWaveforms.set(clipId, pending)
       }
       void pending
         .then((wave) => {
@@ -911,7 +992,7 @@ export function mountPanel(
               wave.peaks,
               canvas.width,
               canvas.height,
-              element.dataset.theme === 'light' ? '#1555aa' : '#98c7ff',
+              doc.defaultView!.getComputedStyle(lane).getPropertyValue('--ae-track').trim(),
             )
           canvas.setAttribute(
             'aria-label',
@@ -919,15 +1000,45 @@ export function mountPanel(
           )
         })
         .catch(() => {
-          if (!disposed && canvas.isConnected) {
-            canvas.remove()
-            lane.append(el('span', 'hint', 'Waveform unavailable'))
-          }
+          if (!disposed && canvas.isConnected)
+            canvas.replaceWith(el('div', 'wave-placeholder', 'Waveform unavailable'))
         })
     }
-    body.append(waves)
+    target.append(waves)
+    if (layers.length) {
+      const timing = details('Layer timing · seconds', 'event-timing')
+      timing.append(
+        el(
+          'p',
+          'hint',
+          'Bars show authored durations. Dots mark source-length layers; looping and random choices can change their end time.',
+        ),
+      )
+      let end = 1
+      for (const item of layers) {
+        const layer = object(item)
+        end = Math.max(end, Number(layer.delay ?? 0) + Number(layer.duration ?? 0))
+      }
+      const ruler = el('div', 'timing-ruler')
+      ruler.append(el('span', '', '0s'), el('span', '', `${end}s`))
+      timing.append(ruler)
+      for (const item of layers) {
+        const layer = object(item)
+        const row = el('div', 'timing-row')
+        const name = el('span', 'hint', `${layer.id} · ${layer.delay ?? 0}s`)
+        const track = el('div', 'timing-track')
+        const mark = el('span', 'timing-mark')
+        mark.style.left = `${(Number(layer.delay ?? 0) / end) * 100}%`
+        mark.style.width = layer.duration ? `${(Number(layer.duration) / end) * 100}%` : '6px'
+        mark.dataset.sourceLength = String(!layer.duration)
+        track.append(mark)
+        row.append(name, track)
+        timing.append(row)
+      }
+      target.append(timing)
+    }
   }
-  function renderMixer(value: JsonObject): void {
+  function renderMixer(value: JsonObject, target: HTMLElement = body): void {
     if (session.state.document?.type === 'audio/AudioSnapshot') {
       const snapshot = object(session.state.previewResult).snapshot
       const weight = el('input')
@@ -936,7 +1047,7 @@ export function mountPanel(
       weight.max = '1'
       weight.step = '0.01'
       weight.value = '1'
-      body.append(
+      target.append(
         inputLabel('Audition snapshot weight', weight),
         button(
           'Apply snapshot weight',
@@ -957,7 +1068,10 @@ export function mountPanel(
     for (let index = 0; index < buses.length; index++) {
       const bus = object(buses[index])
       const card = el('div', 'mixer-strip')
-      card.append(el('h3', '', `${bus.id} → ${bus.parent || 'output'}`))
+      card.append(
+        el('h3', '', String(bus.id)),
+        el('span', 'bus-route', `→ ${bus.parent || 'output'}`),
+      )
       const fader = el('input')
       fader.type = 'range'
       fader.min = '-120'
@@ -1035,7 +1149,7 @@ export function mountPanel(
       card.append(meter, meterLabel)
       grid.append(card)
     }
-    body.append(grid)
+    target.append(grid)
     const preferences = details('Audition category controls (not saved)', 'user-controls')
     for (const bus of ['master', 'music', 'sfx', 'voice', 'ambient', 'ui']) {
       const volume = el('input')
@@ -1066,7 +1180,7 @@ export function mountPanel(
       )
       preferences.append(row)
     }
-    body.append(
+    target.append(
       preferences,
       button(
         'Inspect effective mixer values',
@@ -1079,17 +1193,17 @@ export function mountPanel(
     if (inspection !== undefined) {
       const effective = details('Preview inspection', 'mix-inspection')
       effective.append(el('pre', '', JSON.stringify(inspection, null, 2)))
-      body.append(effective)
+      target.append(effective)
     }
   }
-  function renderMusic(value: JsonObject): void {
+  function renderMusic(value: JsonObject, target: HTMLElement = body): void {
     const transport = object(session.state.previewResult).transport
     const canControl =
       session.state.previewDocumentId === session.state.document?.id &&
       typeof transport === 'number' &&
       !!session.preview?.command &&
       session.preview.capabilities.control !== false
-    body.append(
+    target.append(
       el(
         'p',
         'notice',
@@ -1099,7 +1213,7 @@ export function mountPanel(
     const sections = Array.isArray(value.sections) ? value.sections : []
     for (const sectionValue of sections) {
       const section = object(sectionValue)
-      const card = el('div', 'card')
+      const card = el('div', 'card music-section')
       card.append(el('h3', '', `${section.id} · ${section.bars} bars`))
       card.append(
         button(
@@ -1120,7 +1234,7 @@ export function mountPanel(
           el('p', 'hint', `${stem.id}: samples ${stem.startSample ?? 0}–${stem.endSample ?? 0}`),
         )
       }
-      body.append(card)
+      target.append(card)
     }
     const transportControls = el('div', 'actions')
     for (const action of ['pause', 'resume'])
@@ -1136,7 +1250,7 @@ export function mountPanel(
     tick.min = '0'
     tick.step = '1'
     tick.value = '0'
-    body.append(
+    target.append(
       transportControls,
       inputLabel('Audition seek tick (960 PPQ)', tick),
       button(
@@ -1148,7 +1262,7 @@ export function mountPanel(
     )
     for (const stingerValue of Array.isArray(value.stingers) ? value.stingers : []) {
       const stinger = object(stingerValue)
-      body.append(
+      target.append(
         button(
           `Audition stinger ${stinger.id}`,
           () =>
@@ -1161,8 +1275,8 @@ export function mountPanel(
         ),
       )
     }
-    renderParameters(value)
-    body.append(
+    renderParameters(value, target)
+    target.append(
       el(
         'p',
         'hint',
@@ -1170,10 +1284,10 @@ export function mountPanel(
       ),
     )
   }
-  function renderParameters(value: JsonObject): void {
+  function renderParameters(value: JsonObject, target: HTMLElement = body): void {
     const parameters = Array.isArray(value.parameters) ? value.parameters : []
     if (!parameters.length) return
-    renderRename(parameters)
+    renderRename(parameters, target)
     const section = details('Audition values (not saved)', 'audition', true)
     for (const item of parameters) {
       const parameter = object(item)
@@ -1214,7 +1328,7 @@ export function mountPanel(
         ),
       )
     }
-    body.append(section)
+    target.append(section)
   }
   function referencePaths(value: unknown, name: string, path = ''): string[] {
     const paths: string[] = []
@@ -1228,7 +1342,7 @@ export function mountPanel(
     }
     return paths
   }
-  function renderRename(parameters: JsonValue[]): void {
+  function renderRename(parameters: JsonValue[], target: HTMLElement = body): void {
     const state = session.state
     const document = state.document!
     const global = document.type === 'audio/AudioParameters'
@@ -1356,7 +1470,7 @@ export function mountPanel(
       ),
     )
     if (state.dirty) rename.append(el('p', 'hint', 'Save changes before renaming.'))
-    body.append(rename)
+    target.append(rename)
   }
   function renderDiagnostics(state: AudioEditorState): void {
     body.append(el('h2', '', 'Diagnostics'))
@@ -1501,14 +1615,14 @@ export function mountPanel(
     waveformId = id
     waveform = result
   }
-  function renderWaveform(): void {
+  function renderWaveform(target: HTMLElement = body): void {
     if (!waveform) return
     const canvas = el('canvas')
     canvas.width = 1024
     canvas.height = 160
     canvas.setAttribute('role', 'img')
     canvas.setAttribute('aria-label', `Waveform of ${waveformId}, ${waveform.duration} seconds`)
-    body.append(
+    target.append(
       canvas,
       el(
         'p',
@@ -1523,7 +1637,7 @@ export function mountPanel(
       waveform.peaks,
       canvas.width,
       canvas.height,
-      element.dataset.theme === 'light' ? '#1555aa' : '#98c7ff',
+      doc.defaultView!.getComputedStyle(element).getPropertyValue('--ae-accent').trim(),
     )
   }
   root.addEventListener(
@@ -1563,7 +1677,13 @@ export function mountPanel(
     },
     { signal: abort.signal },
   )
-  const unsubscribe = session.subscribe(() => render())
+  const unsubscribe = session.subscribe(() => {
+    if (session.state.document?.id !== selectedDocument) {
+      selectedDocument = session.state.document?.id
+      if (!fixedPanel && session.state.document) active = panelFor(session.state.document.type)
+    }
+    render()
+  })
   const unsubscribeAssets = session.assets.subscribe?.(() => {
     layerWaveforms.clear()
     waveform = undefined

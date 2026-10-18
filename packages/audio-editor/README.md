@@ -78,6 +78,12 @@ Set the container's height; the editor scrolls its own body and responds to its 
 Every mount has a separate Shadow Root. `theme: 'dark' | 'light'` selects defaults; host CSS tokens
 include `--ae-background`, `--ae-surface`, `--ae-input`, `--ae-text`, `--ae-muted`, `--ae-border`,
 `--ae-accent`, `--ae-danger`, `--ae-radius`, `--ae-font`, `--ae-space` and `--ae-control-height`.
+Additional palette tokens are `--ae-on-accent`, `--ae-hover`, `--ae-subtle` and `--ae-track`.
+Wide panels place the authoring surface beside the properties inspector. Narrow docks stack
+them; mixer faders change from vertical strips to horizontal rows. Select an event layer name
+to open and focus its schema controls. Opening a document selects its corresponding view.
+Waveforms show source audio; the expandable seconds view shows authored timing, with dots
+for source-length layers whose end cannot be inferred from their authored duration.
 `strings` overrides UI text. A `stylesheetUrl` can serve the exported `audioEditorStyles` under a
 strict CSP. It is a host-owned style resource, never an alternate audio source.
 

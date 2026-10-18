@@ -3,34 +3,47 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Shard · Embeddable audio editor</title>
+  <title>Shard · Audio workspace</title>
   <style>
-    :root { color-scheme: dark; font: 14px system-ui,sans-serif; background: #10141c; color: #e0e8f4; }
-    * { box-sizing: border-box; }
-    body { margin: 0; padding: 20px; }
-    h1 { font-size: 22px; margin: 0 0 6px; }
-    p { color: #a5b4c8; max-width: 85ch; }
-    .controls { display: flex; gap: 12px; flex-wrap: wrap; margin: 16px 0; align-items: center; }
-    button,select,input { font: inherit; }
+    :root { color-scheme:dark; font:13px system-ui,sans-serif; background:#101416; color:#e5ecef; --muted:#98aab3; --line:#303d43; --surface:#1d2529; --accent:#7ce2c3; }
+    :root[data-theme="light"] { color-scheme:light; background:#e9eff1; color:#203039; --muted:#556b77; --line:#c4d1d7; --surface:#fff; --accent:#08765c; }
+    * { box-sizing:border-box; }
+    body { margin:0; padding:0 32px 24px; }
+    .brandbar { display:flex; justify-content:space-between; gap:16px; align-items:center; height:64px; border-bottom:1px solid var(--line); }
+    .brand { font-weight:750; letter-spacing:.2em; font-size:14px; display:flex; align-items:center; gap:12px; }
+    .brand-mark { width:22px; height:22px; background:var(--accent); clip-path:polygon(50% 0,100% 75%,0 100%); }
+    .brandbar span:last-child { color:var(--muted); font-size:11px; letter-spacing:.08em; }
+    .intro { display:flex; flex-wrap:wrap; align-items:baseline; gap:8px 20px; padding:26px 0 20px; }
+    h1 { font-size:25px; letter-spacing:-.04em; font-weight:600; margin:0; }
+    p { color:var(--muted); margin:0; line-height:1.6; }
+    .controls { display:flex; gap:8px; flex-wrap:wrap; padding:14px 0; margin-bottom:16px; border-block:1px solid var(--line); align-items:center; }
+    label { display:flex; align-items:center; gap:9px; color:var(--muted); font-size:12px; }
+    .example { margin-right:auto; }
+    button,select,input { font:inherit; }
+    button,select { color:inherit; background:var(--surface); border:1px solid var(--line); border-radius:6px; padding:8px 10px; max-width:100%; min-width:0; }
+    button { cursor:pointer; }
+    button:hover,select:hover { border-color:var(--accent); }
+    :focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
     .docks { display:flex; align-items:flex-start; gap:20px; flex-wrap:wrap; }
-    .dock { resize:both; overflow:auto; width:min(100%,900px); height:720px; min-width:300px; min-height:260px; max-width:100%; border:1px solid #42536d; border-radius:10px; }
-    #compact { width:300px; height:560px; }
-    #status { min-height:24px; }
-    @media(max-width:340px) { body {padding:0;} }
+    .dock { resize:both; overflow:auto; width:min(100%,960px); height:740px; min-width:300px; min-height:260px; max-width:100%; border:1px solid var(--line); border-radius:10px; box-shadow:0 12px 35px #00000018; }
+    #compact { width:300px; height:740px; }
+    #status { color:var(--muted); font-size:11px; line-height:1.7; padding-top:18px; }
+    @media(max-width:700px) { body {padding-inline:16px;} .example {width:100%;} .example select {flex:1;} .brandbar span:last-child {font-size:9px;} }
+    @media(max-width:340px) { body {padding-inline:0;} .brandbar,.intro,.controls,#status {padding-inline:10px;} }
   </style>
 </head>
 <body>
-  <h1>Audio authoring, in your own dock</h1>
-  <p>Drag either panel’s lower corner to resize. This host provides its own asset catalog and revisioned documents. Playback starts only when you press Play. No account or project server required.</p>
-  <div class="controls">
+  <header class="brandbar"><div class="brand"><span class="brand-mark" aria-hidden="true"></span>SHARD</div><span>AUDIO WORKSPACE / PLAYGROUND</span></header>
+  <div class="intro"><h1>Shape your sound.</h1><p>Build layered events, mix buses, and audition your changes.</p></div>
+  <section class="controls" aria-label="Workspace options">
+    <label class="example">Document <select id="example"></select></label>
     <label>Theme <select id="theme"><option value="dark">Dark</option><option value="light">Light</option></select></label>
     <button id="narrow" type="button">300 px panels</button>
     <button id="wide" type="button">Wide workspace</button>
-    <label>Example <select id="example"></select></label>
     <button id="download" type="button">Download document JSON</button>
-  </div>
+  </section>
+  <main class="docks"><div id="full" class="dock"></div><div id="compact" class="dock"></div></main>
   <div id="status" role="status">Loading host catalog…</div>
-  <div class="docks"><div id="full" class="dock"></div><div id="compact" class="dock"></div></div>
   <script type="module" src="/src/audio-editor.ts"></script>
 </body>
 </html>
