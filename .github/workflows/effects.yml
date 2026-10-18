@@ -37,6 +37,7 @@ jobs:
           SHARD_BROWSER_TESTS: required
           SHARD_CI: '1'
           SHARD_BROWSER_HEADED: '1'
+          VK_DRIVER_FILES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
           SHARD_EFFECTS_EVIDENCE: ${{ github.workspace }}/effects-evidence
       - uses: actions/upload-artifact@v4
         if: always()

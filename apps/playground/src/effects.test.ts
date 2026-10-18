@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { timeout } from '@aethervtt/shard-core/test-env'
-import { browserLaunch, decodePng } from '@aethervtt/shard-verify/node'
+import { browserLaunch, decodePng, encodePng } from '@aethervtt/shard-verify/node'
 import { chromium } from 'playwright'
 import { afterAll, describe, expect, it } from 'vitest'
 import {
@@ -166,6 +166,17 @@ describe('effect sequence browser evidence', () => {
               JSON.stringify({ error: String(error), errors, snapshot }, null, 2),
             )
             await page.screenshot({ path: join(evidence, `${backend}-failure.png`) })
+            if (snapshot) {
+              const gpu = await page.evaluate(() => window.effectsProbe.capture())
+              await writeFile(
+                join(evidence, `${backend}-failure-gpu.png`),
+                encodePng(new Uint8Array(gpu.data), gpu.width, gpu.height),
+              )
+              // Distinguish scene rendering from Chromium's clipped-canvas composition.
+              await page.addStyleTag({ content: '.stage { overflow: visible; border-radius: 0; }' })
+              await page.evaluate(() => window.effectsProbe.step(0))
+              await page.screenshot({ path: join(evidence, `${backend}-failure-unclipped.png`) })
+            }
           }
           throw error
         } finally {

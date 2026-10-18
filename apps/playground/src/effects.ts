@@ -21,6 +21,7 @@ import { createWebAudioBackend, type WebAudioBackend } from '@aethervtt/shard-pl
 import {
   AmbientLight,
   Camera3d,
+  captureView,
   describeRender,
   Exposure,
   forwardPlugin,
@@ -176,6 +177,10 @@ async function main() {
   const probe = {
     play: cast,
     inspect,
+    async capture() {
+      const shot = await captureView(world)
+      return { width: shot.width, height: shot.height, data: Array.from(shot.data) }
+    },
     async step(frames: number) {
       stepping = true
       try {
