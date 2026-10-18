@@ -11,6 +11,7 @@ import {
   audioPlugin,
   configureAudioMixer,
   HeadlessAudioBackend,
+  playAudioEvent,
   playSound,
   setAudioUserBus,
   stopAudioEvent,
@@ -324,6 +325,55 @@ it('keeps event ownership bounded across repeated contact bursts and measures on
       )
       expect(samples[samples.length >> 1]!).toBeLessThan(budget('dice/audio-onsets'))
     }
+  } finally {
+    r.session.dispose()
+    await r.app.dispose()
+  }
+})
+
+it('fails changed documents before their new routing can bypass the dice category', async () => {
+  const r = await setup()
+  try {
+    await r.session.prepare([ref])
+    r.event.bus = 'sfx'
+    expect(() => r.session.play(ref, 1, 1, 1, 20, false, false, 1)).toThrow(/changed during/)
+    r.app.update(0.01)
+    expect(r.backend.active).toHaveLength(0)
+  } finally {
+    r.session.dispose()
+    await r.app.dispose()
+  }
+})
+
+it('drops saturated transients without stopping unrelated event owners', async () => {
+  const r = await setup()
+  try {
+    await r.session.prepare([ref])
+    const state = audioEvents(r.world)
+    const other = playAudioEvent(r.world, ref)
+    // Hold all remaining logical slots occupied; admission should reject before creating a voice.
+    state.instances.length = 1
+    expect(() => r.session.play(ref, 2, 1, 1, 20, false, false, 1)).not.toThrow()
+    r.session.dispose()
+    expect(state.instances[0]!.id).toBe(other)
+    expect(state.instances[0]!.state).not.toBe('ended')
+    r.app.update(0.01)
+    expect(r.backend.active).toHaveLength(1)
+  } finally {
+    r.session.dispose()
+    await r.app.dispose()
+  }
+})
+
+it('cleans previously prepared assets if a later reference is missing', async () => {
+  const r = await setup()
+  try {
+    await expect(r.session.prepare([ref, { ...ref, guid: 'missing-event' }])).rejects.toMatchObject(
+      { code: expect.any(String) },
+    )
+    expect(audioEvents(r.world).leases.size).toBe(0)
+    r.backend.collect()
+    expect(r.backend.memory().pinned).toBe(0)
   } finally {
     r.session.dispose()
     await r.app.dispose()

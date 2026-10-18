@@ -16,7 +16,7 @@ export function installDiceAudioDemo(world: World) {
         selector: 'no-repeat',
         choices: Array.from({ length: 6 }, (_, variation) => {
           const clip = bank.impact('glass', 'tray', layer, variation)
-          return { clip: clips.add(clip, clip.id) }
+          return { clip: { guid: clips.add(clip, clip.id).guid } }
         }),
         condition: {
           parameter: 'strength',
@@ -55,16 +55,20 @@ export function installDiceAudioDemo(world: World) {
       bus: 'dice',
       parameters: [{ name: 'high', kind: 'discrete' }],
       layers: [
-        { id: 'chime', gainDb: -12, choices: [{ clip: clips.add(chime, chime.id) }] },
+        {
+          id: 'chime',
+          gainDb: -12,
+          choices: [{ clip: { guid: clips.add(chime, chime.id).guid } }],
+        },
         {
           id: 'high-roll-bass',
           gainDb: -14,
           condition: { parameter: 'high', min: 1, max: 1 },
-          choices: [{ clip: clips.add(bass, bass.id) }],
+          choices: [{ clip: { guid: clips.add(bass, bass.id).guid } }],
         },
       ],
     }),
     'demo:audio/enchanted-result',
   )
-  return { impactEvent, resultEvent }
+  return { impactEvent: { guid: impactEvent.guid }, resultEvent: { guid: resultEvent.guid } }
 }

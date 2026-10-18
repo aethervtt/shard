@@ -51,7 +51,9 @@ the runtime clamps to authored bounds. Label selectors can use unrelated authore
 applied to every layer after envelopes and curves and preserved by checkpoints. Dice applies
 `soundGain` here so authors cannot accidentally bypass per-roll volume. Events use explicit
 roll-derived seeds. All owned event instances stop immediately on dismiss, replacement,
-abort, failure, and disposal. No authored asset is mutated.
+abort, failure, and disposal. No authored asset is mutated. Event document edits during a roll
+fail the next onset with `dice/audio-changed`; the next roll validates and prepares the new
+revision, preventing hot edits from bypassing routing or parameter contracts.
 
 Dice creates a `dice` category bus under `master` when audio is present, preserving host definitions.
 Procedural dice sounds default to this bus. Authored dice events must route their layers to
@@ -87,6 +89,8 @@ through its existing lastError/outcome surface. No new protocol family is necess
 - Dice is a direct child of master: user-control domains require category roots, including tail muting.
 - Use asset handles and schema-derived serialization, independent of storage backend.
 - Event onsets use existing event-runtime allocations; idle/contact scanning adds none.
+- `dice/audio-onsets` budgets four prepared onsets at a proposed 1 ms on laptop/desktop;
+  hosted measurements report their own hardware and do not claim named-machine compliance.
 
 ## Acceptance criteria
 

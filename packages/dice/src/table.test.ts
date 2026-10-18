@@ -763,7 +763,10 @@ it('dispatches authored contact and result events through the real dice presenta
     const skin = r.app.world.resource(DiceSkin.store).add(
       diceSkin({
         id: 'authored',
-        sounds: { impactEvent: sounds.impact, resultEvent: sounds.result },
+        sounds: {
+          impactEvent: { guid: sounds.impact.guid },
+          resultEvent: { guid: sounds.result.guid },
+        },
       }),
     )
     const outcome = r.table.play(
@@ -807,18 +810,18 @@ it('plays entrance audio once, gives recipe cues precedence, and cleans up on re
         id: 'audio-test',
         effects: [
           { kind: 'entrance', entrance: 'audio-test-entrance' },
-          { kind: 'sound-accent', event: sounds.recipe, gain: 0.3 },
+          { kind: 'sound-accent', event: { guid: sounds.recipe.guid }, gain: 0.3 },
         ],
       }),
     )
     const skin = r.app.world.resource(DiceSkin.store).add(
       diceSkin({
         id: 'entrance-audio',
-        effects: [recipe],
+        effects: [{ guid: recipe.guid }],
         sounds: {
-          impactEvent: sounds.impact,
-          entranceEvent: sounds.entrance,
-          resultEvent: sounds.result,
+          impactEvent: { guid: sounds.impact.guid },
+          entranceEvent: { guid: sounds.entrance.guid },
+          resultEvent: { guid: sounds.result.guid },
         },
       }),
     )

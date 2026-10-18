@@ -65,8 +65,9 @@ The roll prepares events and retains their audio leases, then stops owned instan
 releases leases on dismissal, replacement, abort, failure, completion or disposal. Missing
 plugins/assets and incompatible event definitions fail preparation through `table.lastError`.
 Global audio saturation may drop a transient without failing the roll. Changing a configured
-event while a roll is playing follows the shared audio runtime's asset revision semantics;
-change bindings between rolls. Use `audio.describe`/event inspection to inspect layer choices,
+event during a roll fails its next cue with `dice/audio-changed`; start a new roll to validate
+and prepare that revision. This prevents live edits bypassing the dice routing/input contract.
+Use `audio.describe`/event inspection to inspect layer choices,
 parameters and playback decisions.
 
 The playground's **enchanted audio** skin is a working example: layered glass impacts,

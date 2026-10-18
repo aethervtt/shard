@@ -1,5 +1,6 @@
 import {
   AudioBuses,
+  AudioEvent,
   AudioEventsState,
   type AudioLease,
   AudioMixState,
@@ -19,6 +20,7 @@ type Input = (typeof INPUTS)[number]
 interface Binding {
   ref: AssetRef
   inputs: Input[]
+  revision: string
 }
 
 /** Preserve host controls; a configured mixer must explicitly include its dice route. */
@@ -116,7 +118,7 @@ export class DiceAudioSession {
             })
           inputs.push(parameter.name as Input)
         }
-        this.bindings.set(key(ref), { ref, inputs })
+        this.bindings.set(key(ref), { ref: plan.source ?? ref, inputs, revision: plan.revision })
       }
     } catch (error) {
       this.dispose()
@@ -142,6 +144,11 @@ export class DiceAudioSession {
     const binding = this.bindings.get(key(ref))
     if (!binding)
       throw new ShardError('dice/audio-not-prepared', 'Prepare the dice event before playback')
+    const current = this.world.resource(AudioEvent.store).get(binding.ref)
+    if (!current || JSON.stringify(AudioEvent.serialize(current)) !== binding.revision)
+      throw new ShardError('dice/audio-changed', 'A dice event changed during its roll', {
+        hint: 'Start a new roll to prepare the changed event and validate its routing and inputs.',
+      })
     const parameters: Record<string, number> = {}
     for (let i = 0; i < binding.inputs.length; i++) {
       const input = binding.inputs[i]!
