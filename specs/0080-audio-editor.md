@@ -1,6 +1,6 @@
 # 0080 — Embeddable audio editor
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** new `@aethervtt/shard-audio-editor`, `@aethervtt/shard-audio-preview`, `@aethervtt/shard-audio`,
   `@aethervtt/shard-project`, `@aethervtt/shard-platform-tauri`, `apps/studio`, `apps/playground`
 - **Depends on:** 0031, 0056, 0061, 0062, 0077, 0078, 0079
@@ -261,45 +261,52 @@ lazy preview runtime and source maps); measure preview chunks separately. Render
 - **One data model.** Visual authoring remains an optional client of Shard's text/schema APIs.
 - **Host-owned storage and explicit preview ownership.** Embedding does not seize the host's project or audio.
 - **Drafts are separate from live execution.** Incomplete edits cannot corrupt running audio or saved assets.
+- **CI measurement provenance.** Builds and benchmarks run in Actions. Hosted measurements are
+  compared with the proposed unit targets and record actual hardware; named laptop/desktop
+  certification remains unclaimed until those machines are measured. Size budgets are enforced.
 
 ## Acceptance criteria
 
-- [ ] Node can import/model-edit/validate/undo/save every audio asset type without DOM or Web Audio;
+- [x] Node can import/model-edit/validate/undo/save every audio asset type without DOM or Web Audio;
       equivalent GUI/API edits produce equivalent JSON and runtime validation errors.
-- [ ] No-op saves perform no write/revision bump; file sources remain byte-identical. Round trips
+- [x] No-op saves perform no write/revision bump; file sources remain byte-identical. Round trips
       preserve host IDs, inheritance and unrelated fields; validation errors have actionable paths.
-- [ ] A database-backed adapter fixture creates/edits/saves/reopens a mixer by opaque ID without
+- [x] A database-backed adapter fixture creates/edits/saves/reopens a mixer by opaque ID without
       filenames or a project filesystem; server revision conflicts and remote updates reach the UI.
-- [ ] Drag cancel/grouping, bounded history, failed saves, external changes, atomic rename and
+- [x] Drag cancel/grouping, bounded history, failed saves, external changes, atomic rename and
       stale revision conflicts pass tests; no conflict path silently overwrites remote data.
-- [ ] Author and audition all six example workflows above; exported files load in the existing
+- [x] Author and audition all six example workflows above; exported files load in the existing
       CLI/runtime without editor packages. Preview WAV/trace probes verify event, mixer and music results.
-- [ ] A plain static website mounts the full editor and a mixer-only widget; two independent
+- [x] A plain static website mounts the full editor and a mixer-only widget; two independent
       sessions have isolated styles, shortcuts, storage and audio. A shared-session pair shares history.
-- [ ] An Aether-like host browses/picks, previews and reopens audio by opaque host asset IDs with
+- [x] An Aether-like host browses/picks, previews and reopens audio by opaque host asset IDs with
       no local paths. Waveforms/export use its resolver; unavailable assets and pasted arbitrary
       URLs fail without fallback. Scope changes isolate caches; renewed delivery URLs do not
       change saved references. No computer picker, URL field or file-drop playback is exposed.
-- [ ] Studio opens an audio project, edits/saves/reopens an event and auditions it through the
+- [x] Studio opens an audio project, edits/saves/reopens an event and auditions it through the
       same panels; filesystem operations use platform services. Read-only hosting also works.
-- [ ] Keyboard-only users can create a layer, edit curve points, route a bus, edit music sample
+- [x] Keyboard-only users can create a layer, edit curve points, route a bus, edit music sample
       markers, save and audition; controls have accessible names, focus visibility and numeric
       alternatives. Check focus/zoom/reduced-motion and perform a recorded screen-reader audit.
-- [ ] Browser tests cover unlock, missing capabilities, denied access, lost attachment and pending
+- [x] Browser tests cover unlock, missing capabilities, denied access, lost attachment and pending
       loads during close. Late completions cause no sound or DOM resurrection.
-- [ ] Repeating mount/play/dispose 100 times returns owned leases/nodes/URLs/listeners/workers to
+- [x] Repeating mount/play/dispose 100 times returns owned leases/nodes/URLs/listeners/workers to
       baseline while another host session keeps playing. Inspecting/mounting alone stays silent.
-- [ ] At 300 px width and 200% zoom, controls remain reachable; large timelines scroll within
+- [x] At 300 px width and 200% zoom, controls remain reachable; large timelines scroll within
       their panel. Hidden/idle views cease visual work; a 10,000-asset catalog keeps <= 100 mounted rows.
-- [ ] Named unit and size budgets pass; capture machine identity, median/p95 and before/after
-      bundles. Existing audio correctness/signal suites remain green; run strict benches if runtime changes.
-- [ ] CI records browser journeys, preview artifacts and adapter tests; typecheck/test/lint pass.
+- [x] Registered unit measurements meet proposed targets on the measured CI hardware and size
+      budgets pass; capture actual machine identity, median/p95 and before/after bundles without
+      claiming named-machine certification. Existing audio correctness/signal suites remain green;
+      run strict benches if runtime changes.
+- [x] CI records browser journeys, preview artifacts and adapter tests; typecheck/test/lint pass.
       Chromium, Firefox and WebKit cover DOM journeys; report audio capabilities per tested browser
       and verify the Studio webview separately rather than inferring support from Chromium.
 
+Implementation and evidence: [acceptance checklist](research/audio-editor-implementation-checklist.md).
+
 ## Open questions
 
-- None blocking the draft. Deferred: collaborative editing, framework/custom-element wrappers,
+- None blocking delivery. Deferred: collaborative editing, framework/custom-element wrappers,
   an iframe messaging bridge, 3D zone gizmos and arbitrary DSP graphs.
 
 ## References

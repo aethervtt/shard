@@ -118,4 +118,5 @@ project documents and persists edits through its platform adapter.
 
 Spec [0080](../../specs/0080-audio-editor.md) is the acceptance contract. CI collects browser
 journeys, actual audio renders, native Studio screenshots/accessibility logs, teardown/scale
-checks and performance/package reports. See the implementation checklist for recorded results.
+checks and performance/package reports. See the
+[implementation checklist](../../specs/research/audio-editor-implementation-checklist.md) for recorded results.
