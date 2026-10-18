@@ -171,6 +171,25 @@ describe('VFX browser evidence', () => {
           await page.evaluate(() => window.vfxProbe.play(42))
           const replay = await page.evaluate(() => window.vfxProbe.step(36))
           expect(replay.geometry).toEqual(flight.geometry)
+          await page.evaluate(() => window.vfxProbe.multiView(true))
+          const multi = await page.evaluate(() => window.vfxProbe.step(0))
+          expect(multi.gpuRecords.ribbons).toBe(4)
+          expect(new Set(multi.ribbonViews.map((v) => v.view)).size).toBe(2)
+          expect(new Set(multi.ribbonViews.map((v) => v.eye[0])).size).toBe(2)
+          await page.evaluate(() => window.vfxProbe.multiView(false))
+          await page.evaluate(() => window.vfxProbe.recover())
+          const recovered = await page.evaluate(() => window.vfxProbe.step(0))
+          expect(recovered.generation).toBeGreaterThan(replay.generation)
+          expect(recovered.gpuRecords.ribbons).toBe(2)
+          expect(recovered.geometry).toEqual(replay.geometry)
+          expect(recovered.render.recentErrors).toEqual([])
+          const restored = await page.screenshot({ clip })
+          await page.evaluate(() => {
+            window.vfxProbe.toggle('beam', false)
+            return window.vfxProbe.step(0)
+          })
+          expect(await changed(restored, await page.screenshot({ clip }))).toBeGreaterThan(30)
+          await page.evaluate(() => window.vfxProbe.toggle('beam', true))
           const completed = await page.evaluate(() => window.vfxProbe.step(265))
           expect(completed.instance!.state).toBe('completed')
           expect(completed.gpuRecords).toEqual({ ribbons: 0, decals: 0 })
@@ -192,6 +211,8 @@ describe('VFX browser evidence', () => {
                   cancelled,
                   replay,
                   completed,
+                  multi,
+                  recovered,
                   errors,
                 },
                 null,
@@ -208,7 +229,7 @@ describe('VFX browser evidence', () => {
               JSON.stringify({ error: String(error), errors, snapshot }, null, 2),
             )
             await page.screenshot({ path: join(evidence, `${backend}-failure.png`) })
-            if (snapshot) {
+            if (snapshot && snapshot.render.recentErrors.length === 0) {
               const gpu = await page.evaluate(() => window.vfxProbe.capture())
               await writeFile(
                 join(evidence, `${backend}-failure-gpu.png`),

@@ -249,9 +249,9 @@ export const updateRibbons = defineSystem({
         const table = q.tables[t]!
         for (let row = 0; row < table.count; row++) {
           const entity = table.entities[row]! as Entity
-          const limit = table.column(kind ? Beam : Trail, kind ? 'segments' : 'capacity')[
-            row
-          ] as number
+          const limit = (
+            kind ? table.column(Beam, 'segments')[row] : table.column(Trail, 'capacity')[row]
+          ) as number
           if (limit < (kind ? 1 : 2) || limit > (kind ? 255 : 256)) {
             state.rejected++
             continue

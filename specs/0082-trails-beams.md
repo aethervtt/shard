@@ -53,7 +53,8 @@ arrays; creation, resizing and command/diagnostic reads may allocate. Limits: 25
 2–256 points each, 16 width-curve keys and 256 authored beam points. Invalid curves or capacity
 excess report structured errors; no unbounded growth or silent truncation. Resource inspection
 reports points, vertices, active/paused status, errors and bytes. Unused GPU records are destroyed;
-device recovery rebuilds from CPU state. Empty/paused worlds release frame demand appropriately.
+device recovery rebuilds from CPU state. Alpha blending follows stable record creation order
+(no per-view depth sort). Colors are display-referred unlit overlays in the resolved HDR pass. Empty/paused worlds release frame demand appropriately.
 
 ### API sketch
 
@@ -68,7 +69,8 @@ The component schemas supply scene validation, inspector fields and generated pr
 `render.describe` includes ribbons; public headless inspection is available. 0081 gains a `visual`
 track naming `render/Trail`, `render/Beam` or `render/Decal` on an owned prefab target. It activates
 that component for its interval, pauses its clock, stops it at end and destroys it through existing
-owned-target cleanup. Overlapping visual tracks on one resolved component are rejected. Feature
+owned-target cleanup. A Beam track may name an `endpoint` target binding; losing that
+bound entity fails the instance and cleans up its owned targets. Overlapping visual tracks on one resolved component are rejected. Feature
 plugins are checked during preparation. Borrowed visual components are not overwritten.
 
 ## Decisions

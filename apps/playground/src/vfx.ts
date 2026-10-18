@@ -1,5 +1,5 @@
 import { assetServer } from '@aethervtt/shard-assets'
-import type { ComponentDef } from '@aethervtt/shard-core'
+import type { ComponentDef, Entity } from '@aethervtt/shard-core'
 import {
   cancelEffect,
   describeEffects,
@@ -206,9 +206,16 @@ async function main() {
     stepping = false,
     disposed = false,
     orthographic = false
+  let secondCamera: Entity | undefined
   function inspect() {
     return {
       backend: world.resource(Gpu).backend,
+      generation: world.resource(Gpu).generation,
+      ribbonViews:
+        world
+          .resource(RibbonGpu)
+          .renderer?.draws.map((d) => ({ view: d.view, eye: Array.from(d.data.slice(16, 20)) })) ??
+        [],
       render: describeRender(world),
       ribbons: describeRibbons(world),
       decals: describeDecals(world),
@@ -255,6 +262,7 @@ async function main() {
     world.set(instance.targets.get('beam')!, Beam, { seed })
     for (const kind of ['trail', 'beam', 'decal'] as const)
       toggle(kind, document.querySelector<HTMLInputElement>(`#${kind}`)!.checked)
+    app.update(0)
     drawUi()
     return instance.id
   }
@@ -302,6 +310,21 @@ async function main() {
         orthoHeight: 7,
       })
       return orthographic
+    },
+    multiView(enabled: boolean) {
+      if (enabled && secondCamera === undefined)
+        secondCamera = world.spawn(
+          [Camera3d, { order: 1, fovY: 48, clearColor: [0.012, 0.018, 0.035, 1] }],
+          [Exposure, { ev100: 6 }],
+          [Transform, { translation: [-5, 4, 13], rotation: lookAt([-5, 4, 13], [0, 1, 0]) }],
+        )
+      if (!enabled && secondCamera !== undefined) {
+        world.despawn(secondCamera)
+        secondCamera = undefined
+      }
+    },
+    async recover() {
+      await world.resource(Gpu).recreate()
     },
     async capture() {
       const shot = await captureView(world)
