@@ -82,7 +82,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
-      - run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev webkit2gtk-driver xvfb scrot gstreamer1.0-plugins-good pulseaudio orca speech-dispatcher-espeak-ng at-spi2-core dbus-x11
+      - run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev webkit2gtk-driver xvfb scrot xdotool gstreamer1.0-plugins-good pulseaudio orca speech-dispatcher-espeak-ng at-spi2-core dbus-x11
       - run: pnpm install --frozen-lockfile
       - run: cargo install tauri-driver --locked --version 2.1.0
       - run: pnpm --filter @aethervtt/shard-studio tauri build --debug --no-bundle

@@ -122,6 +122,13 @@ const stroke = (value) => [
   { type: 'keyDown', value },
   { type: 'keyUp', value },
 ]
+function nativeKeys(...chords) {
+  const result = spawnSync('xdotool', ['key', '--clearmodifiers', '--delay', '250', ...chords], {
+    encoding: 'utf8',
+    timeout: 10000,
+  })
+  assert.equal(result.status, 0, `Native keyboard input failed: ${result.stderr}`)
+}
 async function focusField(path) {
   // Navigate like a user, checking actual ShadowRoot focus instead of relying on
   // WebKitGTK's element-click/sendKeys focus handling for numeric controls.
@@ -267,12 +274,44 @@ try {
     // Give Orca observable, settled focus targets after the persistence journey. Wait for
     // actual speech generation, not a fixed delay or an ARIA-only proxy for narration.
     await focusField('/layers/0/gainDb')
+    const window = spawnSync('xdotool', ['search', '--onlyvisible', '--name', '^Shard Studio$'], {
+      encoding: 'utf8',
+      timeout: 10000,
+    })
+    assert.equal(window.status, 0, `Native Studio window unavailable: ${window.stderr}`)
+    const windowId = window.stdout.trim().split('\n')[0]
+    const focus = spawnSync('xdotool', ['windowfocus', '--sync', windowId], {
+      encoding: 'utf8',
+      timeout: 10000,
+    })
+    assert.equal(focus.status, 0, `Native Studio focus failed: ${focus.stderr}`)
+    // XTest reaches Orca's global keyboard listener as well as WebKit. Driver-only key
+    // dispatch changes DOM focus but can leave Orca treating it as a silent caret update.
+    nativeKeys('shift+Tab', 'Tab')
+    assert.equal(
+      await execute(`return ${root}.activeElement?.dataset.path`),
+      '/layers/0/gainDb',
+      'OS keyboard must return to the actual Gain field',
+    )
     const announced = async (pattern) => {
       const debug = await readFile(resolve(evidence, 'orca-debug.log'), 'utf8')
       return debug.split('\n').some((line) => /SPEECH OUTPUT/i.test(line) && pattern.test(line))
     }
     await until(() => announced(/\bGain\b/i), 'Orca gain-field announcement')
     await click(`[...${root}.querySelectorAll('button')].find(e=>e.textContent==='Play')`)
+    await until(
+      () =>
+        execute(
+          `return ${root}.activeElement?.textContent==='Play'&&${root}.querySelector('[role=status]').textContent.includes('Preview request: playing')`,
+        ),
+      'Settled playback-control focus',
+    )
+    nativeKeys('shift+Tab', 'Tab')
+    assert.equal(
+      await execute(`return ${root}.activeElement?.textContent`),
+      'Play',
+      'OS keyboard must return to the actual Play control',
+    )
     await until(() => announced(/\bPlay\b/i), 'Orca playback-control announcement')
     const debug = await readFile(resolve(evidence, 'orca-debug.log'), 'utf8')
     const announcements = debug.split('\n').filter((line) => /SPEECH OUTPUT/i.test(line))
@@ -290,7 +329,7 @@ try {
           screenReader: 'Orca',
           nativeHost: 'WebKitGTK / Tauri',
           method:
-            'Recorded speech generation during real WebDriver focus, typing and button interactions',
+            'Recorded Orca speech generation during verified native WebDriver focus and XTest keyboard navigation',
           utterances: editorAnnouncements,
           coverage,
           totalSpeechLines: announcements.length,
