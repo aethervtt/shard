@@ -33,6 +33,9 @@ the roll ends. Silent rolls and apps without audio do not fetch audio assets. Wi
 enabled, configured events require `audioEventsPlugin`; missing assets, incompatible parameter
 contracts or invalid routing fail the roll with a structured error before presentation.
 Cancellation during preparation releases leases even if asynchronous preparation finishes later.
+Skin and recipe assets retain dependency metadata but defer loading referenced content; the table
+already explicitly loads layouts/recipes/fonts, and audible rolls prepare the selected audio.
+Simply loading a skin into a silent host therefore does not fetch its event documents or clips.
 
 An impact event replaces the selected procedural hit, including placed and entrance landings.
 Contact selection retains the strongest-four-per-frame and 45 ms per-die bounds. Entrance

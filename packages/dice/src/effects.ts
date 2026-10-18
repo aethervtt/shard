@@ -86,6 +86,7 @@ export const DiceEffectRecipe = defineDataType(
   },
   {
     extension: 'dice-effect',
+    lazyDependencies: true,
     description: 'Effects a skin plays when a roll matches its conditions.',
   },
 )

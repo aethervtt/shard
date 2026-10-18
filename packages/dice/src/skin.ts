@@ -71,6 +71,7 @@ export const DiceSkin = defineDataType(
   },
   {
     extension: 'dice-skin',
+    lazyDependencies: true,
     description: 'A dice skin: family, parameters, variants, sounds, effects.',
   },
 )
