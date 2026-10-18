@@ -298,3 +298,37 @@ it('rejects excessive input triangles before projection', async () => {
   expect(w.resource(Decals).records[0]!.count).toBe(0)
   await app.dispose()
 })
+
+it('rejects back faces and preserves projected placement through a world-origin translation', async () => {
+  const { app, w } = await setup(),
+    receiver = surface(w)
+  const entity = w.spawn([Decal, { size: [1, 1, 0.5] }])
+  app.update(0)
+  const r = w.resource(Decals).records[0]!,
+    original = r.vertices.slice(0, r.count * 14)
+  w.set(receiver, Transform, { translation: [-100, 0, 0] })
+  w.set(entity, Transform, { translation: [-100, 0, 0] })
+  app.update(0)
+  expect(r.count * 14).toBe(original.length)
+  for (let i = 0; i < r.count; i++) {
+    expect(r.vertices[i * 14]! + 100).toBeCloseTo(original[i * 14]!, 4)
+    expect(r.vertices[i * 14 + 6]).toBe(original[i * 14 + 6])
+    expect(r.vertices[i * 14 + 7]).toBe(original[i * 14 + 7])
+  }
+  w.set(entity, Transform, { rotation: [0, 1, 0, 0] })
+  app.update(0)
+  expect(r.count).toBe(0)
+  w.set(entity, Decal, { maxVertices: 65536 })
+  const trail = w.spawn([Trail, { capacity: 257 }])
+  app.update(0)
+  expect(describeDecals(w).error).toBe('render/decal-limit')
+  expect(describeRibbons(w).error).toBe('render/ribbon-limit')
+  expect(w.resource(Decals).records).toHaveLength(0)
+  expect(w.resource(Ribbons).records).toHaveLength(0)
+  w.set(trail, Trail, { capacity: 64 })
+  w.set(entity, Decal, { maxVertices: 64 })
+  app.update(0)
+  expect(describeDecals(w).error).toBeNull()
+  expect(describeRibbons(w).error).toBeNull()
+  await app.dispose()
+})

@@ -433,9 +433,18 @@ export function describeDecals(world: World) {
   const s = world.resource(Decals)
   return {
     rejected: s.rejected,
+    error: s.rejected ? 'render/decal-limit' : null,
     receivers: s.receivers.length,
     records: s.records.map((r) => ({
       ...recordDescription(r),
+      cpuBytes:
+        r.vertices.byteLength +
+        r.matrix.byteLength +
+        r.inverse.byteLength +
+        r.settings.byteLength +
+        r.clipA.byteLength +
+        r.clipB.byteLength +
+        r.worldTriangle.byteLength,
       rebuilds: r.rebuilds,
       triangles: r.geometryCount / 3,
     })),

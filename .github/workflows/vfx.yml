@@ -81,5 +81,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @aethervtt/shard-playground build
       - run: pnpm size --check
+      - uses: oven-sh/setup-bun@v2
       - run: pnpm release --check
       - run: node scripts/wgsl-identity.mjs

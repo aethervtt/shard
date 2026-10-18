@@ -92,6 +92,11 @@ plugins are checked during preparation. Borrowed visual components are not overw
   steady-state allocation checks, hosted CI measurements recorded honestly.
 - [ ] Typecheck, correctness, lint, builds/size/package checks pass; renderer-min stays within budget.
 
+## Implementation evidence
+
+See [the implementation record](research/vfx-implementation-evidence.md) for test coverage,
+browser captures, hosted measurements, bundle cost and product boundaries.
+
 ## Open questions
 
 None for this slice. Particle-generated trails and visual authoring are deferred.

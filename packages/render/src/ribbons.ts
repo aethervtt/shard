@@ -318,8 +318,15 @@ export function describeRibbons(world: World) {
   const s = world.resource(Ribbons)
   return {
     rejected: s.rejected,
+    error: s.rejected ? 'render/ribbon-limit' : null,
     records: s.records.map((r) => ({
       ...recordDescription(r),
+      cpuBytes:
+        r.vertices.byteLength +
+        r.points.byteLength +
+        r.matrix.byteLength +
+        r.targetMatrix.byteLength +
+        r.scratch.byteLength,
       points: r.pointsCount,
       capacity: r.capacity,
     })),

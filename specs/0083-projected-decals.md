@@ -89,6 +89,11 @@ Project authoring documentation explains receiver masks, projection direction an
   named-machine budget); cached updates are included in steady-state allocation checks.
 - [ ] All correctness/typecheck/lint and CI build/package/size gates pass, with evidence on disk.
 
+## Implementation evidence
+
+See [the implementation record](research/vfx-implementation-evidence.md) for test coverage,
+browser captures, hosted measurements, bundle cost and product boundaries.
+
 ## Open questions
 
 None for this slice. Deformed surfaces and PBR channel decals are explicit follow-up work.
