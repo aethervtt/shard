@@ -36,6 +36,7 @@ Cancellation during preparation releases leases even if asynchronous preparation
 Skin and recipe assets retain dependency metadata but defer loading referenced content; the table
 already explicitly loads layouts/recipes/fonts, and audible rolls prepare the selected audio.
 Simply loading a skin into a silent host therefore does not fetch its event documents or clips.
+Thumbnail rendering explicitly loads its selected face layout/fonts, without loading audio.
 
 An impact event replaces the selected procedural hit, including placed and entrance landings.
 Contact selection retains the strongest-four-per-frame and 45 ms per-die bounds. Entrance

@@ -1,3 +1,4 @@
+import { assetServer } from '@aethervtt/shard-assets'
 import {
   AudioClips,
   AudioEvent,
@@ -37,6 +38,7 @@ import { dieGeometry, requireDie } from './definition'
 import { DiceEffectRecipe, diceEffectRecipe } from './effects'
 import { defineDiceEntrance } from './entrances'
 import { markAngle, naturalValue } from './landing'
+import { FaceLayout } from './layout'
 import { defineDiceFamily } from './material'
 import { dicePlugin } from './plugin'
 import { renderDiceThumbnail } from './preview'
@@ -613,6 +615,44 @@ describe('the dice table (0054)', () => {
     })
     expect(thumb.png?.subarray(1, 4)).toEqual(new Uint8Array([80, 78, 71]))
     expect(gpu.surfaces.length).toBe(surfaces)
+    let layoutLoads = 0
+    let audioLoads = 0
+    assetServer(r.app.world).virtual(
+      'thumb-layout',
+      'catalog/thumb-layout',
+      FaceLayout.name,
+      () => {
+        layoutLoads++
+        return FaceLayout.deserialize({ id: 'thumb-pips', default: { kind: 'pips' } })
+      },
+      { lazy: true },
+    )
+    assetServer(r.app.world).virtual(
+      'thumb-audio',
+      'catalog/thumb-audio',
+      AudioEvent.name,
+      () => {
+        audioLoads++
+        throw new Error('Thumbnail must not load audio')
+      },
+      { lazy: true },
+    )
+    const custom = r.app.world.resource(DiceSkin.store).add(
+      diceSkin({
+        id: 'lazy-thumbnail',
+        variants: { d6: { layout: { guid: 'thumb-layout' } } },
+        sounds: { impactEvent: { guid: 'thumb-audio' } },
+      }),
+    )
+    const preview = await renderDiceThumbnail(r.app, {
+      skin: custom,
+      kind: 'd6',
+      value: 6,
+      size: 96,
+    })
+    expect(preview.png?.subarray(1, 4)).toEqual(new Uint8Array([80, 78, 71]))
+    expect(layoutLoads).toBe(1)
+    expect(audioLoads).toBe(0)
     await r.app.dispose()
   })
 })
