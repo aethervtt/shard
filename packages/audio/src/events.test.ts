@@ -166,3 +166,27 @@ describe('authored audio events', () => {
     app.dispose()
   })
 })
+
+it('validates instance volume and multiplies all authored layers including exact silence', async () => {
+  const { app, world, event, backend } = await setup()
+  try {
+    event.layers.push({ ...event.layers[0]!, id: 'second', gainDb: -6 })
+    const lease = await prepareAudio(world, event)
+    for (const volume of [-1, Number.NaN, Number.POSITIVE_INFINITY])
+      expect(() => playAudioEvent(world, event, { volume })).toThrow()
+    const id = playAudioEvent(world, event, { volume: 0.25 })
+    app.update(0.01)
+    expect(backend.active.map((voice) => voice.params.gain)).toEqual([0.25, 0.25 * 10 ** (-6 / 20)])
+    stopAudioEvent(world, id, { release: 0 })
+    playAudioEvent(world, event, { volume: 0 })
+    app.update(0.01)
+    expect(
+      world
+        .resource((await import('./mixer')).AudioState)
+        .voices.every((voice) => voice.volume === 0),
+    ).toBe(true)
+    lease.release()
+  } finally {
+    await app.dispose()
+  }
+})

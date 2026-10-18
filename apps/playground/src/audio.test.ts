@@ -50,6 +50,12 @@ describe('audio offline browser evidence', () => {
             JSON.stringify(evidence, null, 2),
           )
         }
+        expect(evidence.dice.full.sample).toBeCloseTo(0.25, 4)
+        expect(evidence.dice.quarter.sample).toBeCloseTo(0.0625, 4)
+        expect(Math.abs(evidence.dice.muted.sample)).toBeLessThan(1e-6)
+        expect(evidence.dice.isolated.sample).toBeCloseTo(0.25, 4)
+        expect(evidence.dice.full.pins).toBe(0)
+        expect(evidence.dice.quarter.pins).toBe(0)
         expect(evidence.reservations).toEqual({ rejected: true, preserved: 4, low: 0, high: 2 })
         expect(evidence.scalarMixer.after).toBe(evidence.scalarMixer.before)
         expect(evidence.scalarMixer.tail).toBeCloseTo(0.25, 4)

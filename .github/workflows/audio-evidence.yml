@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - 'packages/audio/**'
+      - 'packages/dice/**'
+      - 'apps/playground/src/dice*'
+      - 'specs/0084*'
       - 'packages/audio-editor/**'
       - 'packages/audio-preview/**'
       - 'packages/platform*/**'
@@ -20,6 +23,9 @@ on:
     branches: [main]
     paths:
       - 'packages/audio/**'
+      - 'packages/dice/**'
+      - 'apps/playground/src/dice*'
+      - 'specs/0084*'
       - 'packages/audio-editor/**'
       - 'packages/audio-preview/**'
       - 'packages/platform*/**'
@@ -100,6 +106,26 @@ jobs:
           name: audio-performance-${{ github.sha }}
           path: bench/perf/report.json
           if-no-files-found: warn
+  dice:
+    name: Dice audio integration and performance
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
+      - run: pnpm bench --filter=@aethervtt/shard-dice -- src/audio.test.ts src/table.test.ts src/entrances.test.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dice-audio-performance-${{ github.sha }}
+          path: bench/perf/report.json
+          if-no-files-found: error
   packaging:
     name: Build and package checks
     runs-on: ubuntu-latest

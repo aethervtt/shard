@@ -45,6 +45,12 @@
       "desktop": 0.2,
       "note": "0014: a scan stats unchanged sources; 1,000 in under 200 ms. assets/src/assets.test.ts."
     },
+    "dice/audio-onsets": {
+      "kind": "target",
+      "laptop": 1,
+      "desktop": 1,
+      "note": "0084: four prepared dice event onsets with local parameters. Proposed 1 ms slice for the maximum contact burst; excludes decoding and physics. Hosted measurements recorded in spec evidence."
+    },
     "audio/acoustics": {
       "kind": "target",
       "laptop": 0.2,

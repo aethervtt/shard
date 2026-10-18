@@ -1,4 +1,9 @@
 import {
+  AudioClips,
+  AudioEvent,
+  audioClip,
+  audioEvents,
+  audioEventsPlugin,
   audioLog,
   audioPlugin,
   createHeadlessAudioBackend,
@@ -30,12 +35,14 @@ import { defineDiceAttachment } from './attachments'
 import { DiceDie } from './components'
 import { dieGeometry, requireDie } from './definition'
 import { DiceEffectRecipe, diceEffectRecipe } from './effects'
+import { defineDiceEntrance } from './entrances'
 import { markAngle, naturalValue } from './landing'
 import { defineDiceFamily } from './material'
 import { dicePlugin } from './plugin'
 import { renderDiceThumbnail } from './preview'
 import type { DiceRoll } from './roll'
 import { DICE_SKINS, DiceSkin, diceSkin } from './skin'
+import { wavBytes } from './sound'
 import { ANIMATED_DEMAND, DiceTable, PRESENTATION_DEMAND } from './table'
 
 let gpu: GpuContext
@@ -57,6 +64,7 @@ async function rig(
   options: {
     restMs?: number
     audio?: boolean
+    events?: boolean
     worker?: () => TrackWorkerLike
     size?: [number, number]
   } = {},
@@ -64,13 +72,14 @@ async function rig(
   const [w, h] = options.size ?? [320, 180]
   const target = new OffscreenTarget(gpu, { label: 'window', width: w, height: h })
   const clock = { now: 0 }
-  const audio = options.audio ? createHeadlessAudioBackend() : undefined
+  const audio = options.audio || options.events ? createHeadlessAudioBackend() : undefined
   const app = new App().addPlugin(
     TransformPlugin,
     renderPlugin({ gpu, target, owner: 'dice' }),
     forwardPlugin({ msaa: 1 }),
     particlesPlugin,
     ...(audio ? [audioPlugin({ backend: audio })] : []),
+    ...(options.events ? [audioEventsPlugin()] : []),
     dicePlugin({ now: () => clock.now, restMs: options.restMs ?? 2000, worker: options.worker }),
   )
   await app.init()
@@ -719,4 +728,125 @@ describe('the large-pool tier (0054)', () => {
     expect(tray.value.shadowOpacity).toBeCloseTo(full, 6)
     await r.app.dispose()
   })
+})
+
+function authoredSounds(r: Rig) {
+  const world = r.app.world
+  const events = world.resource(AudioEvent.store)
+  const make = (name: string) => {
+    const clip = world
+      .resource(AudioClips)
+      .add(audioClip(wavBytes(new Float32Array(6400).fill(0.25)), { id: `authored:${name}` }))
+    return events.add(
+      AudioEvent.deserialize({
+        bus: 'dice',
+        parameters: [{ name: 'strength' }, { name: 'value', max: 100 }, { name: 'high' }],
+        layers: [{ id: name, choices: [{ clip: { guid: clip.guid } }] }],
+      }),
+      `authored:${name}`,
+    )
+  }
+  return {
+    impact: make('impact'),
+    result: make('result'),
+    entrance: make('entrance'),
+    recipe: make('recipe'),
+  }
+}
+
+it('dispatches authored contact and result events through the real dice presentation', {
+  timeout: timeout(60_000),
+}, async () => {
+  const r = await rig({ events: true })
+  try {
+    const sounds = authoredSounds(r)
+    const skin = r.app.world.resource(DiceSkin.store).add(
+      diceSkin({
+        id: 'authored',
+        sounds: { impactEvent: sounds.impact, resultEvent: sounds.result },
+      }),
+    )
+    const outcome = r.table.play(
+      roll({ dice: [{ kind: 'd20', value: 20, high: true, skin }], soundGain: 0.4 }),
+    )
+    await until(r, () => r.table.phase === 'rest')
+    expect(r.table.lastError).toBeUndefined()
+    const history = r.audio!.history
+    expect(history.some((voice) => voice.clip === 'authored:impact')).toBe(true)
+    expect(history.filter((voice) => voice.clip === 'authored:result')).toHaveLength(1)
+    expect(history.some((voice) => voice.clip.startsWith('dice:'))).toBe(false)
+    expect(history.every((voice) => voice.bus === 'dice' && voice.params.gain <= 0.4)).toBe(true)
+    const state = audioEvents(r.app.world)
+    const result = state.instances.find((instance) => instance?.key === 'authored:result')!
+    expect(result.parameters!.targets[1]).toBe(20)
+    expect(result.parameters!.targets[2]).toBe(1)
+    r.table.dismiss()
+    expect(await outcome).toBe('dismissed')
+    expect(state.leases.size).toBe(0)
+    expect(r.audio!.active).toHaveLength(0)
+  } finally {
+    await r.app.dispose()
+    r.target.destroy()
+  }
+})
+
+it('plays entrance audio once, gives recipe cues precedence, and cleans up on replacement and abort', {
+  timeout: timeout(60_000),
+}, async () => {
+  const r = await rig({ events: true })
+  defineDiceEntrance('audio-test-entrance', {
+    vertices: 1,
+    durationMs: 250,
+    landAtMs: 100,
+    spawn: () => [],
+  })
+  try {
+    const sounds = authoredSounds(r)
+    const recipe = r.app.world.resource(DiceEffectRecipe.store).add(
+      diceEffectRecipe({
+        id: 'audio-test',
+        effects: [
+          { kind: 'entrance', entrance: 'audio-test-entrance' },
+          { kind: 'sound-accent', event: sounds.recipe, gain: 0.3 },
+        ],
+      }),
+    )
+    const skin = r.app.world.resource(DiceSkin.store).add(
+      diceSkin({
+        id: 'entrance-audio',
+        effects: [recipe],
+        sounds: {
+          impactEvent: sounds.impact,
+          entranceEvent: sounds.entrance,
+          resultEvent: sounds.result,
+        },
+      }),
+    )
+    const input = roll({ dice: [{ kind: 'd20', value: 20, high: true, skin }] })
+    const first = r.table.play(input)
+    await until(r, () => r.table.phase === 'rest')
+    const history = r.audio!.history
+    expect(history.filter((voice) => voice.clip === 'authored:entrance')).toHaveLength(1)
+    expect(history.filter((voice) => voice.clip === 'authored:impact')).toHaveLength(1)
+    expect(history.filter((voice) => voice.clip === 'authored:recipe')).toHaveLength(1)
+    expect(history.some((voice) => voice.clip === 'authored:result')).toBe(false)
+    const abort = new AbortController()
+    const next = r.table.play(input, { replace: true, signal: abort.signal })
+    expect(await first).toBe('dismissed')
+    abort.abort()
+    expect(await next).toBe('cancelled')
+    // Finish the cancelled asynchronous preparation boundary.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(audioEvents(r.app.world).leases.size).toBe(0)
+    expect(r.audio!.active).toHaveLength(0)
+    const before = history.length
+    const silent = r.table.play({ ...input, soundGain: 0 })
+    await until(r, () => r.table.phase === 'rest')
+    expect(history).toHaveLength(before)
+    r.table.dismiss()
+    await silent
+  } finally {
+    await r.app.dispose()
+    r.target.destroy()
+  }
 })

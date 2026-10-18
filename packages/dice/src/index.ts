@@ -1,3 +1,4 @@
+export { DICE_AUDIO_BUS } from './audio'
 // @aethervtt/shard-dice (0054): dice as a first-party package. Definitions and their numbering,
 // face layouts baked into MSDF atlases, skins over material families, physical tracks recorded
 // in a worker (0053), landing on the host's result by a symmetry of the die, and presentation:

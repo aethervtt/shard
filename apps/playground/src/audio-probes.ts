@@ -29,6 +29,7 @@ import type {
 import { createWebAudioBackend, renderAudioPreview } from '@aethervtt/shard-platform-web'
 import { App } from '@aethervtt/shard-runtime'
 import { TransformPlugin } from '@aethervtt/shard-transform'
+import { diceAudioProbe } from './dice-audio-probes'
 
 function clip(
   kind: 'constant' | 'impulse' | 'sine',
@@ -643,6 +644,7 @@ export async function audioProbes() {
   const collectedBytes = host.runtime.memory().decodedBytes
   host.dispose?.()
   return {
+    dice: await diceAudioProbe(),
     reservations: await reservationProbe(),
     compressor: await compressorProbe(),
     scalarMixer: await scalarMixerProbe(),

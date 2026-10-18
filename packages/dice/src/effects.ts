@@ -45,6 +45,9 @@ const EFFECT = t.struct(
     cue: t.enum(['resin-chime', 'arcane-spark', 'void-whump'], {
       description: 'sound-accent: the cue.',
     }),
+    event: t.handle('audio/AudioEvent', {
+      description: 'sound-accent: optional authored event replacing the procedural cue.',
+    }),
     gain: t.f32({ default: 0.7, min: 0, max: 1, description: 'sound-accent: 0..1.' }),
     radius: t.f32({
       default: 150,
