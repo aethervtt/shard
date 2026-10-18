@@ -19,7 +19,8 @@
     "@aethervtt/shard-render": "workspace:*",
     "@aethervtt/shard-runtime": "workspace:*",
     "@aethervtt/shard-transform": "workspace:*",
-    "@aethervtt/shard-protocol": "workspace:*"
+    "@aethervtt/shard-protocol": "workspace:*",
+    "@aethervtt/shard-audio-editor": "workspace:*"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.5",

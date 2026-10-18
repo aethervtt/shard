@@ -197,3 +197,9 @@ depend on the structure or open-world work.
 | [0069](0069-interior-lighting.md) | Interior lighting (sky visibility from the plan, spill through openings, lights blocked by walls) | implemented |
 | [0070](0070-view-visibility-cutaways.md) | Per-view visibility and cutaways (hide entities from one camera; cut roofs and walls open around reveal points) | accepted |
 | [0076](0076-cards.md) | Cards and decks (front/back art, sizes, masked extensible foil, instanced layouts, picking and optional tilt) | draft |
+| [0080](0080-audio-editor.md) | Embeddable audio editor (DOM panels, event/mixer/music authoring, isolated previews, host storage and Studio integration) | accepted |
+
+0080 builds on implemented audio specs 0077–0079. Its independent browser widget and panels
+serve websites, Aaether and Studio without a renderer dependency. It adds an optional visual
+client to the existing text/API authoring model; Studio's project adapter is explicit work in
+the spec, not an existing prerequisite. No procedural-world or general scene editor work blocks it.

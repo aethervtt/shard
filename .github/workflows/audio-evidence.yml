@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'packages/audio/**'
+      - 'packages/audio-editor/**'
       - 'packages/platform*/**'
       - 'packages/assets/**'
       - 'packages/save/**'
@@ -18,6 +19,7 @@ on:
     branches: [main]
     paths:
       - 'packages/audio/**'
+      - 'packages/audio-editor/**'
       - 'packages/platform*/**'
       - 'packages/assets/**'
       - 'packages/save/**'

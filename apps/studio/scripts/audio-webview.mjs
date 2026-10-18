@@ -1,0 +1,206 @@
+// Actual Tauri/WebKitGTK journey through W3C WebDriver. No browser engine substitution.
+// https://v2.tauri.app/develop/tests/webdriver/manual-setup/
+import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
+import { cp, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { resolve } from 'node:path'
+
+const repository = resolve(import.meta.dirname, '../../..')
+const fixture = resolve(homedir(), 'shard-audio-editor-fixture')
+const evidence = resolve(process.env.SHARD_AUDIO_EDITOR_EVIDENCE ?? 'audio-editor-evidence')
+await mkdir(evidence, { recursive: true })
+await cp(resolve(repository, 'examples/audio-lab'), fixture, { recursive: true })
+let reader
+let readerOutput = ''
+if (process.env.SHARD_SCREEN_READER === '1') {
+  // Orca's documented debug mode records actual speech generation and AT-SPI events.
+  // https://orca.gnome.org/debugging — this is separate from an ARIA snapshot.
+  const settings = spawn('gsettings', [
+    'set',
+    'org.gnome.desktop.interface',
+    'toolkit-accessibility',
+    'true',
+  ])
+  await new Promise((done) => settings.on('exit', done))
+  reader = spawn(
+    'orca',
+    [
+      '--replace',
+      '--enable=speech',
+      '--debug',
+      `--debug-file=${resolve(evidence, 'orca-debug.log')}`,
+    ],
+    { stdio: ['ignore', 'pipe', 'pipe'] },
+  )
+  reader.stdout.on('data', (chunk) => {
+    readerOutput += chunk
+  })
+  reader.stderr.on('data', (chunk) => {
+    readerOutput += chunk
+  })
+  // Allow the AT-SPI registry and speech dispatcher to initialize before the native window.
+  await new Promise((done) => setTimeout(done, 1500))
+}
+const driver = spawn('tauri-driver', [], { stdio: ['ignore', 'pipe', 'pipe'] })
+let logs = ''
+driver.stdout.on('data', (chunk) => {
+  logs += chunk
+})
+driver.stderr.on('data', (chunk) => {
+  logs += chunk
+})
+let session
+async function request(path, body, method = 'POST') {
+  const response = await fetch(`http://127.0.0.1:4444${path}`, {
+    method,
+    headers: { 'content-type': 'application/json' },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  })
+  const result = await response.json()
+  if (!response.ok || result.value?.error) throw new Error(JSON.stringify(result))
+  return result.value
+}
+async function until(action, message) {
+  const start = Date.now()
+  let error
+  while (Date.now() - start < 60000) {
+    try {
+      const value = await action()
+      if (value) return value
+    } catch (cause) {
+      error = cause
+    }
+    await new Promise((done) => setTimeout(done, 200))
+  }
+  throw new Error(`${message}: ${String(error ?? 'timed out')}`)
+}
+const execute = (script, args = []) => request(`/session/${session}/execute/sync`, { script, args })
+const root = 'document.querySelector("[data-audio-editor]").shadowRoot'
+async function element(expression) {
+  const result = await until(() => execute(`return ${expression}`), expression)
+  return result['element-6066-11e4-a52e-4f735466cecf']
+}
+async function click(expression) {
+  const id = await element(
+    `(()=>{const element=${expression};return element&&!element.disabled?element:null})()`,
+  )
+  await request(`/session/${session}/element/${id}/click`, {})
+}
+try {
+  await until(() => request('/status', undefined, 'GET'), 'Driver startup')
+  const created = await request('/session', {
+    capabilities: {
+      alwaysMatch: {
+        'tauri:options': { application: resolve(repository, 'target/debug/shard-studio') },
+      },
+    },
+  })
+  session = created.sessionId
+  await until(
+    () => execute('return !!document.querySelector("input[name=project]")'),
+    'Studio opener',
+  )
+  await execute('document.querySelector("input[name=project]").value = arguments[0]', [fixture])
+  await click('document.querySelector("form button")')
+  await until(
+    () =>
+      execute(`return ${root}.querySelector('.title').textContent.includes('.audio-event.json')`),
+    'Project event loaded',
+  )
+  const name = await execute(`return ${root}.querySelector('.title').textContent`)
+  await click(`[...${root}.querySelectorAll('[role=tab]')].find(e=>e.textContent==='Event')`)
+  await click(`${root}.querySelector('details[data-group="/layers/0"] > summary')`)
+  let gain = await element(`${root}.querySelector('[data-path="/layers/0/gainDb"]')`)
+  await request(`/session/${session}/element/${gain}/clear`, {})
+  gain = await element(`${root}.querySelector('[data-path="/layers/0/gainDb"]')`)
+  await request(`/session/${session}/element/${gain}/value`, { text: '-6\uE004' })
+  await click(`[...${root}.querySelectorAll('button')].find(e=>e.textContent==='Save')`)
+  await until(
+    () => execute(`return ${root}.querySelector('[role=status]').textContent.startsWith('Saved')`),
+    'Durable save',
+  )
+  const file = resolve(fixture, 'data/audio', name)
+  assert.equal(JSON.parse(await readFile(file, 'utf8')).layers[0].gainDb, -6)
+  await click(`[...${root}.querySelectorAll('button')].find(e=>e.textContent==='Play')`)
+  await until(
+    () =>
+      execute(
+        `return ${root}.querySelector('[role=status]').textContent.includes('Preview: playing')`,
+      ),
+    'Native audition',
+  )
+  const capabilities = await execute(
+    'return {userAgent:navigator.userAgent,audioContext:typeof AudioContext!=="undefined",offlineAudioContext:typeof OfflineAudioContext!=="undefined",studioWebview:true}',
+  )
+  const screenshot = await request(`/session/${session}/screenshot`, undefined, 'GET')
+  await writeFile(resolve(evidence, 'studio-webview.png'), Buffer.from(screenshot, 'base64'))
+  await click(`[...${root}.querySelectorAll('button')].find(e=>e.textContent==='Stop')`)
+  // Reload the native window and reopen from platform files, not the first session's cache.
+  await request(`/session/${session}/refresh`, {})
+  await until(
+    () => execute('return !!document.querySelector("input[name=project]")'),
+    'Reload opener',
+  )
+  await execute('document.querySelector("input[name=project]").value = arguments[0]', [fixture])
+  await click('document.querySelector("form button")')
+  await until(
+    () => execute(`return ${root}.querySelector('.title').textContent===arguments[0]`, [name]),
+    'Reopened document',
+  )
+  await click(`[...${root}.querySelectorAll('[role=tab]')].find(e=>e.textContent==='Event')`)
+  assert.equal(
+    await execute(`return ${root}.querySelector('[data-path="/layers/0/gainDb"]').value`),
+    '-6',
+  )
+  await writeFile(
+    resolve(evidence, 'studio-webview.json'),
+    JSON.stringify(
+      {
+        ...capabilities,
+        edited: name,
+        savedGainDb: -6,
+        reopened: true,
+        audition: true,
+        platformFiles: true,
+      },
+      null,
+      2,
+    ),
+  )
+  if (reader) {
+    await new Promise((done) => setTimeout(done, 500))
+    const debug = await readFile(resolve(evidence, 'orca-debug.log'), 'utf8')
+    const announcements = debug.split('\n').filter((line) => /SPEECH OUTPUT/i.test(line))
+    const editorAnnouncements = announcements.filter((line) =>
+      /Event|Gain|Play|audio project|Save/i.test(line),
+    )
+    await writeFile(
+      resolve(evidence, 'screen-reader-audit.json'),
+      JSON.stringify(
+        {
+          screenReader: 'Orca',
+          nativeHost: 'WebKitGTK / Tauri',
+          method:
+            'Recorded speech generation during real WebDriver focus, typing and button interactions',
+          utterances: editorAnnouncements,
+          totalSpeechLines: announcements.length,
+          limitations:
+            'Automated focus journey; no claim of human listening or comprehensive accessibility certification.',
+        },
+        null,
+        2,
+      ),
+    )
+    assert.ok(
+      editorAnnouncements.length > 0,
+      'Orca must announce editor controls; inspect orca-debug.log',
+    )
+  }
+} finally {
+  if (session) await request(`/session/${session}`, undefined, 'DELETE').catch(() => {})
+  driver.kill()
+  reader?.kill()
+  await writeFile(resolve(evidence, 'orca-process.log'), readerOutput)
+  await writeFile(resolve(evidence, 'studio-driver.log'), logs)
+}

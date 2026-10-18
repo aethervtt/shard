@@ -9,6 +9,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@aethervtt/shard-audio-editor": "workspace:*",
     "@aethervtt/shard-core": "workspace:*",
     "@aethervtt/shard-dice": "workspace:*",
     "@aethervtt/shard-gpu": "workspace:*",

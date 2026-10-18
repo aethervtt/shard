@@ -22,7 +22,15 @@
     "fs:allow-unwatch",
     {
       "identifier": "fs:scope",
-      "allow": [{ "path": "$HOME/**" }, { "path": "$APPDATA/**" }]
-    }
+      "allow": [
+        {
+          "path": "$HOME/**"
+        },
+        {
+          "path": "$APPDATA/**"
+        }
+      ]
+    },
+    "fs:allow-stat"
   ]
 }

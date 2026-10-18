@@ -7,6 +7,7 @@ import type {
   Workers,
 } from '@aethervtt/shard-platform'
 import { createWebAudioBackend, createWebWorkers } from '@aethervtt/shard-platform-web'
+import { appDataDir, homeDir } from '@tauri-apps/api/path'
 import {
   exists,
   mkdir,
@@ -17,6 +18,7 @@ import {
   remove,
   rename,
   SeekMode,
+  stat,
   type WatchEvent,
   watch,
   writeFile,
@@ -33,6 +35,11 @@ export interface TauriPlatformOptions {
   dataDir?: string
   /** Host-authorized media URL for a project artifact. The host grants its protocol scope first. */
   mediaUrl?: (projectPath: string) => string
+}
+
+/** Host locations for Studio; SDK imports stay behind the platform boundary. */
+export async function tauriDirectories(): Promise<{ home: string; data: string }> {
+  return { home: await homeDir(), data: (await appDataDir()).replace(/\/+$/, '') }
 }
 
 /** Storage as files under `dir`, through the fs plugin. Writes land in a temp file, then rename. */
@@ -107,6 +114,21 @@ export function createTauriPlatform(options: TauriPlatformOptions): Platform {
     writeText: (path, data) => writeTextFile(resolve(path), data),
     writeBytes: (path, data) => writeFile(resolve(path), data),
     exists: (path) => exists(resolve(path)),
+    remove: async (path) => {
+      if (await exists(resolve(path))) await remove(resolve(path))
+    },
+    stat: async (path) => {
+      if (!(await exists(resolve(path)))) return undefined
+      const info = await stat(resolve(path))
+      return { size: info.size, mtime: info.mtime?.getTime() ?? 0 }
+    },
+    list: async (path) => {
+      if (!(await exists(resolve(path)))) return []
+      const entries = await readDir(resolve(path))
+      return entries
+        .filter((entry) => entry.isDirectory || entry.isFile)
+        .map((entry) => ({ name: entry.name, kind: entry.isDirectory ? 'dir' : 'file' }))
+    },
     watch: async (path, onChange) =>
       watch(resolve(path), (event) => toChange(event).forEach(onChange), {
         recursive: true,
