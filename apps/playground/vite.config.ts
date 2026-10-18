@@ -26,6 +26,7 @@ export default defineConfig({
         'cards.html',
         'audio-editor.html',
         'effects.html',
+        'vfx.html',
       ],
     },
   },

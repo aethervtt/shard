@@ -1,0 +1,106 @@
+{
+  "duration": 5,
+  "targets": [
+    {
+      "id": "slash",
+      "prefab": {
+        "path": "catalog/slash.prefab.json"
+      }
+    },
+    {
+      "id": "beam",
+      "prefab": {
+        "path": "catalog/beam.prefab.json"
+      }
+    },
+    {
+      "id": "scorch",
+      "prefab": {
+        "path": "catalog/scorch.prefab.json"
+      }
+    },
+    {
+      "id": "endpoint"
+    }
+  ],
+  "tracks": [
+    {
+      "id": "slashVisible",
+      "kind": "visual",
+      "target": "slash",
+      "component": "render/Trail",
+      "duration": 1.2
+    },
+    {
+      "id": "lightning",
+      "kind": "visual",
+      "target": "beam",
+      "component": "render/Beam",
+      "endpoint": "endpoint",
+      "start": 0.2,
+      "duration": 2.6
+    },
+    {
+      "id": "burn",
+      "kind": "visual",
+      "target": "scorch",
+      "component": "render/Decal",
+      "start": 1.2,
+      "duration": 3.6
+    },
+    {
+      "id": "slashMove0",
+      "kind": "property",
+      "target": "slash",
+      "component": "core/Transform",
+      "field": "translation",
+      "start": 0.0,
+      "duration": 0.25,
+      "from": [-4, 1, 0],
+      "to": [-3.7, 2, 0]
+    },
+    {
+      "id": "slashMove1",
+      "kind": "property",
+      "target": "slash",
+      "component": "core/Transform",
+      "field": "translation",
+      "start": 0.25,
+      "duration": 0.25,
+      "from": [-3.7, 2, 0],
+      "to": [-3, 2.4, 0]
+    },
+    {
+      "id": "slashMove2",
+      "kind": "property",
+      "target": "slash",
+      "component": "core/Transform",
+      "field": "translation",
+      "start": 0.5,
+      "duration": 0.25,
+      "from": [-3, 2.4, 0],
+      "to": [-2.3, 1.8, 0]
+    },
+    {
+      "id": "slashMove3",
+      "kind": "property",
+      "target": "slash",
+      "component": "core/Transform",
+      "field": "translation",
+      "start": 0.75,
+      "duration": 0.25,
+      "from": [-2.3, 1.8, 0],
+      "to": [-2.2, 0.7, 0]
+    },
+    {
+      "id": "targetMove",
+      "kind": "property",
+      "target": "endpoint",
+      "component": "core/Transform",
+      "field": "translation",
+      "duration": 2.8,
+      "from": [1.1, 1.5, 0],
+      "to": [1.5, 2.5, 0]
+    }
+  ]
+}

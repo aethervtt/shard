@@ -110,7 +110,8 @@ for, not built yet.
 - 2D: sprites, atlases, batching, sprite animation, tilemaps, 2D camera, 2D lighting and shadows
 - Debug drawing (lines, shapes, gizmos), picking
 - Text rendering (MSDF fonts), in world and on screen
-- Later: GPU-driven culling, decals, water, atmosphere, volumetrics
+- Optional trails/beams and projected color decals on rigid mesh receivers (0082–0083)
+- Later: GPU-driven culling, deformed/PBR decals, water, atmosphere, volumetrics
 
 **Particles**
 - v1: GPU particles (compute simulate + instanced draw), emitters as data assets

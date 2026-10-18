@@ -167,6 +167,10 @@ describe('agent docs', () => {
       expect.arrayContaining([
         '.agents/audio.md',
         '.agents/effects.md',
+        '.agents/vfx.md',
+        '.shard/schemas/components/render.Trail.json',
+        '.shard/schemas/components/render.Beam.json',
+        '.shard/schemas/components/render.Decal.json',
         '.shard/schemas/effect-sequence.schema.json',
         '.shard/schemas/audio-preview.schema.json',
         '.shard/schemas/audio-event.schema.json',

@@ -221,6 +221,7 @@
     "apps/playground/src/verify.test.ts": 327,
     "apps/playground/src/webgl2.test.ts": 198,
     "apps/playground/src/perf.test.ts": 109,
-    "apps/playground/src/cards.test.ts": 120
+    "apps/playground/src/cards.test.ts": 120,
+    "src/vfx.test.ts": 180
   }
 }

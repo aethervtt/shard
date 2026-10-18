@@ -23,7 +23,7 @@ Gameplay remains authoritative: an impact marker describes presentation, never a
 ## Non-goals
 
 Visual timeline editor, nested sequences, arbitrary script tracks, authoritative gameplay,
-network transport, reverse playback, audio sample-accurate synchronization, ribbons/decals,
+network transport, reverse playback, audio sample-accurate synchronization, VFX rendering beyond 0082–0083,
 skeletal animation blending UI and production export are separate work.
 
 ## Design
@@ -59,6 +59,7 @@ ends precede starts at the same time (1 ns tolerance for decimal times), permitt
 | animation | `animation` clip handle on an owned target. Adds a sequence-controlled animation layer, sampled by the existing animation plugin; holds the exact final pose until replaced or cleaned up. |
 | particles | `particles` effect handle on an owned target. Runs an existing ParticleSystem with a seed derived from instance seed and track index. |
 | audio | `audio` authored AudioEvent handle. Prepared through the existing audio runtime; stopped at track end/cancellation. Spatial emitter follows the bound target. |
+| visual | `component` naming `render/Trail`, `render/Beam` or `render/Decal` on an owned prefab target. Activates/stops its presentation, freezes its clock on pause; a beam may bind an `endpoint` by sequence target name. See 0082–0083. |
 | marker | `marker` string. Recorded once when crossed, including a large frame step. No target required. |
 
 Property tracks restore the field value captured before play on completion/cancellation.

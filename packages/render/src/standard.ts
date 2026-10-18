@@ -1,6 +1,7 @@
 import { definePlugin, type Plugin } from '@aethervtt/shard-runtime'
 import { atmospherePlugin } from './atmosphere-plugin'
 import { cutawayPlugin } from './cutaway-plugin'
+import { decalsPlugin } from './decals-plugin'
 import { deferredPlugin } from './deferred-plugin'
 import { renderDescribePlugin } from './describe-plugin'
 import { dynamicResolutionPlugin } from './dynamic-resolution'
@@ -15,6 +16,7 @@ import { outlinePlugin } from './outline-plugin'
 import { pickingPlugin } from './picking-plugin'
 import { pixelPerfectPlugin } from './pixel-perfect-plugin'
 import { postPlugin } from './post-plugin'
+import { ribbonsPlugin } from './ribbons-plugin'
 import { shadowCatcherPlugin } from './shadow-catcher'
 import { skinningPlugin } from './skinning-plugin'
 import { viewVisibilityPlugin } from './view-visibility-plugin'
@@ -46,6 +48,8 @@ export function forwardPlugin(options: ForwardPluginOptions = {}): Plugin {
         shadowCatcherPlugin,
         foliagePlugin,
         dynamicResolutionPlugin,
+        ribbonsPlugin,
+        decalsPlugin,
         renderDescribePlugin,
       )
     },

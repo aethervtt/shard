@@ -461,6 +461,18 @@
       "laptop": 1,
       "desktop": 1,
       "note": "0081 proposed: 200 active sequences with four numeric property tracks each, stable scheduler sampling. Hosted CI reports actual hardware separately."
+    },
+    "render/ribbons-update": {
+      "kind": "target",
+      "laptop": 2,
+      "desktop": 2,
+      "note": "0082 proposed: 128 trails \u00d7 64 points, including 32 cached rigid-mesh decals; steady CPU sampling and ribbon geometry. Hosted CI identifies its actual machine."
+    },
+    "render/decals-project": {
+      "kind": "target",
+      "laptop": 8,
+      "desktop": 8,
+      "note": "0083 proposed: cold projection of 32 decals over a 12-triangle rigid cube, including clipping and output. No named-machine claim from hosted CI."
     }
   },
   "scenarios": {
