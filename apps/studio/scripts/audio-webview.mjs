@@ -88,7 +88,13 @@ async function until(action, message) {
 const execute = (script, args = []) => request(`/session/${session}/execute/sync`, { script, args })
 const root = 'document.querySelector("[data-audio-editor]").shadowRoot'
 async function element(expression) {
-  const result = await until(() => execute(`return ${expression}`), expression)
+  const result = await until(
+    () =>
+      execute(
+        `const element=${expression};element?.scrollIntoView({block:'center',inline:'nearest'});return element`,
+      ),
+    expression,
+  )
   return result['element-6066-11e4-a52e-4f735466cecf']
 }
 async function click(expression) {
