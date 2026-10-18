@@ -780,7 +780,7 @@ it('dispatches authored contact and result events through the real dice presenta
     expect(history.some((voice) => voice.clip.startsWith('dice:'))).toBe(false)
     expect(history.every((voice) => voice.bus === 'dice' && voice.params.gain <= 0.4)).toBe(true)
     const state = audioEvents(r.app.world)
-    const result = state.instances.find((instance) => instance?.key === 'authored:result')!
+    const result = state.instances.find((instance) => instance?.key === sounds.result.guid)!
     expect(result.parameters!.targets[1]).toBe(20)
     expect(result.parameters!.targets[2]).toBe(1)
     r.table.dismiss()

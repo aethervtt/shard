@@ -68,7 +68,7 @@ jobs:
       - run: pnpm --filter @aethervtt/shard-audio --filter @aethervtt/shard-assets --filter @aethervtt/shard-save test
         env:
           SHARD_CI: '1'
-      - run: pnpm --filter @aethervtt/shard-playground exec vitest run src/audio.test.ts
+      - run: pnpm --filter @aethervtt/shard-playground exec vitest run src/audio.test.ts src/dice-audio.test.ts
         env:
           SHARD_BROWSER_TESTS: required
           SHARD_AUDIO_EVIDENCE: ${{ github.workspace }}/audio-evidence
