@@ -113,19 +113,30 @@ async function click(expression) {
     }
   }, `Click ${expression}`)
 }
-async function sendKeys(expression, text) {
-  await until(async () => {
-    const id = await element(expression)
-    try {
-      // Native Element Send Keys focuses the editable control before typing. This also
-      // avoids WebKitGTK element-click interception on the visible numeric field.
-      await request(`/session/${session}/element/${id}/value`, { text })
-      return true
-    } catch (error) {
-      if (String(error).includes('stale element reference')) return false
-      throw error
+async function keys(actions) {
+  await request(`/session/${session}/actions`, {
+    actions: [{ type: 'key', id: 'editor-keyboard', actions }],
+  })
+}
+const stroke = (value) => [
+  { type: 'keyDown', value },
+  { type: 'keyUp', value },
+]
+async function focusField(path) {
+  // Navigate like a user, checking actual ShadowRoot focus instead of relying on
+  // WebKitGTK's element-click/sendKeys focus handling for numeric controls.
+  let focused
+  for (let step = 0; step < 100; step++) {
+    focused = await execute(
+      `const field=${root}.activeElement;return {path:field?.dataset.path,tag:field?.tagName,label:field?.textContent,value:field?.value}`,
+    )
+    if (focused.path === path) {
+      console.info('Native WebDriver: keyboard focus verified', focused)
+      return
     }
-  }, `Type ${expression}`)
+    await keys(stroke('\uE004'))
+  }
+  throw new Error(`Keyboard could not reach ${path}; last focus ${JSON.stringify(focused)}`)
 }
 try {
   console.info('Native WebDriver: waiting for driver readiness')
@@ -155,9 +166,24 @@ try {
   console.info('Native WebDriver: editing', name)
   await click(`[...${root}.querySelectorAll('[role=tab]')].find(e=>e.textContent==='Event')`)
   await click(`${root}.querySelector('details[data-group="/layers/0"] > summary')`)
-  // Clear dispatches change immediately in WebKitGTK, replacing the field before sendKeys.
-  // Real keyboard replacement commits once on Tab and never retains a stale element ID.
-  await sendKeys(`${root}.querySelector('[data-path="/layers/0/gainDb"]')`, '\uE009a\uE000-6\uE004')
+  await focusField('/layers/0/gainDb')
+  // Global trusted keys operate on the verified focused field. Commit once on Tab.
+  await keys([
+    { type: 'keyDown', value: '\uE009' },
+    ...stroke('a'),
+    { type: 'keyUp', value: '\uE009' },
+    ...stroke('-'),
+    ...stroke('6'),
+    ...stroke('\uE004'),
+  ])
+  await until(
+    () =>
+      execute(
+        `return ${root}.querySelector('[data-path="/layers/0/gainDb"]')?.value==='-6'&&${root}.querySelector('[role=status]').textContent.includes('Unsaved changes')`,
+      ),
+    'Keyboard gain edit and dirty state',
+  )
+  console.info('Native WebDriver: keyboard edit committed; saving')
   await click(`[...${root}.querySelectorAll('button')].find(e=>e.textContent==='Save')`)
   await until(
     () => execute(`return ${root}.querySelector('[role=status]').textContent.startsWith('Saved')`),
@@ -240,7 +266,7 @@ try {
   if (reader) {
     // Give Orca observable, settled focus targets after the persistence journey. Wait for
     // actual speech generation, not a fixed delay or an ARIA-only proxy for narration.
-    await sendKeys(`${root}.querySelector('[data-path="/layers/0/gainDb"]')`, '\uE009a\uE000')
+    await focusField('/layers/0/gainDb')
     const announced = async (pattern) => {
       const debug = await readFile(resolve(evidence, 'orca-debug.log'), 'utf8')
       return debug.split('\n').some((line) => /SPEECH OUTPUT/i.test(line) && pattern.test(line))
