@@ -1,7 +1,7 @@
 import { AnimationClips, animationPlugin, parsePropertyClip } from '@aethervtt/shard-animation'
 import { assetServer } from '@aethervtt/shard-assets'
 import { defineComponent, t } from '@aethervtt/shard-core'
-import { App } from '@aethervtt/shard-runtime'
+import { App, FrameDemand } from '@aethervtt/shard-runtime'
 import { registerPrefab, ScenePlugin } from '@aethervtt/shard-scene'
 import { Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { describe, expect, it } from 'vitest'
@@ -111,12 +111,14 @@ describe('effect runtime', () => {
     const instance = playEffect(world, plan, { bindings: { actor }, parameters: { power: 2 } })
     app.update(0.5)
     pauseEffect(world, instance.id)
+    expect(world.resource(FrameDemand).isHeld('effects')).toBe(false)
     app.update(0.8)
     expect(instance.time).toBe(0.5)
     expect(world.get(actor, Transform).translation).toEqual([10, 2, 0])
     world.add(actor, Extra)
     for (let i = 0; i < 500; i++) world.spawn(Transform, Extra)
     pauseEffect(world, instance.id, false)
+    expect(world.resource(FrameDemand).isHeld('effects')).toBe(true)
     app.update(0.75)
     expect(world.get(actor, Transform).translation).toEqual([15, 3, 0])
     cancelEffect(world, instance.id)
@@ -242,9 +244,28 @@ describe('effect runtime', () => {
     app.update(0.5)
     expect(world.resource(AnimationClips).byGuid('clip-id')).toBeDefined()
     expect(world.get(root, Transform).scale).toEqual([2, 2, 2])
+    const borrowed = await prepareEffect(world, {
+      duration: 1,
+      targets: [{ id: 'actor' }],
+      tracks: [{ ...move, field: 'scale' }],
+    })
+    expect(() => playEffect(world, borrowed, { bindings: { actor: root } })).toThrow(
+      expect.objectContaining({ code: 'effects/conflict' }),
+    )
+    app.update(0.5)
+    expect(world.get(root, Transform).scale).toEqual([3, 3, 3])
     cancelEffect(world, instance.id)
     expect(world.isAlive(root)).toBe(false)
     expect(world.isAlive(actor)).toBe(true)
+    const failing = await prepareEffect(world, {
+      duration: 1,
+      targets: [{ id: 'owned', prefab: { path: 'memory.prefab.json' } }, { id: 'missing' }],
+    })
+    const count = world.entityCount
+    expect(() => playEffect(world, failing)).toThrow(
+      expect.objectContaining({ code: 'effects/dead-target' }),
+    )
+    expect(world.entityCount).toBe(count)
     await app.dispose()
   })
 
@@ -272,11 +293,12 @@ describe('effect runtime', () => {
         .trace.entries.filter((e) => e.kind === 'marker')
         .map((e) => [e.time, e.reason]),
     ).toEqual(first)
-    for (let i = 0; i < 400; i++) {
+    for (let i = 0; i < 800; i++) {
       const run = playEffect(world, plan)
       cancelEffect(world, run.id)
     }
-    expect(describeEffects(world).trace.entries.length).toBeLessThanOrEqual(2048)
+    expect(describeEffects(world).trace.entries).toHaveLength(2048)
+    expect(describeEffects(world).trace.truncated).toBe(true)
     await app.dispose()
   })
 

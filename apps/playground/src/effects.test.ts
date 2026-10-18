@@ -154,6 +154,19 @@ describe('effect sequence browser evidence', () => {
               ),
             )
           await page.evaluate(() => window.effectsProbe.dispose())
+        } catch (error) {
+          if (evidence) {
+            await mkdir(evidence, { recursive: true })
+            const snapshot = await page
+              .evaluate(() => window.effectsProbe?.inspect())
+              .catch(() => null)
+            await writeFile(
+              join(evidence, `${backend}-failure.json`),
+              JSON.stringify({ error: String(error), errors, snapshot }, null, 2),
+            )
+            await page.screenshot({ path: join(evidence, `${backend}-failure.png`) })
+          }
+          throw error
         } finally {
           await browser.close()
         }

@@ -83,17 +83,21 @@ export interface EffectInstance {
   readonly id: number
   readonly seed: number
   readonly targets: ReadonlyMap<string, Entity>
-  time: number
-  state: 'playing' | 'paused' | 'completed' | 'cancelled' | 'failed'
-  error: string | null
+  readonly time: number
+  readonly state: 'playing' | 'paused' | 'completed' | 'cancelled' | 'failed'
+  readonly error: string | null
 }
 interface Instance extends EffectInstance {
+  time: number
+  state: EffectInstance['state']
+  error: string | null
   plan: Plan
   owner: Owner
   ownerEntity: Entity | undefined
   tracks: Track[]
   slots: FieldSlot[]
   boundaries: Boundary[]
+  claims: string[]
   cursor: number
 }
 
@@ -365,6 +369,7 @@ export function playEffect(
     tracks: [],
     slots: [],
     boundaries: [],
+    claims: [],
     cursor: 0,
   }
   plan.refs++
@@ -401,6 +406,7 @@ export function playEffect(
               'conflict',
             )
           state.claims.set(slot.key, id)
+          instance.claims.push(slot.key)
           slots.set(slot.key, slot)
           instance.slots.push(slot)
         }
@@ -420,18 +426,44 @@ export function playEffect(
       if (d.kind !== 'marker')
         instance.boundaries.push({ time: d.start + d.duration, index: i, end: true })
     }
-    // Aliased bindings can resolve different authored names to the same field.
+    // Resolve every animation channel too: ownership does not make two writers safe.
+    const channels = instance.tracks.map((track) => {
+      if (track.slot) return [track.slot.key]
+      if (track.definition.kind !== 'animation') return []
+      const paths = descendantPaths(world, track.entity!)
+      return world
+        .resource(AnimationClips)
+        .require(track.definition.animation)
+        .channels.map((channel) => {
+          const entity = paths.get(channel.target)
+          const def = findComponent(channel.component)
+          if (entity === undefined || !def || !world.has(entity, def))
+            effectError('Animation channel has no live target/component', '', 'dead-target')
+          const key = `${entity}:${def.id}:${channel.field}`
+          const claimed = state.claims.get(key)
+          if (claimed !== undefined && claimed !== id)
+            effectError('Animation field already claimed', '', 'conflict')
+          if (claimed === undefined) {
+            state.claims.set(key, id)
+            instance.claims.push(key)
+          }
+          return key
+        })
+    })
     for (let i = 0; i < instance.tracks.length; i++)
       for (let j = 0; j < i; j++) {
-        const a = instance.tracks[i]!,
-          b = instance.tracks[j]!
+        const a = instance.tracks[i]!.definition,
+          b = instance.tracks[j]!.definition
         if (
-          a.slot &&
-          a.slot === b.slot &&
-          a.definition.start < b.definition.start + b.definition.duration - 1e-9 &&
-          b.definition.start < a.definition.start + a.definition.duration - 1e-9
+          a.start < b.start + b.duration - 1e-9 &&
+          b.start < a.start + a.duration - 1e-9 &&
+          channels[i]!.some((key) => channels[j]!.includes(key))
         )
-          effectError('Resolved property tracks overlap', `/tracks/${i}`, 'conflict')
+          effectError(
+            'Resolved tracks write the same field concurrently',
+            `/tracks/${i}`,
+            'conflict',
+          )
       }
     instance.boundaries.sort((a, b) =>
       Math.abs(a.time - b.time) > 1e-9
@@ -535,14 +567,14 @@ function finish(
       slot.storage!.changed[slot.row] = world.tick
       slot.storage!.lastChanged = world.tick
     }
-    state.claims.delete(slot.key)
   }
+  for (let i = 0; i < instance.claims.length; i++) state.claims.delete(instance.claims[i]!)
   world.owners.release(instance.owner)
   dropPlan(instance.plan)
   const at = state.active.indexOf(instance)
   if (at !== -1) state.active.splice(at, 1)
   state.trace.write(instance.id, instance.time, status, '', reason)
-  if (!state.active.length) world.tryResource(FrameDemand)?.release('effects')
+  refreshDemand(world)
 }
 
 function advance(world: World, instance: Instance, time: number): void {
@@ -585,6 +617,17 @@ export function cancelEffect(world: World, id: number): boolean {
   return true
 }
 
+function refreshDemand(world: World): void {
+  const active = world.resource(Effects).active
+  let playing = false
+  for (let i = 0; i < active.length; i++)
+    if (active[i]!.state === 'playing') {
+      playing = true
+      break
+    }
+  world.tryResource(FrameDemand)?.set('effects', playing)
+}
+
 export function pauseEffect(world: World, id: number, paused = true): boolean {
   const instance = stateOf(world).active.find((i) => i.id === id)
   if (!instance) return false
@@ -594,6 +637,7 @@ export function pauseEffect(world: World, id: number, paused = true): boolean {
     if (track.state === 1 && track.definition.kind === 'particles' && world.isAlive(track.entity!))
       world.set(track.entity!, ParticleSystem, { playing: !paused })
   }
+  refreshDemand(world)
   world.resource(Effects).trace.write(id, instance.time, paused ? 'pause' : 'resume')
   return true
 }

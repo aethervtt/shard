@@ -65,10 +65,12 @@ export function registerSpellAssets(world: World): void {
     const clip = audioClip(spellSound(frequency), { id: `spell-${id}-clip` })
     catalog.virtual(`spell-${id}-clip`, `catalog/${id}.wav`, 'AudioClip', () => clip)
     const event = AudioEvent.deserialize({
+      mode: id === 'launch' ? 'sustain' : 'oneshot',
       layers: [
         {
           id: 'body',
           choices: [{ clip: { guid: `spell-${id}-clip` } }],
+          loop: id === 'launch',
           gainDb: -8,
           spatial: true,
           minDistance: 5,

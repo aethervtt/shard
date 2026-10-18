@@ -1434,6 +1434,7 @@ shard mcp                 # MCP server for this project (see .mcp.json)
   project data types;
   \`.agents/errors.md\`: error codes
 - \`.agents/audio.md\`: authored sound, music, mixing and measured previews
+- \`.agents/effects.md\`: reusable effect timelines, target bindings and owned lifetimes
 - \`.agents/skills/\`: recipes for common tasks
 
 Engine plugins available: ${Object.entries(BUILTIN_PLUGINS)

@@ -49,19 +49,19 @@ retain it until they finish. Disposal invalidates pending preparation.
 Every track has a unique `id`, `kind`, `target`, `path`, `start` and `duration` in seconds.
 All times are finite and within the document duration. Markers have zero duration; other
 tracks have positive duration. Starts and ends are ordered by time then document order;
-ends precede starts at the same time, permitting adjacent tracks on one field.
+ends precede starts at the same time (1 ns tolerance for decimal times), permitting adjacent tracks on one field.
 
 | Kind | Payload and behavior |
 | --- | --- |
 | property | `component`, `field`, numeric `from`/`to` arrays, `easing` linear/smoothstep, optional numeric `parameter` multiplying values. Float scalar/vector/color fields only; schema bounds checked at play. Useful for transforms, light intensity and camera properties. |
-| animation | `animation` clip handle on an owned target. Adds a sequence-controlled animation layer, sampled by the existing animation plugin. |
+| animation | `animation` clip handle on an owned target. Adds a sequence-controlled animation layer, sampled by the existing animation plugin; holds the exact final pose until replaced or cleaned up. |
 | particles | `particles` effect handle on an owned target. Runs an existing ParticleSystem with a seed derived from instance seed and track index. |
 | audio | `audio` authored AudioEvent handle. Prepared through the existing audio runtime; stopped at track end/cancellation. Spatial emitter follows the bound target. |
 | marker | `marker` string. Recorded once when crossed, including a large frame step. No target required. |
 
 Property tracks restore the field value captured before play on completion/cancellation.
 Claims on the same entity/component/field cannot overlap across active instances; within a
-sequence sequential tracks are allowed, overlapping tracks are rejected. External writers
+sequence sequential tracks are allowed, overlapping tracks are rejected, including resolved animation channels and aliased bindings. External writers
 must not write claimed fields until release. Animation and particle tracks require owned
 targets so they cannot silently replace a host's player/emitter. A missing/deleted target
 fails the whole instance and cleans up everything still owned.
@@ -77,13 +77,15 @@ prepared.release() // instance keeps its lease
 cancelEffect(world, instance.id)
 ```
 
+Property endpoints are local to the target; hosts using floating origins should bind targets in a stable local parent frame.
+
 The optional `effects` plugin registers the system and protocol methods. Feature-specific
 plugins are explicitly required by tracks, with structured errors when absent. The scheduler
 advances in Update using simulation delta. No wall clock is consulted. Time zero executes
 on play; crossing a whole track in a long frame executes its start/end once. Property tracks
 sample at the resulting local time; transient audio/particles wholly missed by a frame are
 skipped (and traced), avoiding a late burst. Markers still fire. Pause freezes sequence time
-and pauses its continuous presentation; resume continues. Cancellation is idempotent.
+and pauses its continuous presentation; resume continues. Paused-only sequences release their frame demand. Cancellation is idempotent.
 
 Completed instances leave the active list; a fixed-capacity trace retains starts, track
 boundaries, markers, skips, failures and terminal reasons. Active capacity and preparation
