@@ -135,10 +135,29 @@ try {
   console.info('Native WebDriver: editing', name)
   await click(`[...${root}.querySelectorAll('[role=tab]')].find(e=>e.textContent==='Event')`)
   await click(`${root}.querySelector('details[data-group="/layers/0"] > summary')`)
-  let gain = await element(`${root}.querySelector('[data-path="/layers/0/gainDb"]')`)
-  await request(`/session/${session}/element/${gain}/clear`, {})
-  gain = await element(`${root}.querySelector('[data-path="/layers/0/gainDb"]')`)
-  await request(`/session/${session}/element/${gain}/value`, { text: '-6\uE004' })
+  await click(`${root}.querySelector('[data-path="/layers/0/gainDb"]')`)
+  // Clear dispatches change immediately in WebKitGTK, replacing the field before sendKeys.
+  // Real keyboard replacement commits once on Tab and never retains a stale element ID.
+  await request(`/session/${session}/actions`, {
+    actions: [
+      {
+        type: 'key',
+        id: 'editor-keyboard',
+        actions: [
+          { type: 'keyDown', value: '\uE009' },
+          { type: 'keyDown', value: 'a' },
+          { type: 'keyUp', value: 'a' },
+          { type: 'keyUp', value: '\uE009' },
+          { type: 'keyDown', value: '-' },
+          { type: 'keyUp', value: '-' },
+          { type: 'keyDown', value: '6' },
+          { type: 'keyUp', value: '6' },
+          { type: 'keyDown', value: '\uE004' },
+          { type: 'keyUp', value: '\uE004' },
+        ],
+      },
+    ],
+  })
   await click(`[...${root}.querySelectorAll('button')].find(e=>e.textContent==='Save')`)
   await until(
     () => execute(`return ${root}.querySelector('[role=status]').textContent.startsWith('Saved')`),
@@ -208,12 +227,26 @@ try {
     ),
   )
   if (reader) {
-    await new Promise((done) => setTimeout(done, 500))
+    // Give Orca observable, settled focus targets after the persistence journey. Wait for
+    // actual speech generation, not a fixed delay or an ARIA-only proxy for narration.
+    await click(`${root}.querySelector('details[data-group="/layers/0"] > summary')`)
+    await click(`${root}.querySelector('[data-path="/layers/0/gainDb"]')`)
+    const announced = async (pattern) => {
+      const debug = await readFile(resolve(evidence, 'orca-debug.log'), 'utf8')
+      return debug.split('\n').some((line) => /SPEECH OUTPUT/i.test(line) && pattern.test(line))
+    }
+    await until(() => announced(/\bGain\b/i), 'Orca gain-field announcement')
+    await click(`[...${root}.querySelectorAll('button')].find(e=>e.textContent==='Play')`)
+    await until(() => announced(/\bPlay\b/i), 'Orca playback-control announcement')
     const debug = await readFile(resolve(evidence, 'orca-debug.log'), 'utf8')
     const announcements = debug.split('\n').filter((line) => /SPEECH OUTPUT/i.test(line))
     const editorAnnouncements = announcements.filter((line) =>
-      /Event|Gain|Play|audio project|Save/i.test(line),
+      /\b(Event|Gain|Play|Save)\b/i.test(line),
     )
+    const coverage = {
+      field: editorAnnouncements.some((line) => /\bGain\b/i.test(line)),
+      action: editorAnnouncements.some((line) => /\b(Play|Save|Event)\b/i.test(line)),
+    }
     await writeFile(
       resolve(evidence, 'screen-reader-audit.json'),
       JSON.stringify(
@@ -223,6 +256,7 @@ try {
           method:
             'Recorded speech generation during real WebDriver focus, typing and button interactions',
           utterances: editorAnnouncements,
+          coverage,
           totalSpeechLines: announcements.length,
           limitations:
             'Automated focus journey; no claim of human listening or comprehensive accessibility certification.',
@@ -232,9 +266,10 @@ try {
       ),
     )
     assert.ok(
-      editorAnnouncements.length > 0,
-      'Orca must announce editor controls; inspect orca-debug.log',
+      coverage.field && coverage.action,
+      'Orca must announce an editor field and action; inspect orca-debug.log',
     )
+    await click(`[...${root}.querySelectorAll('button')].find(e=>e.textContent==='Stop')`)
   }
 } finally {
   // Capture the X server independently when WebDriver itself is stalled.
