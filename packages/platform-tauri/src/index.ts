@@ -1,12 +1,12 @@
 import type {
   AudioBackend,
-  FileChangeEvent,
   KeyValueStorage,
   Platform,
   PlatformFileSystem,
   Workers,
 } from '@aethervtt/shard-platform'
 import { createWebAudioBackend, createWebWorkers } from '@aethervtt/shard-platform-web'
+import { appDataDir, homeDir } from '@tauri-apps/api/path'
 import {
   exists,
   mkdir,
@@ -17,11 +17,12 @@ import {
   remove,
   rename,
   SeekMode,
-  type WatchEvent,
+  stat,
   watch,
   writeFile,
   writeTextFile,
 } from '@tauri-apps/plugin-fs'
+import { projectFileChanges } from './watch-events'
 
 export interface TauriPlatformOptions {
   /** Absolute path of the project root. Project paths resolve against it. */
@@ -33,6 +34,11 @@ export interface TauriPlatformOptions {
   dataDir?: string
   /** Host-authorized media URL for a project artifact. The host grants its protocol scope first. */
   mediaUrl?: (projectPath: string) => string
+}
+
+/** Host locations for Studio; SDK imports stay behind the platform boundary. */
+export async function tauriDirectories(): Promise<{ home: string; data: string }> {
+  return { home: await homeDir(), data: (await appDataDir()).replace(/\/+$/, '') }
 }
 
 /** Storage as files under `dir`, through the fs plugin. Writes land in a temp file, then rename. */
@@ -69,19 +75,6 @@ function createTauriStorage(dir: string): KeyValueStorage {
 export function createTauriPlatform(options: TauriPlatformOptions): Platform {
   const root = options.projectRoot.replace(/\/+$/, '')
   const resolve = (path: string) => (path.startsWith('/') ? path : `${root}/${path}`)
-  const relative = (path: string) =>
-    path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path
-
-  const toChange = (event: WatchEvent): FileChangeEvent[] => {
-    const type = event.type
-    const kind =
-      typeof type === 'object' && 'create' in type
-        ? 'create'
-        : typeof type === 'object' && 'remove' in type
-          ? 'remove'
-          : 'modify'
-    return event.paths.map((path) => ({ kind, path: relative(path) }))
-  }
 
   const fs: PlatformFileSystem = {
     writable: true,
@@ -107,8 +100,23 @@ export function createTauriPlatform(options: TauriPlatformOptions): Platform {
     writeText: (path, data) => writeTextFile(resolve(path), data),
     writeBytes: (path, data) => writeFile(resolve(path), data),
     exists: (path) => exists(resolve(path)),
+    remove: async (path) => {
+      if (await exists(resolve(path))) await remove(resolve(path))
+    },
+    stat: async (path) => {
+      if (!(await exists(resolve(path)))) return undefined
+      const info = await stat(resolve(path))
+      return { size: info.size, mtime: info.mtime?.getTime() ?? 0 }
+    },
+    list: async (path) => {
+      if (!(await exists(resolve(path)))) return []
+      const entries = await readDir(resolve(path))
+      return entries
+        .filter((entry) => entry.isDirectory || entry.isFile)
+        .map((entry) => ({ name: entry.name, kind: entry.isDirectory ? 'dir' : 'file' }))
+    },
     watch: async (path, onChange) =>
-      watch(resolve(path), (event) => toChange(event).forEach(onChange), {
+      watch(resolve(path), (event) => projectFileChanges(root, event).forEach(onChange), {
         recursive: true,
         delayMs: 50,
       }),

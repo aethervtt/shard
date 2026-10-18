@@ -1,0 +1,41 @@
+{
+  "name": "@aethervtt/shard-audio-editor",
+  "version": "0.0.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./model": "./src/model.ts",
+    "./dom": "./src/dom.ts",
+    "./panels/event": "./src/panels/event.ts",
+    "./panels/mixer": "./src/panels/mixer.ts",
+    "./panels/music": "./src/panels/music.ts",
+    "./panels/parameters": "./src/panels/parameters.ts",
+    "./panels/library": "./src/panels/library.ts",
+    "./panels/diagnostics": "./src/panels/diagnostics.ts",
+    "./preview": "./src/preview.ts",
+    "./project": "./src/project.ts",
+    "./preview-render": "./src/preview-render.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@aethervtt/shard-assets": "workspace:*",
+    "@aethervtt/shard-audio": "workspace:*",
+    "@aethervtt/shard-core": "workspace:*",
+    "@aethervtt/shard-platform": "workspace:*",
+    "@aethervtt/shard-platform-web": "workspace:*",
+    "@aethervtt/shard-project": "workspace:*",
+    "@aethervtt/shard-runtime": "workspace:*",
+    "@aethervtt/shard-transform": "workspace:*",
+    "@aethervtt/shard-audio-preview": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "@webgpu/types": "^0.1.74"
+  }
+}

@@ -1,0 +1,134 @@
+name: Audio editor evidence
+
+on:
+  pull_request:
+    paths:
+      - 'packages/audio-editor/**'
+      - 'packages/audio-preview/**'
+      - 'packages/audio/**'
+      - 'packages/platform*/**'
+      - 'apps/playground/src/audio-editor*'
+      - 'apps/playground/audio-editor.html'
+      - 'apps/studio/**'
+      - '.github/workflows/audio-editor.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'packages/audio-editor/**'
+      - 'packages/audio-preview/**'
+      - 'apps/playground/src/audio-editor*'
+      - 'apps/studio/**'
+      - '.github/workflows/audio-editor.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: audio-editor-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    name: Audio editor / ${{ matrix.browser }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @aethervtt/shard-playground exec playwright install --with-deps ${{ matrix.browser }}
+      - name: Provide a clocked audio device for live browser audition
+        run: |
+          sudo apt-get install -y pulseaudio
+          pulseaudio --start --exit-idle-time=-1
+          pactl load-module module-null-sink sink_name=shard_audio
+          pactl set-default-sink shard_audio
+      - run: pnpm --filter @aethervtt/shard-audio-editor test
+        env:
+          SHARD_CI: '1'
+      - run: pnpm --filter @aethervtt/shard-playground exec vitest run src/audio-editor.test.ts src/audio-editor-preview.test.ts src/audio-editor-keyboard.test.ts
+        env:
+          SHARD_CI: '1'
+          SHARD_BROWSER_TESTS: required
+          SHARD_EDITOR_BROWSER: ${{ matrix.browser }}
+          SHARD_AUDIO_EDITOR_EVIDENCE: ${{ github.workspace }}/audio-editor-evidence
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: audio-editor-${{ matrix.browser }}-${{ github.sha }}
+          path: audio-editor-evidence/
+          if-no-files-found: warn
+  studio:
+    name: Audio editor / native Studio webview
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev webkit2gtk-driver xvfb scrot xdotool gstreamer1.0-plugins-good pulseaudio orca speech-dispatcher-espeak-ng at-spi2-core dbus-x11
+      - run: pnpm install --frozen-lockfile
+      - run: cargo install tauri-driver --locked --version 2.1.0
+      - run: pnpm --filter @aethervtt/shard-studio tauri build --debug --no-bundle
+        env:
+          VITE_SHARD_AUDIO_ONLY: '1'
+      - run: pulseaudio --start --exit-idle-time=-1
+      - run: xvfb-run -a dbus-run-session -- node apps/studio/scripts/audio-webview.mjs
+        timeout-minutes: 6
+        env:
+          SHARD_AUDIO_EDITOR_EVIDENCE: ${{ github.workspace }}/audio-editor-evidence
+          WEBKIT_DISABLE_DMABUF_RENDERER: '1'
+          SHARD_SCREEN_READER: '1'
+          GTK_MODULES: 'gail:atk-bridge'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: audio-editor-studio-${{ github.sha }}
+          path: audio-editor-evidence/
+          if-no-files-found: warn
+  performance:
+    name: Audio editor / performance and scale
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @aethervtt/shard-playground exec playwright install --with-deps chromium
+      - run: pnpm bench --filter=@aethervtt/shard-audio-editor | tee audio-editor-bench.log
+        shell: bash
+      - run: pnpm --filter @aethervtt/shard-playground exec vitest run src/audio-editor-scale.test.ts
+        env:
+          SHARD_CI: '1'
+          SHARD_BROWSER_TESTS: required
+          SHARD_AUDIO_EDITOR_MEASURE: '1'
+          SHARD_AUDIO_EDITOR_EVIDENCE: ${{ github.workspace }}/audio-editor-evidence
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: audio-editor-performance-${{ github.sha }}
+          path: |
+            audio-editor-evidence/
+            bench/perf/report.json
+            audio-editor-bench.log
+          if-no-files-found: warn

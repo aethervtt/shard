@@ -1,6 +1,6 @@
 import { defineSystem, defineTag, quat, ShardError, Update } from '@aethervtt/shard-core'
 import { cube, plane } from '@aethervtt/shard-mesh'
-import { createTauriPlatform } from '@aethervtt/shard-platform-tauri'
+import { createTauriPlatform, tauriDirectories } from '@aethervtt/shard-platform-tauri'
 import { connectToHub, createProtocolServer } from '@aethervtt/shard-protocol'
 import {
   AmbientLight,
@@ -19,7 +19,6 @@ import {
 } from '@aethervtt/shard-render'
 import { App, animationFrameRunner, definePlugin, Time } from '@aethervtt/shard-runtime'
 import { lookAt, Transform, TransformPlugin } from '@aethervtt/shard-transform'
-import { appDataDir, homeDir } from '@tauri-apps/api/path'
 
 const status = document.getElementById('status') as HTMLDivElement
 const canvas = document.getElementById('viewport') as HTMLCanvasElement
@@ -97,10 +96,25 @@ const studioScene = definePlugin({
 })
 
 async function main() {
+  const audio = document.createElement('button')
+  audio.textContent = 'Audio workspace'
+  audio.style.cssText = 'position:fixed;right:12px;top:12px;z-index:2'
+  audio.onclick = () => {
+    void import('./audio-workspace').then((module) => module.openStudioAudioWorkspace())
+  }
+  document.body.append(audio)
+  if (
+    import.meta.env.VITE_SHARD_AUDIO_ONLY === '1' ||
+    new URLSearchParams(location.search).get('workspace') === 'audio'
+  ) {
+    await (await import('./audio-workspace')).openStudioAudioWorkspace()
+    return
+  }
+  const directories = await tauriDirectories()
   // Project selection comes later; until then the platform is rooted at $HOME.
   const platform = createTauriPlatform({
-    projectRoot: await homeDir(),
-    dataDir: (await appDataDir()).replace(/\/+$/, ''),
+    projectRoot: directories.home,
+    dataDir: directories.data,
   })
   const app = new App()
     .addPlugin(TransformPlugin, renderPlugin({ canvas }), forwardPlugin(), studioScene)

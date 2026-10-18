@@ -1,0 +1,598 @@
+{
+  "version": 1,
+  "date": "2026-10-18",
+  "implementationHead": "36cb440ceb32ff2169ec8ed9e15f0c99b5121d52",
+  "testedMerge": "7d17b4f9d5112272269fd467accf31c7480d1c1e",
+  "runs": {
+    "browserAndPerformance": "https://github.com/aethervtt/shard/actions/runs/39104838287",
+    "packageAndAudio": "https://github.com/aethervtt/shard/actions/runs/39104838432"
+  },
+  "browsers": {
+    "chromium": {
+      "artifact": "audio-editor-chromium-7d17b4f9d5112272269fd467accf31c7480d1c1e",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+      "keyboard": {
+        "operations": [
+          "create-layer",
+          "choose-host-clip",
+          "edit-curve-point",
+          "save-event",
+          "audition",
+          "route-bus",
+          "save-mixer",
+          "edit-sample-marker",
+          "save-music"
+        ],
+        "input": "Tab/Enter/arrows/text only; no click or focus APIs"
+      },
+      "preview": {
+        "exportAvailable": true,
+        "nativeOffline": true,
+        "waveform": {
+          "bins": 64,
+          "duration": 0.3,
+          "max": 0.2486092746257782
+        },
+        "liveContext": "running",
+        "liveVoices": ["rendering", "rendering"]
+      },
+      "lifecycle": {
+        "cycles": 100,
+        "baseline": {
+          "decodedBytes": 705592,
+          "encodedBytes": 96088,
+          "pinned": 2,
+          "evictable": 0,
+          "urls": 0,
+          "budgetBytes": 67108864,
+          "loading": 0,
+          "effectBytes": 0,
+          "voices": 0,
+          "nodes": 1
+        },
+        "after": {
+          "decodedBytes": 705592,
+          "encodedBytes": 96088,
+          "pinned": 2,
+          "evictable": 0,
+          "urls": 0,
+          "budgetBytes": 67108864,
+          "loading": 0,
+          "effectBytes": 0,
+          "voices": 0,
+          "nodes": 1
+        },
+        "final": {
+          "decodedBytes": 0,
+          "encodedBytes": 0,
+          "pinned": 0,
+          "evictable": 0,
+          "urls": 0,
+          "budgetBytes": 67108864,
+          "loading": 0,
+          "effectBytes": 0,
+          "voices": 0,
+          "nodes": 1
+        },
+        "contextBeforeRootClose": "running",
+        "remainingListeners": 0,
+        "siblingVoices": ["rendering", "rendering"]
+      },
+      "screenshots": {
+        "chromium-dark-300px.png": {
+          "sha256": "0941866ec0e75680a17aab118d854e3b0efeaa68194bcd2741b0c34fa4cc05ec"
+        },
+        "chromium-light-300px.png": {
+          "sha256": "8a5431695eb0f844007d367b5c58f331ba329765fb43a09b987a423d150d9bd5"
+        },
+        "chromium-200-percent.png": {
+          "sha256": "25546c1b29ed56df05554fdb0247609a9cfa5a1dea093ee63488bbfecde59809"
+        }
+      },
+      "renders": {
+        "event": {
+          "peak": 0.08486202359199524,
+          "rms": 0.05999971884771966,
+          "clipped": 0,
+          "nonfinite": 0,
+          "sampleRate": 48000,
+          "channels": 2,
+          "frames": 24000,
+          "duration": 0.5,
+          "wavSha256": "3521e0fb03c00b6c570d97fdb4dd1847297b32fdfdf374183556ba7abcae59cc",
+          "reportSha256": "4cb611c322fd72173102341d510189e7652dd885da7f31bdc273c573d8663bdf"
+        },
+        "footstep": {
+          "peak": 0.17082947492599487,
+          "rms": 0.024677146387744903,
+          "clipped": 0,
+          "nonfinite": 0,
+          "sampleRate": 48000,
+          "channels": 2,
+          "frames": 24000,
+          "duration": 0.5,
+          "wavSha256": "2cbce5619fec5a780a06c526b88c4f120e7c7bbd5ae1d926733ce9f3370886d8",
+          "reportSha256": "d49d873174b7138577545e75b42c795f12e3c6a5c8e11852b536b8afa14123c6"
+        },
+        "spell": {
+          "peak": 0.2092575877904892,
+          "rms": 0.03456966072785271,
+          "clipped": 0,
+          "nonfinite": 0,
+          "sampleRate": 48000,
+          "channels": 2,
+          "frames": 24000,
+          "duration": 0.5,
+          "wavSha256": "255aa5b999daa1a7c4f85e6ba4bf969e581204611ac5a75332acc009be45518f",
+          "reportSha256": "31a2944aa8c22662a68aaa14e37a1c7e2f848b9e6fbad0a934ad3a3a7bb8f461"
+        },
+        "mixer": {
+          "peak": 0.0876154750585556,
+          "rms": 0.056239696251829424,
+          "clipped": 0,
+          "nonfinite": 0,
+          "sampleRate": 48000,
+          "channels": 2,
+          "frames": 24000,
+          "duration": 0.5,
+          "wavSha256": "6b415812ea96b7a082d518f4239096e0758d367ca794fb86060463c21eece2b9",
+          "reportSha256": "d7b24bc1d790770df595af7d4da71c29a77535ec271c38436fa693acfd60902e"
+        },
+        "music": {
+          "peak": 0.07930165529251099,
+          "rms": 0.045086706094032244,
+          "clipped": 0,
+          "nonfinite": 0,
+          "sampleRate": 48000,
+          "channels": 2,
+          "frames": 24000,
+          "duration": 0.5,
+          "wavSha256": "5cc8f5c9e60783d3862559ea6be6ad40bd3df8e27fe31208aa3f6b58c8a3fdc8",
+          "reportSha256": "2707f35363c36ba3d746aeec1323d6769d376358670e2e60f5c4ac4a53e0213b"
+        },
+        "underwater": {
+          "peak": 0.16183269023895264,
+          "rms": 0.07086103697753847,
+          "clipped": 0,
+          "nonfinite": 0,
+          "sampleRate": 48000,
+          "channels": 2,
+          "frames": 24000,
+          "duration": 0.5,
+          "wavSha256": "f54492b6bdbbdd8cf06bacec0892e058411c12a028a9c994554aa59519979acb",
+          "reportSha256": "82364348c2d49941d1a33ce67ceda81349cc4325195dc2ece8da574f7ec00368"
+        },
+        "dialogue": {
+          "peak": 0.16183269023895264,
+          "rms": 0.06123577016559754,
+          "clipped": 0,
+          "nonfinite": 0,
+          "sampleRate": 48000,
+          "channels": 2,
+          "frames": 24000,
+          "duration": 0.5,
+          "wavSha256": "8e9630d3403c4c72f90a852e90b665ed4ff6a0f1cbf416237a0f5635888eb345",
+          "reportSha256": "4a1630d91defb6eaac3608a2a104039d33045a126eb4e7ca6e8cb7e63496abdc"
+        },
+        "pause": {
+          "peak": 0.16183269023895264,
+          "rms": 0.041770588879627334,
+          "clipped": 0,
+          "nonfinite": 0,
+          "sampleRate": 48000,
+          "channels": 2,
+          "frames": 24000,
+          "duration": 0.5,
+          "wavSha256": "617c382074167846c8cf4676a53f35bf69e38b055ec82af7ad52021c55f82bb4",
+          "reportSha256": "8548c0fdde68133e79795b747f6768b9c8e53c131867a60478a0ecc375a0439d"
+        }
+      }
+    },
+    "firefox": {
+      "artifact": "audio-editor-firefox-7d17b4f9d5112272269fd467accf31c7480d1c1e",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64; rv:155.0) Gecko/20100101 Firefox/155.0",
+      "keyboard": {
+        "operations": [
+          "create-layer",
+          "choose-host-clip",
+          "edit-curve-point",
+          "save-event",
+          "audition",
+          "route-bus",
+          "save-mixer",
+          "edit-sample-marker",
+          "save-music"
+        ],
+        "input": "Tab/Enter/arrows/text only; no click or focus APIs"
+      },
+      "preview": {
+        "exportAvailable": false,
+        "nativeOffline": false,
+        "waveform": {
+          "bins": 64,
+          "duration": 0.3,
+          "max": 0.24682527780532837
+        },
+        "liveContext": "running",
+        "liveVoices": ["rendering", "rendering"],
+        "limitation": "OfflineAudioContext suspend/resume unavailable; live audition and waveforms pass, WAV export explicitly unavailable."
+      },
+      "lifecycle": {
+        "cycles": 100,
+        "baseline": {
+          "decodedBytes": 705600,
+          "encodedBytes": 96088,
+          "pinned": 2,
+          "evictable": 0,
+          "urls": 0,
+          "budgetBytes": 67108864,
+          "loading": 0,
+          "effectBytes": 0,
+          "voices": 0,
+          "nodes": 1
+        },
+        "after": {
+          "decodedBytes": 705600,
+          "encodedBytes": 96088,
+          "pinned": 2,
+          "evictable": 0,
+          "urls": 0,
+          "budgetBytes": 67108864,
+          "loading": 0,
+          "effectBytes": 0,
+          "voices": 0,
+          "nodes": 1
+        },
+        "final": {
+          "decodedBytes": 0,
+          "encodedBytes": 0,
+          "pinned": 0,
+          "evictable": 0,
+          "urls": 0,
+          "budgetBytes": 67108864,
+          "loading": 0,
+          "effectBytes": 0,
+          "voices": 0,
+          "nodes": 1
+        },
+        "contextBeforeRootClose": "running",
+        "remainingListeners": 0,
+        "siblingVoices": ["rendering", "rendering"]
+      },
+      "screenshots": {
+        "firefox-dark-300px.png": {
+          "sha256": "d671612cccc2f612fc81171fb2c0b7b3503fbd5316a52bbc34875dbb88eb2cab"
+        },
+        "firefox-light-300px.png": {
+          "sha256": "e5527992d72d971fbd06be0d6a19ea1ce39c1ae8bb7794f83087ac5068bfd08b"
+        },
+        "firefox-200-percent.png": {
+          "sha256": "d318532bdc9d9c6b131ca7aac94af9a83e98f7666a1a2d5d863fab0ee3671399"
+        }
+      },
+      "renders": {}
+    },
+    "webkit": {
+      "artifact": "audio-editor-webkit-7d17b4f9d5112272269fd467accf31c7480d1c1e",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6 Safari/605.1.15",
+      "keyboard": {
+        "operations": [
+          "create-layer",
+          "choose-host-clip",
+          "edit-curve-point",
+          "save-event",
+          "audition",
+          "route-bus",
+          "save-mixer",
+          "edit-sample-marker",
+          "save-music"
+        ],
+        "input": "Tab/Enter/arrows/text only; no click or focus APIs"
+      },
+      "preview": {
+        "exportAvailable": true,
+        "nativeOffline": true,
+        "waveform": {
+          "bins": 64,
+          "duration": 0.2999375,
+          "max": 0.24724633991718292
+        },
+        "liveContext": "running",
+        "liveVoices": ["rendering", "rendering"]
+      },
+      "lifecycle": {
+        "cycles": 100,
+        "baseline": {
+          "decodedBytes": 705576,
+          "encodedBytes": 96088,
+          "pinned": 2,
+          "evictable": 0,
+          "urls": 0,
+          "budgetBytes": 67108864,
+          "loading": 0,
+          "effectBytes": 0,
+          "voices": 0,
+          "nodes": 1
+        },
+        "after": {
+          "decodedBytes": 705576,
+          "encodedBytes": 96088,
+          "pinned": 2,
+          "evictable": 0,
+          "urls": 0,
+          "budgetBytes": 67108864,
+          "loading": 0,
+          "effectBytes": 0,
+          "voices": 0,
+          "nodes": 1
+        },
+        "final": {
+          "decodedBytes": 0,
+          "encodedBytes": 0,
+          "pinned": 0,
+          "evictable": 0,
+          "urls": 0,
+          "budgetBytes": 67108864,
+          "loading": 0,
+          "effectBytes": 0,
+          "voices": 0,
+          "nodes": 1
+        },
+        "contextBeforeRootClose": "running",
+        "remainingListeners": 0,
+        "siblingVoices": ["rendering", "rendering"]
+      },
+      "screenshots": {
+        "webkit-dark-300px.png": {
+          "sha256": "13710153b779775e448dab35878165af888e969df8c0209bc63c293d5a34ba25"
+        },
+        "webkit-light-300px.png": {
+          "sha256": "b84119b2d5c53ae63c83981d833b93b57e3b849892e6be36608eaf3f38879709"
+        },
+        "webkit-200-percent.png": {
+          "sha256": "73b06293a8b36039933e09c093ce07c9cdd560c0ec9f87d86df9f7ad90c96913"
+        }
+      },
+      "renders": {
+        "event": {
+          "peak": 0.08485845476388931,
+          "rms": 0.05999864984003598,
+          "clipped": 0,
+          "nonfinite": 0,
+          "sampleRate": 48000,
+          "channels": 2,
+          "frames": 24000,
+          "duration": 0.5,
+          "wavSha256": "3e88f9aaee27b109e2d2cf74e31c7e395ea1cdb9ff7ec93ee7644e5bc5911eb6",
+          "reportSha256": "9e64b3e5cf358e303237815a56b106e005438f20378d713f463d07b2d0c0c1b6"
+        },
+        "footstep": {
+          "peak": 0.17085790634155273,
+          "rms": 0.02467712597732319,
+          "clipped": 0,
+          "nonfinite": 0,
+          "sampleRate": 48000,
+          "channels": 2,
+          "frames": 24000,
+          "duration": 0.5,
+          "wavSha256": "4ac0b44c09132644fdcf9218316d797f15e1b48662a8186e82dc412b62db343c",
+          "reportSha256": "b52a979810ffce1529b6956cd7be2a3c9b1f16402a3a235434746541f5edf35a"
+        },
+        "spell": {
+          "peak": 0.20977085828781128,
+          "rms": 0.034583207043225664,
+          "clipped": 0,
+          "nonfinite": 0,
+          "sampleRate": 48000,
+          "channels": 2,
+          "frames": 24000,
+          "duration": 0.5,
+          "wavSha256": "7725bda2a7ba6fbf1a2b51e9dab20c12bc38ceb590ab7bd2a329da44ee4e16ba",
+          "reportSha256": "bf0047e998986adf343acaa77c4b379510b955b5827e50b1e390989d3e2cbe40"
+        },
+        "mixer": {
+          "peak": 0.08806102722883224,
+          "rms": 0.05623857601659342,
+          "clipped": 0,
+          "nonfinite": 0,
+          "sampleRate": 48000,
+          "channels": 2,
+          "frames": 24000,
+          "duration": 0.5,
+          "wavSha256": "2c432a5ba891b27b0feae6a805508fc942b0f3fa111822efd9bfd344a6df34df",
+          "reportSha256": "d687d41d58e95a61dc3b40292abe0d273b31c09604284adad164111ed7d50a50"
+        },
+        "music": {
+          "peak": 0.07929974794387817,
+          "rms": 0.04508708572842225,
+          "clipped": 0,
+          "nonfinite": 0,
+          "sampleRate": 48000,
+          "channels": 2,
+          "frames": 24000,
+          "duration": 0.5,
+          "wavSha256": "aa34c040e4a566182008272adc0d1963b9737cf566952451432603dd9d8cfe92",
+          "reportSha256": "704f5f64b2cbef667f67fcd73c11c0a1eef8645c50501ca38d71fcc52f385ddf"
+        },
+        "underwater": {
+          "peak": 0.16216601431369781,
+          "rms": 0.07084412554216452,
+          "clipped": 0,
+          "nonfinite": 0,
+          "sampleRate": 48000,
+          "channels": 2,
+          "frames": 24000,
+          "duration": 0.5,
+          "wavSha256": "c3fa5c41680647bd79fab62693c22438ab23ec43e14041c903d2415b59a65ce5",
+          "reportSha256": "38b9a53ff85efa7fe552601bbf3f51c794e802122ba83ddd42b71000ca566e88"
+        },
+        "dialogue": {
+          "peak": 0.16216601431369781,
+          "rms": 0.061321462427664085,
+          "clipped": 0,
+          "nonfinite": 0,
+          "sampleRate": 48000,
+          "channels": 2,
+          "frames": 24000,
+          "duration": 0.5,
+          "wavSha256": "adcec7294ad8943e559d2f37552764914bfcc9f7a7b193bd89683ecd5cfb4709",
+          "reportSha256": "1466560080a63a5b92990cc0c2e76c66811f4092994f60dd816782052a310173"
+        },
+        "pause": {
+          "peak": 0.16216601431369781,
+          "rms": 0.04234919017889499,
+          "clipped": 0,
+          "nonfinite": 0,
+          "sampleRate": 48000,
+          "channels": 2,
+          "frames": 24000,
+          "duration": 0.5,
+          "wavSha256": "1302707d512f88a1a9ba6d5c199a0e28ab3e0c9377f2acd9833eb60be6565b25",
+          "reportSha256": "66037cd94524c24785c4ee6f6ac6b56e1a9ecee6184bd2de79f86210587a9fb3"
+        }
+      }
+    }
+  },
+  "performance": {
+    "artifact": "audio-editor-performance-7d17b4f9d5112272269fd467accf31c7480d1c1e",
+    "namedMachine": null,
+    "enforced": false,
+    "hardware": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "edit": {
+      "medianMs": 2.1098099999999818,
+      "p95Ms": 3.845932000000005,
+      "samples": 100,
+      "proposedTargetMs": 4
+    },
+    "draw": {
+      "key": "audio-editor/draw",
+      "medianMs": 1.5350000000034925,
+      "p95Ms": 1.6600000000034925,
+      "samples": 100,
+      "viewport": [1280, 720],
+      "dpr": 2,
+      "waveformLanes": 16,
+      "busMeters": 32,
+      "bins": 512,
+      "phase": "Canvas envelope commands and DOM meter writes; excludes compositor, layout and decoding",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+      "hardware": {
+        "cpu": "INTEL(R) XEON(R) PLATINUM 8573C",
+        "platform": "linux",
+        "release": "6.17.0-1022-azure"
+      },
+      "namedMachine": null,
+      "enforced": false,
+      "proposedTargetMs": 8
+    },
+    "catalog": {
+      "rows": 60,
+      "secondRows": 60,
+      "resolves": 0,
+      "childrenAfterDispose": 0,
+      "totalAssets": 10000,
+      "mountCycles": 100
+    }
+  },
+  "size": {
+    "artifact": "audio-package-7d17b4f9d5112272269fd467accf31c7480d1c1e",
+    "units": "bytes, Brotli",
+    "reportSha256": "ec6324eaece4419de5c4b9527daecd1c106d7932240eea9c45874c88bbfb3235",
+    "fixtures": {
+      "audio-editor-full": {
+        "entry": 44949,
+        "js": 44949,
+        "fallback": 0,
+        "all": 44949
+      },
+      "audio-editor-mixer": {
+        "entry": 44979,
+        "js": 44979,
+        "fallback": 0,
+        "all": 44979
+      },
+      "audio-editor-preview": {
+        "entry": 63327,
+        "js": 103129,
+        "fallback": 0,
+        "all": 103129
+      },
+      "renderer-min": {
+        "entry": 95448,
+        "js": 168155,
+        "fallback": 31914,
+        "all": 1913416
+      }
+    },
+    "baseline": {
+      "head": "92ef153628116235dc12c663b903339bd69e6774",
+      "job": "https://github.com/aethervtt/shard/actions/runs/39081964185/job/117540583267",
+      "rendererEntryFile": "assets/index-NSRjFNio.js",
+      "rendererEntryKiB": 93.2,
+      "rendererAllJsKiB": 164.2,
+      "note": "Baseline log and current report have the same content-hashed renderer entry and same rounded total JS size."
+    }
+  },
+  "limits": [
+    "Hosted performance measurements do not establish named laptop/desktop performance.",
+    "Canvas drawing measurements exclude layout, compositor, decoding and GPU presentation.",
+    "Live backend presentation and offline WAV probes do not establish device output timing.",
+    "The retained root output node belongs to the supplied host backend; editor disposal does not close that host context.",
+    "Orca evidence is an automated desktop keyboard/focus audit, not human listening or comprehensive accessibility certification."
+  ],
+  "nativeStudio": {
+    "head": "e4224ca5786f6526c92e176172c1b73b3fadd00f",
+    "testedMerge": "b174a75fefc5f3927764934ba2aa51cbcb604ff2",
+    "run": "https://github.com/aethervtt/shard/actions/runs/39106268186/job/117612664607",
+    "artifact": "audio-editor-studio-b174a75fefc5f3927764934ba2aa51cbcb604ff2",
+    "audioContext": true,
+    "offlineAudioContext": true,
+    "studioWebview": true,
+    "userAgent": "Mozilla/5.0 (X11; Ubuntu; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/60.5 Safari/605.1.15",
+    "edited": "engine.audio-event.json",
+    "savedGainDb": -6,
+    "reopened": true,
+    "audition": true,
+    "platformFiles": true,
+    "context": "running",
+    "voices": [
+      {
+        "state": "rendering",
+        "gain": 0.5012
+      },
+      {
+        "state": "rendering",
+        "gain": 0.001
+      }
+    ],
+    "screenReader": {
+      "screenReader": "Orca",
+      "nativeHost": "WebKitGTK / Tauri",
+      "method": "Recorded Orca speech generation during verified native WebDriver focus and XTest keyboard navigation",
+      "utterances": [
+        "07:05:45.322616 - SPEECH OUTPUT: 'Gain Db -6 entry -6 selected.' {'established': False, 'family': {'name': None, 'gender': None, 'lang': None, 'dialect': None, 'variant': None}}",
+        "07:05:48.087883 - SPEECH OUTPUT: 'Play push button.' {'established': False, 'family': {'name': None, 'gender': None, 'lang': None, 'dialect': None, 'variant': None}}"
+      ],
+      "coverage": {
+        "field": true,
+        "action": true
+      },
+      "totalSpeechLines": 10,
+      "limitations": "Automated focus journey; no claim of human listening or comprehensive accessibility certification."
+    },
+    "files": {
+      "studio-webview.json": {
+        "sha256": "72f17ab6fabce0cd8842ce118f692ca6122b39841a3a1cea1b7e387fa53817df"
+      },
+      "studio-webview.png": {
+        "sha256": "4908ea86d29fe21e7b566cbd5a156f9868f61a63d099b1e0db2480fa7f9b183f"
+      },
+      "screen-reader-audit.json": {
+        "sha256": "501ef88f7a094638294cce42a3c74b8c090f96c770a6252bf8e4db0d4b665089"
+      },
+      "orca-debug.log": {
+        "sha256": "cd8d936ee80b2ad9b9af21621d8b1bfa786e3df4047cf30dae65ab5d9a45e08a"
+      }
+    }
+  }
+}

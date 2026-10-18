@@ -130,8 +130,10 @@ for, not built yet.
 - Later: joints UI, vehicle helpers
 
 **Audio** (Web Audio)
-- v1: sounds and music, buses, volume, spatial 3D audio
-- Later: effects, reverb zones, audio from procedural sources
+- Authored layered events, parameters, buses/inserts/sends, snapshots and spatial 3D audio
+- Reverb zones and obstruction, adaptive music sections/stems/transitions, observable preview/export
+- Optional embeddable audio panels (0080), sharing runtime schemas and host-owned document/asset services
+- Later: audio from procedural sources
 
 **Input**
 - v1: keyboard, mouse, gamepad, touch, action maps (bindings as data), pointer picking
@@ -174,6 +176,8 @@ for, not built yet.
 - v1: headless runner, protocol, MCP server, screenshots, frame stepping, input recording/replay
 - v1: profiler (CPU per system, GPU timestamps), structured logs, error codes
 - v1: Studio (Tauri): game view, entity/component inspector, asset browser, logs, profiler
+- Audio authoring panels embed in Studio or third-party websites, including 300 px resizable docks;
+  host adapters support project files or database-backed documents without changing runtime data.
 - Export: web, desktop (Tauri bundles). Mobile via Tauri comes for free if the platform
   abstraction holds; not tested or blocking.
 
@@ -259,7 +263,8 @@ my-game/
 
 ## Non-goals
 
-- A drag-and-drop editor. The SDK allows one; we don't build it.
+- A general drag-and-drop scene editor. The SDK allows one; optional audio authoring panels (0080)
+  are a scoped tool over the same headless data APIs.
 - A second renderer for WebGL2. The fallback (0064) is a backend under the same engine API, at a
   reduced baseline tier.
 - Cross-machine bit-exact determinism in general. (Generation is deterministic per platform: same

@@ -39,6 +39,11 @@ See the [research](research/audio-system-2026-10-17.md) for platform constraints
 markers, stem clip references and transitions. Each section has a positive integer length in
 bars and stems with explicit clip start/end sample markers in imported source coordinates.
 Importer records source sample rate; convert markers once to decoded-context coordinates.
+Compare decoded bounds in integer samples. When a decoder omits the interpolation tail after
+the final source sample, only a marker at the exact source endpoint may clamp to the decoded
+endpoint, by at most one source-sample interval (rounded to output frames). Interior trim
+markers remain exact; larger truncation and out-of-source markers are errors. The resulting
+loop period must still satisfy the authored rate-conform limit.
 Require each stem's usable duration to cover the section and explicit trim/loop metadata;
 reject incompatible lengths. Each loop must conform its usable decoded period to the authored
 section duration: if they differ, require an explicit `rateConform: true` and apply the fixed

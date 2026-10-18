@@ -2,6 +2,18 @@
   "version": 1,
   "note": "Time budgets per named machine (machines.json), read by tests through budget(key) from @aethervtt/shard-core/test-env (spec 0075). Milliseconds unless an entry says otherwise with `in` (frames, ratio). Kinds: target (what the product wants), unit (cost per `per`, times the test's count), rate (`per` a second, a floor), guard (a measured value; the limit is value \u00d7 (1 + margin), and pnpm bench --ratchet proposes lowering it when a run beats it by more than twice its margin). Every entry has a note: a change to a number is a diff with a reason.",
   "spans": {
+    "audio-editor/edit": {
+      "kind": "target",
+      "laptop": 4,
+      "desktop": 4,
+      "note": "0080 proposed: document curve edit and runtime validation for a 16-layer event; one quarter of a 60 Hz UI frame. Hosted CI measurements do not establish named-machine performance."
+    },
+    "audio-editor/draw": {
+      "kind": "target",
+      "laptop": 8,
+      "desktop": 8,
+      "note": "0080 proposed: visible UI draw at 1280x720 DPR2 with 16 waveform lanes and 32 bus meters; half of a 60 Hz UI frame. Record median/p95 and measured machine separately."
+    },
     "animation/animators": {
       "kind": "target",
       "laptop": 0.5,
