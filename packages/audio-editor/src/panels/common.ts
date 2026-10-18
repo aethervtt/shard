@@ -67,6 +67,11 @@ function title(value: string): string {
 function object(value: unknown): JsonObject {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as JsonObject) : {}
 }
+/** References remain host-owned: even a project path is resolved through the catalog. */
+function assetId(value: unknown): string {
+  const ref = object(value)
+  return typeof ref.guid === 'string' ? ref.guid : typeof ref.path === 'string' ? ref.path : ''
+}
 function at(value: unknown, path: string): unknown {
   let current = value
   for (const part of path.split('/').slice(1)) {
@@ -800,8 +805,7 @@ export function mountPanel(
     }
     const wrap = el('div', 'field')
     if (field.kind === 'handle') {
-      const ref = object(resolved)
-      const id = typeof ref.guid === 'string' ? ref.guid : ''
+      const id = assetId(resolved)
       wrap.append(
         el('span', 'field-label', displayName),
         el('span', 'hint', id || 'No asset selected'),
@@ -927,7 +931,7 @@ export function mountPanel(
     for (let index = 0; index < layers.length; index++) {
       const layer = object(layers[index])
       const choices = Array.isArray(layer.choices) ? layer.choices : []
-      const clip = object(object(choices[0]).clip)
+      const clipId = assetId(object(choices[0]).clip)
       const lane = el('div', 'wave-lane')
       const header = el('div', 'track-header')
       const selectLayer = button(String(layer.id ?? 'Layer'), () => {
@@ -956,14 +960,12 @@ export function mountPanel(
       )
       if (choices.length > 1) metadata.append(el('span', '', `First of ${choices.length} choices`))
       waves.append(lane)
-      if (typeof clip.guid !== 'string' || !session.preview?.waveform) {
+      if (!clipId || !session.preview?.waveform) {
         lane.append(
           el(
             'div',
             'wave-placeholder',
-            typeof clip.guid === 'string'
-              ? 'Waveform unavailable'
-              : 'Choose an audio asset in Properties',
+            clipId ? 'Waveform unavailable' : 'Choose an audio asset in Properties',
           ),
           metadata,
         )
@@ -975,10 +977,10 @@ export function mountPanel(
       canvas.setAttribute('role', 'img')
       canvas.setAttribute('aria-label', `${layer.id} audio waveform`)
       lane.append(canvas, metadata)
-      let pending = layerWaveforms.get(clip.guid)
+      let pending = layerWaveforms.get(clipId)
       if (!pending) {
-        pending = session.preview.waveform(clip.guid, 512, abort.signal)
-        layerWaveforms.set(clip.guid, pending)
+        pending = session.preview.waveform(clipId, 512, abort.signal)
+        layerWaveforms.set(clipId, pending)
       }
       void pending
         .then((wave) => {

@@ -245,6 +245,14 @@ try {
   const name = await execute(`return ${root}.querySelector('.title').textContent`)
   console.info('Native WebDriver: editing', name)
   await click(`[...${root}.querySelectorAll('[role=tab]')].find(e=>e.textContent==='Event')`)
+  await until(
+    () =>
+      execute(
+        `return [...${root}.querySelectorAll('.wave-lane canvas')].filter(canvas => /waveform, .+ seconds/.test(canvas.getAttribute('aria-label'))).length === 2`,
+      ),
+    'Project host references produce both decoded waveform lanes',
+  )
+  console.info('Native WebDriver: both host-resolved waveforms rendered')
   await click(`${root}.querySelector('details[data-group="/layers/0"] > summary')`)
   await focusField('/layers/0/gainDb')
   // Global trusted keys operate on the verified focused field. Commit once on Tab.
@@ -334,6 +342,7 @@ try {
         ...capabilities,
         edited: name,
         savedGainDb: -6,
+        waveformLanes: 2,
         reopened: true,
         audition: true,
         platformFiles: true,
