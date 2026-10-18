@@ -251,6 +251,12 @@ builds the `renderer-min` scene with Vite and with `bun build`, renders a headle
 samples noise on the worker pool (proving a worker module survives the release), and typechecks
 against the `.d.ts` only. `pnpm release --check` runs it.
 
+The consumer also imports the public declaration surfaces for audio, its editor and preview,
+cards, dice, effects, scatter, and text under `skipLibCheck: false`. Bundled ambient declarations
+referenced by public types must remain reachable in the emitted `.d.ts` graph. In particular,
+text's `opentype.js` reference is explicitly preserved during declaration emit; copying the
+ambient file into the tarball alone is insufficient.
+
 ### Agent surface
 
 - `pnpm size --json` for agents. The report says which packages and WGSL modules each chunk

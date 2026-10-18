@@ -1,4 +1,4 @@
-/// <reference path="./opentype.d.ts" />
+/// <reference path="./opentype.d.ts" preserve="true" />
 import { ShardError } from '@aethervtt/shard-core'
 import type { Font as OpentypeFont } from 'opentype.js'
 import * as opentype from 'opentype.js'

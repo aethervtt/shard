@@ -14,13 +14,13 @@ manifests, JavaScript, declarations, runtime files, and exact internal dependenc
    **Audio evidence** workflow on the release branch; its packaging job runs `pnpm release --check`.
    This installs the tarballs into a separate consumer, checks declarations, builds with Vite and
    Bun, and executes a headless frame. Builds can stay entirely in CI.
-3. Tag the merged commit with the exact root version and push that tag. For example, for 0.2.0:
+3. Tag the merged commit with the exact root version and push that tag. For example, for 0.2.1:
 
    ```sh
    git switch main
    git pull --ff-only
-   git tag -a v0.2.0 -m 'Shard 0.2.0'
-   git push origin v0.2.0
+   git tag -a v0.2.1 -m 'Shard 0.2.1'
+   git push origin v0.2.1
    ```
 
 4. Watch **Release** in GitHub Actions. It validates the tag/version, runs lint, typechecking,
@@ -30,6 +30,12 @@ manifests, JavaScript, declarations, runtime files, and exact internal dependenc
 5. Verify every package's version, `latest` tag, exact internal dependencies, `shard.buildSha`,
    and provenance on npm. Install a representative set from the registry into a clean consumer
    to confirm the published packages resolve.
+
+   A successful publish can precede install availability: npm scans packages before making them
+   available, typically taking about five minutes and sometimes 15 minutes or longer. Wait for
+   every package's metadata and tarball to be available before testing installation. A processing
+   delay does not require republishing. See npm's
+   [publish-time scanning announcement](https://github.blog/changelog/2026-07-28-npm-publish-time-malware-scanning-and-dual-use-metadata/).
 
 ## Authentication
 
