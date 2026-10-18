@@ -66,6 +66,65 @@ function fixture() {
 }
 
 describe('isolated host-backed audition', () => {
+  it('rejects a nonisolatable host backend before replacing its handlers or disposing it', async () => {
+    const { host } = fixture()
+    const onError = vi.fn()
+    const backend = Object.assign(new HeadlessAudioBackend(), { onError })
+    const dispose = vi.spyOn(backend, 'dispose')
+    const preview = createIsolatedAudioPreview({ ...host, backend })
+    await expect(preview.play(event)).rejects.toMatchObject({
+      code: 'audio-editor/unsupported-capability',
+    })
+    await preview.dispose()
+    expect(backend.onError).toBe(onError)
+    expect(dispose).not.toHaveBeenCalled()
+  })
+
+  it('pins concurrent unsaved revisions independently without saving host documents', async () => {
+    const { host, root } = fixture()
+    const preview = createIsolatedAudioPreview({ ...host, backend: root })
+    const next = structuredClone(event)
+    next.value.layers = [
+      { id: 'quiet', loop: true, gainDb: -20, choices: [{ clip: { guid: 'user-audio-opaque' } }] },
+    ]
+    await Promise.all([preview.play(event), preview.play(next)])
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    const inspected = preview.inspect() as {
+      voices: { gain: number }[]
+      counts: { active: number }
+    }
+    expect(inspected.counts.active).toBe(2)
+    expect(inspected.voices.map((voice) => voice.gain).sort()).toEqual([0.1, 1])
+    expect((await host.documents.read(event.id)).value).toEqual(event.value)
+    await preview.dispose()
+  })
+
+  it('preserves the host import normalization and clip loop settings during preparation', async () => {
+    const { host, root } = fixture()
+    const original = host.assets.resolve
+    host.assets.resolve = async (id, signal) => ({
+      ...(await original(id, signal)),
+      settings: { normalize: true, loopStart: 0.125, loopEnd: 0.5 },
+    })
+    const prepare = vi.fn()
+    const create = root.createSession
+    root.createSession = () => {
+      const child = create()
+      const originalPrepare = child.prepare.bind(child)
+      child.prepare = (clip) => {
+        prepare(clip)
+        return originalPrepare(clip)
+      }
+      return child
+    }
+    const preview = createIsolatedAudioPreview({ ...host, backend: root })
+    await preview.play(event)
+    expect(prepare).toHaveBeenCalledWith(
+      expect.objectContaining({ normalize: true, loopStart: 0.125, loopEnd: 0.5 }),
+    )
+    await preview.dispose()
+  })
+
   it('stays silent until Play and registers an unsaved document using authorized opaque IDs', async () => {
     const { host, root, children, dispose, release } = fixture()
     const preview = createIsolatedAudioPreview({ ...host, backend: root })
@@ -127,6 +186,67 @@ describe('isolated host-backed audition', () => {
 })
 
 describe('runtime attachment capabilities', () => {
+  it('Stop cancels a pending play without stopping a newer owned instance when the old call returns', async () => {
+    let finish: ((value: unknown) => void) | undefined
+    let starts = 0
+    const call = vi.fn(async (name: string, _params: Record<string, unknown>) => {
+      if (name !== 'audio.play') return {}
+      if (++starts === 1)
+        return new Promise<unknown>((resolve) => {
+          finish = resolve
+        })
+      return { instance: 2 }
+    })
+    const preview = createAttachedAudioPreview({
+      target: 'game',
+      call,
+      liveControl: true,
+      applyDraft: async () => 'draft',
+    })
+    const old = preview.play(event)
+    while (!finish) await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    await preview.stop()
+    await preview.play(event)
+    finish({ instance: 1 })
+    await expect(old).rejects.toMatchObject({ code: 'audio-editor/disposed' })
+    expect(call.mock.calls.filter(([name]) => name === 'audio.stop')).toEqual([
+      ['audio.stop', { instance: 1, release: 0 }],
+    ])
+    await preview.dispose()
+    expect(call).toHaveBeenLastCalledWith('audio.stop', { instance: 2, release: 0 })
+  })
+
+  it('surfaces a lost attachment and stops a late owned play after disposal', async () => {
+    const lost = createAttachedAudioPreview({
+      target: 'gone',
+      call: async () => {
+        throw new Error('Disconnected')
+      },
+    })
+    await expect(lost.inspect()).rejects.toThrow('Disconnected')
+    await lost.dispose()
+    let finish: ((value: unknown) => void) | undefined
+    const call = vi.fn(async (name: string) => {
+      if (name === 'audio.play')
+        return new Promise<unknown>((resolve) => {
+          finish = resolve
+        })
+      return {}
+    })
+    const preview = createAttachedAudioPreview({
+      target: 'game',
+      call,
+      liveControl: true,
+      applyDraft: async () => 'draft',
+    })
+    const pending = preview.play(event)
+    while (!finish) await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    await preview.dispose()
+    finish({ instance: 87 })
+    await expect(pending).rejects.toMatchObject({ code: 'audio-editor/disposed' })
+    expect(call).toHaveBeenLastCalledWith('audio.stop', { instance: 87, release: 0 })
+  })
+
   it('defaults to read-only and never emulates unsaved-draft application', async () => {
     const call = vi.fn(async () => ({}))
     const preview = createAttachedAudioPreview({ target: 'game-1', call })

@@ -47,7 +47,7 @@ jobs:
       - run: pnpm --filter @aethervtt/shard-audio-editor test
         env:
           SHARD_CI: '1'
-      - run: pnpm --filter @aethervtt/shard-playground exec vitest run src/audio-editor.test.ts src/audio-editor-preview.test.ts
+      - run: pnpm --filter @aethervtt/shard-playground exec vitest run src/audio-editor.test.ts src/audio-editor-preview.test.ts src/audio-editor-keyboard.test.ts
         env:
           SHARD_CI: '1'
           SHARD_BROWSER_TESTS: required
@@ -80,6 +80,7 @@ jobs:
           VITE_SHARD_AUDIO_ONLY: '1'
       - run: pulseaudio --start --exit-idle-time=-1
       - run: xvfb-run -a dbus-run-session -- node apps/studio/scripts/audio-webview.mjs
+        timeout-minutes: 6
         env:
           SHARD_AUDIO_EDITOR_EVIDENCE: ${{ github.workspace }}/audio-editor-evidence
           WEBKIT_DISABLE_DMABUF_RENDERER: '1'

@@ -302,7 +302,11 @@ export function mountPanel(
         state.loading ? 'Loading' : state.dirty ? 'Unsaved changes' : 'Saved',
         `${state.diagnostics.length} issue${state.diagnostics.length === 1 ? '' : 's'}`,
         `Preview: ${state.previewState}`,
-        session.preview?.mode === 'attached' ? 'Attached runtime' : 'Isolated audition',
+        session.preview?.mode === 'attached'
+          ? `Attached: ${session.preview.target ?? 'runtime'}`
+          : session.preview
+            ? 'Isolated audition'
+            : 'Audition unavailable',
         state.historyEvicted ? `${state.historyEvicted} history entries evicted` : '',
       ]
         .filter(Boolean)
@@ -347,7 +351,7 @@ export function mountPanel(
     if (meterBusy || disposed || doc.hidden || !visible) return
     meterBusy = true
     try {
-      for (const [bus, controls] of meters) {
+      for (const [bus, controls] of [...meters]) {
         if (disposed || !visible || doc.hidden) break
         const measurement = object(await session.preview!.command!('audio.meters', { bus }))
         if (disposed || !controls.meter.isConnected) continue
@@ -985,7 +989,10 @@ export function mountPanel(
   }
   function renderMusic(value: JsonObject): void {
     const transport = object(session.state.previewResult).transport
-    const canControl = typeof transport === 'number' && !!session.preview?.command
+    const canControl =
+      typeof transport === 'number' &&
+      !!session.preview?.command &&
+      session.preview.capabilities.control !== false
     body.append(
       el(
         'p',

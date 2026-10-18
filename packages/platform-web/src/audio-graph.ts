@@ -6,9 +6,10 @@ import type {
   AudioPreparation,
 } from '@aethervtt/shard-platform'
 import type { AudioCache } from './audio-cache'
+import { holdAudioParam } from './audio-compat'
 
 function ramp(param: AudioParam, value: number, at: number, seconds: number): void {
-  param.cancelAndHoldAtTime(at)
+  holdAudioParam(param, at)
   if (seconds > 0) param.linearRampToValueAtTime(value, at + seconds)
   else param.setValueAtTime(value, at)
 }

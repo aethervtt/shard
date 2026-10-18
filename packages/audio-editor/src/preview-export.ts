@@ -60,7 +60,17 @@ export async function exportAudioEditorPreview(
             'Offline export requires authorized encoded bytes',
             { path: id },
           )
+        if (content.settings?.mode === 'stream')
+          throw new ShardError(
+            'audio-editor/unsupported-capability',
+            'Offline export requires decoded sources',
+            {
+              path: id,
+              hint: 'Choose a decoded catalog asset for deterministic offline rendering.',
+            },
+          )
         value = audioClip(Uint8Array.from(content.bytes), {
+          ...content.settings,
           id: JSON.stringify([scope, id, entry.revision]),
         })
         revisions.push({ id, scope, revision: entry.revision, type })
@@ -136,6 +146,11 @@ export async function exportAudioEditorPreview(
     seed: plan.seed,
     assets: revisions,
     plan: AudioPreviewPlan.serialize(plan),
-    document: { id: document.id, revision: document.revision, type: document.type },
+    document: {
+      id: document.id,
+      revision: document.revision,
+      type: document.type,
+      draft: document.value,
+    },
   }
 }

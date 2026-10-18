@@ -89,9 +89,11 @@ describe('schema-backed authoring', () => {
   it('renames a global bank and selected dependent curves in one revisioned transaction', async () => {
     const fixture = host()
     const dependent = structuredClone(event)
+    dependent.value.hostMetadata = { parameter: 'intensity' }
     dependent.value.layers = [
       {
         id: 'body',
+        hostMetadata: { selectParameter: 'intensity' },
         choices: [{ clip: { guid: 'clip' } }],
         curves: [
           {
@@ -113,8 +115,11 @@ describe('schema-backed authoring', () => {
       { name: 'power' },
     ])
     expect((await fixture.documents.read(event.id)).value.layers).toMatchObject([
-      { curves: [{ parameter: 'power' }] },
+      { curves: [{ parameter: 'power' }], hostMetadata: { selectParameter: 'intensity' } },
     ])
+    expect((await fixture.documents.read(event.id)).value.hostMetadata).toEqual({
+      parameter: 'intensity',
+    })
     expect(session.state.dirty).toBe(false)
     await session.dispose()
   })

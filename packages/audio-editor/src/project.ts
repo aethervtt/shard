@@ -1,4 +1,4 @@
-import { audioClip } from '@aethervtt/shard-audio'
+import { AudioImportSettings, audioClip } from '@aethervtt/shard-audio'
 import { type JsonObject, ShardError } from '@aethervtt/shard-core'
 import type { Platform } from '@aethervtt/shard-platform'
 import { loadProject } from '@aethervtt/shard-project/manifest'
@@ -13,9 +13,8 @@ const types: Record<string, string> = {
   'audio-collection': 'audio/AudioCollection',
 }
 
-function revision(text: string): string {
-  // Full source is an exact, collision-free revision token; it is host-private, not serialized.
-  return text
+function revision(text: string): Promise<string> {
+  return sha256Hex(new TextEncoder().encode(text))
 }
 
 /**
@@ -87,7 +86,7 @@ export async function openAudioProject(platform: Platform, scope = 'project') {
       id,
       name: item.name,
       type: item.type,
-      revision: revision(text),
+      revision: await revision(text),
       value: JSON.parse(text) as JsonObject,
       sourceText: text,
     }
@@ -171,7 +170,7 @@ export async function openAudioProject(platform: Platform, scope = 'project') {
                 const saved = {
                   ...change.document,
                   name,
-                  revision: revision(text),
+                  revision: await revision(text),
                   sourceText: text,
                 }
                 for (const listener of listeners) listener([saved.id])
@@ -189,7 +188,7 @@ export async function openAudioProject(platform: Platform, scope = 'project') {
               check(signal)
               const text = `${JSON.stringify(change.document.value, null, 2)}\n`
               await fs.writeText(lookup(change.document.id).path, text)
-              const saved = { ...change.document, revision: revision(text), sourceText: text }
+              const saved = { ...change.document, revision: await revision(text), sourceText: text }
               for (const listener of listeners) listener([saved.id])
               return [saved]
             })
@@ -206,11 +205,13 @@ export async function openAudioProject(platform: Platform, scope = 'project') {
     scope,
     async list(query) {
       check(query.signal)
-      const all = [...paths].filter(
-        ([, item]) =>
-          (!query.type || item.type === query.type) &&
-          (!query.search || item.name.toLowerCase().includes(query.search.toLowerCase())),
-      )
+      const all = [...paths]
+        .sort(([, a], [, b]) => a.name.localeCompare(b.name))
+        .filter(
+          ([, item]) =>
+            (!query.type || item.type === query.type) &&
+            (!query.search || item.name.toLowerCase().includes(query.search.toLowerCase())),
+        )
       const offset = Number(query.cursor ?? 0),
         limit = Math.min(query.limit ?? 50, 100)
       return {
@@ -245,8 +246,13 @@ export async function openAudioProject(platform: Platform, scope = 'project') {
         )
       const bytes = await fs.readBytes(item.path)
       check(signal)
-      audioClip(bytes, { id })
-      return { bytes }
+      const meta = (await fs.exists(`${item.path}.meta`))
+        ? (JSON.parse(await fs.readText(`${item.path}.meta`)) as { settings?: JsonObject })
+        : undefined
+      const settings = AudioImportSettings.deserialize(meta?.settings ?? {})
+      audioClip(bytes, { ...settings, id })
+      check(signal)
+      return { bytes, settings }
     },
     subscribe(listener) {
       listeners.add(listener)
@@ -269,3 +275,5 @@ export async function openAudioProject(platform: Platform, scope = 'project') {
     },
   }
 }
+
+import { sha256Hex } from '@aethervtt/shard-assets'

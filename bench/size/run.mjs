@@ -24,6 +24,7 @@ const args = new Set(process.argv.slice(2))
 const FIXTURES = {
   'audio-editor-full': join(here, 'audio-editor-full'),
   'audio-editor-mixer': join(here, 'audio-editor-mixer'),
+  'audio-editor-preview': join(here, 'audio-editor-preview'),
   'renderer-min': join(here, 'fixtures/renderer-min'),
   'three-min': join(here, 'fixtures/three-min'),
   'physics-track': join(here, 'fixtures/physics-track'),

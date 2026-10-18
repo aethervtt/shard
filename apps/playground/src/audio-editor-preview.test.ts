@@ -73,27 +73,60 @@ describe(`audio editor real previews (${browserName})`, () => {
           const library = [...demo.host.records.values()]
           const mixer = library.find((item) => item.type === 'audio/AudioMixer')!
           const music = library.find((item) => item.type === 'audio/MusicProgram')!
+          const footstep = library.find((item) => item.id.includes('-footstep-'))!
+          const spell = library.find((item) => item.id.includes('-spell-'))!
           const clips = await demo.host.assets.list({ type: 'AudioClip' })
           const waveform = await demo.preview.waveform!(clips.items[0]!.id, 64)
           const outputs: { name: string; report: Record<string, unknown>; wav: number[] }[] = []
-          for (const [name, doc] of [
-            ['event', event],
-            ['mixer', mixer],
-            ['music', music],
-          ] as const) {
-            const plan: JsonObject =
-              name === 'mixer'
-                ? { duration: 0.5, events: [{ id: 'engine', asset: { guid: event.id } }] }
-                : { duration: 0.5 }
-            const output = (await demo.preview.export!(doc, plan)) as { wav: Uint8Array } & Record<
-              string,
-              unknown
-            >
-            const { wav, ...report } = output
-            outputs.push({ name, report, wav: [...wav] })
+          if (demo.preview.capabilities.export) {
+            for (const [name, doc] of [
+              ['event', event],
+              ['footstep', footstep],
+              ['spell', spell],
+              ['mixer', mixer],
+              ['music', music],
+            ] as const) {
+              const plan: JsonObject =
+                name === 'mixer'
+                  ? { duration: 0.5, events: [{ id: 'engine', asset: { guid: event.id } }] }
+                  : { duration: 0.5 }
+              const output = (await demo.preview.export!(doc, plan)) as {
+                wav: Uint8Array
+              } & Record<string, unknown>
+              const { wav, ...report } = output
+              outputs.push({ name, report, wav: [...wav] })
+            }
+            for (const snapshot of library.filter((item) => item.type === 'audio/AudioSnapshot')) {
+              const output = (await demo.preview.export!(snapshot, {
+                duration: 0.5,
+                mixer: { guid: mixer.id },
+                events: [{ id: 'engine', asset: { guid: event.id } }],
+                music: [{ id: 'music', asset: { guid: music.id } }],
+                controls: [
+                  {
+                    at: 0.1,
+                    kind: 'snapshot.acquire',
+                    target: 'snapshot',
+                    asset: { guid: snapshot.id },
+                    value: 1,
+                  },
+                ],
+              })) as { wav: Uint8Array } & Record<string, unknown>
+              const { wav, ...report } = output
+              outputs.push({
+                name: snapshot.id.split('-').at(-4) ?? 'snapshot',
+                report,
+                wav: [...wav],
+              })
+            }
           }
           return {
             outputs,
+            exportAvailable: demo.preview.capabilities.export,
+            nativeOffline:
+              typeof OfflineAudioContext !== 'undefined' &&
+              typeof OfflineAudioContext.prototype.suspend === 'function' &&
+              typeof OfflineAudioContext.prototype.resume === 'function',
             waveform: {
               bins: waveform.peaks.length / 2,
               duration: waveform.duration,
@@ -104,8 +137,25 @@ describe(`audio editor real previews (${browserName})`, () => {
         })
         expect(reports.waveform.bins).toBe(64)
         expect(reports.waveform.max).toBeGreaterThan(0)
+        expect(reports.exportAvailable).toBe(reports.nativeOffline)
+        if (browserName === 'chromium') expect(reports.outputs).toHaveLength(8)
         const destination = process.env.SHARD_AUDIO_EDITOR_EVIDENCE
-        if (destination) await mkdir(destination, { recursive: true })
+        if (destination) {
+          await mkdir(destination, { recursive: true })
+          await writeFile(
+            join(destination, `${browserName}-editor-preview-capabilities.json`),
+            JSON.stringify(
+              {
+                exportAvailable: reports.exportAvailable,
+                nativeOffline: reports.nativeOffline,
+                waveform: reports.waveform,
+                live: reports.live,
+              },
+              null,
+              2,
+            ),
+          )
+        }
         for (const output of reports.outputs) {
           const measured = output.report.measured as {
             peak: number
@@ -210,7 +260,11 @@ describe(`audio editor real previews (${browserName})`, () => {
           root.runtime.collect()
           const after = root.runtime.memory()
           const afterListeners = listenerCount()
-          const playing = sibling.inspect() as { context: string; counts: { active: number } }
+          const playing = sibling.inspect() as {
+            context: string
+            counts: { active: number }
+            voices: { presentation: { state: string } | null }[]
+          }
           await sibling.dispose()
           root.runtime.collect()
           const final = root.runtime.memory()
@@ -242,6 +296,9 @@ describe(`audio editor real previews (${browserName})`, () => {
         expect(result.after.pinned).toBe(result.baseline.pinned)
         expect(result.final.pinned).toBe(0)
         expect(result.playing.counts.active).toBeGreaterThan(0)
+        expect(
+          result.playing.voices.some((voice) => voice.presentation?.state === 'rendering'),
+        ).toBe(true)
         expect(result.contextBeforeRootClose).toBe('running')
         expect(result.afterListeners).toBe(result.baselineListeners)
         expect(result.remainingListeners).toBe(0)

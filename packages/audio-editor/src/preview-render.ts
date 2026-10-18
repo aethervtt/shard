@@ -55,6 +55,18 @@ export async function renderAudioEditorBundle(
   bundle: AudioEditorRenderBundle,
   options: { signal?: AbortSignal; progress?: (value: Record<string, unknown>) => void } = {},
 ) {
+  if (
+    typeof OfflineAudioContext === 'undefined' ||
+    typeof OfflineAudioContext.prototype.suspend !== 'function' ||
+    typeof OfflineAudioContext.prototype.resume !== 'function'
+  )
+    throw new ShardError(
+      'audio-editor/unsupported-capability',
+      'This browser lacks suspended offline rendering',
+      {
+        hint: 'Use a browser with OfflineAudioContext suspend/resume, or provide a host export adapter.',
+      },
+    )
   const plan = AudioPreviewPlan.deserialize(bundle.plan)
   validateAudioPreview(plan)
   const frames = Math.ceil((plan.duration + plan.tailSeconds) * plan.sampleRate)
@@ -92,7 +104,16 @@ export async function renderAudioEditorBundle(
     for (const event of plan.events) eventLeases.push(await prepareAudio(world, event.asset!))
     const programs = new Map<string, Awaited<ReturnType<typeof prepareMusic>>>()
     for (const entry of plan.music) {
-      const program = await prepareMusic(world, entry.asset!)
+      let program: Awaited<ReturnType<typeof prepareMusic>>
+      try {
+        program = await prepareMusic(world, entry.asset!)
+      } catch (cause) {
+        throw new ShardError(
+          'audio/preview-unavailable',
+          `Music preparation failed: ${cause instanceof Error ? cause.message : String(cause)}. Decoded sources: ${decoded.map((lease) => `${lease.clip.id}: ${lease.samples} samples at ${lease.sampleRate} Hz (source ${lease.clip.sampleRate} Hz, duration ${lease.clip.duration})`).join('; ')}`,
+          { cause },
+        )
+      }
       for (const section of program.definition.sections)
         await prepareMusicSection(world, program, section.id)
       programs.set(entry.id, program)
@@ -329,7 +350,11 @@ export async function renderAudioEditorBundle(
       // Cancellation can interrupt the control loop at a suspended render quantum.
       // Let its disconnected offline graph finish instead of retaining a suspended renderer.
       if (options.signal?.aborted && context.state === 'suspended') {
-        try { await context.resume() } catch { /* Rendering may not have started yet. */ }
+        try {
+          await context.resume()
+        } catch {
+          /* Rendering may not have started yet. */
+        }
       }
     }
   }

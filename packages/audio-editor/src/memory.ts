@@ -20,6 +20,7 @@ export function createMemoryAudioHost(
   const records = new Map(options.documents?.map((doc) => [doc.id, clone(doc)]))
   const clips = new Map(options.assets?.map((asset) => [asset.id, asset]))
   const listeners = new Set<(ids: readonly string[]) => void>()
+  const revisionScope = crypto.randomUUID()
   let revision = 0
   const documents: AudioDocumentStore = {
     scope,
@@ -55,7 +56,7 @@ export function createMemoryAudioHost(
             }
             const saved = changes.map((change) => ({
               ...clone(change.document),
-              revision: `memory:${++revision}`,
+              revision: `memory:${revisionScope}:${++revision}`,
             }))
             for (const doc of saved) records.set(doc.id, doc)
             for (const listener of listeners) listener([...ids])

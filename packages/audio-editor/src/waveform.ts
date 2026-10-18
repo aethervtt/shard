@@ -81,6 +81,12 @@ export function createAudioWaveformCache(
       const combined = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
       const metadata = await assets.get(id, combined)
       assertLive(combined)
+      if (scope !== assets.scope || request !== generation)
+        throw new ShardError(
+          'audio-editor/asset-unavailable',
+          'Asset scope or revision changed during lookup',
+          { path: id },
+        )
       const key = JSON.stringify([scope, id, metadata.revision, channel, bins])
       const cached = entries.get(key)
       if (cached) {

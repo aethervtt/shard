@@ -9,7 +9,12 @@
     ".": "./src/index.ts",
     "./model": "./src/model.ts",
     "./dom": "./src/dom.ts",
-    "./panels/*": "./src/panels/*.ts",
+    "./panels/event": "./src/panels/event.ts",
+    "./panels/mixer": "./src/panels/mixer.ts",
+    "./panels/music": "./src/panels/music.ts",
+    "./panels/parameters": "./src/panels/parameters.ts",
+    "./panels/library": "./src/panels/library.ts",
+    "./panels/diagnostics": "./src/panels/diagnostics.ts",
     "./preview": "./src/preview.ts",
     "./project": "./src/project.ts",
     "./preview-render": "./src/preview-render.ts"

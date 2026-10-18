@@ -45,6 +45,14 @@ export async function createPreviewRuntime(options: {
   createBackend?: () => AudioBackend
 }) {
   const supplied = options.backend
+  if (supplied && (!supplied.runtime?.capabilities.sessions || !supplied.createSession))
+    throw new ShardError(
+      'audio-editor/unsupported-capability',
+      'The supplied backend cannot isolate an editor session',
+      {
+        hint: 'Supply a backend with createSession capability, or let the editor own a browser backend.',
+      },
+    )
   const backend =
     supplied ??
     options.createBackend?.() ??
@@ -161,7 +169,10 @@ export async function createPreviewRuntime(options: {
           )
         const guid = JSON.stringify([scope, id, metadata.revision, revision])
         const store = app.world.resource(AudioClips)
-        store.set(guid, audioClip(Uint8Array.from(content.bytes), { id: guid }))
+        store.set(
+          guid,
+          audioClip(Uint8Array.from(content.bytes), { ...content.settings, id: guid }),
+        )
         removals.push(() => {
           store.delete(guid)
         })
@@ -338,7 +349,8 @@ export async function createPreviewRuntime(options: {
     inspect() {
       assertLive()
       tick()
-      return describeAudio(app.world)
+      // Backend presentation records mutate on stop; editor observations are snapshots.
+      return structuredClone(describeAudio(app.world))
     },
     stop,
     dispose() {

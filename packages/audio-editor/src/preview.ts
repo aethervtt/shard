@@ -45,7 +45,11 @@ export function createIsolatedAudioPreview(
     decode: options.waveformDecoder,
     maxBytes: options.waveformBytes,
   })
-  const canExport = !!options.export || typeof OfflineAudioContext !== 'undefined'
+  const canExport =
+    !!options.export ||
+    (typeof OfflineAudioContext !== 'undefined' &&
+      typeof OfflineAudioContext.prototype.suspend === 'function' &&
+      typeof OfflineAudioContext.prototype.resume === 'function')
   const assertLive = (signal?: AbortSignal) => {
     if (disposed || signal?.aborted)
       throw new ShardError('audio-editor/disposed', 'Audio audition is closed or cancelled', {
@@ -202,7 +206,7 @@ export function createAttachedAudioPreview(
   const ownedMusic = new Set<number>()
   const ownedSnapshots = new Set<number>()
   let disposed = false
-  const controller = new AbortController()
+  let controller = new AbortController()
   const assertLive = () => {
     if (disposed) throw new ShardError('audio-editor/disposed', 'Runtime attachment is closed')
   }
@@ -216,6 +220,8 @@ export function createAttachedAudioPreview(
       )
   }
   const stop = async () => {
+    controller.abort()
+    controller = new AbortController()
     for (const instance of ownedEvents) await options.call('audio.stop', { instance, release: 0 })
     for (const transport of ownedMusic) await options.call('audio.music.stop', { transport })
     for (const snapshot of ownedSnapshots)
@@ -226,6 +232,7 @@ export function createAttachedAudioPreview(
   }
   return {
     mode: 'attached',
+    target: options.target,
     capabilities: {
       play: !!options.liveControl && !!options.applyDraft,
       control: !!options.liveControl,
@@ -241,11 +248,6 @@ export function createAttachedAudioPreview(
           'This attachment cannot apply unsaved drafts',
           { hint: 'Use isolated audition, or supply a host draft-apply capability.' },
         )
-      const combined = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
-      const asset = await options.applyDraft(document, combined)
-      if (combined.aborted)
-        throw new ShardError('audio-editor/disposed', 'Draft attachment was cancelled')
-      assertLive()
       const method =
         document.type === 'audio/AudioEvent'
           ? 'audio.play'
@@ -259,18 +261,28 @@ export function createAttachedAudioPreview(
           'audio-editor/unsupported-capability',
           'This document type has no attached play command',
         )
+      const combined = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
+      const asset = await options.applyDraft(document, combined)
+      if (combined.aborted)
+        throw new ShardError('audio-editor/disposed', 'Draft attachment was cancelled')
+      assertLive()
       const result = (await options.call(
         method,
         method === 'audio.play' ? { event: asset } : { asset },
         combined,
       )) as Record<string, unknown>
+      if (disposed || combined.aborted) {
+        if (typeof result.instance === 'number')
+          await options.call('audio.stop', { instance: result.instance, release: 0 })
+        if (typeof result.transport === 'number')
+          await options.call('audio.music.stop', { transport: result.transport })
+        if (typeof result.snapshot === 'number')
+          await options.call('audio.snapshot.release', { snapshot: result.snapshot })
+        throw new ShardError('audio-editor/disposed', 'Attached playback was cancelled')
+      }
       if (typeof result.instance === 'number') ownedEvents.add(result.instance)
       if (typeof result.transport === 'number') ownedMusic.add(result.transport)
       if (typeof result.snapshot === 'number') ownedSnapshots.add(result.snapshot)
-      if (disposed || combined.aborted) {
-        await stop()
-        throw new ShardError('audio-editor/disposed', 'Attached playback was cancelled')
-      }
       return result
     },
     stop,

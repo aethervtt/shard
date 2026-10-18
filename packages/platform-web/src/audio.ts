@@ -15,6 +15,7 @@ import type {
 } from '@aethervtt/shard-platform'
 import { validateAudioAutomation } from '@aethervtt/shard-platform'
 import { AudioCache, type PreparedAudio } from './audio-cache'
+import { holdAudioParam, setListenerPose } from './audio-compat'
 import { WebAudioGraph } from './audio-graph'
 
 interface AutomationTrack {
@@ -263,9 +264,11 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
       z = (dx * m[2]! + dy * m[6]! + dz * m[10]!) / sz
     }
     const at = this.context.currentTime
-    panner.positionX.setValueAtTime(x, at)
-    panner.positionY.setValueAtTime(y, at)
-    panner.positionZ.setValueAtTime(z, at)
+    if (panner.positionX) {
+      panner.positionX.setValueAtTime(x, at)
+      panner.positionY.setValueAtTime(y, at)
+      panner.positionZ.setValueAtTime(z, at)
+    } else panner.setPosition(x, y, z)
   }
 
   private validateRoutes(desc: AudioVoiceDesc): void {
@@ -316,7 +319,7 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
         voice.sends.set(send.target, node)
       } else {
         node.disconnect()
-        node.gain.cancelAndHoldAtTime(this.context.currentTime)
+        holdAudioParam(node.gain, this.context.currentTime)
         node.gain.setValueAtTime(send.gain, this.context.currentTime)
       }
       const input = this.graph?.sendInputs.get(voice.desc.bus)?.get(send.target)
@@ -331,7 +334,7 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
     const node = this.voices.get(id)?.sends.get(target)
     if (!node) throw new ShardError('audio/unknown-bus', `Missing voice send ${target}`)
     const at = this.context.currentTime
-    node.gain.cancelAndHoldAtTime(at)
+    holdAudioParam(node.gain, at)
     if (seconds) node.gain.linearRampToValueAtTime(gain, at + seconds)
     else node.gain.setValueAtTime(gain, at)
   }
@@ -609,7 +612,7 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
     }
     voice.presentation.state = 'stopping'
     const at = this.context.currentTime
-    voice.gain.gain.cancelAndHoldAtTime(at)
+    holdAudioParam(voice.gain.gain, at)
     voice.gain.gain.linearRampToValueAtTime(0, at + fade)
     if (voice.source) voice.source.stop(at + fade)
     if (voice.media && !this.host.offline) {
@@ -736,7 +739,7 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
       start,
       previous: command.at > this.context.currentTime ? (previous ?? null) : null,
     })
-    param.cancelAndHoldAtTime(command.at)
+    holdAudioParam(param, command.at, start)
     param.setValueAtTime(start, command.at)
     if (command.duration <= 0) param.setValueAtTime(value, command.at)
     else if (command.curve === 'exponential')
@@ -757,18 +760,7 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
   setListener(matrix: ArrayLike<number>): void {
     for (let i = 0; i < 12; i++) this.listener[i] = matrix[i]!
     if (this.host.fixedListener) for (const voice of this.voices.values()) this.place(voice)
-    else {
-      const listener = this.context.listener
-      listener.positionX.value = matrix[3]!
-      listener.positionY.value = matrix[7]!
-      listener.positionZ.value = matrix[11]!
-      listener.forwardX.value = -matrix[2]!
-      listener.forwardY.value = -matrix[6]!
-      listener.forwardZ.value = -matrix[10]!
-      listener.upX.value = matrix[1]!
-      listener.upY.value = matrix[5]!
-      listener.upZ.value = matrix[9]!
-    }
+    else setListenerPose(this.context.listener, matrix)
   }
 
   setBus(name: string, gain: number): void {
@@ -920,12 +912,12 @@ class WebSession implements WebAudioBackend, AudioRuntimeExtension {
       const tailEnd = at + fade + old.tailSeconds
       this.retired.set(old, tailEnd + 0.02)
       for (const input of old.inputs.values()) {
-        input.gain.cancelAndHoldAtTime(at)
+        holdAudioParam(input.gain, at)
         input.gain.linearRampToValueAtTime(0, at + fade)
       }
       for (const routes of old.sendInputs.values())
         for (const input of routes.values()) {
-          input.gain.cancelAndHoldAtTime(at)
+          holdAudioParam(input.gain, at)
           input.gain.linearRampToValueAtTime(0, at + fade)
         }
       old.output.gain.setValueAtTime(1, tailEnd)
@@ -1061,18 +1053,7 @@ export function createWebAudioBackend(
   const output = context.createGain()
   output.connect(context.destination)
   const fixedListener = options.context ? options.fixedListener === true : true
-  if (fixedListener) {
-    const listener = context.listener
-    listener.positionX.value = 0
-    listener.positionY.value = 0
-    listener.positionZ.value = 0
-    listener.forwardX.value = 0
-    listener.forwardY.value = 0
-    listener.forwardZ.value = -1
-    listener.upX.value = 0
-    listener.upY.value = 1
-    listener.upZ.value = 0
-  }
+  if (fixedListener) setListenerPose(context.listener, identity)
   const host: Host = {
     context,
     output,

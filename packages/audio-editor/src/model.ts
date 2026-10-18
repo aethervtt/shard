@@ -5,6 +5,7 @@ import {
   editorError,
   equal,
   getAudioEditorSchema,
+  knownFields,
   merge,
   validateAudioDocument,
 } from './schema'
@@ -196,15 +197,12 @@ export class AudioEditorSession {
     const doc = this.editable()
     const parts = segments(edit.path)
     const before = clone(doc.value)
+    const next = clone(doc.value)
     const top = parts[0]!
     // Editing inside an inherited aggregate creates an explicit override of that aggregate.
-    if (
-      parts.length > 1 &&
-      doc.value[top] === undefined &&
-      this.current.effective?.[top] !== undefined
-    )
-      doc.value[top] = clone(this.current.effective[top]!)
-    let parent: JsonObject | JsonValue[] = doc.value
+    if (parts.length > 1 && next[top] === undefined && this.current.effective?.[top] !== undefined)
+      next[top] = clone(this.current.effective[top]!)
+    let parent: JsonObject | JsonValue[] = next
     for (let i = 0; i < parts.length - 1; i++) {
       const key = parts[i]!
       let child: JsonValue | undefined = (parent as JsonObject)[key]
@@ -223,6 +221,7 @@ export class AudioEditorSession {
       else if (edit.value !== undefined) parent[index] = clone(edit.value)
     } else if (edit.remove) delete parent[key]
     else if (edit.value !== undefined) parent[key] = clone(edit.value)
+    doc.value = next
     if (!this.transaction) this.record(before, doc.value)
     this.current.effective = merge(this.current.effective ?? {}, doc.value)
     this.emit()
@@ -502,19 +501,31 @@ export class AudioEditorSession {
             'Parameter is inherited or does not exist; rename it in its defining document.',
           )
       }
-      const update = (value: JsonValue): void => {
-        if (Array.isArray(value)) {
-          value.forEach(update)
+      const update = (value: JsonValue, known: JsonValue): void => {
+        if (Array.isArray(value) && Array.isArray(known)) {
+          value.forEach((item, index) => {
+            update(item, known[index] ?? null)
+          })
           return
         }
-        if (!value || typeof value !== 'object') return
-        for (const key of Object.keys(value)) {
+        if (
+          !value ||
+          typeof value !== 'object' ||
+          Array.isArray(value) ||
+          !known ||
+          typeof known !== 'object'
+        )
+          return
+        for (const key of Object.keys(known)) {
           if ((key === 'parameter' || key === 'selectParameter') && value[key] === from)
             value[key] = to
-          else update(value[key]!)
+          else update(value[key]!, (known as JsonObject)[key]!)
         }
       }
-      update(next.value)
+      const schema = getAudioEditorSchema(next.type)
+      if (!schema)
+        throw editorError('unsupported-schema', `Unsupported document schema ${next.type}.`)
+      update(next.value, knownFields(schema.fields, next.value))
       changes.push({ document: next, expectedRevision: source.revision })
     }
     await this.commitDocuments(changes)
@@ -567,6 +578,14 @@ export class AudioEditorSession {
     this.unsubscribe?.()
     this.unsubscribeAssets?.()
     this.listeners.clear()
+    this.history = []
+    this.future = []
+    this.transaction = undefined
+    this.baseline = undefined
+    this.current.document = undefined
+    this.current.effective = undefined
+    this.current.conflict = undefined
+    this.current.previewResult = undefined
     await this.preview?.dispose()
   }
 }

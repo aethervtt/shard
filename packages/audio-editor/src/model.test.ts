@@ -78,6 +78,35 @@ describe('audio editor document sessions', () => {
     await editor.dispose()
   })
 
+  it('rejects malformed inherited edits without changing the draft or history', async () => {
+    const parent = mixer('parent')
+    const child = { ...mixer('child'), value: { $extends: 'parent' } }
+    const editor = createAudioEditorSession(createMemoryAudioHost({ documents: [parent, child] }))
+    await editor.open(child.id)
+    expect(() => editor.edit({ path: '/buses/invalid', value: {} })).toThrow('Invalid array index')
+    expect(editor.state.document?.value).toEqual(child.value)
+    expect(editor.state.dirty).toBe(false)
+    expect(editor.state.canUndo).toBe(false)
+    await editor.dispose()
+  })
+
+  it('never reuses a seeded revision when two editors save concurrently', async () => {
+    const doc = { ...mixer(), revision: 'memory:1' }
+    const host = createMemoryAudioHost({ documents: [doc] })
+    const first = createAudioEditorSession(host)
+    const second = createAudioEditorSession(host)
+    await first.open(doc.id)
+    await second.open(doc.id)
+    first.edit({ path: '/buses/0/gainDb', value: -1 })
+    second.edit({ path: '/buses/0/gainDb', value: -2 })
+    await first.save()
+    expect(first.state.document?.revision).not.toBe(doc.revision)
+    await expect(second.save()).rejects.toThrow()
+    expect(second.state.dirty).toBe(true)
+    await first.dispose()
+    await second.dispose()
+  })
+
   it('groups drag edits, cancels without a history entry and bounds retained history', async () => {
     const host = createMemoryAudioHost({ documents: [mixer()] })
     const editor = createAudioEditorSession({ ...host, historyLimit: 2 })

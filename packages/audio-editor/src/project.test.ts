@@ -1,5 +1,6 @@
 import type { Platform } from '@aethervtt/shard-platform'
 import { describe, expect, it } from 'vitest'
+import { sineWav } from '../../audio/src/testing-utils'
 import { openAudioProject } from './project'
 
 function host(writable = true) {
@@ -39,6 +40,28 @@ function host(writable = true) {
 }
 
 describe('project audio host', () => {
+  it('resolves project import settings with authorized clip bytes', async () => {
+    const fixture = host()
+    fixture.files.set('data/tone.wav', '')
+    fixture.files.set(
+      'data/tone.wav.meta',
+      JSON.stringify({
+        guid: 'tone-id',
+        settings: { mode: 'decoded', normalize: true, loopStart: 0.1, loopEnd: 0.3 },
+      }),
+    )
+    fixture.platform.fs.readBytes = async () => sineWav(0.5)
+    const project = await openAudioProject(fixture.platform)
+    const content = await project.assets.resolve('tone-id')
+    expect(content.settings).toEqual({
+      mode: 'decoded',
+      normalize: true,
+      loopStart: 0.1,
+      loopEnd: 0.3,
+    })
+    expect(content.bytes!.length).toBeGreaterThan(44)
+    project.dispose()
+  })
   it('creates sources by explicit type and reopens opaque IDs from sidecars', async () => {
     const fixture = host(),
       project = await openAudioProject(fixture.platform)

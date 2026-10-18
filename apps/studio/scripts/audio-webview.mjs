@@ -31,7 +31,7 @@ if (process.env.SHARD_SCREEN_READER === '1') {
       '--debug',
       `--debug-file=${resolve(evidence, 'orca-debug.log')}`,
     ],
-    { stdio: ['ignore', 'pipe', 'pipe'] },
+    { stdio: ['ignore', 'pipe', 'pipe'], detached: true },
   )
   reader.stdout.on('data', (chunk) => {
     readerOutput += chunk
@@ -42,17 +42,21 @@ if (process.env.SHARD_SCREEN_READER === '1') {
   // Allow the AT-SPI registry and speech dispatcher to initialize before the native window.
   await new Promise((done) => setTimeout(done, 1500))
 }
-const driver = spawn('tauri-driver', [], { stdio: ['ignore', 'pipe', 'pipe'] })
+const driver = spawn('tauri-driver', [], { stdio: ['ignore', 'pipe', 'pipe'], detached: true })
 let logs = ''
 driver.stdout.on('data', (chunk) => {
   logs += chunk
+  process.stdout.write(chunk)
 })
 driver.stderr.on('data', (chunk) => {
   logs += chunk
+  process.stderr.write(chunk)
 })
 let session
 async function request(path, body, method = 'POST') {
+  if (path === '/session') console.info('Native WebDriver: creating the Studio session')
   const response = await fetch(`http://127.0.0.1:4444${path}`, {
+    signal: AbortSignal.timeout(60000),
     method,
     headers: { 'content-type': 'application/json' },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -88,6 +92,7 @@ async function click(expression) {
   await request(`/session/${session}/element/${id}/click`, {})
 }
 try {
+  console.info('Native WebDriver: waiting for driver readiness')
   await until(() => request('/status', undefined, 'GET'), 'Driver startup')
   const created = await request('/session', {
     capabilities: {
@@ -97,18 +102,21 @@ try {
     },
   })
   session = created.sessionId
+  console.info('Native WebDriver: Studio session created', session)
   await until(
     () => execute('return !!document.querySelector("input[name=project]")'),
     'Studio opener',
   )
   await execute('document.querySelector("input[name=project]").value = arguments[0]', [fixture])
   await click('document.querySelector("form button")')
+  console.info('Native WebDriver: opening the fixture project')
   await until(
     () =>
       execute(`return ${root}.querySelector('.title').textContent.includes('.audio-event.json')`),
     'Project event loaded',
   )
   const name = await execute(`return ${root}.querySelector('.title').textContent`)
+  console.info('Native WebDriver: editing', name)
   await click(`[...${root}.querySelectorAll('[role=tab]')].find(e=>e.textContent==='Event')`)
   await click(`${root}.querySelector('details[data-group="/layers/0"] > summary')`)
   let gain = await element(`${root}.querySelector('[data-path="/layers/0/gainDb"]')`)
@@ -122,6 +130,7 @@ try {
   )
   const file = resolve(fixture, 'data/audio', name)
   assert.equal(JSON.parse(await readFile(file, 'utf8')).layers[0].gainDb, -6)
+  console.info('Native WebDriver: saved source verified; starting audition')
   await click(`[...${root}.querySelectorAll('button')].find(e=>e.textContent==='Play')`)
   await until(
     () =>
@@ -129,6 +138,19 @@ try {
         `return ${root}.querySelector('[role=status]').textContent.includes('Preview: playing')`,
       ),
     'Native audition',
+  )
+  await click(`[...${root}.querySelectorAll('[role=tab]')].find(e=>e.textContent==='Diagnostics')`)
+  await click(
+    `[...${root}.querySelectorAll('button')].find(e=>e.textContent==='Refresh preview inspection')`,
+  )
+  const rendering = await until(async () => {
+    const json = await execute(`return ${root}.querySelector('pre')?.textContent`)
+    return json ? JSON.parse(json) : undefined
+  }, 'Native rendering inspection')
+  assert.equal(rendering.context, 'running')
+  assert.ok(
+    rendering.voices.some((voice) => voice.presentation?.state === 'rendering'),
+    'Native Web Audio must report a rendering voice',
   )
   const capabilities = await execute(
     'return {userAgent:navigator.userAgent,audioContext:typeof AudioContext!=="undefined",offlineAudioContext:typeof OfflineAudioContext!=="undefined",studioWebview:true}',
@@ -163,6 +185,7 @@ try {
         reopened: true,
         audition: true,
         platformFiles: true,
+        rendering,
       },
       null,
       2,
@@ -198,9 +221,24 @@ try {
     )
   }
 } finally {
-  if (session) await request(`/session/${session}`, undefined, 'DELETE').catch(() => {})
-  driver.kill()
-  reader?.kill()
+  if (session) {
+    await request(`/session/${session}/screenshot`, undefined, 'GET')
+      .then((shot) =>
+        writeFile(resolve(evidence, 'studio-final-state.png'), Buffer.from(shot, 'base64')),
+      )
+      .catch(() => {})
+    await request(`/session/${session}`, undefined, 'DELETE').catch(() => {})
+  }
+  for (const child of [driver, reader]) {
+    if (!child) continue
+    // Native driver/browser grandchildren can retain pipes after their parent exits.
+    // These dedicated process groups contain only this test's owned processes.
+    try {
+      process.kill(-child.pid, 'SIGTERM')
+    } catch {}
+    child.stdout.destroy()
+    child.stderr.destroy()
+  }
   await writeFile(resolve(evidence, 'orca-process.log'), readerOutput)
   await writeFile(resolve(evidence, 'studio-driver.log'), logs)
 }

@@ -47,6 +47,13 @@ export interface AudioAssetContent {
   bytes?: Uint8Array
   url?: string
   mime?: string
+  /** Host-authorized import settings; identity remains the catalog ID. */
+  settings?: {
+    mode?: 'decoded' | 'stream'
+    normalize?: boolean
+    loopStart?: number
+    loopEnd?: number
+  }
   release?(): void
 }
 export interface AudioAssetCatalog {
@@ -64,6 +71,7 @@ export interface AudioWaveform {
 }
 export interface AudioPreviewAdapter {
   readonly mode: 'audition' | 'attached'
+  readonly target?: string
   readonly capabilities: Readonly<Record<string, boolean>>
   play(document: AudioDocument, signal?: AbortSignal): Promise<unknown>
   stop(): void | Promise<void>
