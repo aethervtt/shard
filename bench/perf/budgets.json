@@ -455,6 +455,12 @@
       "laptop": 0.001,
       "desktop": 0.001,
       "note": "0057: tessellating a 1,000-point pen stroke in under 1 ms, median. vector/src/tessellate.test.ts."
+    },
+    "effects/update": {
+      "kind": "target",
+      "laptop": 1,
+      "desktop": 1,
+      "note": "0081 proposed: 200 active sequences with four numeric property tracks each, stable scheduler sampling. Hosted CI reports actual hardware separately."
     }
   },
   "scenarios": {

@@ -4,12 +4,15 @@ import { dirname, join } from 'node:path'
 import { assetServer } from '@aethervtt/shard-assets'
 import { beginRedefinition, endRedefinition, t } from '@aethervtt/shard-core'
 import { createNodePlatform } from '@aethervtt/shard-platform-node'
+import { createProtocolServer } from '@aethervtt/shard-protocol'
 import { App } from '@aethervtt/shard-runtime'
 import { findEntityByPath, loadScene, ScenePlugin, whenSceneReady } from '@aethervtt/shard-scene'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { defineProject } from './define'
 import { generateDocs, renderAssetCatalog } from './docs'
+import { buildApp } from './host'
 import type { ManifestValue } from './manifest'
+import { Manifest } from './manifest'
 import { createProjectReloader } from './reload'
 
 const NS = 'data-proj'
@@ -51,6 +54,49 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }))
 
 describe('project data types', () => {
+  it('imports an effect sequence and serves its complete lifecycle through the project protocol', async () => {
+    write('data/reveal.effect-sequence.json', {
+      duration: 0.2,
+      tracks: [{ id: 'reveal', kind: 'marker', start: 0.1, marker: 'reveal' }],
+    })
+    const app = buildApp({
+      manifest: Manifest.deserialize({ name: 'effects-project', plugins: ['effects'] }),
+    })
+    await app.init()
+    const assets = assetServer(app.world).configure({
+      platform: createNodePlatform({ root, logTo: () => {} }),
+    })
+    expect((await assets.scan()).failed).toEqual([])
+    const server = createProtocolServer(app)
+    const call = (method: string, params = {}) =>
+      server.handle({ jsonrpc: '2.0', id: 1, method, params })
+    expect(
+      await call('effects.prepare', { source: 'data/reveal.effect-sequence.json' }),
+    ).toMatchObject({ result: { preparation: 1 } })
+    expect(await call('effects.play', { preparation: 1 })).toMatchObject({
+      result: { instance: 1 },
+    })
+    app.update(0.2)
+    expect(await call('effects.inspect')).toMatchObject({
+      result: {
+        instances: [],
+        trace: {
+          entries: expect.arrayContaining([
+            expect.objectContaining({ kind: 'marker', reason: 'reveal' }),
+          ]),
+        },
+      },
+    })
+    expect(await call('effects.release', { preparation: 1 })).toMatchObject({
+      result: { released: true },
+    })
+    expect(await call('effects.play', { preparation: 1 })).toMatchObject({
+      error: { data: { code: 'effects/invalid-preparation' } },
+    })
+    server.close()
+    await app.dispose()
+  })
+
   it('load with the scene that references them, update in place, and re-import on script reload', async () => {
     write('data/guns/laser.gun.json', { damage: 12 })
     write('data/guns/heavy.gun.json', {

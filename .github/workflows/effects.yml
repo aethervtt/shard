@@ -1,0 +1,65 @@
+name: Effect sequence evidence
+
+on:
+  pull_request:
+    paths:
+      - 'packages/effects/**'
+      - 'packages/audio/**'
+      - 'apps/playground/src/effects*'
+      - 'apps/playground/data/*.effect-sequence.json'
+      - 'apps/playground/effects.html'
+      - '.github/workflows/effects.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: effects-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    name: Effect sequences WebGPU and WebGL2
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @aethervtt/shard-playground exec playwright install --with-deps chromium
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers xvfb
+      - run: xvfb-run -a pnpm --filter @aethervtt/shard-playground exec vitest run src/effects.test.ts
+        env:
+          SHARD_BROWSER_TESTS: required
+          SHARD_CI: '1'
+          SHARD_BROWSER_HEADED: '1'
+          SHARD_EFFECTS_EVIDENCE: ${{ github.workspace }}/effects-evidence
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: effects-browser-${{ github.sha }}
+          path: effects-evidence/
+          if-no-files-found: error
+  performance:
+    name: Effect sequence performance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm bench --filter=@aethervtt/shard-effects
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: effects-performance-${{ github.sha }}
+          path: bench/perf/report.json
+          if-no-files-found: error

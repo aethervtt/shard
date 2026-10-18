@@ -16,6 +16,7 @@ type PluginLike = { name: string; provides?: readonly object[] }
 
 /** Each package with plugins, and how to get them from its index. */
 const PLUGINS: Record<string, (m: Mod) => PluginLike[]> = {
+  effects: (m) => [m.effectsPlugin as PluginLike],
   animation: (m) => [m.animationPlugin as PluginLike],
   audio: (m) =>
     [

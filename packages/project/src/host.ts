@@ -10,6 +10,7 @@ import {
 import { controlsPlugin } from '@aethervtt/shard-controls'
 // Also registers the dice data types (skins, layouts, recipes, definitions) for every project host.
 import { dicePlugin } from '@aethervtt/shard-dice'
+import { effectsPlugin } from '@aethervtt/shard-effects'
 import { gltfPlugin } from '@aethervtt/shard-gltf'
 import type { BakedTranslations, GpuContext } from '@aethervtt/shard-gpu'
 import { gesturesPlugin, inputPlugin } from '@aethervtt/shard-input'
@@ -137,6 +138,7 @@ export function buildApp(options: BuildAppOptions): App {
   // noise.sample and noise.stats, whatever the manifest says: graphs are data every project can use.
   app.addPlugin(noisePlugin)
   app.addPlugin(ScenePlugin)
+  if (names.has('effects')) app.addPlugin(effectsPlugin)
   // Generators are code every project can define: outputs, GeneratorInstance, procgen.* methods.
   app.addPlugin(
     procgenPlugin({

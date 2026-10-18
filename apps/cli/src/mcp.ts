@@ -11,6 +11,7 @@ import {
   audioPreviewMethods,
 } from '@aethervtt/shard-audio'
 import { allComponents, findComponent, type JsonSchema, ShardError } from '@aethervtt/shard-core'
+import { effectMethods } from '@aethervtt/shard-effects'
 import { navMethods } from '@aethervtt/shard-nav'
 import { listScenes } from '@aethervtt/shard-node'
 import { noiseMethods } from '@aethervtt/shard-noise'
@@ -68,6 +69,7 @@ const text = (value: unknown): ToolResult => ({
 /** Methods engine plugins add to the app (served when the plugin is enabled). */
 const PLUGIN_METHODS = [
   ...physicsMethods,
+  ...effectMethods,
   ...animationMethods,
   ...audioMethods,
   ...audioEventMethods,
@@ -584,8 +586,8 @@ export const TOOLS: Tool[] = [
       )
     },
   },
-  ...[...audioEventMethods, ...audioMixMethods, ...audioMusicMethods].map((method) =>
-    forward(method.name.replaceAll('.', '_'), method.name, method.description),
+  ...[...effectMethods, ...audioEventMethods, ...audioMixMethods, ...audioMusicMethods].map(
+    (method) => forward(method.name.replaceAll('.', '_'), method.name, method.description),
   ),
   forward(
     'audio_describe',
