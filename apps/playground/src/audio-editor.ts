@@ -43,6 +43,7 @@ async function main() {
   }
   document.querySelector<HTMLSelectElement>('#theme')!.onchange = (event) => {
     const theme = (event.target as HTMLSelectElement).value as 'dark' | 'light'
+    document.documentElement.dataset.theme = theme
     editor.setTheme(theme)
     mixer.setTheme(theme)
   }
