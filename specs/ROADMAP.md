@@ -210,8 +210,12 @@ accessibility, audio, lifecycle and performance results.
 | Spec | Title | Status |
 |---|---|---|
 | [0081](0081-effect-sequences.md) | Effect sequences: owned targets, field tracks, animation, particles, audio and lifecycle | implemented |
+| [0082](0082-trails-beams.md) | Trails and beams: bounded ribbon history, endpoint bindings and visual sequence tracks | implemented |
+| [0083](0083-projected-decals.md) | Projected decals: rigid receiver meshes, masks, clipping and fade | implemented |
 
 0081 composes existing runtimes with host catalog assets and deterministic timeline decisions.
 Its [implementation evidence](0081-effect-sequences.md#as-built-and-evidence) includes real
 WebGPU/WebGL2 spell captures, measured audio, cleanup assertions and hosted performance results.
-A visual timeline editor, advanced VFX (ribbons, beams, decals) and production export follow separately.
+
+
+A visual timeline editor, particle-generated ribbons, deformed/PBR decals and production export follow separately.

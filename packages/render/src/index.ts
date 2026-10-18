@@ -120,6 +120,8 @@ export {
   readTextureLayer,
   setDebugView,
 } from './debug-views'
+export { Decals, describeDecals, updateDecals } from './decals'
+export { DecalGpu, decalsPlugin } from './decals-plugin'
 export {
   captureGBuffer,
   describeDeferred,
@@ -459,6 +461,8 @@ export {
   SCALE_STEP,
   scaledSize,
 } from './render-scale'
+export { describeRibbons, Ribbons, shiftRibbons, updateRibbons } from './ribbons'
+export { RibbonGpu, ribbonsPlugin } from './ribbons-plugin'
 export {
   clearScreenEffects,
   describeScreenEffects,
@@ -525,6 +529,8 @@ export {
   showToCamera,
   showVariants,
 } from './variants'
+
+export { Beam, Decal, DecalReceiver, DecalsPath, RibbonsPath, Trail } from './vfx'
 export {
   type CameraData,
   CameraMoved,

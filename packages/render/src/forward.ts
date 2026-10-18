@@ -135,6 +135,15 @@ import { GpuMemory, RenderCounters, RenderStats } from './stats'
 import { bindingDimension } from './tier'
 import { addShaderVariantSource, materialVariants, ShaderVariantSources } from './variants'
 import {
+  Beam,
+  Decal,
+  DecalReceiver,
+  DecalsPath,
+  observeVfxWithoutPlugin,
+  RibbonsPath,
+  Trail,
+} from './vfx'
+import {
   type CameraData,
   CameraMoved,
   Cameras,
@@ -1777,6 +1786,12 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       RenderLayers,
       Outline,
       OutlinePath,
+      Trail,
+      Beam,
+      Decal,
+      DecalReceiver,
+      RibbonsPath,
+      DecalsPath,
       CameraMoved,
       // shadows
       ShadowsResource,
@@ -1827,6 +1842,7 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       w.initResource(RenderDescribers).set('screenEffects', describeScreenEffects)
       observeInstanceRemovals(w)
       observeOutlinesWithoutPass(w)
+      observeVfxWithoutPlugin(w)
       observeViewVisibilityWithoutPlugin(w)
       observeLightRemovals(w)
       observeOriginShifts(w)

@@ -1,0 +1,99 @@
+name: VFX evidence
+
+on:
+  pull_request:
+    paths:
+      - 'packages/effects/**'
+      - 'packages/render/**'
+      - 'packages/project/**'
+      - 'specs/0082*'
+      - 'specs/0083*'
+      - 'apps/playground/src/vfx*'
+      - 'apps/playground/data/*.effect-sequence.json'
+      - 'apps/playground/vfx.html'
+      - '.github/workflows/vfx.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: vfx-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    name: Trails beams decals WebGPU and WebGL2
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @aethervtt/shard-playground exec playwright install --with-deps chromium
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers xvfb
+      - run: xvfb-run -a pnpm --filter @aethervtt/shard-playground exec vitest run src/vfx.test.ts
+        env:
+          SHARD_BROWSER_TESTS: required
+          SHARD_CI: '1'
+          SHARD_BROWSER_HEADED: '1'
+          VK_DRIVER_FILES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+          SHARD_VFX_EVIDENCE: ${{ github.workspace }}/vfx-evidence
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vfx-browser-${{ github.sha }}
+          path: vfx-evidence/
+          if-no-files-found: error
+  performance:
+    name: VFX performance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm bench --filter=@aethervtt/shard-render -- src/vfx-perf.test.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vfx-performance-${{ github.sha }}
+          path: bench/perf/report.json
+          if-no-files-found: error
+  package:
+    name: VFX build package and size checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @aethervtt/shard-playground build
+      - run: pnpm size --check
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
+      - uses: oven-sh/setup-bun@v2
+      - run: pnpm release --check
+      - name: Compare linked WGSL against the base revision
+        env:
+          BASE_REV: ${{ github.event.pull_request.base.sha || 'main' }}
+          SHARD_CI: '1'
+        run: |
+          git fetch --no-tags origin "$BASE_REV"
+          git worktree add "$RUNNER_TEMP/shard-wgsl-base" FETCH_HEAD
+          pnpm --dir "$RUNNER_TEMP/shard-wgsl-base" install --frozen-lockfile
+          cd "$RUNNER_TEMP/shard-wgsl-base"
+          node scripts/wgsl-identity.mjs record "$RUNNER_TEMP/vfx-wgsl.json" --filter=@aethervtt/shard-render
+          node -e 'const fs = require("node:fs"); if (!Object.keys(JSON.parse(fs.readFileSync(process.argv[1]))).length) process.exit(1)' "$RUNNER_TEMP/vfx-wgsl.json"
+          cd "$GITHUB_WORKSPACE"
+          node scripts/wgsl-identity.mjs check "$RUNNER_TEMP/vfx-wgsl.json" --filter=@aethervtt/shard-render

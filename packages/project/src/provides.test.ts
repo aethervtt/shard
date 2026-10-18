@@ -59,6 +59,8 @@ const PLUGINS: Record<string, (m: Mod) => PluginLike[]> = {
     m.shadowCatcherPlugin as PluginLike,
     m.foliagePlugin as PluginLike,
     m.dynamicResolutionPlugin as PluginLike,
+    m.ribbonsPlugin as PluginLike,
+    m.decalsPlugin as PluginLike,
   ],
   save: (m) => [(m.savePlugin as () => PluginLike)()],
   scatter: (m) => [(m.scatterPlugin as () => PluginLike)()],

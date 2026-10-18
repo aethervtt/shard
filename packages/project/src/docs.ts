@@ -1435,6 +1435,7 @@ shard mcp                 # MCP server for this project (see .mcp.json)
   \`.agents/errors.md\`: error codes
 - \`.agents/audio.md\`: authored sound, music, mixing and measured previews
 - \`.agents/effects.md\`: reusable effect timelines, target bindings and owned lifetimes
+- \`.agents/vfx.md\`: trails, beams, projected decals and receiver masks
 - \`.agents/skills/\`: recipes for common tasks
 
 Engine plugins available: ${Object.entries(BUILTIN_PLUGINS)
@@ -1522,10 +1523,44 @@ No audio device, microphone or GPU is needed. Install Playwright Chromium in the
 See \`examples/audio-lab\` for a complete authored showcase and original synthetic assets.
 `
 
+const VFX_GUIDE = `# Trails, beams and projected decals
+
+"render/forward" includes ribbonsPlugin and decalsPlugin. SDK hosts can use forwardCorePlugin
+plus just the optional plugins they need. Components are schema-authored; use render.describe
+for ribbons/decals records, points/triangles, age, allocation sizes and structured error codes.
+
+Trail follows its Transform (including parent/bone attachments) and local offset. Old points
+stay in world space. capacity bounds the history, lifetime expires points, minDistance rejects
+duplicates, and breakDistance clears history after teleporting. playing=false drains the trail;
+paused=true freezes its clock. Beam uses local start/end, or end relative to its target entity;
+local points override endpoints. segments/noise/seed control deterministic endpoint-beam shape.
+Both accept width, ordered widthCurve [{at,value}], color/endColor, opacity, repeat, scroll,
+blend alpha/additive, layers and a Texture handle. Width curves use trail age or beam distance.
+Colors are display-referred unlit overlays, not PBR lighting inputs. Alpha compositing uses
+stable creation order; intersecting transparent ribbons are not sorted per segment.
+
+Decal projects along local -Z, with local X/Y as UVs and size as the clipping box. Mark eligible
+rigid Mesh3d entities with DecalReceiver; its mask must overlap receiverMask. The projector clips
+real triangles and caches them until geometry/transforms/masks change. maxAngle rejects grazing
+and back-facing surfaces; offset avoids z fighting. lifetime=0 persists; fadeOut fades the end
+of a finite lifetime. paused freezes age, playing=false hides it. maxVertices and a 32768 input
+triangle budget bound projection; overflow gives a diagnostic and no partial mark. Skinned,
+morph/compute-deformed and transparent receivers are unsupported. No PBR normal/roughness decals.
+
+All texture handles resolve through the host AssetServer catalog (GUIDs work). No file picker,
+URL loading or database dependency is introduced. Prefabs carry reusable VFX component settings;
+0081 visual tracks own activation and cleanup. A beam visual track's endpoint binds another
+named sequence target. Use property tracks for opacity/width changes. Effects are presentation;
+the host remains responsible for damage, collision and persistent game state.
+
+Preview: playground/vfx.html. Toggle each feature to isolate its pixels; replay a seed, pause,
+clear, and switch perspective/orthographic cameras. The host registers the original textures.
+`
+
 const EFFECTS_GUIDE = `# Coordinate reusable effect sequences
 
 Enable "effects" in shard.json and the plugins used by your tracks: "animation", "particles",
-"audio/events". The scene plugin handles owned prefab targets. Author *.effect-sequence.json
+"audio/events" and "render/forward" for visual tracks. The scene plugin handles owned prefab targets. Author *.effect-sequence.json
 against .shard/schemas/effect-sequence.schema.json. Hosts may supply the same JSON directly;
 all dependencies resolve through the host's AssetServer catalog, including GUID-only assets.
 
@@ -1533,7 +1568,10 @@ A sequence has duration, parameters, named targets and tracks. Targets with a pr
 are spawned/owned; other targets are borrowed entity bindings. Property tracks interpolate
 float/vector/color component fields (from/to arrays, linear or smoothstep, optional parameter
 multiplier). Animation and particle tracks require owned targets. Audio tracks use authored
-AudioEvent assets. Marker tracks record presentation milestones; gameplay applies damage itself.
+AudioEvent assets. Visual tracks require owned targets and name render/Trail, render/Beam or
+render/Decal in component. They activate playing, pause their clocks, and stop at track end;
+trails drain their remaining history. Beam tracks may bind an endpoint by target name.
+Marker tracks record presentation milestones; gameplay applies damage itself.
 
 Use prepareEffect(world, source), then playEffect(world, preparation, { bindings, parameters,
 seed, parent, ownerEntity }). The optional parent anchors owned targets in a local frame, so
@@ -1560,6 +1598,7 @@ export function generateDocs(
   const files: Record<string, string> = {
     '.agents/audio.md': AUDIO_GUIDE,
     '.agents/effects.md': EFFECTS_GUIDE,
+    '.agents/vfx.md': VFX_GUIDE,
     '.agents/components.md': renderComponentCatalog(),
     '.agents/errors.md': renderErrorCatalog(errors),
     '.agents/generators.md': renderGeneratorCatalog(),

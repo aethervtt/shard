@@ -7,9 +7,10 @@ export function effectError(message: string, path = '', code = 'invalid-sequence
 
 export const EffectTrack = t.struct({
   id: t.string({ required: true }),
-  kind: t.enum(['property', 'animation', 'particles', 'audio', 'marker']),
+  kind: t.enum(['property', 'animation', 'particles', 'audio', 'marker', 'visual']),
   target: t.string(),
   targetPath: t.string(),
+  endpoint: t.string(),
   start: t.f64({ min: 0 }),
   duration: t.f64({ min: 0 }),
   component: t.string(),
@@ -99,12 +100,20 @@ export function validateEffect(v: EffectDocument): void {
         )
       if (a.parameter && !parameters.has(a.parameter))
         effectError('Unknown parameter', `${path}/parameter`)
+    } else if (a.kind === 'visual') {
+      if (!['render/Trail', 'render/Beam', 'render/Decal'].includes(a.component))
+        effectError('Visual track needs a supported presentation component', `${path}/component`)
+      if (a.endpoint && (a.component !== 'render/Beam' || !targets.has(a.endpoint)))
+        effectError('Only beams bind a named endpoint target', `${path}/endpoint`)
     } else if (!a[a.kind]) effectError(`Missing ${a.kind} asset`, `${path}/${a.kind}`)
     if (
-      (a.kind === 'animation' || a.kind === 'particles') &&
+      (a.kind === 'animation' || a.kind === 'particles' || a.kind === 'visual') &&
       !v.targets.find((t) => t.id === a.target)!.prefab
     )
-      effectError('Animation and particles require an owned prefab target', `${path}/target`)
+      effectError(
+        'Animation, particles and visuals require an owned prefab target',
+        `${path}/target`,
+      )
     for (let j = 0; j < i; j++) {
       const b = v.tracks[j]!
       if (
@@ -115,7 +124,10 @@ export function validateEffect(v: EffectDocument): void {
       )
         continue
       if (
-        (a.kind === b.kind && (a.kind === 'animation' || a.kind === 'particles')) ||
+        (a.kind === b.kind &&
+          (a.kind === 'animation' ||
+            a.kind === 'particles' ||
+            (a.kind === 'visual' && a.component === b.component))) ||
         (a.kind === 'property' &&
           b.kind === 'property' &&
           a.component === b.component &&

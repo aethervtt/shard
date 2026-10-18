@@ -71,6 +71,7 @@ interface Track {
   to: Float64Array
   state: number
   audio: number
+  visual: ComponentDef | null
   layer: AnimationLayerValue | null
   seed: number
 }
@@ -208,9 +209,17 @@ export async function prepareEffect(world: World, source: unknown): Promise<Prep
     for (const track of document.tracks) {
       const kind = track.kind
       if (kind === 'property' || kind === 'marker') continue
-      const plugin = kind === 'audio' ? 'audio/events' : kind
+      const plugin =
+        kind === 'audio'
+          ? 'audio/events'
+          : kind === 'visual'
+            ? track.component === 'render/Decal'
+              ? 'render/decals'
+              : 'render/ribbons'
+            : kind
       if (!state.plugins.has(plugin))
         effectError(`Track ${track.id} requires ${plugin}`, '/tracks', 'missing-plugin')
+      if (kind === 'visual') continue
       if (kind === 'audio') {
         track.audio = (await load(track.audio!, 'audio/AudioEvent')) as AssetRef<'audio/AudioEvent'>
         audio.push(await prepareAudio(world, track.audio))
@@ -416,6 +425,9 @@ export function playEffect(
           instance.slots.push(slot)
         }
       }
+      const visual = d.kind === 'visual' ? findComponent(d.component) : null
+      if (d.kind === 'visual' && (!visual || !world.has(entity!, visual)))
+        effectError('Visual target lacks its component', `/tracks/${i}`, 'invalid-field')
       instance.tracks.push({
         definition: d,
         entity,
@@ -425,6 +437,7 @@ export function playEffect(
         state: 0,
         audio: 0,
         layer: null,
+        visual: visual ?? null,
         seed: (seed ^ Math.imul(i + 1, 0x9e3779b9)) >>> 0,
       })
       instance.boundaries.push({ time: d.start, index: i, end: false })
@@ -434,6 +447,7 @@ export function playEffect(
     // Resolve every animation channel too: ownership does not make two writers safe.
     const channels = instance.tracks.map((track) => {
       if (track.slot) return [track.slot.key]
+      if (track.visual) return [`${track.entity}:${track.visual.id}:playing`]
       if (track.definition.kind !== 'animation') return []
       const paths = descendantPaths(world, track.entity!)
       return world
@@ -469,6 +483,14 @@ export function playEffect(
             `/tracks/${i}`,
             'conflict',
           )
+      }
+    for (const track of instance.tracks)
+      if (track.visual) {
+        world.set(track.entity!, track.visual, { playing: false, paused: false })
+        if (track.definition.endpoint)
+          world.set(track.entity!, track.visual, {
+            target: instance.targets.get(track.definition.endpoint)!,
+          })
       }
     instance.boundaries.sort((a, b) =>
       Math.abs(a.time - b.time) > 1e-9
@@ -512,7 +534,8 @@ function startTrack(world: World, instance: Instance, track: Track): void {
   const d = track.definition,
     entity = track.entity!
   track.state = 1
-  if (d.kind === 'animation') {
+  if (track.visual) world.set(entity, track.visual, { playing: true, paused: false })
+  else if (d.kind === 'animation') {
     const clip = world.resource(AnimationClips).require(d.animation)
     track.layer = animationLayer(d.animation, { playing: false, loop: 'once' })
     if (!Number.isFinite(clip.duration)) effectError('Invalid animation clip', '', 'asset-failed')
@@ -540,6 +563,8 @@ function endTrack(world: World, track: Track, teardown = false): void {
     track.audio = 0
   }
   if (track.entity !== null && world.isAlive(track.entity)) {
+    if (track.visual && world.has(track.entity, track.visual))
+      world.set(track.entity, track.visual, { playing: false, paused: false })
     if (track.definition.kind === 'particles' && world.has(track.entity, ParticleSystem))
       world.remove(track.entity, ParticleSystem)
     if (teardown && track.layer && world.has(track.entity, AnimationPlayer))
@@ -599,7 +624,7 @@ function advance(world: World, instance: Instance, time: number): void {
         trace.write(instance.id, b.time, 'end', d.id)
       }
     } else if (
-      (d.kind === 'audio' || d.kind === 'particles') &&
+      (d.kind === 'audio' || d.kind === 'particles' || d.kind === 'visual') &&
       d.start + d.duration <= instance.time
     ) {
       track.state = 2
@@ -639,6 +664,8 @@ export function pauseEffect(world: World, id: number, paused = true): boolean {
   instance.state = paused ? 'paused' : 'playing'
   for (const track of instance.tracks) {
     if (track.audio) pauseAudioEvent(world, track.audio, paused)
+    if (track.visual && track.state !== 0 && world.isAlive(track.entity!))
+      world.set(track.entity!, track.visual, { paused })
     if (track.state === 1 && track.definition.kind === 'particles' && world.isAlive(track.entity!))
       world.set(track.entity!, ParticleSystem, { playing: !paused })
   }
@@ -662,8 +689,15 @@ export const updateEffects = defineSystem({
       }
       let dead = false
       for (let j = 0; j < instance.tracks.length; j++) {
-        const entity = instance.tracks[j]!.entity
-        if (entity !== null && !world.isAlive(entity)) {
+        const track = instance.tracks[j]!,
+          entity = track.entity,
+          endpoint = track.definition.endpoint
+            ? instance.targets.get(track.definition.endpoint)
+            : undefined
+        if (
+          (entity !== null && !world.isAlive(entity)) ||
+          (endpoint !== undefined && !world.isAlive(endpoint))
+        ) {
           dead = true
           break
         }
