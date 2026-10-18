@@ -209,6 +209,9 @@ accessibility, audio, lifecycle and performance results.
 
 | Spec | Title | Status |
 |---|---|---|
-| [0081](0081-effect-sequences.md) | Effect sequences: owned targets, field tracks, animation, particles, audio and lifecycle | draft; implementation in progress |
+| [0081](0081-effect-sequences.md) | Effect sequences: owned targets, field tracks, animation, particles, audio and lifecycle | implemented |
 
-Advanced VFX (ribbons, beams, decals) and production export follow separately.
+0081 composes existing runtimes with host catalog assets and deterministic timeline decisions.
+Its [implementation evidence](0081-effect-sequences.md#as-built-and-evidence) includes real
+WebGPU/WebGL2 spell captures, measured audio, cleanup assertions and hosted performance results.
+A visual timeline editor, advanced VFX (ribbons, beams, decals) and production export follow separately.

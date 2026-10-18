@@ -1,6 +1,6 @@
 # 0081 — Reusable effect sequences
 
-- **Status:** draft (implementation authorized; CI evidence pending)
+- **Status:** implemented
 - **Packages:** `@aethervtt/shard-effects`, project, CLI, playground
 - **Depends on:** 0026, 0032, 0061, 0074, 0075, 0077
 
@@ -124,20 +124,58 @@ backward scrubbing is deferred because audio and particles carry simulation stat
 
 ## Acceptance criteria
 
-- [ ] Schema/default/semantic validation rejects duplicate IDs, bad targets, invalid times,
+- [x] Schema/default/semantic validation rejects duplicate IDs, bad targets, invalid times,
   incompatible fields and overlapping claims; generated schema/import uses the same definition.
-- [ ] GUID-only and direct documents prepare; failure, disposal during load, release-before-end
+- [x] GUID-only and direct documents prepare; failure, disposal during load, release-before-end
   and repeated release leave no retained leases or spawned entities.
-- [ ] Headless tests cover time zero, boundaries, large steps, markers, parameter overrides,
+- [x] Headless tests cover time zero, boundaries, large steps, markers, parameter overrides,
   deterministic replay, parent-frame placement, pause/resume, cancellation, dead targets, archetype moves and conflicts.
-- [ ] Animation, particles, audio and field tracks use existing runtimes; cleanup restores
+- [x] Animation, particles, audio and field tracks use existing runtimes; cleanup restores
   borrowed state and removes only owned trees, including failure during activation.
-- [ ] Protocol/MCP/project integration works, with bounded trace and useful errors.
-- [ ] Browser spell demonstrates launch, flight, impact, animation, particles, light and audio;
+- [x] Protocol/MCP/project integration works, with bounded trace and useful errors.
+- [x] Browser spell demonstrates launch, flight, impact, animation, particles, light and audio;
   WebGPU and WebGL2 evidence includes screenshots, actual runtime states and cleanup assertions.
-- [ ] `effects/update` measures 200 active sequences × 4 property tracks; proposed 1 ms/frame
+- [x] `effects/update` measures 200 active sequences × 4 property tracks; proposed 1 ms/frame
   on named laptop/desktop budgets. CI reports its actual machine separately and checks stable
   sampling allocations. Builds, package/size checks and normal correctness/typecheck/lint pass.
+
+## As built and evidence
+
+Implemented in `packages/effects`, with project imports/generated authoring documentation,
+App/protocol/MCP methods and `apps/playground/effects.html`. The demo's host registers its
+original generated sounds and assets; the engine resolves catalog handles. The file-based
+project adapter and direct/GUID-only host documents use the same preparation path.
+
+Evidence recorded on 2026-10-18 for branch revision `52b4cac6a93ded9a8eb0e27bbb6a49c6c4e0eeeb`
+(tested PR merge revision `37266fe2e02416251cc708c85e2f84aabec34776`):
+
+- [Effect browser and performance run](https://github.com/aethervtt/shard/actions/runs/39113931094):
+  both graphics backends pass the complete spell test. Artifacts contain flight/impact PNGs
+  and JSON for windup, flight, pause, impact, cancellation, replay and completion.
+- WebGPU: **13,773 changed scene pixels**, measured output RMS **0.002371**, no browser errors.
+  WebGL2: **13,721 changed scene pixels**, RMS **0.024632**, no browser errors. RMS is a
+  signal-presence measurement, not a cross-backend loudness or audio synchronization claim.
+- Both paths assert the real animation pose, projectile position, live particles, active audio,
+  impact marker/light, camera change, pause, same-seed replay, owned-entity removal, restored
+  borrowed camera state, and zero remaining event/particle instances after cleanup.
+- Scheduler: **200 sequences / 800 property tracks**, median **0.058097 ms**, p95 **0.075063 ms**,
+  **zero observed GC collections**, on the hosted **AMD EPYC 9V45 96-Core Processor**.
+  The proposed 1 ms named laptop/desktop budget remains unmeasured on those machines;
+  CI identifies its unknown hosted machine and does not enforce a named-machine budget.
+- [Linux/Windows correctness and lint/typecheck](https://github.com/aethervtt/shard/actions/runs/39113931081)
+  pass. General browser regressions also gate merging the final PR revision.
+- [Build/package/size and audio regression run](https://github.com/aethervtt/shard/actions/runs/39113931082)
+  and [audio editor browser/native regression run](https://github.com/aethervtt/shard/actions/runs/39113931102)
+  pass. Builds and benchmarks ran in CI only. This does not change the audio editor's pending
+  product acceptance.
+- Browser setup explicitly selects the same Mesa Vulkan driver as the general browser suite.
+  Strict screenshot assertions caught a blank WebGPU presentation with the runner's default
+  driver configuration; no screenshot, audio or cleanup assertion was relaxed.
+
+The permanent reproduction points are `packages/effects/src/*.test.ts`, the project import/
+protocol test in `packages/project/src/data.test.ts`, `apps/playground/src/effects.test.ts`,
+and `.github/workflows/effects.yml`. Run the effect evidence workflow to regenerate artifacts.
+The demo is an integration proof, not the deferred visual timeline editor.
 
 ## Open questions
 
