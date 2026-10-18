@@ -69,6 +69,7 @@ The decal pipeline now uses positive reversed-Z depth/slope bias. Browser tests 
 2,000 changed decal pixels and independently assert that an opaque blocker still hides the mark.
 The test blocker covers the entire receiver; hiding only the beam was insufficient for this case.
 The dedicated package job installs both Bun and Mesa for the existing consumer-release checks.
+Shader identity records linked renderer variants at the base revision, then compares the PR revision.
 Plugin-reachability coverage explicitly includes both optional VFX plugins.
 
 ## Product boundaries
