@@ -166,6 +166,8 @@ describe('agent docs', () => {
     expect(Object.keys(files)).toEqual(
       expect.arrayContaining([
         '.agents/audio.md',
+        '.agents/effects.md',
+        '.shard/schemas/effect-sequence.schema.json',
         '.shard/schemas/audio-preview.schema.json',
         '.shard/schemas/audio-event.schema.json',
         '.shard/schemas/audio-mixer.schema.json',

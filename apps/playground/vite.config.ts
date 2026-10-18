@@ -25,6 +25,7 @@ export default defineConfig({
         'dice.html',
         'cards.html',
         'audio-editor.html',
+        'effects.html',
       ],
     },
   },

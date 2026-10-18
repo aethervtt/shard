@@ -124,6 +124,11 @@ for, not built yet.
   different proportions (procedural creatures share clips)
 - Later: full-body IK, ragdolls, motion matching
 
+**Effect sequences**
+- Authored timelines compose property animation, prefab targets, particles, light/camera fields,
+  authored audio and presentation markers, with preparation and cancellation (0081).
+- Host-bound targets and catalog assets support both projects and embedded database hosts.
+
 **Physics** (Rapier via WASM, one plugin each)
 - v1: 3D rigid bodies, colliders, raycasts, character controller
 - v1: 2D physics

@@ -49,7 +49,8 @@
     "@aethervtt/shard-ui": "workspace:*",
     "@aethervtt/shard-vector": "workspace:*",
     "@aethervtt/shard-verify": "workspace:*",
-    "@aethervtt/shard-audio-editor": "workspace:*"
+    "@aethervtt/shard-audio-editor": "workspace:*",
+    "@aethervtt/shard-effects": "workspace:*"
   },
   "devDependencies": {
     "@webgpu/types": "^0.1.74",

@@ -1,0 +1,157 @@
+{
+  "duration": 4,
+  "parameters": [
+    {
+      "id": "power",
+      "value": 1,
+      "min": 0.25,
+      "max": 2
+    }
+  ],
+  "targets": [
+    {
+      "id": "camera"
+    },
+    {
+      "id": "caster",
+      "prefab": {
+        "path": "catalog/caster.prefab.json"
+      }
+    },
+    {
+      "id": "projectile",
+      "prefab": {
+        "path": "catalog/projectile.prefab.json"
+      }
+    },
+    {
+      "id": "impact",
+      "prefab": {
+        "path": "catalog/impact.prefab.json"
+      }
+    }
+  ],
+  "tracks": [
+    {
+      "id": "windup",
+      "kind": "animation",
+      "target": "caster",
+      "duration": 0.6,
+      "animation": {
+        "guid": "spell-cast"
+      }
+    },
+    {
+      "id": "flight",
+      "kind": "property",
+      "target": "projectile",
+      "start": 0.6,
+      "duration": 1.6,
+      "component": "core/Transform",
+      "field": "translation",
+      "from": [-4, 1, 0],
+      "to": [4, 1, 0]
+    },
+    {
+      "id": "flame",
+      "kind": "particles",
+      "target": "projectile",
+      "start": 0.6,
+      "duration": 1.6,
+      "particles": {
+        "guid": "spell-flame"
+      }
+    },
+    {
+      "id": "launchSound",
+      "kind": "audio",
+      "target": "projectile",
+      "start": 0.6,
+      "duration": 1.6,
+      "audio": {
+        "guid": "spell-launch"
+      }
+    },
+    {
+      "id": "impact",
+      "kind": "marker",
+      "start": 2.2,
+      "marker": "impact"
+    },
+    {
+      "id": "sparks",
+      "kind": "particles",
+      "target": "impact",
+      "start": 2.2,
+      "duration": 1.5,
+      "particles": {
+        "guid": "spell-sparks"
+      }
+    },
+    {
+      "id": "impactSound",
+      "kind": "audio",
+      "target": "impact",
+      "start": 2.2,
+      "duration": 1.5,
+      "audio": {
+        "guid": "spell-impact"
+      }
+    },
+    {
+      "id": "flash",
+      "kind": "property",
+      "target": "impact",
+      "start": 2.2,
+      "duration": 1.5,
+      "component": "render/PointLight",
+      "field": "intensity",
+      "from": [22000],
+      "to": [0],
+      "parameter": "power",
+      "easing": "smoothstep"
+    },
+    {
+      "id": "glow",
+      "kind": "property",
+      "target": "projectile",
+      "start": 0.6,
+      "duration": 1.6,
+      "component": "render/PointLight",
+      "field": "intensity",
+      "from": [3500],
+      "to": [6000],
+      "parameter": "power"
+    },
+    {
+      "id": "cameraPunch",
+      "kind": "property",
+      "target": "camera",
+      "start": 2.2,
+      "duration": 0.18,
+      "component": "render/Camera3d",
+      "field": "fovY",
+      "from": [50],
+      "to": [47],
+      "easing": "smoothstep"
+    },
+    {
+      "id": "cameraRecover",
+      "kind": "property",
+      "target": "camera",
+      "start": 2.38,
+      "duration": 0.35,
+      "component": "render/Camera3d",
+      "field": "fovY",
+      "from": [47],
+      "to": [50],
+      "easing": "smoothstep"
+    },
+    {
+      "id": "complete",
+      "kind": "marker",
+      "start": 4,
+      "marker": "complete"
+    }
+  ]
+}

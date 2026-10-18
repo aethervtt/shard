@@ -216,6 +216,7 @@
     "packages/render/src/crowd.test.ts": 30
   },
   "browser": {
+    "apps/playground/src/effects.test.ts": 90,
     "apps/playground/src/demos.test.ts": 345,
     "apps/playground/src/verify.test.ts": 327,
     "apps/playground/src/webgl2.test.ts": 198,

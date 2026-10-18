@@ -204,3 +204,14 @@ serve websites, Aaether and Studio without a renderer dependency. It adds an opt
 client to the existing text/API authoring model, including Studio's platform-backed project adapter.
 See the [acceptance evidence](research/audio-editor-implementation-checklist.md) for browser, native,
 accessibility, audio, lifecycle and performance results.
+
+## Reusable presentation
+
+| Spec | Title | Status |
+|---|---|---|
+| [0081](0081-effect-sequences.md) | Effect sequences: owned targets, field tracks, animation, particles, audio and lifecycle | implemented |
+
+0081 composes existing runtimes with host catalog assets and deterministic timeline decisions.
+Its [implementation evidence](0081-effect-sequences.md#as-built-and-evidence) includes real
+WebGPU/WebGL2 spell captures, measured audio, cleanup assertions and hosted performance results.
+A visual timeline editor, advanced VFX (ribbons, beams, decals) and production export follow separately.

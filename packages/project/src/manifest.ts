@@ -102,6 +102,8 @@ export function validateManifest(json: unknown): ShardError[] {
 
 /** Built-in engine plugins a manifest can name, with what they bring. */
 export const BUILTIN_PLUGINS = {
+  effects:
+    'Prepared effect sequences: coordinated properties, animation, particles, audio and markers; add the feature plugins used by tracks',
   render: 'GPU device, render graph, views, shaders',
   'render/forward':
     'cameras, meshes, standard material, lights (includes render and core/transform)',

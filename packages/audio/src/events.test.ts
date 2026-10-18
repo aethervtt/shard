@@ -7,6 +7,7 @@ import {
   AudioTransport,
   audioEvents,
   audioEventsPlugin,
+  pauseAudioEvent,
   playAudioEvent,
   prepareAudio,
   setAudioParameter,
@@ -36,6 +37,35 @@ async function setup() {
 }
 
 describe('authored audio events', () => {
+  it('pauses one instance and uses explicit seeds independently of admission order', async () => {
+    const { app, world, event } = await setup()
+    event.layers[0]!.selector = 'random'
+    const lease = await prepareAudio(world, event)
+    const first = playAudioEvent(world, event, { seed: 42 })
+    const second = playAudioEvent(world, event, { seed: 7 })
+    app.update(0.1)
+    const a = audioEvents(world).instances.find((i) => i?.id === first)!
+    const b = audioEvents(world).instances.find((i) => i?.id === second)!
+    const selected = a.layers[0]!.selected
+    const before = a.decisionTime
+    expect(pauseAudioEvent(world, first)).toBe(true)
+    app.update(0.2)
+    expect(a.decisionTime).toBe(before)
+    expect(b.decisionTime).toBeGreaterThan(before)
+    pauseAudioEvent(world, first, false)
+    app.update(0.1)
+    expect(a.decisionTime).toBeGreaterThan(before)
+    stopAudioEvent(world, first, { release: 0 })
+    expect(pauseAudioEvent(world, first)).toBe(false)
+    const replay = playAudioEvent(world, event, { seed: 42 })
+    app.update(0.1)
+    expect(audioEvents(world).instances.find((i) => i?.id === replay)!.layers[0]!.selected).toBe(
+      selected,
+    )
+    lease.release()
+    await app.dispose()
+  })
+
   it('prepares, selects deterministically, starts at sample zero, and releases every pin', async () => {
     const { app, world, backend, event } = await setup()
     const lease = await prepareAudio(world, event)

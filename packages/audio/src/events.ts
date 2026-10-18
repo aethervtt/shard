@@ -563,6 +563,10 @@ export async function prepareAudio(world: World, ref: AudioEventRef): Promise<Au
 }
 
 export interface PlayAudioEventOptions {
+  /** Explicit presentation seed; independent of other event admission order. */
+  seed?: number
+  /** Instance-local pause; does not pause unrelated events. */
+  paused?: boolean
   entity?: Entity
   position?: readonly number[]
   parameters?: Readonly<Record<string, number | string>>
@@ -652,7 +656,9 @@ function admit(
         ? bank.encode(condition.index, layer.condition.label)
         : -1
     layers.push({
-      rng: new Rng(hash(layer.id, hash(plan.key, state.seed ^ state.ordinal))),
+      rng: new Rng(
+        hash(layer.id, hash(plan.key, instance.options.seed ?? state.seed ^ state.ordinal)),
+      ),
       definition: layer,
       voice: null,
       selected: -1,
@@ -729,7 +735,7 @@ function admit(
   instance.parameters = local
   instance.layers = layers
   instance.ordinal = state.ordinal++
-  instance.rng = new Rng(hash(plan.key, state.seed ^ instance.ordinal))
+  instance.rng = new Rng(hash(plan.key, instance.options.seed ?? state.seed ^ instance.ordinal))
   instance.maxAge = plan.definition.maxAge
   instance.blocked = plan.definition.blocked
   instance.transient = plan.definition.mode === 'oneshot'
@@ -799,6 +805,11 @@ export function playAudioEvent(
   if (slot === -1) throw new ShardError('audio/capacity', 'Logical audio instance capacity reached')
   if (options.entity !== undefined && !world.isAlive(options.entity))
     throw new ShardError('audio/stale-handle', 'Emitter entity is not alive')
+  if (
+    options.seed !== undefined &&
+    (!Number.isInteger(options.seed) || options.seed < 0 || options.seed > 0xffffffff)
+  )
+    throw new ShardError('audio/invalid-range', 'Event seed must be a u32')
   if (options.position)
     for (let i = 0; i < 3; i++) audioNumber(options.position[i]!, 'position', -Number.MAX_VALUE)
   const key = isDefinition(ref)
@@ -834,7 +845,7 @@ export function playAudioEvent(
     distance: 0,
     rng: new Rng(0),
     release: -1,
-    options,
+    options: { ...options },
   }
   state.instances[slot] = instance
   const fail = (error: unknown) => {
@@ -904,6 +915,14 @@ export function playAudioEvent(
   synchronous = false
   if (synchronousError) throw synchronousError
   return id
+}
+
+/** Pause one authored event without changing the global audio transport. */
+export function pauseAudioEvent(world: World, id: number, paused = true): boolean {
+  const instance = instanceOf(audioEvents(world), id)
+  if (!instance || instance.state === 'ended' || instance.state === 'failed') return false
+  instance.options.paused = paused
+  return true
 }
 
 export function setAudioParameter(
@@ -1021,8 +1040,9 @@ function updateInstance(
     plan = instance.plan!
   const transport = world.resource(AudioTransport)
   const paused =
-    instance.clock === 'simulation' &&
-    (transport.paused || (world.tryResource(AppControlResource)?.paused ?? false))
+    instance.options.paused === true ||
+    (instance.clock === 'simulation' &&
+      (transport.paused || (world.tryResource(AppControlResource)?.paused ?? false)))
   if (paused && instance.state === 'stopping') {
     finishInstance(world, state, instance, 'stopped')
     return
