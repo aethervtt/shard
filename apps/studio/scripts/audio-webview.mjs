@@ -80,6 +80,40 @@ driver.stderr.on('data', (chunk) => {
   logs += chunk
   process.stderr.write(chunk)
 })
+async function stopProcessGroup(child) {
+  if (!child?.pid) return
+  const signalGroup = (signal) => {
+    try {
+      process.kill(-child.pid, signal)
+    } catch (error) {
+      if (error.code !== 'ESRCH') throw error
+    }
+  }
+  const exited = () => child.exitCode !== null || child.signalCode !== null
+  const waitForExit = (milliseconds) =>
+    new Promise((done) => {
+      if (exited()) return done(true)
+      const onExit = () => {
+        clearTimeout(timer)
+        done(true)
+      }
+      const timer = setTimeout(() => {
+        child.off('exit', onExit)
+        done(false)
+      }, milliseconds)
+      child.once('exit', onExit)
+    })
+  signalGroup('SIGTERM')
+  await waitForExit(1500)
+  // Orca can finish its speech loop but retain worker threads after SIGTERM. Native
+  // grandchildren can also retain pipes after the driver exits. Kill only this test's
+  // dedicated process group after the grace period, then verify the child exited.
+  signalGroup('SIGKILL')
+  const stopped = await waitForExit(2000)
+  child.stdout.destroy()
+  child.stderr.destroy()
+  assert.ok(stopped, `Native test process ${child.pid} did not exit during cleanup`)
+}
 let session
 async function request(path, body, method = 'POST') {
   if (path === '/session') console.info('Native WebDriver: creating the Studio session')
@@ -394,16 +428,9 @@ try {
       .catch(() => {})
     await request(`/session/${session}`, undefined, 'DELETE').catch(() => {})
   }
-  for (const child of [driver, reader]) {
-    if (!child) continue
-    // Native driver/browser grandchildren can retain pipes after their parent exits.
-    // These dedicated process groups contain only this test's owned processes.
-    try {
-      process.kill(-child.pid, 'SIGTERM')
-    } catch {}
-    child.stdout.destroy()
-    child.stderr.destroy()
-  }
+  console.info('Native WebDriver: stopping owned driver and screen-reader processes')
+  await Promise.all([stopProcessGroup(driver), stopProcessGroup(reader)])
   await writeFile(resolve(evidence, 'orca-process.log'), readerOutput)
   await writeFile(resolve(evidence, 'studio-driver.log'), logs)
+  console.info('Native WebDriver: cleanup complete')
 }
