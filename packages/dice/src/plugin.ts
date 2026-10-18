@@ -20,6 +20,7 @@ import {
 import { definePlugin, type Plugin } from '@aethervtt/shard-runtime'
 import { Textures } from '@aethervtt/shard-texture'
 import { lookAt, Transform } from '@aethervtt/shard-transform'
+import { ensureDiceAudioBus } from './audio'
 import { type DieKind, KIND_DEFINITIONS, registerBuiltinDice } from './builtins'
 import { DiceDie, DiceRollRequest } from './components'
 import { DieDefinitionAsset } from './definition-asset'
@@ -165,6 +166,7 @@ export function dicePlugin(options: DicePluginOptions = {}): Plugin {
       for (const family of allDiceFamilies())
         if (family.module) shaders[family.module.path] = family.module.source
       registerShaders(world.resource(Shaders), shaders)
+      ensureDiceAudioBus(world)
       const table = world.resource(DiceTable)
       const quad = world.resource(Meshes).add(floorQuad(), 'dice:tray') as AssetRef<'Mesh'>
       const trayMaterial = world

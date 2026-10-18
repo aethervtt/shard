@@ -82,6 +82,10 @@ while all gates are closed). A looping layer in a oneshot requires an explicit f
 Random choices derive from session seed, stable event GUID, accepted instance ordinal and layer
 ID. Virtualization never rerolls; rendering/backend readiness never advances RNG.
 
+Instance playback accepts an optional nonnegative linear `volume` (default 1), multiplied
+across every layer after authored curves/envelopes. It is exposed by `audio.play`, inspection
+and checkpoints. Spec 0084 uses it to enforce dice per-roll gain independently of event inputs.
+
 ### Instances, voices and ownership
 
 An instance is a logical event; a voice is one rendered clip layer. Separate limits cover

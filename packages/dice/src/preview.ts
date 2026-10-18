@@ -1,3 +1,4 @@
+import { assetServer } from '@aethervtt/shard-assets'
 import { type AssetRef, ShardError } from '@aethervtt/shard-core'
 import { encodePng } from '@aethervtt/shard-protocol'
 import {
@@ -15,6 +16,7 @@ import {
   Shaders,
 } from '@aethervtt/shard-render'
 import { type App, FrameDemand, LOADING_DEMAND } from '@aethervtt/shard-runtime'
+import { Fonts } from '@aethervtt/shard-text'
 import { lookAt, Transform } from '@aethervtt/shard-transform'
 import type { DieKind } from './builtins'
 import { dieGeometry, requireDie } from './definition'
@@ -79,7 +81,18 @@ export async function renderDiceThumbnail(
   }
   const g = dieGeometry(requireDie(die.definition))
   const skinKey = options.skin.guid ?? options.skin.path ?? ''
-  const entry = table.resources.acquire(g, skinKey, skin, die.kind, (r) => table.layout(r), {})
+  // Skins load dependencies on demand (0084): thumbnails need their marks, never their sounds.
+  const layoutRef = skin.variants[die.kind].layout
+  if (layoutRef && !table.layout(layoutRef)) await assetServer(world).load(layoutRef)
+  const layout = layoutRef ? table.layout(layoutRef) : undefined
+  if (layout) {
+    for (const mark of [layout.default, ...layout.overrides.map((override) => override.mark)])
+      if (mark.kind === 'text' && mark.font && !world.tryResource(Fonts)?.get(mark.font))
+        await assetServer(world).load(mark.font)
+  }
+  const entry = table.resources.acquire(g, skinKey, skin, die.kind, (r) => table.layout(r), {
+    font: (ref) => world.tryResource(Fonts)?.get(ref),
+  })
   const material = table.resources.material(entry, {
     blended: options.blended ?? table.resources.blendedByNature(entry),
     dropped: false,

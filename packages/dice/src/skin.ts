@@ -50,6 +50,15 @@ export const DiceSkin = defineDataType(
     sounds: t.struct(
       {
         impact: t.enum(IMPACT_SOUNDS, { description: 'What contacts sound like.' }),
+        impactEvent: t.handle('audio/AudioEvent', {
+          description: 'Optional authored hit, replacing procedural contacts and landing knocks.',
+        }),
+        entranceEvent: t.handle('audio/AudioEvent', {
+          description: 'Optional authored sound when an entrance scene starts.',
+        }),
+        resultEvent: t.handle('audio/AudioEvent', {
+          description: 'Optional authored landing accent, under the one-cue budget.',
+        }),
         accent: t.enum(['', 'resin-chime', 'arcane-spark', 'void-whump'], {
           description: 'A cue played when the dice land (with effects on). Empty: none.',
         }),
@@ -62,6 +71,7 @@ export const DiceSkin = defineDataType(
   },
   {
     extension: 'dice-skin',
+    lazyDependencies: true,
     description: 'A dice skin: family, parameters, variants, sounds, effects.',
   },
 )

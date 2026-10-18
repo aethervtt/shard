@@ -42,6 +42,7 @@ export const audioEventMethods: AppMethod[] = [
       event: t.string({ required: true }),
       entity: t.entity(),
       pitchLinked: t.bool(),
+      volume: t.f64({ default: 1, min: 0, description: 'Linear gain for every event layer.' }),
       parameters: t.json({ default: {} }),
       position: t.vec3(),
       clock: t.enum(['simulation', 'realtime']),
@@ -51,6 +52,7 @@ export const audioEventMethods: AppMethod[] = [
       instance: playAudioEvent(world, p.event as string, {
         entity: typeof p.entity === 'number' && p.entity >= 0 ? p.entity : undefined,
         pitchLinked: p.pitchLinked as boolean,
+        volume: p.volume as number,
         parameters: p.parameters as Record<string, number | string>,
         position: p.position as number[],
         clock: p.clock as 'simulation' | 'realtime',

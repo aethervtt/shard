@@ -7,7 +7,7 @@
 // black hole, pulsar and quasar. The black hole's natural 20 opens a ray-traced accretion disk and
 // publishes a lens field; the host forwards it to the table, which bends (0063).
 
-import { audioPlugin } from '@aethervtt/shard-audio'
+import { audioEventsPlugin, audioPlugin } from '@aethervtt/shard-audio'
 import { t } from '@aethervtt/shard-core'
 import {
   BUILTIN_SKINS,
@@ -56,9 +56,10 @@ import {
 import { App, animationFrameRunner, FrameDemand } from '@aethervtt/shard-runtime'
 import { Texture, Textures } from '@aethervtt/shard-texture'
 import { lookAt, Transform, TransformPlugin } from '@aethervtt/shard-transform'
-// 0054's golden roll: Node records its hash in the dice tests; this page records it in Chromium.
 import golden from '../../../packages/dice/src/golden.json'
 import { addBackendSelect, backendLine, graphicsOptions } from './backend'
+// 0054's golden roll: Node records its hash in the dice tests; this page records it in Chromium.
+import { installDiceAudioDemo } from './dice-audio'
 import {
   ACCRETION_SHADER,
   defineAccretionAttachment,
@@ -222,6 +223,7 @@ const dice = new App().addPlugin(
   }),
   forwardPlugin(),
   particlesPlugin,
+  audioEventsPlugin(),
   audioPlugin({ backend: createWebAudioBackend() }),
   dicePlugin({ worker: diceWorker }),
 )
@@ -384,6 +386,11 @@ const addSkin = (name: string, json: Record<string, unknown>, effects: string[])
 }
 for (const [name, json] of Object.entries(BUILTIN_SKINS))
   addSkin(name, json, ['demo:nat20', 'demo:nat1'])
+addSkin(
+  'enchanted audio',
+  { ...BUILTIN_SKINS.teal, sounds: { impact: 'glass', ...installDiceAudioDemo(dice.world) } },
+  [],
+)
 addSkin(
   'nebula',
   {

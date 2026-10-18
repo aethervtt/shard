@@ -50,6 +50,7 @@ import {
   findDiceAttachment,
   MAX_ATTACHMENTS,
 } from './attachments'
+import { DICE_AUDIO_BUS, DiceAudioSession } from './audio'
 import type { DieKind } from './builtins'
 import { DiceDie } from './components'
 import { type DieGeometry, dieGeometry, requireDie } from './definition'
@@ -233,6 +234,8 @@ interface Presentation {
   degraded: boolean
   live: ActiveAttachment[]
   voices: number[]
+  audio: DiceAudioSession
+  cuePlayed: boolean
   shadowsBefore: boolean | undefined
   /** The tray's shadow opacity while a large pool's landing fades it in (NaN otherwise). */
   trayShadow: number
@@ -266,7 +269,7 @@ const PICK = new Int32Array(IMPACTS_PER_FRAME)
 const POWER = new Float32Array(IMPACTS_PER_FRAME)
 const IMPACT_VOLUME: [number, number] = [0, 0]
 const IMPACT_PITCH: [number, number] = [0, 0]
-const IMPACT_SOUND = { bus: 'sfx', volume: IMPACT_VOLUME, pitch: IMPACT_PITCH }
+const IMPACT_SOUND = { bus: DICE_AUDIO_BUS, volume: IMPACT_VOLUME, pitch: IMPACT_PITCH }
 /** Accent cues play at this times their gain. */
 const ACCENT_LEVEL = 0.4
 
@@ -407,6 +410,8 @@ export class DiceTableState {
       degraded: false,
       live: [],
       voices: [],
+      cuePlayed: false,
+      audio: new DiceAudioSession(this.world, Math.max(0, Math.min(1, roll.soundGain ?? 1))),
       shadowsBefore: undefined,
       trayShadow: Number.NaN,
       fps: 0,
@@ -552,6 +557,8 @@ export class DiceTableState {
       if (p.done) return
       // Entrances first (0065): their dice stay out of the physics.
       this.chooseEntrances(p)
+      await this.prepareAudio(p)
+      if (p.done) return
       this.acquire(p)
       p.request = rollTrackRequest(
         p.roll,
@@ -576,6 +583,7 @@ export class DiceTableState {
       // get the entrances ready (assets loaded, scenes drawn once).
       if (p.soundGain > 0 && this.world.tryResource(AudioState)) {
         for (const skin of new Set(p.skins)) {
+          if (skin.sounds.impactEvent) continue
           this.sounds.prepare(skin.sounds.impact, (clip) => preloadSound(this.world, clip))
         }
       }
@@ -594,6 +602,51 @@ export class DiceTableState {
       if (code === 'physics/track-cancelled' && p.abort.signal.aborted) this.finish(p, 'cancelled')
       else this.fail(p, err)
     }
+  }
+
+  private async prepareAudio(p: Presentation): Promise<void> {
+    if (p.soundGain <= 0 || p.reduced || !this.world.hasResource(AudioState)) return
+    const refs: AssetRef[] = []
+    for (const skin of new Set(p.skins)) {
+      if (skin.sounds.impactEvent) refs.push(skin.sounds.impactEvent)
+      if (p.effects && skin.sounds.resultEvent) refs.push(skin.sounds.resultEvent)
+    }
+    for (const run of p.entrances) {
+      const ref = p.skins[run.die]!.sounds.entranceEvent
+      if (ref && run.def && !run.fallback) refs.push(ref)
+    }
+    if (p.effects)
+      for (const matched of p.matched) {
+        if (matched.anchors.length === 0) continue
+        for (const effect of matched.recipe.effects)
+          if (effect.kind === 'sound-accent' && effect.event) refs.push(effect.event)
+      }
+    await p.audio.prepare(refs)
+  }
+
+  private eventSound(
+    p: Presentation,
+    ref: AssetRef | null,
+    die: number,
+    salt: number,
+    strength = 1,
+    contact = 0,
+    gain = 1,
+  ): boolean {
+    if (!ref) return false
+    const d = p.dice[die]!
+    return p.audio.play(
+      ref,
+      p.soundSeed ^ Math.imul(salt + 1, 0x9e3779b1),
+      strength,
+      p.pitch[die] ?? 1,
+      d.rolled,
+      d.high,
+      d.low,
+      p.dice.length,
+      contact,
+      gain,
+    )
   }
 
   private async loadFonts(p: Presentation): Promise<void> {
@@ -894,22 +947,26 @@ export class DiceTableState {
     if (this.resources.nextRelease() <= now) this.resources.sweep(now)
     const p = this.current
     if (!p || p.done) return
-    const dt = Math.min(world.resource(Time).delta, MAX_STEP_S)
-    if (p.phase === 'tumble') this.tumble(p, dt)
-    if (!Number.isNaN(p.landedAt)) this.settleLook(p, now)
-    if (!Number.isNaN(p.fadeFrom)) this.fade(p, now)
-    if (p.entrances.length > 0) this.entrancesFrame(p, now)
-    // Effects run from the accent, and from an entrance die's landing before it.
-    if (p.runs.length > 0) this.accent(p, now)
-    if (p.phase === 'accent' && now >= p.accentEndsAt) this.rest(p)
-    this.attachmentsFrame(p, now)
-    // Animated families keep frames coming while their dice are on the table.
-    if (p.fps > 0 && !p.reduced && p.entities.length > 0 && !p.done) {
-      const demand = world.resource(FrameDemand)
-      if (p.fps === Number.POSITIVE_INFINITY) demand.hold(ANIMATED_DEMAND)
-      else demand.after(1000 / p.fps)
+    try {
+      const dt = Math.min(world.resource(Time).delta, MAX_STEP_S)
+      if (p.phase === 'tumble') this.tumble(p, dt)
+      if (!Number.isNaN(p.landedAt)) this.settleLook(p, now)
+      if (!Number.isNaN(p.fadeFrom)) this.fade(p, now)
+      if (p.entrances.length > 0) this.entrancesFrame(p, now)
+      // Effects run from the accent, and from an entrance die's landing before it.
+      if (p.runs.length > 0) this.accent(p, now)
+      if (p.phase === 'accent' && now >= p.accentEndsAt) this.rest(p)
+      this.attachmentsFrame(p, now)
+      // Animated families keep frames coming while their dice are on the table.
+      if (p.fps > 0 && !p.reduced && p.entities.length > 0 && !p.done) {
+        const demand = world.resource(FrameDemand)
+        if (p.fps === Number.POSITIVE_INFINITY) demand.hold(ANIMATED_DEMAND)
+        else demand.after(1000 / p.fps)
+      }
+      if (p.phase === 'rest' && now >= p.restEndsAt) this.finish(p, 'finished')
+    } catch (error) {
+      this.fail(p, error)
     }
-    if (p.phase === 'rest' && now >= p.restEndsAt) this.finish(p, 'finished')
   }
 
   private tumble(p: Presentation, dt: number): void {
@@ -1004,6 +1061,7 @@ export class DiceTableState {
     p.lastImpact[a] = t
     if (b >= 0) p.lastImpact[b] = t
     const tray = b < 0
+    if (this.eventSound(p, p.skins[a]!.sounds.impactEvent, a, k, strength, tray ? 0 : 1)) return
     const variation = ((Math.imul(k + 1, 0x9e3779b1) ^ p.soundSeed) >>> 0) % IMPACT_VARIATIONS
     const clip = this.sounds.impact(
       p.skins[a]!.sounds.impact,
@@ -1041,11 +1099,12 @@ export class DiceTableState {
     const audio = world.tryResource(AudioState)
     if (audio && p.soundGain > 0) {
       const i = p.placed.findIndex(Boolean)
-      if (i >= 0) {
+      if (i >= 0 && !this.eventSound(p, p.skins[i]!.sounds.impactEvent, i, 100000 + i, 0.5)) {
         const clip = this.sounds.impact(p.skins[i]!.sounds.impact, 'tray', 1, 0)
         const level = 0.14 * p.soundGain
         p.voices.push(
           playSound(world, clip, {
+            bus: DICE_AUDIO_BUS,
             volume: [level * 0.8, level],
             pitch: [p.pitch[i]! * 0.9, p.pitch[i]! * 0.98],
           }),
@@ -1248,6 +1307,7 @@ export class DiceTableState {
     now: number,
     budget: { light: boolean; cue: boolean; particles: number },
   ): number {
+    if (anchors.length === 0) return 0
     let longest = 0
     const at = this.centroid(p, anchors)
     for (const effect of m.recipe.effects) {
@@ -1257,9 +1317,11 @@ export class DiceTableState {
         continue
       }
       if (effect.kind === 'sound-accent') {
-        if (budget.cue) continue
+        if (budget.cue || p.cuePlayed) continue
         budget.cue = true
-        this.accentSound(p, effect.cue, effect.gain)
+        p.cuePlayed = true
+        if (!this.eventSound(p, effect.event, anchors[0]!, 200000 + anchors[0]!, 1, 0, effect.gain))
+          this.accentSound(p, effect.cue, effect.gain)
         continue
       }
       if (!at) continue
@@ -1297,9 +1359,12 @@ export class DiceTableState {
       longest = Math.max(longest, this.playRecipe(p, m, m.anchors, now, budget))
     }
     // The skin's own landing cue, for kept dice.
-    if (!budget.cue) {
-      const i = p.dice.findIndex((d, k) => !d.dropped && p.skins[k]!.sounds.accent)
-      if (i >= 0) this.accentSound(p, p.skins[i]!.sounds.accent as AccentCue, 0.6)
+    if (!budget.cue && !p.cuePlayed) {
+      const i = p.dice.findIndex(
+        (d, k) => !d.dropped && (p.skins[k]!.sounds.resultEvent || p.skins[k]!.sounds.accent),
+      )
+      if (i >= 0 && !this.eventSound(p, p.skins[i]!.sounds.resultEvent, i, 300000 + i))
+        this.accentSound(p, p.skins[i]!.sounds.accent as AccentCue, 0.6)
     }
     if (longest === 0 && p.live.length === 0) return false
     p.phase = 'accent'
@@ -1311,7 +1376,9 @@ export class DiceTableState {
   private accentSound(p: Presentation, cue: AccentCue, gain: number): void {
     if (!this.world.tryResource(AudioState) || p.soundGain <= 0) return
     const level = ACCENT_LEVEL * gain * p.soundGain
-    p.voices.push(playSound(this.world, this.sounds.accent(cue), { volume: level }))
+    p.voices.push(
+      playSound(this.world, this.sounds.accent(cue), { bus: DICE_AUDIO_BUS, volume: level }),
+    )
   }
 
   private startRun(p: Presentation, run: EffectRun): void {
@@ -1504,7 +1571,7 @@ export class DiceTableState {
         const g = p.soundGain
         const v = options.volume ?? 1
         const volume = typeof v === 'number' ? v * g : ([v[0] * g, v[1] * g] as const)
-        const voice = playSound(world, clip, { ...options, volume })
+        const voice = playSound(world, clip, { bus: DICE_AUDIO_BUS, ...options, volume })
         p.voices.push(voice)
         return voice
       },
@@ -1793,6 +1860,8 @@ export class DiceTableState {
         `Entrance "${run.name}" spawned more than its ${def.vertices} vertices; its die drops in instead.`,
       )
       world.set(p.entities[run.die]!, Visibility, { mode: 'visible' })
+    } else {
+      this.eventSound(p, p.skins[run.die]!.sounds.entranceEvent, run.die, 400000 + run.die)
     }
   }
 
@@ -1882,6 +1951,10 @@ export class DiceTableState {
   private entranceImpact(p: Presentation, run: EntranceRun): void {
     const strength = run.def?.impact ?? 0.8
     if (strength <= 0 || p.soundGain <= 0 || !this.world.tryResource(AudioState)) return
+    if (
+      this.eventSound(p, p.skins[run.die]!.sounds.impactEvent, run.die, 500000 + run.die, strength)
+    )
+      return
     const variation = ((p.soundSeed ^ Math.imul(run.die + 7, 0x9e3779b1)) >>> 0) % IMPACT_VARIATIONS
     const clip = this.sounds.impact(
       p.skins[run.die]!.sounds.impact,
@@ -1893,6 +1966,7 @@ export class DiceTableState {
     const pitch = p.pitch[run.die] ?? 1
     p.voices.push(
       playSound(this.world, clip, {
+        bus: DICE_AUDIO_BUS,
         volume: [level * 0.8, level],
         pitch: [pitch * 0.94, pitch * 1.06],
       }),
@@ -1924,6 +1998,7 @@ export class DiceTableState {
     p.done = true
     p.unlisten?.()
     p.abort.abort()
+    p.audio.dispose()
     const world = this.world
     const now = this.options.now()
     {

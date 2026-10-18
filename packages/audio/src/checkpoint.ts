@@ -63,6 +63,7 @@ export const CheckpointSchema = defineSchema('audio/CheckpointData', {
       entity: t.string(),
       clock: t.enum(['simulation', 'realtime']),
       pitchLinked: t.bool(),
+      volume: t.f64({ default: 1, min: 0 }),
       position: t.vec3(),
       ordinal: t.u32(),
       rng: t.list(t.u32()),
@@ -180,6 +181,7 @@ function capture(world: World, entityRef: (entity: Entity) => string | null = ()
       entity,
       clock: instance.clock,
       pitchLinked: instance.pitchLinked,
+      volume: instance.options.volume ?? 1,
       position: [instance.x, instance.y, instance.z],
       ordinal: instance.ordinal,
       rng: instance.rng.getState(),
@@ -334,6 +336,7 @@ async function restoreState(
             position: saved.position,
             clock: saved.clock,
             pitchLinked: saved.pitchLinked,
+            volume: saved.volume,
             persist: true,
           })
           restored = id

@@ -117,7 +117,7 @@ describe('audio lifetime and checkpoints', () => {
   it('restores only opted-in sustained state and invalidates prior instances', async () => {
     const { app, world, backend, event } = await setup()
     const lease = await prepareAudio(world, event)
-    const id = playAudioEvent(world, event, { persist: true })
+    const id = playAudioEvent(world, event, { persist: true, volume: 0.3 })
     const transient = AudioEvent.deserialize({
       layers: [
         { id: 'hit', choices: [{ clip: { guid: event.layers[0]!.choices[0]!.clip!.guid } }] },
@@ -130,6 +130,7 @@ describe('audio lifetime and checkpoints', () => {
     captureAudioCheckpoint(world)
     const checkpoint = world.resource(AudioCheckpoint)
     expect(checkpoint.events).toHaveLength(1)
+    expect(checkpoint.events[0]!.volume).toBe(0.3)
     const phase = checkpoint.events[0]!.layers[0]!.cursor
     resetAudioForLoad(world)
     expect(backend.active).toHaveLength(0)
@@ -138,6 +139,7 @@ describe('audio lifetime and checkpoints', () => {
     const instances = audioEvents(world).instances.filter((i) => i && i.state !== 'ended')
     expect(instances).toHaveLength(1)
     expect(instances[0]!.layers[0]!.voice!.time).toBe(phase)
+    expect(instances[0]!.options.volume).toBe(0.3)
     app.update(0.01)
     expect(backend.active).toHaveLength(1)
     lease.release()

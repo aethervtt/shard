@@ -563,6 +563,8 @@ export async function prepareAudio(world: World, ref: AudioEventRef): Promise<Au
 }
 
 export interface PlayAudioEventOptions {
+  /** Linear instance gain, applied to every layer after authored curves. Default 1. */
+  volume?: number
   /** Explicit presentation seed; independent of other event admission order. */
   seed?: number
   /** Instance-local pause; does not pause unrelated events. */
@@ -796,6 +798,7 @@ export function playAudioEvent(
 ): number {
   const state = audioEvents(world)
   if (state.disposed) throw new ShardError('audio/no-plugin', 'Audio session is disposed')
+  audioNumber(options.volume ?? 1, 'volume')
   let slot = -1
   for (let i = 0; i < state.instances.length; i++)
     if (!state.instances[i] || ['ended', 'failed'].includes(state.instances[i]!.state)) {
@@ -1208,7 +1211,7 @@ function updateInstance(
       }
       voice.lowpass = scratch[2]!
       voice.highpass = scratch[3]!
-      voice.volume = 10 ** (scratch[0]! / 20) * envelope
+      voice.volume = 10 ** (scratch[0]! / 20) * envelope * (instance.options.volume ?? 1)
       voice.pitch = 2 ** (scratch[1]! / 12) * (instance.pitchLinked ? transport.timeScale : 1)
       if (layer.ending && envelope === 0) {
         endVoice(world, audio, voice, 'stopped')
@@ -1300,6 +1303,7 @@ export function describeAudioEvents(world: World, cursor = 0) {
         position: [instance!.x, instance!.y, instance!.z],
         clock: instance!.clock,
         pitchLinked: instance!.pitchLinked,
+        volume: instance!.options.volume ?? 1,
         layers: instance!.layers.map((layer) => ({
           id: layer.definition.id,
           choice: layer.selected,
