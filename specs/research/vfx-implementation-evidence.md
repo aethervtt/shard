@@ -13,7 +13,7 @@ It is not a visual authoring editor.
 | Attachments and origin | Parent/bone transforms, archetype migration, translated trail history, isolated worlds; receiver and projector origin translation preserves decal UVs and relative placement |
 | Beams | Seeded displacement with fixed endpoints, live target updates and removal, local polylines, duplicate segments, invalid width curves, initially paused geometry |
 | Decal projection | Six independent half-space clipping tests; finite geometry/UVs; angled box faces; back-face rejection; masks, transforms, visibility, mesh versions, singular transforms and invalid size |
-| Bounds and diagnostics | 256 ribbons, 64 projectors, output/input triangle limits, invalid direct component capacities, unsupported skinned receivers; no partial mark on overflow |
+| Bounds and diagnostics | 256 trail/beam records, 64 projectors, output/input triangle limits, invalid direct component capacities, unsupported skinned receivers; no partial mark on overflow |
 | Sequence ownership | `packages/effects/src/visual.test.ts`: activation intervals, endpoint bindings, pause including draining trails, overlap rejection, skipped windows, dead endpoint failure, owned cleanup and borrowed target preservation |
 | Schemas and authoring | `packages/project/src/project.test.ts`: generated Trail/Beam/Decal schemas and `.agents/vfx.md`; shared component definitions drive validation and inspector fields |
 | Actual graphics | `apps/playground/src/vfx.test.ts`: WebGPU and minimum-profile WebGL2; isolated trail/beam/decal pixels, opaque beam/decal occlusion, excluded receiver pixels unchanged, perspective/orthographic views, visible fade, seed replay |
@@ -29,6 +29,22 @@ Local verification: full workspace typecheck and lint pass; 11 renderer correctn
 12 effect runtime/visual checks and 9 project integration checks pass. The browser test passes
 both backends. Lint retains five existing warnings outside this change. Project GPU tests need
 adapter access; their sandbox-only attempt could not open an adapter and passed with GPU access.
+
+## Final visual proof
+
+[Corrected hosted run](https://github.com/aethervtt/shard/actions/runs/39148210706), engine revision
+`93219915d2663cd9117546abc369fafb3908ecce`, verified the stronger full-mark and blocker assertions:
+
+| Backend | Trail pixels | Beam pixels | Decal pixels | Browser/GPU errors |
+|---|---:|---:|---:|---:|
+| WebGPU | 1,094 | 464 | 5,332 | 0 |
+| Minimum-profile WebGL2 | 1,094 | 465 | 5,321 | 0 |
+
+Each count comes from toggling only that feature and comparing real canvas screenshots, using a
+summed RGB difference threshold of 20. Both runs also verify zero changed pixels behind the opaque
+blocker, receiver exclusion, fading, replay, separate camera records, device-generation recovery,
+and zero retained draw records after completion/cancellation. The original hosted WebGPU mark had
+only 399 changed pixels; reviewing its image led to the depth correction documented below.
 
 ## Hosted measurements
 
@@ -71,6 +87,9 @@ The test blocker covers the entire receiver; hiding only the beam was insufficie
 The dedicated package job installs both Bun and Mesa for the existing consumer-release checks.
 Shader identity records linked renderer variants at the base revision, then compares the PR revision.
 Plugin-reachability coverage explicitly includes both optional VFX plugins.
+A cold full-suite run timed out the existing Star Explorer scatter gameplay test while it shared
+its runner with CPU-heavy software-GPU terrain suites. CI now runs gameplay examples serially
+on a separate runner; no planet implementation, test assertion or timeout was changed.
 
 ## Product boundaries
 

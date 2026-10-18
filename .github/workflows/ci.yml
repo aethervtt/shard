@@ -87,18 +87,13 @@ jobs:
       # SHARD_CI: correctness only. Shared runners render on a software GPU, so time budgets are off
       # there and timeouts are 5x (see packages/core/src/test-env.ts); `pnpm bench` holds the budgets.
       # SHARD_TEST_SHARD: this runner's share of the test files (scripts/test-shard.mjs). The
-      # examples run through `shard test`, which doesn't split, so they run on runner 1 only. The
+      # examples run separately so their worker readiness does not compete with GPU suites. The
       # playground's browser tests run in the browser job.
       # --continue: report every failing package, not just the first.
       # The timeout is on the step, not the job, so the cache still saves after it.
       - name: Run this runner's tests
         timeout-minutes: 25
-        run: |
-          if [ "${{ matrix.shard }}" = 1 ]; then
-            pnpm test --continue --filter='!@aethervtt/shard-playground'
-          else
-            pnpm test --continue --filter='!./examples/*' --filter='!@aethervtt/shard-playground'
-          fi
+        run: pnpm test --continue --filter='!./examples/*' --filter='!@aethervtt/shard-playground'
         env:
           SHARD_CI: '1'
           SHARD_TEST_SHARD: ${{ matrix.shard }}/4
@@ -108,6 +103,36 @@ jobs:
         with:
           path: .turbo/cache
           key: turbo-test-${{ matrix.shard }}-${{ github.sha }}
+
+  examples:
+    name: Gameplay examples
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/cache/restore@v4
+        with:
+          path: .turbo/cache
+          key: turbo-examples-${{ github.sha }}
+          restore-keys: turbo-examples-
+      # Gameplay tests await real workers and render while stepping. Running beside the large
+      # terrain correctness suites can starve those workers on a software-GPU runner. Keep
+      # their original assertions/timeouts and give examples their own serial execution lane.
+      - run: pnpm exec turbo run test --continue --filter='./examples/*' --concurrency=1
+        env:
+          SHARD_CI: '1'
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .turbo/cache
+          key: turbo-examples-${{ github.sha }}
 
   # The same tests on Windows: paths, drive letters, and .cmd shims break there and nowhere else.
   # Hosted Windows runners have no GPU; Dawn renders on WARP, D3D12's software rasterizer, which

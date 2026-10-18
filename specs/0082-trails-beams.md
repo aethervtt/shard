@@ -49,10 +49,10 @@ A missing texture uses an explicit white fallback while asset loading is reporte
 ordinary catalog GUID/path references; no URL or filesystem loader is added.
 
 Each world owns its simulation and GPU caches. Steady sampling and geometry generation reuse
-arrays; creation, resizing and command/diagnostic reads may allocate. Limits: 256 ribbon entities,
+arrays; creation, resizing and command/diagnostic reads may allocate. Limits: 256 trail/beam records,
 2–256 points each, 16 width-curve keys and 256 authored beam points. Invalid curves or capacity
 excess report structured errors; no unbounded growth or silent truncation. Resource inspection
-reports points, vertices, active/paused status, errors and bytes. Unused GPU records are destroyed;
+reports points, vertices, active/paused status, errors and retained TypedArray bytes. Unused GPU records are destroyed;
 device recovery rebuilds from CPU state. Alpha blending follows stable record creation order
 (no per-view depth sort). Colors are display-referred unlit overlays in the resolved HDR pass. Empty/paused worlds release frame demand appropriately.
 
