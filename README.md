@@ -7,8 +7,8 @@ and write. Schemas say what's valid before anything runs. The same project runs 
 the desktop app, or headless in the CLI, where an agent can play it, query it, screenshot it and
 test it. [VISION.md](VISION.md) explains the bet.
 
-**Status:** early development. The APIs change without notice, nothing is published to npm yet,
-and the first proof project (a procedural space explorer) is still being built. Every feature
+**Status:** early development. Engine packages are published on npm under `@aethervtt/shard-*`;
+minor releases may change APIs. The first proof project (a procedural space explorer) is still being built. Every feature
 starts as a spec in [`specs/`](specs/), and [specs/ROADMAP.md](specs/ROADMAP.md) shows what's done
 and what's next.
 
@@ -37,7 +37,15 @@ Every command takes `--json`.
 
 ## Packages
 
-Each package exports its TypeScript source directly (`./src/index.ts`), with no build step.
+Inside this repository, each package exports its TypeScript source directly (`./src/index.ts`),
+with no build step. Published packages contain JavaScript and TypeScript declarations. Install
+only the packages you need, keeping them on the same version:
+
+```sh
+npm install --save-exact @aethervtt/shard-runtime@0.2.0 @aethervtt/shard-audio@0.2.0
+```
+
+See [CHANGELOG.md](CHANGELOG.md) for release notes and [RELEASING.md](RELEASING.md) for publishing.
 
 ### Core
 
