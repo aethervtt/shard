@@ -1,6 +1,6 @@
 # 0084 — Authored dice audio
 
-- **Status:** accepted
+- **Status:** implemented
 - **Packages:** `@aethervtt/shard-dice`, `@aethervtt/shard-audio`
 - **Depends on:** 0054, 0065, 0077, 0078, 0080
 
@@ -98,14 +98,20 @@ through its existing lastError/outcome surface. No new protocol family is necess
 
 ## Acceptance criteria
 
-- [ ] Old skins/recipes remain valid; new bindings serialize as typed asset references.
-- [ ] Headless tests prove GUID event preparation, parameters, seeds, layer replacement and gain.
-- [ ] Tests prove dice bus isolation, flat playback and rejection of incompatible events.
-- [ ] Tests prove silent/no-audio behavior and cancellation during preparation, plus lease cleanup.
-- [ ] Table integration tests exercise impact/result/recipe/entrance dispatch and legacy defaults.
-- [ ] Event gain is validated, applied to all layers, and survives checkpoint restore.
-- [ ] CI typecheck, tests, lint, packaging and affected performance checks pass; evidence is recorded.
+- [x] Old skins/recipes remain valid; new bindings serialize as typed asset references.
+- [x] Headless tests prove GUID event preparation, parameters, seeds, layer replacement and gain.
+- [x] Tests prove dice bus isolation, flat playback and rejection of incompatible events.
+- [x] Tests prove silent/no-audio behavior and cancellation during preparation, plus lease cleanup.
+- [x] Table integration tests exercise impact/result/recipe/entrance dispatch and legacy defaults.
+- [x] Event gain is validated, applied to all layers, and survives checkpoint restore.
+- [x] CI typecheck, tests, lint, packaging and affected performance checks pass; evidence is recorded.
 
 ## Open questions
 
 None. User authorized implementation and green-PR merge.
+
+## As built and evidence
+
+[Implementation evidence](research/dice-audio-evidence.md) records 44 passing targeted dice
+tests, measured Chromium PCM output, hosted timing results and packaging checks. The
+[host integration guide](../packages/dice/AUDIO.md) documents schema bindings and mixer setup.
