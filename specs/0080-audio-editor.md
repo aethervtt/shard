@@ -165,6 +165,10 @@ and read-only base catalog with a validated in-memory draft overlay. Resolve dep
 the host; no save, import or game mutation is needed to hear an unsaved draft. New preview
 instances use the latest valid draft revision; running instances retain their pinned revision.
 An explicit Restart/Apply action uses the existing runtime reload/configure boundaries.
+Ordinary catalog updates invalidate pending/future work while running voices retain their pins;
+immediate access revocation uses a host scope change or session disposal to stop owned audio.
+Isolated audition bounds retained requests and document revisions to 256 each; Stop releases
+those pins, and capacity errors explain that recovery action. Failed starts release partial ownership.
 
 Attachment to a running game is a distinct mode naming its target/session. Read-only inspection
 is the default; the host grants live-control capability explicitly. Commands reuse `audio.play`,

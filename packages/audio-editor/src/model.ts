@@ -543,6 +543,7 @@ export class AudioEditorSession {
       throw editorError('unsupported-capability', 'This host does not provide audio preview.')
     if (!this.current.document)
       throw editorError('invalid-document', 'Open a document to audition.')
+    const document = clone(this.current.document)
     this.previewAbort?.abort()
     const controller = new AbortController()
     this.previewAbort = controller
@@ -550,10 +551,11 @@ export class AudioEditorSession {
     this.emit()
     try {
       // The adapter begins gesture unlock synchronously and validates the draft before playback.
-      const result = await this.preview.play(clone(this.current.document), controller.signal)
+      const result = await this.preview.play(document, controller.signal)
       if (!this.disposed && !controller.signal.aborted) {
         this.current.previewState = 'playing'
         this.current.previewResult = result
+        this.current.previewDocumentId = document.id
         this.emit()
       }
       return result
@@ -571,6 +573,7 @@ export class AudioEditorSession {
     await this.preview?.stop()
     this.current.previewState = 'idle'
     this.current.previewResult = undefined
+    this.current.previewDocumentId = undefined
     this.emit()
   }
   async dispose(): Promise<void> {
@@ -592,6 +595,7 @@ export class AudioEditorSession {
     this.current.effective = undefined
     this.current.conflict = undefined
     this.current.previewResult = undefined
+    this.current.previewDocumentId = undefined
     await this.preview?.dispose()
   }
 }

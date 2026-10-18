@@ -29,7 +29,21 @@ async function reach(page: Page, locator: Locator): Promise<void> {
   for (let attempt = 0; attempt < 900; attempt++) {
     if (await locator.evaluate((node) => (node.getRootNode() as ShadowRoot).activeElement === node))
       return
-    await page.keyboard.press('Tab')
+    const backward = await locator.evaluate((node) => {
+      let active: Element | null = node.ownerDocument.activeElement
+      while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement
+      if (!active) return false
+      let target: Node = node
+      let current: Node = active
+      if (target.getRootNode() !== current.getRootNode()) {
+        while ((target.getRootNode() as ShadowRoot).host)
+          target = (target.getRootNode() as ShadowRoot).host
+        while ((current.getRootNode() as ShadowRoot).host)
+          current = (current.getRootNode() as ShadowRoot).host
+      }
+      return !!(target.compareDocumentPosition(current) & Node.DOCUMENT_POSITION_FOLLOWING)
+    })
+    await page.keyboard.press(backward ? 'Shift+Tab' : 'Tab')
   }
   throw new Error(
     `Keyboard tab order could not reach ${(await locator.getAttribute('aria-label')) ?? (await locator.textContent())}: ${JSON.stringify(await locator.evaluate((node) => ({ disabled: (node as HTMLButtonElement).disabled, active: (node.getRootNode() as ShadowRoot).activeElement?.outerHTML.slice(0, 250) })))}`,

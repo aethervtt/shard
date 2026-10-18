@@ -92,10 +92,20 @@ async function element(expression) {
   return result['element-6066-11e4-a52e-4f735466cecf']
 }
 async function click(expression) {
-  const id = await element(
-    `(()=>{const element=${expression};return element&&!element.disabled?element:null})()`,
-  )
-  await request(`/session/${session}/element/${id}/click`, {})
+  // Like a browser locator, reacquire when an asynchronous catalog refresh replaces the
+  // control between lookup and native interaction. Do not replace the trusted click with JS.
+  await until(async () => {
+    const id = await element(
+      `(()=>{const element=${expression};return element&&!element.disabled?element:null})()`,
+    )
+    try {
+      await request(`/session/${session}/element/${id}/click`, {})
+      return true
+    } catch (error) {
+      if (String(error).includes('stale element reference')) return false
+      throw error
+    }
+  }, `Click ${expression}`)
 }
 try {
   console.info('Native WebDriver: waiting for driver readiness')

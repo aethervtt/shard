@@ -117,3 +117,9 @@ jobs:
       - run: pnpm build
       - run: pnpm size --check
       - run: pnpm release --check
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: audio-package-${{ github.sha }}
+          path: bench/size/report.json
+          if-no-files-found: warn

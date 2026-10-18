@@ -97,6 +97,8 @@ export interface AudioEditorState {
   historyEvicted: number
   previewState: 'idle' | 'preparing' | 'playing' | 'failed'
   previewResult?: unknown
+  /** Document that owns the current preview result, independent of editor selection. */
+  previewDocumentId?: string
 }
 export interface AudioEditorOptions {
   documents: AudioDocumentStore

@@ -51,7 +51,9 @@ interprets unknown IDs as URLs. Audio references in definition values use `{ gui
 host scope is part of cache identity. Events can reference other audio data assets through the
 same catalog. The document store reads those definitions, while the catalog resolves clip bytes.
 Scope/authentication changes should create a fresh editor session; never reuse old drafts in a
-different world. Asset invalidation notifications release preview/cache state.
+different world. Ordinary asset invalidation cancels pending loads and clears waveform caches;
+running voices keep their pinned revisions and new auditions resolve current metadata. For
+immediate access revocation, the host changes scope or disposes the session to stop owned audio.
 
 An optional `pick(type)` opens the host's own picker. Otherwise the editor uses the paginated
 catalog. There is no computer file picker, arbitrary media URL field or file-drop playback.
@@ -91,6 +93,8 @@ component selection/editing through the mount's `scene` adapter and call `view.r
 
 Audition owns a separate runtime session. Valid unsaved definitions can play without saving.
 Stop and disposal only affect editor-owned instances; borrowed host audio roots remain alive.
+An audition retains at most 256 requests and 256 document revisions; **Stop** releases those
+pins before further preparation. Failed or cancelled starts release their partial ownership.
 The optional attached preview adapter defaults to inspection; live commands and applying drafts
 require explicit host capabilities. The host supplies its existing authenticated protocol call.
 

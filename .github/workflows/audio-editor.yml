@@ -115,7 +115,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @aethervtt/shard-playground exec playwright install --with-deps chromium
-      - run: pnpm bench --filter=@aethervtt/shard-audio-editor
+      - run: pnpm bench --filter=@aethervtt/shard-audio-editor | tee audio-editor-bench.log
+        shell: bash
       - run: pnpm --filter @aethervtt/shard-playground exec vitest run src/audio-editor-scale.test.ts
         env:
           SHARD_CI: '1'
@@ -129,4 +130,5 @@ jobs:
           path: |
             audio-editor-evidence/
             bench/perf/report.json
+            audio-editor-bench.log
           if-no-files-found: warn

@@ -71,7 +71,22 @@ export function createIsolatedAudioPreview(
       scope = current
     }
   }
-  const unsubscribe = options.assets.subscribe?.(() => reset())
+  const invalidate = () => {
+    const current = JSON.stringify([options.assets.scope, options.documents.scope])
+    if (current !== scope) {
+      reset()
+      scope = current
+      return
+    }
+    // Existing voices pin their resolved revisions. A catalog edit cancels preparations
+    // and exports, while subsequent plays resolve fresh metadata in the same runtime.
+    controller.abort()
+    controller = new AbortController()
+    opening = undefined
+    waveforms.clear()
+  }
+  const unsubscribe = options.assets.subscribe?.(invalidate)
+  const unsubscribeDocuments = options.documents.subscribe?.(invalidate)
   async function ensure(signal?: AbortSignal) {
     assertLive(signal)
     checkScope()
@@ -175,6 +190,7 @@ export function createIsolatedAudioPreview(
       disposed = true
       reset()
       unsubscribe?.()
+      unsubscribeDocuments?.()
       waveforms.dispose()
     },
   }

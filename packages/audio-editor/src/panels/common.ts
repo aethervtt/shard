@@ -160,6 +160,8 @@ export function mountPanel(
     return node
   }
   function run(action: () => unknown): void {
+    for (const group of root.querySelectorAll<HTMLDetailsElement>('details[data-group]'))
+      expanded.set(group.dataset.group!, group.open)
     error = ''
     try {
       const result = action()
@@ -218,7 +220,9 @@ export function mountPanel(
     node.dataset.group = path
     node.open = expanded.get(path) ?? open
     node.append(el('summary', '', name))
-    node.addEventListener('toggle', () => expanded.set(path, node.open))
+    node.addEventListener('toggle', () => {
+      if (node.isConnected) expanded.set(path, node.open)
+    })
     return node
   }
   function edit(path: string, value: JsonValue): void {
@@ -242,7 +246,7 @@ export function mountPanel(
         button(
           state.saving ? 'Saving…' : 'Save',
           () => session.save(),
-          !state.dirty ||
+          !state.document ||
             state.saving ||
             state.readOnly ||
             !!state.conflict ||
@@ -258,7 +262,7 @@ export function mountPanel(
         ),
         button('Stop', () => session.stop(), !session.preview),
       )
-      if (state.previewState === 'playing')
+      if (state.previewState === 'playing' && state.previewDocumentId === state.document?.id)
         toolbar.append(
           button(
             state.document?.type === 'audio/AudioMixer' ? 'Apply draft' : 'Restart',
@@ -941,7 +945,9 @@ export function mountPanel(
               snapshot,
               weight: Number(weight.value),
             }),
-          typeof snapshot !== 'number' || !session.preview?.command,
+          typeof snapshot !== 'number' ||
+            !session.preview?.command ||
+            session.state.previewDocumentId !== session.state.document?.id,
         ),
       )
     }
@@ -1079,6 +1085,7 @@ export function mountPanel(
   function renderMusic(value: JsonObject): void {
     const transport = object(session.state.previewResult).transport
     const canControl =
+      session.state.previewDocumentId === session.state.document?.id &&
       typeof transport === 'number' &&
       !!session.preview?.command &&
       session.preview.capabilities.control !== false
@@ -1182,21 +1189,24 @@ export function mountPanel(
         input.min = String(parameter.min ?? 0)
         input.max = String(parameter.max ?? 1)
       }
-      input.disabled = !session.preview?.command || !!parameter.readonly
       const result = object(session.state.previewResult)
-      const music = typeof result.transport === 'number'
       const local = session.state.document?.type !== 'audio/AudioParameters'
+      const music = local && typeof result.transport === 'number'
       const disabled =
         !session.preview?.command ||
         !!parameter.readonly ||
+        (local && session.state.previewDocumentId !== session.state.document?.id) ||
         (local && !music && typeof result.instance !== 'number')
+      input.disabled = disabled
       section.append(
         inputLabel(String(parameter.name), input),
         button(
           `Audition ${parameter.name}`,
           () =>
             session.preview?.command?.(music ? 'audio.music.parameter' : 'audio.parameter.set', {
-              ...(music ? { transport: result.transport } : { instance: result.instance ?? 0 }),
+              ...(music
+                ? { transport: result.transport }
+                : { instance: local ? result.instance : 0 }),
               name: parameter.name,
               value: parameter.kind === 'label' ? input.value : Number(input.value),
             }),
@@ -1452,7 +1462,9 @@ export function mountPanel(
             instance,
             position: coords.map((input) => Number(input.value)),
           }),
-        !session.preview?.capabilities.emitter || typeof instance !== 'number',
+        !session.preview?.capabilities.emitter ||
+          typeof instance !== 'number' ||
+          state.previewDocumentId !== state.document?.id,
       ),
     )
     body.append(position)

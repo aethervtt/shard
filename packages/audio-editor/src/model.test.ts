@@ -21,6 +21,47 @@ const mixer = (id = 'opaque:1'): AudioDocument => ({
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe('audio editor document sessions', () => {
+  it('retains the audition owner when selection changes during playback preparation', async () => {
+    const host = createMemoryAudioHost({ documents: [mixer('first'), mixer('second')] })
+    let finish: (result: unknown) => void = () => {}
+    let stops = 0
+    const editor = createAudioEditorSession({
+      ...host,
+      preview: {
+        mode: 'audition',
+        capabilities: { play: true },
+        play: async () =>
+          new Promise((resolve) => {
+            finish = resolve
+          }),
+        stop: () => {
+          stops++
+        },
+        inspect: () => ({}),
+        dispose: () => {},
+      },
+    })
+    await editor.open('first')
+    const pending = editor.play()
+    await editor.open('second')
+    finish({ instance: 17 })
+    await pending
+    expect(editor.state.document?.id).toBe('second')
+    expect(editor.state.previewDocumentId).toBe('first')
+    expect(editor.state.previewResult).toEqual({ instance: 17 })
+    expect(stops).toBe(0)
+    await editor.stop()
+    expect(stops).toBe(1)
+    expect(editor.state.previewDocumentId).toBeUndefined()
+    expect(editor.state.previewResult).toBeUndefined()
+    const next = editor.play()
+    finish({ instance: 18 })
+    await next
+    expect(editor.state.previewDocumentId).toBe('second')
+    await editor.dispose()
+    expect(editor.state.previewDocumentId).toBeUndefined()
+  })
+
   it('imports without a DOM and edits, validates, saves and reopens opaque IDs', async () => {
     expect(typeof document).toBe('undefined')
     const entry = await import('./index')

@@ -67,6 +67,64 @@ function fixture() {
 }
 
 describe('isolated host-backed audition', () => {
+  it('bounds retained preparations and admits new auditions after Stop releases them', async () => {
+    const { host, root, children } = fixture()
+    const preview = createIsolatedAudioPreview({ ...host, backend: root })
+    const collection: AudioDocument = {
+      id: 'collection',
+      name: 'Collection',
+      type: 'audio/AudioCollection',
+      revision: 'draft:1',
+      value: { clips: [{ guid: 'user-audio-opaque' }] },
+    }
+    for (let i = 0; i < 256; i++) await preview.play(collection)
+    await expect(preview.play(collection)).rejects.toMatchObject({
+      code: 'audio/capacity',
+      hint: expect.stringContaining('Stop'),
+    })
+    preview.stop()
+    expect(children[0]!.memory().pinned).toBe(0)
+    await expect(preview.play(collection)).resolves.toHaveProperty('prepared', true)
+    await preview.dispose()
+  })
+
+  it('retains playing revisions when unrelated documents save and future plays resolve new clip revisions', async () => {
+    const { host, root, release } = fixture()
+    const metadata = host.assets.get
+    let revision = 'asset:1'
+    host.assets.get = async (id, signal) => ({ ...(await metadata(id, signal)), revision })
+    const preview = createIsolatedAudioPreview({ ...host, backend: root })
+    await preview.play(event)
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    const original = preview.inspect() as { voices: { clip: string }[] }
+    await host.documents.commit!([
+      { document: { ...event, id: 'unrelated', revision: '' }, expectedRevision: null },
+    ])
+    expect(preview.inspect()).toMatchObject({ counts: { active: 1 } })
+    revision = 'asset:2'
+    await preview.play(event)
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    const next = preview.inspect() as { voices: { clip: string }[] }
+    expect(next.voices).toHaveLength(2)
+    expect(next.voices[0]!.clip).toBe(original.voices[0]!.clip)
+    expect(next.voices[1]!.clip).not.toBe(original.voices[0]!.clip)
+    expect(release).toHaveBeenCalledTimes(2)
+    await preview.dispose()
+  })
+
+  it('releases pinned playback immediately when the host rotates its access scope', async () => {
+    const { host, root, children, dispose } = fixture()
+    const preview = createIsolatedAudioPreview({ ...host, backend: root })
+    await preview.play(event)
+    const close = vi.spyOn(children[0]!, 'dispose')
+    Object.defineProperty(host.assets, 'scope', { value: 'revoked-project' })
+    expect(preview.inspect()).toMatchObject({ state: 'idle' })
+    expect(close).toHaveBeenCalled()
+    expect(children[0]!.memory().pinned).toBe(0)
+    expect(dispose).not.toHaveBeenCalled()
+    await preview.dispose()
+  })
+
   it.each([true, false])(
     'disposes sessions even when browser resume never settles (borrowed=%s)',
     async (borrowed) => {

@@ -112,6 +112,7 @@ export async function createPreviewRuntime(options: {
   const listener = app.world.spawn(Transform, AudioListener)
   const music = new Set<number>()
   const snapshots = new Set<number>()
+  const requests = new Set<symbol>()
   const releases: (() => void)[] = []
   const removals: (() => void)[] = []
   const definitions = new Map<string, AssetRef>()
@@ -141,6 +142,7 @@ export async function createPreviewRuntime(options: {
     while (releases.length) releases.pop()!()
     while (removals.length) removals.pop()!()
     definitions.clear()
+    requests.clear()
     owned.runtime!.collect()
   }
 
@@ -276,55 +278,92 @@ export async function createPreviewRuntime(options: {
     return installDocument(document)
   }
 
-  return {
-    unlock,
-    async play(document: AudioDocument, signal?: AbortSignal) {
-      assertLive(signal)
-      // Resume before the first host read so an existing context receives this user gesture.
-      unlock()
-      const ref = await install(document, signal)
-      assertLive(signal)
-      const world = app.world
-      if (document.type === AudioEvent.name || document.type === AudioCollection.name) {
-        const lease = await prepareAudio(world, ref)
-        if (disposed || signal?.aborted) {
-          lease.release()
-          assertLive(signal)
-        }
+  async function playDocument(document: AudioDocument, signal?: AbortSignal) {
+    assertLive(signal)
+    // Resume before the first host read so an existing context receives this user gesture.
+    unlock()
+    const ref = await install(document, signal)
+    assertLive(signal)
+    const world = app.world
+    if (document.type === AudioEvent.name || document.type === AudioCollection.name) {
+      const lease = await prepareAudio(world, ref)
+      if (disposed || signal?.aborted) {
+        lease.release()
+        assertLive(signal)
+      }
+      if (document.type === AudioCollection.name) {
         releases.push(() => lease.release())
-        if (document.type === AudioCollection.name) return { lease: lease.id, prepared: true }
-        const entity = world.spawn(Transform)
-        const instance = playAudioEvent(world, ref, { entity })
+        return { lease: lease.id, prepared: true }
+      }
+      let entity: Entity | undefined
+      let instance: number | undefined
+      try {
+        entity = world.spawn(Transform)
+        instance = playAudioEvent(world, ref, { entity })
         emitters.set(instance, entity)
         events.add(instance)
         // Event installation is asynchronous even when its dependencies are prepared.
         await Promise.resolve()
         await Promise.resolve()
-        tick()
-        return { instance }
-      }
-      if (document.type === MusicProgram.name) {
-        const program = await prepareMusic(world, ref)
-        try {
-          assertLive(signal)
-          const transport = startMusic(world, program)
-          music.add(transport)
-          return { transport }
-        } finally {
-          program.release()
-        }
-      }
-      if (document.type === AudioMixer.name) {
-        await configureAudioMixer(world, ref)
         assertLive(signal)
-        return { configured: true }
+        tick()
+        releases.push(() => lease.release())
+        return { instance }
+      } catch (error) {
+        if (instance !== undefined) {
+          stopAudioEvent(world, instance, { release: 0 })
+          events.delete(instance)
+          emitters.delete(instance)
+        }
+        if (entity !== undefined && world.isAlive(entity)) world.despawn(entity)
+        lease.release()
+        throw error
       }
-      if (document.type === AudioSnapshot.name) {
-        const snapshot = await acquireAudioSnapshot(world, ref)
-        snapshots.add(snapshot)
-        return { snapshot }
+    }
+    if (document.type === MusicProgram.name) {
+      const program = await prepareMusic(world, ref)
+      try {
+        assertLive(signal)
+        const transport = startMusic(world, program)
+        music.add(transport)
+        return { transport }
+      } finally {
+        program.release()
       }
-      return { prepared: true }
+    }
+    if (document.type === AudioMixer.name) {
+      await configureAudioMixer(world, ref)
+      assertLive(signal)
+      return { configured: true }
+    }
+    if (document.type === AudioSnapshot.name) {
+      const snapshot = await acquireAudioSnapshot(world, ref)
+      if (disposed || signal?.aborted) {
+        releaseAudioSnapshot(world, snapshot)
+        assertLive(signal)
+      }
+      snapshots.add(snapshot)
+      return { snapshot }
+    }
+    return { prepared: true }
+  }
+
+  return {
+    unlock,
+    async play(document: AudioDocument, signal?: AbortSignal) {
+      assertLive(signal)
+      if (requests.size >= 256)
+        throw new ShardError('audio/capacity', 'Preview retains at most 256 audition requests', {
+          hint: 'Press Stop to release audition voices, preparations and pinned revisions before playing more.',
+        })
+      const request = Symbol()
+      requests.add(request)
+      try {
+        return await playDocument(document, signal)
+      } catch (error) {
+        requests.delete(request)
+        throw error
+      }
     },
     command(name: string, params: Record<string, unknown>) {
       assertLive()

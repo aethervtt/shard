@@ -169,7 +169,7 @@ jobs:
             @aethervtt/shard-assets @aethervtt/shard-project @aethervtt/shard-scene
             @aethervtt/shard-procgen @aethervtt/shard-protocol @aethervtt/shard-verify
             @aethervtt/shard-physics @aethervtt/shard-dice @aethervtt/shard-bench-perf
-            @aethervtt/shard-audio-editor
+            @aethervtt/shard-audio-editor @aethervtt/shard-platform-tauri
 
       - uses: actions/cache/save@v4
         if: always()
