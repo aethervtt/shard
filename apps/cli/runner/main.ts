@@ -93,7 +93,9 @@ async function start() {
     // `shard shaders bake`'s output, read only on WebGL2 (a missing file is one 404 there).
     webgl2Shaders: `${location.origin}/@aethervtt/shard-files/.shard/shaders/webgl2.json`,
     inputSource: createDomInputSource(canvas),
-    audio: manifest.plugins.includes('audio') ? platform.audio : undefined,
+    audio: manifest.plugins.some((name) => name === 'audio' || name.startsWith('audio/'))
+      ? platform.audio
+      : undefined,
     platform,
   })
   // Performance records over the protocol (metrics.record), the same way scripts take them (0062).
@@ -104,7 +106,7 @@ async function start() {
   await loadProjectNavCache(app, platform)
 
   // Project shaders: shaders/water/foam.wesl is project::water::foam.
-  const shaders = app.world.resource(Shaders)
+  const shaders = app.world.tryResource(Shaders)
   const registerShader = ({ file, source }: { file: string; source: string }) => {
     const module = `project::${file
       .replace(/^shaders\//, '')
@@ -112,7 +114,7 @@ async function start() {
       .split('/')
       .join('::')}`
     try {
-      shaders.register(module, source, file)
+      shaders?.register(module, source, file)
     } catch (err) {
       app.world.resource(LogResource).error(err)
     }

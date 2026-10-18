@@ -39,6 +39,7 @@
     "@aethervtt/shard-structure": "workspace:*",
     "@aethervtt/shard-terrain": "workspace:*",
     "@aethervtt/shard-text": "workspace:*",
+    "@aethervtt/shard-transform": "workspace:*",
     "@aethervtt/shard-ui": "workspace:*",
     "@aethervtt/shard-verify": "workspace:*",
     "@modelcontextprotocol/sdk": "1.30.0",

@@ -165,6 +165,11 @@ describe('agent docs', () => {
     ])
     expect(Object.keys(files)).toEqual(
       expect.arrayContaining([
+        '.agents/audio.md',
+        '.shard/schemas/audio-preview.schema.json',
+        '.shard/schemas/audio-event.schema.json',
+        '.shard/schemas/audio-mixer.schema.json',
+        '.shard/schemas/audio-music.schema.json',
         '.agents/components.md',
         '.agents/errors.md',
         '.agents/skills/build-a-scene.md',
@@ -173,6 +178,10 @@ describe('agent docs', () => {
         '.shard/schemas/components/render.Camera3d.json',
       ]),
     )
+    expect(files['.agents/audio.md']).toContain('shard audio preview')
+    expect(
+      JSON.parse(files['.shard/schemas/audio-preview.schema.json']!).properties,
+    ).toHaveProperty('controls')
     expect(files['.agents/errors.md']).toContain('`scene/invalid`')
     expect(files['.agents/skills/write-a-gameplay-test.md']).toContain('demo/Controls.thrust')
   })

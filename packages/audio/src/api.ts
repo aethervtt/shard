@@ -1,8 +1,18 @@
-import { type AssetRef, type Rng, ShardError, type World } from '@aethervtt/shard-core'
+import { type AssetRef, type Entity, type Rng, ShardError, type World } from '@aethervtt/shard-core'
 import type { AudioDistanceModel, AudioPanningModel } from '@aethervtt/shard-platform'
 import { type AudioClipAsset, AudioClips } from './clip'
-import { type AudioBus, AudioBuses } from './components'
-import { audioState, busOf, endVoice, newVoice, pickInRange, unknownBus } from './mixer'
+import { type AudioBus, AudioBuses, AudioListener, AudioUserControls } from './components'
+import {
+  AudioConfig,
+  audioState,
+  busOf,
+  endVoice,
+  newVoice,
+  pickInRange,
+  unknownBus,
+} from './mixer'
+import { resolveAudioRef } from './references'
+import { audioNumber, audioRange } from './validation'
 
 /** A [min, max] range: each play picks a value in it. */
 export type SoundRange = readonly [min: number, max: number]
@@ -61,6 +71,30 @@ function isClip(value: unknown): value is AudioClipAsset {
   )
 }
 
+function validateSoundOptions(options: PlaySoundOptions): void {
+  const volume = options.volume ?? 1
+  const pitch = options.pitch ?? 1
+  if (typeof volume === 'number') audioNumber(volume, 'volume')
+  else audioRange(volume[0], volume[1], false, 'volume')
+  if (typeof pitch === 'number') audioNumber(pitch, 'pitch', 0.01, 16)
+  else audioRange(pitch[0], pitch[1], true, 'pitch')
+  audioNumber(options.priority ?? 128, 'priority', 0, 255)
+  if (!Number.isInteger(options.priority ?? 128))
+    throw new ShardError('audio/invalid-range', 'Priority must be an integer', { path: 'priority' })
+  if (options.rolloff && !['inverse', 'linear', 'exponential'].includes(options.rolloff))
+    throw new ShardError('audio/invalid-range', 'Unknown rolloff model', { path: 'rolloff' })
+  if (options.panning && !['hrtf', 'equal-power'].includes(options.panning))
+    throw new ShardError('audio/invalid-range', 'Unknown panning model', { path: 'panning' })
+  audioNumber(options.offset ?? 0, 'offset')
+  audioNumber(options.minDistance ?? 1, 'minDistance')
+  audioNumber(options.maxDistance ?? 100, 'maxDistance', options.minDistance ?? 1)
+  audioNumber(options.rolloffFactor ?? 1, 'rolloffFactor')
+  if (options.position)
+    for (let i = 0; i < 3; i++) {
+      audioNumber(options.position[i]!, 'position', -Number.MAX_VALUE)
+    }
+}
+
 /**
  * Plays a clip once without an entity (shots, impacts, UI clicks) and returns its voice id. A clip
  * that isn't loaded yet starts when it is. The sound is logged in `audio.log` like any other.
@@ -79,6 +113,7 @@ export function playSound(
   const bus = options.bus ?? 'sfx'
   const buses = world.resource(AudioBuses)
   if (!buses[bus]) throw unknownBus(bus, buses)
+  validateSoundOptions(options)
   const voice = newVoice(state, null, state.frame)
   if (isClip(clip)) voice.clip = clip
   else
@@ -113,12 +148,13 @@ export function playSound(
  */
 export function preloadSound(world: World, clip: AssetRef | AudioClipAsset): void {
   const state = audioState(world)
-  const asset = isClip(clip) ? clip : world.resource(AudioClips).get(clip)
+  const asset = isClip(clip) ? clip : world.resource(AudioClips).get(resolveAudioRef(world, clip))
   if (asset) state.backend.preload?.(asset)
 }
 
 /** Stops a voice from playSound, fading out over `fade` seconds. False if it already ended. */
 export function stopSound(world: World, voice: number, fade = 0): boolean {
+  audioNumber(fade, 'fade')
   const state = audioState(world)
   const v = state.voices.find((x) => x.id === voice)
   if (!v) return false
@@ -140,10 +176,25 @@ export function setBus(
   const buses = world.resource(AudioBuses)
   const bus = buses[name]
   if (!bus) throw unknownBus(name, buses)
+  audioNumber(settings.volume ?? bus.volume ?? 1, 'volume')
+  let parent = settings.parent ?? bus.parent ?? (name === 'master' ? '' : 'master')
+  const visited = new Set<string>([name])
+  while (parent !== '') {
+    if (visited.has(parent))
+      throw new ShardError('audio/bus-cycle', `Bus ${name} forms a cycle`, {
+        path: 'parent',
+        hint: 'Route every bus to master without cycles.',
+      })
+    if (!buses[parent]) throw unknownBus(parent, buses)
+    visited.add(parent)
+    parent = buses[parent]!.parent ?? (parent === 'master' ? '' : 'master')
+  }
   Object.assign(bus, settings)
 }
 
 export interface DuckOptions {
+  tags?: readonly string[]
+  includeVirtual?: boolean
   /** How much gain to take away while ducked: 0.3 plays the bus at 70%. */
   by: number
   /** Seconds to go down. Default 0.1. */
@@ -170,6 +221,8 @@ export function duck(world: World, bus: string, options: DuckOptions | null): vo
     buses[bus]!.duck = null
     return
   }
+  audioNumber(options.attack ?? 0.1, 'attack')
+  audioNumber(options.release ?? 0.5, 'release')
   if (!(options.by >= 0 && options.by <= 1)) {
     throw new ShardError('audio/invalid-duck', `duck by must be 0 to 1, got ${options.by}`, {
       hint: 'by is the share of gain taken away: 0.3 plays the bus at 70%.',
@@ -177,20 +230,67 @@ export function duck(world: World, bus: string, options: DuckOptions | null): vo
   }
   const when =
     options.when === undefined
-      ? ['voice']
+      ? options.tags?.length
+        ? []
+        : ['voice']
       : Array.isArray(options.when)
         ? options.when
         : [options.when]
   for (const name of when) if (!buses[name]) throw unknownBus(name, buses)
+  if (
+    (options.tags?.length ?? 0) > 32 ||
+    options.tags?.some((tag) => typeof tag !== 'string' || !tag)
+  )
+    throw new ShardError('audio/invalid-duck', 'Duck tags must be at most 32 nonempty strings')
   buses[bus]!.duck = {
     by: options.by,
     attack: options.attack ?? 0.1,
     release: options.release ?? 0.5,
     when,
+    tags: options.tags,
+    includeVirtual: options.includeVirtual,
   }
 }
 
 /** A bus's settings with defaults filled in, or undefined. */
 export function getBus(world: World, name: string): AudioBus | undefined {
   return busOf(world.resource(AudioBuses), name)
+}
+
+/** Select this session's listener. Null restores stable entity-ID selection. */
+export function setAudioListener(world: World, entity: Entity | null): void {
+  if (entity !== null && (!world.isAlive(entity) || !world.has(entity, AudioListener)))
+    throw new ShardError('audio/stale-handle', 'Selected listener must be a live AudioListener')
+  world.resource(AudioConfig).listener = entity
+}
+
+/** Player settings are an independent final output gate; gameplay uses setBus. */
+export function setAudioUserBus(
+  world: World,
+  name: string,
+  options: { volume?: number; muted?: boolean },
+): void {
+  const buses = world.resource(AudioBuses)
+  if (!buses[name]) throw new ShardError('audio/unknown-bus', `Unknown user bus ${name}`)
+  if (buses[name]!.userDomain === false || (name !== 'master' && buses[name]!.parent !== 'master'))
+    throw new ShardError(
+      'audio/unsupported-capability',
+      'Independent user controls require master or a direct child category',
+      { hint: 'Control the category containing this nested bus; sends share that category gate.' },
+    )
+  if (options.muted !== undefined && typeof options.muted !== 'boolean')
+    throw new ShardError('audio/invalid-range', 'User mute must be boolean')
+  if (options.volume !== undefined) audioNumber(options.volume, 'user.volume')
+  const controls = world.initResource(AudioUserControls)
+  const current = controls[name] ?? { volume: 1, muted: false }
+  if (options.volume !== undefined) current.volume = options.volume
+  if (options.muted !== undefined) current.muted = options.muted
+  controls[name] = current
+  if (buses[name]!.userDomain !== undefined)
+    audioState(world).backend.runtime!.setMixerValue(
+      name,
+      'userGain',
+      current.muted || buses[name]!.muted ? 0 : current.volume,
+      0,
+    )
 }

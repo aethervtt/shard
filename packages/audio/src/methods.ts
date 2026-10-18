@@ -1,6 +1,7 @@
 import { defineSchema, type Entity, findComponent, t, type World } from '@aethervtt/shard-core'
 import type { AppMethod } from '@aethervtt/shard-runtime'
-import { AudioBuses } from './components'
+import { AudioBuses, AudioUserControls } from './components'
+import { inspectAudioExtensions } from './inspection'
 import { AudioConfig, type AudioLogEntry, audioState, busOf, clipLabel } from './mixer'
 
 const round = (x: number, digits = 4) => Math.round(x * 10 ** digits) / 10 ** digits
@@ -20,7 +21,10 @@ export function describeAudio(world: World) {
   const L = state.listener
   const voices = state.voices.filter((v) => v.id > 0)
   return {
+    ...inspectAudioExtensions(world),
     backend: state.backend.kind,
+    capabilities: state.backend.runtime?.capabilities ?? null,
+    memory: state.backend.runtime?.memory() ?? null,
     context: state.backend.state,
     listener:
       state.listenerEntity === null
@@ -35,6 +39,8 @@ export function describeAudio(world: World) {
       return {
         name,
         volume: bus.volume,
+        userVolume: world.resource(AudioUserControls)[name]?.volume ?? 1,
+        userMuted: world.resource(AudioUserControls)[name]?.muted ?? false,
         muted: bus.muted,
         parent: bus.parent,
         gain: round(state.busGains.get(name) ?? 1),
@@ -44,6 +50,8 @@ export function describeAudio(world: World) {
     }),
     voices: voices.map((v) => ({
       voice: v.id,
+      presentation:
+        v.backend !== -1 ? (state.backend.runtime?.presentation(v.backend) ?? null) : null,
       clip: clipLabel(v),
       entity: v.entity,
       path: scenePath(world, v.entity),
@@ -74,7 +82,11 @@ export function describeAudio(world: World) {
 
 /** Voices started, stopped, and dropped from frame `since` on. */
 export function audioLog(world: World, since = 0): AudioLogEntry[] {
-  return audioState(world).log.filter((e) => e.frame >= since)
+  return readAudioLog(world, 0).entries.filter((e) => e.frame >= since)
+}
+
+export function readAudioLog(world: World, cursor = 0) {
+  return audioState(world).voiceTrace.read(cursor)
 }
 
 export const audioMethods: AppMethod[] = [
@@ -91,7 +103,16 @@ export const audioMethods: AppMethod[] = [
       'Voices started, stopped, and dropped, by frame: { frame, event: start | stop | dropped, voice, clip, entity, path, bus, position, gain, pan, reason: ended | stopped | stolen | removed | voice-limit }. Gameplay tests assert on it.',
     params: defineSchema('audio/LogParams', {
       since: t.u32({ description: 'Only entries from this frame on.' }),
+      cursor: t.u32({
+        description: 'Monotonic log cursor; zero starts at the oldest retained entry.',
+      }),
     }),
-    handler: ({ world }, p) => ({ entries: audioLog(world, (p.since as number | undefined) ?? 0) }),
+    handler: ({ world }, p) => {
+      const result = readAudioLog(world, (p.cursor as number | undefined) ?? 0)
+      result.entries = result.entries.filter(
+        (e) => e.frame >= ((p.since as number | undefined) ?? 0),
+      )
+      return result
+    },
   },
 ]

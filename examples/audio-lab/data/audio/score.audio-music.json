@@ -1,0 +1,196 @@
+{
+  "bpm": 123,
+  "entry": "explore",
+  "parameters": [
+    {
+      "name": "intensity",
+      "min": 0,
+      "max": 1,
+      "smooth": 0.1
+    }
+  ],
+  "sections": [
+    {
+      "id": "explore",
+      "bars": 1,
+      "stems": [
+        {
+          "id": "stem-0",
+          "clip": {
+            "path": "assets/stems/stem-0.wav"
+          },
+          "endSample": 23415,
+          "rateConform": true,
+          "maxConformCents": 1,
+          "curves": [
+            {
+              "parameter": "intensity",
+              "property": "gainDb",
+              "points": [[0, 0], [1, 0]]
+            }
+          ]
+        },
+        {
+          "id": "stem-1",
+          "clip": {
+            "path": "assets/stems/stem-1.wav"
+          },
+          "endSample": 23415,
+          "rateConform": true,
+          "maxConformCents": 1,
+          "curves": [
+            {
+              "parameter": "intensity",
+              "property": "gainDb",
+              "points": [[0, 0], [1, 0]]
+            }
+          ]
+        },
+        {
+          "id": "stem-2",
+          "clip": {
+            "path": "assets/stems/stem-2.wav"
+          },
+          "endSample": 23415,
+          "rateConform": true,
+          "maxConformCents": 1,
+          "curves": [
+            {
+              "parameter": "intensity",
+              "property": "gainDb",
+              "points": [[0, -24], [1, 0]]
+            }
+          ]
+        },
+        {
+          "id": "stem-3",
+          "clip": {
+            "path": "assets/stems/stem-3.wav"
+          },
+          "endSample": 23415,
+          "rateConform": true,
+          "maxConformCents": 1,
+          "curves": [
+            {
+              "parameter": "intensity",
+              "property": "gainDb",
+              "points": [[0, -24], [1, 0]]
+            }
+          ]
+        }
+      ],
+      "markers": [
+        {
+          "id": "turn",
+          "tick": 1920
+        }
+      ]
+    },
+    {
+      "id": "combat",
+      "bars": 1,
+      "stems": [
+        {
+          "id": "stem-0",
+          "clip": {
+            "path": "assets/stems/stem-0.wav"
+          },
+          "endSample": 23415,
+          "rateConform": true,
+          "maxConformCents": 1,
+          "curves": [
+            {
+              "parameter": "intensity",
+              "property": "gainDb",
+              "points": [[0, 0], [1, 0]]
+            }
+          ],
+          "gainDb": -3
+        },
+        {
+          "id": "stem-1",
+          "clip": {
+            "path": "assets/stems/stem-1.wav"
+          },
+          "endSample": 23415,
+          "rateConform": true,
+          "maxConformCents": 1,
+          "curves": [
+            {
+              "parameter": "intensity",
+              "property": "gainDb",
+              "points": [[0, 0], [1, 0]]
+            }
+          ],
+          "gainDb": 0
+        },
+        {
+          "id": "stem-2",
+          "clip": {
+            "path": "assets/stems/stem-2.wav"
+          },
+          "endSample": 23415,
+          "rateConform": true,
+          "maxConformCents": 1,
+          "curves": [
+            {
+              "parameter": "intensity",
+              "property": "gainDb",
+              "points": [[0, -24], [1, 0]]
+            }
+          ],
+          "gainDb": 0
+        },
+        {
+          "id": "stem-3",
+          "clip": {
+            "path": "assets/stems/stem-3.wav"
+          },
+          "endSample": 23415,
+          "rateConform": true,
+          "maxConformCents": 1,
+          "curves": [
+            {
+              "parameter": "intensity",
+              "property": "gainDb",
+              "points": [[0, -24], [1, 0]]
+            }
+          ],
+          "gainDb": 0
+        }
+      ]
+    }
+  ],
+  "transitions": [
+    {
+      "id": "danger",
+      "from": "explore",
+      "to": "combat",
+      "parameter": "intensity",
+      "min": 0.75,
+      "max": 1,
+      "quantize": "bar",
+      "fadeBeats": 1
+    },
+    {
+      "id": "clear",
+      "from": "combat",
+      "to": "explore",
+      "parameter": "intensity",
+      "min": 0,
+      "max": 0.25,
+      "quantize": "bar",
+      "fadeBeats": 1
+    }
+  ],
+  "stingers": [
+    {
+      "id": "hit",
+      "event": {
+        "path": "data/audio/spell.audio-event.json"
+      },
+      "cooldown": 0.3,
+      "overlap": "replace"
+    }
+  ]
+}

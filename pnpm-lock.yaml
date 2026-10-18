@@ -95,6 +95,9 @@ importers:
       '@aethervtt/shard-text':
         specifier: workspace:*
         version: link:../../packages/text
+      '@aethervtt/shard-transform':
+        specifier: workspace:*
+        version: link:../../packages/transform
       '@aethervtt/shard-ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -366,6 +369,40 @@ importers:
       webgpu:
         specifier: 0.6.1
         version: 0.6.1
+
+  examples/audio-lab:
+    dependencies:
+      '@aethervtt/shard-assets':
+        specifier: workspace:*
+        version: link:../../packages/assets
+      '@aethervtt/shard-audio':
+        specifier: workspace:*
+        version: link:../../packages/audio
+      '@aethervtt/shard-cli':
+        specifier: workspace:*
+        version: link:../../apps/cli
+      '@aethervtt/shard-core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@aethervtt/shard-project':
+        specifier: workspace:*
+        version: link:../../packages/project
+      '@aethervtt/shard-runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
+      '@aethervtt/shard-transform':
+        specifier: workspace:*
+        version: link:../../packages/transform
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+      '@webgpu/types':
+        specifier: ^0.1.74
+        version: 0.1.74
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
 
   examples/maze-chase:
     dependencies:

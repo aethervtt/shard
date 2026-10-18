@@ -628,7 +628,7 @@ export class AssetServer {
       // requested a microtask later: by then this load is in flight, so the dependency's own
       // request for it finds it instead of starting it again (which recursed until the stack ran out).
       await Promise.allSettled(
-        asset.dependencies.map((d) => {
+        (type.lazyDependencies ? [] : asset.dependencies).map((d) => {
           const dep = this.entry(d)
           if (dep && this.dependsOn(dep, entry.guid)) {
             queueMicrotask(() => void this.request(d))
@@ -637,7 +637,7 @@ export class AssetServer {
           return this.load(d)
         }),
       )
-      const artifact = await this.readArtifact(asset.artifact)
+      const artifact = await this.readArtifact(asset.artifact, type.lazyBytes)
       const base = entry.path.split('#')[0]!
       const item = await type.load(artifact, {
         guid: entry.guid,
@@ -1046,16 +1046,26 @@ export class AssetServer {
     return this.readArtifact(asset.artifact)
   }
 
-  private async readArtifact(files: ArtifactFiles): Promise<Artifact> {
+  private async readArtifact(
+    files: ArtifactFiles,
+    lazyBytes?: (json: JsonValue | undefined) => boolean,
+  ): Promise<Artifact> {
     const read = async (file: string): Promise<Uint8Array> => {
       const mem = this.memory.get(file)
       if (mem !== undefined) return typeof mem === 'string' ? encoder.encode(mem) : mem
       if (!this.platform) throw new ShardError('assets/not-found', `Missing artifact ${file}`)
       return this.platform.fs.readBytes(`${this.cacheDir}/${file}`)
     }
-    const out: { bytes?: Uint8Array; json?: JsonValue } = {}
-    if (files.bytes) out.bytes = await read(files.bytes)
+    const out: { bytes?: Uint8Array; json?: JsonValue; url?: string } = {}
     if (files.json) out.json = JSON.parse(decoder.decode(await read(files.json)))
+    if (files.bytes) {
+      const url =
+        lazyBytes?.(out.json) && !this.memory.has(files.bytes)
+          ? this.platform?.fs.resolveUrl?.(`${this.cacheDir}/${files.bytes}`)
+          : undefined
+      if (url) out.url = url
+      else out.bytes = await read(files.bytes)
+    }
     return out
   }
 

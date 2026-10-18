@@ -95,12 +95,14 @@ export type AudioSourceValue = Infer<typeof AudioSource>
 
 export const AudioListener = defineTag('audio/AudioListener', {
   description:
-    'Where the player hears from: put it on the camera. The first one found is used; without one, the world origin looking down -Z.',
+    'Where the player hears from: put it on the camera. Use setAudioListener to select one; otherwise the lowest entity ID is used; without one, the world origin looking down -Z.',
   requires: [Transform],
 })
 
 /** One mixing bus. `parent` chains buses: a bus's gain is multiplied by its parent's. */
 export interface AudioBus {
+  /** False for authored return buses; player controls belong to ordinary category domains. */
+  userDomain?: boolean
   volume: number
   muted: boolean
   /** The bus it feeds; '' for the root (master). */
@@ -110,6 +112,8 @@ export interface AudioBus {
 }
 
 export interface AudioDuck {
+  tags?: readonly string[]
+  includeVirtual?: boolean
   /** How much of the gain is taken away while ducked: 0.3 plays at 70%. */
   by: number
   /** Seconds to go down once a trigger voice starts. */
@@ -135,6 +139,12 @@ export const AudioBuses = defineResource<AudioBusesValue>('audio/Buses', {
     voice: { volume: 1, muted: false, parent: 'master' },
   }),
 })
+
+/** Player-owned output controls, separate from scene/gameplay faders and snapshots. */
+export const AudioUserControls = defineResource<Record<string, { volume: number; muted: boolean }>>(
+  'audio/UserControls',
+  { init: () => ({}) },
+)
 
 export interface AudioFinishedData {
   /** The source's entity, or null for a one-shot from playSound. */

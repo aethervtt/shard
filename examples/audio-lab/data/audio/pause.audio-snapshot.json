@@ -1,0 +1,14 @@
+{
+  "attack": 0.1,
+  "release": 0.3,
+  "targets": [
+    {
+      "bus": "sfx",
+      "value": -24
+    },
+    {
+      "bus": "music",
+      "value": -9
+    }
+  ]
+}

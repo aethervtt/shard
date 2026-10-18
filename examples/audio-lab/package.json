@@ -1,0 +1,26 @@
+{
+  "name": "audio-lab",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "shard dev",
+    "check": "shard check",
+    "test": "shard test",
+    "preview": "shard audio preview plans/showcase.json --out captures/showcase.wav --json"
+  },
+  "dependencies": {
+    "@aethervtt/shard-assets": "workspace:*",
+    "@aethervtt/shard-audio": "workspace:*",
+    "@aethervtt/shard-cli": "workspace:*",
+    "@aethervtt/shard-core": "workspace:*",
+    "@aethervtt/shard-project": "workspace:*",
+    "@aethervtt/shard-runtime": "workspace:*",
+    "@aethervtt/shard-transform": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "@webgpu/types": "^0.1.74",
+    "typescript": "^7.0.2"
+  }
+}

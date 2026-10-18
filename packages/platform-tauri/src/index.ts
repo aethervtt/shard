@@ -31,6 +31,8 @@ export interface TauriPlatformOptions {
    * `<appDataDir>/<project>`. Default `<projectRoot>/.shard/user`.
    */
   dataDir?: string
+  /** Host-authorized media URL for a project artifact. The host grants its protocol scope first. */
+  mediaUrl?: (projectPath: string) => string
 }
 
 /** Storage as files under `dir`, through the fs plugin. Writes land in a temp file, then rename. */
@@ -83,6 +85,7 @@ export function createTauriPlatform(options: TauriPlatformOptions): Platform {
 
   const fs: PlatformFileSystem = {
     writable: true,
+    ...(options.mediaUrl ? { resolveUrl: options.mediaUrl } : {}),
     readText: (path) => readTextFile(resolve(path)),
     readBytes: (path) => readFile(resolve(path)),
     readRange: async (path, offset, length) => {

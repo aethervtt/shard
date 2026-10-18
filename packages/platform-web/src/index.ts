@@ -35,6 +35,7 @@ export function createWebPlatform(options: WebPlatformOptions = {}): Platform {
   }
 
   const fs: PlatformFileSystem = {
+    resolveUrl: (path) => new URL(path, baseUrl).href,
     writable: false,
     readText: async (path) => (await fetchOk(path)).text(),
     readBytes: async (path) => new Uint8Array(await (await fetchOk(path)).arrayBuffer()),
@@ -80,6 +81,12 @@ export function createWebPlatform(options: WebPlatformOptions = {}): Platform {
 }
 
 export { createWebAudioBackend, type WebAudioBackend } from './audio'
+export {
+  type AudioRenderPlan,
+  audioBufferWav,
+  measureAudioBuffer,
+  renderAudioPreview,
+} from './audio-preview'
 export { createDomInputSource, type DomInputOptions } from './input'
 export { createWebPerformance } from './performance'
 export { createIndexedDbStorage } from './storage'

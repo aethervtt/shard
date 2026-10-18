@@ -119,6 +119,12 @@ export const BUILTIN_PLUGINS = {
     'OrbitControls and MapControls on cameras, syncViews, PlaneDrag to drag entities along a plane, controls.describe (includes gestures, render/forward)',
   audio:
     'AudioSource, AudioListener, playSound, buses and ducking, spatial audio, voice limits (includes core/transform)',
+  'audio/events':
+    'Authored layered events, parameters, collections and prepared voice lifetimes (includes audio)',
+  'audio/mixer': 'Hierarchical effects, sends and composable snapshots (includes audio/events)',
+  'audio/acoustics':
+    'Listener reverb zones and bounded injected obstruction queries (includes audio/mixer)',
+  'audio/music': 'Prepared stems, beat/bar/marker transitions and stingers (includes audio/events)',
   ui: 'UiNode trees under a UiRoot: flexbox layout, text, images, buttons, sliders, text fields, world-anchored markers, themes (includes core/transform)',
   nav: 'navigation: NavGrid A* (2D), NavMesh baked by Recast from NavSource geometry, OffMeshLink, path queries, NavAgent steering (includes core/transform)',
   'nav/grid':

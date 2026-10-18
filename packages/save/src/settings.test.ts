@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { AudioBuses, audioPlugin } from '@aethervtt/shard-audio'
+import { AudioUserControls, audioPlugin, audioState, setBus } from '@aethervtt/shard-audio'
 import { t } from '@aethervtt/shard-core'
 import {
   addActions,
@@ -66,6 +66,17 @@ function frames(app: App, n: number): void {
 }
 
 describe('settings', () => {
+  it('keeps user silence independent from gameplay faders', async () => {
+    const app = await start(project()),
+      world = app.world
+    setSettings(world, EngineSettings, { volumes: { music: 0 } })
+    setBus(world, 'music', { volume: 1 })
+    app.update(0.1)
+    expect(world.resource(AudioUserControls).music!.volume).toBe(0)
+    expect(audioState(world).busGains.get('music')).toBe(0)
+    await app.dispose()
+  })
+
   it('persist across a restart: volumes, quality, rebindings, and project settings', async () => {
     const dir = project()
     let app = await start(dir)
@@ -77,7 +88,7 @@ describe('settings', () => {
     })
     setSettings(w, EngineSettings, { volumes: { music: 0.25 }, quality: 'low' })
     // Applied now, not at the next write.
-    expect(w.resource(AudioBuses).music!.volume).toBe(0.25)
+    expect(w.resource(AudioUserControls).music!.volume).toBe(0.25)
     expect(w.resource(LightingSettings)).toMatchObject({ cascadeMapSize: 1024, shadowMapSize: 512 })
     // Plain writes to the resource persist too, within half a second.
     w.resource(GameSettings).invertY = true
@@ -94,7 +105,7 @@ describe('settings', () => {
     app = await start(dir)
     w = app.world
     expect(w.resource(GameSettings).invertY).toBe(true)
-    expect(w.resource(AudioBuses).music!.volume).toBe(0.25)
+    expect(w.resource(AudioUserControls).music!.volume).toBe(0.25)
     expect(w.resource(LightingSettings).cascadeMapSize).toBe(1024)
     const controls = w.resource(Controls.resource)
     expect(controls.bindings('jump')).toEqual(['Key:KeyJ'])
@@ -123,7 +134,7 @@ describe('settings', () => {
     )
     let app = await start(dir)
     expect(app.world.resource(GameSettings)).toMatchObject({ difficulty: 'hard', sensitivity: 2 })
-    expect(app.world.resource(AudioBuses).sfx!.volume).toBe(0.5)
+    expect(app.world.resource(AudioUserControls).sfx!.volume).toBe(0.5)
     setSettings(app.world, GameSettings, { difficulty: 'easy' })
     await flushSettings(app.world)
     app = await start(dir)

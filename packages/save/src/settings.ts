@@ -1,4 +1,4 @@
-import { AudioBuses } from '@aethervtt/shard-audio'
+import { AudioBuses, setAudioUserBus } from '@aethervtt/shard-audio'
 import {
   type ComponentDef,
   type ComponentOptions,
@@ -314,7 +314,7 @@ export function applyEngineSettings(world: World, force = false): void {
       if (typeof v !== 'number' || state.volumes.get(bus) === v) continue
       state.volumes.set(bus, v)
       const b = buses[bus]
-      if (b) b.volume = Math.max(0, v)
+      if (b) setAudioUserBus(world, bus, { volume: Math.max(0, v) })
     }
   }
   if (settings.quality !== state.quality) {

@@ -1,0 +1,160 @@
+{
+  "$schema": "../.shard/schemas/audio-preview.schema.json",
+  "duration": 10,
+  "tailSeconds": 1,
+  "seed": 17,
+  "mixer": {
+    "path": "data/audio/main.audio-mixer.json"
+  },
+  "events": [
+    {
+      "id": "engine",
+      "asset": {
+        "path": "data/audio/engine.audio-event.json"
+      },
+      "position": [2, 0, -3]
+    },
+    {
+      "id": "step-stone",
+      "asset": {
+        "path": "data/audio/footstep.audio-event.json"
+      },
+      "at": 0.25,
+      "parameters": {
+        "surface": "stone"
+      }
+    },
+    {
+      "id": "step-wood",
+      "asset": {
+        "path": "data/audio/footstep.audio-event.json"
+      },
+      "at": 0.75,
+      "parameters": {
+        "surface": "wood"
+      }
+    },
+    {
+      "id": "spell",
+      "asset": {
+        "path": "data/audio/spell.audio-event.json"
+      },
+      "at": 1.2
+    }
+  ],
+  "music": [
+    {
+      "id": "score",
+      "asset": {
+        "path": "data/audio/score.audio-music.json"
+      }
+    }
+  ],
+  "controls": [
+    {
+      "at": 1,
+      "kind": "event.parameter",
+      "target": "engine",
+      "name": "rpm",
+      "value": 1
+    },
+    {
+      "at": 2,
+      "kind": "snapshot.acquire",
+      "target": "underwater",
+      "asset": {
+        "path": "data/audio/underwater.audio-snapshot.json"
+      }
+    },
+    {
+      "at": 3,
+      "kind": "music.parameter",
+      "target": "score",
+      "name": "intensity",
+      "value": 1
+    },
+    {
+      "at": 3.1,
+      "kind": "music.stinger",
+      "target": "score",
+      "name": "hit"
+    },
+    {
+      "at": 4,
+      "kind": "snapshot.release",
+      "target": "underwater"
+    },
+    {
+      "at": 4.2,
+      "kind": "snapshot.acquire",
+      "target": "dialogue",
+      "asset": {
+        "path": "data/audio/dialogue.audio-snapshot.json"
+      }
+    },
+    {
+      "at": 5,
+      "kind": "listener.position",
+      "position": [10, 0, 0]
+    },
+    {
+      "at": 5.5,
+      "kind": "event.position",
+      "target": "engine",
+      "position": [-2, 0, -3]
+    },
+    {
+      "at": 6,
+      "kind": "snapshot.release",
+      "target": "dialogue"
+    },
+    {
+      "at": 6.5,
+      "kind": "snapshot.acquire",
+      "target": "pause",
+      "asset": {
+        "path": "data/audio/pause.audio-snapshot.json"
+      }
+    },
+    {
+      "at": 6.6,
+      "kind": "transport.pause",
+      "value": true
+    },
+    {
+      "at": 7.4,
+      "kind": "transport.pause",
+      "value": false
+    },
+    {
+      "at": 7.5,
+      "kind": "snapshot.release",
+      "target": "pause"
+    },
+    {
+      "at": 8,
+      "kind": "music.parameter",
+      "target": "score",
+      "name": "intensity",
+      "value": 0
+    }
+  ],
+  "zones": [
+    {
+      "position": [0, 0, 0],
+      "zone": {
+        "shape": "box",
+        "halfExtents": [4, 3, 4],
+        "returnBus": "room"
+      }
+    },
+    {
+      "position": [10, 0, 0],
+      "zone": {
+        "shape": "box",
+        "halfExtents": [4, 3, 4],
+        "returnBus": "hall"
+      }
+    }
+  ]
+}

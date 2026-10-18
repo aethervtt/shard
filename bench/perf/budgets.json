@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "note": "Time budgets per named machine (machines.json), read by tests through budget(key) from @aethervtt/shard-core/test-env (spec 0075). Milliseconds unless an entry says otherwise with `in` (frames, ratio). Kinds: target (what the product wants), unit (cost per `per`, times the test's count), rate (`per` a second, a floor), guard (a measured value; the limit is value × (1 + margin), and pnpm bench --ratchet proposes lowering it when a run beats it by more than twice its margin). Every entry has a note: a change to a number is a diff with a reason.",
+  "note": "Time budgets per named machine (machines.json), read by tests through budget(key) from @aethervtt/shard-core/test-env (spec 0075). Milliseconds unless an entry says otherwise with `in` (frames, ratio). Kinds: target (what the product wants), unit (cost per `per`, times the test's count), rate (`per` a second, a floor), guard (a measured value; the limit is value \u00d7 (1 + margin), and pnpm bench --ratchet proposes lowering it when a run beats it by more than twice its margin). Every entry has a note: a change to a number is a diff with a reason.",
   "spans": {
     "animation/animators": {
       "kind": "target",
@@ -12,13 +12,13 @@
       "kind": "target",
       "laptop": 1,
       "desktop": 1,
-      "note": "0034: two-bone foot IK on 100 characters × 2 legs, median frame. animation/src/perf.test.ts."
+      "note": "0034: two-bone foot IK on 100 characters \u00d7 2 legs, median frame. animation/src/perf.test.ts."
     },
     "animation/sample": {
       "kind": "target",
       "laptop": 2,
       "desktop": 2,
-      "note": "0032: sampling 200 characters × 60 joints, median frame. animation/src/perf.test.ts."
+      "note": "0032: sampling 200 characters \u00d7 60 joints, median frame. animation/src/perf.test.ts."
     },
     "animation/skinned-frame": {
       "kind": "target",
@@ -32,6 +32,36 @@
       "laptop": 0.2,
       "desktop": 0.2,
       "note": "0014: a scan stats unchanged sources; 1,000 in under 200 ms. assets/src/assets.test.ts."
+    },
+    "audio/acoustics": {
+      "kind": "target",
+      "laptop": 0.2,
+      "desktop": 0.2,
+      "note": "0078: 64 physical voices, 32 zones and bounded fake transmission queries. Laptop/desktop targets are proposed. Actions on AMD EPYC 7763 measured 0.063960 ms at 1a3ddb2; see specs/research/audio-runtime-evidence.json (unknown-host timings, not named-machine enforcement)."
+    },
+    "audio/commands": {
+      "kind": "target",
+      "laptop": 0.2,
+      "desktop": 0.2,
+      "note": "0077: batch of 256 parameter changes on prepared instances. Laptop/desktop targets are proposed. Actions on AMD EPYC 7763 measured 0.089999 ms at 1a3ddb2; see specs/research/audio-runtime-evidence.json (unknown-host timings, not named-machine enforcement)."
+    },
+    "audio/events": {
+      "kind": "target",
+      "laptop": 0.2,
+      "desktop": 0.2,
+      "note": "0077: 128 sustained instances \u00d7 4 layers, 16 shared parameters; warmed engine evaluation. Laptop/desktop targets are proposed. Actions on AMD EPYC 7763 measured 0.192380 ms at 1a3ddb2; see specs/research/audio-runtime-evidence.json (unknown-host timings, not named-machine enforcement)."
+    },
+    "audio/mix": {
+      "kind": "target",
+      "laptop": 0.2,
+      "desktop": 0.2,
+      "note": "0078: 32 buses, 64 inserts and 16 blended snapshots; warmed control evaluation. Laptop/desktop targets are proposed. Actions on AMD EPYC 7763 measured 0.026229 ms at 1a3ddb2; see specs/research/audio-runtime-evidence.json (unknown-host timings, not named-machine enforcement)."
+    },
+    "audio/music-schedule": {
+      "kind": "target",
+      "laptop": 0.1,
+      "desktop": 0.1,
+      "note": "0079: 8 transports \u00d7 8 stems, 32 request replacements, warmed scheduler wakes; source changes measured separately. Laptop/desktop targets are proposed. Actions on AMD EPYC 7763 measured 0.012924 ms at 1a3ddb2; see specs/research/audio-runtime-evidence.json (unknown-host timings, not named-machine enforcement)."
     },
     "audio/update": {
       "kind": "target",
@@ -55,7 +85,7 @@
       "kind": "target",
       "laptop": 50,
       "desktop": 50,
-      "note": "0058: redrawing 4,000 regions × 1,000 points with every tessellation cached (GPU work only), one frame to the GPU finishing. fog/src/fog.test.ts."
+      "note": "0058: redrawing 4,000 regions \u00d7 1,000 points with every tessellation cached (GPU work only), one frame to the GPU finishing. fog/src/fog.test.ts."
     },
     "gizmos/draw": {
       "kind": "unit",
@@ -81,7 +111,7 @@
       "kind": "target",
       "laptop": 30,
       "desktop": 30,
-      "note": "0016: loading and uploading a 2048² texture with its mip chain. gltf/src/textured.test.ts."
+      "note": "0016: loading and uploading a 2048\u00b2 texture with its mip chain. gltf/src/textured.test.ts."
     },
     "gpu-webgl2/naga-load": {
       "kind": "target",
@@ -106,7 +136,7 @@
       "margin": 0.1,
       "laptop": 19.5,
       "desktop": 3,
-      "note": "0045: 2.2M grass blades in view within 60 m at 960×540, full density with no budget, GPU frame with the layer minus without (median): a regression guard, since in an app foliage adapts to its scatter-walk slice (FoliageBudget, 0075 part B). The laptop measured 18.49 ms in the first 0075 bench (2026-10-08), then 19.10, 19.67, 19.64, 19.77 and 20.37 ms in quiet reruns; part A, before foliage drew in a foliage/draw pass of its own, measured the same. About half is vertex work (12M vertices through the material's hooks) and half shading on overlapping blades; it was 70 ms before LODs and nearest-cascade shadows. Leads: compute each visible instance's transform once in the cull pass, and a simpler material for the farthest level. The desktop's 3 ms is 0045's number, not measured. scatter/src/bench.test.ts."
+      "note": "0045: 2.2M grass blades in view within 60 m at 960\u00d7540, full density with no budget, GPU frame with the layer minus without (median): a regression guard, since in an app foliage adapts to its scatter-walk slice (FoliageBudget, 0075 part B). The laptop measured 18.49 ms in the first 0075 bench (2026-10-08), then 19.10, 19.67, 19.64, 19.77 and 20.37 ms in quiet reruns; part A, before foliage drew in a foliage/draw pass of its own, measured the same. About half is vertex work (12M vertices through the material's hooks) and half shading on overlapping blades; it was 70 ms before LODs and nearest-cascade shadows. Leads: compute each visible instance's transform once in the cull pass, and a simpler material for the farthest level. The desktop's 3 ms is 0045's number, not measured. scatter/src/bench.test.ts."
     },
     "mirror/sync": {
       "kind": "target",
@@ -118,7 +148,7 @@
       "kind": "target",
       "laptop": 2,
       "desktop": 2,
-      "note": "0037: findPath on a 256×256 maze grid, median. nav/src/perf.test.ts."
+      "note": "0037: findPath on a 256\u00d7256 maze grid, median. nav/src/perf.test.ts."
     },
     "nav/grid-agents": {
       "kind": "target",
@@ -149,13 +179,13 @@
       "kind": "target",
       "laptop": 8,
       "desktop": 8,
-      "note": "0041: a 257² sphere patch of the planet graph on the worker pool, median after warm-up. noise/src/perf.test.ts."
+      "note": "0041: a 257\u00b2 sphere patch of the planet graph on the worker pool, median after warm-up. noise/src/perf.test.ts."
     },
     "noise/sphere-patch-main": {
       "kind": "target",
       "laptop": 0.2,
       "desktop": 0.2,
-      "note": "0041: the main thread's share of a 257² sphere patch on the pool. noise/src/perf.test.ts."
+      "note": "0041: the main thread's share of a 257\u00b2 sphere patch on the pool. noise/src/perf.test.ts."
     },
     "physics/bodies-5k": {
       "kind": "target",
@@ -255,7 +285,7 @@
       "in": "frames",
       "laptop": 2,
       "desktop": 25,
-      "note": "0041: frames from a noise graph edit to the re-rendered pixel. The desktop takes 11–25 (2026-09-29, the same at e1c56ec): it waits for one pipeline compile, about 370 ms on D3D12; two frames assume one under ~33 ms. That Dawn build found no Vulkan adapter, so D3D12 wasn't compared with Vulkan on the same GPU. render/src/noise.test.ts."
+      "note": "0041: frames from a noise graph edit to the re-rendered pixel. The desktop takes 11\u201325 (2026-09-29, the same at e1c56ec): it waits for one pipeline compile, about 370 ms on D3D12; two frames assume one under ~33 ms. That Dawn build found no Vulkan adapter, so D3D12 wasn't compared with Vulkan on the same GPU. render/src/noise.test.ts."
     },
     "scatter/foliage-cpu": {
       "kind": "target",
@@ -319,7 +349,7 @@
       "in": "ratio",
       "laptop": 1.1,
       "desktop": 1.1,
-      "note": "0069: GPU frame with 200 blocked lights over unblocked ones on the max fixture at 1280×720 (median of interleaved rounds). structure/src/interior-max.test.ts."
+      "note": "0069: GPU frame with 200 blocked lights over unblocked ones on the max fixture at 1280\u00d7720 (median of interleaved rounds). structure/src/interior-max.test.ts."
     },
     "structure/build-max": {
       "kind": "guard",
@@ -333,7 +363,7 @@
       "in": "ratio",
       "laptop": 1.12,
       "desktop": 1.05,
-      "note": "0070: GPU frame with 16 reveal points over none on the max fixture at 1280×720 (median of interleaved rounds); 0070 asks for +5%. The laptop measured +8–11% (2026-10-04), not measured on the desktop. With the points cutting nothing it's +1%; the rest is the cut chunks: a discard costs a tiled GPU its hidden-surface removal, so what's behind a cut wall is shaded too. Drawing those batches last didn't change it. Lead: draw the cut batches depth-only first, then everything at depthCompare 'equal' (needs @invariant clip positions in the core shaders). structure/src/cutaway.test.ts."
+      "note": "0070: GPU frame with 16 reveal points over none on the max fixture at 1280\u00d7720 (median of interleaved rounds); 0070 asks for +5%. The laptop measured +8\u201311% (2026-10-04), not measured on the desktop. With the points cutting nothing it's +1%; the rest is the cut chunks: a discard costs a tiled GPU its hidden-surface removal, so what's behind a cut wall is shaded too. Drawing those batches last didn't change it. Lead: draw the cut batches depth-only first, then everything at depthCompare 'equal' (needs @invariant clip positions in the core shaders). structure/src/cutaway.test.ts."
     },
     "structure/interior-rows": {
       "kind": "target",
@@ -364,7 +394,7 @@
       "margin": 0.25,
       "laptop": 1600,
       "desktop": 1600,
-      "note": "Building the latin-extended set (≈330 glyphs) and packing it. The limit (2 s) is 0025's number. text/src/font.test.ts."
+      "note": "Building the latin-extended set (\u2248330 glyphs) and packing it. The limit (2 s) is 0025's number. text/src/font.test.ts."
     },
     "text/import-font": {
       "kind": "guard",
@@ -392,7 +422,7 @@
       "margin": 0.25,
       "laptop": 1200,
       "desktop": 1200,
-      "note": "Importing a 2048² PNG with mipmaps. The limit (1.5 s) is 0016's number. texture/src/texture.test.ts."
+      "note": "Importing a 2048\u00b2 PNG with mipmaps. The limit (1.5 s) is 0016's number. texture/src/texture.test.ts."
     },
     "ui/layout": {
       "kind": "guard",
@@ -421,7 +451,16 @@
       "resolution": [1920, 1080],
       "renderScale": 1,
       "fps": 120,
-      "frame": { "gpu": { "laptop": 8.3, "desktop": 8.3 }, "cpu": { "laptop": 4, "desktop": 4 } },
+      "frame": {
+        "gpu": {
+          "laptop": 8.3,
+          "desktop": 8.3
+        },
+        "cpu": {
+          "laptop": 4,
+          "desktop": 4
+        }
+      },
       "slices": {
         "gpu": {
           "gpu:prepass": 0.05,
@@ -433,7 +472,10 @@
           "gpu:tonemap": 0.09,
           "headroom": 0.45
         },
-        "cpu": { "render": 0.99, "headroom": 0.01 }
+        "cpu": {
+          "render": 0.99,
+          "headroom": 0.01
+        }
       },
       "note": "Shares from three laptop benches of the scenario (2026-10-08, render/src/post-stack.test.ts), each slice the worst measured share rounded up, headroom the rest. GPU frame p95 7.27, 6.49 and 6.55 ms; GPU slices by ablation (the laptop's passTiming), less their noise: post 1.08, 1.30 and 1.30 ms, tonemap 0.23, 0.53 and 0, prepass 0.33, 0.27 and 0, ssao up to 0.57, shadows up to 0.20, atmosphere up to 0.33; forward-opaque measured 0-0.03, so 0.03 is proposed. Ablation here is noisy (tonemap's raw p95 read 0.97 ms in one run and 0 in the next). CPU frame p95 1.78-1.90 ms, render 97-98% of it: headless, the render systems are the frame. In Chrome on the laptop the same scene at 1920x1080 holds 120 Hz (gpu:frame p50 4.13 ms, no missed vsync over 600 frames; scripts/post-baseline.mjs); at the panel's native 3024x1964 it doesn't (gpu:frame p50 9.36 ms, frame interval p50 12.1 ms). The desktop is unmeasured. Keys cover the spans the path records, none twice: gpu:prepass, gpu:ssao (gtao and upsample), gpu:forward-opaque, gpu:shadows (cascade0-3), gpu:atmosphere (sky-view, aerial, sky), gpu:post (atmosphere, fog, taa, motion-blur, dof*, bloom*, exposure), gpu:tonemap; instance-cull and light-clusters fall in headroom. CPU: render (render systems and node encodes)."
     },
@@ -576,7 +618,13 @@
         }
       },
       "note": "Shares from the laptop's first 0075 bench (2026-10-08), each the measured share of the frame rounded up, headroom the rest: GPU by ablation gpu:forward-opaque 1.16 ms and gpu:shadows 1.61 ms of a 7.54 ms frame, gpu:instance-cull and gpu:tonemap 0 (under ablation's resolution: 0.02 and 0.01 are proposed); CPU render 2.94 ms of a 3.44 ms frame. The desktop is unmeasured. Keys cover the spans the turntable records (render/src/crowd.test.ts), none twice: gpu:forward-opaque, gpu:shadows (cascade0-3), gpu:instance-cull (0022's cull pass), gpu:tonemap; light-clusters falls in headroom. CPU: render (render systems and node encodes). Re-runs (2026-10-08, main and the post-stack branch alike) measured render 0.888 and 0.895 of the frame, so its share is 0.9; gpu:tonemap, 0 on one run and 0.39 ms by ablation on the next (sub-millisecond: noise), has a 0.5 ms floor on the laptop, as scatter-walk's small slices do.",
-      "overrides": { "laptop": { "gpu": { "gpu:tonemap": 0.5 } } }
+      "overrides": {
+        "laptop": {
+          "gpu": {
+            "gpu:tonemap": 0.5
+          }
+        }
+      }
     },
     "tabletop-max": {
       "what": "0055's max structure fixture",

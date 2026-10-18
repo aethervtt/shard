@@ -1,0 +1,66 @@
+{
+  "mode": "sustain",
+  "blocked": "wait",
+  "parameters": [
+    {
+      "name": "rpm",
+      "min": 0,
+      "max": 1,
+      "smooth": 0.15
+    }
+  ],
+  "layers": [
+    {
+      "id": "low",
+      "loop": true,
+      "spatial": true,
+      "minDistance": 2,
+      "maxDistance": 30,
+      "choices": [
+        {
+          "clip": {
+            "path": "assets/sfx/engine-low.wav"
+          }
+        }
+      ],
+      "curves": [
+        {
+          "parameter": "rpm",
+          "property": "gainDb",
+          "points": [[0, 0], [1, -60]]
+        },
+        {
+          "parameter": "rpm",
+          "property": "pitchSemitones",
+          "points": [[0, 0], [1, 12]]
+        }
+      ]
+    },
+    {
+      "id": "high",
+      "loop": true,
+      "spatial": true,
+      "minDistance": 2,
+      "maxDistance": 30,
+      "choices": [
+        {
+          "clip": {
+            "path": "assets/sfx/engine-high.wav"
+          }
+        }
+      ],
+      "curves": [
+        {
+          "parameter": "rpm",
+          "property": "gainDb",
+          "points": [[0, -60], [1, 0]]
+        },
+        {
+          "parameter": "rpm",
+          "property": "pitchSemitones",
+          "points": [[0, 0], [1, 12]]
+        }
+      ]
+    }
+  ]
+}

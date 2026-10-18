@@ -10,6 +10,7 @@ import {
   type World,
 } from '@aethervtt/shard-core'
 import type {
+  AudioAutomation,
   AudioBackend,
   AudioDistanceModel,
   AudioPanningModel,
@@ -26,10 +27,12 @@ import {
   AudioFinished,
   AudioListener,
   AudioSource,
+  AudioUserControls,
   PANNING_MODELS,
   ROLLOFF_MODELS,
 } from './components'
 import { HeadlessAudioBackend } from './headless'
+import { audioNumber, audioRange } from './validation'
 
 // --- state -------------------------------------------------------------------------------------
 
@@ -76,6 +79,14 @@ export interface Voice {
   fresh: boolean
   /** The backend's id while it holds a real voice; -1 otherwise. */
   backend: number
+  sentBus: string
+  sentLoop: boolean
+  sentSpatial: AudioSpatialDesc | null
+  /** Event layers own their sample cursor and can survive physical voice stealing. */
+  tags: readonly string[] | null
+  managed: boolean
+  suppressed: boolean
+  virtualizable: boolean
   /** Last frame a source loop saw its entity (entity voices only). */
   seen: number
   // Computed each frame.
@@ -84,6 +95,17 @@ export interface Voice {
   distanceGain: number
   pan: number
   rate: number
+  sends: { target: string; gain: number; sent: number }[] | null
+  lowpass: number
+  highpass: number
+  acousticLowpass: number
+  sentLowpass: number
+  sentHighpass: number
+  filterCommand: AudioAutomation
+  acousticGain: number
+  transmission: number
+  acousticTarget: number
+  acousticAt: number
   occlusion: number
   spatialDesc: AudioSpatialDesc | null
   /** Mixed on master because its bus doesn't exist. */
@@ -110,6 +132,8 @@ export interface AudioLogEntry {
 }
 
 export interface AudioConfigValue {
+  /** Explicit listener; null selects the lowest live listener entity ID. */
+  listener: Entity | null
   /** Real voices at once, across all clips. */
   maxVoices: number
   /** Real voices of one clip at once. */
@@ -132,7 +156,13 @@ export interface AudioConfigValue {
 export const AudioConfig = defineResource<AudioConfigValue>('audio/Config', {
   description:
     'Voice limits (maxVoices 64, maxVoicesPerClip 8), speed of sound, and the occlusion hook.',
-  init: () => ({ maxVoices: 64, maxVoicesPerClip: 8, speedOfSound: 343, occlusion: null }),
+  init: () => ({
+    listener: null,
+    maxVoices: 64,
+    maxVoicesPerClip: 8,
+    speedOfSound: 343,
+    occlusion: null,
+  }),
 })
 
 export interface AudioStateValue {
@@ -141,6 +171,7 @@ export interface AudioStateValue {
   byEntity: Map<Entity, Voice>
   nextId: number
   log: AudioLogEntry[]
+  voiceTrace: AudioVoiceTrace
   /** Log entries dropped from the front (the log keeps the last LOG_LIMIT). */
   logOffset: number
   listener: Float64Array
@@ -158,9 +189,9 @@ export interface AudioStateValue {
   /** Unknown buses already reported. */
   reported: Set<string>
   // Scratch for voice limits.
-  ranked: Voice[]
+  ranked: (Voice | null)[]
   /** Per clip: [stamp, count], reset lazily by stamp (Map.clear would allocate every frame). */
-  clipCounts: Map<AudioClipAsset, Int32Array>
+  clipCounts: WeakMap<AudioClipAsset, Int32Array>
   countStamp: number
   /** Voices ended since the last compaction. */
   ended: number
@@ -170,18 +201,61 @@ export interface AudioStateValue {
 
 const LOG_LIMIT = 4096
 
+/** Packed legacy telemetry; only inspection constructs records and position tuples. */
+export class AudioVoiceTrace {
+  next = 0
+  readonly numeric = new Float64Array(LOG_LIMIT * 8)
+  readonly events: AudioLogEntry['event'][] = new Array(LOG_LIMIT).fill('start')
+  readonly clips: (string | null)[] = new Array(LOG_LIMIT).fill(null)
+  readonly paths: (string | null)[] = new Array(LOG_LIMIT).fill(null)
+  readonly buses: string[] = new Array(LOG_LIMIT).fill('')
+  readonly reasons: AudioLogEntry['reason'][] = new Array(LOG_LIMIT).fill(undefined)
+  readonly entities: (Entity | null)[] = new Array(LOG_LIMIT).fill(null)
+  readonly spatial = new Uint8Array(LOG_LIMIT)
+  read(cursor = 0) {
+    const oldestCursor = Math.max(0, this.next - LOG_LIMIT),
+      entries: AudioLogEntry[] = []
+    for (let i = Math.max(cursor, oldestCursor); i < this.next; i++) {
+      const slot = i % LOG_LIMIT,
+        n = slot * 8
+      entries.push({
+        frame: this.numeric[n]!,
+        voice: this.numeric[n + 1]!,
+        event: this.events[slot]!,
+        clip: this.clips[slot]!,
+        path: this.paths[slot]!,
+        bus: this.buses[slot]!,
+        entity: this.entities[slot]!,
+        position: this.spatial[slot]
+          ? [this.numeric[n + 2]!, this.numeric[n + 3]!, this.numeric[n + 4]!]
+          : null,
+        gain: this.numeric[n + 5]!,
+        pan: this.numeric[n + 6]!,
+        ...(this.reasons[slot] ? { reason: this.reasons[slot] } : {}),
+      })
+    }
+    return { entries, oldestCursor, nextCursor: this.next, truncated: cursor < oldestCursor }
+  }
+}
+
 export const AudioState = defineResource<AudioStateValue>('audio/State', {
   description: 'Voices, the backend, bus gains, and the audio log. Internal: use audio.describe.',
 })
 
 export function createAudioState(backend: AudioBackend, rng = new Rng(0)): AudioStateValue {
+  const voiceTrace = new AudioVoiceTrace()
   return {
     backend,
     voices: [],
     byEntity: new Map(),
     nextId: 1,
-    log: [],
-    logOffset: 0,
+    voiceTrace,
+    get log() {
+      return voiceTrace.read().entries
+    },
+    get logOffset() {
+      return Math.max(0, voiceTrace.next - LOG_LIMIT)
+    },
     listener: new Float64Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]),
     listenerEntity: null,
     listenerPrev: new Float64Array(3),
@@ -193,7 +267,7 @@ export function createAudioState(backend: AudioBackend, rng = new Rng(0)): Audio
     frame: 0,
     reported: new Set(),
     ranked: [],
-    clipCounts: new Map(),
+    clipCounts: new WeakMap(),
     countStamp: 0,
     ended: 0,
     rng,
@@ -254,12 +328,30 @@ export function newVoice(state: AudioStateValue, entity: Entity | null, frame: n
     state: 'pending',
     fresh: false,
     backend: -1,
+    sentBus: '',
+    sentLoop: false,
+    sentSpatial: null,
+    tags: null,
+    managed: false,
+    suppressed: false,
+    virtualizable: false,
     seen: frame,
     gain: 0,
     distance: 0,
     distanceGain: 1,
     pan: 0,
     rate: 1,
+    sends: null,
+    lowpass: 20000,
+    highpass: 0,
+    acousticLowpass: 20000,
+    sentLowpass: Number.NaN,
+    sentHighpass: Number.NaN,
+    filterCommand: { property: 'lowpass', at: 0, value: 20000, duration: 0.01 },
+    acousticGain: 1,
+    transmission: 1,
+    acousticTarget: 1,
+    acousticAt: -1e9,
     occlusion: 1,
     spatialDesc: null,
     busMissing: false,
@@ -286,25 +378,23 @@ function record(
   event: AudioLogEntry['event'],
   reason?: AudioLogEntry['reason'],
 ): void {
-  const entry: AudioLogEntry = {
-    frame: state.frame,
-    event,
-    voice: voice.id,
-    clip: clipLabel(voice),
-    entity: voice.entity,
-    path: scenePath(world, voice.entity),
-    bus: voice.bus,
-    position: voice.spatial ? [voice.x, voice.y, voice.z] : null,
-    gain: voice.gain,
-    pan: voice.pan,
-  }
-  if (reason) entry.reason = reason
-  state.log.push(entry)
-  if (state.log.length > LOG_LIMIT) {
-    const drop = state.log.length - LOG_LIMIT
-    state.log.splice(0, drop)
-    state.logOffset += drop
-  }
+  const trace = state.voiceTrace,
+    slot = trace.next++ % LOG_LIMIT,
+    n = slot * 8
+  trace.numeric[n] = state.frame
+  trace.numeric[n + 1] = voice.id
+  trace.numeric[n + 2] = voice.x
+  trace.numeric[n + 3] = voice.y
+  trace.numeric[n + 4] = voice.z
+  trace.numeric[n + 5] = voice.gain
+  trace.numeric[n + 6] = voice.pan
+  trace.events[slot] = event
+  trace.clips[slot] = clipLabel(voice)
+  trace.entities[slot] = voice.entity
+  trace.paths[slot] = scenePath(world, voice.entity)
+  trace.buses[slot] = voice.bus
+  trace.reasons[slot] = reason
+  trace.spatial[slot] = voice.spatial ? 1 : 0
 }
 
 /** Ends a voice: stops its backend voice and logs why (voices never started just disappear). */
@@ -373,19 +463,41 @@ export function busOf(
 function busGain(
   buses: Record<string, Partial<AudioBus>>,
   ducks: Map<string, number>,
+  users: Record<string, { volume: number; muted: boolean }>,
   name: string,
   out: Float64Array,
 ): void {
   let gain = 1
   let current = name
-  // Parents chain up to master; the depth cap stops a cycle.
-  for (let depth = 0; depth < 16 && current !== ''; depth++) {
+  // Floyd's algorithm detects cycles without allocating a visited set each frame.
+  let fast = name
+  for (;;) {
+    current = busParent(buses, current)
+    fast = busParent(buses, busParent(buses, fast))
+    if (!current || !fast) break
+    if (current === fast) {
+      throw new ShardError('audio/bus-cycle', `Bus ${name} contains a parent cycle`, {
+        path: `/buses/${name}/parent`,
+        hint: 'Route every bus to master without a cycle.',
+      })
+    }
+  }
+  current = name
+  while (current !== '') {
     const b = buses[current]
-    if (!b) break
-    gain *= (b.muted ? 0 : (b.volume ?? 1)) * (ducks.get(current) ?? 1)
+    if (!b) throw unknownBus(current, buses)
+    audioNumber(b.volume ?? 1, 'bus.volume')
+    const user = users[current]
+    gain *=
+      (b.muted || user?.muted ? 0 : (b.volume ?? 1) * (user?.volume ?? 1)) *
+      (ducks.get(current) ?? 1)
     current = b.parent ?? (current === 'master' ? '' : 'master')
   }
   out[0] = gain
+}
+
+function busParent(buses: Record<string, Partial<AudioBus>>, name: string): string {
+  return name === '' ? '' : (buses[name]?.parent ?? (name === 'master' ? '' : 'master'))
 }
 
 function spatialDescOf(voice: Voice): AudioSpatialDesc | null {
@@ -432,8 +544,33 @@ function clipCount(state: AudioStateValue, clip: AudioClipAsset): number {
 }
 
 /** Higher priority first; then louder; then newer (older voices are stolen first). */
-function rank(a: Voice, b: Voice): number {
-  return b.priority - a.priority || b.gain - a.gain || b.id - a.id
+function worse(a: Voice, b: Voice): boolean {
+  return (
+    a.priority < b.priority ||
+    (a.priority === b.priority && (a.gain < b.gain || (a.gain === b.gain && a.id < b.id)))
+  )
+}
+
+/** In-place heapsort avoids Array.sort's temporary merge storage at high voice counts. */
+function rankVoices(voices: (Voice | null)[], count: number): void {
+  for (let start = (count >> 1) - 1; start >= 0; start--) siftVoices(voices, start, count)
+  for (let end = count - 1; end > 0; end--) {
+    const first = voices[0]!
+    voices[0] = voices[end]!
+    voices[end] = first
+    siftVoices(voices, 0, end)
+  }
+}
+function siftVoices(voices: (Voice | null)[], root: number, end: number): void {
+  const value = voices[root]!
+  while (root * 2 + 1 < end) {
+    let child = root * 2 + 1
+    if (child + 1 < end && worse(voices[child + 1]!, voices[child]!)) child++
+    if (!worse(voices[child]!, value)) break
+    voices[root] = voices[child]!
+    root = child
+  }
+  voices[root] = value
 }
 
 /** Scratch for numbers computed out of line (a returned double would be boxed). */
@@ -464,24 +601,35 @@ export const updateAudio = defineSystem({
     const frame = time.frame
     state.frame = frame
 
-    // Listener: the first AudioListener, else the origin.
+    // Explicit listener selection is independent of archetype/query order.
     const L = state.listener
-    const prevX = L[3]!
-    const prevY = L[7]!
-    const prevZ = L[11]!
+    const prevX = L[3]!,
+      prevY = L[7]!,
+      prevZ = L[11]!
     let listenerEntity: Entity | null = null
     let listenerChanged = false
-    for (let t = 0; t < listeners.tables.length && listenerEntity === null; t++) {
+    for (let t = 0; t < listeners.tables.length; t++) {
       const table = listeners.tables[t]!
-      if (table.count === 0) continue
-      listenerEntity = table.entities[0]!
-      const m = table.column(GlobalTransform, 'matrix')
-      for (let i = 0; i < 12; i++) {
-        if (L[i] !== m[i]) {
-          L[i] = m[i]!
+      for (let row = 0; row < table.count; row++) {
+        const entity = table.entities[row]!
+        if (
+          config.listener !== null
+            ? entity !== config.listener
+            : listenerEntity !== null && entity >= listenerEntity
+        )
+          continue
+        listenerEntity = entity
+      }
+    }
+    if (listenerEntity !== null) {
+      const table = world.entityTableUnchecked(listenerEntity)
+      const m = table.column(GlobalTransform, 'matrix'),
+        row = world.entityRowUnchecked(listenerEntity) * 12
+      for (let i = 0; i < 12; i++)
+        if (L[i] !== m[row + i]) {
+          L[i] = m[row + i]!
           listenerChanged = true
         }
-      }
     }
     if (listenerEntity === null && state.listenerEntity !== null) {
       L.fill(0)
@@ -555,6 +703,19 @@ export const updateAudio = defineSystem({
           state.voices.push(voice)
           state.byEntity.set(entity, voice)
         }
+        if (
+          voice.volume !== volume[row]! * voice.volumeScale ||
+          voice.pitch !== pitch[row]! * voice.pitchScale ||
+          voice.minDistance !== minD[row] ||
+          voice.maxDistance !== maxD[row] ||
+          voice.rolloffFactor !== factor[row]
+        ) {
+          audioNumber(volume[row]!, 'volume')
+          audioNumber(pitch[row]!, 'pitch', 0.01, 16)
+          audioNumber(minD[row]!, 'minDistance')
+          audioNumber(maxD[row]!, 'maxDistance', minD[row]!)
+          audioNumber(factor[row]!, 'rolloffFactor')
+        }
         voice.seen = frame
         voice.bus = (busCol[row] as string | undefined) || 'sfx'
         voice.volume = volume[row]! * voice.volumeScale
@@ -603,13 +764,15 @@ export const updateAudio = defineSystem({
       }
       // Advance clip time by last frame's rate.
       const clip = voice.clip!
-      voice.time += dt * voice.rate
-      voice.elapsed += dt
+      if (!voice.managed) {
+        voice.time += dt * voice.rate
+        voice.elapsed += dt
+      }
       const end =
         voice.loop && clip.loopEnd > 0 ? Math.min(clip.loopEnd, clip.duration) : clip.duration
+      const start = clip.loopEnd > 0 && clip.loopStart < end ? clip.loopStart : 0
       if (voice.time >= end - 1e-6) {
         if (voice.loop) {
-          const start = clip.loopEnd > 0 && clip.loopStart < end ? clip.loopStart : 0
           const span = end - start
           voice.time = span > 0 ? start + ((voice.time - end) % span) : start
         } else {
@@ -630,7 +793,28 @@ export const updateAudio = defineSystem({
       let triggered = false
       for (let i = 0; i < voices.length && !triggered; i++) {
         const v = voices[i]!
-        if (!isEnded(v) && v.state !== 'pending' && when.includes(v.bus)) triggered = true
+        if (isEnded(v) || v.state === 'pending' || v.suppressed) continue
+        if (
+          !duck.includeVirtual &&
+          (v.state === 'virtual' ||
+            v.backend < 0 ||
+            (backend.runtime && backend.runtime.presentation(v.backend)?.state !== 'rendering'))
+        )
+          continue
+        let sourceBus = v.bus
+        for (let depth = 0; depth < 64 && sourceBus; depth++) {
+          if (when.includes(sourceBus)) {
+            triggered = true
+            break
+          }
+          sourceBus = buses[sourceBus]?.parent ?? (sourceBus === 'master' ? '' : 'master')
+        }
+        if (!triggered && v.tags && duck.tags)
+          for (let tag = 0; tag < duck.tags.length; tag++)
+            if (v.tags.includes(duck.tags[tag]!)) {
+              triggered = true
+              break
+            }
       }
       const by = Math.min(1, Math.max(0, duck.by ?? 0.5))
       const floor = 1 - by
@@ -644,7 +828,7 @@ export const updateAudio = defineSystem({
       state.duckLevels.set(name, level)
     }
     for (const name in buses) {
-      busGain(buses, state.duckLevels, name, num)
+      busGain(buses, state.duckLevels, world.resource(AudioUserControls), name, num)
       const gain = num[0]!
       state.busGains.set(name, gain)
       if (state.busSent.get(name) !== gain) {
@@ -681,14 +865,18 @@ export const updateAudio = defineSystem({
       voice.py = voice.y
       voice.pz = voice.z
       voice.rate = rate
-      voice.gain = voice.volume * voice.occlusion * busG * voice.distanceGain
+      voice.gain = voice.volume * voice.occlusion * voice.acousticGain * busG * voice.distanceGain
       // Past the distance where it's silent: keep time, hold no voice.
-      voice.state = voice.spatial && voice.distanceGain <= 0 ? 'virtual' : 'active'
+      voice.state =
+        voice.suppressed || (voice.spatial && voice.distanceGain <= 0) ? 'virtual' : 'active'
       if (voice.state === 'active') audible++
     }
 
     // Voice limits: highest priority, then loudest, keep a real voice.
-    const maxVoices = config.maxVoices
+    let ownVoices = 0
+    for (let i = 0; i < voices.length; i++) if (voices[i]!.backend >= 0) ownVoices++
+    const externalVoices = Math.max(0, (backend.runtime?.activeVoices ?? ownVoices) - ownVoices)
+    const maxVoices = Math.max(0, config.maxVoices - externalVoices)
     const perClip = config.maxVoicesPerClip
     state.countStamp++
     let overClip = false
@@ -699,22 +887,23 @@ export const updateAudio = defineSystem({
     }
     if (audible > maxVoices || overClip) {
       const ranked = state.ranked
-      ranked.length = 0
+      let rankCount = 0
       for (let i = 0; i < voices.length; i++) {
         const v = voices[i]!
-        if (!isEnded(v) && v.state === 'active') ranked.push(v)
+        if (!isEnded(v) && v.state === 'active') ranked[rankCount++] = v
       }
-      ranked.sort(rank)
+      for (let i = rankCount; i < ranked.length; i++) ranked[i] = null
+      rankVoices(ranked, rankCount)
       state.countStamp++
       let real = 0
-      for (let i = 0; i < ranked.length; i++) {
+      for (let i = 0; i < rankCount; i++) {
         const v = ranked[i]!
         if (real < maxVoices && clipCount(state, v.clip!) < perClip) {
           real++
           bumpClip(state, v.clip!)
           continue
         }
-        if (v.entity !== null) {
+        if (v.entity !== null || v.virtualizable) {
           v.state = 'virtual'
         } else if (v.fresh) {
           record(world, state, v, 'dropped', 'voice-limit')
@@ -722,16 +911,30 @@ export const updateAudio = defineSystem({
           state.ended++
           v.id = -v.id
         } else {
-          endVoice(world, state, v, 'stolen', 0.02)
+          endVoice(world, state, v, 'stolen', 0)
         }
       }
-      ranked.length = 0
     }
 
+    // Release virtualized slots before admitting replacements, including fades in the hard cap.
+    for (let i = 0; i < voices.length; i++) {
+      const voice = voices[i]!
+      if (voice.state === 'virtual' && voice.backend >= 0) {
+        backend.stop(voice.backend, 0)
+        voice.backend = -1
+      }
+    }
     // Log starts, then drive the backend.
     for (let i = 0; i < voices.length; i++) {
       const voice = voices[i]!
       if (isEnded(voice) || voice.state === 'pending') continue
+      if (voice.backend >= 0) {
+        const presentation = backend.runtime?.presentation(voice.backend)
+        if (presentation?.state === 'failed' || presentation?.state === 'ended') {
+          endVoice(world, state, voice, presentation.state === 'ended' ? 'ended' : 'stopped', 0)
+          continue
+        }
+      }
       if (voice.fresh) {
         record(world, state, voice, 'start')
         voice.fresh = false
@@ -743,26 +946,95 @@ export const updateAudio = defineSystem({
         }
         continue
       }
-      params.gain = voice.volume * voice.occlusion
+      params.gain = voice.volume * voice.occlusion * voice.acousticGain
       params.pitch = voice.rate
       params.x = voice.x
       params.y = voice.y
       params.z = voice.z
-      if (voice.backend === -1) {
-        voice.backend = backend.play({
+      const spatialDesc = spatialDescOf(voice)
+      const targetBus = voice.busMissing ? 'master' : voice.bus
+      if (
+        voice.backend !== -1 &&
+        (voice.sentBus !== targetBus ||
+          voice.sentLoop !== voice.loop ||
+          voice.sentSpatial !== spatialDesc)
+      ) {
+        const applied = backend.runtime?.reconfigure(voice.backend, {
           clip: voice.clip!,
-          bus: voice.busMissing ? 'master' : voice.bus,
+          sends: voice.sends ?? undefined,
+          bus: targetBus,
           loop: voice.loop,
           offset: voice.time,
-          spatial: spatialDescOf(voice),
+          spatial: spatialDesc,
           gain: params.gain,
           pitch: params.pitch,
           x: params.x,
           y: params.y,
           z: params.z,
         })
+        if (!applied) {
+          // A legacy backend can preserve phase by recreating only the physical voice.
+          backend.stop(voice.backend, 0)
+          voice.backend = -1
+        }
+        voice.sentBus = targetBus
+        voice.sentLoop = voice.loop
+        voice.sentSpatial = spatialDesc
+      }
+      if (voice.backend === -1) {
+        voice.backend = backend.play({
+          clip: voice.clip!,
+          sends: voice.sends ?? undefined,
+          bus: targetBus,
+          loop: voice.loop,
+          offset: voice.time,
+          spatial: spatialDesc,
+          gain: params.gain,
+          pitch: params.pitch,
+          x: params.x,
+          y: params.y,
+          z: params.z,
+        })
+        voice.sentBus = targetBus
+        voice.sentLoop = voice.loop
+        voice.sentSpatial = spatialDesc
+        if (voice.sends)
+          for (let j = 0; j < voice.sends.length; j++) voice.sends[j]!.sent = Number.NaN
+        voice.sentLowpass = Number.NaN
+        voice.sentHighpass = Number.NaN
       } else {
         backend.update(voice.backend, params)
+      }
+      const runtime = backend.runtime
+      if (runtime && voice.sends)
+        for (let j = 0; j < voice.sends.length; j++) {
+          const send = voice.sends[j]!
+          if (send.sent !== send.gain) {
+            runtime.setVoiceSend(
+              voice.backend,
+              send.target,
+              send.gain,
+              Number.isNaN(send.sent) ? 0 : 0.01,
+            )
+            send.sent = send.gain
+          }
+        }
+      if (runtime?.capabilities.automation) {
+        const lowpass = Math.min(voice.lowpass, voice.acousticLowpass),
+          command = voice.filterCommand
+        command.at = runtime.clock.now()
+        if (voice.sentLowpass !== lowpass) {
+          command.property = 'lowpass'
+          command.value = lowpass
+          runtime.automate(voice.backend, command)
+          voice.sentLowpass = lowpass
+        }
+        if (voice.sentHighpass !== voice.highpass) {
+          command.property = 'highpass'
+          command.value = voice.highpass
+          runtime.automate(voice.backend, command)
+          voice.sentHighpass = voice.highpass
+        }
       }
     }
 
@@ -781,12 +1053,12 @@ export const updateAudio = defineSystem({
 
 const DEFAULT_DUCK_TRIGGER = ['voice']
 
-/** A factor from a source's [min, max] column (either order; [1, 1] is off). */
+/** A factor from a validated source range; [1, 1] is off. */
 function rangeFactor(rng: Rng, column: ArrayLike<number>, row: number, log: boolean): number {
   const a = column[row * 2]!
   const b = column[row * 2 + 1]!
-  const min = Math.max(log ? 0.01 : 0, Math.min(a, b))
-  return pickInRange(rng, min, Math.max(min, a, b), log)
+  audioRange(a, b, log, log ? 'pitchRandom' : 'volumeRandom')
+  return pickInRange(rng, a, b, log)
 }
 
 function sameClip(a: AssetRef | null, b: AssetRef | null | undefined): boolean {

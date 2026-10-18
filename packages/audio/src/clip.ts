@@ -2,6 +2,7 @@ import { AssetStore, defineAssetType, defineImporter } from '@aethervtt/shard-as
 import { defineResource, defineSchema, type JsonValue, ShardError, t } from '@aethervtt/shard-core'
 import type { AudioClipSource } from '@aethervtt/shard-platform'
 import { type AudioCodec, probeAudio } from './formats'
+import { audioLoop } from './validation'
 
 export const AudioImportSettings = defineSchema(
   'audio/ImportSettings',
@@ -51,10 +52,11 @@ interface ClipJson {
 }
 
 export const AudioClipAssetType = defineAssetType<AudioClipAsset>('AudioClip', {
+  lazyBytes: (json) => (json as unknown as ClipJson)?.mode === 'stream',
   store: AudioClips,
   load: (artifact, ctx) => {
     const json = artifact.json as unknown as ClipJson
-    if (!artifact.bytes) {
+    if (!artifact.bytes && !artifact.url) {
       throw new ShardError('audio/decode-failed', `${ctx.path}: the artifact has no audio bytes`, {
         hint: 'Re-import the file (shard import --json).',
         path: ctx.path,
@@ -63,7 +65,8 @@ export const AudioClipAssetType = defineAssetType<AudioClipAsset>('AudioClip', {
     return {
       id: ctx.guid,
       codec: json.codec,
-      bytes: artifact.bytes,
+      bytes: artifact.bytes ?? new Uint8Array(0),
+      url: artifact.url,
       duration: json.duration,
       channels: json.channels,
       sampleRate: json.sampleRate,
@@ -90,6 +93,7 @@ export function audioClip(
   } = {},
 ): AudioClipAsset {
   const info = probeAudio(bytes, options.id)
+  audioLoop(options.loopStart ?? 0, options.loopEnd ?? 0, info.duration)
   return {
     id: options.id ?? 'mem:audioclip',
     codec: info.codec,
@@ -123,6 +127,7 @@ export const AudioImporter = defineImporter({
       loopEnd: number
     }
     const info = probeAudio(source.bytes, source.path)
+    audioLoop(settings.loopStart, settings.loopEnd, info.duration)
     if (info.codec === 'opus') {
       ctx.warn(
         "Opus doesn't decode in Safari before 18.4 (macOS and iOS); use Ogg Vorbis or MP3 if the game targets them.",

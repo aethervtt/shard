@@ -55,7 +55,11 @@ async function measure(sources: number) {
   for (let f = 0; f < 300; f++) step(f)
   ;(globalThis as { gc?: () => void }).gc?.()
   await new Promise((resolve) => setTimeout(resolve, 200))
+  // Exercise full loop wraps after V8 installs optimized code. Profiling showed that a
+  // first-wrap deopt after the former warmup allocated despite zero steady-state allocation.
+  for (let f = 0; f < 3000; f++) step(f)
   const times = new Float64Array(300)
+  ;(globalThis as { gc?: () => void }).gc?.()
   const gcs = gcWindow()
   for (let f = 0; f < times.length; f++) {
     const t0 = performance.now()

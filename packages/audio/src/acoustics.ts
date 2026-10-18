@@ -1,0 +1,423 @@
+import {
+  defineResource,
+  defineSystem,
+  type Entity,
+  PostUpdate,
+  ShardError,
+  type World,
+} from '@aethervtt/shard-core'
+import { definePlugin, Time } from '@aethervtt/shard-runtime'
+import { GlobalTransform } from '@aethervtt/shard-transform'
+import { AudioInspectors } from './inspection'
+import { AudioMixState, updateAudioMix } from './mix'
+import { AudioConfig, audioState, updateAudio } from './mixer'
+import { sampleAudioCurve, validateCurve } from './parameters'
+import { audioNumber } from './validation'
+
+import { ReverbZone } from './zone'
+
+export { ReverbZone } from './zone'
+
+export type AcousticQuery = (from: Float64Array, to: Float64Array, out: Float64Array) => void
+interface ZoneRecord {
+  entity: Entity | null
+  bus: string
+  weight: number
+  priority: number
+  indoor: boolean
+}
+interface ZoneSlot {
+  entity: Entity | null
+  bus: string
+  weight: number
+  target: number
+  pending: Entity | null
+  pendingBus: string
+  pendingWeight: number
+  from: number
+  elapsed: number
+  fadeTarget: number
+}
+export interface AudioAcousticsValue {
+  gainCurve: Float64Array
+  lowpassCurve: Float64Array
+  query: AcousticQuery | null
+  maxQueries: number
+  interval: number
+  zones: ZoneRecord[]
+  count: number
+  discarded: number
+  slots: ZoneSlot[]
+  from: Float64Array
+  to: Float64Array
+  result: Float64Array
+  queries: number
+  graphRevision: number
+  managedReturns: Set<string>
+  buses: string[]
+  time: number
+}
+export const AudioAcoustics = defineResource<AudioAcousticsValue>('audio/Acoustics')
+
+/** Influence outside an axis-aligned box or sphere; one inside, continuous over the exterior blend. */
+export function audioZoneInfluence(
+  shape: 'box' | 'sphere',
+  x: number,
+  y: number,
+  z: number,
+  radius: number,
+  hx: number,
+  hy: number,
+  hz: number,
+  blend: number,
+): number {
+  let distance: number
+  if (shape === 'sphere') distance = Math.max(0, Math.sqrt(x * x + y * y + z * z) - radius)
+  else {
+    const dx = Math.max(0, Math.abs(x) - hx),
+      dy = Math.max(0, Math.abs(y) - hy),
+      dz = Math.max(0, Math.abs(z) - hz)
+    distance = Math.sqrt(dx * dx + dy * dy + dz * dz)
+  }
+  return distance === 0 ? 1 : blend > 0 ? Math.max(0, 1 - distance / blend) : 0
+}
+
+export function updateZoneSlots(state: AudioAcousticsValue, delta: number): void {
+  // Priority bands consume remaining influence; equal-priority zones normalize together.
+  let remaining = 1,
+    start = 0
+  while (start < state.count) {
+    let end = start,
+      sum = 0
+    while (end < state.count && state.zones[end]!.priority === state.zones[start]!.priority)
+      sum += state.zones[end++]!.weight
+    const scale = remaining / Math.max(1, sum)
+    for (let i = start; i < end; i++) state.zones[i]!.weight *= scale
+    remaining *= Math.max(0, 1 - sum)
+    start = end
+  }
+  // Stable insertion sort, allocated records are reused.
+  for (let i = 1; i < state.count; i++) {
+    const zone = state.zones[i]!
+    let j = i
+    while (
+      j > 0 &&
+      (state.zones[j - 1]!.weight < zone.weight ||
+        (state.zones[j - 1]!.weight === zone.weight && state.zones[j - 1]!.entity! > zone.entity!))
+    ) {
+      state.zones[j] = state.zones[j - 1]!
+      j--
+    }
+    state.zones[j] = zone
+  }
+  for (let i = 0; i < state.slots.length; i++) {
+    const slot = state.slots[i]!
+    let current = 0
+    for (let z = 0; z < state.count; z++)
+      if (state.zones[z]!.entity === slot.entity) {
+        current = state.zones[z]!.weight
+        break
+      }
+    slot.target = current
+    if (slot.pending !== null) {
+      slot.pendingWeight = 0
+      for (let z = 0; z < state.count; z++)
+        if (state.zones[z]!.entity === slot.pending) slot.pendingWeight = state.zones[z]!.weight
+      if (slot.pendingWeight === 0) {
+        slot.pending = null
+        slot.pendingBus = ''
+      }
+    }
+  }
+  for (let z = 0; z < Math.min(4, state.count); z++) {
+    const zone = state.zones[z]!
+    if (zone.weight <= 0) continue
+    let assigned = false,
+      weakest = -1
+    for (let i = 0; i < 4; i++) {
+      const slot = state.slots[i]!
+      if (slot.entity === zone.entity || slot.pending === zone.entity) assigned = true
+      if (slot.pending === null && (weakest < 0 || slot.target < state.slots[weakest]!.target))
+        weakest = i
+    }
+    if (assigned || weakest < 0) continue
+    const slot = state.slots[weakest]!
+    if (slot.entity === null || zone.weight > slot.target + 0.05) {
+      slot.pending = zone.entity
+      slot.pendingBus = zone.bus
+      slot.pendingWeight = zone.weight
+    }
+  }
+  for (let i = 0; i < 4; i++) {
+    const slot = state.slots[i]!,
+      target = slot.pending !== null ? 0 : slot.target
+    if (target !== slot.fadeTarget) {
+      slot.from = slot.weight
+      slot.elapsed = 0
+      slot.fadeTarget = target
+    }
+    slot.elapsed = Math.min(0.1, slot.elapsed + delta)
+    slot.weight = slot.from + (target - slot.from) * (slot.elapsed / 0.1)
+    if (slot.weight === 0) {
+      if (slot.pending !== null) {
+        slot.entity = slot.pending
+        slot.bus = slot.pendingBus
+        slot.target = slot.pendingWeight
+        slot.pending = null
+        slot.pendingBus = ''
+      } else if (slot.target === 0) {
+        slot.entity = null
+        slot.bus = ''
+      }
+    }
+  }
+  state.discarded = Math.max(0, state.count - 4)
+}
+
+export const updateAudioAcoustics = defineSystem({
+  name: 'audio/acoustics',
+  setup: (world) => ({ zones: world.query({ with: [ReverbZone, GlobalTransform] }) }),
+  run: ({ zones }, world) => {
+    const state = world.resource(AudioAcoustics),
+      audio = audioState(world),
+      delta = world.resource(Time).delta
+    state.time += delta
+    state.count = 0
+    const revision = world.resource(AudioMixState).revision
+    if (state.graphRevision !== revision) {
+      state.managedReturns.clear()
+      state.graphRevision = revision
+    }
+    for (let t = 0; t < zones.tables.length; t++) {
+      const table = zones.tables[t]!,
+        matrix = table.column(GlobalTransform, 'matrix')
+      const shape = table.column(ReverbZone, 'shape'),
+        radius = table.column(ReverbZone, 'radius'),
+        extents = table.column(ReverbZone, 'halfExtents')
+      const blend = table.column(ReverbZone, 'blendDistance'),
+        buses = table.column(ReverbZone, 'returnBus'),
+        wet = table.column(ReverbZone, 'wet')
+      const priority = table.column(ReverbZone, 'priority'),
+        indoor = table.column(ReverbZone, 'indoor')
+      for (let r = 0; r < table.count; r++) {
+        const m = r * 12,
+          e = r * 3
+        const weight =
+          audioZoneInfluence(
+            shape[r] === 0 ? 'sphere' : 'box',
+            audio.listener[3]! - matrix[m + 3]!,
+            audio.listener[7]! - matrix[m + 7]!,
+            audio.listener[11]! - matrix[m + 11]!,
+            radius[r]!,
+            extents[e]!,
+            extents[e + 1]!,
+            extents[e + 2]!,
+            blend[r]!,
+          ) * wet[r]!
+        if (state.count >= state.zones.length)
+          throw new ShardError('audio/invalid-zone', 'Zone capacity exceeded')
+        const preparedBuses = world.resource(AudioMixState).graph?.buses
+        let validReturn = false
+        if (preparedBuses)
+          for (let b = 0; b < preparedBuses.length; b++)
+            if (preparedBuses[b]!.id === buses[r] && preparedBuses[b]!.return) validReturn = true
+        if (!preparedBuses) continue
+        if (!validReturn)
+          throw new ShardError(
+            'audio/invalid-zone',
+            `Zone return ${buses[r]} is not a prepared return bus`,
+          )
+        state.managedReturns.add(buses[r]!)
+        if (weight <= 0) continue
+        const zone = state.zones[state.count++]!
+        zone.entity = table.entities[r]!
+        zone.bus = buses[r]!
+        zone.weight = weight
+        zone.priority = priority[r]!
+        zone.indoor = !!indoor[r]
+      }
+    }
+    for (let i = 1; i < state.count; i++) {
+      const zone = state.zones[i]!
+      let j = i
+      while (
+        j > 0 &&
+        (state.zones[j - 1]!.priority < zone.priority ||
+          (state.zones[j - 1]!.priority === zone.priority &&
+            state.zones[j - 1]!.entity! > zone.entity!))
+      ) {
+        state.zones[j] = state.zones[j - 1]!
+        j--
+      }
+      state.zones[j] = zone
+    }
+    updateZoneSlots(state, delta)
+    const mix = world.resource(AudioMixState)
+    for (let i = 0; i < mix.fields.length; i++) {
+      const field = mix.fields[i]!
+      if (
+        !field.field.startsWith('send/') ||
+        !state.buses.includes(field.bus) ||
+        !state.managedReturns.has(field.sendTarget)
+      )
+        continue
+      let weight = 0
+      for (let s = 0; s < 4; s++)
+        if (field.sendTarget === state.slots[s]!.bus) weight += state.slots[s]!.weight
+      field.factor = Math.min(1, weight)
+    }
+    updateAudioMix(world, 0)
+    state.queries = 0
+    if (state.query) {
+      // Oldest query first, then loudest and stable voice ID; no sort or per-query allocation.
+      for (let q = 0; q < state.maxQueries; q++) {
+        let best = -1
+        for (let i = 0; i < audio.voices.length; i++) {
+          const voice = audio.voices[i]!
+          if (
+            voice.id <= 0 ||
+            voice.backend < 0 ||
+            !voice.spatial ||
+            state.time - voice.acousticAt < state.interval
+          )
+            continue
+          const previous = best < 0 ? null : audio.voices[best]!
+          if (
+            !previous ||
+            voice.acousticAt < previous.acousticAt ||
+            (voice.acousticAt === previous.acousticAt &&
+              (voice.gain > previous.gain ||
+                (voice.gain === previous.gain && voice.id < previous.id)))
+          )
+            best = i
+        }
+        if (best < 0) break
+        const voice = audio.voices[best]!
+        state.from[0] = voice.x
+        state.from[1] = voice.y
+        state.from[2] = voice.z
+        state.to[0] = audio.listener[3]!
+        state.to[1] = audio.listener[7]!
+        state.to[2] = audio.listener[11]!
+        state.result[0] = 1
+        state.query(state.from, state.to, state.result)
+        audioNumber(state.result[0]!, 'transmission', 0, 1)
+        voice.acousticTarget = state.result[0]!
+        voice.acousticAt = state.time
+        state.queries++
+      }
+    }
+    for (let i = 0; i < audio.voices.length; i++) {
+      const voice = audio.voices[i]!
+      const target = state.query && voice.spatial ? voice.acousticTarget : 1
+      voice.transmission +=
+        (target - voice.transmission) *
+        (1 - Math.exp(-delta / (target < voice.transmission ? 0.05 : 0.2)))
+      sampleAudioCurve(state.gainCurve, voice.transmission, state.result, 0)
+      voice.acousticGain = state.query ? 10 ** (state.result[0]! / 20) : 1
+      if (Math.abs(target - voice.transmission) < 1e-7) voice.transmission = target
+      sampleAudioCurve(state.lowpassCurve, voice.transmission, state.result, 0)
+      voice.acousticLowpass = state.query && voice.spatial ? Math.exp(state.result[0]!) : 20000
+    }
+  },
+})
+
+export function describeAudioAcoustics(world: World) {
+  const state = world.resource(AudioAcoustics)
+  return {
+    provider: !!state.query,
+    queries: state.queries,
+    maxQueries: state.maxQueries,
+    discarded: state.discarded,
+    zones: state.zones.slice(0, state.count),
+    slots: state.slots,
+    voices: audioState(world)
+      .voices.filter((v) => v.id > 0 && v.spatial)
+      .map((v) => ({ id: v.id, transmission: v.transmission, age: state.time - v.acousticAt })),
+  }
+}
+export function audioAcousticsPlugin(
+  options: {
+    query?: AcousticQuery
+    maxQueriesPerFrame?: number
+    maxZones?: number
+    buses?: string[]
+    gainCurve?: readonly (readonly [number, number])[]
+    lowpassCurve?: readonly (readonly [number, number])[]
+  } = {},
+) {
+  return definePlugin({
+    name: 'audio/acoustics',
+    dependencies: ['audio/mixer'],
+    provides: [{ ReverbZone, AudioAcoustics }],
+    build(app) {
+      app.world.initResource(AudioInspectors).set('acoustics', describeAudioAcoustics)
+      const maxQueries = options.maxQueriesPerFrame ?? 16,
+        maxZones = options.maxZones ?? 128
+      audioNumber(maxQueries, 'maxQueriesPerFrame', 0, 512)
+      audioNumber(maxZones, 'maxZones', 4, 4096)
+      if (options.query && app.world.resource(AudioConfig).occlusion)
+        throw new ShardError(
+          'audio/invalid-effect',
+          'Choose either acoustic queries or the legacy occlusion callback',
+        )
+      const gainCurve = options.gainCurve ?? [
+        [0, -18],
+        [1, 0],
+      ]
+      const lowpassCurve = options.lowpassCurve ?? [
+        [0, 800],
+        [1, 20000],
+      ]
+      validateCurve(gainCurve, 'gainCurve')
+      validateCurve(lowpassCurve, 'lowpassCurve')
+      for (const point of gainCurve) {
+        audioNumber(point[0], 'gainCurve/x', 0, 1)
+        audioNumber(point[1], 'gainCurve/y', -120, 24)
+      }
+      for (const point of lowpassCurve) {
+        audioNumber(point[0], 'lowpassCurve/x', 0, 1)
+        audioNumber(point[1], 'lowpassCurve/y', 10, 24000)
+      }
+      app.world.insertResource(AudioAcoustics, {
+        gainCurve: new Float64Array(gainCurve.flat()),
+        lowpassCurve: new Float64Array(
+          lowpassCurve.flatMap((point) => [point[0], Math.log(point[1]!)]),
+        ),
+        query: options.query ?? null,
+        maxQueries,
+        interval: 0.1,
+        zones: Array.from({ length: maxZones }, () => ({
+          entity: null,
+          bus: '',
+          weight: 0,
+          priority: 0,
+          indoor: false,
+        })),
+        count: 0,
+        discarded: 0,
+        slots: Array.from({ length: 4 }, () => ({
+          entity: null,
+          bus: '',
+          weight: 0,
+          target: 0,
+          pending: null,
+          pendingBus: '',
+          pendingWeight: 0,
+          from: 0,
+          elapsed: 0,
+          fadeTarget: 0,
+        })),
+        from: new Float64Array(3),
+        to: new Float64Array(3),
+        result: new Float64Array(1),
+        queries: 0,
+        buses: options.buses ?? ['sfx', 'ambience', 'voice'],
+        graphRevision: -1,
+        managedReturns: new Set<string>(),
+        time: 0,
+      })
+      app.addSystems(PostUpdate, updateAudioAcoustics.after(updateAudio))
+    },
+  })
+}
