@@ -113,6 +113,20 @@ async function click(expression) {
     }
   }, `Click ${expression}`)
 }
+async function sendKeys(expression, text) {
+  await until(async () => {
+    const id = await element(expression)
+    try {
+      // Native Element Send Keys focuses the editable control before typing. This also
+      // avoids WebKitGTK element-click interception on the visible numeric field.
+      await request(`/session/${session}/element/${id}/value`, { text })
+      return true
+    } catch (error) {
+      if (String(error).includes('stale element reference')) return false
+      throw error
+    }
+  }, `Type ${expression}`)
+}
 try {
   console.info('Native WebDriver: waiting for driver readiness')
   await until(() => request('/status', undefined, 'GET'), 'Driver startup')
@@ -141,29 +155,9 @@ try {
   console.info('Native WebDriver: editing', name)
   await click(`[...${root}.querySelectorAll('[role=tab]')].find(e=>e.textContent==='Event')`)
   await click(`${root}.querySelector('details[data-group="/layers/0"] > summary')`)
-  await click(`${root}.querySelector('[data-path="/layers/0/gainDb"]')`)
   // Clear dispatches change immediately in WebKitGTK, replacing the field before sendKeys.
   // Real keyboard replacement commits once on Tab and never retains a stale element ID.
-  await request(`/session/${session}/actions`, {
-    actions: [
-      {
-        type: 'key',
-        id: 'editor-keyboard',
-        actions: [
-          { type: 'keyDown', value: '\uE009' },
-          { type: 'keyDown', value: 'a' },
-          { type: 'keyUp', value: 'a' },
-          { type: 'keyUp', value: '\uE009' },
-          { type: 'keyDown', value: '-' },
-          { type: 'keyUp', value: '-' },
-          { type: 'keyDown', value: '6' },
-          { type: 'keyUp', value: '6' },
-          { type: 'keyDown', value: '\uE004' },
-          { type: 'keyUp', value: '\uE004' },
-        ],
-      },
-    ],
-  })
+  await sendKeys(`${root}.querySelector('[data-path="/layers/0/gainDb"]')`, '\uE009a\uE000-6\uE004')
   await click(`[...${root}.querySelectorAll('button')].find(e=>e.textContent==='Save')`)
   await until(
     () => execute(`return ${root}.querySelector('[role=status]').textContent.startsWith('Saved')`),
@@ -176,23 +170,29 @@ try {
   await until(
     () =>
       execute(
-        `return ${root}.querySelector('[role=status]').textContent.includes('Preview: playing')`,
+        `return ${root}.querySelector('[role=status]').textContent.includes('Preview request: playing')`,
       ),
     'Native audition',
   )
   await click(`[...${root}.querySelectorAll('[role=tab]')].find(e=>e.textContent==='Diagnostics')`)
-  await click(
-    `[...${root}.querySelectorAll('button')].find(e=>e.textContent==='Refresh preview inspection')`,
-  )
   const rendering = await until(async () => {
+    await click(
+      `[...${root}.querySelectorAll('button')].find(e=>e.textContent==='Refresh preview inspection')`,
+    )
     const json = await execute(`return ${root}.querySelector('pre')?.textContent`)
-    return json ? JSON.parse(json) : undefined
+    if (!json) return undefined
+    const inspection = JSON.parse(json)
+    return inspection.context === 'running' &&
+      inspection.voices?.some((voice) => voice.presentation?.state === 'rendering')
+      ? inspection
+      : undefined
   }, 'Native rendering inspection')
   assert.equal(rendering.context, 'running')
   assert.ok(
     rendering.voices.some((voice) => voice.presentation?.state === 'rendering'),
     'Native Web Audio must report a rendering voice',
   )
+  console.info('Native WebDriver: running audio context and rendering voice verified')
   const capabilities = await execute(
     'return {userAgent:navigator.userAgent,audioContext:typeof AudioContext!=="undefined",offlineAudioContext:typeof OfflineAudioContext!=="undefined",studioWebview:true}',
   )
@@ -212,10 +212,15 @@ try {
     'Reopened document',
   )
   await click(`[...${root}.querySelectorAll('[role=tab]')].find(e=>e.textContent==='Event')`)
+  await click(`${root}.querySelector('details[data-group="/layers/0"] > summary')`)
   assert.equal(
-    await execute(`return ${root}.querySelector('[data-path="/layers/0/gainDb"]').value`),
+    await until(
+      () => execute(`return ${root}.querySelector('[data-path="/layers/0/gainDb"]')?.value`),
+      'Reopened gain field',
+    ),
     '-6',
   )
+  console.info('Native WebDriver: persisted gain reopened; auditing screen-reader focus')
   await writeFile(
     resolve(evidence, 'studio-webview.json'),
     JSON.stringify(
@@ -235,8 +240,7 @@ try {
   if (reader) {
     // Give Orca observable, settled focus targets after the persistence journey. Wait for
     // actual speech generation, not a fixed delay or an ARIA-only proxy for narration.
-    await click(`${root}.querySelector('details[data-group="/layers/0"] > summary')`)
-    await click(`${root}.querySelector('[data-path="/layers/0/gainDb"]')`)
+    await sendKeys(`${root}.querySelector('[data-path="/layers/0/gainDb"]')`, '\uE009a\uE000')
     const announced = async (pattern) => {
       const debug = await readFile(resolve(evidence, 'orca-debug.log'), 'utf8')
       return debug.split('\n').some((line) => /SPEECH OUTPUT/i.test(line) && pattern.test(line))
