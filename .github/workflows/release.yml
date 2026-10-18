@@ -2,7 +2,7 @@ name: Release
 
 # Publishes every @aethervtt/shard-* package to npm when a version tag is pushed (spec 0056).
 # The tag must match the root package.json version: `git tag v0.0.1 && git push origin v0.0.1`.
-# Needs an npm automation token for the @aethervtt org in the NPM_TOKEN repository secret.
+# Needs an npm publishing token for the @aethervtt org in the NPM_TOKEN repository secret.
 
 on:
   push:
@@ -17,7 +17,7 @@ jobs:
   publish:
     name: Check, pack, publish
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
@@ -55,6 +55,13 @@ jobs:
       # Builds every package, then installs the tarballs in bench/consumer outside the workspace,
       # typechecks, builds with Vite and Bun, and runs a headless frame.
       - run: pnpm release --check
+
+      - name: Preserve validated packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-${{ github.ref_name }}-${{ github.sha }}
+          path: dist-release/tarballs/*.tgz
+          if-no-files-found: error
 
       - name: Publish
         run: |
