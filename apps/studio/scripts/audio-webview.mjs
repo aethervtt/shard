@@ -29,6 +29,18 @@ if (process.env.SHARD_SCREEN_READER === '1') {
     'true',
   ])
   await new Promise((done) => settings.on('exit', done))
+  const readerData = resolve(evidence, 'orca-data')
+  await mkdir(resolve(readerData, 'orca'), { recursive: true })
+  // Orca 46's diagnostic writer does not flush each line. Its supported customization
+  // hook runs while loading settings, after --debug-file has initialized debugFile.
+  // Configure only transport buffering; speech generation and log contents stay untouched.
+  // https://github.com/GNOME/orca/blob/ORCA_46_1/src/orca/debug.py
+  await writeFile(
+    resolve(readerData, 'orca/orca-customizations.py'),
+    'from orca import debug\n' +
+      'assert debug.debugFile is not None, "Orca debug output must initialize before settings"\n' +
+      'debug.debugFile.reconfigure(line_buffering=True, write_through=True)\n',
+  )
   reader = spawn(
     'orca',
     [
@@ -37,7 +49,11 @@ if (process.env.SHARD_SCREEN_READER === '1') {
       '--debug',
       `--debug-file=${resolve(evidence, 'orca-debug.log')}`,
     ],
-    { stdio: ['ignore', 'pipe', 'pipe'], detached: true },
+    {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: true,
+      env: { ...process.env, XDG_DATA_HOME: readerData },
+    },
   )
   reader.stdout.on('data', (chunk) => {
     readerOutput += chunk
@@ -45,8 +61,14 @@ if (process.env.SHARD_SCREEN_READER === '1') {
   reader.stderr.on('data', (chunk) => {
     readerOutput += chunk
   })
-  // Allow the AT-SPI registry and speech dispatcher to initialize before the native window.
-  await new Promise((done) => setTimeout(done, 1500))
+  // Verify the actual hook succeeded and AT-SPI is listening before starting the app.
+  await until(async () => {
+    const debug = await readFile(resolve(evidence, 'orca-debug.log'), 'utf8')
+    return (
+      debug.includes('orca-customizations.py succeeded.') &&
+      debug.includes('Starting Atspi main event loop')
+    )
+  }, 'Orca line-buffered diagnostic setup')
 }
 const driver = spawn('tauri-driver', [], { stdio: ['ignore', 'pipe', 'pipe'], detached: true })
 let logs = ''
@@ -144,6 +166,23 @@ async function focusField(path) {
     await keys(stroke('\uE004'))
   }
   throw new Error(`Keyboard could not reach ${path}; last focus ${JSON.stringify(focused)}`)
+}
+async function focusButton(name) {
+  for (let step = 0; step < 100; step++) {
+    if (
+      await execute(
+        `return ${root}.activeElement?.tagName==='BUTTON'&&${root}.activeElement.textContent===arguments[0]`,
+        [name],
+      )
+    )
+      return
+    await keys([
+      { type: 'keyDown', value: '\uE008' },
+      ...stroke('\uE004'),
+      { type: 'keyUp', value: '\uE008' },
+    ])
+  }
+  throw new Error(`Keyboard could not reach ${name}`)
 }
 try {
   console.info('Native WebDriver: waiting for driver readiness')
@@ -298,15 +337,13 @@ try {
       return debug.split('\n').some((line) => /SPEECH OUTPUT/i.test(line) && pattern.test(line))
     }
     await until(() => announced(/\bGain\b/i), 'Orca gain-field announcement')
-    await click(`[...${root}.querySelectorAll('button')].find(e=>e.textContent==='Play')`)
-    await until(
-      () =>
-        execute(
-          `return ${root}.activeElement?.textContent==='Play'&&${root}.querySelector('[role=status]').textContent.includes('Preview request: playing')`,
-        ),
-      'Settled playback-control focus',
-    )
-    nativeKeys('shift+Tab', 'Tab')
+    // Audit a stable, idle toolbar. Actual audio rendering was already verified above;
+    // starting another audition here would replace accessibility objects during narration.
+    await focusButton('Play')
+    nativeKeys('shift+Tab')
+    assert.equal(await execute(`return ${root}.activeElement?.textContent`), 'Save')
+    await until(() => announced(/\bSave\b/i), 'Orca neighboring save-control announcement')
+    nativeKeys('Tab')
     assert.equal(
       await execute(`return ${root}.activeElement?.textContent`),
       'Play',
@@ -329,7 +366,7 @@ try {
           screenReader: 'Orca',
           nativeHost: 'WebKitGTK / Tauri',
           method:
-            'Recorded Orca speech generation during verified native WebDriver focus and XTest keyboard navigation',
+            'Recorded Orca speech generation during verified native WebDriver focus and XTest keyboard navigation; diagnostic output is line-buffered',
           utterances: editorAnnouncements,
           coverage,
           totalSpeechLines: announcements.length,
