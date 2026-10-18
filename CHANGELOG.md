@@ -5,8 +5,8 @@ patch releases preserve compatibility. Apps and examples are not published.
 
 ## 0.2.1
 
-- Preserve the text package's reference to its bundled `opentype.js` declarations in emitted
-  `.d.ts` files. Strict TypeScript consumers of text, dice, cards, and related APIs no longer need
+- Preserve and relocate the text package's reference to its bundled `opentype.js` declarations
+  in emitted `.d.ts` files. Strict TypeScript consumers of text, dice, cards, and related APIs no longer need
   to supply an additional ambient declaration (0056).
 - Expand the packed consumer's declaration check to cover audio, the audio editor and preview,
   cards, dice, effects, scatter, and text, in addition to the renderer example (0056).
