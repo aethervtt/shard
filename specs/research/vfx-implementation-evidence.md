@@ -11,7 +11,7 @@ It is not a visual authoring editor.
 |---|---|
 | Bounded ribbon history | `packages/render/src/vfx.test.ts`: ring capacity, duplicate samples, lifetime expiry, pause, stop/drain, teleport reset, resizing, component removal |
 | Attachments and origin | Parent/bone transforms, archetype migration, translated trail history, isolated worlds; receiver and projector origin translation preserves decal UVs and relative placement |
-| Beams | Seeded displacement with fixed endpoints, live target updates and removal, local polylines, duplicate segments, invalid width curves, initially paused geometry |
+| Beams | Seeded displacement with fixed endpoints, live target updates and removal (including paused beams), local polylines, duplicate segments, invalid width curves, initially paused geometry and origin-shift preservation |
 | Decal projection | Six independent half-space clipping tests; finite geometry/UVs; angled box faces; back-face rejection; masks, transforms, visibility, mesh versions, singular transforms and invalid size |
 | Bounds and diagnostics | 256 trail/beam records, 64 projectors, output/input triangle limits, invalid direct component capacities, unsupported skinned receivers; no partial mark on overflow |
 | Sequence ownership | `packages/effects/src/visual.test.ts`: activation intervals, endpoint bindings, pause including draining trails, overlap rejection, skipped windows, dead endpoint failure, owned cleanup and borrowed target preservation |
@@ -71,6 +71,14 @@ CI runs playground build, `pnpm size --check`, `pnpm release --check`, shader id
 workspace typecheck/lint, Linux/Windows correctness and browser regressions.
 The PR must pass every gate on its final revision before merge.
 
+The renderer comparison exercised **228 base tests and 239 PR tests**, with **112 shader variants,
+zero changed and zero missing** ([verified job](https://github.com/aethervtt/shard/actions/runs/39148507227/job/117737179535)).
+The [VFX validation workflow](https://github.com/aethervtt/shard/actions/runs/39149937733) also
+passed build, size, consumer release, browser and performance gates after the CI environment fixes.
+The authoritative final revision check matrix is attached to [PR #31](https://github.com/aethervtt/shard/pull/31/checks).
+The final closeout additionally tests paused endpoint deletion and paused beam origin shifts,
+and gives the browser VFX test its repository-relative weight key for correct CI distribution.
+
 Compared with the previously merged run, full-plugin JavaScript grew **3716.5 → 3722.6 KiB**
 Brotli. The full budget increases by **7 KiB**, corresponding to the added optional features.
 Minimal renderer JavaScript grew **164.2 → 164.8 KiB** from schemas/feature warnings and remains
@@ -90,6 +98,8 @@ Plugin-reachability coverage explicitly includes both optional VFX plugins.
 A cold full-suite run timed out the existing Star Explorer scatter gameplay test while it shared
 its runner with CPU-heavy software-GPU terrain suites. CI now runs gameplay examples serially
 on a separate runner; no planet implementation, test assertion or timeout was changed.
+The isolated cold run passed all examples, with that scatter assertion completing in **7.274 s**
+([job evidence](https://github.com/aethervtt/shard/actions/runs/39149937775/job/117741317174)).
 
 ## Product boundaries
 

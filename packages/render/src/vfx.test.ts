@@ -125,11 +125,13 @@ it('builds seeded beams with live targets, polylines, duplicate points and curve
   w.set(target, Transform, { translation: [4, 2, 0] })
   app.update(0)
   expect(r.points[40]).toBe(4)
+  w.set(entity, Beam, { paused: true })
   w.despawn(target)
   app.update(0)
   expect(r.error).toBe('render/beam-target')
   expect(r.count).toBe(0)
   w.set(entity, Beam, {
+    paused: false,
     points: [
       [0, 0, 0],
       [0, 0, 0],
@@ -255,6 +257,10 @@ it('initializes paused beams and enforces world record limits', async () => {
   w.set(beam, Transform, { translation: [9, 0, 0] })
   app.update(1)
   expect(first.vertices).toEqual(geometry)
+  shiftRibbons(w, -100, 0, 0)
+  app.update(0)
+  expect(first.points[0]).toBe(-100)
+  expect(first.vertices[0]).toBe(-100)
   for (let i = 0; i < 256; i++) w.spawn(Trail)
   for (let i = 0; i < 65; i++) w.spawn(Decal)
   app.update(0)

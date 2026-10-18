@@ -1,6 +1,6 @@
 # 0083 — Projected decals on rigid meshes
 
-- **Status:** draft (implementation authorized in this session)
+- **Status:** implemented
 - **Packages:** `@aethervtt/shard-render`, effects, project, playground
 - **Depends on:** 0020, 0056, 0061, 0064, 0081, 0082
 
@@ -80,15 +80,15 @@ Project authoring documentation explains receiver masks, projection direction an
 
 ## Acceptance criteria
 
-- [ ] Projection clips against all six planes with finite UVs/positions; orientation, transforms,
+- [x] Projection clips against all six planes with finite UVs/positions; orientation, transforms,
   receiver masks, angle rejection, unsupported meshes and budget overflow have headless tests.
-- [ ] Cached geometry rebuilds only when inputs change; removal/hiding, fade, pause, origin shifts
+- [x] Cached geometry rebuilds only when inputs change; removal/hiding, fade, pause, origin shifts
   and teardown leave no retained draw records or host state changes.
-- [ ] Real WebGPU/WebGL2 captures show a mark wrapping a corner, excluded receivers unchanged,
+- [x] Real WebGPU/WebGL2 captures show a mark wrapping a corner, excluded receivers unchanged,
   depth occlusion, fade and sequence cancellation; no browser/GPU errors.
-- [ ] `render/decals-project` measures 32 projectors over bounded fixture geometry (proposed 8 ms
+- [x] `render/decals-project` measures 32 projectors over bounded fixture geometry (proposed 8 ms
   named-machine budget); cached updates are included in steady-state allocation checks.
-- [ ] All correctness/typecheck/lint and CI build/package/size gates pass, with evidence on disk.
+- [x] All correctness/typecheck/lint and CI build/package/size gates pass, with evidence on disk.
 
 ## Implementation evidence
 

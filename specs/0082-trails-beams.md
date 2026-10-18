@@ -1,6 +1,6 @@
 # 0082 — Trails and beams
 
-- **Status:** draft (implementation authorized in this session)
+- **Status:** implemented
 - **Packages:** `@aethervtt/shard-render`, effects, project, playground
 - **Depends on:** 0004, 0020, 0052, 0056, 0061, 0064, 0081
 
@@ -59,7 +59,7 @@ device recovery rebuilds from CPU state. Alpha blending follows stable record cr
 ### API sketch
 
 ```ts
-world.spawn(Transform, [Trail, { lifetime: 0.4, width: 0.3, color: '#60dfff' }])
+world.spawn(Transform, [Trail, { lifetime: 0.4, width: 0.3, color: [0.1, 0.7, 1, 1] }])
 world.spawn(Transform, [Beam, { target, width: 0.08, segments: 24, noise: 0.15, seed: 42 }])
 ```
 
@@ -83,14 +83,14 @@ plugins are checked during preparation. Borrowed visual components are not overw
 
 ## Acceptance criteria
 
-- [ ] Schemas, invalid curves, limits, endpoint/polyline semantics and duplicate/teleport behavior tested.
-- [ ] History expiry, pause, stop/drain, origin shift, entity removal and isolated worlds tested headlessly.
-- [ ] Real WebGPU and WebGL2 evidence shows a moving slash and lightning tether, texture/curve controls,
+- [x] Schemas, invalid curves, limits, endpoint/polyline semantics and duplicate/teleport behavior tested.
+- [x] History expiry, pause, stop/drain, origin shift, entity removal and isolated worlds tested headlessly.
+- [x] Real WebGPU and WebGL2 evidence shows a moving slash and lightning tether, texture/curve controls,
   depth occlusion, camera variants, sequence replay/cancellation, and no GPU errors.
-- [ ] Scene/catalog/project schemas and sequence lifecycle integration are exercised by tests.
-- [ ] `render/ribbons-update` benchmarks 128 trails × 64 points; proposed 2 ms named-machine budget,
+- [x] Scene/catalog/project schemas and sequence lifecycle integration are exercised by tests.
+- [x] `render/ribbons-update` benchmarks 128 trails × 64 points; proposed 2 ms named-machine budget,
   steady-state allocation checks, hosted CI measurements recorded honestly.
-- [ ] Typecheck, correctness, lint, builds/size/package checks pass; renderer-min stays within budget.
+- [x] Typecheck, correctness, lint, builds/size/package checks pass; renderer-min stays within budget.
 
 ## Implementation evidence
 

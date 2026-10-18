@@ -286,6 +286,13 @@ export const updateRibbons = defineSystem({
           if (kind) {
             if (playing && (!paused || r.pointsCount === 0)) beam(world, r)
             else if (!playing) r.pointsCount = 0
+            else if ((r.columns.points![r.row] as number[][]).length === 0) {
+              const target = number(r, 'target')
+              if (target >= 0 && (!world.isAlive(target) || !world.has(target, GlobalTransform))) {
+                r.error = 'render/beam-target'
+                r.pointsCount = 0
+              }
+            }
           } else trail(r, playing, paused)
           ribbonGeometry(r)
           if (!paused && (playing || r.pointsCount > 0)) demand = true
@@ -305,7 +312,6 @@ export function shiftRibbons(world: World, x: number, y: number, z: number): voi
   const records = world.resource(Ribbons).records
   for (let i = 0; i < records.length; i++) {
     const r = records[i]!
-    if (r.kind !== 'trail') continue
     for (let j = 0; j < r.pointsCount; j++) {
       const at = ((r.head + j) % r.capacity) * 5
       r.points[at] = r.points[at]! + x
