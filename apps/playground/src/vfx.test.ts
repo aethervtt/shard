@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { timeout } from '@aethervtt/shard-core/test-env'
-import { browserLaunch, decodePng, encodePng } from '@aethervtt/shard-verify/node'
+import { browserLaunch, decodePng } from '@aethervtt/shard-verify/node'
 import { chromium } from 'playwright'
 import { afterAll, describe, expect, it } from 'vitest'
 import {
@@ -118,7 +118,19 @@ describe('VFX browser evidence', () => {
           })
           const noMark = await page.screenshot({ clip }),
             decalPixels = await changed(mark, noMark)
-          expect(decalPixels).toBeGreaterThan(100)
+          expect(decalPixels).toBeGreaterThan(2000)
+          await page.evaluate(() => {
+            window.vfxProbe.toggle('decal', true)
+            window.vfxProbe.occlude(true)
+            return window.vfxProbe.step(0)
+          })
+          const blockedMark = await page.screenshot({ clip })
+          await page.evaluate(() => {
+            window.vfxProbe.toggle('decal', false)
+            return window.vfxProbe.step(0)
+          })
+          expect(await changed(blockedMark, await page.screenshot({ clip }))).toBe(0)
+          await page.evaluate(() => window.vfxProbe.occlude(false))
           await page.evaluate(() => {
             window.vfxProbe.toggle('decal', true)
             window.vfxProbe.receiver(false)
@@ -229,13 +241,6 @@ describe('VFX browser evidence', () => {
               JSON.stringify({ error: String(error), errors, snapshot }, null, 2),
             )
             await page.screenshot({ path: join(evidence, `${backend}-failure.png`) })
-            if (snapshot && snapshot.render.recentErrors.length === 0) {
-              const gpu = await page.evaluate(() => window.vfxProbe.capture())
-              await writeFile(
-                join(evidence, `${backend}-failure-gpu.png`),
-                encodePng(new Uint8Array(gpu.data), gpu.width, gpu.height),
-              )
-            }
           }
           throw error
         } finally {

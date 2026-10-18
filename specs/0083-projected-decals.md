@@ -52,7 +52,8 @@ projected placement by invalidating geometry against the shifted receiver/projec
 Textures are host catalog handles, including GUID-only entries. Rendering reuses 0082's bounded
 vertex/texture draw infrastructure, with separate feature registration and diagnostics. Decals
 draw after the resolved scene and before ribbons/particles; they test scene depth and do not
-write depth. Camera layer filters and receiver visibility apply. Multiple decals use stable order.
+write depth. Reversed-Z depth/slope bias accounts for the resolved MSAA subsample, while
+opaque blockers still occlude the mark. Camera layer filters and receiver visibility apply. Multiple decals use stable order.
 
 ### API sketch
 

@@ -115,7 +115,7 @@ async function main() {
     DecalReceiver,
   )
   const blocker = world.spawn(
-    [Mesh3d, { mesh: meshes.add(box({ x: 8, y: 5, z: 0.3 })) }],
+    [Mesh3d, { mesh: meshes.add(box({ x: 12, y: 5, z: 0.3 })) }],
     [
       MeshMaterial,
       { material: materials.add(new MaterialAsset({ baseColor: [0.1, 0.15, 0.2, 1] })) },

@@ -16,7 +16,7 @@ It is not a visual authoring editor.
 | Bounds and diagnostics | 256 ribbons, 64 projectors, output/input triangle limits, invalid direct component capacities, unsupported skinned receivers; no partial mark on overflow |
 | Sequence ownership | `packages/effects/src/visual.test.ts`: activation intervals, endpoint bindings, pause including draining trails, overlap rejection, skipped windows, dead endpoint failure, owned cleanup and borrowed target preservation |
 | Schemas and authoring | `packages/project/src/project.test.ts`: generated Trail/Beam/Decal schemas and `.agents/vfx.md`; shared component definitions drive validation and inspector fields |
-| Actual graphics | `apps/playground/src/vfx.test.ts`: WebGPU and minimum-profile WebGL2; isolated trail/beam/decal pixels, opaque beam occlusion, excluded receiver pixels unchanged, perspective/orthographic views, visible fade, seed replay |
+| Actual graphics | `apps/playground/src/vfx.test.ts`: WebGPU and minimum-profile WebGL2; isolated trail/beam/decal pixels, opaque beam/decal occlusion, excluded receiver pixels unchanged, perspective/orthographic views, visible fade, seed replay |
 | GPU lifecycle | The same browser test checks separate per-camera uniforms, prunes removed views, recreates the device, verifies retained geometry and visible beam pixels afterwards; cancellation/completion leave zero VFX draw records |
 
 The browser test saves `*-ribbons.png`, `*-decal.png`, `*-orthographic.png`, `*-fading.png`
@@ -60,6 +60,16 @@ Brotli. The full budget increases by **7 KiB**, corresponding to the added optio
 Minimal renderer JavaScript grew **164.2 → 164.8 KiB** from schemas/feature warnings and remains
 within its unchanged budget; baseline fallback remains **31.2 KiB**. No baseline-only code leaks
 into the full-tier initial path, and existing WGSL is checked unchanged.
+
+## Validation-driven corrections
+
+Reviewing hosted images exposed a difference between adapters that a permissive pixel-presence
+check did not catch: the resolved MSAA subsample could hide most of a coplanar decal's front face.
+The decal pipeline now uses positive reversed-Z depth/slope bias. Browser tests require over
+2,000 changed decal pixels and independently assert that an opaque blocker still hides the mark.
+The test blocker covers the entire receiver; hiding only the beam was insufficient for this case.
+The dedicated package job installs both Bun and Mesa for the existing consumer-release checks.
+Plugin-reachability coverage explicitly includes both optional VFX plugins.
 
 ## Product boundaries
 

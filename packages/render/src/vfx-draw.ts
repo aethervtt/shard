@@ -212,6 +212,10 @@ export class VfxRenderer {
             format: 'depth32float',
             depthWriteEnabled: false,
             depthCompare: 'greater-equal',
+            // Resolved MSAA depth comes from a subsample, not the fragment center.
+            // Positive reversed-Z slope bias keeps coplanar decals visible on every adapter.
+            depthBias: this.decal ? 1 : 0,
+            depthBiasSlopeScale: this.decal ? 1 : 0,
           },
         })
         if (!pipeline) {
