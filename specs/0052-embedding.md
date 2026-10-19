@@ -173,8 +173,10 @@ hashes the plain-object hostWritable resources when it goes idle and checks them
 changed hash with no wake logs `runtime/unmarked-resource-write`, naming the resource. The check is
 a lazily loaded module, so production bundles don't carry it.
 
-On waking, `Time` clamps the delta to one fixed step and the fixed accumulator resets
-(`app.resetFixedTime()`), so a scene idle for a minute doesn't simulate the minute. The display
+On an ordinary idle wake, `Time` clamps the delta to one fixed step and the fixed accumulator
+resets (`app.resetFixedTime()`), so a scene idle for a minute does not simulate the minute.
+A timed presentation (`FrameDemand.after`) retains elapsed frame time, bounded by `maxDelta`,
+while fixed simulation still receives one step on waking (0085). Pause and visibility gaps are excluded. The display
 rate meter only samples consecutive frames. `mode: 'continuous'` (the default) runs as before.
 `FrameDemand.mode` says which mode drives the app (`'manual'` without a loop runner).
 

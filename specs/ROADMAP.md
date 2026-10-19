@@ -220,3 +220,9 @@ WebGPU/WebGL2 spell captures, measured audio, cleanup assertions and hosted perf
 
 
 A visual timeline editor, particle-generated ribbons, deformed/PBR decals and production export follow separately.
+
+## Published consumers
+
+| Spec | Title | Status |
+|---|---|---|
+| [0085](0085-published-consumer-compatibility.md) | Aether migration regressions and installed-package gates | draft |

@@ -3,6 +3,19 @@
 All engine packages share one version. During `0.x`, minor releases may change APIs;
 patch releases preserve compatibility. Apps and examples are not published.
 
+## 0.2.2 — 2026-10-19
+
+- Break the audio music/checkpoint initialization cycle without changing schema identity (0085).
+- Reset cached dice presentation fade/result state, and restore the WebGL2 default draw buffer
+  when presenting resized/shared surfaces (0085).
+- Support OpenType's CommonJS and ESM exports, ship statically discoverable Basis assets, fix
+  ETC1S quality, and keep Node codec imports outside browser bundles through a conditional host
+  entry. WebP uses its fully specified module path; noise uses the same host boundary (0085).
+- Advance timed on-demand presentation clocks by elapsed time while keeping fixed-step wake
+  behavior. Existing `App.update(delta)` callers retain their timing (0052, 0085).
+- Exercise packed packages in Node/Bun, Vite, webpack and Next, including browser codecs,
+  transparent shared surfaces and dice workers. Ship Vite module-worker setup instructions (0085).
+
 ## 0.2.1
 
 - Preserve and relocate the text package's reference to its bundled `opentype.js` declarations

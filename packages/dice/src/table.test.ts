@@ -224,6 +224,57 @@ describe('the dice table (0054)', () => {
     await r.app.dispose()
   })
 
+  it.each(['teal', 'frost'] as const)(
+    'resets cached looks for %s after interrupted previews and repeated ordinary/critical rolls',
+    {
+      timeout: timeout(90_000),
+    },
+    async (skin) => {
+      const r = await rig({ restMs: 60_000 })
+      const w = r.app.world
+      const looks = () =>
+        dice(r.app).map((e) => w.resource(Materials).get(w.get(e, MeshMaterial).material)!)
+      const input = (id: string, value: number, motion?: 'reduced'): DiceRoll =>
+        roll({
+          id,
+          motion,
+          dice: [
+            { kind: 'd20', value, skin: DICE_SKINS[skin] },
+            { kind: 'd20', value: 7, skin: DICE_SKINS[skin] },
+          ],
+        })
+      let previous = r.table.play(input('preview', 1, 'reduced'))
+      await until(r, () => dice(r.app).length === 2)
+      r.frame(60)
+      expect(looks()[0]!.value.fade).toBeGreaterThan(0)
+      expect(looks()[0]!.value.fade).toBeLessThan(1)
+      for (const [i, value] of [14, 20, 1, 14, 20, 1].entries()) {
+        const next = r.table.play(input(`replacement-${i}`, value), { replace: true })
+        expect(await previous).toBe('dismissed')
+        await until(r, () => r.table.phase === 'tumble')
+        for (const material of looks())
+          expect(material.value).toMatchObject({ fade: 1, result: 0, resultTime: 0 })
+        if (i > 0) {
+          await until(r, () => r.table.phase === 'rest')
+          for (const material of looks()) {
+            expect(material.value.fade).toBe(1)
+            expect(material.value.resultTime).toBeGreaterThan(0)
+          }
+        }
+        previous = next
+      }
+      const reduced = r.table.play(input('reduced-again', 7, 'reduced'), { replace: true })
+      expect(await previous).toBe('dismissed')
+      await until(r, () => dice(r.app).length === 2)
+      expect(looks().every((m) => (m.value.fade as number) < 1)).toBe(true)
+      r.frame(200)
+      expect(looks().every((m) => m.value.fade === 1)).toBe(true)
+      r.table.dismiss()
+      await reduced
+      await r.app.dispose()
+    },
+  )
+
   it('fails what it cannot show before anything plays, refuses a second roll, and replaces on request', {
     timeout: timeout(30_000),
   }, async () => {

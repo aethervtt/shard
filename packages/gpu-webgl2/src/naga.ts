@@ -1,4 +1,5 @@
 import { ShardError } from '@aethervtt/shard-core'
+import { readCodecAsset } from '@aethervtt/shard-platform-node/codecs'
 
 // naga (crates/shard-naga) as WebAssembly: one WGSL entry point in, GLSL ES 3.00 out, with the
 // binding reflection the shim binds by. Loaded on the first translation the cache doesn't have
@@ -75,16 +76,7 @@ export function loadNaga(): Promise<Naga> {
 async function compileNaga(): Promise<WebAssembly.Module> {
   const url = new URL('../wasm/shard_naga.wasm', import.meta.url)
   try {
-    if (url.protocol === 'file:') {
-      const { readFile } = await import('node:fs/promises')
-      const data = await readFile(url)
-      return await WebAssembly.compile(
-        new Uint8Array(data.buffer, data.byteOffset, data.byteLength) as Uint8Array<ArrayBuffer>,
-      )
-    }
-    const response = await fetch(url)
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    return await WebAssembly.compileStreaming(response)
+    return await WebAssembly.compile(await readCodecAsset(url))
   } catch (cause) {
     throw new ShardError(
       'gpu-webgl2/naga-load-failed',

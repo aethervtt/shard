@@ -42,7 +42,7 @@ with no build step. Published packages contain JavaScript and TypeScript declara
 only the packages you need, keeping them on the same version:
 
 ```sh
-npm install --save-exact @aethervtt/shard-runtime@0.2.1 @aethervtt/shard-audio@0.2.1
+npm install --save-exact @aethervtt/shard-runtime@0.2.2 @aethervtt/shard-audio@0.2.2
 ```
 
 See [CHANGELOG.md](CHANGELOG.md) for release notes and [RELEASING.md](RELEASING.md) for publishing.
@@ -56,6 +56,10 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes and [RELEASING.md](RELEASING.
 | `@aethervtt/shard-transform` | Transform hierarchies and propagation, large-world grids with a floating origin |
 | `@aethervtt/shard-input` | Keyboard, mouse, touch and gamepad devices, and action maps |
 | `@aethervtt/shard-platform` | The host interface (files, storage, audio, workers) the engine uses instead of any host API. `platform-web`, `platform-node` and `platform-tauri` implement it |
+
+For browser dice, follow the [dice setup instructions](packages/dice/README.md), including
+Vite's `worker: { format: 'es' }` setting. The [installed consumer check](bench/consumer/README.md)
+shows working production builds and codec/worker verification.
 
 ### Rendering
 

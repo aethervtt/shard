@@ -14,6 +14,7 @@ import {
   Update,
   type World,
 } from '@aethervtt/shard-core'
+import { allocationChecks, gcWindow, timingMode } from '@aethervtt/shard-core/test-env'
 import { describe, expect, it } from 'vitest'
 import { App } from './app'
 import { FrameDemand, LOADING_DEMAND } from './demand'
@@ -748,4 +749,20 @@ describe('presentation (0062)', () => {
     app.update(1 / 60)
     expect(await latency).toBe(3)
   })
+})
+
+it('separate presentation deltas preserve fixed-step accumulation without hot-path allocations', async () => {
+  const app = new App()
+  await app.init()
+  for (let i = 0; i < 60; i++) app.update(1 / 20, 1 / 60)
+  expect(app.world.resource(Time).elapsed).toBeCloseTo(3)
+  expect(app.world.resource(FixedTime).elapsed).toBeCloseTo(1)
+  if (timingMode === 'bench') {
+    for (let i = 0; i < 1000; i++) app.update(1 / 20, 1 / 60)
+    const window = gcWindow()
+    for (let i = 0; i < 10_000; i++) app.update(1 / 20, 1 / 60)
+    const collections = await window.end()
+    if (allocationChecks) expect(collections).toBe(0)
+  }
+  await app.dispose()
 })

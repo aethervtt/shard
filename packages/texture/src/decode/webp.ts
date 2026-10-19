@@ -1,4 +1,5 @@
 import { ShardError } from '@aethervtt/shard-core'
+import { nodeCodecs, readCodecDependency } from '@aethervtt/shard-platform-node/codecs'
 import type { Image } from '../image'
 
 let ready: Promise<(bytes: ArrayBuffer) => Promise<ImageData>> | undefined
@@ -6,15 +7,15 @@ let ready: Promise<(bytes: ArrayBuffer) => Promise<ImageData>> | undefined
 /** Loads the WASM WebP decoder once, from the package's own file in Node or by URL in browsers. */
 function decoder() {
   ready ??= (async () => {
-    const mod = await import('@jsquash/webp/decode')
-    if (typeof process !== 'undefined' && process.versions?.node) {
-      // Node can't fetch file URLs, so hand the decoder its WASM directly. Browsers find it by URL.
-      const wasmUrl = new URL(
+    const mod = await import('@jsquash/webp/decode.js')
+    if (nodeCodecs) {
+      // Node cannot fetch file URLs. Browsers let the decoder resolve its emitted WASM URL.
+      const bytes = await readCodecDependency(
+        '@jsquash/webp/decode.js',
         './codec/dec/webp_dec.wasm',
-        import.meta.resolve('@jsquash/webp/decode'),
+        import.meta.url,
       )
-      const { readFile } = await import('node:fs/promises')
-      await mod.init(await WebAssembly.compile(await readFile(wasmUrl)))
+      await mod.init(await WebAssembly.compile(bytes))
     }
     return mod.default
   })()

@@ -3,9 +3,11 @@ import { ShardError } from '@aethervtt/shard-core'
 import type { Font as OpentypeFont } from 'opentype.js'
 import * as opentype from 'opentype.js'
 
-// Node loads opentype.js's CommonJS build (named exports under `default`), bundlers its ESM one.
-const parse: typeof opentype.parse =
-  opentype.parse ?? (opentype as unknown as { default: typeof opentype }).default.parse
+// Copy the namespace before inspecting interop: Node exposes the CommonJS API under
+// default, whereas browser ESM has only named exports. A static namespace.default access
+// asks webpack to resolve a nonexistent ESM export, even behind a nullish fallback.
+const api = { ...opentype } as typeof opentype & { default?: typeof opentype }
+const parse: typeof opentype.parse = api.parse ?? api.default!.parse
 
 import { hasGposKerning, readGposKerning } from './kerning'
 import { blitMsdf, generateMsdf, msdfBox, prepareShape } from './msdf'

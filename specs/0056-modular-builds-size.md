@@ -34,7 +34,8 @@ worker, and doesn't measure either.
   budget. It includes a three.js baseline, built the same way, to compare against.
 - WASM that loads lazily, in the chunk or worker that needs it.
 - Versioned releases another repository can install and pin: JS plus `.d.ts`, workers included,
-  consumable by Vite, webpack and Bun without special configuration.
+  consumable by Vite, webpack and Bun. Module workers with split physics chunks require Vite's
+  `worker.format: 'es'` (0085); browser codec imports need no Node externals workaround.
 
 ## Non-goals
 
@@ -249,7 +250,11 @@ Inside the monorepo, packages keep exporting `./src/index.ts`, with no build ste
 `bench/consumer/` is a fixture app outside the workspace. It installs the release tarballs, then
 builds the `renderer-min` scene with Vite and with `bun build`, renders a headless frame on Dawn,
 samples noise on the worker pool (proving a worker module survives the release), and typechecks
-against the `.d.ts` only. `pnpm release --check` runs it.
+against the `.d.ts` only. `pnpm release --check` runs it. Spec 0085 extends this gate with plain
+Node/Bun font and codec execution, fresh audio import traversals, webpack/Next production builds,
+and real Chromium visible-surface, worker and presentation-clock checks. Install Chromium before
+running the gate; browser checks are required rather than silently skipped. Conditional export
+maps and package READMEs are preserved in the packed output.
 
 The consumer also imports the public declaration surfaces for audio, its editor and preview,
 cards, dice, effects, scatter, and text under `skipLibCheck: false`. Bundled ambient declarations

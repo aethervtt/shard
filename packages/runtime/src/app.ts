@@ -537,8 +537,8 @@ export class App {
 
   // --- running ---------------------------------------------------------------
 
-  /** Runs one frame. `delta` is in seconds. */
-  update(delta: number): void {
+  /** Runs one frame. Seconds for presentation and (by default the same) fixed-step accumulation. */
+  update(delta: number, fixedDelta = delta): void {
     this.assertLive()
     if (!this.initialized) {
       throw new ShardError('app/not-initialized', 'App.update() was called before init()', {
@@ -547,18 +547,18 @@ export class App {
     }
     const scoped = this.enter()
     try {
-      this.frame(delta)
+      this.frame(delta, fixedDelta)
     } finally {
       this.exit(scoped)
     }
   }
 
   /** One frame, timed as the `frame` span (0074). */
-  private frame(delta: number): void {
+  private frame(delta: number, fixedDelta: number): void {
     const profiler = this.profiler
     const token = profiler.beginFrame((this.world.resource(Time) as TimeData).frame)
     try {
-      this.frameBody(delta)
+      this.frameBody(delta, fixedDelta)
     } catch (err) {
       profiler.cancel(token)
       throw err
@@ -566,7 +566,7 @@ export class App {
     profiler.endFrame(token)
   }
 
-  private frameBody(delta: number): void {
+  private frameBody(delta: number, fixedDelta: number): void {
     const world = this.world
     // This frame carries what was stamped before it started (0062). No allocation without traces.
     const traces = this.traces.length > 0 ? this.traces.splice(0) : undefined
@@ -586,7 +586,7 @@ export class App {
     this.runSchedule(PreUpdate)
 
     const fixed = world.resource(FixedTime) as FixedTimeData
-    this.accumulator += delta
+    this.accumulator += fixedDelta
     let steps = 0
     while (this.accumulator + EPSILON >= fixed.step && steps < this.maxFixedSteps) {
       fixed.elapsed += fixed.step

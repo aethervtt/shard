@@ -11,6 +11,8 @@ import { Webgl2Texture } from './resources'
 // the device's canvas is sized to it, blitted into, and drawn onto the canvas's 2D context: one
 // device serves several canvases (0052) without WebGL on OffscreenCanvas.
 
+const BACK_BUFFER = [GL.BACK]
+
 const contexts = new WeakMap<object, Webgl2CanvasContext>()
 
 /** The canvas context for `canvas`: one per canvas, as `getContext` gives. */
@@ -100,6 +102,9 @@ export class Webgl2CanvasContext {
     this.read.color(0, texture, 0, 0)
     gl.bindFramebuffer(GL.READ_FRAMEBUFFER, device.fbos.get(this.read))
     gl.bindFramebuffer(GL.DRAW_FRAMEBUFFER, null)
+    // The default framebuffer must accept color after switching/resizing shared surfaces.
+    // Draw buffers belong to the framebuffer; GlState does not cache them.
+    gl.drawBuffers(BACK_BUFFER)
     device.state.enable(GL.SCISSOR_TEST, false)
     gl.blitFramebuffer(0, 0, w, h, 0, h, w, 0, GL.COLOR_BUFFER_BIT, GL.NEAREST)
     const opaque = this.configuration?.alphaMode !== 'premultiplied'

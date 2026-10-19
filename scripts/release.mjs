@@ -108,6 +108,11 @@ function walk(dir) {
 const isTest = (path) => /\.(test|bench)\.[tj]s$/.test(path) || path.includes('__golden__')
 
 function exportTarget(source) {
+  if (typeof source !== 'string') {
+    return Object.fromEntries(
+      Object.entries(source).map(([key, value]) => [key, exportTarget(value)]),
+    )
+  }
   // "./src/foo.ts" -> { types: "./dist/foo.d.ts", default: "./dist/foo.js" }
   const rel = source.replace(/^\.\/src\//, './dist/')
   if (rel.endsWith('.ts')) {
@@ -192,6 +197,8 @@ function buildPackage(name) {
     `# ${manifest.name}\n\nPart of [Shard](https://github.com/aethervtt/shard), a WebGPU-first 2D/3D game engine in TypeScript. See the repository for documentation.\n`,
   )
 
+  if (existsSync(join(dir, 'README.md'))) cpSync(join(dir, 'README.md'), join(target, 'README.md'))
+
   const pin = (deps) =>
     deps &&
     Object.fromEntries(
@@ -252,7 +259,9 @@ function checkOutput(built) {
     const target = join(out, 'packages', name.replace('@aethervtt/shard-', ''))
     const manifest = JSON.parse(readFileSync(join(target, 'package.json'), 'utf8'))
     for (const [key, value] of Object.entries(manifest.exports)) {
-      for (const file of typeof value === 'string' ? [value] : Object.values(value)) {
+      const targets = (entry) =>
+        typeof entry === 'string' ? [entry] : Object.values(entry).flatMap(targets)
+      for (const file of targets(value)) {
         if (!existsSync(join(target, file)))
           problems.push(`${name} exports ${key} -> missing ${file}`)
       }
@@ -275,6 +284,9 @@ function consumerCheck(built) {
   const work = join(out, 'consumer')
   rmSync(work, { recursive: true, force: true })
   cpSync(join(repo, 'bench/consumer'), work, { recursive: true })
+  mkdirSync(join(work, 'public'), { recursive: true })
+  cpSync(join(repo, 'packages/text/fixtures/Inter-Regular.ttf'), join(work, 'public/font.ttf'))
+  cpSync(join(repo, 'packages/texture/fixtures/pattern.webp'), join(work, 'public/pattern.webp'))
   const manifest = JSON.parse(readFileSync(join(work, 'package.json'), 'utf8'))
   manifest.dependencies = {
     ...manifest.dependencies,
@@ -292,9 +304,23 @@ function consumerCheck(built) {
   }
   run('npm', ['install', '--no-audit', '--no-fund', '--loglevel=error'])
   run('npx', ['tsc', '--noEmit', '-p', '.'])
-  run('npx', ['vite', 'build', '--logLevel', 'warn'])
+  run('node', ['node_modules/vite/bin/vite.js', 'build', '--logLevel', 'warn'])
+  run('node', [
+    'node_modules/vite6/bin/vite.js',
+    'build',
+    '--config',
+    'vite6.config.mjs',
+    '--logLevel',
+    'warn',
+  ])
   run('bun', ['build', './main.ts', '--outdir', 'dist-bun', '--target', 'browser'])
   run('node', ['headless.mjs'])
+  run('node', ['import-orders.mjs'])
+  run('node', ['codecs.mjs'])
+  run('bun', ['codecs.mjs'])
+  run('npx', ['webpack', '--config', 'webpack.config.mjs'])
+  run('npx', ['next', 'build', '--webpack'])
+  run('node', ['browser.mjs'])
 }
 
 // --- main --------------------------------------------------------------------------------------
@@ -317,5 +343,7 @@ if (problems.length > 0) {
 if (flag('--check')) {
   console.log('\nConsumer check (bench/consumer, installed from the tarballs):')
   consumerCheck(built)
-  console.log('\nThe release installs, builds with Vite and Bun, typechecks, and runs.')
+  console.log(
+    '\nPacked packages pass types, Node/Bun codecs, Vite/webpack/Next builds, and Chromium presentation/worker checks.',
+  )
 }

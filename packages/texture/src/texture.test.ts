@@ -15,7 +15,7 @@ import {
   write,
 } from 'ktx-parse'
 import { afterEach, describe, expect, it } from 'vitest'
-import { transcodeBasis } from './basis'
+import { encodeBasis, transcodeBasis } from './basis'
 import { decodeHdr, decodeImage, decodeJpeg, decodePngImage, decodeWebp } from './decode'
 import { importImageBytes } from './importer'
 import { readKtx2, writeKtx2 } from './ktx2'
@@ -218,6 +218,22 @@ describe('KTX2 and Basis', () => {
       c.levels = [{ levelData: packed, uncompressedByteLength: raw.length }]
       const read = readKtx2(write(c))
       expect(Array.from(read.levels[0]!)).toEqual(Array.from(raw))
+    }
+  })
+
+  it('encodes ETC1S with a valid quality and transcodes every mip', {
+    timeout: timeout(60_000),
+  }, async () => {
+    const src = new Uint8Array(8 * 8 * 4)
+    for (let i = 0; i < src.length; i += 4) src.set([200, 40, 80, 255], i)
+    const encoded = await encodeBasis(src, 8, 8, 'color', 'etc1s', true)
+    expect(readKtx2(encoded).basis).toBe('etc1s')
+    const decoded = await transcodeBasis(encoded, 'rgba8')
+    expect(decoded.levels.map((m) => m.length)).toEqual([256, 64, 16, 4])
+    for (const mip of decoded.levels) {
+      expect(Math.abs(mip[0]! - 200)).toBeLessThan(25)
+      expect(Math.abs(mip[1]! - 40)).toBeLessThan(25)
+      expect(mip[3]).toBe(255)
     }
   })
 

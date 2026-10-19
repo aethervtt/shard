@@ -7,6 +7,7 @@ import {
 import { defineImporter, type ImportContext, type ImportedAsset } from '@aethervtt/shard-assets'
 import { defineSchema, type JsonValue, ShardError, t } from '@aethervtt/shard-core'
 import { encodeMesh, Mesh, type MeshData, type MorphTarget } from '@aethervtt/shard-mesh'
+import { nodeCodecs, requireCodec } from '@aethervtt/shard-platform-node/codecs'
 import { MAX_JOINTS, StandardMaterial, skinArtifact } from '@aethervtt/shard-render'
 import type { SceneEntity, SceneFile } from '@aethervtt/shard-scene'
 import { importImageBytes, type TextureUsage } from '@aethervtt/shard-texture'
@@ -409,14 +410,13 @@ function convertMaterial(
 
 /** MikkTSpace tangents (the convention baked normal maps use). Needs unindexed triangles. */
 async function generateTangents(data: MeshData): Promise<MeshData> {
-  if (typeof process === 'undefined' || !process.versions?.node) {
+  if (!nodeCodecs) {
     throw new ShardError(
       'gltf/tangents-unavailable',
       'Generating tangents needs a Node host (the CLI or shard dev)',
     )
   }
-  const { createRequire } = await import('node:module')
-  const mikk = createRequire(import.meta.url)('mikktspace') as {
+  const mikk = requireCodec('mikktspace', import.meta.url) as {
     generateTangents(p: Float32Array, n: Float32Array, uv: Float32Array): Float32Array
   }
   const tri = data.indices ?? Uint32Array.from({ length: data.positions.length / 3 }, (_, i) => i)

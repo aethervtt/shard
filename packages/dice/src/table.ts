@@ -830,10 +830,10 @@ export class DiceTableState {
         dropped: d.dropped,
         entrance: run ? i : undefined,
       })
-      if (run) {
-        run.material = material
-        world.resource(Materials).get(material)?.set({ result: 0, resultTime: 0 })
-      }
+      // Cached looks outlive cancelled previews and previous results. Reduced motion starts
+      // its own fade after all dice spawn; entrance materials remain private to their die.
+      world.resource(Materials).get(material)?.set({ fade: 1, result: 0, resultTime: 0 })
+      if (run) run.material = material
       const s = d.scale
       p.entities.push(
         world.spawn(

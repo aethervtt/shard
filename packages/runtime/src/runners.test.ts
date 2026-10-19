@@ -156,6 +156,98 @@ describe('on-demand frames (0052)', () => {
     await app.dispose()
   })
 
+  it.each([60, 30, 20])(
+    'advances a 4.8-second timed presentation at %i fps without adding simulation steps',
+    async (hz) => {
+      fakeTimers()
+      const { app, world, counts } = await onDemandApp()
+      const demand = world.resource(FrameDemand)
+      let remaining = 4.8
+      app.addSystems(
+        Update,
+        defineSystem({
+          name: 'test/timed-animation',
+          run: (_, w) => {
+            remaining -= w.resource(Time).delta
+            if (remaining > 0) demand.after(1000 / hz)
+          },
+        }),
+      )
+      app.requestFrame()
+      frames.tick()
+      const start = frames.now
+      const before = world.resource(Time).elapsed
+      const fixedBefore = counts.fixed
+      let ticks = 0
+      while (remaining > 0 && ticks < 400) {
+        vi.advanceTimersByTime(Math.ceil(1000 / hz))
+        frames.tick(1000 / hz)
+        ticks++
+      }
+      expect(remaining).toBeLessThanOrEqual(0)
+      expect((frames.now - start) / 1000).toBeCloseTo(world.resource(Time).elapsed - before, 8)
+      expect((frames.now - start) / 1000).toBeGreaterThanOrEqual(4.8 - 1 / 60)
+      expect((frames.now - start) / 1000).toBeLessThanOrEqual(4.8 + 1 / hz)
+      expect(counts.fixed - fixedBefore).toBe(ticks)
+      await app.dispose()
+    },
+  )
+
+  it('excludes paused time from a timed presentation and steps with the fixed delta', async () => {
+    fakeTimers()
+    const { app, world, counts } = await onDemandApp()
+    const demand = world.resource(FrameDemand)
+    app.addSystems(Update, defineSystem({ name: 'test/timer', run: () => demand.after(50) }))
+    app.requestFrame()
+    frames.tick()
+    const control = world.resource(AppControlResource)
+    control.paused = true
+    vi.advanceTimersByTime(50)
+    frames.tick(50)
+    const before = world.resource(Time).elapsed
+    vi.advanceTimersByTime(60_000)
+    frames.tick(60_000)
+    control.paused = false
+    app.requestFrame()
+    frames.tick()
+    expect(world.resource(Time).elapsed - before).toBeCloseTo(1 / 60)
+    const step = control.step(2)
+    frames.runUntilIdle()
+    await step
+    expect(counts.deltas.slice(-2)).toEqual([1 / 60, 1 / 60])
+    await app.dispose()
+  })
+
+  it('drops hidden-tab time even when a timed frame was pending', async () => {
+    fakeTimers()
+    const listen = vi.spyOn(document, 'addEventListener')
+    const { app, world } = await onDemandApp()
+    const visibility = listen.mock.calls.find(
+      (call) => call[0] === 'visibilitychange',
+    )![1] as () => void
+    app.addSystems(
+      Update,
+      defineSystem({
+        name: 'test/visible-timer',
+        run: () => world.resource(FrameDemand).after(50),
+      }),
+    )
+    app.requestFrame()
+    frames.tick()
+    visibility()
+    vi.advanceTimersByTime(60_000)
+    // rAF resumes after visibility changes; the first frame must not advance the gap.
+    visibility()
+    const elapsed = world.resource(Time).elapsed
+    frames.tick(60_000)
+    expect(world.resource(Time).elapsed).toBe(elapsed)
+    vi.advanceTimersByTime(50)
+    frames.tick(50)
+    expect(world.resource(Time).delta).toBeCloseTo(0.05)
+    await app.dispose()
+    listen.mockRestore()
+  })
+
   it('logs runtime/unmarked-resource-write for a hostWritable resource changed while idle', async () => {
     fakeTimers()
     const { app, world } = await onDemandApp({ checkResourceWrites: true })

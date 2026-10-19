@@ -301,7 +301,7 @@ describe('dice entrances (0065)', () => {
   it("keeps an entrance die's result clock its own", { timeout: timeout(90_000) }, async () => {
     const r = await rig()
     const w = r.app.world
-    const outcome = r.table.play(roll('clocks', [d20(20), d20(7)]))
+    let outcome = r.table.play(roll('clocks', [d20(20), d20(7)]))
     const material = (i: number) =>
       w.resource(Materials).get(w.get(dieEntity(r, i), MeshMaterial).material!)!
     await until(r, () => r.table.phase === 'entrance')
@@ -312,6 +312,20 @@ describe('dice entrances (0065)', () => {
     await until(r, () => describeOf(r).entrances[0]!.state === 'landed')
     expect(material(0).value.resultTime as number).toBeGreaterThan(tumbled + 0.3)
     expect(material(1).value.resultTime).toBe(tumbled)
+    // Reusing an entrance look must clear its old result and fade independently of the
+    // ordinary die using the same skin. Replacement also covers cached entrance materials.
+    material(0).set({ fade: 0.3 })
+    const replacement = r.table.play(roll('clocks-again', [d20(20), d20(7)]), { replace: true })
+    expect(await outcome).toBe('dismissed')
+    outcome = replacement
+    await until(r, () => r.table.phase === 'tumble')
+    expect(material(0).value).toMatchObject({ fade: 1, result: 0, resultTime: 0 })
+    await until(r, () => r.table.phase === 'entrance')
+    const nextTumbled = material(1).value.resultTime
+    expect(material(0).value.resultTime).toBe(0)
+    await until(r, () => describeOf(r).entrances[0]!.state === 'landed')
+    expect(material(1).value.resultTime).toBe(nextTumbled)
+
     r.table.dismiss()
     await outcome
     await r.app.dispose()

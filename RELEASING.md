@@ -12,15 +12,16 @@ manifests, JavaScript, declarations, runtime files, and exact internal dependenc
    potentially breaking changes during `0.x`. Check that the version is unused on npm.
 2. Let CI pass and merge the PR. Packaging can be checked before tagging by manually running the
    **Audio evidence** workflow on the release branch; its packaging job runs `pnpm release --check`.
-   This installs the tarballs into a separate consumer, checks declarations, builds with Vite and
-   Bun, and executes a headless frame. Builds can stay entirely in CI.
-3. Tag the merged commit with the exact root version and push that tag. For example, for 0.2.1:
+   This installs the tarballs into a separate consumer, checks declarations, builds with Vite,
+   Bun, webpack and Next, executes Node/Bun codecs and a headless frame, and verifies visible
+   surfaces and workers in Chromium. Builds can stay entirely in CI.
+3. Tag the merged commit with the exact root version and push that tag. For example, for 0.2.2:
 
    ```sh
    git switch main
    git pull --ff-only
-   git tag -a v0.2.1 -m 'Shard 0.2.1'
-   git push origin v0.2.1
+   git tag -a v0.2.2 -m 'Shard 0.2.2'
+   git push origin v0.2.2
    ```
 
 4. Watch **Release** in GitHub Actions. It validates the tag/version, runs lint, typechecking,

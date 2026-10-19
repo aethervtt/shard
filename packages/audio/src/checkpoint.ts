@@ -1,4 +1,5 @@
 import { AudioCheckpointHooks } from './checkpoint-bridge'
+import { MusicProgram } from './music-definition'
 
 export {
   captureAudioCheckpoint,
@@ -29,7 +30,6 @@ import { AudioState, audioState, endVoice, newVoice } from './mixer'
 import {
   AudioMusicState,
   describeMusic,
-  MusicProgram,
   prepareMusic,
   requestMusicSection,
   resumeMusic,

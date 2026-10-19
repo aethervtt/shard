@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { AudioClips, audioClip } from './clip'
 import { audioEventsPlugin } from './events'
 import { HeadlessAudioBackend } from './headless'
+import { MusicProgram as PublicDefinition } from './index'
 import {
   AudioMusicState,
   audioMusicPlugin,
@@ -21,6 +22,7 @@ import {
   stopMusic,
   updateMusic,
 } from './music'
+import { MusicProgram as Definition } from './music-definition'
 import { audioPlugin } from './plugin'
 import { sineWav } from './testing-utils'
 
@@ -161,4 +163,9 @@ describe('adaptive music transport', () => {
     program.release()
     app.dispose()
   })
+})
+
+it('exports one music schema through the runtime, definition and public modules', () => {
+  expect(MusicProgram).toBe(Definition)
+  expect(PublicDefinition).toBe(Definition)
 })

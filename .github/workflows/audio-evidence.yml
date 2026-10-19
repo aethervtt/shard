@@ -70,10 +70,12 @@ jobs:
           SHARD_CI: '1'
       - run: pnpm --filter @aethervtt/shard-playground exec vitest run src/audio.test.ts src/dice-audio.test.ts
         env:
+          SHARD_CI: '1'
           SHARD_BROWSER_TESTS: required
           SHARD_AUDIO_EVIDENCE: ${{ github.workspace }}/audio-evidence
       - run: pnpm --filter @aethervtt/shard-cli exec vitest run src/audio-preview.test.ts
         env:
+          SHARD_CI: '1'
           SHARD_BROWSER_TESTS: 'required'
           SHARD_AUDIO_EVIDENCE: ${{ github.workspace }}/audio-evidence
       - run: pnpm --filter @aethervtt/shard-cli exec vitest run src/audio-project.test.ts
@@ -142,6 +144,8 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: pnpm build
       - run: pnpm size --check
+      - name: Install Chromium for the packed consumer
+        run: pnpm --filter @aethervtt/shard-playground exec playwright install --with-deps chromium
       - run: pnpm release --check
       - uses: actions/upload-artifact@v4
         if: always()

@@ -83,6 +83,8 @@ jobs:
       - run: pnpm size --check
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
       - uses: oven-sh/setup-bun@v2
+      - name: Install Chromium for the packed consumer
+        run: pnpm --filter @aethervtt/shard-playground exec playwright install --with-deps chromium
       - run: pnpm release --check
       - name: Compare linked WGSL against the base revision
         env:
