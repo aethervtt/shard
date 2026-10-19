@@ -128,18 +128,21 @@ describe('audio offline browser evidence', () => {
         const page = await browser.newPage()
         await page.goto(`${server.base}/audio.html`)
         await page.waitForFunction(() => 'startLiveAudioProbe' in globalThis)
-        const initial = await page.evaluate(() =>
-          Promise.race([
-            (
-              globalThis as unknown as { startLiveAudioProbe: typeof startLiveAudioProbe }
-            ).startLiveAudioProbe(),
-            new Promise<never>((_, reject) =>
-              setTimeout(
-                () => reject(new Error(`Live audio stalled: ${document.body.dataset.audioStage}`)),
-                5000,
+        const initial = await page.evaluate(
+          (maxWait) =>
+            Promise.race([
+              (
+                globalThis as unknown as { startLiveAudioProbe: typeof startLiveAudioProbe }
+              ).startLiveAudioProbe(),
+              new Promise<never>((_, reject) =>
+                setTimeout(
+                  () =>
+                    reject(new Error(`Live audio stalled: ${document.body.dataset.audioStage}`)),
+                  maxWait,
+                ),
               ),
-            ),
-          ]),
+            ]),
+          timeout(5000),
         )
         expect(initial).toMatchObject({
           state: 'suspended',
@@ -149,8 +152,10 @@ describe('audio offline browser evidence', () => {
           releasedUrls: 0,
           externalUrls: 0,
         })
-        page.setDefaultTimeout(5000)
-        await page.click('#audio-resume')
+        page.setDefaultTimeout(timeout(5000))
+        // A trusted keyboard gesture exercises unlock without depending on compositor frames
+        // for pointer actionability while the parallel dice suite renders on a software GPU.
+        await page.locator('#audio-resume').press('Enter')
         await page.waitForFunction(
           () =>
             (
@@ -171,7 +176,7 @@ describe('audio offline browser evidence', () => {
         expect(waiting.presentation).toBe('blocked')
         expect(waiting.time).toBe(suspended.time)
         expect(waiting.memory.nodes).toBe(suspended.memory.nodes)
-        await page.click('#audio-resume')
+        await page.locator('#audio-resume').press('Enter')
         await page.waitForFunction(
           (nodes) =>
             (

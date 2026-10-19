@@ -70,10 +70,12 @@ jobs:
           SHARD_CI: '1'
       - run: pnpm --filter @aethervtt/shard-playground exec vitest run src/audio.test.ts src/dice-audio.test.ts
         env:
+          SHARD_CI: '1'
           SHARD_BROWSER_TESTS: required
           SHARD_AUDIO_EVIDENCE: ${{ github.workspace }}/audio-evidence
       - run: pnpm --filter @aethervtt/shard-cli exec vitest run src/audio-preview.test.ts
         env:
+          SHARD_CI: '1'
           SHARD_BROWSER_TESTS: 'required'
           SHARD_AUDIO_EVIDENCE: ${{ github.workspace }}/audio-evidence
       - run: pnpm --filter @aethervtt/shard-cli exec vitest run src/audio-project.test.ts
