@@ -53,7 +53,10 @@ jobs:
           SHARD_CI: '1'
 
       # Builds every package, then installs the tarballs in bench/consumer outside the workspace,
-      # typechecks, builds with Vite and Bun, and runs a headless frame.
+      # typechecks, builds with Vite/Bun/webpack/Next, executes codecs and a headless frame,
+      # and verifies visible surfaces and workers in Chromium.
+      - name: Install Chromium for the packed consumer
+        run: pnpm --filter @aethervtt/shard-playground exec playwright install --with-deps chromium
       - run: pnpm release --check
 
       - name: Preserve validated packages

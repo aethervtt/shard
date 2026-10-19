@@ -18,10 +18,10 @@
     "@aethervtt/shard-gpu": "workspace:*",
     "@aethervtt/shard-platform": "workspace:*",
     "@aethervtt/shard-runtime": "workspace:*",
-    "@aethervtt/shard-shader": "workspace:*"
+    "@aethervtt/shard-shader": "workspace:*",
+    "@aethervtt/shard-platform-node": "workspace:*"
   },
   "devDependencies": {
-    "@aethervtt/shard-platform-node": "workspace:*",
     "@types/node": "^26.6.2",
     "@webgpu/types": "^0.1.74",
     "webgpu": "0.6.1"

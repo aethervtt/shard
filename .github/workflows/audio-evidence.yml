@@ -142,6 +142,8 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: pnpm build
       - run: pnpm size --check
+      - name: Install Chromium for the packed consumer
+        run: pnpm --filter @aethervtt/shard-playground exec playwright install --with-deps chromium
       - run: pnpm release --check
       - uses: actions/upload-artifact@v4
         if: always()

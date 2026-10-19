@@ -898,6 +898,9 @@ importers:
       '@aethervtt/shard-mesh':
         specifier: workspace:*
         version: link:../mesh
+      '@aethervtt/shard-platform-node':
+        specifier: workspace:*
+        version: link:../platform-node
       '@aethervtt/shard-render':
         specifier: workspace:*
         version: link:../render
@@ -914,9 +917,6 @@ importers:
       '@aethervtt/shard-gpu':
         specifier: workspace:*
         version: link:../gpu
-      '@aethervtt/shard-platform-node':
-        specifier: workspace:*
-        version: link:../platform-node
       '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -957,6 +957,9 @@ importers:
       '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
+      '@aethervtt/shard-platform-node':
+        specifier: workspace:*
+        version: link:../platform-node
     devDependencies:
       '@types/node':
         specifier: ^26.6.2
@@ -1145,6 +1148,9 @@ importers:
       '@aethervtt/shard-platform':
         specifier: workspace:*
         version: link:../platform
+      '@aethervtt/shard-platform-node':
+        specifier: workspace:*
+        version: link:../platform-node
       '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -1152,9 +1158,6 @@ importers:
         specifier: workspace:*
         version: link:../shader
     devDependencies:
-      '@aethervtt/shard-platform-node':
-        specifier: workspace:*
-        version: link:../platform-node
       '@types/node':
         specifier: ^26.6.2
         version: 26.6.2
@@ -2036,6 +2039,9 @@ importers:
       '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core
+      '@aethervtt/shard-platform-node':
+        specifier: workspace:*
+        version: link:../platform-node
       '@jsquash/webp':
         specifier: ^1.5.0
         version: 1.5.0
@@ -2049,9 +2055,6 @@ importers:
         specifier: ^2.0.0
         version: 2.0.0
     devDependencies:
-      '@aethervtt/shard-platform-node':
-        specifier: workspace:*
-        version: link:../platform-node
       '@types/node':
         specifier: ^26.6.2
         version: 26.6.2

@@ -91,6 +91,8 @@ export function animationFrameRunner(options: AnimationFrameOptions = {}): Runne
     let pending = false
     /** No frame has run since the loop last went quiet: the next one is a wake-up. */
     let idle = true
+    let timed = false
+    let wasPaused = control.paused
     let last: number | undefined
     let timer: ReturnType<typeof setTimeout> | undefined
     let writes: ResourceWriteCheck | undefined
@@ -116,13 +118,14 @@ export function animationFrameRunner(options: AnimationFrameOptions = {}): Runne
     }
     const goIdle = () => {
       idle = true
+      timed = demand.dueAt !== Number.POSITIVE_INFINITY
       world.asleep = true
       armTimer()
       writes?.start()
     }
     const onVisibility = () => {
       // The browser pauses rAF while hidden; don't count that gap as one huge frame.
-      if (document.hidden) last = undefined
+      last = undefined
     }
     const stop = () => {
       if (probe.stopped) return
@@ -152,12 +155,15 @@ export function animationFrameRunner(options: AnimationFrameOptions = {}): Runne
       idle = false
       writes?.stop()
       let delta = last === undefined ? 0 : Math.min((timestamp - last) / 1000, maxDelta)
+      let fixedDelta = delta
       if (onDemand) {
         world.asleep = false
         demand.takeDue()
         if (woke && last !== undefined) {
-          // Waking from idle: one fixed step, and none of the idle time owed to FixedUpdate.
-          delta = 1 / app.fixedHz
+          // Timed demand is an ongoing presentation, even between its frames. Simulation
+          // still owes only one fixed step on waking, just as an ordinary idle wake does.
+          fixedDelta = 1 / app.fixedHz
+          if (!timed || wasPaused) delta = fixedDelta
           app.resetFixedTime()
         }
       }
@@ -169,9 +175,14 @@ export function animationFrameRunner(options: AnimationFrameOptions = {}): Runne
           display.source = 'measured'
         }
       }
+      if (wasPaused && !control.paused) {
+        delta = fixedDelta = 1 / app.fixedHz
+        app.resetFixedTime()
+      }
+      wasPaused = control.paused
       last = timestamp
       try {
-        if (!control.paused) app.update(delta)
+        if (!control.paused) app.update(delta, fixedDelta)
         else if (control.pendingSteps > 0) {
           app.update(1 / app.fixedHz)
           control.stepped()

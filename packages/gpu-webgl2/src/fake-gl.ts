@@ -242,6 +242,7 @@ export class FakeGl {
   private active = 0
   private readonly units: Map<number, FakeTexture | null>[] = []
   private readonly samplers: (object | null)[] = []
+  private backDrawBuffer: number = GL.BACK
   private drawFb: FakeFramebuffer | null = null
   private readFb: FakeFramebuffer | null = null
   private renderbuffer: FakeRenderbuffer | null = null
@@ -845,7 +846,8 @@ export class FakeGl {
     if (r) this.drawFb!.attachments.set(point, { object: r, level: 0, layer: 0 })
   }
   drawBuffers(buffers: number[]): void {
-    this.drawFb!.drawBuffers = [...buffers]
+    if (this.drawFb) this.drawFb.drawBuffers = [...buffers]
+    else this.backDrawBuffer = buffers[0] ?? GL.NONE
   }
   readBuffer(b: number): void {
     this.readFb!.readBuffer = b
@@ -931,6 +933,7 @@ export class FakeGl {
     const [src, sw, sh] = this.image(from.object, from.level)
     const targets: { image: Float64Array; w: number; h: number; layer: number }[] = []
     if (!draw) {
+      if (this.backDrawBuffer === GL.NONE) return
       targets.push({
         image: this.backbuffer,
         w: this.canvas.width,

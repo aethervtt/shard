@@ -1,5 +1,5 @@
 import { allocationChecks, gcWindow } from '@aethervtt/shard-core/test-env'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { BufferUsage, TextureUsage } from './constants'
 import { FakeGl, type FakeGlOptions, type FakeTexture } from './fake-gl'
 import { GL } from './gl'
@@ -885,7 +885,15 @@ describe('the WebGL2 device: canvases', () => {
       )
       device.queue.submit([encoder.finish()])
     }
+    fake.context.bindFramebuffer(GL.DRAW_FRAMEBUFFER, null)
+    fake.context.drawBuffers([GL.NONE])
+    const drawBuffers = vi.spyOn(fake.context, 'drawBuffers')
+    const blit = vi.spyOn(fake.context, 'blitFramebuffer')
     show()
+    expect(drawBuffers).toHaveBeenLastCalledWith([GL.BACK])
+    expect(drawBuffers.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      blit.mock.invocationCallOrder.at(-1)!,
+    )
     // GL's row 0 is the bottom of the canvas: the top row lands in the last one.
     const at = (x: number, y: number) => [
       ...fake.backbuffer.subarray((y * 2 + x) * 4, (y * 2 + x) * 4 + 4),

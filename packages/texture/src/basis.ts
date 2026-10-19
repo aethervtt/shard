@@ -1,4 +1,5 @@
 import { ShardError } from '@aethervtt/shard-core'
+import { commonJsContext, readCodecAsset } from '@aethervtt/shard-platform-node/codecs'
 import type { TextureUsage } from './mips'
 
 /**
@@ -68,18 +69,18 @@ interface Ktx2File {
 
 const modules = new Map<string, Promise<BasisModule>>()
 
-async function readVendor(file: string): Promise<{ text?: string; bytes?: Uint8Array }> {
-  const url = new URL(`../vendor/basis/${file}`, import.meta.url)
-  if (url.protocol === 'file:') {
-    const { readFile } = await import('node:fs/promises')
-    const data = await readFile(url)
-    return file.endsWith('.js') ? { text: data.toString('utf8') } : { bytes: new Uint8Array(data) }
-  }
-  const res = await fetch(url)
-  if (!res.ok) throw new ShardError('texture/transcoder-unavailable', `Couldn't fetch ${url}`)
-  return file.endsWith('.js')
-    ? { text: await res.text() }
-    : { bytes: new Uint8Array(await res.arrayBuffer()) }
+const vendorUrls = {
+  'basis_encoder.js': new URL('../vendor/basis/basis_encoder.js', import.meta.url),
+  'basis_encoder.wasm': new URL('../vendor/basis/basis_encoder.wasm', import.meta.url),
+  'basis_transcoder.js': new URL('../vendor/basis/basis_transcoder.js', import.meta.url),
+  'basis_transcoder.wasm': new URL('../vendor/basis/basis_transcoder.wasm', import.meta.url),
+}
+
+async function readVendor(
+  file: keyof typeof vendorUrls,
+): Promise<{ text?: string; bytes?: Uint8Array }> {
+  const data = await readCodecAsset(vendorUrls[file])
+  return file.endsWith('.js') ? { text: new TextDecoder().decode(data) } : { bytes: data }
 }
 
 function load(name: 'basis_encoder' | 'basis_transcoder'): Promise<BasisModule> {
@@ -91,14 +92,7 @@ function load(name: 'basis_encoder' | 'basis_transcoder'): Promise<BasisModule> 
           readVendor(`${name}.js`),
           readVendor(`${name}.wasm`),
         ])
-        let require: unknown
-        let dirname = ''
-        if (typeof process !== 'undefined' && process.versions?.node) {
-          const { createRequire } = await import('node:module')
-          const { fileURLToPath } = await import('node:url')
-          require = createRequire(import.meta.url)
-          dirname = fileURLToPath(new URL('../vendor/basis/', import.meta.url))
-        }
+        const { require, dirname, filename } = commonJsContext(vendorUrls[`${name}.js`])
         // The emscripten wrapper expects CommonJS globals in Node.
         const factory = new Function(
           'module',
@@ -107,7 +101,7 @@ function load(name: 'basis_encoder' | 'basis_transcoder'): Promise<BasisModule> 
           '__dirname',
           '__filename',
           `${text}\nreturn BASIS`,
-        )(undefined, undefined, require, dirname, `${dirname}${name}.js`) as (options: {
+        )(undefined, undefined, require, dirname, filename) as (options: {
           wasmBinary: Uint8Array
         }) => Promise<BasisModule>
         const quiet = () => {}
@@ -148,7 +142,8 @@ export async function encodeBasis(
     enc.setCreateKTX2File(true)
     const format =
       mode === 'uastc' ? basis.basis_tex_format.cUASTC_LDR_4x4! : basis.basis_tex_format.cETC1S!
-    enc.setFormatModeAndQualityEffort(format.value, -1, -1, true)
+    // ETC1S requires a quality in 0..255; -1 is only a valid default for UASTC.
+    enc.setFormatModeAndQualityEffort(format.value, mode === 'etc1s' ? 128 : -1, -1, true)
     enc.setKTX2UASTCSupercompression(mode === 'uastc')
     const color = usage === 'color'
     enc.setPerceptual(color)

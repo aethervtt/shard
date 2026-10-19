@@ -6,7 +6,11 @@
   "type": "module",
   "sideEffects": false,
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./codecs": {
+      "browser": "./src/codecs-browser.ts",
+      "default": "./src/codecs.ts"
+    }
   },
   "scripts": {
     "typecheck": "tsc -p .",

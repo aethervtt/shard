@@ -20,11 +20,11 @@
     "@aethervtt/shard-render": "workspace:*",
     "@aethervtt/shard-scene": "workspace:*",
     "@aethervtt/shard-texture": "workspace:*",
-    "mikktspace": "^1.1.1"
+    "mikktspace": "^1.1.1",
+    "@aethervtt/shard-platform-node": "workspace:*"
   },
   "devDependencies": {
     "@aethervtt/shard-gpu": "workspace:*",
-    "@aethervtt/shard-platform-node": "workspace:*",
     "@aethervtt/shard-runtime": "workspace:*",
     "@aethervtt/shard-transform": "workspace:*",
     "@types/node": "^26.6.2",

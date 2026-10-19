@@ -195,6 +195,8 @@ jobs:
             @aethervtt/shard-procgen @aethervtt/shard-protocol @aethervtt/shard-verify
             @aethervtt/shard-physics @aethervtt/shard-dice @aethervtt/shard-bench-perf
             @aethervtt/shard-audio-editor @aethervtt/shard-platform-tauri
+            @aethervtt/shard-texture @aethervtt/shard-gpu-webgl2
+            @aethervtt/shard-gltf @aethervtt/shard-noise
 
       - uses: actions/cache/save@v4
         if: always()

@@ -1,4 +1,5 @@
 import { ShardError } from '@aethervtt/shard-core'
+import { readCodecAsset } from '@aethervtt/shard-platform-node/codecs'
 import { instantiate, type KernelState } from './kernel'
 
 export interface NoiseKernel {
@@ -31,13 +32,14 @@ export const NOISE_KERNEL_MODULE = new URL('./kernel.js', import.meta.url).href
 const loaded = new Map<boolean, Promise<NoiseKernel>>()
 let current: NoiseKernel | undefined
 
-async function readWasm(file: string): Promise<Uint8Array | Response> {
-  const url = new URL(`../wasm/${file}`, import.meta.url)
-  if (url.protocol === 'file:') {
-    const { readFile } = await import('node:fs/promises')
-    const data = await readFile(url)
-    return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
-  }
+const wasmUrls = {
+  'shard_noise.wasm': new URL('../wasm/shard_noise.wasm', import.meta.url),
+  'shard_noise_simd.wasm': new URL('../wasm/shard_noise_simd.wasm', import.meta.url),
+}
+
+async function readWasm(file: keyof typeof wasmUrls): Promise<Uint8Array | Response> {
+  const url = wasmUrls[file]
+  if (url.protocol === 'file:') return readCodecAsset(url)
   const res = await fetch(url)
   if (!res.ok) {
     throw new ShardError(
