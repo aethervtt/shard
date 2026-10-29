@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { basename, dirname, join, relative, resolve } from 'node:path'
@@ -84,6 +84,20 @@ function parseSize(value: unknown): [number, number] | undefined {
   return [Number(m[1]), Number(m[2])]
 }
 
+/** The CLI's own folder (its package.json). */
+const cliRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+
+/**
+ * The engine version a new project depends on: this CLI's own, as a caret range when it was
+ * installed from npm; `0.x` when it runs from the repository (development version 0.0.0) (0093).
+ */
+function engineRange(): string {
+  const { version } = JSON.parse(readFileSync(join(cliRoot, 'package.json'), 'utf8')) as {
+    version: string
+  }
+  return version === '0.0.0' ? '0.x' : `^${version}`
+}
+
 /** The Shard repo root if `dir` is inside it (so new projects can use workspace packages). */
 function findShardRepo(dir: string): string | undefined {
   let current = resolve(dir)
@@ -126,7 +140,11 @@ export async function init({ out, args, flags }: CommandContext): Promise<number
     })
   }
   const repo = findShardRepo(target)
-  const files = projectTemplate({ name, template, engineSpec: repo ? 'workspace:*' : '0.x' })
+  const files = projectTemplate({
+    name,
+    template,
+    engineSpec: repo ? 'workspace:*' : engineRange(),
+  })
   for (const [path, content] of Object.entries(files)) {
     await mkdir(dirname(join(target, path)), { recursive: true })
     await writeFile(join(target, path), content)
@@ -922,7 +940,7 @@ export async function docs({ out, project }: CommandContext): Promise<number> {
   const platform = createNodePlatform({ root: project })
   const { manifest } = await loadProject(platform)
   await importProjectPlugin(resolve(project), manifest) // registers project components for the catalog
-  const files = generateDocs(manifest, await collectErrorCodes())
+  const files = generateDocs(manifest, await collectErrorCodes([resolve(project), cliRoot]))
   const existing = await platform.fs.readText('AGENTS.md').catch(() => undefined)
   files['AGENTS.md'] = mergeAgentsMd(existing, manifest)
   for (const [path, content] of Object.entries(files)) await platform.fs.writeText(path, content)
@@ -956,6 +974,10 @@ export async function testCommand({ out, project, args, flags }: CommandContext)
     reporters: out.json ? [{ onInit() {} }] : ['default'],
     testTimeout: 60_000,
     fileParallelism: false,
+    // Engine packages installed from npm load through Vitest like the project's own code, so a
+    // project module the engine imports (the entry, in openProject or loadHeadlessCode) is the
+    // same instance the test file imported: one set of component definitions (0093).
+    server: { deps: { inline: [/@aethervtt\/shard-/] } },
     ...(before && {
       pool: 'forks',
       execArgv: ['--cpu-prof', '--cpu-prof-dir', profileDir],

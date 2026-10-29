@@ -1,7 +1,10 @@
 #!/usr/bin/env node
-// The CLI and project code are TypeScript; tsx loads both without a build step.
+// Projects are TypeScript, loaded as source by tests and headless runs: tsx handles them. In the
+// repository the CLI runs from its own TypeScript too; published, it runs from dist (0093).
+import { existsSync } from 'node:fs'
 import { register } from 'tsx/esm/api'
 
 register()
-const { main } = await import('../src/main.ts')
+const source = new URL('../src/main.ts', import.meta.url)
+const { main } = await import(existsSync(source) ? source.href : '../dist/main.js')
 process.exitCode = await main(process.argv.slice(2))

@@ -1,11 +1,16 @@
 import { existsSync, readdirSync, readFileSync, statSync, watch } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { createRequire } from 'node:module'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { assetServer } from '@aethervtt/shard-assets'
 import { beginRedefinition, endRedefinition, type ShardError, World } from '@aethervtt/shard-core'
-import { type BuiltBundle, createBundler, prepareGenerators } from '@aethervtt/shard-node'
+import {
+  type BuiltBundle,
+  createBundler,
+  type EnginePackage,
+  enginePackages,
+  prepareGenerators,
+} from '@aethervtt/shard-node'
 import { createNodePlatform, loadPerfBudgets } from '@aethervtt/shard-platform-node'
 import { loadProject } from '@aethervtt/shard-project'
 import { DEFAULT_HUB_PORT } from '@aethervtt/shard-protocol'
@@ -39,34 +44,53 @@ function projectShaders(root: string): { file: string; source: string }[] {
   return out
 }
 
-/** The engine's packages folder, found through `@aethervtt/shard-core`'s location. */
-function packagesDir(): string {
-  const require = createRequire(import.meta.url)
-  // @aethervtt/shard-core resolves to packages/core/src/index.ts.
-  return dirname(dirname(dirname(require.resolve('@aethervtt/shard-core'))))
-}
+/** The CLI's own folder (its package.json): engine packages are resolved from here too. */
+const cliRoot = resolve(here, '..')
 
 /**
  * An import map pointing every `@aethervtt/shard-<pkg>` at the URL Vite serves that package's entry from, so
  * the project bundle (which leaves `@aethervtt/shard-*` external) shares the page's module instances.
+ * Repository source or installed `dist`, in any package-manager layout (0093).
  */
-function engineImportMap(): Record<string, string> {
-  const dir = packagesDir()
+function engineImportMap(engine: readonly EnginePackage[]): Record<string, string> {
   const imports: Record<string, string> = {}
-  for (const name of readdirSync(dir)) {
-    const pkgFile = join(dir, name, 'package.json')
-    if (!existsSync(pkgFile)) continue
-    const pkg = JSON.parse(readFileSync(pkgFile, 'utf8')) as {
-      name: string
-      exports?: Record<string, string>
-    }
-    const entry = pkg.exports?.['.']
-    if (!pkg.name.startsWith('@aethervtt/shard-') || typeof entry !== 'string') continue
+  for (const pkg of engine) {
+    if (!pkg.entry) continue
     // Vite's `/@fs/` prefix takes an absolute path; a Windows one (`C:/…`) needs its own slash.
-    const path = resolve(dir, name, entry).split(sep).join('/')
+    const path = pkg.entry.split(sep).join('/')
     imports[pkg.name] = `/@fs${path.startsWith('/') ? '' : '/'}${path}`
   }
   return imports
+}
+
+/** Engine packages that never load in a page, and Node-only dependencies (server subpaths). */
+const NODE_ONLY = new Set([
+  '@aethervtt/shard-cli',
+  '@aethervtt/shard-node',
+  '@aethervtt/shard-platform-node',
+  '@aethervtt/shard-testing',
+])
+const NODE_ONLY_DEPENDENCIES = new Set(['ws'])
+
+/**
+ * `pkg > dependency` for every third-party dependency of an installed engine package a page can
+ * load: Vite pre-bundles them even though the engine packages themselves are excluded. The
+ * repository's linked packages need none (Vite treats them as source).
+ */
+function browserDependencies(engine: readonly EnginePackage[]): string[] {
+  const include: string[] = []
+  for (const pkg of engine) {
+    if (NODE_ONLY.has(pkg.name) || !pkg.code.endsWith(`${sep}dist`)) continue
+    const manifest = JSON.parse(readFileSync(join(pkg.root, 'package.json'), 'utf8')) as {
+      dependencies?: Record<string, string>
+    }
+    for (const dep of Object.keys(manifest.dependencies ?? {})) {
+      if (!dep.startsWith('@aethervtt/shard-') && !NODE_ONLY_DEPENDENCIES.has(dep)) {
+        include.push(`${pkg.name} > ${dep}`)
+      }
+    }
+  }
+  return include
 }
 
 function errorPayload(err: ShardError & { source?: string }) {
@@ -81,6 +105,7 @@ function errorPayload(err: ShardError & { source?: string }) {
 
 export async function dev(ctx: CommandContext): Promise<number> {
   const root = resolve(ctx.project)
+  const engine = enginePackages([cliRoot, root])
   const platform = createNodePlatform({ root })
   const { manifest } = await loadProject(platform)
   const bundler = await createBundler({ root, entry: manifest.entry })
@@ -147,7 +172,7 @@ export async function dev(ctx: CommandContext): Promise<number> {
         {
           tag: 'script',
           attrs: { type: 'importmap' },
-          children: JSON.stringify({ imports: engineImportMap() }),
+          children: JSON.stringify({ imports: engineImportMap(engine) }),
           injectTo: 'head-prepend',
         },
       ],
@@ -232,11 +257,15 @@ export async function dev(ctx: CommandContext): Promise<number> {
     clearScreen: false,
     server: {
       port,
-      fs: { allow: [runnerDir, dirname(packagesDir()), root] },
+      fs: { allow: [runnerDir, ...engine.map((p) => p.root), root] },
       // Isolated pages: a 5 µs clock and JS sampling for the profiler (0074).
       headers: { ...ISOLATION_HEADERS },
     },
     plugins: [shardDev],
+    // Engine packages load as they are, never pre-bundled: the runner's imports and the project
+    // bundle's import map must reach the same module instances. Their own dependencies (CommonJS
+    // among them) still need pre-bundling when installed from npm (0093).
+    optimizeDeps: { exclude: engine.map((p) => p.name), include: browserDependencies(engine) },
   })
   await server.listen()
   const address = server.resolvedUrls?.local[0] ?? `http://localhost:${port}/`
