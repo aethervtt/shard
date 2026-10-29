@@ -4,7 +4,16 @@ All engine packages share one version. During `0.x`, minor releases may change A
 patch releases preserve compatibility. The CLI is published with them from 0.4.0; the other apps
 and the examples are not.
 
-## 0.4.0 — 2026-10-28
+## 0.4.1 — 2026-10-29
+
+The first complete release since 0.2.2. 0.3.0 was published partway (a transient npm provenance
+error stopped it; deprecate it), and 0.4.0 was tagged but never published (a test teardown timed
+out during validation). 0.4.1 contains everything listed under 0.4.0 and 0.3.0, plus:
+
+- `shard test` gives setup and teardown hooks 60 s, like tests.
+- The Release workflow skips versions already on npm and retries a failed publish once.
+
+## 0.4.0 — 2026-10-28 (not published)
 
 The `shard` command is on npm: `@aethervtt/shard-cli` (0093).
 
@@ -17,7 +26,7 @@ The `shard` command is on npm: `@aethervtt/shard-cli` (0093).
   systems run in a plain `shard run`.
 - `pnpm release --check` installs the CLI from the tarballs and runs a project with it.
 
-## 0.3.0 — 2026-10-28
+## 0.3.0 — 2026-10-28 (partially published)
 
 50 packages, including three new ones: `net`, `net-websocket` and `net-webrtc` (each under
 `@aethervtt/shard-`).

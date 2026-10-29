@@ -55,7 +55,10 @@ the workflow; this workflow currently uses the repository secret.
 
 If validation fails before publishing, fix the problem and prepare a new release commit/version.
 If publishing fails, inspect which packages reached npm before retrying: publication is sequential,
-not atomic, and an existing name/version cannot be overwritten. The current workflow does not skip
-already published versions. Do not blindly rerun a partially published release or move its tag.
-Use its saved tarballs to complete missing packages through a reviewed recovery workflow, or
+not atomic, and an existing name/version cannot be overwritten. The workflow skips versions already
+on npm and retries a failed publish once, so rerunning the same run's failed job completes a
+partial publish from the same validated commit. Do not move a tag. When a rerun isn't possible,
 release a new version of the full set. Do not unpublish packages as routine recovery.
+
+0.3.0 stopped partway (a transient provenance error); 0.4.0 failed validation (a teardown timeout)
+and was never published. 0.4.1 is the first complete release after 0.2.2.

@@ -66,10 +66,25 @@ jobs:
           path: dist-release/tarballs/*.tgz
           if-no-files-found: error
 
+      # Skips versions already on npm, so a rerun after a partial publish completes it, and retries
+      # a failed publish once: provenance signing can fail transiently (0.3.0 stopped on a 409 from
+      # the transparency log), and the first attempt may have landed anyway.
       - name: Publish
         run: |
           for tarball in dist-release/tarballs/*.tgz; do
-            npm publish "$tarball" --access public --provenance
+            spec=$(tar -xzOf "$tarball" package/package.json | node -e 'const p = JSON.parse(require("fs").readFileSync(0, "utf8")); console.log(`${p.name}@${p.version}`)')
+            if npm view "$spec" version > /dev/null 2>&1; then
+              echo "$spec is already published"
+              continue
+            fi
+            if ! npm publish "$tarball" --access public --provenance; then
+              sleep 30
+              if npm view "$spec" version > /dev/null 2>&1; then
+                echo "$spec landed despite the error"
+              else
+                npm publish "$tarball" --access public --provenance
+              fi
+            fi
           done
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
