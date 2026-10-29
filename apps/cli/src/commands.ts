@@ -973,6 +973,9 @@ export async function testCommand({ out, project, args, flags }: CommandContext)
     watch: false,
     reporters: out.json ? [{ onInit() {} }] : ['default'],
     testTimeout: 60_000,
+    // Setup and teardown get as long as a test: closing a large procedural project (workers, the
+    // GPU) can take over Vitest's default 10 s on a loaded machine.
+    hookTimeout: 60_000,
     fileParallelism: false,
     // Engine packages installed from npm load through Vitest like the project's own code, so a
     // project module the engine imports (the entry, in openProject or loadHeadlessCode) is the
