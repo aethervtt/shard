@@ -77,7 +77,10 @@ describe('multiplayer commands (0092)', () => {
 
     const exited = new Promise<number | null>((r) => child.on('exit', r))
     child.kill('SIGINT')
-    expect(await exited).toBe(0)
+    const exitCode = await exited
+    // Windows can't deliver SIGINT to a child process: kill() terminates it (a console Ctrl-C
+    // still reaches Node's handler).
+    if (process.platform !== 'win32') expect(exitCode).toBe(0)
   })
 
   it('lobby runs room codes and signaling, lists rooms, and stops on SIGINT', async () => {
@@ -109,7 +112,10 @@ describe('multiplayer commands (0092)', () => {
     await listener.close()
     const exited = new Promise<number | null>((r) => child.on('exit', r))
     child.kill('SIGINT')
-    expect(await exited).toBe(0)
+    const exitCode = await exited
+    // Windows can't deliver SIGINT to a child process: kill() terminates it (a console Ctrl-C
+    // still reaches Node's handler).
+    if (process.platform !== 'win32') expect(exitCode).toBe(0)
   })
 
   it('refuses a project without project.net', () => {
