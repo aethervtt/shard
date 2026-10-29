@@ -471,6 +471,21 @@ describe('commands and events', () => {
     await app.dispose()
   })
 
+  it('without networking, reads no commands and delivers events locally', async () => {
+    const { App } = await import('@aethervtt/shard-runtime')
+    const app = new App()
+    await app.init()
+    const world = app.world
+    expect(commands(world, Attack)).toEqual([])
+    sendEvent(world, Shout, { text: 'solo' })
+    const got = world
+      .reader(Shout.event)
+      .read()
+      .map((e) => e.data.text)
+    expect(got).toEqual(['solo'])
+    await app.dispose()
+  })
+
   it('delivers events to the chosen peers, after the entities they name', async () => {
     net = await netHarness({
       clients: 2,

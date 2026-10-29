@@ -15,7 +15,13 @@ import {
   t,
   type World,
 } from '@aethervtt/shard-core'
-import { type AppMethod, definePlugin, type Plugin, Time } from '@aethervtt/shard-runtime'
+import {
+  type AppMethod,
+  definePlugin,
+  FixedTime,
+  type Plugin,
+  Time,
+} from '@aethervtt/shard-runtime'
 import { NetClient, PendingCommand } from './client'
 import * as components from './components'
 import { NetClock, NetRole, type NetRoleName, Replicated } from './components'
@@ -320,7 +326,10 @@ export function commands<F extends Fields>(
   world: World,
   def: NetCommandDef<F>,
 ): ServerCommand<InferFields<F>>[] {
-  const server = netSession(world).server
+  // No networking at all: nobody can have sent one, and onServer systems still run offline.
+  const session = world.tryResource(NetSession)
+  if (!session) return []
+  const server = session.server
   if (!server) throw notAuthority(`read ${def.name} commands`)
   return server.pending(def as NetCommandDef) as unknown as ServerCommand<InferFields<F>>[]
 }
@@ -340,7 +349,14 @@ export function sendEvent<F extends Fields>(
   data: Partial<InferFields<F>>,
   options: SendEventOptions = {},
 ): void {
-  const server = netSession(world).server
+  const session = world.tryResource(NetSession)
+  if (!session) {
+    // No networking: deliver to this world only, so offline code reads the same stream.
+    const tick = world.tryResource(FixedTime)?.tick ?? 0
+    world.send(def.event, { data: data as never, tick })
+    return
+  }
+  const server = session.server
   if (!server) throw notAuthority(`send ${def.name}`)
   server.sendEvent(def as NetEventDef, data as Record<string, unknown>, options.to ?? 'all')
 }

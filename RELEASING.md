@@ -1,7 +1,8 @@
 # Publishing Shard
 
 The [Release workflow](.github/workflows/release.yml) publishes every package in `packages/`
-to npm as public `@aethervtt/shard-*` packages with provenance. Apps and examples stay private.
+to npm as public `@aethervtt/shard-*` packages with provenance, and the CLI (`apps/cli`, as
+`@aethervtt/shard-cli`, 0093). The other apps and the examples stay private.
 The root `package.json` supplies the shared release version; workspace package manifests keep
 their development versions and source exports. `scripts/release.mjs` creates publishable
 manifests, JavaScript, declarations, runtime files, and exact internal dependency versions.

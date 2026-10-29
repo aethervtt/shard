@@ -82,7 +82,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `audio/music-unprepared` | @aethervtt/shard-audio |  |
 | `audio/no-plugin` | @aethervtt/shard-audio | Add "audio" to plugins in shard.json (or app.addPlugin(audioPlugin())). |
 | `audio/prepare-failed` | @aethervtt/shard-audio |  |
-| `audio/preview-unavailable` | @aethervtt/shard-audio |  |
+| `audio/preview-unavailable` | @aethervtt/shard-cli | Run pnpm exec playwright install chromium in apps/cli. |
 | `audio/restore` | @aethervtt/shard-audio |  |
 | `audio/stale-handle` | @aethervtt/shard-audio |  |
 | `audio/unknown-bus` | @aethervtt/shard-audio |  |
@@ -104,6 +104,13 @@ Every engine error is a `ShardError` with one of these codes.
 | `cards/texture-budget` | @aethervtt/shard-cards | Use a visible subset or a smaller resolution; prepare an inspection page separately. |
 | `cards/texture-size` | @aethervtt/shard-cards |  |
 | `cards/unknown-finish` | @aethervtt/shard-cards |  |
+| `cli/missing-playwright` | @aethervtt/shard-cli | Install it next to the CLI: npm install -D playwright && npx playwright install chromium. |
+| `cli/no-response` | @aethervtt/shard-cli |  |
+| `cli/no-target` | @aethervtt/shard-cli | Start the app (shard dev, Studio) with the hub address, then run this again. |
+| `cli/not-empty` | @aethervtt/shard-cli | Pick an empty folder or pass --force. |
+| `cli/unavailable` | @aethervtt/shard-cli |  |
+| `cli/unknown-resource` | @aethervtt/shard-cli |  |
+| `cli/usage` | @aethervtt/shard-cli | Run it on a machine doing nothing else: the budgets are exact. |
 | `controls/no-controls` | @aethervtt/shard-controls | syncViews takes two cameras that each have a control. |
 | `controls/no-plugin` | @aethervtt/shard-controls | Add "controls" to plugins in shard.json (or app.addPlugin(controlsPlugin)). |
 | `controls/not-draggable` | @aethervtt/shard-controls | PlaneDrag moves an entity by its Transform. |
@@ -302,6 +309,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `project/namespace` | @aethervtt/shard-project |  |
 | `project/no-bundler` | @aethervtt/shard-project | Pass "url" with a built bundle. |
 | `project/not-found` | @aethervtt/shard-project | Run `shard init <dir>` to create a project, or run from a project folder. |
+| `project/not-multiplayer` | @aethervtt/shard-cli | Call project.net({ replicate, commands, … }) in the entry to make it multiplayer. |
 | `project/reload-failed` | @aethervtt/shard-project |  |
 | `project/unknown-plugin` | @aethervtt/shard-project |  |
 | `protocol/internal` | @aethervtt/shard-protocol |  |
@@ -344,7 +352,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `render/registry-conflict` | @aethervtt/shard-render | Two definitions (two apps or bundles) share the name. Rename one, or share the definition. |
 | `render/surface-device` | @aethervtt/shard-render | Pass the GpuContext the surface was added to (surface.gpu), or omit gpu. |
 | `render/texture-color-space-mismatch` | @aethervtt/shard-render | Set its usage to match the slot in its .meta, and the copy goes. |
-| `render/too-many-joints` | @aethervtt/shard-gltf | Split the mesh, or remove helper bones before exporting. |
+| `render/too-many-joints` | @aethervtt/shard-render | Split the mesh, or remove helper bones before exporting. It draws in bind pose. |
 | `render/unknown-buffer` | @aethervtt/shard-render |  |
 | `render/unknown-camera` | @aethervtt/shard-render | Pass a Camera3d entity that has rendered at least one frame. |
 | `render/unknown-material-type` | @aethervtt/shard-render |  |
@@ -458,6 +466,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `terrain/heightmap-format` | @aethervtt/shard-terrain | Heightmaps are 16-bit grayscale PNGs, or .r16/.r32 raw files with "width" and "height" in their .meta settings. An 8-bit PNG is a texture, not a heightmap. |
 | `terrain/missing-pack` | @aethervtt/shard-terrain | The terrain isn’t baked (or was baked for another grid): `shard terrain bake`. |
 | `terrain/no-planet` | @aethervtt/shard-terrain | Add terrain/Planet (with a Grid) to an entity, and the terrain plugin to the app. |
+| `terrain/no-source` | @aethervtt/shard-cli | Terrain sources are *.terrain.json files under the asset roots; `shard import` lists failures. |
 | `terrain/no-terrain` | @aethervtt/shard-terrain | Add terrain/Terrain (with a Grid and a *.terrain.json source) to an entity. |
 | `terrain/not-a-planet` | @aethervtt/shard-terrain | Add terrain/Planet (and a Grid) to the planet entity, and the terrain plugin to the app. |
 | `terrain/not-a-terrain` | @aethervtt/shard-terrain | terrain.describe lists every terrain with its entity and scene path. |

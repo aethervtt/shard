@@ -1,7 +1,21 @@
 # Changelog
 
 All engine packages share one version. During `0.x`, minor releases may change APIs;
-patch releases preserve compatibility. Apps and examples are not published.
+patch releases preserve compatibility. The CLI is published with them from 0.4.0; the other apps
+and the examples are not.
+
+## 0.4.0 — 2026-10-28
+
+The `shard` command is on npm: `@aethervtt/shard-cli` (0093).
+
+- `npx @aethervtt/shard-cli init my-game` makes a project pinned to this version; inside it,
+  `npx shard <command>` runs every command (`dev`, `test`, `server`, `lobby`, `run --net`, …).
+- `shard dev`, `shard docs` and `shard test` find the engine in any install layout (the repository,
+  npm, pnpm) through `enginePackages` (`@aethervtt/shard-node`).
+- Playwright is an optional peer of the CLI: only browser-driven commands need it.
+- `commands()` and `sendEvent` work in apps without networking, so a multiplayer project's server
+  systems run in a plain `shard run`.
+- `pnpm release --check` installs the CLI from the tarballs and runs a project with it.
 
 ## 0.3.0 — 2026-10-28
 

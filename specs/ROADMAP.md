@@ -242,6 +242,7 @@ Shard app running the game's scripts; transports and lobby services are swappabl
 | [0090](0090-net-accounts-persistence.md) | Net accounts and player persistence (async accept, join/leave hooks) | accepted |
 | [0091](0091-p2p-webrtc-host.md) | Peer-to-peer sessions (WebRTC transport, lobby and signaling, host mode) | accepted |
 | [0092](0092-multiplayer-projects.md) | Multiplayer projects (project net config, `shard server`, `run --net`, coin-rush example) | accepted |
+| [0093](0093-published-cli.md) | Published CLI (`@aethervtt/shard-cli` on npm, engine found in any install layout) | accepted |
 
 Phase 1 is 0086, 0087 and 0089 (built; `host` and a few items each spec marks as not built
 wait): enough for turn-based card games and MMO-style state sync. 0088 follows. Later specs, designed for but not drafted: WebRTC transport and host migration, a world

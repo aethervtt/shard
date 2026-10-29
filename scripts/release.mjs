@@ -3,7 +3,9 @@
 // packed with `npm pack`. Inside the monorepo, packages keep exporting their TypeScript source.
 //
 //   pnpm release                 build and pack every package into dist-release/
-//   pnpm release --check         then prove it: bench/consumer installs the tarballs outside the repo
+//   pnpm release --check         then prove it: bench/consumer installs the tarballs outside the repo,
+//                                and coin-rush runs with the published CLI
+//   pnpm release --cli-check     only the published-CLI part of --check
 //   pnpm release --version 0.0.2 (default: the root package.json version)
 
 import { execFileSync } from 'node:child_process'
@@ -11,12 +13,14 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
 import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -42,6 +46,8 @@ const packagesDir = join(repo, 'packages')
 const names = readdirSync(packagesDir).filter((n) =>
   existsSync(join(packagesDir, n, 'package.json')),
 )
+// Apps published with the engine (0093). The rest (Studio, the playground) stay private.
+const apps = ['cli']
 
 // --- specifiers --------------------------------------------------------------------------------
 
@@ -121,10 +127,10 @@ function exportTarget(source) {
   return rel
 }
 
-function buildPackage(name) {
-  const dir = join(packagesDir, name)
+function buildPackage(name, { app = false } = {}) {
+  const dir = app ? join(repo, 'apps', name) : join(packagesDir, name)
   const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
-  const target = join(out, 'packages', name)
+  const target = join(out, app ? 'apps' : 'packages', name)
   rmSync(target, { recursive: true, force: true })
   mkdirSync(join(target, 'dist'), { recursive: true })
 
@@ -149,7 +155,25 @@ function buildPackage(name) {
     }
   }
 
-  // Types: tsc over the package's source, declarations only.
+  // Types: tsc over the package's source, declarations only. Apps are commands, not libraries.
+  if (!app) emitDeclarations(dir, name, target)
+
+  // Files loaded at runtime by URL, next to dist as they are next to src. An app also ships its
+  // entry point (bin/) and the pages it serves (the CLI's runner/, compiled by Vite at run time).
+  const extra = []
+  for (const sub of app ? ['bin', 'runner'] : ['wasm', 'vendor']) {
+    if (existsSync(join(dir, sub))) {
+      cpSync(join(dir, sub), join(target, sub), {
+        recursive: true,
+        filter: (src) => !src.endsWith('tsconfig.json'),
+      })
+      extra.push(sub)
+    }
+  }
+  return pack(name, manifest, target, extra, { app })
+}
+
+function emitDeclarations(dir, name, target) {
   const tsconfig = join(dir, 'tsconfig.release.json')
   writeFileSync(
     tsconfig,
@@ -182,15 +206,10 @@ function buildPackage(name) {
       rewriteDeclarationReferences(code, file, join(dir, 'src'), join(target, 'dist')),
     )
   }
+}
 
-  // Files loaded at runtime by URL, next to dist as they are next to src.
-  const extra = []
-  for (const sub of ['wasm', 'vendor']) {
-    if (existsSync(join(dir, sub))) {
-      cpSync(join(dir, sub), join(target, sub), { recursive: true })
-      extra.push(sub)
-    }
-  }
+function pack(name, manifest, target, extra, { app }) {
+  const dir = app ? join(repo, 'apps', name) : join(packagesDir, name)
   cpSync(join(repo, 'LICENSE'), join(target, 'LICENSE'))
   writeFileSync(
     join(target, 'README.md'),
@@ -208,10 +227,11 @@ function buildPackage(name) {
       ]),
     )
   const exportsField = Object.fromEntries(
-    Object.entries(manifest.exports ?? { '.': './src/index.ts' }).map(([key, source]) => [
-      key,
-      exportTarget(source),
-    ]),
+    Object.entries(manifest.exports ?? { '.': './src/index.ts' }).map(([key, source]) => {
+      const exported = exportTarget(source)
+      // Apps ship no declarations.
+      return [key, app && typeof exported === 'object' ? { default: exported.default } : exported]
+    }),
   )
   const sideEffects = Array.isArray(manifest.sideEffects)
     ? manifest.sideEffects.map((p) => p.replace(/^\.\/src\//, './dist/').replace(/\.ts$/, '.js'))
@@ -224,20 +244,27 @@ function buildPackage(name) {
     type: 'module',
     sideEffects,
     exports: exportsField,
+    ...(manifest.bin ? { bin: manifest.bin } : {}),
     files: ['dist', ...extra, 'LICENSE', 'README.md'],
     dependencies: pin(manifest.dependencies),
     repository: {
       type: 'git',
       url: 'git+https://github.com/aethervtt/shard.git',
-      directory: `packages/${name}`,
+      directory: `${app ? 'apps' : 'packages'}/${name}`,
     },
     publishConfig: { access: 'public', provenance: true },
     shard: { buildSha: sha },
   }
   // The Node WebGPU backend is optional: only `@aethervtt/shard-gpu/node` needs it.
-  if (name === 'gpu') {
+  if (name === 'gpu' && !app) {
     released.peerDependencies = { webgpu: manifest.devDependencies.webgpu }
     released.peerDependenciesMeta = { webgpu: { optional: true } }
+  }
+  // Only browser-driven commands (capture, audio preview) need Playwright: an optional peer.
+  if (app && released.dependencies?.playwright) {
+    released.peerDependencies = { playwright: released.dependencies.playwright }
+    released.peerDependenciesMeta = { playwright: { optional: true } }
+    delete released.dependencies.playwright
   }
   writeFileSync(join(target, 'package.json'), `${JSON.stringify(released, null, 2)}\n`)
   const tarball = execFileSync(
@@ -248,15 +275,18 @@ function buildPackage(name) {
       encoding: 'utf8',
     },
   ).trim()
-  return { name: manifest.name, tarball: join(out, 'tarballs', tarball.split('\n').pop()) }
+  return {
+    name: manifest.name,
+    target,
+    tarball: join(out, 'tarballs', tarball.split('\n').pop()),
+  }
 }
 
 // --- checks --------------------------------------------------------------------------------------
 
 function checkOutput(built) {
   const problems = []
-  for (const { name } of built) {
-    const target = join(out, 'packages', name.replace('@aethervtt/shard-', ''))
+  for (const { name, target } of built) {
     const manifest = JSON.parse(readFileSync(join(target, 'package.json'), 'utf8'))
     for (const [key, value] of Object.entries(manifest.exports)) {
       const targets = (entry) =>
@@ -323,6 +353,98 @@ function consumerCheck(built) {
   run('node', ['browser.mjs'])
 }
 
+/**
+ * The published CLI (0093), installed from the tarballs outside the repository: a multiplayer
+ * project (coin-rush) validates, runs single player and with clients, writes docs with the engine's
+ * error codes, passes its tests, and serves a dev page whose import map points at installed dist
+ * files. `shard init` writes a project pinned to this version.
+ */
+async function cliCheck(built) {
+  // Outside the repository: inside it, `shard init` (rightly) writes workspace:* dependencies.
+  const work = mkdtempSync(join(tmpdir(), 'shard-cli-'))
+  const game = join(work, 'game')
+  cpSync(join(repo, 'examples/coin-rush'), game, {
+    recursive: true,
+    filter: (src) => !/[\\/](node_modules|\.shard)([\\/]|$)/.test(src),
+  })
+  const manifest = JSON.parse(readFileSync(join(game, 'package.json'), 'utf8'))
+  manifest.dependencies = Object.fromEntries(
+    built.map(({ name, tarball }) => [name, `file:${tarball}`]),
+  )
+  manifest.devDependencies = {
+    '@types/node': '^26.6.2',
+    '@webgpu/types': '^0.1.74',
+    typescript: '^7.0.2',
+    vitest: '^5.0.1',
+  }
+  writeFileSync(join(game, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`)
+  const env = { ...process.env, npm_config_loglevel: 'error' }
+  const shard = (cmdArgs, cwd = game) => {
+    console.log(`  $ shard ${cmdArgs.join(' ')}`)
+    return execFileSync(join(game, 'node_modules/.bin/shard'), cmdArgs, {
+      cwd,
+      env,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'inherit'],
+    })
+  }
+  console.log('  $ npm install (coin-rush, from the tarballs)')
+  execFileSync('npm', ['install', '--no-audit', '--no-fund', '--loglevel=error'], {
+    cwd: game,
+    env,
+    stdio: 'inherit',
+  })
+  shard(['validate'])
+  shard(['run', '--frames', '60'])
+  const net = JSON.parse(shard(['run', '--net', 'clients=2,latency=0.05,loss=0.05', '--json']))
+  if (!net.converged) throw new Error(`run --net didn't converge: ${net.differences.join('; ')}`)
+  shard(['docs'])
+  const errors = readFileSync(join(game, '.agents/errors.md'), 'utf8')
+  if (!errors.includes('net/schema-mismatch') || !errors.includes('ecs/dead-entity')) {
+    throw new Error('shard docs wrote an error catalog without the engine codes')
+  }
+  shard(['test'])
+  shard(['init', 'fresh', '--template', 'empty'], work)
+  const fresh = JSON.parse(readFileSync(join(work, 'fresh/package.json'), 'utf8'))
+  if (fresh.dependencies['@aethervtt/shard-core'] !== `^${version}`) {
+    throw new Error(`shard init pinned ${fresh.dependencies['@aethervtt/shard-core']}`)
+  }
+
+  // shard dev: the page's import map points into node_modules, at dist entries.
+  const { spawn } = await import('node:child_process')
+  console.log('  $ shard dev --port 5293')
+  const child = spawn(join(game, 'node_modules/.bin/shard'), ['dev', '--port', '5293', '--json'], {
+    cwd: game,
+    env,
+  })
+  try {
+    const info = await new Promise((resolveInfo, reject) => {
+      let text = ''
+      child.stdout.on('data', (d) => {
+        text += d
+        try {
+          resolveInfo(JSON.parse(text))
+        } catch {}
+      })
+      child.on('exit', (code) => reject(new Error(`shard dev exited ${code}`)))
+    })
+    const html = await (await fetch(info.url)).text()
+    const map = JSON.parse(/<script type="importmap">(.*?)<\/script>/s.exec(html)[1])
+    const core = map.imports['@aethervtt/shard-core'] ?? ''
+    if (!core.includes('node_modules') || !core.endsWith('/dist/index.js')) {
+      throw new Error(`shard dev maps @aethervtt/shard-core to ${core}`)
+    }
+    const page = await fetch(new URL('/main.ts', info.url))
+    if (!page.ok) throw new Error(`shard dev couldn't serve its runner: ${page.status}`)
+  } finally {
+    const exited = new Promise((r) => child.once('exit', r))
+    child.kill('SIGINT')
+    await Promise.race([exited, new Promise((r) => setTimeout(r, 5000))])
+  }
+  // Vite may still be writing its cache: retry.
+  rmSync(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
+}
+
 // --- main --------------------------------------------------------------------------------------
 
 rmSync(join(out, 'tarballs'), { recursive: true, force: true })
@@ -332,6 +454,10 @@ for (const name of names) {
   process.stdout.write(`${name} `)
   built.push(buildPackage(name))
 }
+for (const name of apps) {
+  process.stdout.write(`apps/${name} `)
+  built.push(buildPackage(name, { app: true }))
+}
 console.log(
   `\nPacked ${built.length} packages at ${version} (${sha.slice(0, 7)}) into ${relative(repo, out)}/tarballs`,
 )
@@ -340,9 +466,16 @@ if (problems.length > 0) {
   console.error(`\nProblems:\n  ${problems.join('\n  ')}`)
   process.exit(1)
 }
+if (flag('--cli-check') && !flag('--check')) {
+  console.log('\nCLI check (coin-rush with the published CLI, installed from the tarballs):')
+  await cliCheck(built)
+  console.log('\nThe published CLI installs and runs outside the repository.')
+}
 if (flag('--check')) {
   console.log('\nConsumer check (bench/consumer, installed from the tarballs):')
   consumerCheck(built)
+  console.log('\nCLI check (coin-rush with the published CLI, installed from the tarballs):')
+  await cliCheck(built)
   console.log(
     '\nPacked packages pass types, Node/Bun codecs, Vite/webpack/Next builds, and Chromium presentation/worker checks.',
   )

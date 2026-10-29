@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { readdir, readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
@@ -440,22 +441,107 @@ export function worldHash(world: World): string {
   return createHash('sha256').update(rows.sort().join('\n')).digest('hex')
 }
 
+/** An engine package as installed: in the repository (source) or from npm (dist). */
+export interface EnginePackage {
+  /** `@aethervtt/shard-core` */
+  name: string
+  /** The package folder. */
+  root: string
+  /** Absolute path of its main entry: `src/index.ts` in the repository, `dist/index.js` published. */
+  entry: string | undefined
+  /** Where its code is: `src` in the repository, `dist` published. */
+  code: string
+}
+
+/** The folder holding the nearest package.json at or above `path`. */
+function packageRoot(path: string): string {
+  let dir = path
+  while (!existsSync(join(dir, 'package.json'))) {
+    const up = dirname(dir)
+    if (up === dir) return dirname(path)
+    dir = up
+  }
+  return dir
+}
+
+interface PackageJson {
+  name?: string
+  exports?: Record<string, string | { default?: string }>
+  dependencies?: Record<string, string>
+}
+
+const readJson = (file: string): PackageJson =>
+  JSON.parse(readFileSync(file, 'utf8')) as PackageJson
+
 /**
- * Error codes the engine can raise, scanned from the engine packages' sources (with the hint written
- * next to each). Feeds `.agents/errors.md`.
+ * The installed `@aethervtt/shard-*` packages (0093): the repository's `packages/`, or a project's
+ * dependencies from npm in any layout (hoisted or pnpm's). Found from this package's and `from`'s
+ * dependencies, following each engine package's own, plus the core's siblings.
  */
-export async function collectErrorCodes(): Promise<ErrorCode[]> {
-  const require = createRequire(import.meta.url)
-  // @aethervtt/shard-core resolves to packages/core/src/index.ts; the packages dir is three levels up.
-  const packagesDir = dirname(dirname(dirname(require.resolve('@aethervtt/shard-core'))))
+export function enginePackages(from: readonly string[] = []): EnginePackage[] {
+  const found = new Map<string, EnginePackage>()
+  const add = (root: string): PackageJson | undefined => {
+    const pkg = readJson(join(root, 'package.json'))
+    if (!pkg.name?.startsWith('@aethervtt/shard-') || found.has(pkg.name)) return undefined
+    const main = pkg.exports?.['.']
+    const entry = typeof main === 'string' ? main : main?.default
+    found.set(pkg.name, {
+      name: pkg.name,
+      root,
+      entry: entry ? resolve(root, entry) : undefined,
+      code: existsSync(join(root, 'src')) ? join(root, 'src') : join(root, 'dist'),
+    })
+    return pkg
+  }
+  const follow = (dir: string) => {
+    const deps = existsSync(join(dir, 'package.json'))
+      ? Object.keys(readJson(join(dir, 'package.json')).dependencies ?? {})
+      : []
+    const require = createRequire(join(dir, 'package.json'))
+    for (const name of deps) {
+      if (!name.startsWith('@aethervtt/shard-') || found.has(name)) continue
+      let root: string
+      try {
+        root = packageRoot(dirname(require.resolve(name)))
+      } catch {
+        continue
+      }
+      if (add(root)) follow(root)
+    }
+  }
+  const self = packageRoot(dirname(fileURLToPath(import.meta.url)))
+  add(self)
+  follow(self)
+  for (const dir of from) follow(dir)
+  // The repository's packages/ (or a hoisted node_modules/@aethervtt): every sibling of the core.
+  const core = found.get('@aethervtt/shard-core')
+  if (core) {
+    const parent = dirname(core.root)
+    for (const name of readdirSync(parent)) {
+      const root = join(parent, name)
+      if (existsSync(join(root, 'package.json')) && add(root)) follow(root)
+    }
+  }
+  return [...found.values()]
+}
+
+/**
+ * Error codes the engine can raise, scanned from the engine packages' code (with the hint written
+ * next to each): their TypeScript in the repository, their JavaScript when installed from npm.
+ * Feeds `.agents/errors.md`.
+ */
+export async function collectErrorCodes(from: readonly string[] = []): Promise<ErrorCode[]> {
   const found = new Map<string, ErrorCode>()
-  const pkgs = await readdir(packagesDir).catch(() => [] as string[])
-  for (const pkg of pkgs) {
-    const src = join(packagesDir, pkg, 'src')
-    const files = await readdir(src, { recursive: true }).catch(() => [] as string[])
+  for (const pkg of enginePackages(from)) {
+    const files = await readdir(pkg.code, { recursive: true }).catch(() => [] as string[])
     for (const file of files) {
-      if (!file.endsWith('.ts') || file.endsWith('.test.ts')) continue
-      const text = await readFile(join(src, file), 'utf8')
+      if (
+        !/\.(ts|js)$/.test(file) ||
+        /\.(test|bench)\.(ts|js)$/.test(file) ||
+        file.endsWith('.d.ts')
+      )
+        continue
+      const text = await readFile(join(pkg.code, file), 'utf8')
       const re = /new ShardError\(\s*['"]([a-z0-9-]+\/[a-z0-9-]+)['"]/g
       for (let m = re.exec(text); m; m = re.exec(text)) {
         const code = m[1]!
@@ -467,7 +553,7 @@ export async function collectErrorCodes(): Promise<ErrorCode[]> {
         if (!found.has(code) || (!found.get(code)!.hint && hint)) {
           found.set(code, {
             code,
-            source: `@aethervtt/shard-${pkg}`,
+            source: pkg.name,
             ...(hint && !hint.includes('${') ? { hint } : {}),
           })
         }

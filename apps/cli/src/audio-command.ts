@@ -16,7 +16,6 @@ import {
 import { type AssetRef, ShardError } from '@aethervtt/shard-core'
 import { openProject } from '@aethervtt/shard-node'
 import { DEFAULT_HUB_PORT } from '@aethervtt/shard-protocol'
-import { chromium } from 'playwright'
 import { createServer } from 'vite'
 import type { CommandContext } from './commands'
 import { openProjectAssets } from './commands'
@@ -144,6 +143,7 @@ export async function renderProjectAudio(
     })
     try {
       await server.listen()
+      const { chromium } = await loadPlaywright()
       const browser = await chromium.launch({ headless: true }).catch((cause: unknown) => {
         throw new ShardError(
           'audio/preview-unavailable',
@@ -268,4 +268,20 @@ async function audioCall(ctx: CommandContext): Promise<number> {
     }
   }
   return EXIT.ok
+}
+
+/** Playwright is an optional peer of the published CLI (0093): only browser-driven commands need it. */
+export async function loadPlaywright(): Promise<typeof import('playwright')> {
+  try {
+    return await import('playwright')
+  } catch (cause) {
+    throw new ShardError(
+      'cli/missing-playwright',
+      'This command drives a browser through Playwright',
+      {
+        cause,
+        hint: 'Install it next to the CLI: npm install -D playwright && npx playwright install chromium.',
+      },
+    )
+  }
 }
