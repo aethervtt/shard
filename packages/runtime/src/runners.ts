@@ -23,6 +23,53 @@ export function headlessRunner(options: HeadlessOptions): Runner {
   }
 }
 
+export interface IntervalOptions {
+  /** Updates per second. Default: the app's fixedHz. */
+  hz?: number
+  /** Longest delta passed to update, in seconds (a stalled timer). Default 0.25. */
+  maxDelta?: number
+  /** Stops the loop when aborted. `app.dispose()` stops it too. */
+  signal?: AbortSignal
+  /** Clock in ms. Default `performance.now`. */
+  now?: () => number
+}
+
+/**
+ * Runs an app on a timer, with real elapsed time: for servers and hosts (0091), which must keep
+ * simulating with no display to pace them. Resolves when stopped.
+ */
+export function intervalRunner(options: IntervalOptions = {}): Runner {
+  const maxDelta = options.maxDelta ?? 0.25
+  const now = options.now ?? (() => performance.now())
+  return (app) =>
+    new Promise<void>((resolve) => {
+      let last = now()
+      let stopped = false
+      const timer = setInterval(
+        () => {
+          const t = now()
+          const delta = Math.min(maxDelta, Math.max(0, (t - last) / 1000))
+          last = t
+          try {
+            app.update(delta)
+          } catch (err) {
+            app.world.resource(LogResource).error(err)
+          }
+        },
+        1000 / (options.hz ?? app.fixedHz),
+      )
+      const stop = () => {
+        if (stopped) return
+        stopped = true
+        clearInterval(timer)
+        options.signal?.removeEventListener('abort', stop)
+        resolve()
+      }
+      options.signal?.addEventListener('abort', stop)
+      app.attachDriver({ requestFrame() {}, stop })
+    })
+}
+
 export interface AnimationFrameOptions {
   /** Longest delta passed to update, in seconds, e.g. after the tab was hidden. Default 0.25. */
   maxDelta?: number

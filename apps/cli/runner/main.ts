@@ -4,6 +4,9 @@
  */
 import { assetServer } from '@aethervtt/shard-assets'
 import { ShardError } from '@aethervtt/shard-core'
+import { netPlugin, startHost } from '@aethervtt/shard-net'
+import { webRtcLobby } from '@aethervtt/shard-net-webrtc'
+import { webSocketTransport } from '@aethervtt/shard-net-websocket'
 import { createDomInputSource, createWebPlatform } from '@aethervtt/shard-platform-web'
 import { configureProcgenHost, setGeneratorCodeHashes } from '@aethervtt/shard-procgen'
 import {
@@ -14,6 +17,7 @@ import {
   locateInBundle,
   type ManifestValue,
   ProjectSession,
+  projectNet,
   type SourceMap,
 } from '@aethervtt/shard-project'
 import { connectToHub, createProtocolServer } from '@aethervtt/shard-protocol'
@@ -37,6 +41,8 @@ interface DevInfo {
   hub: string
   /** Performance budgets (0075), when the project or its repo has them. */
   budgets?: PerfBudgetsData
+  /** `shard dev --connect` / `--lobby` (0092): a server to join, or a lobby for ?host / ?join. */
+  net?: { url?: string; lobby?: string }
 }
 
 interface DevGenerators {
@@ -73,6 +79,21 @@ async function mapFor(url: string): Promise<void> {
 }
 const toProjectPath = (s: string) => s.replace(/^(\.\.\/)+/, '')
 
+/** A badge with the room code, and a link friends can open to join. */
+function showRoom(code: string, mode: 'hosting' | 'joined'): void {
+  const badge = document.createElement('div')
+  badge.id = 'room'
+  const link = new URL(location.href)
+  link.searchParams.delete('host')
+  link.searchParams.set('join', code)
+  badge.innerHTML =
+    mode === 'hosting'
+      ? `Hosting room <b>${code}</b> · <a href="${link.href}" target="_blank">join link</a>`
+      : `Room <b>${code}</b>`
+  document.body.append(badge)
+  ;(globalThis as { shardRoom?: { code: string; mode: string } }).shardRoom = { code, mode }
+}
+
 async function start() {
   const info = (await (await fetch('/@aethervtt/shard-project.json')).json()) as DevInfo
   const { manifest } = info
@@ -100,6 +121,45 @@ async function start() {
   })
   // Performance records over the protocol (metrics.record), the same way scripts take them (0062).
   app.addPlugin(metricsPlugin({ performance: platform.performance }))
+  // A multiplayer project (0092) joins a server (`--connect <url>`, `?connect=<url>`), or plays
+  // peer to peer through a lobby (`--lobby <url>`, `?lobby=<url>`): `?host` hosts a room here,
+  // `?join=<code>` joins one.
+  const params = new URLSearchParams(location.search)
+  const net = projectNet(project)
+  const lobby = params.get('lobby') ?? info.net?.lobby
+  const join = params.get('join')
+  if (net && (params.has('host') || join)) {
+    if (!lobby) {
+      throw new ShardError('net/no-lobby', '?host and ?join need a lobby', {
+        hint: 'Run `shard lobby`, then `shard dev --lobby ws://127.0.0.1:7500` (or add ?lobby=<url>).',
+      })
+    }
+    const session = webRtcLobby({ url: lobby })
+    if (join) {
+      app.addPlugin(netPlugin({ ...net, role: 'client', session, code: join }))
+      showRoom(join, 'joined')
+    } else {
+      // The game's server runs in this page next to the player's own client (0091).
+      const host = await startHost({
+        net: { ...net, meta: { project: manifest.name } },
+        session,
+        createApp: () => buildApp({ manifest, project, platform, display: false }),
+        afterInit: async (server) => {
+          await assetServer(server.world).configure({ platform, roots: manifest.assetRoots }).scan()
+        },
+      })
+      addEventListener('pagehide', () => void host.stop())
+      app.addPlugin(netPlugin({ ...net, role: 'client', ...host.local }))
+      showRoom(host.code, 'hosting')
+    }
+  } else {
+    const connectTo = params.get('connect') ?? info.net?.url
+    if (connectTo && net) {
+      app.addPlugin(
+        netPlugin({ ...net, role: 'client', transport: webSocketTransport(), address: connectTo }),
+      )
+    }
+  }
   // Budgets (0075) from the dev server: perf.budgets, the perf overlay's slices, foliage's target.
   if (info.budgets) app.insertResource(PerfBudgets, info.budgets)
   await app.init()

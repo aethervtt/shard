@@ -23,6 +23,7 @@ import {
   validate,
 } from './commands'
 import { dev } from './dev'
+import { lobby, server } from './net-command'
 import { createOutput, EXIT, errorJson, formatError } from './output'
 import { profile } from './profile'
 import { shaders } from './shaders-command'
@@ -57,11 +58,11 @@ const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; 
   },
   dev: {
     run: dev,
-    help: 'dev [--port 5190]               run the project in a browser, hot reloading',
+    help: 'dev [--port 5190] [--connect ws://…] [--lobby ws://…]   run the project in a browser, hot reloading (--connect: join that server; --lobby: ?host or ?join=CODE peer to peer)',
   },
   run: {
     run,
-    help: 'run [--frames 600] [--scene p] [--cpu-prof]   headless run; prints a world hash',
+    help: 'run [--frames 600] [--scene p] [--cpu-prof] [--net clients=2,latency=0.08,loss=0.05]   headless run; prints a world hash (--net: a server and N clients, no GPU)',
   },
   profile: {
     run: profile,
@@ -123,6 +124,14 @@ const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; 
     run: docs,
     help: 'docs                            regenerate AGENTS.md block, .agents/, schemas',
   },
+  server: {
+    run: server,
+    help: 'server [--port 7000] [--host h]   the project as a dedicated multiplayer server (WebSocket)',
+  },
+  lobby: {
+    run: lobby,
+    help: 'lobby [--port 7500] [--host h]    room codes and WebRTC signaling for peer-to-peer games',
+  },
   serve: {
     run: serve,
     help: 'serve [--port 7811]             protocol hub: WebSocket + stdio JSON-RPC',
@@ -179,6 +188,10 @@ export async function main(argv: string[]): Promise<number> {
         'cpu-prof': { type: 'boolean' },
         'until-ms': { type: 'string' },
         manifest: { type: 'string' },
+        net: { type: 'string' },
+        host: { type: 'string' },
+        connect: { type: 'string' },
+        lobby: { type: 'string' },
         help: { type: 'boolean', short: 'h' },
       },
     })

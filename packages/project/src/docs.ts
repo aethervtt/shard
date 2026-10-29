@@ -1418,6 +1418,8 @@ shard test --json         # gameplay tests in tests/
 shard check --json        # type-check scripts: file, line, column
 shard gen <generator> --seeds 1-9 --out sheet.png   # preview a generator's outputs
 shard dev                 # play it in a browser; saves hot reload in place
+shard server --port 7000  # multiplayer (project.net): a dedicated server; shard dev --connect ws://…
+shard run --net clients=2,latency=0.08   # multiplayer: a server and N headless clients, hashes
 shard capture plan.json   # real-browser shots and perf records; then compare, approve, perf-check
 shard docs              # regenerate this block, .agents/, and .shard/schemas/
 shard mcp                 # MCP server for this project (see .mcp.json)

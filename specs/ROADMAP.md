@@ -226,3 +226,24 @@ A visual timeline editor, particle-generated ribbons, deformed/PBR decals and pr
 | Spec | Title | Status |
 |---|---|---|
 | [0085](0085-published-consumer-compatibility.md) | Aether migration regressions and installed-package gates | draft |
+
+## N1 — Multiplayer
+
+One networking layer for very different games: validated turns with hidden hands, MMO-style state
+filtered per player, predicted shooters, and co-op hosted by a player. The authority is always a
+Shard app running the game's scripts; transports and lobby services are swappable underneath it.
+
+| Spec | Title | Status |
+|---|---|---|
+| [0086](0086-networking.md) | Networking foundations (transports, sessions, roles, ticks, test harness) | accepted |
+| [0087](0087-replication.md) | Replication (binary codec, net ids, deltas, interest and redaction, interpolation) | accepted |
+| [0088](0088-prediction-reconciliation.md) | Prediction, reconciliation, and lag compensation | accepted |
+| [0089](0089-net-commands-hidden-info.md) | Net commands, events, and hidden information (cards, dice) | accepted |
+| [0090](0090-net-accounts-persistence.md) | Net accounts and player persistence (async accept, join/leave hooks) | accepted |
+| [0091](0091-p2p-webrtc-host.md) | Peer-to-peer sessions (WebRTC transport, lobby and signaling, host mode) | accepted |
+| [0092](0092-multiplayer-projects.md) | Multiplayer projects (project net config, `shard server`, `run --net`, coin-rush example) | accepted |
+
+Phase 1 is 0086, 0087 and 0089 (built; `host` and a few items each spec marks as not built
+wait): enough for turn-based card games and MMO-style state sync. 0088 follows. Later specs, designed for but not drafted: WebRTC transport and host migration, a world
+snapshot for lockstep and rollback, line-of-sight interest for shooters, zone sharding, and a
+dedicated-server command and export.

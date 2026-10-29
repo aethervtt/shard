@@ -1,4 +1,13 @@
 export {
+  ByteReader,
+  ByteWriter,
+  createRowCodec,
+  type EntityMapping,
+  type Quantize,
+  type RowCodec,
+  type RowCodecOptions,
+} from './binary'
+export {
   allComponents,
   type ColumnLayout,
   type ComponentDef,

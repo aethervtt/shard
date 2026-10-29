@@ -168,6 +168,18 @@
       "desktop": 2,
       "note": "0037: findPath on a 256\u00d7256 maze grid, median. nav/src/perf.test.ts."
     },
+    "net/encode": {
+      "kind": "target",
+      "laptop": 6,
+      "desktop": 6,
+      "note": "0087 proposed: one server send to one peer with 10,000 replicated Transforms all changed (relevance, change scan, quantized encode), median. Measured 3.9 ms on an Apple M5 Max (2026-10-28), not a named machine; neither named machine has run it yet. net/src/bench.test.ts."
+    },
+    "net/apply": {
+      "kind": "target",
+      "laptop": 2.5,
+      "desktop": 2.5,
+      "note": "0087 proposed: a client applying one state message of 10,000 Transform updates, median. Measured 1.6 ms on an Apple M5 Max (2026-10-28), not a named machine. net/src/bench.test.ts."
+    },
     "nav/grid-agents": {
       "kind": "target",
       "laptop": 1,

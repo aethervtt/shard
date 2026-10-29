@@ -18,6 +18,16 @@ export interface FixedTimeData {
   alpha: number
   /** FixedUpdate runs in the current frame. */
   steps: number
+  /**
+   * FixedUpdate runs completed since the app started: the step running now is `tick` (0-based).
+   * Networking (0086) puts ticks on the wire instead of seconds.
+   */
+  tick: number
+  /**
+   * Multiplies fixed-step accumulation (default 1). Networking (0088) nudges it a few percent so a
+   * client stays the right number of ticks ahead of its server.
+   */
+  rate: number
 }
 
 export const Time = defineResource<TimeData>('core/Time', {

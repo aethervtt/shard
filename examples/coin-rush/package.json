@@ -1,0 +1,33 @@
+{
+  "name": "coin-rush",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "validate": "shard validate",
+    "test": "shard test",
+    "check": "shard check",
+    "dev": "shard dev",
+    "server": "shard server",
+    "docs": "shard docs",
+    "lobby": "shard lobby"
+  },
+  "dependencies": {
+    "@aethervtt/shard-cli": "workspace:*",
+    "@aethervtt/shard-core": "workspace:*",
+    "@aethervtt/shard-input": "workspace:*",
+    "@aethervtt/shard-net": "workspace:*",
+    "@aethervtt/shard-node": "workspace:*",
+    "@aethervtt/shard-project": "workspace:*",
+    "@aethervtt/shard-runtime": "workspace:*",
+    "@aethervtt/shard-sprite": "workspace:*",
+    "@aethervtt/shard-texture": "workspace:*",
+    "@aethervtt/shard-transform": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "@webgpu/types": "^0.1.74",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.1"
+  }
+}

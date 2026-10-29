@@ -50,6 +50,15 @@ importers:
       '@aethervtt/shard-nav':
         specifier: workspace:*
         version: link:../../packages/nav
+      '@aethervtt/shard-net':
+        specifier: workspace:*
+        version: link:../../packages/net
+      '@aethervtt/shard-net-webrtc':
+        specifier: workspace:*
+        version: link:../../packages/net-webrtc
+      '@aethervtt/shard-net-websocket':
+        specifier: workspace:*
+        version: link:../../packages/net-websocket
       '@aethervtt/shard-node':
         specifier: workspace:*
         version: link:../../packages/node
@@ -422,6 +431,52 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
 
+  examples/coin-rush:
+    dependencies:
+      '@aethervtt/shard-cli':
+        specifier: workspace:*
+        version: link:../../apps/cli
+      '@aethervtt/shard-core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@aethervtt/shard-input':
+        specifier: workspace:*
+        version: link:../../packages/input
+      '@aethervtt/shard-net':
+        specifier: workspace:*
+        version: link:../../packages/net
+      '@aethervtt/shard-node':
+        specifier: workspace:*
+        version: link:../../packages/node
+      '@aethervtt/shard-project':
+        specifier: workspace:*
+        version: link:../../packages/project
+      '@aethervtt/shard-runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
+      '@aethervtt/shard-sprite':
+        specifier: workspace:*
+        version: link:../../packages/sprite
+      '@aethervtt/shard-texture':
+        specifier: workspace:*
+        version: link:../../packages/texture
+      '@aethervtt/shard-transform':
+        specifier: workspace:*
+        version: link:../../packages/transform
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+      '@webgpu/types':
+        specifier: ^0.1.74
+        version: 0.1.74
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^5.0.1
+        version: 5.0.1(@types/node@26.6.2)(vite@8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15))
+
   examples/maze-chase:
     dependencies:
       '@aethervtt/shard-cli':
@@ -695,6 +750,9 @@ importers:
       '@aethervtt/shard-mesh':
         specifier: workspace:*
         version: link:../mesh
+      '@aethervtt/shard-net':
+        specifier: workspace:*
+        version: link:../net
       '@aethervtt/shard-render':
         specifier: workspace:*
         version: link:../render
@@ -1076,6 +1134,72 @@ importers:
         specifier: ^0.1.74
         version: 0.1.74
 
+  packages/net:
+    dependencies:
+      '@aethervtt/shard-core':
+        specifier: workspace:*
+        version: link:../core
+      '@aethervtt/shard-runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@aethervtt/shard-transform':
+        specifier: workspace:*
+        version: link:../transform
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+
+  packages/net-webrtc:
+    dependencies:
+      '@aethervtt/shard-core':
+        specifier: workspace:*
+        version: link:../core
+      '@aethervtt/shard-net':
+        specifier: workspace:*
+        version: link:../net
+      ws:
+        specifier: ^8.21.3
+        version: 8.21.3
+    devDependencies:
+      '@aethervtt/shard-runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+      '@types/ws':
+        specifier: ^8
+        version: 8.18.1
+      node-datachannel:
+        specifier: ^0.33.6
+        version: 0.33.6
+
+  packages/net-websocket:
+    dependencies:
+      '@aethervtt/shard-core':
+        specifier: workspace:*
+        version: link:../core
+      '@aethervtt/shard-net':
+        specifier: workspace:*
+        version: link:../net
+      ws:
+        specifier: ^8.21.3
+        version: 8.21.3
+    devDependencies:
+      '@aethervtt/shard-runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@aethervtt/shard-transform':
+        specifier: workspace:*
+        version: link:../transform
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+      '@types/ws':
+        specifier: ^8
+        version: 8.18.1
+
   packages/node:
     dependencies:
       '@aethervtt/shard-assets':
@@ -1405,6 +1529,9 @@ importers:
       '@aethervtt/shard-nav':
         specifier: workspace:*
         version: link:../nav
+      '@aethervtt/shard-net':
+        specifier: workspace:*
+        version: link:../net
       '@aethervtt/shard-noise':
         specifier: workspace:*
         version: link:../noise
@@ -2452,6 +2579,51 @@ packages:
       '@cfworker/json-schema':
         optional: true
 
+  '@node-datachannel/android-arm64@0.33.6':
+    resolution: {integrity: sha512-UzSnd1vSN//3pqyvuufbaIQemvRfIHn/7DAy7wjoYk9tzkJp4SMk1FrNhkhmev89SH/h7yTac6PlGxGe5oHcKw==}
+    cpu: [arm64]
+    os: [android]
+
+  '@node-datachannel/darwin-arm64@0.33.6':
+    resolution: {integrity: sha512-vE2fN6D0BJJ3yZo5guJo2j1q7JeQbl+VyIs6vbkjEp654tQtTo3y7a4l3xB0bwDD27TOlkOlaSLJQRj6ZXqQdQ==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@node-datachannel/darwin-x64@0.33.6':
+    resolution: {integrity: sha512-EtRB2THMR11XMzbNhMEwaZtipaUxFz+PgeVx7hE+er6Ai1Fzzv7XexrMWDG11ahdpEZ8fAxlxuyELs33/WH1Cg==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@node-datachannel/linux-arm64-gnu@0.33.6':
+    resolution: {integrity: sha512-phMRjx8NEfW70i768LCQDEF2C6Q2vtYsS4DPXv/zbb2cJClaU5fjKFQfQ1XBCNIi1ClfpSd3Cl/rn/7SS+paTQ==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@node-datachannel/linux-arm64-musl@0.33.6':
+    resolution: {integrity: sha512-T9bqllJ9YkpgqgRFEfsPpfgfMDXdA7CIiJ4c1XXGPLSeqVFgDbf/WCewkE7q4xA+tKRLoOOtc2XgMGwVnlxXVQ==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@node-datachannel/linux-x64-gnu@0.33.6':
+    resolution: {integrity: sha512-NUTbne64++ZxwEJ9uppAAmYnFAfJAggf7gboioPdhr13P17GTQRCUgmipYrh1V0D4333x6NCBZyQaNv0n4WmpQ==}
+    cpu: [x64]
+    os: [linux]
+
+  '@node-datachannel/linux-x64-musl@0.33.6':
+    resolution: {integrity: sha512-dlWP4ycOJrTAl9UvxGofq0zwPhl6iAr1b0ZcBUgDfb2CXmbcJWCvg6OsJ6u8BVSV41eNXALmaRpU0wttas/f1g==}
+    cpu: [x64]
+    os: [linux]
+
+  '@node-datachannel/win32-arm64-msvc@0.33.6':
+    resolution: {integrity: sha512-ttly7XRUrSOcOOGJvtm9gh2beAPUNOBOUc3Hk82LfMHHP7jJMkXNDns/ML+UVGommAcNyPhoZkRH62O7tSVQYw==}
+    cpu: [arm64]
+    os: [win32]
+
+  '@node-datachannel/win32-x64-msvc@0.33.6':
+    resolution: {integrity: sha512-N5GW6XH11Iuu+kyHLTiCMcCHdwWwpKqvtYril0LzQm6xBgmGQN3JXxFmgi4g4usw1nLy6WhBWADjbhSXJiiEMA==}
+    cpu: [x64]
+    os: [win32]
+
   '@oxc-project/types@0.150.0':
     resolution: {integrity: sha512-rDS5/31E9HfPl/CIzGrn0DOlvBbXFseQ5URJ9sYMfstbKLD/c6Gm9vmRzRGDdAXyOIL4zmO37lc9RIwYqVruZw==}
 
@@ -3179,6 +3351,10 @@ packages:
     resolution: {integrity: sha512-NMPBRMJgiQHjbd8phG3Vebdx4kZ1H121rbl5IkMqeOsahptB9BKo/d7oJ3zTXqTgagn2bWlNSXkh0QUGM31RYg==}
     engines: {node: '>=18'}
 
+  node-datachannel@0.33.6:
+    resolution: {integrity: sha512-n7RzImzysrOVFx/lXfkQQ4fL0wsuPXBFc8KM69V29iyIor/UX7Ej+edzNGWJm+3mApZG9nkLi7FsGAZhQCDA4w==}
+    engines: {node: '>=18.20.0'}
+
   object-assign@4.1.1:
     resolution: {integrity: sha512-rJgTQnkUnH1sFw8yT6VSU3zD3sWmu6sZhIseY8VX+GRu3P6F7Fu+JNDoXfklElbLJSnc3FUQHVe4cU5hj+BcUg==}
     engines: {node: '>=0.10.0'}
@@ -3660,6 +3836,33 @@ snapshots:
       zod-to-json-schema: 3.25.2(zod@3.25.76)
     transitivePeerDependencies:
       - supports-color
+
+  '@node-datachannel/android-arm64@0.33.6':
+    optional: true
+
+  '@node-datachannel/darwin-arm64@0.33.6':
+    optional: true
+
+  '@node-datachannel/darwin-x64@0.33.6':
+    optional: true
+
+  '@node-datachannel/linux-arm64-gnu@0.33.6':
+    optional: true
+
+  '@node-datachannel/linux-arm64-musl@0.33.6':
+    optional: true
+
+  '@node-datachannel/linux-x64-gnu@0.33.6':
+    optional: true
+
+  '@node-datachannel/linux-x64-musl@0.33.6':
+    optional: true
+
+  '@node-datachannel/win32-arm64-msvc@0.33.6':
+    optional: true
+
+  '@node-datachannel/win32-x64-msvc@0.33.6':
+    optional: true
 
   '@oxc-project/types@0.150.0': {}
 
@@ -4231,6 +4434,20 @@ snapshots:
   negotiator@1.1.0:
     dependencies:
       content-type: 2.1.0
+
+  node-datachannel@0.33.6:
+    dependencies:
+      detect-libc: 2.1.2
+    optionalDependencies:
+      '@node-datachannel/android-arm64': 0.33.6
+      '@node-datachannel/darwin-arm64': 0.33.6
+      '@node-datachannel/darwin-x64': 0.33.6
+      '@node-datachannel/linux-arm64-gnu': 0.33.6
+      '@node-datachannel/linux-arm64-musl': 0.33.6
+      '@node-datachannel/linux-x64-gnu': 0.33.6
+      '@node-datachannel/linux-x64-musl': 0.33.6
+      '@node-datachannel/win32-arm64-msvc': 0.33.6
+      '@node-datachannel/win32-x64-msvc': 0.33.6
 
   object-assign@4.1.1: {}
 

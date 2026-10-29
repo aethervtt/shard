@@ -1,4 +1,10 @@
-export { defineProject, type ProjectDef, type ProjectOptions } from './define'
+export {
+  defineProject,
+  type ProjectDef,
+  type ProjectNetOptions,
+  type ProjectOptions,
+  projectNet,
+} from './define'
 export {
   type ErrorCode,
   GENERATED_END,

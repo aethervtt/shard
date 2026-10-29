@@ -1,5 +1,8 @@
 # Add sound
 
+For authored events, mixers, snapshots, acoustics, adaptive music and offline previews, read
+[the audio guide](../audio.md).
+
 Add `"audio"` to `plugins` in `shard.json`. Drop `.ogg`, `.mp3`, `.wav`, or `.flac` files under
 `assets/` and run `shard import`: each is an `AudioClip` (MCP `get_asset` shows duration, channels,
 sample rate, codec). Files stay compressed. Clips under `music/` stream; set `"mode": "stream"` in
@@ -18,7 +21,7 @@ the `.meta` for other long files, and `loopStart`/`loopEnd` (seconds) for loop p
 
 - Sources autoplay; set `playing` to start or stop one. A clip that doesn't loop clears
   `playing` at its end and sends `audio/AudioFinished`. Spatial sources follow their transform;
-  the listener is the first `audio/AudioListener` (put it on the camera).
+  the fallback listener has the lowest entity ID; setAudioListener selects one explicitly.
 - `rolloff`: `inverse` (default, natural), `linear` (silent at `maxDistance`; past it the source
   goes virtual and holds no voice), `exponential`. `panning`: `equal-power` or `hrtf`.
 - One-shots from code: `playSound(world, weapon.sound, { position: muzzle, bus: 'sfx' })` from

@@ -134,22 +134,7 @@ export async function openProject(options: OpenProjectOptions): Promise<Headless
     options.userData === 'files' ? files : { ...files, storage: createMemoryStorage() }
   const loaded = (await loadProject(platform)).manifest
   const manifest = options.seed === undefined ? loaded : { ...loaded, seed: options.seed }
-  const code = options.code ?? 'bundle'
-  let bundler: Bundler | undefined
-  let project: Plugin
-  if (code === 'bundle') {
-    bundler = await createBundler({ root, entry: manifest.entry })
-    let built: BuiltBundle
-    try {
-      built = await bundler.build()
-    } catch (err) {
-      await bundler.dispose()
-      throw err
-    }
-    project = await importBundle(built, manifest)
-  } else {
-    project = await importProjectPlugin(root, manifest)
-  }
+  const { project, bundler } = await loadProjectCode(root, manifest, options.code ?? 'bundle')
   const generators = {
     root,
     namespace: manifest.name,
@@ -262,6 +247,87 @@ export async function openProject(options: OpenProjectOptions): Promise<Headless
       // The pool's threads hold the project's code; a closed project frees them.
       if (procgenHost().workers === platform.workers)
         configureProcgenHost({ workers: undefined, workerModule: undefined })
+      platform.workers?.dispose()
+    },
+  }
+}
+
+/** Bundles (or imports) the project's entry: its default export, and the bundler if any. */
+async function loadProjectCode(
+  root: string,
+  manifest: ManifestValue,
+  code: 'bundle' | 'source',
+): Promise<{ project: Plugin; bundler: Bundler | undefined }> {
+  if (code === 'source')
+    return { project: await importProjectPlugin(root, manifest), bundler: undefined }
+  const bundler = await createBundler({ root, entry: manifest.entry })
+  let built: BuiltBundle
+  try {
+    built = await bundler.build()
+  } catch (err) {
+    await bundler.dispose()
+    throw err
+  }
+  return { project: await importBundle(built, manifest), bundler }
+}
+
+export interface HeadlessCodeOptions {
+  root: string
+  /** Overrides the manifest's `seed`. */
+  seed?: number
+  /** Default 'bundle'. */
+  code?: 'bundle' | 'source'
+}
+
+/** A project's manifest and code, loaded once, for building GPU-less apps (0092). */
+export interface HeadlessCode {
+  root: string
+  manifest: ManifestValue
+  platform: Platform
+  project: Plugin
+  /** Builds an app without display plugins or a GPU, with `plugins` added; not initialized. */
+  build(plugins?: readonly Plugin[]): App
+  /** After `init`: scans assets and loads string tables, like `openProject` (no start scene). */
+  prepare(app: App): Promise<void>
+  close(): Promise<void>
+}
+
+/**
+ * Loads a project for servers and headless clients (0092): no GPU, no render target, no start
+ * scene. One load can build several apps (a server and its clients).
+ */
+export async function loadHeadlessCode(options: HeadlessCodeOptions): Promise<HeadlessCode> {
+  const root = resolve(options.root)
+  const files = createNodePlatform({ root })
+  const platform = { ...files, storage: createMemoryStorage() }
+  const loaded = (await loadProject(platform)).manifest
+  const manifest = options.seed === undefined ? loaded : { ...loaded, seed: options.seed }
+  const { project, bundler } = await loadProjectCode(root, manifest, options.code ?? 'bundle')
+  await prepareGenerators({
+    root,
+    namespace: manifest.name,
+    entry: manifest.entry,
+    workers: platform.workers,
+    worker: false,
+    graph: bundler?.last?.graph,
+  })
+  return {
+    root,
+    manifest,
+    platform,
+    project,
+    build(plugins = []) {
+      const app = buildApp({ manifest, project, platform, display: false })
+      for (const p of plugins) app.addPlugin(p)
+      return app
+    },
+    async prepare(app) {
+      await loadProjectNavCache(app, platform)
+      await assetServer(app.world).configure({ platform, roots: manifest.assetRoots }).scan()
+      await loadProjectStrings(app)
+    },
+    async close() {
+      await bundler?.dispose()
       platform.workers?.dispose()
     },
   }

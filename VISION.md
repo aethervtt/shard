@@ -176,7 +176,15 @@ for, not built yet.
 
 **Game services**
 - v1: save/load (serialize world subsets), settings, localization tables
-- Later: networking plugin (client/server state sync), achievements
+- Later: achievements
+
+**Multiplayer** (0086–0089)
+- The authority is always a Shard app running the game's scripts: a dedicated server on Node, or
+  a host player for co-op. Transports (WebSocket, later WebRTC) and lobby services are plugins.
+- v1: replication derived from component schemas, with per-client interest and redaction on the
+  server; commands and events with hidden information; snapshot interpolation
+- Then: client prediction, reconciliation, and lag compensation
+- Later: WebRTC and host migration, lockstep and rollback, line-of-sight interest, zone sharding
 
 **Tooling and the agent layer**
 - v1: headless runner, protocol, MCP server, screenshots, frame stepping, input recording/replay
