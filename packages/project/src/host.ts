@@ -58,7 +58,34 @@ export interface BuildAppOptions {
    * Without one, saves live in memory.
    */
   platform?: Platform
+  /**
+   * False builds without anything that draws, plays or reads devices: no render, input, audio
+   * or UI plugins, and no GPU. Servers and headless clients use it (0092). Default true.
+   */
+  display?: boolean
 }
+
+/** Plugins `display: false` leaves out. Their components still load as data. */
+const DISPLAY_PLUGINS = [
+  'render',
+  'render/forward',
+  'sprite',
+  'text',
+  'particles',
+  'animation',
+  'dice',
+  'input',
+  'gestures',
+  'controls',
+  'audio',
+  'audio/events',
+  'audio/mixer',
+  'audio/acoustics',
+  'audio/music',
+  'ui',
+  'scatter',
+  'effects',
+]
 
 /** An app with the manifest's engine plugins and the project plugin, not yet initialized. */
 export function buildApp(options: BuildAppOptions): App {
@@ -95,6 +122,7 @@ export function buildApp(options: BuildAppOptions): App {
     names.has('scatter')
   )
     names.add('core/transform')
+  if (options.display === false) for (const name of DISPLAY_PLUGINS) names.delete(name)
   const app = new App({ seed: manifest.seed })
   // A project host imports sources (glTF among them) whatever the manifest installs.
   app.addPlugin(gltfPlugin)

@@ -164,6 +164,10 @@ export async function dev(ctx: CommandContext): Promise<number> {
               procgen,
               hub: `ws://127.0.0.1:${hubPort}`,
               budgets,
+              net: {
+                ...(typeof ctx.flags.connect === 'string' ? { url: ctx.flags.connect } : {}),
+                ...(typeof ctx.flags.lobby === 'string' ? { lobby: ctx.flags.lobby } : {}),
+              },
             }),
           )
           return

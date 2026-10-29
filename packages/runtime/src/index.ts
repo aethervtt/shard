@@ -66,6 +66,8 @@ export {
   animationFrameRunner,
   type HeadlessOptions,
   headlessRunner,
+  type IntervalOptions,
+  intervalRunner,
   type Runner,
 } from './runners'
 export { PerfScenario, type PerfScenarioData } from './scenario'

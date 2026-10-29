@@ -1,0 +1,19 @@
+{
+  "$schema": "../.shard/schemas/scene.schema.json",
+  "version": 1,
+  "entities": [
+    {
+      "name": "camera",
+      "components": {
+        "render/Camera3d": {
+          "projection": "orthographic",
+          "orthoHeight": 24,
+          "clearColor": [0.02, 0.025, 0.04, 1]
+        },
+        "core/Transform": {
+          "translation": [0, 0, 10]
+        }
+      }
+    }
+  ]
+}

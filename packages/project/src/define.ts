@@ -13,6 +13,7 @@ import {
   ShardError,
   type TagDef,
 } from '@aethervtt/shard-core'
+import type { NetOptions } from '@aethervtt/shard-net'
 import {
   defineGenerator,
   type Generator,
@@ -34,8 +35,20 @@ export interface ProjectOptions {
   ready?(app: App): Promise<void> | void
 }
 
+/** A project's network setup: everything but where it runs (0092). Hosts add the role. */
+export type ProjectNetOptions = Omit<
+  NetOptions,
+  'role' | 'transport' | 'address' | 'session' | 'code' | 'now'
+>
+
 export interface ProjectDef extends Plugin {
   readonly namespace: string
+  /**
+   * Makes the project multiplayer (0092): what replicates, its commands and events, and the
+   * server's hooks. `shard server`, `shard run --net` and `shard dev --connect` add the net
+   * plugin with it. Call it after defining the components it names.
+   */
+  net(options: ProjectNetOptions): void
   /** Defines `<project>/<name>`. A name in another namespace throws `project/namespace`. */
   component<const F extends Fields>(
     name: string,
@@ -85,6 +98,13 @@ export interface ProjectDef extends Plugin {
  * The project plugin: the game's own code, exported as the default of `scripts/main.ts`. Project
  * types are namespaced by the project name, so they never collide with engine types.
  */
+const netConfigs = new WeakMap<Plugin, ProjectNetOptions>()
+
+/** The project's `project.net(...)` options, or undefined for a single-player project. */
+export function projectNet(project: Plugin): ProjectNetOptions | undefined {
+  return netConfigs.get(project)
+}
+
 export function defineProject(options: ProjectOptions): ProjectDef {
   const ns = options.name
   const qualify = (name: string) => {
@@ -101,10 +121,13 @@ export function defineProject(options: ProjectOptions): ProjectDef {
     }
     return name
   }
-  return {
+  const project: ProjectDef = {
     name: `project:${ns}`,
     namespace: ns,
     dependencies: ['core/time'],
+    net: (netOptions) => {
+      netConfigs.set(project, netOptions)
+    },
     build: (app) => options.build?.(app),
     ready: (app) => options.ready?.(app),
     component: (name, fields, componentOptions) =>
@@ -124,4 +147,5 @@ export function defineProject(options: ProjectOptions): ProjectDef {
       defineDataType(qualify(name) as never, fields, dataOptions) as never,
     generator: (name, generatorOptions) => defineGenerator(qualify(name), generatorOptions),
   }
+  return project
 }

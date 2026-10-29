@@ -57,6 +57,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { type BaselineReport, validateBaseline } from './baseline'
 import { Hub, localTarget, type ProtocolTarget } from './hub'
 import { createMcpServer } from './mcp'
+import { runNet } from './net-command'
 import { EXIT, errorJson, formatError, type Output } from './output'
 import { CAPTURES_DIR, withCpuProfile } from './profile'
 import { bakeStaleTerrains } from './terrain-command'
@@ -610,6 +611,7 @@ async function withProject<T>(
 
 export async function run(ctx: CommandContext): Promise<number> {
   const frames = flagNumber(ctx.flags.frames, 600)
+  if (ctx.flags.net !== undefined) return runNet(ctx, frames)
   const scene = ctx.flags.scene as string | undefined
   const seed = ctx.flags.seed === undefined ? undefined : flagNumber(ctx.flags.seed, 0)
   return withProject(ctx, { loadStartScene: !scene, seed }, async (p) => {

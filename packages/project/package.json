@@ -20,11 +20,13 @@
     "@aethervtt/shard-controls": "workspace:*",
     "@aethervtt/shard-core": "workspace:*",
     "@aethervtt/shard-dice": "workspace:*",
+    "@aethervtt/shard-effects": "workspace:*",
     "@aethervtt/shard-fog": "workspace:*",
     "@aethervtt/shard-gltf": "workspace:*",
     "@aethervtt/shard-gpu": "workspace:*",
     "@aethervtt/shard-input": "workspace:*",
     "@aethervtt/shard-nav": "workspace:*",
+    "@aethervtt/shard-net": "workspace:*",
     "@aethervtt/shard-noise": "workspace:*",
     "@aethervtt/shard-particles": "workspace:*",
     "@aethervtt/shard-physics": "workspace:*",
@@ -41,8 +43,7 @@
     "@aethervtt/shard-text": "workspace:*",
     "@aethervtt/shard-transform": "workspace:*",
     "@aethervtt/shard-ui": "workspace:*",
-    "@aethervtt/shard-verify": "workspace:*",
-    "@aethervtt/shard-effects": "workspace:*"
+    "@aethervtt/shard-verify": "workspace:*"
   },
   "devDependencies": {
     "@aethervtt/shard-gpu": "workspace:*",

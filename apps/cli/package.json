@@ -18,10 +18,15 @@
     "@aethervtt/shard-animation": "workspace:*",
     "@aethervtt/shard-assets": "workspace:*",
     "@aethervtt/shard-audio": "workspace:*",
+    "@aethervtt/shard-audio-preview": "workspace:*",
     "@aethervtt/shard-core": "workspace:*",
+    "@aethervtt/shard-effects": "workspace:*",
     "@aethervtt/shard-gpu": "workspace:*",
     "@aethervtt/shard-gpu-webgl2": "workspace:*",
     "@aethervtt/shard-nav": "workspace:*",
+    "@aethervtt/shard-net": "workspace:*",
+    "@aethervtt/shard-net-webrtc": "workspace:*",
+    "@aethervtt/shard-net-websocket": "workspace:*",
     "@aethervtt/shard-node": "workspace:*",
     "@aethervtt/shard-noise": "workspace:*",
     "@aethervtt/shard-physics": "workspace:*",
@@ -49,9 +54,7 @@
     "vite": "^8.3.0",
     "vitest": "^5.0.1",
     "ws": "^8.21.3",
-    "zod": "^3.25.0",
-    "@aethervtt/shard-audio-preview": "workspace:*",
-    "@aethervtt/shard-effects": "workspace:*"
+    "zod": "^3.25.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.2",

@@ -3,6 +3,27 @@
 All engine packages share one version. During `0.x`, minor releases may change APIs;
 patch releases preserve compatibility. Apps and examples are not published.
 
+## 0.3.0 — 2026-10-28
+
+50 packages, including three new ones: `net`, `net-websocket` and `net-webrtc` (each under
+`@aethervtt/shard-`).
+
+- Multiplayer (0086): transports behind one interface with seeded latency/loss simulation, a
+  handshake that refuses mismatched builds, a tick clock, and an in-process test harness
+  (`@aethervtt/shard-net/testing`).
+- Replication (0087): a schema-derived binary codec in core (`createRowCodec`), net ids, acked
+  deltas, server-side interest (owner, grid, team) and per-component redaction, a per-player
+  bandwidth budget, and interpolation of remote entities.
+- Commands, events and hidden information (0089): validated client commands answered by the
+  server, per-recipient events, and per-player card zone views with placeholders (`cards/net`).
+- Accounts and persistence (0090): async `accept` with the peer's account, and load/spawn/
+  capture/store player hooks that save every player when the server stops.
+- Peer to peer (0091): WebRTC data channels with a truly unreliable channel, a lobby with room
+  codes and signaling, and `startHost` for hosting from a browser.
+- Multiplayer projects (0092): `project.net(...)`, `buildApp({ display: false })` without a GPU,
+  and `loadHeadlessCode` for servers and headless clients.
+- Runtime: `FixedTime.tick` and `FixedTime.rate`, and `intervalRunner` for servers and hosts.
+
 ## 0.2.2 — 2026-10-19
 
 - Break the audio music/checkpoint initialization cycle without changing schema identity (0085).

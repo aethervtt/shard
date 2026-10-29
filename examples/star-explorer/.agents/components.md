@@ -139,7 +139,7 @@ _Computed by the engine; never written in scene files._
 
 ## `audio/AudioListener`
 
-Where the player hears from: put it on the camera. The first one found is used; without one, the world origin looking down -Z.
+Where the player hears from: put it on the camera. Use setAudioListener to select one; otherwise the lowest entity ID is used; without one, the world origin looking down -Z.
 
 Brings along: `core/Transform`.
 
@@ -171,6 +171,23 @@ Brings along: `core/Transform`.
 | `doppler` | number | `0` | ≥ 0 | Pitch shift from relative motion: 0 off, 1 physical (343 m/s). Off by default. |
 | `priority` | integer | `128` | ≥ 0, ≤ 255 | Over the voice limit, lower priorities lose their voice first (0-255). |
 | `startTime` | number | `0` | ≥ 0, s | Where in the clip playback starts. |
+
+## `audio/ReverbZone`
+
+Listener-based acoustic zone. Its return is prepared in the mixer; moving between zones never decodes on a frame.
+
+Brings along: `core/Transform`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `shape` | `"sphere"` \| `"box"` | `"sphere"` |  |  |
+| `radius` | number | `5` | ≥ 0.00001, m |  |
+| `halfExtents` | number[3] | `[5,5,5]` |  |  |
+| `blendDistance` | number | `2` | ≥ 0, m |  |
+| `returnBus` | string | `""` |  |  |
+| `wet` | number | `1` | ≥ 0, ≤ 1 |  |
+| `priority` | integer | `0` | ≥ -2147483648, ≤ 2147483647 |  |
+| `indoor` | boolean | `false` |  |  |
 
 ## `controls/MapControls`
 
@@ -561,6 +578,48 @@ Brings along: `core/Transform`.
 | `radius` | number | `0.5` | ≥ 0.01, m | How close to either end counts as on it. |
 | `area` | integer | `0` | ≥ 0, ≤ 62 | Area code (costs in nav/Areas). |
 
+## `net/Focus`
+
+An extra point of interest for a peer, besides the entities it owns (0087).
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `peer` | integer | `0` | ≥ 0, ≤ 4294967295 | Peer whose interest centres here (a spectator camera). |
+
+## `net/NetId`
+
+The id an entity has on every machine in a session (0087).
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `id` | integer | `0` | ≥ 0, ≤ 4294967295 | Session-wide id the server assigned. Never reused. |
+
+## `net/Relevance`
+
+Pins or raises an entity in interest management (0087).
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `always` | boolean | `false` |  | Every client receives it, whatever the interest policy says. |
+| `priority` | number | `1` | ≥ 0 | Weight when bandwidth is short. |
+
+## `net/Replicated`
+
+Marks a server entity for replication (0087). Add it on the server; clients never author it.
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `prefab` | string | `""` |  | Prefab clients spawn this entity from (path or guid); empty for a bare entity. |
+| `owner` | integer | `0` | ≥ 0, ≤ 4294967295 | Peer that owns it; 0 for the server. |
+
 ## `particles/ParticleEmitterOverrides`
 
 Gameplay control of a ParticleSystem: its spawn rate, read every frame.
@@ -826,6 +885,34 @@ Brings along: `render/Camera3d`.
 | `speedDown` | number | `1` | ≥ 0.01, EV/s | Adaptation speed when the scene gets darker. |
 | `metering` | `"average"` \| `"center"` \| `"spot"` | `"average"` |  | average: the whole view; center: weighted toward the middle; spot: the middle 10% only. |
 
+## `render/Beam`
+
+Camera-facing beam between transformed endpoints, or along local points; deterministic seeded displacement (0082).
+
+Brings along: `core/Transform`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `playing` | boolean | `true` |  |  |
+| `paused` | boolean | `false` |  |  |
+| `opacity` | number | `1` | ≥ 0, ≤ 1 |  |
+| `color` | string or number[4] | `"#ffffff"` |  |  |
+| `texture` | null or Texture ref | `null` |  |  |
+| `blend` | `"alpha"` \| `"additive"` | `"alpha"` |  |  |
+| `layers` | integer | `1` | ≥ 0, ≤ 65535 |  |
+| `width` | number | `0.1` | ≥ 0, ≤ 1000 |  |
+| `endColor` | string or number[4] | `"#ffffff00"` |  |  |
+| `widthCurve` | object[] | `[]` |  |  |
+| `repeat` | number | `1` | ≥ 0.0001, ≤ 10000 |  |
+| `scroll` | number | `0` | ≥ -10000, ≤ 10000 |  |
+| `start` | number[3] | `[0,0,0]` |  |  |
+| `end` | number[3] | `[0,0,-1]` |  |  |
+| `target` | null or integer or string | `null` |  |  |
+| `points` | number[3][] | `[]` |  |  |
+| `segments` | integer | `16` | ≥ 1, ≤ 255 |  |
+| `noise` | number | `0` | ≥ 0, ≤ 1000 |  |
+| `seed` | integer | `0` | ≥ 0, ≤ 4294967295 |  |
+
 ## `render/Bloom`
 
 Light bleeding around bright areas, from a downsampled blur chain. Add to a camera.
@@ -903,6 +990,37 @@ Brings along: `render/Camera3d`.
 | `radius` | number | `2.5` | ≥ 0, m | How far from each point's line of sight a Cutaway surface is cut. |
 | `margin` | number | `0.6` | ≥ 0, m | How far in front of a point the cut starts, so the floor it stands on, and a stairwell rim, stay. |
 | `edge` | number | `0.3` | ≥ 0, m | Width of the dithered rim; 0 is a hard cut. |
+
+## `render/Decal`
+
+Box projection onto DecalReceiver rigid meshes: local XY is UV, projection along -Z. Zero lifetime persists (0083).
+
+Brings along: `core/Transform`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `playing` | boolean | `true` |  |  |
+| `paused` | boolean | `false` |  |  |
+| `opacity` | number | `1` | ≥ 0, ≤ 1 |  |
+| `color` | string or number[4] | `"#ffffff"` |  |  |
+| `texture` | null or Texture ref | `null` |  |  |
+| `blend` | `"alpha"` \| `"additive"` | `"alpha"` |  |  |
+| `layers` | integer | `1` | ≥ 0, ≤ 65535 |  |
+| `size` | number[3] | `[1,1,1]` |  |  |
+| `receiverMask` | integer | `1` | ≥ 0, ≤ 65535 |  |
+| `maxAngle` | number | `80` | ≥ 0, ≤ 89.9 |  |
+| `offset` | number | `0.002` | ≥ 0, ≤ 1 |  |
+| `lifetime` | number | `0` | ≥ 0, ≤ 86400 |  |
+| `fadeOut` | number | `1` | ≥ 0, ≤ 86400 |  |
+| `maxVertices` | integer | `12288` | ≥ 3, ≤ 65535 |  |
+
+## `render/DecalReceiver`
+
+Eligible rigid Mesh3d surface for matching decal receiver masks (0083).
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `mask` | integer | `1` | ≥ 0, ≤ 65535 |  |
 
 ## `render/DepthOfField`
 
@@ -1250,6 +1368,32 @@ Tonemapping for a camera. Without it, cameras use the default curve with ditheri
 |---|---|---|---|---|
 | `curve` | `"aces"` \| `"agx"` \| `"pbr-neutral"` \| `"reinhard"` \| `"none"` | `"agx"` |  | How HDR becomes display color. agx: saturated highlights (glows, lava, neon) keep their hue; aces: punchy filmic contrast; pbr-neutral: faithful product colors (Khronos); reinhard: simple, soft; none: clamp only, for measuring. |
 | `dither` | boolean | `true` |  | Adds ±1 LSB noise against banding. |
+
+## `render/Trail`
+
+World-space ribbon history of this entity/bone; stops emitting when playing is false and drains by lifetime (0082).
+
+Brings along: `core/Transform`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `playing` | boolean | `true` |  |  |
+| `paused` | boolean | `false` |  |  |
+| `opacity` | number | `1` | ≥ 0, ≤ 1 |  |
+| `color` | string or number[4] | `"#ffffff"` |  |  |
+| `texture` | null or Texture ref | `null` |  |  |
+| `blend` | `"alpha"` \| `"additive"` | `"alpha"` |  |  |
+| `layers` | integer | `1` | ≥ 0, ≤ 65535 |  |
+| `width` | number | `0.1` | ≥ 0, ≤ 1000 |  |
+| `endColor` | string or number[4] | `"#ffffff00"` |  |  |
+| `widthCurve` | object[] | `[]` |  |  |
+| `repeat` | number | `1` | ≥ 0.0001, ≤ 10000 |  |
+| `scroll` | number | `0` | ≥ -10000, ≤ 10000 |  |
+| `offset` | number[3] | `[0,0,0]` |  |  |
+| `lifetime` | number | `0.5` | ≥ 0.001, ≤ 3600 |  |
+| `capacity` | integer | `64` | ≥ 2, ≤ 256 |  |
+| `minDistance` | number | `0.01` | ≥ 0.00001, ≤ 1000 |  |
+| `breakDistance` | number | `10` | ≥ 0.001, ≤ 1000000 |  |
 
 ## `render/ViewUniform`
 

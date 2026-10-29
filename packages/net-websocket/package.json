@@ -1,0 +1,27 @@
+{
+  "name": "@aethervtt/shard-net-websocket",
+  "version": "0.0.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./server": "./src/server.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@aethervtt/shard-core": "workspace:*",
+    "@aethervtt/shard-net": "workspace:*",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@aethervtt/shard-runtime": "workspace:*",
+    "@aethervtt/shard-transform": "workspace:*",
+    "@types/node": "^26.6.2",
+    "@types/ws": "^8"
+  }
+}

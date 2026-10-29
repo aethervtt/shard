@@ -212,6 +212,23 @@ describe('fixed timestep', () => {
     expect(runs).toBe(5)
     expect(fixed.alpha).toBeLessThan(1)
     expect(fixed.elapsed).toBeCloseTo(step * 8)
+    expect(fixed.tick).toBe(8)
+  })
+
+  it('counts ticks and scales accumulation by rate', async () => {
+    const seen: number[] = []
+    const record = defineSystem({
+      name: 'test/fixed-tick',
+      run: (_, world) => void seen.push(world.resource(FixedTime).tick),
+    })
+    const app = await ready(new App({ fixedHz: 60 }).addSystems(FixedUpdate, record))
+    const fixed = app.world.resource(FixedTime)
+    for (let i = 0; i < 3; i++) app.update(1 / 60)
+    expect(seen).toEqual([0, 1, 2])
+
+    fixed.rate = 1.05
+    for (let i = 0; i < 60; i++) app.update(1 / 60)
+    expect(fixed.tick).toBe(3 + 63)
   })
 
   it('does not lose steps to floating-point error at exactly one step per frame', async () => {

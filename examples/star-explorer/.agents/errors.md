@@ -51,11 +51,43 @@ Every engine error is a `ShardError` with one of these codes.
 | `assets/registry-conflict` | @aethervtt/shard-assets | Two definitions (two apps or bundles) share the name. Rename one, or share the definition. |
 | `assets/unknown-importer` | @aethervtt/shard-assets | Remove "importer" from the .meta to pick one by file extension. |
 | `assets/unknown-type` | @aethervtt/shard-assets | Define it (project.dataAsset) before loading its files. |
+| `audio-editor/asset-unavailable` | @aethervtt/shard-audio-editor | Import it into a project asset root first. |
+| `audio-editor/conflict` | @aethervtt/shard-audio-editor | Reload the remote version before saving. |
+| `audio-editor/disposed` | @aethervtt/shard-audio-editor | Use an active editor preview session. |
+| `audio-editor/invalid-document` | @aethervtt/shard-audio-editor | Restore its GUID or re-import the source through the project host. |
+| `audio-editor/playback-blocked` | @aethervtt/shard-audio-editor | Check the host audio device and browser permission, then press Play again. |
+| `audio-editor/read-only` | @aethervtt/shard-audio-editor | The host must explicitly grant live audio control. |
+| `audio-editor/unsupported-capability` | @aethervtt/shard-audio-editor | Choose a decoded catalog asset for deterministic offline rendering. |
+| `audio-editor/unsupported-schema` | @aethervtt/shard-audio-editor |  |
+| `audio-preview/disposed` | @aethervtt/shard-audio-preview |  |
+| `audio-preview/unsupported-capability` | @aethervtt/shard-audio-preview | Use a browser with OfflineAudioContext suspend/resume, or provide a host export adapter. |
+| `audio/bus-cycle` | @aethervtt/shard-audio | Route every bus to master without cycles. |
+| `audio/capacity` | @aethervtt/shard-audio | Stop or virtualize a voice before starting another. |
 | `audio/decode-failed` | @aethervtt/shard-audio | Re-import the file (shard import --json). |
+| `audio/invalid-collection` | @aethervtt/shard-audio |  |
 | `audio/invalid-duck` | @aethervtt/shard-audio | by is the share of gain taken away: 0.3 plays the bus at 70%. |
-| `audio/invalid-range` | @aethervtt/shard-audio |  |
+| `audio/invalid-effect` | @aethervtt/shard-audio |  |
+| `audio/invalid-event` | @aethervtt/shard-audio |  |
+| `audio/invalid-range` | @aethervtt/shard-audio | Use a finite value in the declared range and units. |
+| `audio/invalid-snapshot` | @aethervtt/shard-audio |  |
+| `audio/invalid-zone` | @aethervtt/shard-audio |  |
+| `audio/memory-budget` | @aethervtt/shard-audio | Release unused preparation leases or increase decodedBudgetMiB. |
+| `audio/mixer-capacity` | @aethervtt/shard-platform-web | Reduce sends/effects or increase maxNodes; independent user categories require independent effect state. |
+| `audio/mixer-cycle` | @aethervtt/shard-audio |  |
+| `audio/music-capacity` | @aethervtt/shard-audio |  |
+| `audio/music-invalid` | @aethervtt/shard-audio |  |
+| `audio/music-late` | @aethervtt/shard-platform-web |  |
+| `audio/music-restore` | @aethervtt/shard-audio |  |
+| `audio/music-stale-command` | @aethervtt/shard-audio |  |
+| `audio/music-unprepared` | @aethervtt/shard-audio |  |
 | `audio/no-plugin` | @aethervtt/shard-audio | Add "audio" to plugins in shard.json (or app.addPlugin(audioPlugin())). |
+| `audio/prepare-failed` | @aethervtt/shard-audio |  |
+| `audio/preview-unavailable` | @aethervtt/shard-audio |  |
+| `audio/restore` | @aethervtt/shard-audio |  |
+| `audio/stale-handle` | @aethervtt/shard-audio |  |
 | `audio/unknown-bus` | @aethervtt/shard-audio |  |
+| `audio/unknown-parameter` | @aethervtt/shard-audio | Release its users before replacing the schema. |
+| `audio/unsupported-capability` | @aethervtt/shard-audio | Control the category containing this nested bus; sends share that category gate. |
 | `audio/unsupported-format` | @aethervtt/shard-audio | Audio clips are WAV (PCM or float), Ogg Vorbis, Ogg Opus, MP3, or FLAC. |
 | `cards/capacity` | @aethervtt/shard-cards |  |
 | `cards/disposed` | @aethervtt/shard-cards |  |
@@ -82,6 +114,12 @@ Every engine error is a `ShardError` with one of these codes.
 | `data/extends-cycle` | @aethervtt/shard-assets | Point "$extends" at a file that does not extend this one. |
 | `data/extends-type-mismatch` | @aethervtt/shard-assets |  |
 | `dice/attachment-budget` | @aethervtt/shard-dice | Draw fewer vertices, split the effect, or raise it with setDiceBudgets first. |
+| `dice/audio-bus` | @aethervtt/shard-dice | Add dice under master in the host mixer before rolling. |
+| `dice/audio-changed` | @aethervtt/shard-dice | Start a new roll to prepare the changed event and validate its routing and inputs. |
+| `dice/audio-event` | @aethervtt/shard-dice |  |
+| `dice/audio-events-missing` | @aethervtt/shard-dice | Install audioEventsPlugin alongside audioPlugin, or remove the event bindings. |
+| `dice/audio-not-prepared` | @aethervtt/shard-dice |  |
+| `dice/audio-parameter` | @aethervtt/shard-dice | Use writable numeric inputs; strength and pitch must be continuous. |
 | `dice/busy` | @aethervtt/shard-dice | Queue rolls in the host, dismiss this one, or pass { replace: true }. |
 | `dice/device-lost` | @aethervtt/shard-dice | The renderer recreates the device; roll again. |
 | `dice/disposed` | @aethervtt/shard-dice |  |
@@ -111,6 +149,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `ecs/missing-component` | @aethervtt/shard-core | Check world.has(entity, component) first, or use tryGet. |
 | `ecs/missing-resource` | @aethervtt/shard-core | Insert it with insertResource, or add the plugin that provides it. |
 | `ecs/no-resource-init` | @aethervtt/shard-core | Use insertResource with a value instead. |
+| `effects/invalid-sequence` | @aethervtt/shard-effects |  |
 | `fog/invalid-regions` | @aethervtt/shard-fog | { rev, regions: [{ op: "hide" \| "reveal", strength?, feather?, shape }] } with shapes rect, polygon, multipolygon or brush. |
 | `gltf/accessor-out-of-range` | @aethervtt/shard-gltf | The file is truncated or its byteOffset/count are wrong. |
 | `gltf/buffer-missing` | @aethervtt/shard-gltf | Keep .bin files next to the .gltf, under the same name the file references. |
@@ -152,6 +191,29 @@ Every engine error is a `ShardError` with one of these codes.
 | `nav/no-navmesh` | @aethervtt/shard-nav | Check nav.describe: the grid may be waiting for data, or the navmesh for sources. |
 | `nav/not-ready` | @aethervtt/shard-nav | Add the nav plugin (or nav/grid for grids only) and await app.init(). |
 | `nav/out-of-bounds` | @aethervtt/shard-nav | nav.describe lists each grid and navmesh with its bounds. |
+| `net/address-in-use` | @aethervtt/shard-net |  |
+| `net/bad-message` | @aethervtt/shard-net | Both sides must run the same build; the connection is closed. |
+| `net/cannot-listen` | @aethervtt/shard-net | Servers need a transport with listen(), such as webSocketServer() or loopback(). |
+| `net/connect-failed` | @aethervtt/shard-net | Start the server (role: "server") before connecting clients. |
+| `net/disconnected` | @aethervtt/shard-net |  |
+| `net/duplicate-type` | @aethervtt/shard-net |  |
+| `net/full` | @aethervtt/shard-net |  |
+| `net/join-timeout` | @aethervtt/shard-net | accept and players.load must settle within joinTimeout. |
+| `net/lobby-closed` | @aethervtt/shard-net-webrtc |  |
+| `net/message-too-large` | @aethervtt/shard-net | Reliable messages are split automatically; keep unreliable ones under maxMessage. |
+| `net/no-conditions` | @aethervtt/shard-net | Wrap the transport with simulateConditions(). |
+| `net/no-session` | @aethervtt/shard-net | Add netPlugin({ role }) to the app. |
+| `net/no-webrtc` | @aethervtt/shard-net-webrtc | In Node, pass one: webRtcLobby({ RTCPeerConnection }) from node-datachannel/polyfill. |
+| `net/no-websocket` | @aethervtt/shard-net-webrtc | Pass one: webRtcLobby({ WebSocket }). |
+| `net/not-authority` | @aethervtt/shard-net | Run this in a system gated with onServer. |
+| `net/not-connected` | @aethervtt/shard-net |  |
+| `net/not-replicable` | @aethervtt/shard-net | Replicate the components it is computed from. |
+| `net/schema-mismatch` | @aethervtt/shard-net | Run the same build of the game on both sides. |
+| `net/tick-rate` | @aethervtt/shard-net | Use a network rate that divides the fixed rate: 60 Hz takes 60, 30, 20, 15 or 10. |
+| `net/transport-closed` | @aethervtt/shard-net |  |
+| `net/unknown-command` | @aethervtt/shard-net | List every net command in the plugin options on both sides. |
+| `net/unknown-event` | @aethervtt/shard-net | List every net event in the plugin options on both sides. |
+| `net/webrtc-failed` | @aethervtt/shard-net-webrtc | Peers on different networks need STUN (and TURN behind strict NATs) in iceServers. |
 | `noise/arity` | @aethervtt/shard-noise | Give it two or more inputs: node names, inline nodes, or numbers, e.g. ["a", "b"]. |
 | `noise/cycle` | @aethervtt/shard-noise | A node can’t depend on itself; break the loop with a separate node. |
 | `noise/domain-mismatch` | @aethervtt/shard-noise | Set "dimensions": 4 on the graph and sample it with a w coordinate, or use dims 3. |
@@ -196,9 +258,11 @@ Every engine error is a `ShardError` with one of these codes.
 | `physics/unsupported-shape` | @aethervtt/shard-physics | 2D shapes: ball, cuboid, capsule, convex, trimesh, heightfield, segment, polyline. |
 | `physics/worker-crashed` | @aethervtt/shard-physics | The next recording starts a new worker. |
 | `platform/bad-storage-key` | @aethervtt/shard-platform-node | Keys are relative paths like "saves/slot1.json". |
+| `platform/codec-fetch` | @aethervtt/shard-platform-node |  |
 | `platform/fs-not-found` | @aethervtt/shard-platform-node |  |
 | `platform/fs-read-only` | @aethervtt/shard-platform-web | Writes need a writable host such as Studio or the CLI. |
 | `platform/no-storage` | @aethervtt/shard-platform-web | Private browsing modes and some embedded webviews disable it. |
+| `platform/node-codec` | @aethervtt/shard-platform-node |  |
 | `platform/worker-crashed` | @aethervtt/shard-platform | The pool started a replacement; the job can be retried. |
 | `platform/worker-no-export` | @aethervtt/shard-platform | Worker functions are named exports of the module passed to run(). |
 | `platform/workers-disposed` | @aethervtt/shard-platform |  |
@@ -332,11 +396,14 @@ Every engine error is a `ShardError` with one of these codes.
 | `schema/ambiguous-name` | @aethervtt/shard-core | Two modules define the same name. Rename one, or import the shared definition. |
 | `schema/asset-not-found` | @aethervtt/shard-core | Check the path, or that the asset has been imported. |
 | `schema/asset-type-mismatch` | @aethervtt/shard-core |  |
+| `schema/binary-missing-component` | @aethervtt/shard-core | Add the component before decoding into the row. |
+| `schema/binary-truncated` | @aethervtt/shard-core | The data was cut short, or written by a different schema. |
 | `schema/duplicate-name` | @aethervtt/shard-core | Two definitions share a name. Rename one, or import the existing definition. |
 | `schema/future-version` | @aethervtt/shard-core |  |
 | `schema/invalid-enum` | @aethervtt/shard-core |  |
 | `schema/invalid-field` | @aethervtt/shard-core |  |
 | `schema/invalid-name` | @aethervtt/shard-core | Use "namespace/PascalName", e.g. "game/Health". |
+| `schema/invalid-quantize` | @aethervtt/shard-core | Use a positive step, such as 0.01. |
 | `schema/invalid-version` | @aethervtt/shard-core | Versions are integers starting at 1. |
 | `schema/missing-field` | @aethervtt/shard-core | Give a "guid", a "path", or both. |
 | `schema/missing-migration` | @aethervtt/shard-core |  |

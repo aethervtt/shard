@@ -143,7 +143,14 @@ const TimePlugin: Plugin = {
   name: 'core/time',
   build(app) {
     app.insertResource(Time, { delta: 0, elapsed: 0, frame: 0 })
-    app.insertResource(FixedTime, { step: 1 / app.fixedHz, elapsed: 0, alpha: 0, steps: 0 })
+    app.insertResource(FixedTime, {
+      step: 1 / app.fixedHz,
+      elapsed: 0,
+      alpha: 0,
+      steps: 0,
+      tick: 0,
+      rate: 1,
+    })
     app.insertResource(DisplayRate, { hz: 60, periodMs: 1000 / 60, source: 'assumed' })
   },
 }
@@ -586,11 +593,12 @@ export class App {
     this.runSchedule(PreUpdate)
 
     const fixed = world.resource(FixedTime) as FixedTimeData
-    this.accumulator += fixedDelta
+    this.accumulator += fixedDelta * fixed.rate
     let steps = 0
     while (this.accumulator + EPSILON >= fixed.step && steps < this.maxFixedSteps) {
       fixed.elapsed += fixed.step
       this.runSchedule(FixedUpdate)
+      fixed.tick++
       this.accumulator = Math.max(0, this.accumulator - fixed.step)
       steps++
     }

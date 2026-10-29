@@ -12,7 +12,7 @@ import { AppControlResource } from './control'
 import { FrameDemand } from './demand'
 import { LogResource } from './log'
 import { definePlugin } from './plugin'
-import { animationFrameRunner } from './runners'
+import { animationFrameRunner, intervalRunner } from './runners'
 import { type FakeFrames, fakeAnimationFrames } from './testing'
 import { Time } from './time'
 
@@ -295,5 +295,33 @@ describe('continuous frames', () => {
     controller.abort()
     await running
     expect(frames.pending).toBe(0)
+  })
+})
+
+describe('intervalRunner', () => {
+  it('updates at about hz with real deltas, and stops on dispose', async () => {
+    const deltas: number[] = []
+    const app = new App({ fixedHz: 50 })
+    app.addSystems(
+      Update,
+      defineSystem({
+        name: 'test/interval',
+        run: (_, w) => void deltas.push(w.resource(Time).delta),
+      }),
+    )
+    app.setRunner(intervalRunner())
+    const done = app.run()
+    await new Promise((r) => setTimeout(r, 300))
+    await app.dispose()
+    await done
+    const count = deltas.length
+    // 300 ms at 50 Hz is 15 updates; timers are coarse, so allow a wide margin.
+    expect(count).toBeGreaterThan(5)
+    expect(count).toBeLessThan(25)
+    const total = deltas.reduce((a, b) => a + b, 0)
+    expect(total).toBeGreaterThan(0.15)
+    expect(total).toBeLessThan(0.45)
+    await new Promise((r) => setTimeout(r, 60))
+    expect(deltas.length).toBe(count)
   })
 })
