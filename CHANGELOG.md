@@ -4,7 +4,16 @@ All engine packages share one version. During `0.x`, minor releases may change A
 patch releases preserve compatibility. The CLI is published with them from 0.4.0; the other apps
 and the examples are not.
 
-## 0.5.0 — 2026-10-31
+## 0.5.1 — 2026-10-31
+
+0.5.0 was tagged but never published: a star-explorer gameplay test timed out during release
+validation, which ran every test on one runner. 0.5.1 contains everything listed under 0.5.0,
+plus:
+
+- The Release workflow runs the tests as CI does (four runners for the packages, a serial lane for
+  the examples and playground) and publishes only after all of them pass.
+
+## 0.5.0 — 2026-10-31 (not published)
 
 UI effects (0094): HUD looks that used to need textures are now style fields, settable from themes
 and state variants.
