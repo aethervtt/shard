@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "note": "Brotli bytes. Lower these by hand when a change shrinks a build; --check fails 2% over, when a fixture bundles a package its budget forbids, or when baseline-only code (0064) reaches a chunk a WebGPU session loads. `fallback` counts the chunks only the baseline tier loads. renderer-min fallback: the WebGL2 shim (gpu-webgl2, ~22 KB) and the baseline strategies; naga (342 KB wasm) loads only on a translation-cache miss. 0074 raised renderer-min: the always-on profiler (spans, aggregates, render/<node> and GPU/worker tracks) by 2.6 KB, WebGL2's timer queries by 0.8 KB of fallback; captures, sampling and traces load with import(). 0082\u20130083 add 7 KiB to full for the optional VFX plugins: CI measured 3716.5 \u2192 3722.6 KiB all-JS. renderer-min stays at its existing budget (164.2 \u2192 164.8 KiB measured, schema/feature warnings only).",
+  "note": "Brotli bytes. Lower these by hand when a change shrinks a build; --check fails 2% over, when a fixture bundles a package its budget forbids, or when baseline-only code (0064) reaches a chunk a WebGPU session loads. `fallback` counts the chunks only the baseline tier loads. renderer-min fallback: the WebGL2 shim (gpu-webgl2, ~22 KB) and the baseline strategies; naga (342 KB wasm) loads only on a translation-cache miss. 0074 raised renderer-min: the always-on profiler (spans, aggregates, render/<node> and GPU/worker tracks) by 2.6 KB, WebGL2's timer queries by 0.8 KB of fallback; captures, sampling and traces load with import(). 0082\u20130083 add 7 KiB to full for the optional VFX plugins: CI measured 3716.5 \u2192 3722.6 KiB all-JS. renderer-min stays at its existing budget (164.2 \u2192 164.8 KiB measured, schema/feature warnings only). 0094 adds 4 KiB to full for UI effects (fields, shader, the playground duel plate): 3722.5 \u2192 3725.8 KiB all-JS measured; renderer-min doesn't include UI and is unchanged.",
   "fixtures": {
     "audio-editor-preview": {
       "forbid": [
@@ -43,7 +43,7 @@
       "forbid": ["@aethervtt/shard-render", "@aethervtt/shard-gpu"]
     },
     "full": {
-      "js": 3738368
+      "js": 3742464
     }
   }
 }

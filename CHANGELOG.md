@@ -4,6 +4,22 @@ All engine packages share one version. During `0.x`, minor releases may change A
 patch releases preserve compatibility. The CLI is published with them from 0.4.0; the other apps
 and the examples are not.
 
+## 0.5.0 — 2026-10-31
+
+UI effects (0094): HUD looks that used to need textures are now style fields, settable from themes
+and state variants.
+
+- Gradients: `gradient` (`linear` at `gradientAngle`, CSS degrees, or `radial`) from `background`
+  to `gradientColor`, ramped over `gradientRange`. Equal values give a hard stripe.
+- Cut corners: `cut` and `cutHeight` per corner, for chamfers, slanted ends, and diamonds. Borders,
+  gradients, shadows, and images follow the shape.
+- Drop shadows (`shadowOffset`, `shadowBlur`, `shadowSpread`, `shadowColor`), not drawn under the
+  box, and additive glows (`glowBlur`, `glowSpread`, `glowColor`).
+- UI text outlines (`outlineWidth`, `outlineColor`) and shadows (`textShadowOffset`,
+  `textShadowSoftness`, `textShadowColor`).
+- `QUAD_FLOATS` (`@aethervtt/shard-ui`) is now 44: UI quad records carry corner cuts, a second
+  color, and effect parameters.
+
 ## 0.4.1 — 2026-10-29
 
 The first complete release since 0.2.2. 0.3.0 was published partway (a transient npm provenance

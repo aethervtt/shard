@@ -29,21 +29,28 @@ import {
 } from '@aethervtt/shard-render'
 import type { App } from '@aethervtt/shard-runtime'
 import { type TextureAtlas, TextureAtlases } from '@aethervtt/shard-sprite'
-import type { FontPage } from '@aethervtt/shard-text'
+import type { FontPage, TextLayout } from '@aethervtt/shard-text'
 import { type Texture, Textures } from '@aethervtt/shard-texture'
 import { UiImage, UiInteraction, UiNode, UiSlider, UiTextInput, UiToggle } from './components'
 import { hitTest, UiPointer } from './interaction'
 import { describeExtras } from './methods'
 import { UI_SHADERS } from './shaders'
-import { ResolvedStyle, resolveStyle, State } from './style'
+import { hasFill, ResolvedStyle, resolveStyle, State } from './style'
 import { measureTextNode, textColumns, type UiRootState, UiState } from './tree'
 
-/** Floats per quad record: rect, uv, color, border color, radius, clip, border, kind, range, angle. */
-export const QUAD_FLOATS = 28
+/**
+ * Floats per quad record: rect, uv, color, border color, radius, clip, border, kind, range, angle,
+ * cut x, cut y, second color, params (see the shader's Quad).
+ */
+export const QUAD_FLOATS = 44
 const KIND_BOX = 0
 const KIND_IMAGE = 1
 const KIND_IMAGE_PREMULTIPLIED = 2
 const KIND_GLYPH = 3
+const KIND_LINEAR = 4
+const KIND_RADIAL = 5
+const KIND_SHADOW = 6
+const KIND_GLOW = 7
 
 /** Consecutive quads drawn with one texture (boxes join any run). */
 interface UiDraw {
@@ -131,7 +138,7 @@ function quad(
 ): number {
   // Runs: a box joins the current run; a textured quad starts one when the texture changes.
   let d = store.drawCount > 0 ? store.draws[store.drawCount - 1] : undefined
-  const needs = kind !== KIND_BOX
+  const needs = kind === KIND_IMAGE || kind === KIND_IMAGE_PREMULTIPLIED || kind === KIND_GLYPH
   if (
     !d ||
     d.camera !== camera ||
@@ -171,6 +178,7 @@ function quad(
   store.recordU32[o + 25] = kind
   f[o + 26] = 0
   f[o + 27] = 0
+  for (let k = 28; k < QUAD_FLOATS; k++) f[o + k] = 0
   return o
 }
 
@@ -183,6 +191,69 @@ function premultiplied(f: Float32Array, o: number, c: ArrayLike<number>, alpha: 
 }
 
 const clipPx = new Float32Array(4)
+const cutX = new Float32Array(4)
+const cutY = new Float32Array(4)
+
+/** Scales two cuts along one edge down together when they'd overlap. */
+function fitEdge(a: Float32Array, i: number, j: number, length: number): void {
+  const sum = a[i]! + a[j]!
+  if (sum <= length) return
+  const k = length / sum
+  a[i] = a[i]! * k
+  a[j] = a[j]! * k
+}
+
+/**
+ * Writes the node's corners into a record, in target pixels: radii at o + 16, cuts at o + 28 and
+ * o + 32. Cuts clamp to the w × h box, and a cut corner drops its radius.
+ */
+function corners(f: Float32Array, o: number, s: number, w: number, h: number): void {
+  for (let k = 0; k < 4; k++) {
+    const x = style.cut[k]! * s
+    const y = style.cutHeight[k]! > 0 ? style.cutHeight[k]! * s : x
+    cutX[k] = x > 0 ? Math.min(x, w) : 0
+    cutY[k] = x > 0 ? Math.min(y, h) : 0
+  }
+  fitEdge(cutX, 0, 1, w)
+  fitEdge(cutY, 1, 2, h)
+  fitEdge(cutX, 2, 3, w)
+  fitEdge(cutY, 3, 0, h)
+  for (let k = 0; k < 4; k++) {
+    const cut = cutX[k]! > 0 && cutY[k]! > 0
+    f[o + 16 + k] = cut ? 0 : style.radius[k]! * s
+    f[o + 28 + k] = cut ? cutX[k]! : 0
+    f[o + 32 + k] = cut ? cutY[k]! : 0
+  }
+}
+
+/** A shadow or glow quad: the node's shape moved by an offset, grown by spread, blurred. */
+function effectQuad(
+  store: UiRenderStore,
+  camera: Entity | null,
+  kind: number,
+  color: Float32Array,
+  alpha: number,
+  ox: number,
+  oy: number,
+  spread: number,
+  blur: number,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  s: number,
+  angle: number,
+): void {
+  const o = quad(store, camera, x + ox * s, y + oy * s, w, h, kind, null, false, clipPx, 0)
+  const f = store.records
+  premultiplied(f, o + 8, color, alpha)
+  corners(f, o, s, w, h)
+  f[o + 27] = angle
+  f[o + 40] = ox * s
+  f[o + 41] = oy * s
+  f[o + 42] = spread * s
+  f[o + 43] = blur * s
+}
 
 /** Appends one root's quads: boxes, images, slider fills, text, carets, and debug outlines. */
 function buildRoot(
@@ -230,14 +301,72 @@ function buildRoot(
     clipPx[3] = r.clip[i * 4 + 3]! * F
     if (clipPx[2]! <= clipPx[0]! || clipPx[3]! <= clipPx[1]!) continue
     const angle = r.angle[i]!
+    // Glow and drop shadow, behind the box.
+    if (style.glowColor[3]! > 0 && (style.glowBlur > 0 || style.glowSpread !== 0)) {
+      effectQuad(
+        store,
+        cam,
+        KIND_GLOW,
+        style.glowColor,
+        alpha,
+        0,
+        0,
+        style.glowSpread,
+        style.glowBlur,
+        x,
+        y,
+        w,
+        h,
+        s,
+        angle,
+      )
+    }
+    const sx = style.shadowOffset[0]!
+    const sy = style.shadowOffset[1]!
+    if (
+      style.shadowColor[3]! > 0 &&
+      (sx !== 0 || sy !== 0 || style.shadowBlur > 0 || style.shadowSpread !== 0)
+    ) {
+      effectQuad(
+        store,
+        cam,
+        KIND_SHADOW,
+        style.shadowColor,
+        alpha,
+        sx,
+        sy,
+        style.shadowSpread,
+        style.shadowBlur,
+        x,
+        y,
+        w,
+        h,
+        s,
+        angle,
+      )
+    }
     // The box.
-    if (style.background[3]! > 0 || (style.borderWidth > 0 && style.borderColor[3]! > 0)) {
-      const o = quad(store, cam, x, y, w, h, KIND_BOX, null, false, clipPx, 0)
-      premultiplied(store.records, o + 8, style.background, alpha)
-      premultiplied(store.records, o + 12, style.borderColor, alpha)
-      for (let k = 0; k < 4; k++) store.records[o + 16 + k] = style.radius[k]! * s
-      store.records[o + 24] = style.borderWidth * s
-      store.records[o + 27] = angle
+    if (hasFill(style) || (style.borderWidth > 0 && style.borderColor[3]! > 0)) {
+      const g = style.gradient
+      const kind = g === 1 ? KIND_LINEAR : g === 2 ? KIND_RADIAL : KIND_BOX
+      const o = quad(store, cam, x, y, w, h, kind, null, false, clipPx, 0)
+      const f = store.records
+      premultiplied(f, o + 8, style.background, alpha)
+      premultiplied(f, o + 12, style.borderColor, alpha)
+      corners(f, o, s, w, h)
+      f[o + 24] = style.borderWidth * s
+      f[o + 27] = angle
+      if (kind !== KIND_BOX) {
+        premultiplied(f, o + 36, style.gradientColor, alpha)
+        if (kind === KIND_LINEAR) {
+          // CSS's angle: 0 points up, 90 right (y down).
+          const a = (style.gradientAngle * Math.PI) / 180
+          f[o + 40] = Math.sin(a)
+          f[o + 41] = -Math.cos(a)
+        }
+        f[o + 42] = style.gradientRange[0]!
+        f[o + 43] = style.gradientRange[1]!
+      }
     }
     // The image.
     if (table.has(UiImage)) buildImage(world, store, r, table, row, x, y, w, h, s, alpha, angle)
@@ -282,30 +411,15 @@ function buildRoot(
       const oy = y + (pad[i * 4]! + leading) * s
       const dim = table.has(UiTextInput) && (table.column(UiTextInput, 'value')[row] ?? '') === ''
       const ta = alpha * (dim ? 0.45 : 1)
-      for (let q = 0; q < l.count; q++) {
-        const page = l.pages[l.page[q]!]!
-        const qx = l.quads[q * 4]!
-        const qy = l.quads[q * 4 + 1]!
-        const qw = l.quads[q * 4 + 2]!
-        const qh = l.quads[q * 4 + 3]!
-        const o = quad(
-          store,
-          cam,
-          ox + qx * s,
-          oy - (qy + qh) * s,
-          qw * s,
-          qh * s,
-          KIND_GLYPH,
-          page,
-          false,
-          clipPx,
-          0,
-        )
-        // Not a cached array: quad() may have grown the records.
-        for (let k = 0; k < 4; k++) store.records[o + 4 + k] = l.uvs[q * 4 + k]!
-        premultiplied(store.records, o + 8, style.color, ta)
-        store.records[o + 26] = l.glyphs[q]!.font.range
-      }
+      const outlined = style.outlineWidth > 0 && style.outlineColor[3]! > 0
+      const shadowed =
+        style.textShadowColor[3]! > 0 &&
+        (style.textShadowSoftness > 0 ||
+          style.textShadowOffset[0] !== 0 ||
+          style.textShadowOffset[1] !== 0)
+      // Outlines and shadows first, under every fill, so none covers a neighboring glyph.
+      if (outlined || shadowed) glyphs(store, cam, l, ox, oy, s, ta, true, outlined, shadowed)
+      glyphs(store, cam, l, ox, oy, s, ta, false, false, false)
       // A caret after the text of a focused field.
       if (focused === e && table.has(UiTextInput)) {
         const last = Math.max(0, l.lineCount - 1)
@@ -351,6 +465,59 @@ function buildRoot(
 }
 
 const measured = new Float32Array(2)
+
+/** A text's glyph quads: fills, or (effects) its outline and shadow with a transparent fill. */
+function glyphs(
+  store: UiRenderStore,
+  cam: Entity | null,
+  l: TextLayout,
+  ox: number,
+  oy: number,
+  s: number,
+  ta: number,
+  effects: boolean,
+  outlined: boolean,
+  shadowed: boolean,
+): void {
+  for (let q = 0; q < l.count; q++) {
+    const page = l.pages[l.page[q]!]!
+    const qx = l.quads[q * 4]!
+    const qy = l.quads[q * 4 + 1]!
+    const qw = l.quads[q * 4 + 2]!
+    const qh = l.quads[q * 4 + 3]!
+    const o = quad(
+      store,
+      cam,
+      ox + qx * s,
+      oy - (qy + qh) * s,
+      qw * s,
+      qh * s,
+      KIND_GLYPH,
+      page,
+      false,
+      clipPx,
+      0,
+    )
+    // Not a cached array: quad() may have grown the records.
+    const f = store.records
+    for (let k = 0; k < 4; k++) f[o + 4 + k] = l.uvs[q * 4 + k]!
+    f[o + 26] = l.glyphs[q]!.font.range
+    if (!effects) {
+      premultiplied(f, o + 8, style.color, ta)
+      continue
+    }
+    if (outlined) {
+      premultiplied(f, o + 36, style.outlineColor, ta)
+      f[o + 42] = style.outlineWidth * s
+    }
+    if (shadowed) {
+      premultiplied(f, o + 12, style.textShadowColor, ta)
+      f[o + 40] = style.textShadowOffset[0]! * s
+      f[o + 41] = style.textShadowOffset[1]! * s
+      f[o + 43] = style.textShadowSoftness
+    }
+  }
+}
 
 interface ImageDraw {
   camera: Entity | null
@@ -412,7 +579,8 @@ function imageQuad(
   f[o + 6] = u1 / image.tw
   f[o + 7] = v1 / image.th
   premultiplied(f, o + 8, image.tint, image.alpha)
-  for (let k = 0; k < 4; k++) f[o + 16 + k] = style.radius[k]! * radius
+  // A whole image takes the node's corners; nine-slice pieces are square.
+  if (radius > 0) corners(f, o, radius, qw, qh)
   f[o + 27] = image.angle
 }
 

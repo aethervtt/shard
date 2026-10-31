@@ -849,6 +849,13 @@ Make the HUD a prefab, \`prefabs/hud.prefab.json\`, and place it in the scene wi
   nine-slice, \`fit\`). A \`*.theme.json\` names styles; nodes pick one with \`UiNode.style\`, and
   \`"button:hovered"\` (on, focused, hovered, pressed, disabled) overrides a state. Fields a node sets
   win over its theme. Saving the theme restyles the running game.
+- Effects (all UiStyle fields, so themes and state variants set them too): \`gradient\` (\`linear\`
+  at \`gradientAngle\`, CSS degrees, or \`radial\`) from \`background\` to \`gradientColor\`, ramped over
+  \`gradientRange\` (equal values: a hard stripe); \`cut\` and \`cutHeight\` per corner for chamfers,
+  slanted ends (\`cutHeight\` as tall as the box), and diamonds (every cut at half the size);
+  \`shadowOffset\`/\`shadowBlur\`/\`shadowSpread\`/\`shadowColor\`, and an additive
+  \`glowBlur\`/\`glowSpread\`/\`glowColor\` (\`"button:hovered": { "glowBlur": 12 }\`). Text gets
+  \`outlineWidth\`/\`outlineColor\` and \`textShadowOffset\`/\`textShadowSoftness\`/\`textShadowColor\`.
 - Text needs a font: \`UiText.font\`, the theme's \`font\`, or the \`ui/UiDefaults\` resource.
 - Widgets: \`ui/UiButton\`, \`ui/UiToggle\` (\`on\`), \`ui/UiSlider\` (\`value\`, \`min\`, \`max\`, \`step\`),
   \`ui/UiTextInput\` (\`value\`, shown through its UiText). Systems read \`ui/UiClick\` and
