@@ -3,6 +3,11 @@ name: Release
 # Publishes every @aethervtt/shard-* package to npm when a version tag is pushed (spec 0056).
 # The tag must match the root package.json version: `git tag v0.0.1 && git push origin v0.0.1`.
 # Needs an npm publishing token for the @aethervtt org in the NPM_TOKEN repository secret.
+#
+# Tests run the way CI runs them: four runners split the package tests (scripts/test-shard.mjs),
+# and the gameplay examples get a serial lane of their own. One runner doing all of it starved the
+# examples' workers beside the GPU suites: 0.5.0 failed validation on a star-explorer timeout.
+# Publish waits for every check, from fresh installs and no turbo cache.
 
 on:
   push:
@@ -10,14 +15,102 @@ on:
 
 permissions:
   contents: read
-  # npm provenance: each package links to the commit and run that built it.
-  id-token: write
 
 jobs:
-  publish:
-    name: Check, pack, publish
+  check:
+    name: Version, lint, typecheck
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: The tag matches the version
+        run: |
+          version="v$(node -p "require('./package.json').version")"
+          if [ "$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME doesn't match package.json version $version" >&2
+            exit 1
+          fi
+
+      - run: pnpm lint
+
+      - run: pnpm typecheck
+
+  test:
+    name: Test ${{ matrix.shard }}/4
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install a software Vulkan driver
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
+
+      - run: pnpm install --frozen-lockfile
+
+      # As CI's test job (see ci.yml): correctness only, 5x timeouts, this runner's share of files.
+      - run: pnpm test --continue --filter='!./examples/*' --filter='!@aethervtt/shard-playground'
+        env:
+          SHARD_CI: '1'
+          SHARD_TEST_SHARD: ${{ matrix.shard }}/4
+
+  examples:
+    name: Gameplay examples and playground
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install a software Vulkan driver
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
+
+      - run: pnpm install --frozen-lockfile
+
+      # As CI's examples job: gameplay tests await real workers, so they run one package at a time.
+      # The playground's Node tests run here too (its browser tests skip without Chromium; CI's
+      # browser workflow covers them).
+      - run: >-
+          pnpm exec turbo run test --continue --concurrency=1
+          --filter='./examples/*' --filter=@aethervtt/shard-playground
+        env:
+          SHARD_CI: '1'
+
+  publish:
+    name: Pack, publish
+    needs: [check, test, examples]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      # npm provenance: each package links to the commit and run that built it.
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -35,22 +128,6 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
 
       - run: pnpm install --frozen-lockfile
-
-      - name: The tag matches the version
-        run: |
-          version="v$(node -p "require('./package.json').version")"
-          if [ "$version" != "$GITHUB_REF_NAME" ]; then
-            echo "Tag $GITHUB_REF_NAME doesn't match package.json version $version" >&2
-            exit 1
-          fi
-
-      - run: pnpm lint
-
-      - run: pnpm typecheck
-
-      - run: pnpm test --continue
-        env:
-          SHARD_CI: '1'
 
       # Builds every package, then installs the tarballs in bench/consumer outside the workspace,
       # typechecks, builds with Vite/Bun/webpack/Next, executes codecs and a headless frame,

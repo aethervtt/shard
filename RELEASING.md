@@ -25,9 +25,10 @@ manifests, JavaScript, declarations, runtime files, and exact internal dependenc
    git push origin v0.2.2
    ```
 
-4. Watch **Release** in GitHub Actions. It validates the tag/version, runs lint, typechecking,
-   tests, and the release consumer check, saves the validated tarballs as a workflow artifact,
-   then publishes them. Publishing uses npm's default `latest` tag; do not use this procedure
+4. Watch **Release** in GitHub Actions. It validates the tag/version, runs lint and typechecking,
+   and runs the tests the way CI does: four runners split the package tests, and the gameplay
+   examples and playground run serially on a fifth. Once all of them pass, it runs the release
+   consumer check, saves the validated tarballs as a workflow artifact, then publishes them. Publishing uses npm's default `latest` tag; do not use this procedure
    unchanged for prereleases.
 5. Verify every package's version, `latest` tag, exact internal dependencies, `shard.buildSha`,
    and provenance on npm. Install a representative set from the registry into a clean consumer
@@ -61,4 +62,6 @@ partial publish from the same validated commit. Do not move a tag. When a rerun 
 release a new version of the full set. Do not unpublish packages as routine recovery.
 
 0.3.0 stopped partway (a transient provenance error); 0.4.0 failed validation (a teardown timeout)
-and was never published. 0.4.1 is the first complete release after 0.2.2.
+and was never published. 0.4.1 is the first complete release after 0.2.2. 0.5.0 failed validation
+when a star-explorer test timed out: the workflow ran every test on one runner, where gameplay
+examples starve beside the GPU suites. 0.5.1 splits the tests as CI does.
