@@ -533,6 +533,18 @@ describe('themes', () => {
     ])
     expect(errors({ styles: { 'panel:hover': {} } })).toEqual(['ui/unknown-state'])
     expect(errors({ styles: { panel: { radius: 4 } } })).toEqual(['schema/type-mismatch'])
+    // 0094's effects validate with their own field types.
+    expect(
+      errors({
+        styles: {
+          tag: { gradient: 'linear', gradientColor: '#ffffff00', cut: [0, 0, 20, 0] },
+          'tag:hovered': { glowBlur: 8, shadowOffset: [0, 4], outlineWidth: 2 },
+        },
+      }),
+    ).toEqual([])
+    expect(errors({ styles: { tag: { gradient: 'conic' } } })).toEqual(['schema/type-mismatch'])
+    expect(errors({ styles: { tag: { cut: 4 } } })).toEqual(['schema/type-mismatch'])
+    expect(errors({ styles: { tag: { glowBlur: -1 } } })).toEqual(['schema/out-of-range'])
   })
 })
 

@@ -26,6 +26,7 @@ export const UI_ALIGN_SELF = ['auto', 'stretch', 'start', 'center', 'end'] as co
 export const UI_OVERFLOW = ['visible', 'clip', 'scroll'] as const
 export const UI_TEXT_ALIGN = ['start', 'center', 'end'] as const
 export const UI_FIT = ['fill', 'contain', 'cover'] as const
+export const UI_GRADIENTS = ['none', 'linear', 'radial'] as const
 export const UI_SCALES = ['none', 'fit-height', 'fit-width'] as const
 export const UI_STATES = ['none', 'hovered', 'pressed', 'disabled'] as const
 export const UI_ANCHOR_STATES = ['none', 'on-screen', 'clamped', 'hidden'] as const
@@ -174,10 +175,59 @@ export const UiStyle = defineComponent(
       max: 1,
       description: 'Multiplies the node and its children.',
     }),
+    cut: t.vec4({
+      min: 0,
+      unit: 'px',
+      description:
+        'Straight corner cuts: horizontal size per corner (top left, top right, bottom right, bottom left). A cut corner ignores its radius.',
+    }),
+    cutHeight: t.vec4({
+      min: 0,
+      unit: 'px',
+      description:
+        "Vertical size of each cut (0: same as cut, a 45° chamfer). Clamped to the box: as tall as the box, it's a slanted end.",
+    }),
+    gradient: t.enum(UI_GRADIENTS, {
+      description:
+        'Fill from background to gradientColor. linear: along gradientAngle. radial: from the center to the edges.',
+    }),
+    gradientColor: t.color({
+      default: [0, 0, 0, 0],
+      description: "The gradient's end color (linear); background is its start.",
+    }),
+    gradientAngle: t.f32({
+      default: 180,
+      unit: 'deg',
+      description: 'Direction of a linear gradient, as in CSS: 0 to the top, 90 to the right.',
+    }),
+    gradientRange: t.vec2({
+      default: [0, 1],
+      description:
+        'Where the ramp starts and ends along the gradient (0 to 1). Equal values make a hard edge: [0.9, 0.9] at 180 is a stripe along the bottom.',
+    }),
+    shadowColor: t.color({ default: [0, 0, 0, 0.5], description: 'Drop shadow color (linear).' }),
+    shadowOffset: t.vec2({ unit: 'px', description: 'Drop shadow offset, y down.' }),
+    shadowBlur: t.f32({
+      min: 0,
+      unit: 'px',
+      description:
+        'Drop shadow blur, as in CSS. The shadow draws when offset, blur, or spread is nonzero.',
+    }),
+    shadowSpread: t.f32({ unit: 'px', description: 'Grows (or shrinks) the shadow.' }),
+    glowColor: t.color({
+      default: [1, 1, 1, 0.6],
+      description: 'Glow color (linear): added to what is behind, around the node.',
+    }),
+    glowBlur: t.f32({
+      min: 0,
+      unit: 'px',
+      description: 'Glow blur. The glow draws when blur or spread is nonzero.',
+    }),
+    glowSpread: t.f32({ unit: 'px', description: 'Grows the glow past the edge before blurring.' }),
   },
   {
     description:
-      'How a node looks: background, border, rounded corners, opacity. Fields at their default take the theme style.',
+      'How a node looks: background or gradient, border, rounded or cut corners, drop shadow, glow, opacity. Fields at their default take the theme style.',
     requires: [UiNode],
   },
 )
@@ -205,9 +255,31 @@ export const UiText = defineComponent(
       min: 0.1,
       description: 'Distance between baselines, as a multiple of the size.',
     }),
+    outlineWidth: t.f32({
+      min: 0,
+      unit: 'px',
+      description:
+        "Outline around the glyphs (0: none). At most half the font's distance range: range ÷ (2 × atlas size) em.",
+    }),
+    outlineColor: t.color({ default: [0, 0, 0, 1], description: 'Outline color (linear).' }),
+    textShadowColor: t.color({
+      default: [0, 0, 0, 0.6],
+      description: 'Text shadow color (linear, alpha).',
+    }),
+    textShadowOffset: t.vec2({
+      unit: 'px',
+      description: 'Text shadow offset, y down. The shadow draws when offset or softness is set.',
+    }),
+    textShadowSoftness: t.f32({
+      min: 0,
+      max: 1,
+      description:
+        'Blur of the text shadow, of the distance range (0, 0 offset with softness: a glow).',
+    }),
   },
   {
-    description: "A node's text (MSDF): its size sets the node's size unless width/height do.",
+    description:
+      "A node's text (MSDF), with an optional outline and shadow: its size sets the node's size unless width/height do.",
     requires: [UiNode],
   },
 )

@@ -2186,7 +2186,7 @@ Brings along: `ui/UiNode`, `ui/UiInteraction`.
 
 ## `ui/UiStyle`
 
-How a node looks: background, border, rounded corners, opacity. Fields at their default take the theme style.
+How a node looks: background or gradient, border, rounded or cut corners, drop shadow, glow, opacity. Fields at their default take the theme style.
 
 Brings along: `ui/UiNode`.
 
@@ -2197,10 +2197,23 @@ Brings along: `ui/UiNode`.
 | `borderWidth` | number | `0` | ≥ 0, px | Border thickness, inside the box. |
 | `radius` | number[4] | `[0,0,0,0]` | px | Corner radii: top left, top right, bottom right, bottom left. |
 | `opacity` | number | `1` | ≥ 0, ≤ 1 | Multiplies the node and its children. |
+| `cut` | number[4] | `[0,0,0,0]` | px | Straight corner cuts: horizontal size per corner (top left, top right, bottom right, bottom left). A cut corner ignores its radius. |
+| `cutHeight` | number[4] | `[0,0,0,0]` | px | Vertical size of each cut (0: same as cut, a 45° chamfer). Clamped to the box: as tall as the box, it's a slanted end. |
+| `gradient` | `"none"` \| `"linear"` \| `"radial"` | `"none"` |  | Fill from background to gradientColor. linear: along gradientAngle. radial: from the center to the edges. |
+| `gradientColor` | string or number[4] | `"#00000000"` |  | The gradient's end color (linear); background is its start. |
+| `gradientAngle` | number | `180` | deg | Direction of a linear gradient, as in CSS: 0 to the top, 90 to the right. |
+| `gradientRange` | number[2] | `[0,1]` |  | Where the ramp starts and ends along the gradient (0 to 1). Equal values make a hard edge: [0.9, 0.9] at 180 is a stripe along the bottom. |
+| `shadowColor` | string or number[4] | `[0,0,0,0.5]` |  | Drop shadow color (linear). |
+| `shadowOffset` | number[2] | `[0,0]` | px | Drop shadow offset, y down. |
+| `shadowBlur` | number | `0` | ≥ 0, px | Drop shadow blur, as in CSS. The shadow draws when offset, blur, or spread is nonzero. |
+| `shadowSpread` | number | `0` | px | Grows (or shrinks) the shadow. |
+| `glowColor` | string or number[4] | `"#ffffff99"` |  | Glow color (linear): added to what is behind, around the node. |
+| `glowBlur` | number | `0` | ≥ 0, px | Glow blur. The glow draws when blur or spread is nonzero. |
+| `glowSpread` | number | `0` | px | Grows the glow past the edge before blurring. |
 
 ## `ui/UiText`
 
-A node's text (MSDF): its size sets the node's size unless width/height do.
+A node's text (MSDF), with an optional outline and shadow: its size sets the node's size unless width/height do.
 
 Brings along: `ui/UiNode`.
 
@@ -2215,6 +2228,11 @@ Brings along: `ui/UiNode`.
 | `align` | `"start"` \| `"center"` \| `"end"` | `"start"` |  | Line alignment in the node. |
 | `wrap` | boolean | `true` |  | Wrap at the node width. |
 | `lineHeight` | number | `1.2` | ≥ 0.1 | Distance between baselines, as a multiple of the size. |
+| `outlineWidth` | number | `0` | ≥ 0, px | Outline around the glyphs (0: none). At most half the font's distance range: range ÷ (2 × atlas size) em. |
+| `outlineColor` | string or number[4] | `"#000000"` |  | Outline color (linear). |
+| `textShadowColor` | string or number[4] | `"#00000099"` |  | Text shadow color (linear, alpha). |
+| `textShadowOffset` | number[2] | `[0,0]` | px | Text shadow offset, y down. The shadow draws when offset or softness is set. |
+| `textShadowSoftness` | number | `0` | ≥ 0, ≤ 1 | Blur of the text shadow, of the distance range (0, 0 offset with softness: a glow). |
 
 ## `ui/UiTextInput`
 

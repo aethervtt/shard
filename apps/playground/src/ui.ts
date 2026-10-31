@@ -60,6 +60,67 @@ import { memoryPlatform } from './memory'
 const THEME = 'ui/hud.theme.json'
 const FONT = 'assets/fonts/Inter-Regular.ttf'
 
+/** The duel plate's look (0094): cut and slanted panels, gradients, shadows, glows, outlines. */
+const DUEL_STYLES = {
+  medallion: {
+    background: '#f7dc7a',
+    gradient: 'radial',
+    gradientColor: '#8a5a12',
+    gradientRange: [0.72, 1],
+    radius: [48, 48, 48, 48],
+    shadowOffset: [0, 4],
+    shadowBlur: 10,
+  },
+  face: {
+    background: '#1d4ed8',
+    gradient: 'radial',
+    gradientColor: '#0b1d3f',
+    radius: [36, 36, 36, 36],
+    borderColor: '#f7dc7a',
+    borderWidth: 2,
+  },
+  stud: { background: '#fff5d6', cut: [8, 8, 8, 8], glowColor: [1, 0.8, 0.3, 0.8], glowBlur: 8 },
+  banner: {
+    background: '#2155b0',
+    gradient: 'linear',
+    gradientAngle: 90,
+    gradientColor: '#0b1d3f',
+    borderColor: [0.4, 0.6, 1, 0.8],
+    borderWidth: 1.5,
+    cut: [0, 0, 22, 0],
+    cutHeight: [0, 0, 34, 0],
+  },
+  'banner-text': { size: 22, color: '#ffffff', textShadowOffset: [1, 2] },
+  plate: {
+    background: [0.02, 0.025, 0.04, 0.92],
+    gradient: 'linear',
+    gradientColor: '#3b82f6',
+    gradientRange: [0.93, 0.93],
+    borderColor: [0.55, 0.6, 0.7, 0.5],
+    borderWidth: 1,
+    cut: [0, 0, 34, 0],
+    cutHeight: [0, 0, 80, 0],
+    shadowOffset: [6, 10],
+    shadowBlur: 14,
+  },
+  'lp-label': { size: 24, color: '#f5cb5c' },
+  lp: {
+    size: 64,
+    color: '#fff5d6',
+    outlineWidth: 2,
+    textShadowOffset: [3, 4],
+    textShadowSoftness: 0.3,
+  },
+  stats: {
+    background: [0, 0, 0, 0.75],
+    gradient: 'linear',
+    gradientAngle: 90,
+    gradientColor: [0, 0, 0, 0],
+    gradientRange: [0.4, 1],
+  },
+  stat: { size: 20, color: '#ffffff' },
+}
+
 const THEMES = {
   night: {
     font: { path: FONT },
@@ -84,7 +145,7 @@ const THEMES = {
         borderColor: '#1b4f72',
         borderWidth: 2,
       },
-      'button:hovered': { background: '#2874a6' },
+      'button:hovered': { background: '#2874a6', glowColor: [0.3, 0.6, 1, 0.7], glowBlur: 12 },
       'button:pressed': { background: '#154360' },
       'button:focused': { borderColor: '#f5cb5c' },
       'button:on': { background: '#b9770e', borderColor: '#b9770e' },
@@ -110,6 +171,7 @@ const THEMES = {
         radius: [12, 12, 12, 12],
       },
       'marker-text': { size: 16, color: '#f5cb5c' },
+      ...DUEL_STYLES,
     },
   },
   day: {
@@ -162,6 +224,7 @@ const THEMES = {
         radius: [2, 2, 2, 2],
       },
       'marker-text': { size: 16, color: '#ffffff' },
+      ...DUEL_STYLES,
     },
   },
 }
@@ -193,6 +256,70 @@ const panel = (name: string, node: Json, children: Json[]) =>
   )
 const row = (name: string, children: Json[], node: Json = {}) =>
   n(name, { 'ui/UiNode': { alignItems: 'center', gap: [12, 0], ...node } }, children)
+const styled = (name: string, style: string, node: Json, children: Json[] = []) =>
+  n(name, { 'ui/UiNode': { style, ...node }, 'ui/UiStyle': {} }, children)
+const stud = (name: string, left: number, top: number) =>
+  styled(name, 'stud', { position: 'absolute', left, top, width: 16, height: 16 })
+
+/** A duel plate: a medallion with studs, a slanted name banner, life points, and a stats row. */
+const DUEL = n(
+  'duel',
+  {
+    'ui/UiNode': {
+      position: 'absolute',
+      bottom: 90,
+      left: 0,
+      right: 0,
+      justify: 'center',
+      alignItems: 'center',
+    },
+  },
+  [
+    styled(
+      'medallion',
+      'medallion',
+      {
+        width: 96,
+        height: 96,
+        justify: 'center',
+        alignItems: 'center',
+        zIndex: 1,
+        margin: [0, -22, 0, 0],
+      },
+      [
+        styled('face', 'face', { width: 72, height: 72 }),
+        stud('n', 40, -6),
+        stud('e', 86, 40),
+        stud('s', 40, 86),
+        stud('w', -6, 40),
+      ],
+    ),
+    n('plate', { 'ui/UiNode': { direction: 'column', gap: [0, 4] } }, [
+      styled(
+        'banner',
+        'banner',
+        { width: 260, height: 34, padding: [0, 0, 0, 34], alignItems: 'center' },
+        [text('name', 'PATRICK', 'banner-text')],
+      ),
+      styled(
+        'life',
+        'plate',
+        { width: 400, height: 80, padding: [0, 0, 0, 38], alignItems: 'center', gap: [14, 0] },
+        [text('label', 'LP', 'lp-label'), text('value', '8000', 'lp')],
+      ),
+      styled(
+        'stats',
+        'stats',
+        { width: 360, height: 30, padding: [0, 0, 0, 38], alignItems: 'center', gap: [36, 0] },
+        [
+          text('hand', 'HAND 5', 'stat'),
+          text('deck', 'DECK 33', 'stat'),
+          text('time', '4:48', 'stat'),
+        ],
+      ),
+    ]),
+  ],
+)
 
 const CARGO = [
   'Fe 12',
@@ -320,6 +447,7 @@ const HUD = {
           ]),
         ],
       ),
+      DUEL,
       n(
         'callsign',
         { 'ui/UiNode': { position: 'absolute', bottom: 28, left: 0, right: 0, justify: 'center' } },

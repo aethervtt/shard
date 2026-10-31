@@ -84,6 +84,7 @@ UI, navigation, and saves. Each one exposes its state to agents as data.
 | [0034](0034-ik-retargeting.md) | IK, bone attachments, and retargeting | implemented |
 | [0035](0035-audio.md) | Audio (Web Audio, spatial, buses, headless voices) | implemented |
 | [0036](0036-ui.md) | UI and HUD (flexbox, themes, world-anchored) | implemented |
+| [0094](0094-ui-effects.md) | UI effects (gradients, shadows, glow, cut corners, text outlines) | accepted |
 | [0037](0037-navigation.md) | Navigation (grid A*, navmesh, agents) | implemented |
 | [0038](0038-save-settings-localization.md) | Save/load, settings, and localization | implemented |
 | [0077](0077-audio-events-runtime.md) | Audio events, shared parameters, reliable playback, sessions and residency | implemented |

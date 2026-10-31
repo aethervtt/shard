@@ -42,7 +42,7 @@ import {
   UiToggle,
 } from './components'
 import { FlexTree, LENGTHS, layoutTree } from './flex'
-import { ResolvedStyle, resolveStyle, type StyleColumns } from './style'
+import { hasFill, ResolvedStyle, resolveStyle, type StyleColumns } from './style'
 import { type UiThemeAsset, UiThemes } from './theme'
 
 /** Interactive node kinds. */
@@ -438,13 +438,12 @@ export function refreshFlags(world: World, r: UiRootState): void {
         table.column(UiNode, 'style')[row] ?? '',
         0,
       )
-      solid =
-        flagStyle.background[3]! > 0 || (flagStyle.borderWidth > 0 && flagStyle.borderColor[3]! > 0)
+      solid = hasFill(flagStyle) || (flagStyle.borderWidth > 0 && flagStyle.borderColor[3]! > 0)
     } else if (!solid && r.theme) {
       const name = table.column(UiNode, 'style')[row] ?? ''
       if (name !== '') {
         resolveStyle(flagStyle, textColumns(table), row, r.theme, name, 0)
-        solid = flagStyle.background[3]! > 0
+        solid = hasFill(flagStyle)
       }
     }
     r.solid[i] = solid ? 1 : 0
@@ -881,6 +880,19 @@ export function textColumns(table: Table): StyleColumns {
     c.borderWidth = table.column(UiStyle, 'borderWidth')
     c.radius = table.column(UiStyle, 'radius') as unknown as Float32Array
     c.opacity = table.column(UiStyle, 'opacity')
+    c.cut = table.column(UiStyle, 'cut') as unknown as Float32Array
+    c.cutHeight = table.column(UiStyle, 'cutHeight') as unknown as Float32Array
+    c.gradient = table.column(UiStyle, 'gradient')
+    c.gradientColor = table.column(UiStyle, 'gradientColor') as unknown as Float32Array
+    c.gradientAngle = table.column(UiStyle, 'gradientAngle')
+    c.gradientRange = table.column(UiStyle, 'gradientRange') as unknown as Float32Array
+    c.shadowColor = table.column(UiStyle, 'shadowColor') as unknown as Float32Array
+    c.shadowOffset = table.column(UiStyle, 'shadowOffset') as unknown as Float32Array
+    c.shadowBlur = table.column(UiStyle, 'shadowBlur')
+    c.shadowSpread = table.column(UiStyle, 'shadowSpread')
+    c.glowColor = table.column(UiStyle, 'glowColor') as unknown as Float32Array
+    c.glowBlur = table.column(UiStyle, 'glowBlur')
+    c.glowSpread = table.column(UiStyle, 'glowSpread')
   }
   if (text) {
     c.size = table.column(UiText, 'size')
@@ -889,6 +901,11 @@ export function textColumns(table: Table): StyleColumns {
     c.align = table.column(UiText, 'align')
     c.wrap = table.column(UiText, 'wrap')
     c.lineHeight = table.column(UiText, 'lineHeight')
+    c.outlineWidth = table.column(UiText, 'outlineWidth')
+    c.outlineColor = table.column(UiText, 'outlineColor') as unknown as Float32Array
+    c.textShadowColor = table.column(UiText, 'textShadowColor') as unknown as Float32Array
+    c.textShadowOffset = table.column(UiText, 'textShadowOffset') as unknown as Float32Array
+    c.textShadowSoftness = table.column(UiText, 'textShadowSoftness')
   }
   columnsCache.set(table, c)
   return c

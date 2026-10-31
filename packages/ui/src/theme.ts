@@ -43,8 +43,7 @@ function unknownStyleField(path: string, key: string): ShardError {
   })
 }
 
-const STYLES_DESCRIPTION =
-  'Style name → fields (UiStyle and UiText: background, borderColor, borderWidth, radius, opacity, size, color, font, align, wrap, lineHeight). "name:hovered" (on, focused, hovered, pressed, disabled) overrides fields in that state.'
+const STYLES_DESCRIPTION = `Style name → fields (UiStyle and UiText: ${Object.keys(THEME_FIELDS).join(', ')}). "name:hovered" (on, focused, hovered, pressed, disabled) overrides fields in that state.`
 
 /**
  * The `styles` field: style name → fields. Validated and converted field by field with the
@@ -152,9 +151,22 @@ export class UiThemeAsset {
     this.styles = new Map(Object.entries(styles))
   }
 
+  /** State variants of a style, in THEME_STATES order (undefined where it has none). Cached. */
+  private states = new Map<string, readonly (ThemeStyle | undefined)[]>()
+
+  statesOf(style: string): readonly (ThemeStyle | undefined)[] {
+    let states = this.states.get(style)
+    if (!states) {
+      states = THEME_STATES.map((state) => this.styles.get(`${style}:${state}`))
+      this.states.set(style, states)
+    }
+    return states
+  }
+
   copyFrom(other: UiThemeAsset): void {
     this.font = other.font
     this.styles = other.styles
+    this.states.clear()
     this.version++
   }
 
