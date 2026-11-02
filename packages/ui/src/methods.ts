@@ -20,7 +20,7 @@ import {
 } from './components'
 import { clickUi, focusUi, UiPointer } from './interaction'
 import { ResolvedStyle, resolveStyle } from './style'
-import { Kind, textColumns, type UiRootState, UiState } from './tree'
+import { Kind, masked, textColumns, type UiRootState, UiState } from './tree'
 
 const round = (x: number) => Math.round(x * 100) / 100
 const KINDS = ['', 'button', 'toggle', 'slider', 'text-input'] as const
@@ -95,7 +95,9 @@ function describeNode(
   const text = r.texts[i]
   if (text) {
     out.text = table.has(UiTextInput)
-      ? table.column(UiTextInput, 'value')[row]
+      ? table.column(UiTextInput, 'password')[row]
+        ? masked(table.column(UiTextInput, 'value')[row] ?? '')
+        : table.column(UiTextInput, 'value')[row]
       : table.has(Localized)
         ? table.column(Localized, 'value')[row]
         : table.column(UiText, 'text')[row]

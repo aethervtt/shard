@@ -366,6 +366,32 @@ describe('interaction', () => {
     expect(fired()).toBe(1)
   })
 
+  it('masks a password field on screen and in describe, keeping the typed value', async () => {
+    const { world, frame } = await uiApp()
+    const fontRef = addFont(world)
+    const r = root(world, 400, 300)
+    world.set(r, UiNode, { alignItems: 'start' })
+    const field = node(
+      world,
+      r,
+      [UiTextInput, { password: true, placeholder: 'Password' }],
+      [UiText, { font: fontRef, size: 20, wrap: false }],
+    )
+    const width = (s: string) => measureText(interFont(), s, { size: 20 }).width
+    const shown = () => (describeUi(world).roots[0]!.tree.children as { text: string }[])[0]!.text
+    frame()
+    expect(rect(world, field)[2]).toBeCloseTo(width('Password'), 1)
+    world.resource(UiPointer).focused = field
+    injectInput(world, { type: 'text', text: 'h🔑nter' })
+    frame()
+    expect(world.get(field, UiTextInput).value).toBe('h🔑nter')
+    expect(shown()).toBe('••••••')
+    expect(rect(world, field)[2]).toBeCloseTo(width('••••••'), 1)
+    world.set(field, UiTextInput, { password: false })
+    frame()
+    expect(shown()).toBe('h🔑nter')
+  })
+
   it('drags sliders, steps them from focus, and scrolls with the wheel', async () => {
     const { world, frame } = await uiApp()
     const r = root(world, 400, 400)

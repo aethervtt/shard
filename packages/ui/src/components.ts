@@ -371,6 +371,10 @@ export const UiTextInput = defineComponent(
     value: t.string({ description: 'The text typed.' }),
     placeholder: t.string({ description: 'Shown dimmed while value is empty.' }),
     maxLength: t.u16({ description: 'Most characters (0: no limit).' }),
+    password: t.bool({
+      description:
+        'Shows a dot for each character; value keeps the text. ui.describe masks it too.',
+    }),
     disabled: t.bool({ description: 'Ignores input.' }),
   },
   {

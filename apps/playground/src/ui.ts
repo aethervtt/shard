@@ -444,6 +444,15 @@ const HUD = {
                 },
               }),
             ]),
+            row('code', [
+              text('label', 'Code', 'body'),
+              n('field', {
+                'ui/UiNode': { style: 'field', grow: 1, padding: [6, 10, 6, 10] },
+                'ui/UiStyle': {},
+                'ui/UiText': { wrap: false },
+                'ui/UiTextInput': { placeholder: 'Launch code', maxLength: 12, password: true },
+              }),
+            ]),
           ]),
         ],
       ),
