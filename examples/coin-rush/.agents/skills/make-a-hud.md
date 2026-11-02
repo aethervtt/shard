@@ -27,8 +27,9 @@ Make the HUD a prefab, `prefabs/hud.prefab.json`, and place it in the scene with
   win over its theme. Saving the theme restyles the running game.
 - Text needs a font: `UiText.font`, the theme's `font`, or the `ui/UiDefaults` resource.
 - Widgets: `ui/UiButton`, `ui/UiToggle` (`on`), `ui/UiSlider` (`value`, `min`, `max`, `step`),
-  `ui/UiTextInput` (`value`, shown through its UiText). Systems read `ui/UiClick` and
-  `ui/UiChanged` events. A click on UI never reaches gameplay actions or world picking.
+  `ui/UiTextInput` (`value`, shown through its UiText; `password: true` shows dots). Systems read
+  `ui/UiClick` and `ui/UiChanged` events. A click on UI never reaches gameplay actions or world
+  picking.
 - Bind text from a system: `world.set(label, UiText, { text: \`Fuel \${pct}%\` })`. Setting the
   same text again costs nothing.
 - Markers over planets: a node with `ui/UiAnchor` (`target` entity path, `clamp`, `hideBehind`,

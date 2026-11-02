@@ -2088,6 +2088,7 @@ Brings along: `ui/UiNode`, `ui/UiInteraction`.
 | `value` | string | `""` |  | The text typed. |
 | `placeholder` | string | `""` |  | Shown dimmed while value is empty. |
 | `maxLength` | integer | `0` | ≥ 0, ≤ 65535 | Most characters (0: no limit). |
+| `password` | boolean | `false` |  | Shows a dot for each character; value keeps the text. ui.describe masks it too. |
 | `disabled` | boolean | `false` |  | Ignores input. |
 
 ## `ui/UiToggle`

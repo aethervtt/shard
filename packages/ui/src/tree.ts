@@ -763,6 +763,7 @@ function syncTexts(world: World, store: UiStore, s: LayoutState): void {
     const placeholder = table.has(UiTextInput)
       ? table.column(UiTextInput, 'placeholder')
       : undefined
+    const password = table.has(UiTextInput) ? table.column(UiTextInput, 'password') : undefined
     // A localized text shows its resolved string (0038).
     const text = table.has(Localized)
       ? table.column(Localized, 'value')
@@ -776,7 +777,10 @@ function syncTexts(world: World, store: UiStore, s: LayoutState): void {
       const ref = s.style.font ?? defaults?.font ?? null
       const font = fonts?.get(ref)
       let value = text[i] ?? ''
-      if (input) value = input[i] || placeholder![i] || ''
+      if (input) {
+        const typed = input[i] ?? ''
+        value = typed === '' ? placeholder![i] || '' : password![i] ? masked(typed) : typed
+      }
       let t = r.texts[node]
       // A respawned tree puts other entities at the same indices: their text starts over.
       if (!t || t.entity !== e) {
@@ -818,6 +822,24 @@ function syncTexts(world: World, store: UiStore, s: LayoutState): void {
       }
     }
   }
+}
+
+const masks = new Map<number, string>()
+
+/** A password field's text: one dot per character, cached per length so a frame doesn't allocate. */
+export function masked(value: string): string {
+  let n = 0
+  for (let i = 0; i < value.length; i++) {
+    const c = value.charCodeAt(i)
+    // A surrogate pair is one character.
+    if (c < 0xdc00 || c > 0xdfff) n++
+  }
+  let mask = masks.get(n)
+  if (mask === undefined) {
+    mask = '\u2022'.repeat(n)
+    masks.set(n, mask)
+  }
+  return mask
 }
 
 /** Intrinsic image sizes: the region's or texture's pixels, once loaded. */
