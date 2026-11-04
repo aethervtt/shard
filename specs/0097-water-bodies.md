@@ -143,7 +143,9 @@ The water pass shades every surface and side fragment completely, and writes dep
   above the surface into it).
 - **Colour**: `refracted × T + inscatter × (1 − T)`, where `T = exp(−absorption × thickness)` and
   inscatter is the sun and sky light scattered toward the camera with the body's phase `g`.
-- **Reflection**: the camera's environment (0019's `EnvironmentMap` or `ProceduralSky`, and 0044's
+- **Reflection**: with 0101 loaded, `shard::ssr::trace` against the opaque copy first (docks,
+  boats, cliffs), blended by its confidence into the environment reflection. The environment is the
+  camera's (0019's `EnvironmentMap` or `ProceduralSky`, and 0044's
   atmosphere bake when there is one), with Fresnel (Schlick, n = 1.333), and the sun's specular
   from each `DirectionalLight`, shadowed by its cascade.
 - **Ripples**: two scrolling normal maps (procedural, baked at startup) whose strength and speed
@@ -239,8 +241,8 @@ world.spawn([WaterBody, { kind: 'volume', optics: { path: 'assets/water/pool.wat
 
 ## Open questions
 
-- Planar or screen-space reflections of nearby objects (docks, boats)? Proposed: SSR on the water
-  pass only, in its own spec (Shard has no SSR yet; 0021 lists it as later).
+- Planar reflections of nearby objects, for what SSR (0101) can't see? Proposed: only if 0101's
+  fallback to the sky looks wrong in a demo.
 - Water on 0043 planets? Proposed: after 0098, as a curved zone around the camera.
 - A river shallow-water simulation (waterfalls, floods)? Proposed: later, writing into the same
   info texture.
