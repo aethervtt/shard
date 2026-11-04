@@ -530,6 +530,8 @@ Every engine error is a `ShardError` with one of these codes.
 | `verify/size-mismatch` | @aethervtt/shard-verify | Check the viewport and DPR in the plan, or approve the new size with a reason. |
 | `verify/unknown-shot` | @aethervtt/shard-verify |  |
 | `verify/unknown-step` | @aethervtt/shard-verify |  |
+| `water/bad-cascades` | @aethervtt/shard-water | Give 1–4 cascades, largest first, e.g. [{ "length": 250 }, { "length": 17 }, { "length": 5 }], and a resolution of 128, 256 or 512. |
 | `water/bad-spline` | @aethervtt/shard-water |  |
 | `water/unknown-optics` | @aethervtt/shard-water |  |
+| `water/waves-need-ocean` | @aethervtt/shard-water | Put OceanWaves on an ocean or lake body. |
 | `wind/bad-direction` | @aethervtt/shard-wind | Give wind/Wind a non-zero direction, or set speed to 0 for calm. It is calm until then. |
