@@ -513,6 +513,35 @@ Solid dice: an opaque body, optional flecks.
 | `fleckColor` | string or number[4] | `"#ffffff"` |  | Fleck color (linear). |
 | `fleckScale` | number | `16` | ≥ 1 | Fleck density, per unit of die radius. |
 
+## `nature/Tree`
+
+Trees grown by nature/Tree (experimental): bark from the standard texture slots (baseColor, normal, metallicRoughness), leaves from leafTexture, swaying in the wind. Use alphaMode "mask" and doubleSided true.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `baseColor` | string or number[4] | `[0.8,0.8,0.8,1]` |  | Albedo (linear), alpha in w. |
+| `metallic` | number | `0` | ≥ 0, ≤ 1 | 0 for dielectrics, 1 for metals. |
+| `roughness` | number | `0.5` | ≥ 0, ≤ 1 | Microsurface roughness. |
+| `emissive` | string or number[4] | `"#ffffff"` |  | Emitted color (linear), scaled by emissiveLuminance. |
+| `emissiveLuminance` | number | `0` | ≥ 0, cd/m² | Emitted luminance. 0 = not emissive. |
+| `doubleSided` | boolean | `false` |  | Draw back faces too (no culling). |
+| `deferUntilReady` | boolean | `false` |  | Baseline tier (0064): while a texture it binds waits for a copy in its slot's color space, skip its draws instead of showing the slot's loading fallback. |
+| `alphaMode` | `"opaque"` \| `"mask"` \| `"alpha"` \| `"additive"` \| `"premultiplied"` | `"opaque"` |  | opaque ignores alpha; mask discards pixels below alphaCutoff; alpha blends (transparent, drawn after opaque, sorted back to front); additive adds light (glows); premultiplied expects color already multiplied by alpha. |
+| `alphaCutoff` | number | `0.5` | ≥ 0, ≤ 1 | Alpha threshold for alphaMode "mask". |
+| `normalScale` | number | `1` |  | Strength of the normal map. |
+| `occlusionStrength` | number | `1` | ≥ 0, ≤ 1 | Strength of the occlusion map. |
+| `baseColorTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Albedo (sRGB), multiplied with baseColor. |
+| `metallicRoughnessTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | G = roughness, B = metallic (linear), multiplied with the factors. |
+| `normalTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Tangent-space normal map. |
+| `occlusionTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Ambient occlusion in R (linear). |
+| `emissiveTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Emission color (sRGB), multiplied with emissive. |
+| `leafTexture` | null or Texture ref | `null` |  | Leaf card color and alpha (sRGB), cut out below alphaCutoff. |
+| `barkTint` | string or number[4] | `"#ffffff"` |  | Times the bark color (baseColor × baseColorTexture). |
+| `leafTint` | string or number[4] | `"#ffffff"` |  | Times the leaf texture. |
+| `leafRoughness` | number | `0.75` | ≥ 0, ≤ 1 |  |
+| `shade` | number | `0.2` | ≥ 0, ≤ 1 | How much each leaf’s random shade varies its brightness (±). |
+| `sway` | number | `0.12` | ≥ 0 | Wind response: metres a leaf moves in a 6 m/s breeze (wind/Wind). Branches move less, the trunk not at all. |
+
 ## `nav/NavAgent`
 
 Walks to a destination or follows a target along navigation paths: arrives, avoids other agents, repaths. Status in NavAgentState; NavArrived and NavUnreachable on changes.
@@ -1545,10 +1574,7 @@ Scatter items’ material: the standard material tinted from base to tip by the 
 | `baseTint` | string or number[4] | `[0.36,0.27,0.19,1]` |  | Color at part 0 (bark, stone, a blade’s root), times baseColor. |
 | `tipTint` | string or number[4] | `[0.32,0.55,0.18,1]` |  | Color at part 1 (leaves, a blade’s tip), times baseColor. |
 | `shade` | number | `0.25` | ≥ 0, ≤ 1 | How much the per-vertex shade varies brightness (±). |
-| `sway` | number | `0` | ≥ 0 | Wind response: metres a tip moves at wind strength 1 (0: still). |
-| `windDirection` | number[3] | `[1,0,0]` |  | World-space wind direction (the Wind resource writes it each frame). |
-| `windStrength` | number | `1` | ≥ 0 | Written from the Wind resource. |
-| `gustScale` | number | `0.05` | ≥ 0, 1/m | Gust waves per metre (written from the Wind resource). |
+| `sway` | number | `0` | ≥ 0 | Wind response: metres a tip moves in a 6 m/s breeze (wind/Wind; 0: still). Scaled by the part code squared. |
 
 ## `scene/InstancePart`
 
@@ -2196,7 +2222,7 @@ Brings along: `ui/UiNode`, `ui/UiInteraction`.
 
 ## `ui/UiStyle`
 
-How a node looks: background, border, rounded corners, opacity. Fields at their default take the theme style.
+How a node looks: background or gradient, border, rounded or cut corners, drop shadow, glow, opacity. Fields at their default take the theme style.
 
 Brings along: `ui/UiNode`.
 
@@ -2207,10 +2233,23 @@ Brings along: `ui/UiNode`.
 | `borderWidth` | number | `0` | ≥ 0, px | Border thickness, inside the box. |
 | `radius` | number[4] | `[0,0,0,0]` | px | Corner radii: top left, top right, bottom right, bottom left. |
 | `opacity` | number | `1` | ≥ 0, ≤ 1 | Multiplies the node and its children. |
+| `cut` | number[4] | `[0,0,0,0]` | px | Straight corner cuts: horizontal size per corner (top left, top right, bottom right, bottom left). A cut corner ignores its radius. |
+| `cutHeight` | number[4] | `[0,0,0,0]` | px | Vertical size of each cut (0: same as cut, a 45° chamfer). Clamped to the box: as tall as the box, it's a slanted end. |
+| `gradient` | `"none"` \| `"linear"` \| `"radial"` | `"none"` |  | Fill from background to gradientColor. linear: along gradientAngle. radial: from the center to the edges. |
+| `gradientColor` | string or number[4] | `"#00000000"` |  | The gradient's end color (linear); background is its start. |
+| `gradientAngle` | number | `180` | deg | Direction of a linear gradient, as in CSS: 0 to the top, 90 to the right. |
+| `gradientRange` | number[2] | `[0,1]` |  | Where the ramp starts and ends along the gradient (0 to 1). Equal values make a hard edge: [0.9, 0.9] at 180 is a stripe along the bottom. |
+| `shadowColor` | string or number[4] | `[0,0,0,0.5]` |  | Drop shadow color (linear). |
+| `shadowOffset` | number[2] | `[0,0]` | px | Drop shadow offset, y down. |
+| `shadowBlur` | number | `0` | ≥ 0, px | Drop shadow blur, as in CSS. The shadow draws when offset, blur, or spread is nonzero. |
+| `shadowSpread` | number | `0` | px | Grows (or shrinks) the shadow. |
+| `glowColor` | string or number[4] | `"#ffffff99"` |  | Glow color (linear): added to what is behind, around the node. |
+| `glowBlur` | number | `0` | ≥ 0, px | Glow blur. The glow draws when blur or spread is nonzero. |
+| `glowSpread` | number | `0` | px | Grows the glow past the edge before blurring. |
 
 ## `ui/UiText`
 
-A node's text (MSDF): its size sets the node's size unless width/height do.
+A node's text (MSDF), with an optional outline and shadow: its size sets the node's size unless width/height do.
 
 Brings along: `ui/UiNode`.
 
@@ -2225,6 +2264,11 @@ Brings along: `ui/UiNode`.
 | `align` | `"start"` \| `"center"` \| `"end"` | `"start"` |  | Line alignment in the node. |
 | `wrap` | boolean | `true` |  | Wrap at the node width. |
 | `lineHeight` | number | `1.2` | ≥ 0.1 | Distance between baselines, as a multiple of the size. |
+| `outlineWidth` | number | `0` | ≥ 0, px | Outline around the glyphs (0: none). At most half the font's distance range: range ÷ (2 × atlas size) em. |
+| `outlineColor` | string or number[4] | `"#000000"` |  | Outline color (linear). |
+| `textShadowColor` | string or number[4] | `"#00000099"` |  | Text shadow color (linear, alpha). |
+| `textShadowOffset` | number[2] | `[0,0]` | px | Text shadow offset, y down. The shadow draws when offset or softness is set. |
+| `textShadowSoftness` | number | `0` | ≥ 0, ≤ 1 | Blur of the text shadow, of the distance range (0, 0 offset with softness: a glow). |
 
 ## `ui/UiTextInput`
 
@@ -2250,3 +2294,32 @@ Brings along: `ui/UiNode`, `ui/UiInteraction`.
 |---|---|---|---|---|
 | `on` | boolean | `false` |  | Checked. |
 | `disabled` | boolean | `false` |  | Ignores input. |
+
+## `wind/WindState`
+
+The wind from a server tick on (0096): the server writes it when its Wind changes (or ahead of time, with scheduleWind), and every machine copies it into Wind at fromTick.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `direction` | number[3] | `[1,0,0.35]` |  |  |
+| `speed` | number | `6` | ≥ 0, m/s |  |
+| `gustiness` | number | `0.3` | ≥ 0, ≤ 1 |  |
+| `gustScale` | number | `0.05` | ≥ 0, 1/m |  |
+| `fromTick` | integer | `0` | ≥ 0, ≤ 4294967295 | The server tick it takes effect on, everywhere. |
+
+## `wind/WindZone`
+
+A local wind override (0096): a box or sphere that scales the wind (speedScale 0 shelters) or replaces it (override: a storm cell), blending over falloff metres. Its transform places it; scale is ignored.
+
+Brings along: `core/Transform`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `shape` | `"box"` \| `"sphere"` | `"box"` |  | The volume it covers, around its transform. |
+| `size` | number[3] | `[10,10,10]` | m | box: full size along its local axes. sphere: diameter, from size[0]. |
+| `falloff` | number | `2` | ≥ 0, m | Blend outside the shape: full effect inside, none this many metres out. |
+| `speedScale` | number | `1` | ≥ 0 | Multiplies the wind inside: 0 stills it (a sheltered valley). |
+| `override` | boolean | `false` |  | Inside, blow toward `direction` at `speed` (then × speedScale), not the wind around it. |
+| `direction` | number[3] | `[1,0,0]` |  | World-space direction when override is on (normalized when used). |
+| `speed` | number | `0` | ≥ 0, m/s | Speed when override is on. |
+| `priority` | integer | `0` | ≥ -2147483648, ≤ 2147483647 | Zones apply lowest priority first, so the highest wins where they overlap. |

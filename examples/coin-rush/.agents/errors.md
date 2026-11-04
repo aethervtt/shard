@@ -34,6 +34,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `app/plugin-cycle` | @aethervtt/shard-runtime |  |
 | `app/system-cycle` | @aethervtt/shard-core | Remove one of the after/before constraints in this cycle. |
 | `app/system-failed` | @aethervtt/shard-core |  |
+| `asset/not-found` | @aethervtt/shard-cli | Pass a *.material.json path inside the project. |
 | `assets/dependency-failed` | @aethervtt/shard-assets | Fix that file first; this one re-imports with it. |
 | `assets/duplicate-extension` | @aethervtt/shard-assets | Every data type needs its own extension. Pick another one. |
 | `assets/import-cycle` | @aethervtt/shard-assets | An asset can’t depend on itself, directly or through others. |
@@ -82,7 +83,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `audio/music-unprepared` | @aethervtt/shard-audio |  |
 | `audio/no-plugin` | @aethervtt/shard-audio | Add "audio" to plugins in shard.json (or app.addPlugin(audioPlugin())). |
 | `audio/prepare-failed` | @aethervtt/shard-audio |  |
-| `audio/preview-unavailable` | @aethervtt/shard-audio |  |
+| `audio/preview-unavailable` | @aethervtt/shard-cli | Run pnpm exec playwright install chromium in apps/cli. |
 | `audio/restore` | @aethervtt/shard-audio |  |
 | `audio/stale-handle` | @aethervtt/shard-audio |  |
 | `audio/unknown-bus` | @aethervtt/shard-audio |  |
@@ -104,6 +105,13 @@ Every engine error is a `ShardError` with one of these codes.
 | `cards/texture-budget` | @aethervtt/shard-cards | Use a visible subset or a smaller resolution; prepare an inspection page separately. |
 | `cards/texture-size` | @aethervtt/shard-cards |  |
 | `cards/unknown-finish` | @aethervtt/shard-cards |  |
+| `cli/missing-playwright` | @aethervtt/shard-cli | Install it next to the CLI: npm install -D playwright && npx playwright install chromium. |
+| `cli/no-response` | @aethervtt/shard-cli |  |
+| `cli/no-target` | @aethervtt/shard-cli | Start the app (shard dev, Studio) with the hub address, then run this again. |
+| `cli/not-empty` | @aethervtt/shard-cli | Pick an empty folder or pass --force. |
+| `cli/unavailable` | @aethervtt/shard-cli |  |
+| `cli/unknown-resource` | @aethervtt/shard-cli |  |
+| `cli/usage` | @aethervtt/shard-cli | Run it on a machine doing nothing else: the budgets are exact. |
 | `controls/no-controls` | @aethervtt/shard-controls | syncViews takes two cameras that each have a control. |
 | `controls/no-plugin` | @aethervtt/shard-controls | Add "controls" to plugins in shard.json (or app.addPlugin(controlsPlugin)). |
 | `controls/not-draggable` | @aethervtt/shard-controls | PlaneDrag moves an entity by its Transform. |
@@ -156,6 +164,8 @@ Every engine error is a `ShardError` with one of these codes.
 | `gltf/invalid` | @aethervtt/shard-gltf | Only glTF 2.0 files are supported. |
 | `gltf/tangents-unavailable` | @aethervtt/shard-gltf |  |
 | `gltf/unsupported-extension` | @aethervtt/shard-gltf |  |
+| `gltf/write-invalid` | @aethervtt/shard-gltf |  |
+| `gltf/write-unsupported` | @aethervtt/shard-cli | GLB export embeds PNG and JPEG source files. |
 | `gpu-webgl2/lost` | @aethervtt/shard-gpu-webgl2 |  |
 | `gpu-webgl2/naga-crashed` | @aethervtt/shard-gpu-webgl2 | Report the shader: naga should return an error, not crash. |
 | `gpu-webgl2/naga-load-failed` | @aethervtt/shard-gpu-webgl2 | packages/gpu-webgl2/wasm must be served with the app (rebuild with `pnpm build:wasm`). |
@@ -185,6 +195,8 @@ Every engine error is a `ShardError` with one of these codes.
 | `mesh/simplifier-not-loaded` | @aethervtt/shard-mesh | await loadMeshSimplifier() once (generators get it loaded for them) before simplifying. |
 | `mirror/duplicate-key` | @aethervtt/shard-mirror | Keys are the host ids of documents: each may appear once per list. |
 | `mirror/no-diff` | @aethervtt/shard-mirror | Pass rev: (doc) => doc.rev when documents carry a revision (cheapest), or equal(prev, next). |
+| `nature/bad-species` | @aethervtt/shard-nature | levels[0] is the trunk; each further entry is a level of branches. |
+| `nature/too-big` | @aethervtt/shard-nature | Fewer children per branch, fewer leaves per twig, or fewer sections and segments. |
 | `nav/bad-cache` | @aethervtt/shard-nav |  |
 | `nav/bake-failed` | @aethervtt/shard-nav | Check the NavSource geometry has upward faces flatter than maxSlope, wide enough for agentRadius. |
 | `nav/invalid-grid` | @aethervtt/shard-nav |  |
@@ -302,6 +314,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `project/namespace` | @aethervtt/shard-project |  |
 | `project/no-bundler` | @aethervtt/shard-project | Pass "url" with a built bundle. |
 | `project/not-found` | @aethervtt/shard-project | Run `shard init <dir>` to create a project, or run from a project folder. |
+| `project/not-multiplayer` | @aethervtt/shard-cli | Call project.net({ replicate, commands, … }) in the entry to make it multiplayer. |
 | `project/reload-failed` | @aethervtt/shard-project |  |
 | `project/unknown-plugin` | @aethervtt/shard-project |  |
 | `protocol/internal` | @aethervtt/shard-protocol |  |
@@ -330,6 +343,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `render/feature-missing` | @aethervtt/shard-render | Add materialNoisePlugin from '@aethervtt/shard-render/noise'. |
 | `render/foliage-meshes` | @aethervtt/shard-render | Fewer variants: 4–8 read as unique once scaled and rotated. |
 | `render/foliage-patch` | @aethervtt/shard-render | positions and normals: 3 floats per grid point; density: 1. |
+| `render/globals-full` | @aethervtt/shard-render | Plugins share shard::globals’ data array; reserve fewer slots. |
 | `render/gpu-timing-unavailable` | @aethervtt/shard-render | Ablation reads gpu:frame, which needs the 'timestamp-query' feature. |
 | `render/graph-cycle` | @aethervtt/shard-render | Check reads/writes and `after` on these nodes. |
 | `render/invalid-screen-effect` | @aethervtt/shard-render | A screen effect has a kind, a radius of at least 0, and at most 8 params. |
@@ -344,7 +358,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `render/registry-conflict` | @aethervtt/shard-render | Two definitions (two apps or bundles) share the name. Rename one, or share the definition. |
 | `render/surface-device` | @aethervtt/shard-render | Pass the GpuContext the surface was added to (surface.gpu), or omit gpu. |
 | `render/texture-color-space-mismatch` | @aethervtt/shard-render | Set its usage to match the slot in its .meta, and the copy goes. |
-| `render/too-many-joints` | @aethervtt/shard-gltf | Split the mesh, or remove helper bones before exporting. |
+| `render/too-many-joints` | @aethervtt/shard-render | Split the mesh, or remove helper bones before exporting. It draws in bind pose. |
 | `render/unknown-buffer` | @aethervtt/shard-render |  |
 | `render/unknown-camera` | @aethervtt/shard-render | Pass a Camera3d entity that has rendered at least one frame. |
 | `render/unknown-material-type` | @aethervtt/shard-render |  |
@@ -458,6 +472,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `terrain/heightmap-format` | @aethervtt/shard-terrain | Heightmaps are 16-bit grayscale PNGs, or .r16/.r32 raw files with "width" and "height" in their .meta settings. An 8-bit PNG is a texture, not a heightmap. |
 | `terrain/missing-pack` | @aethervtt/shard-terrain | The terrain isn’t baked (or was baked for another grid): `shard terrain bake`. |
 | `terrain/no-planet` | @aethervtt/shard-terrain | Add terrain/Planet (with a Grid) to an entity, and the terrain plugin to the app. |
+| `terrain/no-source` | @aethervtt/shard-cli | Terrain sources are *.terrain.json files under the asset roots; `shard import` lists failures. |
 | `terrain/no-terrain` | @aethervtt/shard-terrain | Add terrain/Terrain (with a Grid and a *.terrain.json source) to an entity. |
 | `terrain/not-a-planet` | @aethervtt/shard-terrain | Add terrain/Planet (and a Grid) to the planet entity, and the terrain plugin to the app. |
 | `terrain/not-a-terrain` | @aethervtt/shard-terrain | terrain.describe lists every terrain with its entity and scene path. |
@@ -515,3 +530,4 @@ Every engine error is a `ShardError` with one of these codes.
 | `verify/size-mismatch` | @aethervtt/shard-verify | Check the viewport and DPR in the plan, or approve the new size with a reason. |
 | `verify/unknown-shot` | @aethervtt/shard-verify |  |
 | `verify/unknown-step` | @aethervtt/shard-verify |  |
+| `wind/bad-direction` | @aethervtt/shard-wind | Give wind/Wind a non-zero direction, or set speed to 0 for calm. It is calm until then. |

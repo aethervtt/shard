@@ -197,18 +197,6 @@ Files: `*.tree.json`
 
 No import settings.
 
-## `data/biome`
-
-Files: `*.biome.json`
-
-No import settings.
-
-## `data/biomes`
-
-Files: `*.biomes.json`
-
-No import settings.
-
 ## `data/navgrid`
 
 Files: `*.navgrid.json`
@@ -236,6 +224,18 @@ No import settings.
 ## `data/tilemap`
 
 Files: `*.tilemap.json`
+
+No import settings.
+
+## `data/biome`
+
+Files: `*.biome.json`
+
+No import settings.
+
+## `data/biomes`
+
+Files: `*.biomes.json`
 
 No import settings.
 
