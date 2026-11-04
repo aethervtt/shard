@@ -2285,6 +2285,28 @@ Brings along: `ui/UiNode`, `ui/UiInteraction`.
 | `on` | boolean | `false` |  | Checked. |
 | `disabled` | boolean | `false` |  | Ignores input. |
 
+## `water/WaterBody`
+
+A body of water (0097): its surface joins the shared water surface, shaded in the water pass with refraction, absorption and reflections, and waterAt reports it.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `kind` | `"ocean"` \| `"lake"` | `"ocean"` |  | ocean: a level (the entity’s y) everywhere, or inside a closed WaterSpline when it has one. lake: water inside a closed WaterSpline at the entity’s y. |
+| `optics` | null or water/WaterOptics ref | `null` |  | How the water absorbs and scatters light (*.water.json). Presets: water/clear, ocean, coastal, lake, river, murky and pool (.water.json). Without one: clear, and a water/no-optics warning. |
+| `priority` | integer | `0` | ≥ -2147483648, ≤ 2147483647 | Where bodies overlap, the highest priority is the water there (ties: the later entity). |
+| `wind` | `"global"` \| `"own"` | `"global"` |  | global: ripples follow wind/Wind and its WindZones at the surface. own: windSpeed and windDirection instead (a sheltered pond, a storm on one lake). |
+| `windSpeed` | number | `0` | ≥ 0, m/s | With wind: own, the wind over this body at 10 m. |
+| `windDirection` | number[3] | `[1,0,0]` |  | With wind: own, where it blows toward (normalized when used). |
+
+## `water/WaterSpline`
+
+The outline of a water body (0097): a lake, or the shore that bounds an ocean so it doesn’t flood inland basins.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `points` | object[] | `[]` |  | Points a uniform Catmull-Rom spline passes through: a lake’s or a bounded ocean’s shore, at least 3, in the entity’s frame. |
+| `closed` | boolean | `true` |  | Lakes and bounded oceans are closed: the outline wraps back to its first point. |
+
 ## `wind/WindState`
 
 The wind from a server tick on (0096): the server writes it when its Wind changes (or ahead of time, with scheduleWind), and every machine copies it into Wind at fromTick.

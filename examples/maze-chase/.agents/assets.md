@@ -266,3 +266,9 @@ Files: `*.theme.json`
 
 No import settings.
 
+## `data/water`
+
+Files: `*.water.json`
+
+No import settings.
+

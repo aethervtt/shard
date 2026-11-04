@@ -328,7 +328,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `protocol/no-view` | @aethervtt/shard-protocol |  |
 | `protocol/not-a-grid` | @aethervtt/shard-protocol | Pass "grid": the id or path of an entity with transform/Grid. |
 | `protocol/unknown-component` | @aethervtt/shard-protocol | schema.list returns every component name. |
-| `protocol/unknown-debug-view` | @aethervtt/shard-protocol | Use 'clusters', 'cascades', 'lod', 'culling', 'none', or 'shadow-map:<light>'. |
+| `protocol/unknown-debug-view` | @aethervtt/shard-protocol | Use 'clusters', 'cascades', 'lod', 'culling', 'none', 'shadow-map:<light>', or one a plugin adds (water's 'water-info'). |
 | `protocol/unknown-entity` | @aethervtt/shard-protocol | Pass an entity id from world.query, or a scene path like "ship/camera". |
 | `protocol/unknown-overlay` | @aethervtt/shard-protocol |  |
 | `protocol/unknown-owner` | @aethervtt/shard-protocol | owners.describe with no name lists every live owner. |
@@ -530,4 +530,6 @@ Every engine error is a `ShardError` with one of these codes.
 | `verify/size-mismatch` | @aethervtt/shard-verify | Check the viewport and DPR in the plan, or approve the new size with a reason. |
 | `verify/unknown-shot` | @aethervtt/shard-verify |  |
 | `verify/unknown-step` | @aethervtt/shard-verify |  |
+| `water/bad-spline` | @aethervtt/shard-water |  |
+| `water/unknown-optics` | @aethervtt/shard-water |  |
 | `wind/bad-direction` | @aethervtt/shard-wind | Give wind/Wind a non-zero direction, or set speed to 0 for calm. It is calm until then. |
