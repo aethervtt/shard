@@ -2,6 +2,7 @@ import { defineComponent, t } from '@aethervtt/shard-core'
 import { type ShaderLibrary, wgslLayout } from '@aethervtt/shard-shader'
 import { StandardMaterial } from './assets'
 import { CULLING_SHADERS } from './culling-shaders'
+import { GLOBALS_DATA_SLOTS } from './globals'
 
 /** Per-view uniforms. A schema, so the WGSL struct and the CPU packing come from one place. */
 export const ViewUniform = defineComponent('render/ViewUniform', {
@@ -364,6 +365,8 @@ struct Globals {
   delta_time: f32,
   frame: u32,
   _pad: u32,
+  /** Slots plugins reserve (ShaderGlobals.reserve): wind (0096). */
+  data: array<vec4f, ${GLOBALS_DATA_SLOTS}>,
 }
 
 @group(0) @binding(14) var<uniform> globals: Globals;`,

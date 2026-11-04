@@ -1,6 +1,6 @@
 import { t } from '@aethervtt/shard-core'
 import { defineMaterial } from '@aethervtt/shard-render'
-import { SWAY_WGSL } from '@aethervtt/shard-scatter'
+import { REMOVED_WIND_FIELDS } from '@aethervtt/shard-wind'
 
 /**
  * A `nature/Tree` mesh's material (spec 0095): the standard material for bark (its texture slots
@@ -28,16 +28,10 @@ export const TreeMaterial = defineMaterial('nature/Tree', {
       default: 0.12,
       min: 0,
       description:
-        'Wind response: metres a leaf moves at wind strength 1. Branches move less, the trunk not at all.',
+        'Wind response: metres a leaf moves in a 6 m/s breeze (wind/Wind). Branches move less, the trunk not at all.',
     }),
-    windDirection: t.vec3({
-      default: [1, 0, 0.35],
-      description:
-        'World-space wind direction (scatter’s Wind resource writes it for scattered trees).',
-    }),
-    windStrength: t.f32({ default: 1, min: 0, description: '0 calm, 1 a breeze, 2+ a gale.' }),
-    gustScale: t.f32({ default: 0.05, min: 0, unit: '1/m', description: 'Gust waves per metre.' }),
   },
+  removed: REMOVED_WIND_FIELDS,
   colors: ['leafTexture'],
   shader: 'nature::tree',
   plugin: 'naturePlugin from @aethervtt/shard-nature',
@@ -49,12 +43,11 @@ export const NATURE_SHADERS: Record<string, string> = {
   'nature::tree': `
 import shard::pbr::types::{ VertexOutput, PbrInput };
 import shard::pbr::standard::standard_input;
-import shard::globals::globals;
-import shard::mesh::{ vertex_uv1, mesh_current_instance };
+import shard::wind::sway::wind_sway;
 import material::tree::{ Tree, Tree_leafTexture, Tree_leafTexture_sampler };
-${SWAY_WGSL('Tree')}
+
 override fn vertex_position(position: vec3f, normal: vec3f, uv: vec2f) -> vec3f {
-  return scatter_sway(position);
+  return wind_sway(position, Tree.sway);
 }
 
 override fn pbr_input(in: VertexOutput) -> PbrInput {

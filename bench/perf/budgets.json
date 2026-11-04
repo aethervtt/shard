@@ -480,6 +480,19 @@
       "desktop": 0.001,
       "note": "0057: tessellating a 1,000-point pen stroke in under 1 ms, median. vector/src/tessellate.test.ts."
     },
+    "wind/at": {
+      "kind": "unit",
+      "per": "call",
+      "laptop": 0.0005,
+      "desktop": 0.0005,
+      "note": "0096 proposed: windAt with 8 WindZones (gusts and zone blends), 100k calls after a warm-up. The laptop measured 120 ns a call while the spec was implemented (2026-11-04); 500 ns leaves room for 0049's spatial field. wind/src/wind.test.ts."
+    },
+    "wind/frame": {
+      "kind": "target",
+      "laptop": 0.1,
+      "desktop": 0.1,
+      "note": "0096 proposed: wind/sync and wind/field together with 24 WindZones (the 16 nearest the camera uploaded), mean of 2,000 frames. The laptop measured 8 µs (2026-11-04). wind/src/wind.test.ts."
+    },
     "effects/update": {
       "kind": "target",
       "laptop": 1,

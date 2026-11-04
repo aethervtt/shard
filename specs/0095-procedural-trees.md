@@ -156,6 +156,8 @@ size, a random shade). Then a meshing pass writes rings and leaf cards per level
 - Sway reuses `SWAY_WGSL` from `scatter`, scaled by the part code squared. Scatter's `applyWind`
   now writes `Wind` into any material whose type has wind fields, not only `scatter/Vegetation`,
   so scattered trees sway with it. Trees placed by hand keep their material's own wind values.
+  (0096 replaced this: every tree reads `wind/Wind` through `shard::wind::sway`, and the
+  material's wind fields are gone.)
 
 ### Textures and setup
 

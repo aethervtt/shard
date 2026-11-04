@@ -121,7 +121,7 @@ acceptance evidence are mapped in [the implementation checklist](research/audio-
 | [0072](0072-world-partition.md) | World partition and streaming (cells as scene files, streaming sources, diffs for unloaded cells) | accepted |
 | [0073](0073-hlod.md) | Hierarchical LOD (baked proxies for unloaded cells: instances, merged, baked) | accepted |
 | [0095](0095-procedural-trees.md) | Procedural trees (EZ-Tree port in an experimental `nature` package, species assets, GLB export) | implemented |
-| [0096](0096-shared-wind.md) | Shared wind (`Wind` in m/s, `windAt` on CPU and GPU, zones, synced changes) | draft |
+| [0096](0096-shared-wind.md) | Shared wind (`Wind` in m/s, `windAt` on CPU and GPU, zones, synced changes) | implemented |
 | [0097](0097-water-bodies.md) | Water bodies and surface (ocean, lakes, spline rivers, tanks; water as a volume; masks; `waterAt`) | draft |
 | [0098](0098-ocean-waves.md) | Ocean waves (JONSWAP FFT cascades on both tiers, foam, shores, CPU evaluator, tick-synced) | draft |
 | [0099](0099-underwater.md) | Underwater and water optics (per-pixel waterline, fog, Snell's window, caustics, light shafts, aquariums) | draft |

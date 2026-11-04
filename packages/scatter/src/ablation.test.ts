@@ -10,8 +10,8 @@ import { Gpu, Graph, setOverlays } from '@aethervtt/shard-render'
 import { settle } from '@aethervtt/shard-render/testing'
 import { planetHeightAt } from '@aethervtt/shard-terrain'
 import { capture, placeCamera, settleTerrain, sunOver } from '@aethervtt/shard-terrain/testing'
+import { Wind } from '@aethervtt/shard-wind'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { Wind } from './foliage'
 import { scatterPlanet, settleScatter, TEST_RADIUS } from './testing'
 
 // 0075: ablating any node of the scatter page's graph raises no validation error, and the frames
@@ -44,7 +44,7 @@ describe("ablating the scatter page's passes (0075)", () => {
     })
     const w = p.world
     // Still: sway follows the clock.
-    w.resource(Wind).strength = 0
+    w.resource(Wind).speed = 0
     const d = [Math.cos(18 * 0.157) * 0.3, 0.9, Math.sin(18 * 0.157) * 0.3]
     const l = Math.hypot(d[0]!, d[1]!, d[2]!)
     const n = d.map((x) => x / l)

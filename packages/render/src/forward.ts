@@ -40,6 +40,7 @@ import { addDisplayNodes } from './display-nodes'
 import { Environments, environmentParams } from './environment-state'
 import { addRenderFeatures } from './features'
 import { FoliagePath } from './foliage-path'
+import { ShaderGlobals, ShaderGlobalsData } from './globals'
 import { GpuAssets, GpuAssetsResource } from './gpu-assets'
 import { type ColorAttachment, type NodeContext, RenderPhase, type RenderView } from './graph'
 import { clearHealthIssue, MaterialFallbacks, raiseHealthIssue } from './health'
@@ -210,9 +211,8 @@ export interface ForwardState {
   frame: number
   /** Last warnings, so each is logged once per change. */
   warned: { budget: string; overflow: string }
-  /** Time, delta time, and frame for shaders (`shard::globals`). */
+  /** Time, delta time, frame and plugin slots for shaders (`shard::globals`, ShaderGlobals). */
   globals: GpuBuffer
-  globalsData: Float32Array
   pipelines: MaterialPipelines
   /** The baseline tier's strategies (0064), loaded only on a baseline device. */
   baseline: typeof import('./baseline/lights') | undefined
@@ -338,11 +338,11 @@ export const forwardQueue = defineSystem({
     const gpuCull = culler.active
     state.cullerActive = gpuCull
     const time = world.resource(Time)
-    const g = state.globalsData
-    g[0] = time.elapsed
-    g[1] = time.delta
-    new Uint32Array(g.buffer)[2] = time.frame
-    state.globals.write(g)
+    const g = world.resource(ShaderGlobals)
+    g.values[0] = time.elapsed
+    g.values[1] = time.delta
+    g.bits[2] = time.frame
+    state.globals.write(g.values, 0, 0, g.length)
 
     // Camera views first: they choose LOD levels, which their shadow views reuse.
     let main: CameraData | undefined
@@ -1922,9 +1922,8 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
           globals: new GpuBuffer(gpu, {
             label: 'globals',
             usage: GPUBufferUsage.UNIFORM,
-            size: 16,
+            size: new ShaderGlobalsData().values.byteLength,
           }),
-          globalsData: new Float32Array(4),
           pipelines: new MaterialPipelines(),
           baseline,
           cullerActive: false,

@@ -27,6 +27,7 @@ import { terrainMethods } from '@aethervtt/shard-terrain'
 import { localeMethods } from '@aethervtt/shard-text'
 import { uiMethods } from '@aethervtt/shard-ui'
 import { metricsMethods } from '@aethervtt/shard-verify/metrics'
+import { windMethods } from '@aethervtt/shard-wind'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import {
   CallToolRequestSchema,
@@ -87,6 +88,7 @@ const PLUGIN_METHODS = [
   ...atmosphereMethods,
   ...metricsMethods,
   ...tilemapMethods,
+  ...windMethods,
 ]
 
 /** The protocol method's parameter schema, as an MCP input schema. */
@@ -404,6 +406,11 @@ export const TOOLS: Tool[] = [
     'sample_scatter',
     'scatter.sample',
     'Prop placements near a point from the CPU placement, spawned or not: rule, item, position, distance, scale, and whether the game removed it. Ask what is near the landing pad and move the pad. Example: { "entity": "landing-pad", "radius": 10 }, or on a planet { "latlon": [12, 40], "radius": 30 }.',
+  ),
+  forward(
+    'describe_wind',
+    'wind.describe',
+    'The wind (wind/Wind) as data: direction, speed in m/s with its Beaufort name, gustiness and gust scale, the sway strength (speed / 6), the wind clock, every WindZone in the order it applies, and windAt at a point (direction, steady speed, gust now). Example: { "position": [12, 2, -40] } to check a WindZone shelters that spot. Scenes set it under "resources": { "wind/Wind": { "speed": 18 } } (0 calm, 6 a breeze, 18 a gale).',
   ),
   forward(
     'sample_atmosphere',

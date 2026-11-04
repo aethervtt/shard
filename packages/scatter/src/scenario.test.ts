@@ -12,8 +12,8 @@ import { expectScenario, measureScenario } from '@aethervtt/shard-render/testing
 import { PerfBudgets, type PerfBudgetsData } from '@aethervtt/shard-runtime'
 import { planetHeightAt } from '@aethervtt/shard-terrain'
 import { placeCamera, settleTerrain, sunOver } from '@aethervtt/shard-terrain/testing'
+import { Wind } from '@aethervtt/shard-wind'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { Wind } from './foliage'
 import { type ScatterPlanet, scatterPlanet, settleScatter, TEST_RADIUS } from './testing'
 
 // Spec 0075's scatter-walk scenario: the scatter test planet (the biome sets star-explorer's planet
@@ -56,7 +56,7 @@ async function walk(): Promise<{ p: ScatterPlanet; place: (i: number) => void }>
   const host = createNodePlatform({ root, logTo: () => {} })
   const p = await scatterPlanet(gpu, host, { width: WIDTH, height: HEIGHT, workers: true })
   const w = p.world
-  w.resource(Wind).strength = 0.5
+  w.resource(Wind).speed = 3
   const start = direction(18 * 0.157)
   const east = [start[2]!, 0, -start[0]!]
   const el = Math.hypot(east[0]!, east[1]!, east[2]!)

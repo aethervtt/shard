@@ -1,0 +1,31 @@
+{
+  "name": "@aethervtt/shard-wind",
+  "version": "0.0.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "description": "Shared wind (spec 0096): the Wind resource in m/s, windAt on the CPU, shard::wind in WGSL, WindZones, and wind that switches on the same tick across multiplayer clients.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@aethervtt/shard-core": "workspace:*",
+    "@aethervtt/shard-net": "workspace:*",
+    "@aethervtt/shard-render": "workspace:*",
+    "@aethervtt/shard-runtime": "workspace:*",
+    "@aethervtt/shard-transform": "workspace:*"
+  },
+  "devDependencies": {
+    "@aethervtt/shard-gpu": "workspace:*",
+    "@aethervtt/shard-mesh": "workspace:*",
+    "@aethervtt/shard-shader": "workspace:*",
+    "@types/node": "^26.6.2",
+    "@webgpu/types": "^0.1.74",
+    "webgpu": "0.6.1"
+  }
+}

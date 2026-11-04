@@ -1,10 +1,12 @@
 import { t } from '@aethervtt/shard-core'
 import { defineMaterial } from '@aethervtt/shard-render'
+import { REMOVED_WIND_FIELDS } from '@aethervtt/shard-wind'
 
 /**
  * Vegetation and stone for scatter items (0045): the standard material, tinted by the part code
  * the engine generators write in the second uv set (x: 0 bark/base to 1 leaf/tip, y: a per-vertex
- * shade), and swayed by the wind (scaled by the part code, so trunks and roots stay put).
+ * shade), and swayed by the wind (wind/Wind through shard::wind; scaled by the part code, so
+ * trunks and roots stay put).
  */
 export const Vegetation = defineMaterial('scatter/Vegetation', {
   fields: {
@@ -25,89 +27,26 @@ export const Vegetation = defineMaterial('scatter/Vegetation', {
     sway: t.f32({
       default: 0,
       min: 0,
-      description: 'Wind response: metres a tip moves at wind strength 1 (0: still).',
-    }),
-    windDirection: t.vec3({
-      default: [1, 0, 0],
-      description: 'World-space wind direction (the Wind resource writes it each frame).',
-    }),
-    windStrength: t.f32({ default: 1, min: 0, description: 'Written from the Wind resource.' }),
-    gustScale: t.f32({
-      default: 0.05,
-      min: 0,
-      unit: '1/m',
-      description: 'Gust waves per metre (written from the Wind resource).',
+      description:
+        'Wind response: metres a tip moves in a 6 m/s breeze (wind/Wind; 0: still). Scaled by the part code squared.',
     }),
   },
+  removed: REMOVED_WIND_FIELDS,
   shader: 'scatter::vegetation',
   plugin: 'scatterPlugin',
   description:
     'Scatter items’ material: the standard material tinted from base to tip by the generators’ part codes (uv1), with wind sway on the tips. Engine generator items get one by default.',
 })
 
-/**
- * The sway every scatter material shares: a world-space wind vector, made tangent to the item's
- * up axis, moved into object space, scaled by the vertex's part code squared (roots don't move).
- */
-export const SWAY_WGSL = (u: string) => `
-/** An integer hash to [0, 1) (no trig: this runs for every vertex of every blade). */
-fn scatter_hash(c: vec2i) -> f32 {
-  var h = bitcast<u32>(c.x) * 747796405u + bitcast<u32>(c.y) * 2891336453u;
-  h = ((h >> ((h >> 28u) + 4u)) ^ h) * 277803737u;
-  return f32((h >> 22u) ^ h) * (1.0 / 4294967296.0);
-}
-
-/** Smooth gusts in [0, 1]: value noise moving downwind. */
-fn scatter_gust(p: vec2f) -> f32 {
-  let i = floor(p);
-  let f = p - i;
-  let s = f * f * (3.0 - 2.0 * f);
-  let c = vec2i(i);
-  let a = mix(scatter_hash(c), scatter_hash(c + vec2i(1, 0)), s.x);
-  let b = mix(scatter_hash(c + vec2i(0, 1)), scatter_hash(c + vec2i(1, 1)), s.x);
-  return mix(a, b, s.y);
-}
-
-fn scatter_sway(position: vec3f) -> vec3f {
-  let amount = ${u}.sway * ${u}.windStrength;
-  if (amount <= 0.0) { return position; }
-  let part = vertex_uv1().x;
-  // The instance's axes and origin, straight from its transform's rows.
-  let inst = mesh_current_instance;
-  let ex = vec3f(inst.row0.x, inst.row1.x, inst.row2.x);
-  let ey = vec3f(inst.row0.y, inst.row1.y, inst.row2.y);
-  let ez = vec3f(inst.row0.z, inst.row1.z, inst.row2.z);
-  let origin = vec3f(inst.row0.w, inst.row1.w, inst.row2.w);
-  let up = normalize(ey);
-  var wind = ${u}.windDirection;
-  wind = wind - up * dot(wind, up);
-  let len = length(wind);
-  if (len < 1e-5) { return position; }
-  wind = wind / len;
-  // Gusts sweep downwind; a fast flutter rides on them.
-  let side = cross(up, wind);
-  let along = vec2f(dot(origin, wind), dot(origin, side)) * ${u}.gustScale;
-  let gust = scatter_gust(along - vec2f(globals.time * 0.6, 0.0));
-  let flutter = sin(globals.time * 3.1 + dot(origin, vec3f(0.37, 0.21, 0.43)) * 2.0) * 0.25;
-  let push = amount * part * part * (0.35 + 0.65 * gust + flutter * 0.3);
-  let w = wind * push;
-  // World direction to object space (rows of a rotation times uniform scale).
-  let local = vec3f(dot(ex, w) / dot(ex, ex), dot(ey, w) / dot(ey, ey), dot(ez, w) / dot(ez, ez));
-  // Bending down as it leans keeps the blade's length.
-  return position + local - vec3f(0.0, 0.5 * dot(local, local) * part, 0.0);
-}
-`
-
 export const SCATTER_SHADERS: Record<string, string> = {
   'scatter::vegetation': `
 import shard::pbr::types::{ VertexOutput, PbrInput };
 import shard::pbr::standard::standard_input;
-import shard::globals::globals;
-import shard::mesh::{ vertex_uv1, mesh_current_instance };
+import shard::wind::sway::wind_sway;
 import material::vegetation::Vegetation;
-${SWAY_WGSL('Vegetation')}
+
 override fn vertex_position(position: vec3f, normal: vec3f, uv: vec2f) -> vec3f {
-  return scatter_sway(position);
+  return wind_sway(position, Vegetation.sway);
 }
 
 override fn pbr_input(in: VertexOutput) -> PbrInput {

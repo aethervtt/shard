@@ -62,6 +62,11 @@ export interface MaterialTypeOptions<F extends Fields> {
    * '@aethervtt/shard-render/surface'`: a draw without it logs `render/feature-missing` naming it.
    */
   plugin?: string
+  /**
+   * Fields the type no longer has, with what replaced them: files that still set one load with it
+   * ignored, and their import warns (wind fields, 0096).
+   */
+  removed?: Readonly<Record<string, string>>
   description?: string
 }
 
@@ -109,6 +114,8 @@ export class MaterialType {
   pickable = true
   /** The plugin that registers its shader (MaterialTypeOptions.plugin). */
   plugin: string | undefined
+  /** Fields it no longer has, and what replaced them (MaterialTypeOptions.removed). */
+  removed: Readonly<Record<string, string>> = {}
   blend: BlendMode | undefined
   shader: string | undefined
   /** Noise graphs the module wraps as `noise_<name>`. */
@@ -155,6 +162,7 @@ export class MaterialType {
     this.standardTextures = options.standardTextures ?? true
     this.pickable = options.pickable ?? true
     this.plugin = options.plugin
+    this.removed = options.removed ?? {}
     this.schema = schema
     this.textures = textures
     this.arrays = new Set(options.arrays ?? [])
@@ -335,6 +343,7 @@ function signatureOf(ext: string, options: MaterialTypeOptions<Fields>, fields: 
     standardTextures: options.standardTextures ?? true,
     pickable: options.pickable ?? true,
     plugin: options.plugin ?? null,
+    removed: options.removed ?? {},
     description: options.description ?? null,
     fields: Object.entries(fields).map(([key, field]) => [key, field.jsonSchema()]),
   })

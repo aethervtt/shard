@@ -6,7 +6,7 @@ import { basename, dirname, join, relative, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
 import { assetServer, validateDataAssets } from '@aethervtt/shard-assets'
-import { ShardError, World } from '@aethervtt/shard-core'
+import { findResource, ShardError, World } from '@aethervtt/shard-core'
 import {
   collectErrorCodes,
   createNodePlatform,
@@ -269,6 +269,14 @@ export async function validate({ out, project, flags }: CommandContext): Promise
         ...validateScene(world, json, { id: scene }).map((e) => e.toJSON()),
         ...undefinedKeys(json),
       ]
+      // Deprecated resources still load (scatter/Wind is a view of wind/Wind, 0096); say what replaces them.
+      for (const name of Object.keys((json as { resources?: object }).resources ?? {})) {
+        const replacement = findResource(name)?.deprecated
+        if (replacement)
+          report.warnings.push(
+            `${scene} /resources/${name}: ${name} is deprecated; use ${replacement}`,
+          )
+      }
     }
     // Tile names against the atlas each tilemap is drawn with (0059).
     for (const { source, errors } of await validateTilemaps(world, placing)) {

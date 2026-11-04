@@ -1281,7 +1281,9 @@ a flat level's ground mesh (\`scatter/ScatterSurface\` next to its \`render/Mesh
   shows the set on a 64 m patch from above and at eye level; \`describe_scatter\` gives per-rule
   counts; \`sample_scatter\` lists props near a point (\`{ "entity": "landing-pad", "radius": 10 }\`).
   Overlays \`scatter\` and \`foliage-chunks\` show placements in a screenshot.
-- \`scatter/Budget\` caps props spawned per frame; \`scatter/Wind\` sways foliage and leaves.
+- \`scatter/Budget\` caps props spawned per frame. Foliage and leaves sway with \`wind/Wind\`
+  (\`speed\` in m/s: 0 calm, 6 a breeze, 18 a gale); a \`wind/WindZone\` with \`speedScale: 0\`
+  shelters a valley. \`scatter/Wind\` is its deprecated view (strength = speed / 6).
 `,
   'tune-an-atmosphere.md': `# Tune an alien sky
 

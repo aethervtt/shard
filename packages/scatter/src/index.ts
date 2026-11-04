@@ -12,14 +12,14 @@ export {
   ScatterSurface,
 } from './components'
 export {
-  applyWind,
   clearFoliage,
   FoliageRule,
   updateFoliage,
   Wind,
   type WindValue,
+  windView,
 } from './foliage'
-export { GENERATOR_LOOKS, SCATTER_SHADERS, SWAY_WGSL, Vegetation } from './material'
+export { GENERATOR_LOOKS, SCATTER_SHADERS, Vegetation } from './material'
 export { HeightIndex, MeshSurface } from './mesh-surface'
 export { resolveSurface, samplePlacements, scatterMethods } from './methods'
 export { foliageChunksOverlay, scatterOverlay } from './overlays'

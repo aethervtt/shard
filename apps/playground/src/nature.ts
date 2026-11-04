@@ -43,6 +43,7 @@ import {
 } from '@aethervtt/shard-render'
 import { definePlugin } from '@aethervtt/shard-runtime'
 import { lookAt, Transform } from '@aethervtt/shard-transform'
+import { Wind } from '@aethervtt/shard-wind'
 import { orbitFrom } from './camera'
 import { hudExtras } from './hud'
 import { memoryPlatform } from './memory'
@@ -66,10 +67,11 @@ const GALLERY: TreePreset[][] = [
   ['pine_small', 'pine_medium', 'pine_large', 'aspen_large', 'bush_pine'],
 ]
 const SPACING = 22
+/** wind/Wind speeds (m/s) W cycles through. */
 const WINDS = [
   ['calm', 0],
-  ['breeze', 1],
-  ['gale', 2.5],
+  ['breeze', 6],
+  ['gale', 18],
 ] as const
 
 const files = memoryPlatform()
@@ -188,10 +190,7 @@ async function rebuild(world: World): Promise<void> {
 }
 
 function applyWind(world: World) {
-  for (const ref of materials.values())
-    (world.resource(Materials).get(ref) as MaterialAsset | undefined)?.set({
-      windStrength: WINDS[wind]![1],
-    })
+  world.resource(Wind).speed = WINDS[wind]![1]
 }
 
 const controls = defineSystem({

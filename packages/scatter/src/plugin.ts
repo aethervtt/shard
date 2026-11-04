@@ -1,12 +1,5 @@
 import { AssetServerResource, assetServer } from '@aethervtt/shard-assets'
-import {
-  type AssetRef,
-  ChildOf,
-  defineSystem,
-  onRemove,
-  PostUpdate,
-  type World,
-} from '@aethervtt/shard-core'
+import { ChildOf, defineSystem, onRemove, PostUpdate, type World } from '@aethervtt/shard-core'
 import type { Mesh } from '@aethervtt/shard-mesh'
 import type { Workers } from '@aethervtt/shard-platform'
 import {
@@ -25,6 +18,7 @@ import {
   updatePlanets,
 } from '@aethervtt/shard-terrain'
 import { GlobalTransform, TransformSystems } from '@aethervtt/shard-transform'
+import { windPlugin } from '@aethervtt/shard-wind'
 import * as componentsModule from './components'
 import {
   addRemoved,
@@ -36,7 +30,7 @@ import {
   ScatterSurface,
 } from './components'
 import * as foliageModule from './foliage'
-import { applyWind, clearFoliage, updateFoliage, Wind } from './foliage'
+import { clearFoliage, updateFoliage, Wind, windView } from './foliage'
 import { HeightfieldSurface } from './heightfield-surface'
 import * as materialModule from './material'
 import { SCATTER_SHADERS } from './material'
@@ -52,7 +46,6 @@ import {
   refreshSurface,
   resolveAsset,
   Scatter,
-  type ScatterState,
   SurfaceScatter,
   updateProps,
 } from './runtime'
@@ -194,21 +187,8 @@ export const updateScatter = defineSystem({
         ss.ms = performance.now() - start
       }
     }
-    applyWind(world, windMaterials(state))
   },
 })
-
-const used = new Set<AssetRef<'Material'> | null>()
-
-/** Every Vegetation material scatter draws: the defaults and the rules' own. */
-function windMaterials(state: ScatterState): Set<AssetRef<'Material'> | null> {
-  used.clear()
-  for (const ref of state.materials.values()) used.add(ref)
-  for (const ss of state.surfaces.values())
-    for (const items of ss.variants)
-      for (const vs of items) for (const v of vs) used.add(v.material)
-  return used
-}
 
 /** The average length of an affine's basis columns: its scale, if uniform. */
 function uniformScale(m: ArrayLike<number>): number {
@@ -254,7 +234,9 @@ export function scatterPlugin(options: ScatterPluginOptions = {}): Plugin {
       state.workers = options.workers
       world.initResource(ScatterBudget)
       world.initResource(Removed)
-      world.initResource(Wind)
+      // Foliage sways with wind/Wind (0096); scatter/Wind is its deprecated view.
+      if (!app.hasPlugin('wind')) app.addPlugin(windPlugin)
+      world.insertResource(Wind, windView(world))
       world.observe(onRemove(Prop), ({ entity, world }) => {
         const st = world.resource(Scatter)
         if (st.despawning) return
