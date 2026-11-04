@@ -245,6 +245,11 @@ export class App {
     return this
   }
 
+  /** Whether a plugin with this name was added: for plugins that add a shared one only once. */
+  hasPlugin(name: string): boolean {
+    return this.plugins.has(name)
+  }
+
   /** Adds protocol methods (see `AppMethod`). A second method with a taken name throws. */
   addMethod(...methods: AppMethod[]): this {
     this.assertLive()

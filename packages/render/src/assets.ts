@@ -89,11 +89,26 @@ export function materialTypeOf(json: unknown): MaterialType {
   return type
 }
 
-/** Material JSON without its `"type"` key (what the type's schema validates). */
-export function materialFields(json: unknown): Record<string, unknown> {
+/**
+ * Material JSON without its `"type"` key (what the type's schema validates), and without fields
+ * the type removed (`MaterialTypeOptions.removed`), which older files may still set.
+ */
+export function materialFields(json: unknown, type?: MaterialType): Record<string, unknown> {
   if (!json || typeof json !== 'object') return {}
   const { type: _, $schema: __, ...rest } = json as Record<string, unknown>
+  if (type) for (const key in type.removed) delete rest[key]
   return rest
+}
+
+/** Fields of material JSON its type removed: what an import warns about. */
+export function removedMaterialFields(
+  json: unknown,
+  type: MaterialType,
+): { field: string; replacement: string }[] {
+  if (!json || typeof json !== 'object') return []
+  return Object.keys(json)
+    .filter((key) => Object.hasOwn(type.removed, key))
+    .map((field) => ({ field, replacement: type.removed[field]! }))
 }
 
 /** Validates material JSON against its type's schema; errors point into the JSON. */
@@ -104,14 +119,14 @@ export function validateMaterial(json: unknown, ctx?: SchemaContext): ShardError
   } catch (err) {
     return [err as ShardError]
   }
-  return type.schema.validate(materialFields(json), ctx)
+  return type.schema.validate(materialFields(json, type), ctx)
 }
 
 /** A MaterialAsset from material JSON (files, scene inline assets, glTF). */
 export function materialFromJson(json: unknown, ctx?: SchemaContext): MaterialAsset {
   const type = materialTypeOf(json)
   return new MaterialAsset(
-    type.schema.deserialize(materialFields(json), ctx) as Record<string, unknown>,
+    type.schema.deserialize(materialFields(json, type), ctx) as Record<string, unknown>,
     type,
   )
 }
@@ -232,7 +247,8 @@ function readableBaseColor(json: unknown): number[] | undefined {
  */
 export const MaterialImporter = defineImporter({
   name: 'data/material',
-  version: 2,
+  // 3: fields a type removed are dropped with a warning (0096).
+  version: 3,
   extensions: ['.material.json'],
   settings: defineSchema('render/MaterialImportSettings', {}, { description: 'No settings.' }),
   async import(source, ctx) {
@@ -259,7 +275,9 @@ export const MaterialImporter = defineImporter({
         )
       }
       const type = materialTypeOf(json)
-      const fields = type.schema.serialize(type.schema.deserialize(materialFields(json)))
+      for (const { field, replacement } of removedMaterialFields(json, type))
+        ctx.warn(`${type.name} no longer has "${field}" (ignored): ${replacement}`, `/${field}`)
+      const fields = type.schema.serialize(type.schema.deserialize(materialFields(json, type)))
       normalized = type === STANDARD_TYPE ? fields : { type: type.name, ...(fields as object) }
     } else {
       // A project type the importer can't see (its code isn't loaded here): the runtime validates.

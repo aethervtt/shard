@@ -1,7 +1,7 @@
 import { type AssetRef, defineResource, type World } from '@aethervtt/shard-core'
 import type { Workers } from '@aethervtt/shard-platform'
-import { FoliageLayer, FoliageLayers, type MaterialAsset, Materials } from '@aethervtt/shard-render'
-import { Vegetation } from './material'
+import { FoliageLayer, FoliageLayers } from '@aethervtt/shard-render'
+import { BREEZE, Wind as SharedWind } from '@aethervtt/shard-wind'
 import { FOLIAGE } from './rules'
 import { finalPlacements, neighborChunks, type SurfaceScatter } from './runtime'
 import { P_RADIUS, P_X, type PatchJob, PLACEMENT_STRIDE, type SurfaceChunk } from './surface'
@@ -11,21 +11,54 @@ const KEEP = 1.1
 /** Patches started per frame, across rules. */
 const PATCHES_PER_FRAME = 8
 
+/** 0045's wind, as `scatter/Wind` read it: strength 1 is a 6 m/s breeze. */
 export interface WindValue {
   /** World-space direction (normalized when used). */
   direction: [number, number, number]
-  /** 0 calm, 1 a breeze, 2+ a gale. */
+  /** 0 calm, 1 a breeze, 2+ a gale: wind/Wind's speed / 6. */
   strength: number
   /** Gust waves per metre. */
   gustScale: number
 }
 
-/** The wind foliage and swaying props feel (0049 replaces it with the planet's wind field). */
+/**
+ * @deprecated Use `Wind` from `@aethervtt/shard-wind` (0096), with speed in m/s. For one release
+ * `scatter/Wind` is a view of it: reading or writing it reads or writes wind/Wind (strength =
+ * speed / 6), and `shard validate` warns on scenes that set it.
+ */
 export const Wind = defineResource<WindValue>('scatter/Wind', {
   description:
-    'Wind for scatter materials (scatter/Vegetation): direction, strength and gust scale. Foliage and leaves sway with it.',
-  init: () => ({ direction: [1, 0, 0.35], strength: 1, gustScale: 0.05 }),
+    'Deprecated (0096): a view of wind/Wind with strength = speed / 6. Set wind/Wind (speed in m/s) instead.',
+  deprecated: 'wind/Wind (speed in m/s: strength × 6)',
 })
+
+/** `scatter/Wind`'s value: accessors over the world's wind/Wind. */
+export function windView(world: World): WindValue {
+  const wind = () => world.initResource(SharedWind)
+  return {
+    get direction() {
+      return wind().direction
+    },
+    set direction(d: [number, number, number]) {
+      const w = wind().direction
+      w[0] = d[0]
+      w[1] = d[1]
+      w[2] = d[2]
+    },
+    get strength() {
+      return wind().speed / BREEZE
+    },
+    set strength(s: number) {
+      wind().speed = s * BREEZE
+    },
+    get gustScale() {
+      return wind().gustScale
+    },
+    set gustScale(g: number) {
+      wind().gustScale = g
+    },
+  }
+}
 
 interface FoliageChunkState {
   id: string
@@ -198,34 +231,4 @@ export function clearFoliage(world: World, ss: SurfaceScatter): void {
     layers?.remove(f.layer)
   }
   ss.foliage.clear()
-}
-
-const applied = new WeakMap<MaterialAsset, string>()
-
-function swaysInWind(type: MaterialAsset['type']): boolean {
-  return type === Vegetation || 'windStrength' in type.schema.fields
-}
-const direction = [1, 0, 0]
-
-/**
- * Writes the Wind resource into every material scatter uses whose type has wind fields
- * (`windDirection`, `windStrength`, `gustScale`: scatter/Vegetation, nature/Tree), when it changed.
- */
-export function applyWind(world: World, materials: Iterable<AssetRef<'Material'> | null>): void {
-  const wind = world.tryResource(Wind)
-  const store = world.tryResource(Materials)
-  if (!wind || !store) return
-  const d = wind.direction
-  const key = `${d[0]},${d[1]},${d[2]}|${wind.strength}|${wind.gustScale}`
-  const l = Math.sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) || 1
-  direction[0] = d[0] / l
-  direction[1] = d[1] / l
-  direction[2] = d[2] / l
-  for (const ref of materials) {
-    if (!ref) continue
-    const m = store.get(ref) as MaterialAsset | undefined
-    if (!m || !swaysInWind(m.type) || applied.get(m) === key) continue
-    applied.set(m, key)
-    m.set({ windDirection: [...direction], windStrength: wind.strength, gustScale: wind.gustScale })
-  }
 }

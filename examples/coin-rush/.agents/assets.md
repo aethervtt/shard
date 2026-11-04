@@ -191,6 +191,12 @@ Files: `*.gltf`, `*.glb`
 | `lods` | `"auto"` \| `"none"` | `"auto"` |  | Level of detail: "auto" turns MSFT_lod chains and sibling nodes named <name>_LOD0, _LOD1… into one entity with a render/Lod component; "none" imports every node as is. |
 | `materialTypes` | any | `{}` |  | Material types by glTF material name: { "Lava*": "my-game/Lava" } (* matches anything). A material's extras.shardMaterial names a type directly. Imported materials are StandardMaterial otherwise. |
 
+## `data/tree`
+
+Files: `*.tree.json`
+
+No import settings.
+
 ## `data/navgrid`
 
 Files: `*.navgrid.json`

@@ -21,8 +21,8 @@
     "@aethervtt/shard-procgen": "workspace:*",
     "@aethervtt/shard-render": "workspace:*",
     "@aethervtt/shard-runtime": "workspace:*",
-    "@aethervtt/shard-scatter": "workspace:*",
-    "@aethervtt/shard-texture": "workspace:*"
+    "@aethervtt/shard-texture": "workspace:*",
+    "@aethervtt/shard-wind": "workspace:*"
   },
   "devDependencies": {
     "@aethervtt/shard-gpu": "workspace:*",

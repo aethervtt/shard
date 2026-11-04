@@ -5,6 +5,53 @@ by extension. Each gets a `.meta` next to it with its guid and import settings; 
 Reference assets in scenes by path: `{ "path": "materials/hull.material.json" }`, or a
 sub-asset with `#`: `{ "path": "assets/ship.glb#Mesh/Hull" }`.
 
+## `audio`
+
+Files: `*.wav`, `*.ogg`, `*.oga`, `*.opus`, `*.mp3`, `*.flac`
+
+| Setting | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `mode` | `"decoded"` \| `"stream"` | `"decoded"` |  | decoded: decoded into memory on first play; sample-accurate, for effects. stream: played through a media element as it loads; for music and long ambience. |
+| `normalize` | boolean | `false` |  | Scale the clip so its loudest sample is at full level. |
+| `loopStart` | number | `0` | ≥ 0, s | Where a looping source jumps back to. |
+| `loopEnd` | number | `0` | ≥ 0, s | Where a looping source jumps back from. 0: the end of the clip. |
+
+## `data/audio-parameters`
+
+Files: `*.audio-parameters.json`
+
+No import settings.
+
+## `data/audio-music`
+
+Files: `*.audio-music.json`
+
+No import settings.
+
+## `data/audio-event`
+
+Files: `*.audio-event.json`
+
+No import settings.
+
+## `data/audio-collection`
+
+Files: `*.audio-collection.json`
+
+No import settings.
+
+## `data/audio-mixer`
+
+Files: `*.audio-mixer.json`
+
+No import settings.
+
+## `data/audio-snapshot`
+
+Files: `*.audio-snapshot.json`
+
+No import settings.
+
 ## `noise`
 
 Files: `*.noise.json`
@@ -69,17 +116,6 @@ Files: `*.strings.json`
 
 No import settings.
 
-## `audio`
-
-Files: `*.wav`, `*.ogg`, `*.oga`, `*.opus`, `*.mp3`, `*.flac`
-
-| Setting | Type | Default | Range | Description |
-|---|---|---|---|---|
-| `mode` | `"decoded"` \| `"stream"` | `"decoded"` |  | decoded: decoded into memory on first play; sample-accurate, for effects. stream: played through a media element as it loads; for music and long ambience. |
-| `normalize` | boolean | `false` |  | Scale the clip so its loudest sample is at full level. |
-| `loopStart` | number | `0` | ≥ 0, s | Where a looping source jumps back to. |
-| `loopEnd` | number | `0` | ≥ 0, s | Where a looping source jumps back from. 0: the end of the clip. |
-
 ## `data/mask`
 
 Files: `*.mask.json`
@@ -134,6 +170,12 @@ Files: `*.dice-skin.json`
 
 No import settings.
 
+## `data/effect-sequence`
+
+Files: `*.effect-sequence.json`
+
+No import settings.
+
 ## `gltf`
 
 Files: `*.gltf`, `*.glb`
@@ -148,6 +190,12 @@ Files: `*.gltf`, `*.glb`
 | `generateNormals` | `"missing"` \| `"always"` \| `"never"` | `"missing"` |  | Flat normals for primitives without them ("missing"), for all, or never. |
 | `lods` | `"auto"` \| `"none"` | `"auto"` |  | Level of detail: "auto" turns MSFT_lod chains and sibling nodes named <name>_LOD0, _LOD1… into one entity with a render/Lod component; "none" imports every node as is. |
 | `materialTypes` | any | `{}` |  | Material types by glTF material name: { "Lava*": "my-game/Lava" } (* matches anything). A material's extras.shardMaterial names a type directly. Imported materials are StandardMaterial otherwise. |
+
+## `data/tree`
+
+Files: `*.tree.json`
+
+No import settings.
 
 ## `data/navgrid`
 

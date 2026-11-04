@@ -29,6 +29,8 @@ export interface ResourceDef<T> {
   readonly hostWritable: boolean
   /** Only host code writes it: the protocol's `resource.set` refuses it (ownership, 0061). */
   readonly hostOnly: boolean
+  /** What replaces it, when it's deprecated: `shard validate` warns on scenes that set it. */
+  readonly deprecated: string | undefined
   readonly __type?: T
 }
 
@@ -40,6 +42,7 @@ export interface ResourceOptions<T> {
   persist?: boolean
   hostWritable?: boolean
   hostOnly?: boolean
+  deprecated?: string
 }
 
 const resources = new Map<string, ResourceDef<unknown>>()
@@ -67,6 +70,7 @@ export function defineResource<T>(name: string, options: ResourceOptions<T> = {}
     persist: options.persist ?? false,
     hostWritable: options.hostWritable ?? false,
     hostOnly: options.hostOnly ?? false,
+    deprecated: options.deprecated,
   }
   resources.set(name, def as ResourceDef<unknown>)
   if (previous) {

@@ -22,6 +22,7 @@ import {
 import { App } from '@aethervtt/shard-runtime'
 import { Texture, Textures } from '@aethervtt/shard-texture'
 import { lookAt, Transform, TransformPlugin } from '@aethervtt/shard-transform'
+import { Wind } from '@aethervtt/shard-wind'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildTree } from './generator'
 import { TreeMaterial } from './material'
@@ -59,7 +60,7 @@ async function frames(app: App, n: number) {
  * An oak_small (white bark, the given leaves) under a sun slanting toward +x, with shadows. The
  * camera looks straight down, either at the tree or at the ground beside it where its shadow falls.
  */
-async function scene(view: 'tree' | 'shadow') {
+async function scene(view: 'tree' | 'shadow', sway = 0) {
   const target = new OffscreenTarget(gpu, { label: 'nature', width: SIZE, height: SIZE })
   const app = new App().addPlugin(
     TransformPlugin,
@@ -82,7 +83,7 @@ async function scene(view: 'tree' | 'shadow') {
   const opaque = leaf(world, 255)
   const clear = leaf(world, 0)
   const material = new MaterialAsset(
-    { alphaMode: 'mask', doubleSided: true, leafTexture: opaque, sway: 0 },
+    { alphaMode: 'mask', doubleSided: true, leafTexture: opaque, sway },
     TreeMaterial,
   )
   const data = buildTree(TREE_PRESETS.oak_small, new Rng(4), 1, meshBuilder.finish).mesh
@@ -117,7 +118,19 @@ async function scene(view: 'tree' | 'shadow') {
     }
     return data
   }
-  return { app, material, opaque, clear, shoot }
+  return { app, world, material, opaque, clear, shoot }
+}
+
+/** Pixels that differ between two shots. */
+const changed = (a: Uint8Array, b: Uint8Array) => {
+  let n = 0
+  for (let i = 0; i < a.length; i += 4)
+    if (
+      Math.abs(a[i]! - b[i]!) + Math.abs(a[i + 1]! - b[i + 1]!) + Math.abs(a[i + 2]! - b[i + 2]!) >
+      12
+    )
+      n++
+  return n
 }
 
 const greenPixels = (image: Uint8Array) => {
@@ -156,5 +169,17 @@ describe('nature/Tree material', () => {
     // Only the branches' thin shadows are left.
     expect(leafy).toBeGreaterThan(SIZE * SIZE * 0.15)
     expect(bare).toBeLessThan(leafy / 4)
+  })
+
+  it('sways with wind/Wind when placed by hand, with no wind fields on the material (0096)', async () => {
+    const s = await scene('tree', 0.3)
+    const wind = s.world.resource(Wind)
+    Object.assign(wind, { speed: 0, gustiness: 0 })
+    const calm = await s.shoot()
+    expect(changed(calm, await s.shoot())).toBe(0)
+    wind.speed = 18
+    const gale = await s.shoot()
+    expect(changed(calm, gale)).toBeGreaterThan(SIZE * SIZE * 0.02)
+    await s.app.dispose()
   })
 })

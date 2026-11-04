@@ -10,9 +10,9 @@ import { createNodePlatform } from '@aethervtt/shard-platform-node'
 import { compareGolden, pngBytes } from '@aethervtt/shard-render/testing'
 import { planetHeightAt } from '@aethervtt/shard-terrain'
 import { capture, placeCamera, settleTerrain, sunOver } from '@aethervtt/shard-terrain/testing'
+import { Wind } from '@aethervtt/shard-wind'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Prop, propIdentity } from './components'
-import { Wind } from './foliage'
 import { Scatter } from './runtime'
 import { placementChecksum, scatterPlanet, settleScatter, TEST_RADIUS } from './testing'
 
@@ -54,7 +54,7 @@ describe('scatter on a planet, rendered', () => {
     const p = await scatterPlanet(gpu, createNodePlatform({ root, logTo: () => {} }))
     const w = p.world
     // Calm: sway follows the clock, and how many frames settling takes varies.
-    w.resource(Wind).strength = 0
+    w.resource(Wind).speed = 0
     const rules = new Set<string>()
     for (const view of VIEWS) {
       const d = direction(view.angle)

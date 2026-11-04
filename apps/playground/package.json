@@ -51,7 +51,8 @@
     "@aethervtt/shard-verify": "workspace:*",
     "@aethervtt/shard-audio-editor": "workspace:*",
     "@aethervtt/shard-effects": "workspace:*",
-    "@aethervtt/shard-nature": "workspace:*"
+    "@aethervtt/shard-nature": "workspace:*",
+    "@aethervtt/shard-wind": "workspace:*"
   },
   "devDependencies": {
     "@webgpu/types": "^0.1.74",

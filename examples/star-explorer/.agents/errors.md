@@ -343,6 +343,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `render/feature-missing` | @aethervtt/shard-render | Add materialNoisePlugin from '@aethervtt/shard-render/noise'. |
 | `render/foliage-meshes` | @aethervtt/shard-render | Fewer variants: 4–8 read as unique once scaled and rotated. |
 | `render/foliage-patch` | @aethervtt/shard-render | positions and normals: 3 floats per grid point; density: 1. |
+| `render/globals-full` | @aethervtt/shard-render | Plugins share shard::globals’ data array; reserve fewer slots. |
 | `render/gpu-timing-unavailable` | @aethervtt/shard-render | Ablation reads gpu:frame, which needs the 'timestamp-query' feature. |
 | `render/graph-cycle` | @aethervtt/shard-render | Check reads/writes and `after` on these nodes. |
 | `render/invalid-screen-effect` | @aethervtt/shard-render | A screen effect has a kind, a radius of at least 0, and at most 8 params. |
@@ -529,3 +530,4 @@ Every engine error is a `ShardError` with one of these codes.
 | `verify/size-mismatch` | @aethervtt/shard-verify | Check the viewport and DPR in the plan, or approve the new size with a reason. |
 | `verify/unknown-shot` | @aethervtt/shard-verify |  |
 | `verify/unknown-step` | @aethervtt/shard-verify |  |
+| `wind/bad-direction` | @aethervtt/shard-wind | Give wind/Wind a non-zero direction, or set speed to 0 for calm. It is calm until then. |

@@ -50,6 +50,7 @@
     "@aethervtt/shard-transform": "workspace:*",
     "@aethervtt/shard-ui": "workspace:*",
     "@aethervtt/shard-verify": "workspace:*",
+    "@aethervtt/shard-wind": "workspace:*",
     "@modelcontextprotocol/sdk": "1.30.0",
     "playwright": "1.63.0",
     "tsx": "^4.23.15",

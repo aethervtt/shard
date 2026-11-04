@@ -22,6 +22,7 @@ export {
   materialTypeOf,
   missingMesh,
   RenderTargets,
+  removedMaterialFields,
   STANDARD_TYPE,
   StandardMaterial,
   type StandardMaterialValue,
@@ -208,6 +209,7 @@ export {
   packGizmoColor,
 } from './gizmos'
 export { gizmosPlugin } from './gizmos-plugin'
+export { GLOBALS_DATA_SLOTS, ShaderGlobals, ShaderGlobalsData } from './globals'
 export {
   GpuAssets,
   GpuAssetsResource,

@@ -516,10 +516,7 @@ Trees grown by nature/Tree (experimental): bark from the standard texture slots 
 | `leafTint` | string or number[4] | `"#ffffff"` |  | Times the leaf texture. |
 | `leafRoughness` | number | `0.75` | ≥ 0, ≤ 1 |  |
 | `shade` | number | `0.2` | ≥ 0, ≤ 1 | How much each leaf’s random shade varies its brightness (±). |
-| `sway` | number | `0.12` | ≥ 0 | Wind response: metres a leaf moves at wind strength 1. Branches move less, the trunk not at all. |
-| `windDirection` | number[3] | `[1,0,0.35]` |  | World-space wind direction (scatter’s Wind resource writes it for scattered trees). |
-| `windStrength` | number | `1` | ≥ 0 | 0 calm, 1 a breeze, 2+ a gale. |
-| `gustScale` | number | `0.05` | ≥ 0, 1/m | Gust waves per metre. |
+| `sway` | number | `0.12` | ≥ 0 | Wind response: metres a leaf moves in a 6 m/s breeze (wind/Wind). Branches move less, the trunk not at all. |
 
 ## `nav/NavAgent`
 
@@ -1553,10 +1550,7 @@ Scatter items’ material: the standard material tinted from base to tip by the 
 | `baseTint` | string or number[4] | `[0.36,0.27,0.19,1]` |  | Color at part 0 (bark, stone, a blade’s root), times baseColor. |
 | `tipTint` | string or number[4] | `[0.32,0.55,0.18,1]` |  | Color at part 1 (leaves, a blade’s tip), times baseColor. |
 | `shade` | number | `0.25` | ≥ 0, ≤ 1 | How much the per-vertex shade varies brightness (±). |
-| `sway` | number | `0` | ≥ 0 | Wind response: metres a tip moves at wind strength 1 (0: still). |
-| `windDirection` | number[3] | `[1,0,0]` |  | World-space wind direction (the Wind resource writes it each frame). |
-| `windStrength` | number | `1` | ≥ 0 | Written from the Wind resource. |
-| `gustScale` | number | `0.05` | ≥ 0, 1/m | Gust waves per metre (written from the Wind resource). |
+| `sway` | number | `0` | ≥ 0 | Wind response: metres a tip moves in a 6 m/s breeze (wind/Wind; 0: still). Scaled by the part code squared. |
 
 ## `scene/InstancePart`
 
@@ -2290,3 +2284,32 @@ Brings along: `ui/UiNode`, `ui/UiInteraction`.
 |---|---|---|---|---|
 | `on` | boolean | `false` |  | Checked. |
 | `disabled` | boolean | `false` |  | Ignores input. |
+
+## `wind/WindState`
+
+The wind from a server tick on (0096): the server writes it when its Wind changes (or ahead of time, with scheduleWind), and every machine copies it into Wind at fromTick.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `direction` | number[3] | `[1,0,0.35]` |  |  |
+| `speed` | number | `6` | ≥ 0, m/s |  |
+| `gustiness` | number | `0.3` | ≥ 0, ≤ 1 |  |
+| `gustScale` | number | `0.05` | ≥ 0, 1/m |  |
+| `fromTick` | integer | `0` | ≥ 0, ≤ 4294967295 | The server tick it takes effect on, everywhere. |
+
+## `wind/WindZone`
+
+A local wind override (0096): a box or sphere that scales the wind (speedScale 0 shelters) or replaces it (override: a storm cell), blending over falloff metres. Its transform places it; scale is ignored.
+
+Brings along: `core/Transform`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `shape` | `"box"` \| `"sphere"` | `"box"` |  | The volume it covers, around its transform. |
+| `size` | number[3] | `[10,10,10]` | m | box: full size along its local axes. sphere: diameter, from size[0]. |
+| `falloff` | number | `2` | ≥ 0, m | Blend outside the shape: full effect inside, none this many metres out. |
+| `speedScale` | number | `1` | ≥ 0 | Multiplies the wind inside: 0 stills it (a sheltered valley). |
+| `override` | boolean | `false` |  | Inside, blow toward `direction` at `speed` (then × speedScale), not the wind around it. |
+| `direction` | number[3] | `[1,0,0]` |  | World-space direction when override is on (normalized when used). |
+| `speed` | number | `0` | ≥ 0, m/s | Speed when override is on. |
+| `priority` | integer | `0` | ≥ -2147483648, ≤ 2147483647 | Zones apply lowest priority first, so the highest wins where they overlap. |

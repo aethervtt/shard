@@ -165,10 +165,10 @@ bushes, grass, and crystals. It also adds automatic LODs through meshoptimizer.
   `vertex_extra` hooks apply; `vertex_instance_data()` gives (fade, shade). Back faces flip their
   normal. Engine generator items default to `scatter/Vegetation`, a standard material tinted by
   the generators' part codes, whose vertex hook adds wind from the `scatter/Wind { direction,
-  strength, gustScale }` resource (0049 replaces it), weighted by the vertex's height in the
-  blade. Foliage casts only into the nearest cascade, within `shadowRange` (default 30 m) and that
-  cascade's split; that cascade redraws every frame while foliage sways. It doesn't draw in the
-  depth prepass or picking (TAA's motion vectors and SSAO skip it).
+  strength, gustScale }` resource (0096 moved it to `wind/Wind`, in m/s), weighted by the
+  vertex's height in the blade. Foliage casts only into the nearest cascade, within `shadowRange`
+  (default 30 m) and that cascade's split; that cascade redraws every frame while foliage sways.
+  It doesn't draw in the depth prepass or picking (TAA's motion vectors and SSAO skip it).
 - **A time budget, not a blade count** (0075). Foliage's budget is its `gpu:foliage` slice of the
   `scatter-walk` scenario (`bench/perf/budgets.json`). `FoliageBudget { ms }` is the target: by
   default the slice on the detected machine when the app declares that scenario

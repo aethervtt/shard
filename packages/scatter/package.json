@@ -28,7 +28,8 @@
     "@aethervtt/shard-shader": "workspace:*",
     "@aethervtt/shard-terrain": "workspace:*",
     "@aethervtt/shard-texture": "workspace:*",
-    "@aethervtt/shard-transform": "workspace:*"
+    "@aethervtt/shard-transform": "workspace:*",
+    "@aethervtt/shard-wind": "workspace:*"
   },
   "devDependencies": {
     "@aethervtt/shard-gpu": "workspace:*",

@@ -137,6 +137,45 @@ describe('commands', () => {
     }
   })
 
+  it('validate warns on scenes that set scatter/Wind and materials with 0045 wind fields (0096)', () => {
+    const scene = temp(
+      'scenes/zz-old-wind.scene.json',
+      JSON.stringify({
+        version: 1,
+        resources: { 'scatter/Wind': { strength: 2, gustScale: 0.08 } },
+        entities: [],
+      }),
+    )
+    const material = temp(
+      'assets/materials/zz-old-grass.material.json',
+      JSON.stringify({
+        type: 'scatter/Vegetation',
+        sway: 0.1,
+        windDirection: [1, 0, 0],
+        windStrength: 1,
+        gustScale: 0.05,
+      }),
+    )
+    try {
+      const report = shard(['validate', '--json']).json()
+      expect(report.valid).toBe(true)
+      expect(report.warnings).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining(
+            'scenes/zz-old-wind.scene.json /resources/scatter/Wind: scatter/Wind is deprecated; use wind/Wind',
+          ),
+          expect.stringMatching(
+            /zz-old-grass\.material\.json \/windStrength: .*no longer has "windStrength"/,
+          ),
+        ]),
+      )
+    } finally {
+      material()
+      rmSync(join(example, 'assets/materials/zz-old-grass.material.json.meta'), { force: true })
+      scene()
+    }
+  })
+
   it('validate checks data files: fields, $extends, and handle types', () => {
     const files = [
       'data/weapons/zz-wrong-handle.weapon.json',
