@@ -71,6 +71,7 @@ import { interiorDemoPlugin } from './interior'
 import { lensDemoPlugin } from './lens'
 import { lightsPlugin } from './lights'
 import { lights2dDemoPlugin } from './lights2d'
+import { natureDemoPlugin } from './nature'
 import { nav2dDemoPlugin, navDemoPlugin } from './nav'
 import { noiseDemoPlugin } from './noise'
 import { particlesDemoPlugin } from './particles'
@@ -324,6 +325,15 @@ if (demo === 'galaxy') {
     scatterPlugin(),
     hudPlugin,
     scatterDemoPlugin,
+  )
+} else if (demo === 'trees') {
+  app.addPlugin(
+    TransformPlugin,
+    forwardPlugin(),
+    ScenePlugin,
+    ...controls(),
+    hudPlugin,
+    natureDemoPlugin,
   )
 } else if (demo === 'atmosphere') {
   app.addPlugin(TransformPlugin, forwardPlugin(), terrainPlugin(), hudPlugin, atmosphereDemoPlugin)

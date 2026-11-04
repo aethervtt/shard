@@ -12,6 +12,21 @@ inputs (name, version, code, params, seed, loaded assets). Use an output as:
 Tune one with MCP `preview_generator { "generator": "<name>", "seeds": "1-9" }` (a contact sheet)
 and `run_generator` (counts, bounds, cache key). See `.agents/skills/make-a-generator.md`.
 
+## `nature/Tree`
+
+A tree or bush grown from a species (nature/TreeSpecies, *.tree.json) and the seed (experimental, spec 0095): EZ-Tree’s branching, bark rings and leaf cards in one mesh, with LODs meshed from the same skeleton. uv1.x is the part: bark 0 (trunk) to 0.3 (twigs), leaves 1. Draw it with a nature/Tree material.
+
+Output: `Mesh` (sub-assets `#LOD1`, … when it makes levels of detail). Version 1.
+
+| Param | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `species` | null or nature/TreeSpecies ref | `null` |  | The species (default: the built-in oak_medium). |
+| `scale` | number | `1` | ≥ 0.01 | Uniform size multiplier. |
+
+```json
+{"$schema":"../.shard/schemas/gen.schema.json","generator":"nature/Tree","seed":1,"params":{}}
+```
+
 ## `shard/Bush`
 
 A shrub: several short branching stems from one point, densely leaved. LODs at 40% and 12%.

@@ -9,3 +9,11 @@ export { type AccessorData, Accessors } from './accessors'
 export { type GltfDocument, type ParsedGltf, parseGltf } from './document'
 export { GltfImporter, GltfImportSettings } from './importer'
 export { gltfPlugin } from './plugin'
+export {
+  type GlbImage,
+  type GlbMaterial,
+  type GlbNode,
+  type GlbPrimitive,
+  type GlbScene,
+  writeGlb,
+} from './writer'

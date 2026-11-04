@@ -23,6 +23,7 @@ import {
   validate,
 } from './commands'
 import { dev } from './dev'
+import { nature } from './nature-command'
 import { lobby, server } from './net-command'
 import { createOutput, EXIT, errorJson, formatError } from './output'
 import { profile } from './profile'
@@ -74,7 +75,11 @@ const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; 
   },
   gen: {
     run: gen,
-    help: 'gen <generator|file> [--seed N | --seeds 1-9] [--param k=v] [--out sheet.png]',
+    help: 'gen <generator|file> [--seed N | --seeds 1-9] [--param k=v] [--out sheet.png | mesh.glb] [--material m]',
+  },
+  nature: {
+    run: nature,
+    help: 'nature init [--dir assets/nature] [--force]   copy tree species, materials, textures (0095)',
   },
   bake: {
     run: bake,
@@ -192,6 +197,8 @@ export async function main(argv: string[]): Promise<number> {
         host: { type: 'string' },
         connect: { type: 'string' },
         lobby: { type: 'string' },
+        material: { type: 'string' },
+        dir: { type: 'string' },
         help: { type: 'boolean', short: 'h' },
       },
     })

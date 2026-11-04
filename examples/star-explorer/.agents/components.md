@@ -489,6 +489,38 @@ Solid dice: an opaque body, optional flecks.
 | `fleckColor` | string or number[4] | `"#ffffff"` |  | Fleck color (linear). |
 | `fleckScale` | number | `16` | ≥ 1 | Fleck density, per unit of die radius. |
 
+## `nature/Tree`
+
+Trees grown by nature/Tree (experimental): bark from the standard texture slots (baseColor, normal, metallicRoughness), leaves from leafTexture, swaying in the wind. Use alphaMode "mask" and doubleSided true.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `baseColor` | string or number[4] | `[0.8,0.8,0.8,1]` |  | Albedo (linear), alpha in w. |
+| `metallic` | number | `0` | ≥ 0, ≤ 1 | 0 for dielectrics, 1 for metals. |
+| `roughness` | number | `0.5` | ≥ 0, ≤ 1 | Microsurface roughness. |
+| `emissive` | string or number[4] | `"#ffffff"` |  | Emitted color (linear), scaled by emissiveLuminance. |
+| `emissiveLuminance` | number | `0` | ≥ 0, cd/m² | Emitted luminance. 0 = not emissive. |
+| `doubleSided` | boolean | `false` |  | Draw back faces too (no culling). |
+| `deferUntilReady` | boolean | `false` |  | Baseline tier (0064): while a texture it binds waits for a copy in its slot's color space, skip its draws instead of showing the slot's loading fallback. |
+| `alphaMode` | `"opaque"` \| `"mask"` \| `"alpha"` \| `"additive"` \| `"premultiplied"` | `"opaque"` |  | opaque ignores alpha; mask discards pixels below alphaCutoff; alpha blends (transparent, drawn after opaque, sorted back to front); additive adds light (glows); premultiplied expects color already multiplied by alpha. |
+| `alphaCutoff` | number | `0.5` | ≥ 0, ≤ 1 | Alpha threshold for alphaMode "mask". |
+| `normalScale` | number | `1` |  | Strength of the normal map. |
+| `occlusionStrength` | number | `1` | ≥ 0, ≤ 1 | Strength of the occlusion map. |
+| `baseColorTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Albedo (sRGB), multiplied with baseColor. |
+| `metallicRoughnessTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | G = roughness, B = metallic (linear), multiplied with the factors. |
+| `normalTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Tangent-space normal map. |
+| `occlusionTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Ambient occlusion in R (linear). |
+| `emissiveTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Emission color (sRGB), multiplied with emissive. |
+| `leafTexture` | null or Texture ref | `null` |  | Leaf card color and alpha (sRGB), cut out below alphaCutoff. |
+| `barkTint` | string or number[4] | `"#ffffff"` |  | Times the bark color (baseColor × baseColorTexture). |
+| `leafTint` | string or number[4] | `"#ffffff"` |  | Times the leaf texture. |
+| `leafRoughness` | number | `0.75` | ≥ 0, ≤ 1 |  |
+| `shade` | number | `0.2` | ≥ 0, ≤ 1 | How much each leaf’s random shade varies its brightness (±). |
+| `sway` | number | `0.12` | ≥ 0 | Wind response: metres a leaf moves at wind strength 1. Branches move less, the trunk not at all. |
+| `windDirection` | number[3] | `[1,0,0.35]` |  | World-space wind direction (scatter’s Wind resource writes it for scattered trees). |
+| `windStrength` | number | `1` | ≥ 0 | 0 calm, 1 a breeze, 2+ a gale. |
+| `gustScale` | number | `0.05` | ≥ 0, 1/m | Gust waves per metre. |
+
 ## `nav/NavAgent`
 
 Walks to a destination or follows a target along navigation paths: arrives, avoids other agents, repaths. Status in NavAgentState; NavArrived and NavUnreachable on changes.

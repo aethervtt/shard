@@ -57,6 +57,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { type BaselineReport, validateBaseline } from './baseline'
 import { Hub, localTarget, type ProtocolTarget } from './hub'
 import { createMcpServer } from './mcp'
+import { generatedGlb } from './nature-command'
 import { runNet } from './net-command'
 import { EXIT, errorJson, formatError, type Output } from './output'
 import { CAPTURES_DIR, withCpuProfile } from './profile'
@@ -839,7 +840,7 @@ export async function gen(ctx: CommandContext): Promise<number> {
   if (!target) {
     throw new ShardError(
       'cli/usage',
-      'Usage: shard gen <generator|file.gen.json> [--seed N | --seeds 1-9] [--param k=v] [--size 256] [--out sheet.png]',
+      'Usage: shard gen <generator|file.gen.json> [--seed N | --seeds 1-9] [--param k=v] [--size 256] [--out sheet.png | --out mesh.glb [--material m.material.json]]',
     )
   }
   return withProject(ctx, { loadStartScene: false }, async (p) => {
@@ -867,8 +868,23 @@ export async function gen(ctx: CommandContext): Promise<number> {
       )
     }
     let written: { out: string; width: number; height: number } | undefined
+    let glb: { out: string; bytes: number; triangles: number[] } | undefined
     const outFile = ctx.flags.out as string | undefined
-    if (outFile) {
+    if (outFile?.toLowerCase().endsWith('.glb')) {
+      // The first seed's mesh and LODs, with --material's look (0095).
+      const first = results[0] as { guid: string }
+      const exported = await generatedGlb(
+        p.app.world,
+        p.root,
+        first.guid,
+        basename(outFile).replace(/\.glb$/i, ''),
+        ctx.flags.material as string | undefined,
+      )
+      const file = resolve(outFile)
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, exported.bytes)
+      glb = { out: file, bytes: exported.bytes.byteLength, triangles: exported.levels }
+    } else if (outFile) {
       const size = ctx.flags.size ? flagNumber(ctx.flags.size, 256) : 256
       const shot = await local.request<{ data: string; width: number; height: number }>(
         'procgen.preview',
@@ -909,7 +925,15 @@ export async function gen(ctx: CommandContext): Promise<number> {
       return `${s.generator} seed ${s.seed}: ${size} (${s.hit === 'run' ? `ran in ${s.ms} ms` : `cache: ${s.hit}`}) key ${s.key?.slice(0, 12) ?? '-'}`
     })
     if (written) lines.push(`Wrote ${outFile} (${written.width}×${written.height}).`)
-    ctx.out.result({ generator, results, ...(written ? written : {}) }, lines.join('\n'))
+    if (glb) {
+      lines.push(
+        `Wrote ${outFile} (${glb.bytes} bytes; triangles per level: ${glb.triangles.join(', ')}).`,
+      )
+    }
+    ctx.out.result(
+      { generator, results, ...(written ? written : {}), ...(glb ? { glb } : {}) },
+      lines.join('\n'),
+    )
     return EXIT.ok
   })
 }

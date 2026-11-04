@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { hottestFromCpuProfile } from '@aethervtt/shard-core/capture'
+import { parseGltf } from '@aethervtt/shard-gltf'
 import { openProject } from '@aethervtt/shard-node'
 import { connectToHub, createProtocolServer, decodePng } from '@aethervtt/shard-protocol'
 import { encodePng, sha256 } from '@aethervtt/shard-verify/node'
@@ -346,6 +347,43 @@ describe('commands', () => {
     let sum = 0
     for (let i = 0; i < expected.length; i++) sum += Math.abs(expected[i]! - png.data[i]!)
     expect(sum / expected.length).toBeLessThan(1.5)
+  })
+
+  it('nature init copies the tree starter files, and gen exports a tree as a GLB with its LODs', () => {
+    const dir = 'assets/zz-nature'
+    onTestFinished(() => rmSync(join(example, dir), { recursive: true, force: true }))
+    const init = shard(['nature', 'init', '--dir', dir, '--json'])
+    expect(init.code).toBe(0)
+    expect(init.json().written).toHaveLength(33)
+    expect(shard(['nature', 'init', '--dir', dir, '--json']).json().skipped).toHaveLength(33)
+    const out = join(example, '.shard', 'cli-test-oak.glb')
+    const r = shard([
+      'gen',
+      'nature/Tree',
+      '--param',
+      `species=${dir}/species/oak_small.tree.json`,
+      '--seed',
+      '2',
+      '--out',
+      out,
+      '--material',
+      `${dir}/materials/oak.material.json`,
+      '--json',
+    ])
+    expect(r.code).toBe(0)
+    const triangles = r.json().glb.triangles as number[]
+    expect(triangles).toHaveLength(3)
+    expect(triangles[1]!).toBeLessThan(triangles[0]! / 2)
+    const { json } = parseGltf(new Uint8Array(readFileSync(out)))
+    expect(json.nodes!.map((n) => n.name)).toEqual([
+      'cli-test-oak_LOD0',
+      'cli-test-oak_LOD1',
+      'cli-test-oak_LOD2',
+    ])
+    // Bark (opaque, three bark maps) and leaves (alpha-cut, two-sided) on every level.
+    expect(json.meshes!.every((m) => m.primitives.length === 2)).toBe(true)
+    expect(json.materials!.map((m) => m.alphaMode ?? 'OPAQUE')).toEqual(['OPAQUE', 'MASK'])
+    expect(json.images).toHaveLength(4)
   })
 
   it('check reports Math.random in a generator module with file, line, and column', () => {

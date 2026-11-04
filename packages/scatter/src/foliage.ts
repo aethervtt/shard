@@ -201,9 +201,16 @@ export function clearFoliage(world: World, ss: SurfaceScatter): void {
 }
 
 const applied = new WeakMap<MaterialAsset, string>()
+
+function swaysInWind(type: MaterialAsset['type']): boolean {
+  return type === Vegetation || 'windStrength' in type.schema.fields
+}
 const direction = [1, 0, 0]
 
-/** Writes the Wind resource into every Vegetation material scatter uses, when it changed. */
+/**
+ * Writes the Wind resource into every material scatter uses whose type has wind fields
+ * (`windDirection`, `windStrength`, `gustScale`: scatter/Vegetation, nature/Tree), when it changed.
+ */
 export function applyWind(world: World, materials: Iterable<AssetRef<'Material'> | null>): void {
   const wind = world.tryResource(Wind)
   const store = world.tryResource(Materials)
@@ -217,7 +224,7 @@ export function applyWind(world: World, materials: Iterable<AssetRef<'Material'>
   for (const ref of materials) {
     if (!ref) continue
     const m = store.get(ref) as MaterialAsset | undefined
-    if (!m || m.type !== Vegetation || applied.get(m) === key) continue
+    if (!m || !swaysInWind(m.type) || applied.get(m) === key) continue
     applied.set(m, key)
     m.set({ windDirection: [...direction], windStrength: wind.strength, gustScale: wind.gustScale })
   }

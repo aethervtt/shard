@@ -1,0 +1,34 @@
+{
+  "name": "@aethervtt/shard-nature",
+  "version": "0.0.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "description": "Experimental (spec 0095): procedural trees and bushes ported from EZ-Tree. May be removed.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@aethervtt/shard-assets": "workspace:*",
+    "@aethervtt/shard-core": "workspace:*",
+    "@aethervtt/shard-gltf": "workspace:*",
+    "@aethervtt/shard-mesh": "workspace:*",
+    "@aethervtt/shard-procgen": "workspace:*",
+    "@aethervtt/shard-render": "workspace:*",
+    "@aethervtt/shard-runtime": "workspace:*",
+    "@aethervtt/shard-scatter": "workspace:*",
+    "@aethervtt/shard-texture": "workspace:*"
+  },
+  "devDependencies": {
+    "@aethervtt/shard-gpu": "workspace:*",
+    "@aethervtt/shard-transform": "workspace:*",
+    "@types/node": "^26.6.2",
+    "@webgpu/types": "^0.1.74",
+    "webgpu": "0.6.1"
+  }
+}
