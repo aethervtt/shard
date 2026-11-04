@@ -149,6 +149,12 @@
       "desktop": 1,
       "note": "0058: projected fog's passes after appending a region to 4,000 (the GPU time render.describe reports). fog/src/fog.test.ts."
     },
+    "gpu:water-waves": {
+      "kind": "target",
+      "laptop": 0.6,
+      "desktop": 0.6,
+      "note": "0098 proposed: the sea's GPU work a frame (evolve, the inverse FFT's 16 stages and resolve) for 3 cascades at 256². water/src/waves/gpu.test.ts."
+    },
     "gpu:water": {
       "kind": "target",
       "laptop": 1.5,
@@ -505,6 +511,13 @@
       "laptop": 0.0005,
       "desktop": 0.0005,
       "note": "0097 proposed: waterAt with an ocean and 8 lakes of 16 control points (outline tests by z band), 100k calls after a warm-up. water/src/water.test.ts."
+    },
+    "water/at-waves": {
+      "kind": "unit",
+      "per": "call",
+      "laptop": 0.02,
+      "desktop": 0.02,
+      "note": "0098 proposed: waterAt over an ocean with OceanWaves (15 m/s, 300 km): 4 inverse iterations over the 16 strongest components, then the height from 128. water/src/waves/waves.test.ts."
     },
     "water/frame": {
       "kind": "target",

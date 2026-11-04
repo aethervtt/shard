@@ -1,4 +1,5 @@
 import { MAX_WATER_BODIES } from './bodies'
+import { MAX_WAVE_LAYERS } from './waves/shaders'
 
 // WGSL for the water (0097 part 1): the info texture's raster (`water::info`), and the surface
 // (`water::surface`): camera-centred rings that read their height from the info texture, shaded
@@ -149,9 +150,26 @@ struct Water {
 @group(1) @binding(6) var repeat_sampler: sampler;
 @group(1) @binding(7) var clamp_sampler: sampler;
 
+/** Waves (0098), with oceanWavesPlugin: what the sea's cascades are, and whose. */
+@if(WAVES) struct Waves {
+  /** x: cascade layers; y: half a texel (uv), since texel j holds the sea at j·L/N, not its centre. */
+  head: vec4f,
+  /** Per cascade layer: 1 / its length, its shore wavenumber, its sea's Hs, its body's slot. */
+  layers: array<vec4f, ${MAX_WAVE_LAYERS}>,
+  /** Per body slot: (first layer, layers, Hs, 0), then its foam color and amount. */
+  bodies: array<vec4f, ${MAX_WATER_BODIES * 2}>,
+}
+
+@if(WAVES) @group(2) @binding(0) var<uniform> waves: Waves;
+/** Per cascade c: layer 2c displacement and foam, 2c + 1 derivatives (0098's resolve). */
+@if(WAVES) @group(2) @binding(1) var wave_maps: texture_2d_array<f32>;
+@if(WAVES) @group(2) @binding(2) var wave_sampler: sampler;
+
 struct SurfaceOut {
   @builtin(position) clip: vec4f,
   @location(0) world: vec3f,
+  /** Where the vertex was before the waves moved it: where the fragment reads them. */
+  @if(WAVES) @location(1) grid: vec2f,
 }
 
 /** The finest info level whose square holds xz with a texel and a half to spare, or LEVELS. */
@@ -229,8 +247,98 @@ fn vertex_surface(xz: vec2f, l: u32) -> vec3f {
   }
   var out: SurfaceOut;
   out.world = vec3f(xz.x, y, xz.y);
+  @if(WAVES) {
+    out.grid = xz;
+    if (surface.y > 0.5) {
+      let depth = select(1e4, surface.x - surface.z, surface.z > WET);
+      out.world += wave_offset(xz, depth, distance(view.cameraPosition, out.world));
+    }
+  }
   out.clip = view.viewProj * vec4f(out.world, 1.0);
   return out;
+}
+
+/** The info level's four body texels around xz: their slots (−1 dry) and bilinear weights. */
+@if(WAVES) struct Near {
+  slots: vec4i,
+  weights: vec4f,
+}
+
+@if(WAVES) fn near(xz: vec2f) -> Near {
+  var out: Near;
+  out.slots = vec4i(-1);
+  let l = level_of(xz, 0u);
+  if (l >= LEVELS) {
+    out.slots = vec4i(i32(water.params.w));
+    out.weights = vec4f(0.25);
+    return out;
+  }
+  let o = water.levels[l].origin;
+  let uv = (xz - o.xy) * o.w - 0.5;
+  let base = vec2i(floor(uv));
+  let f = uv - floor(uv);
+  for (var k = 0; k < 4; k++) {
+    let d = vec2i(k & 1, k >> 1);
+    out.slots[k] = body_at(l, base + d);
+    out.weights[k] = mix(1.0 - f.x, f.x, f32(d.x)) * mix(1.0 - f.y, f.y, f32(d.y));
+  }
+  return out;
+}
+
+/**
+ * How much of a cascade layer is here: its body's share of the texels, times its shore factor,
+ * faded out between 15 and 30 of its patch lengths from the camera (past that its waves are under
+ * a pixel and only alias).
+ */
+@if(WAVES) fn layer_weight(n: Near, l: u32, depth: f32, distance: f32) -> f32 {
+  let layer = waves.layers[l];
+  let covered = dot(n.weights, select(vec4f(0.0), vec4f(1.0), n.slots == vec4i(i32(layer.w))));
+  let fade = clamp(2.0 - distance * layer.x / 15.0, 0.0, 1.0);
+  // tanh of a large argument is ∞ / ∞ on some GPUs: it's 1 to f32 past 10.
+  return covered * fade * tanh(clamp(layer.y * depth, 0.0, 10.0));
+}
+
+/** The waves' displacement of a surface vertex at xz over water depth deep. */
+@if(WAVES) fn wave_offset(xz: vec2f, depth: f32, distance: f32) -> vec3f {
+  let n = near(xz);
+  var d = vec3f(0.0);
+  for (var l = 0u; l < u32(waves.head.x); l++) {
+    let w = layer_weight(n, l, depth, distance);
+    if (w <= 0.0) { continue; }
+    d += textureSampleLevel(wave_maps, wave_sampler, xz * waves.layers[l].x + waves.head.y, i32(l * 2u), 0.0).xyz * w;
+  }
+  return d;
+}
+
+/** The ground under xz from the finest info level (−∞ unknown). */
+@if(WAVES) fn ground_at(xz: vec2f) -> f32 {
+  let l = level_of(xz, 0u);
+  if (l >= LEVELS) { return NO_GROUND; }
+  let o = water.levels[l].origin;
+  let t = texel(l, vec2i(floor((xz - o.xy) * o.w)));
+  return t.y;
+}
+
+/** The waves at a fragment: their slope (xy), foam (z) and the local sea's Hs (w). */
+@if(WAVES) fn wave_surface(grid: vec2f, depth: f32, distance: f32, footprint: f32) -> vec4f {
+  let n = near(grid);
+  var h = vec2f(0.0);
+  var stretch = vec2f(0.0);
+  var foam = 0.0;
+  var hs = 0.0;
+  // Texels a pixel covers, per metre of cascade length: past 2 a cascade's normals only alias.
+  let texels = footprint * 0.5 / waves.head.y;
+  for (var l = 0u; l < u32(waves.head.x); l++) {
+    let w = layer_weight(n, l, depth, distance) * clamp(2.0 - texels * waves.layers[l].x, 0.0, 1.0);
+    if (w <= 0.0) { continue; }
+    let uv = grid * waves.layers[l].x + waves.head.y;
+    let d = textureSampleLevel(wave_maps, wave_sampler, uv, i32(l * 2u + 1u), 0.0);
+    h += d.xy * w;
+    stretch += d.zw * w;
+    foam = max(foam, textureSampleLevel(wave_maps, wave_sampler, uv, i32(l * 2u), 0.0).w * w);
+    hs = max(hs, waves.layers[l].z);
+  }
+  return vec4f(h / (vec2f(1.0) + stretch), foam, hs);
 }
 
 /** The body texel (t) of level l: its draw slot, or -1 where dry. */
@@ -408,7 +516,10 @@ fn ripple_slope(xz: vec2f, wind: vec2f, strength: f32, dx: vec2f, dy: vec2f) -> 
   let speed = length(wind.xz);
   let strength = optics.params.x * clamp(speed / 10.0, 0.0, 1.0) * 0.16;
   let slope = ripple_slope(p.xz, wind.xz, strength, dx, dy);
-  let n = normalize(vec3f(-slope.x, 1.0, -slope.y));
+  @if(!WAVES) let n = normalize(vec3f(-slope.x, 1.0, -slope.y));
+  @if(WAVES) let ground = ground_at(in.grid);
+  @if(WAVES) let wave = wave_surface(in.grid, select(1e4, p.y - ground, ground > WET), distance(view.cameraPosition, p), max(length(dx), length(dy)));
+  @if(WAVES) let n = normalize(vec3f(-slope.x - wave.x, 1.0, -slope.y - wave.y));
   let v = normalize(view.cameraPosition - p);
   let n_dot_v = max(dot(n, v), 1e-4);
 
@@ -437,12 +548,14 @@ fn ripple_slope(xz: vec2f, wind: vec2f, strength: f32, dx: vec2f, dy: vec2f) -> 
   var sun_in = vec3f(0.0);
   var specular = vec3f(0.0);
   let a = max(roughness * roughness, 0.002);
+  @if(WAVES) var foam_light = vec3f(0.0);
   for (var i = 0u; i < directional.count; i++) {
     let light = directional.lights[i];
     let l = normalize(light.direction);
     var shadow = 1.0;
     if (light.shadowed != 0u) { shadow = directional_shadow(p, n, view_depth, in.clip.xy); }
     let radiance = light.color * view.sunTransmittance[i].rgb * shadow;
+    @if(WAVES) foam_light += radiance * max(dot(n, l), 0.0);
     sun_in += radiance * phase_hg(optics.absorption.w, dot(-l, v)) * 0.5 * max(l.y, 0.0);
     let h = normalize(v + l);
     let n_dot_l = max(dot(n, l), 0.0);
@@ -464,7 +577,22 @@ fn ripple_slope(xz: vec2f, wind: vec2f, strength: f32, dx: vec2f, dy: vec2f) -> 
   let color = body * (1.0 - fresnel) + (reflected * fresnel + specular) * view.exposure;
   // Thin water fades into what's under it: no edge where the surface meets the shore.
   let shore = clamp(thick_here / SHORE_FADE, 0.0, 1.0);
-  return vec4f(color, shore);
+  @if(!WAVES) return vec4f(color, shore);
+  @if(WAVES) {
+    // Foam: the waves' own (where the sea folds), and a line along the shore where the water is
+    // shallower than half the sea's height, broken up by the smallest cascade's crests.
+    let body_slot = near(in.grid);
+    var look = waves.bodies[0];
+    for (var k = 0; k < 4; k++) {
+      if (body_slot.slots[k] >= 0 && body_slot.weights[k] > 0.25) { look = waves.bodies[u32(body_slot.slots[k]) * 2u + 1u]; }
+    }
+    let water_depth = select(1e4, p.y - ground, ground > WET);
+    let shallow = clamp(1.0 - water_depth / max(wave.w * 0.5, 0.05), 0.0, 1.0);
+    let breakup = clamp(0.5 + slope.x * 3.0 + wave.x * 2.0, 0.0, 1.0);
+    let foam = clamp(wave.z + shallow * breakup * step(0.01, wave.w), 0.0, 1.0) * look.w;
+    let foam_color = look.rgb * (foam_light / PI + sky) * view.exposure;
+    return vec4f(mix(color, foam_color, foam), max(shore, foam));
+  }
 }
 
 /** Depth only (baseline's single-sample depth, 0064): the surface where it's wet. */

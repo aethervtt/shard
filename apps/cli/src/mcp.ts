@@ -27,7 +27,7 @@ import { terrainMethods } from '@aethervtt/shard-terrain'
 import { localeMethods } from '@aethervtt/shard-text'
 import { uiMethods } from '@aethervtt/shard-ui'
 import { metricsMethods } from '@aethervtt/shard-verify/metrics'
-import { waterMethods } from '@aethervtt/shard-water'
+import { waterMethods, waveMethods } from '@aethervtt/shard-water'
 import { windMethods } from '@aethervtt/shard-wind'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import {
@@ -91,6 +91,7 @@ const PLUGIN_METHODS = [
   ...tilemapMethods,
   ...windMethods,
   ...waterMethods,
+  ...waveMethods,
 ]
 
 /** The protocol method's parameter schema, as an MCP input schema. */
@@ -423,6 +424,11 @@ export const TOOLS: Tool[] = [
     'sample_water',
     'water.sample',
     'waterAt at a world point: the body there, its surface height, the point’s depth below it, the ground under it and whether it is under water. CPU only, the same headless. Example: { "position": [12, 3, -40] } to check a spawn point is dry.',
+  ),
+  forward(
+    'preview_waves',
+    'water.waves',
+    'Previews a sea (0098) without touching the scene: significant wave height (Hs) and peak period of the JONSWAP spectrum, what each FFT cascade and the CPU evaluator carry, and a PNG of the heights. Example: { "windSpeed": 15, "fetch": 300 } for a 5.6 m sea, or { "windSpeed": 4, "fetch": 2, "cascades": [17] } for lake chop.',
   ),
   forward(
     'sample_atmosphere',

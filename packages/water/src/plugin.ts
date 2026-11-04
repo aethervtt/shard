@@ -19,7 +19,7 @@ import { gatherWaterBodies, WaterBodies } from './bodies'
 import { InfoClipmap } from './clipmap'
 import * as componentsModule from './components'
 import { waterInfoView } from './debug'
-import { waterMethods } from './methods'
+import { WaterDescribers, waterMethods } from './methods'
 import * as opticsModule from './optics'
 import { registerOpticsPresets } from './optics'
 import * as renderModule from './render'
@@ -61,7 +61,7 @@ export const prepareWater = defineSystem({
 export function waterPlugin(): Plugin {
   return definePlugin({
     name: 'water',
-    provides: [componentsModule, opticsModule, bodiesModule, renderModule],
+    provides: [componentsModule, opticsModule, bodiesModule, renderModule, WaterDescribers],
     build(app) {
       const world = app.world
       world.initResource(WaterBodies)

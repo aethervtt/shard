@@ -71,7 +71,7 @@ const PLUGINS: Record<string, (m: Mod) => PluginLike[]> = {
   text: (m) => [m.textPlugin as PluginLike],
   transform: (m) => [m.TransformPlugin as PluginLike],
   ui: (m) => [m.uiPlugin as PluginLike],
-  water: (m) => [(m.waterPlugin as () => PluginLike)()],
+  water: (m) => [(m.waterPlugin as () => PluginLike)(), (m.oceanWavesPlugin as () => PluginLike)()],
 }
 
 /** Plugins exported from a package's subpaths (not its index), by file under `src/`. */

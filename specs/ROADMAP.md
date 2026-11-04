@@ -123,12 +123,12 @@ acceptance evidence are mapped in [the implementation checklist](research/audio-
 | [0095](0095-procedural-trees.md) | Procedural trees (EZ-Tree port in an experimental `nature` package, species assets, GLB export) | implemented |
 | [0096](0096-shared-wind.md) | Shared wind (`Wind` in m/s, `windAt` on CPU and GPU, zones, synced changes) | implemented |
 | [0097](0097-water-bodies.md) | Water bodies and surface (ocean, lakes, spline rivers, tanks; water as a volume; masks; `waterAt`) | draft (part 1 built) |
-| [0098](0098-ocean-waves.md) | Ocean waves (JONSWAP FFT cascades on both tiers, foam, shores, CPU evaluator, tick-synced) | draft |
+| [0098](0098-ocean-waves.md) | Ocean waves (JONSWAP FFT cascades on both tiers, foam, shores, CPU evaluator, tick-synced) | implemented (shoaling open) |
 | [0099](0099-underwater.md) | Underwater and water optics (per-pixel waterline, fog, Snell's window, caustics, light shafts, aquariums) | draft |
 | [0100](0100-water-interaction.md) | Water interaction (buoyancy, Kelvin wakes, interaction foam, spray) | draft |
 
 Water lands in order: 0096 (wind, which trees and grass read too), 0097 part 1 (oceans and lakes,
-the opaque copy it adds to the renderer, `waterAt`; built), 0098, 0097 part 2 (rivers, volumes and
+the opaque copy it adds to the renderer, `waterAt`; built), 0098 (built), 0097 part 2 (rivers, volumes and
 sides, masks, shore foam), then 0100 and 0099, each an opt-in plugin of `@aethervtt/shard-water`. 0099 and 0100 only need 0097; with 0098 they also use its waves and foam.
 
 Open worlds land in order: 0071 (terrain), 0072 (partition, its always scene holds the terrain),

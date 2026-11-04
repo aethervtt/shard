@@ -16,7 +16,7 @@ import { terrainPlugin } from '@aethervtt/shard-terrain'
 import { textPlugin } from '@aethervtt/shard-text'
 import { TransformPlugin } from '@aethervtt/shard-transform'
 import { uiPlugin } from '@aethervtt/shard-ui'
-import { waterPlugin } from '@aethervtt/shard-water'
+import { oceanWavesPlugin, waterPlugin } from '@aethervtt/shard-water'
 import { describe, expect, it } from 'vitest'
 
 // The render feature registry (0064): with every render plugin installed, each graph node belongs
@@ -42,6 +42,7 @@ describe('render features', () => {
         dicePlugin(),
         fogPlugin,
         waterPlugin(),
+        oceanWavesPlugin(),
       )
       await app.init()
       const features = [...app.world.resource(RenderFeatures).values()]

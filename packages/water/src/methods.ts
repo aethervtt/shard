@@ -1,4 +1,5 @@
 import {
+  defineResource,
   defineSchema,
   type Entity,
   findComponent,
@@ -52,6 +53,12 @@ function describeBody(world: World, r: WaterBodyRecord) {
   }
 }
 
+/** Sections plugins add to `water.describe` (0098's waves). */
+export const WaterDescribers = defineResource<Map<string, (world: World) => unknown>>(
+  'water/Describers',
+  { description: 'Sections plugins add to water.describe.', init: () => new Map() },
+)
+
 /** `water.describe`: bodies, the zone's clipmap, and what the water pass costs. */
 export function describeWater(world: World) {
   const state = world.tryResource(WaterBodies) ?? new WaterBodiesState()
@@ -90,6 +97,11 @@ export function describeWater(world: World) {
       water: profiler?.timing('gpu:water')?.last ?? null,
       info: profiler?.timing('gpu:water/info')?.last ?? null,
     },
+    ...Object.fromEntries(
+      [...(world.tryResource(WaterDescribers) ?? new Map<string, (w: World) => unknown>())].map(
+        ([name, fn]) => [name, fn(world)],
+      ),
+    ),
   }
 }
 

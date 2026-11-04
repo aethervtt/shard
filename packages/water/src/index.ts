@@ -22,7 +22,7 @@ export {
 } from './clipmap'
 export { WATER_KINDS, WaterBody, type WaterKind, WaterSpline } from './components'
 export { readWaterInfo, waterInfoView } from './debug'
-export { describeWater, waterMethods } from './methods'
+export { describeWater, WaterDescribers, waterMethods } from './methods'
 export {
   registerOpticsPresets,
   resolveOptics,
@@ -43,10 +43,12 @@ export {
 } from './query'
 export {
   infoNode,
+  type SurfaceWaves,
   WATER_PHASE,
   WaterGpu,
   WaterRender,
   type WaterRenderState,
+  WaterSurfaceWaves,
   waterDepthNode,
   waterNode,
   waterRenderOf,
@@ -65,3 +67,50 @@ export {
   WATER_SHADERS,
   WATER_UNIFORM_VEC4S,
 } from './shaders'
+export { WaveGpu, type WaveLayer, wavesNode } from './waves/gpu'
+export {
+  describeWaves,
+  waterCascadesView,
+  waterFoamView,
+  waveMethods,
+} from './waves/methods'
+export { oceanWavesPlugin } from './waves/plugin'
+export { WaveRender } from './waves/render-state'
+export {
+  fadeWeight,
+  INVERSE_COMPONENTS,
+  INVERSE_ITERATIONS,
+  type SeaSample,
+  seaAt,
+  seaSample,
+  shoreFactor,
+  updateWaves,
+  type WaveSet,
+  WaveSets,
+  WaveSetsState,
+  waveTick,
+  waveTime,
+} from './waves/sea'
+export { MAX_WAVE_LAYERS, WAVE_KERNELS } from './waves/shaders'
+export {
+  BAND,
+  buildSea,
+  type Cascade,
+  CROSSFADE_TICKS,
+  checkCascades,
+  DEFAULT_CASCADES,
+  DEFAULT_COMPONENTS,
+  dispersion,
+  jonswap,
+  jonswapPeak,
+  MAX_CASCADES,
+  OceanWaves,
+  phaseOf,
+  REPEAT,
+  type Sea,
+  type SpectrumParams,
+  spectrumAt,
+  spectrumStats,
+  spreading,
+  tma,
+} from './waves/spectrum'
