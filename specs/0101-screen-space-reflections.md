@@ -50,8 +50,8 @@ velocity and already runs each material's surface hook. TAA keeps an HDR history
 
 ## Non-goals
 
-- Reflections of off-screen or hidden geometry: planar reflections, reflection probes and ray
-  tracing are other specs. Misses fall back to the environment map.
+- Reflections of off-screen or hidden geometry: reflection probes and planar reflections are 0102,
+  ray tracing isn't planned. Misses fall back to whatever 0102 or the environment map gives.
 - Reflections on transparent surfaces (they don't write the prepass). Water gets them through
   0097's pass, below.
 - Screen-space global illumination (diffuse bounces).

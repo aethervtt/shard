@@ -67,6 +67,7 @@ agent needs to see what's on screen.
 | [0027](0027-debug-draw-picking.md) | Debug drawing and picking | implemented |
 | [0039](0039-2d-lighting.md) | 2D lighting and shadows (normal maps, occluders, soft shadows) | implemented |
 | [0101](0101-screen-space-reflections.md) | Screen-space reflections (Hi-Z trace, stochastic GGX, fed into lighting; shared Hi-Z; water uses it) | draft |
+| [0102](0102-reflection-probes-planar.md) | Reflection probes (baked and realtime, box-projected, local ambient) and planar reflections | draft |
 
 ## M6 — Gameplay systems
 
