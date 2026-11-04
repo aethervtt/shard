@@ -49,6 +49,7 @@ import { uiPlugin } from '@aethervtt/shard-ui'
 import { vectorPlugin } from '@aethervtt/shard-vector'
 import { metricsPlugin } from '@aethervtt/shard-verify/metrics'
 import { installCapturePage } from '@aethervtt/shard-verify/page'
+import { waterPlugin } from '@aethervtt/shard-water'
 import { animationDemoPlugin } from './animation'
 import { animgraphDemoPlugin } from './animgraph'
 import { atmosphereDemoPlugin } from './atmosphere'
@@ -87,6 +88,7 @@ import { spritesPlugin } from './sprites'
 import { tabletopDemoPlugin } from './tabletop'
 import { terrainDemoPlugin } from './terrain'
 import { uiDemoPlugin } from './ui'
+import { waterDemoPlugin } from './water'
 
 const canvas = document.getElementById('viewport') as HTMLCanvasElement
 const hud = document.getElementById('hud') as HTMLElement
@@ -334,6 +336,16 @@ if (demo === 'galaxy') {
     ...controls(),
     hudPlugin,
     natureDemoPlugin,
+  )
+} else if (demo === 'water') {
+  app.addPlugin(
+    TransformPlugin,
+    forwardPlugin(),
+    terrainPlugin({ workers: createWebWorkers() }),
+    waterPlugin(),
+    ...controls(),
+    hudPlugin,
+    waterDemoPlugin,
   )
 } else if (demo === 'atmosphere') {
   app.addPlugin(TransformPlugin, forwardPlugin(), terrainPlugin(), hudPlugin, atmosphereDemoPlugin)

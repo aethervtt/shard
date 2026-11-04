@@ -61,6 +61,7 @@ const PLUGINS: Record<string, (m: Mod) => PluginLike[]> = {
     m.dynamicResolutionPlugin as PluginLike,
     m.ribbonsPlugin as PluginLike,
     m.decalsPlugin as PluginLike,
+    m.opaqueCopyPlugin as PluginLike,
   ],
   save: (m) => [(m.savePlugin as () => PluginLike)()],
   scatter: (m) => [(m.scatterPlugin as () => PluginLike)()],
@@ -70,6 +71,7 @@ const PLUGINS: Record<string, (m: Mod) => PluginLike[]> = {
   text: (m) => [m.textPlugin as PluginLike],
   transform: (m) => [m.TransformPlugin as PluginLike],
   ui: (m) => [m.uiPlugin as PluginLike],
+  water: (m) => [(m.waterPlugin as () => PluginLike)()],
 }
 
 /** Plugins exported from a package's subpaths (not its index), by file under `src/`. */

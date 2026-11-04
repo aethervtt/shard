@@ -56,6 +56,7 @@ const CURATED: readonly Demo[] = [
   'interior', // interior lighting's r32uint field and rows, read with texelFetch
   'terrain', // compute only: reports render/feature-unsupported
   'heightfield', // heights fetched in the vertex stage from the page pool (texelFetch), no compute
+  'water', // the opaque copy, the info texture's MRT raster, the surface reading it in the vertex stage
 ]
 
 const which = process.env.SHARD_DEMOS || 'curated'

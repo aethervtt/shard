@@ -29,6 +29,7 @@ export {
   simplifyLods,
   simplifyMesh,
 } from './simplify'
+export { catmullRom, sampleCatmullRom } from './spline'
 export {
   type LeafCardOptions,
   leafCards,

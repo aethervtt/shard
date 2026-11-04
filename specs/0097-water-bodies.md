@@ -2,7 +2,7 @@
 
 - **Status:** draft
 - **Packages:** `@aethervtt/shard-water` (new), `@aethervtt/shard-render`, `@aethervtt/shard-mesh`,
-  `@aethervtt/shard-terrain`
+  `@aethervtt/shard-terrain`, `@aethervtt/shard-protocol` (capture views), `@aethervtt/shard-project`
 - **Depends on:** 0019, 0020, 0022, 0044, 0056, 0064, 0071, 0096
 
 ## Context
@@ -54,21 +54,46 @@ optics (0099), and interaction (0100) are opt-in plugins on top of it.
 - Carving terrain. 0071 heightfield splines (`carve`) already make riverbeds; water reads terrain
   and never edits it.
 
+## Phases
+
+0097 lands in two parts, with waves (0098) between them (0096 → 0097 part 1 → 0098 → 0097 part 2 →
+0100 → 0099). Part 1 proves the water pass on both tiers; part 2 makes water a volume.
+
+- **Part 1 (built):** the opaque copy; `WaterBody` oceans and lakes with closed `WaterSpline`s;
+  `WaterOptics` and its presets; the info texture's surface and ground heights (and the body index
+  shading needs); the ring surface mesh; the water pass with refraction, absorption and scattering
+  over opaque depth, Fresnel reflection, each sun's highlight and shadow, and wind ripples;
+  `waterAt` with flat surfaces, lake outlines and heightfield ground; `water.describe`,
+  `water.sample`, `render.capture { debug: 'water-info' }`; `water/bad-spline`, `water/no-optics`.
+  Of the goals, part 1 meets: oceans and lakes; shading except shore foam and river flow; `waterAt`
+  except flow and masks; both tiers; opt-in.
+- **Part 2:** rivers and flow (two-phase flow maps, the river-to-lake blend), `WaterVolume` and
+  sides (back-face thickness, the meniscus, tanks, blobs), `WaterMask`s, shore distance and shore
+  foam, the `WaterFloor` ground pass, `render.capture`'s `water-thickness` and `water-masks`, the
+  `make-water.md` skill, and the errors that come with them (`water/not-convex`,
+  `water/open-mask-mesh`, `water/too-many-masks`). Acceptance criteria are marked by part below.
+
 ## Design
 
 ### Bodies
 
 ```ts
 WaterBody { kind: 'ocean' | 'lake' | 'river' | 'volume', optics: handle('WaterOptics'),
-            priority: i32 = 0, wind: 'global' | { speed: f32, direction: vec3 } = 'global' }
+            priority: i32 = 0, wind: 'global' | 'own' = 'global', windSpeed: f32, windDirection: vec3 }
 WaterSpline { points: list({ position: vec3, width: f32, depth: f32, flow: f32 }), closed: bool }
 WaterVolume { shape: 'box' | 'cylinder' | 'sphere' | 'convex', size: vec3,
               mesh?: handle('Mesh'), fill: f32 = 1 }        // fill: 0..1 of the shape's height
 ```
 
+- `wind` is flattened into three fields (`wind`, `windSpeed`, `windDirection`), as 0096's
+  `WindZone.override` is: component fields are columns. Part 1 has `kind: 'ocean' | 'lake'`.
+- Where bodies overlap, the highest `priority` is the water there, ties going to the later entity;
+  `waterAt` and the info texture's raster agree on it.
 - **Ocean**: a level (the entity's y) everywhere, optionally bounded by a closed `WaterSpline`
   (the shore polygon, so it doesn't flood inland basins).
-- **Lake**: a closed `WaterSpline` at the entity's y. `width` and `depth` are unused.
+- **Lake**: a closed `WaterSpline` at the entity's y. `width` and `depth` are unused. Its points are
+  in the entity's frame; the outline is tessellated (uniform Catmull-Rom, at most 2 048 points),
+  made counter-clockwise, triangulated for the raster, and bucketed by z band for point tests.
 - **River**: an open `WaterSpline`. Each point sets the surface height (its y), `width`, `depth`
   (a bed, when there's no terrain under it) and `flow` (m/s downstream; negative flows upstream).
   Sampled as uniform Catmull-Rom, the sampler terrain's `SourceSpline` uses, moved to
@@ -80,21 +105,32 @@ WaterVolume { shape: 'box' | 'cylinder' | 'sphere' | 'convex', size: vec3,
 - `WaterOptics` (a data asset, `*.water.json`): absorption per channel (1/m), scattering per
   channel (1/m), phase `g`, surface roughness, foam colour and amount, and ripple strength.
   Presets ship: `clear` (Pope & Fry pure water: 0.34 / 0.057 / 0.009 m⁻¹ in RGB), `ocean`,
-  `coastal`, `lake`, `river`, `murky`, `pool`.
+  `coastal`, `lake`, `river`, `murky`, `pool`. They're virtual assets at
+  `water/<name>.water.json` (`waterOptics('ocean')` in code), so scenes name them by path.
 
 ### Zone and info texture
 
 Like Unreal, the bodies that share a surface (ocean, lakes, rivers) render through one mesh and
 one top-down texture, so where they meet there's no seam.
 
-- **Info texture**: a camera-centred clipmap of 4 levels at 256² (4 m, 16 m, 64 m and 256 m
-  texels), `rgba16float` each: water surface height, ground height under the water, flow xy. A
-  second `rg8` layer holds the body index and the shore distance.
-- It rebuilds incrementally when the camera moves by a texel or a body changes:
-  1. Ground: a top-down depth pass of terrain and static opaque meshes marked `WaterFloor` (0071's
-     heightfield draws itself; other geometry opts in).
-  2. Bodies: each rasterizes its surface height and flow, in `priority` order.
-  3. Shore distance: a jump-flood from the shore (where surface height meets ground) in a
+- **Info texture**: a clipmap of 4 levels at 256² (4 m, 16 m, 64 m and 256 m texels), centred on
+  the first camera, `rgba32float` each: water surface height (−1e9 where dry), ground height under
+  the water (−1e9 where unknown), flow xy (part 2). A second `rg8unorm` layer holds the body index
+  (draw slot + 1, 0 where dry: the surface blends each body's optics from it) and, in part 2, the
+  shore distance. *(Built: `rgba32float`, not the drafted `rgba16float`: half floats hold a height
+  of 40 m to 3 cm, past the 1 cm `waterAt` promises. The body index arrived in part 1, since the
+  surface shades each body with its own optics.)*
+- A level's window moves in steps of 8 texels; then, or when a body changes, the level is drawn
+  again whole (65 536 texels: cheap next to the surface). Each level:
+  1. Ground: the level is cleared to no water and its ground copied in. *Part 1:* the ground is
+     `terrainHeightAt` (0071) at each texel's centre, filled on the CPU into a toroidal
+     `r32float` texture, so a move fills only the texels that scrolled in (at most 32 768 a
+     frame), and again whole when a terrain rebakes or moves. *Part 2:* a top-down depth pass of
+     terrain and static opaque meshes marked `WaterFloor` (0071's heightfield draws itself; other
+     geometry opts in).
+  2. Bodies: each rasterizes its surface height (and body index; flow in part 2), in `priority`
+     order, later ones overwriting. An unbounded ocean is two triangles past every level.
+  3. Shore distance (part 2): a jump-flood from the shore (where surface height meets ground) in a
      `fragmentKernel` (0064), so it's the same code on both tiers.
 - **CPU mirror**: `waterAt` doesn't read the GPU texture back. It evaluates the same bodies on the
   CPU (spline distance, the ground from 0071's `terrainHeightAt` or a `WaterFloor` mesh raycast),
@@ -102,12 +138,20 @@ one top-down texture, so where they meet there's no seam.
 
 ### Surface mesh
 
-- Camera-centred rings of tiles (as 0043's quadtree and Crest's LOD rings): each ring is twice the
-  scale of the one inside, vertices morph between levels by distance, and the outermost ring of an
-  ocean runs to the horizon. A vertex reads its height from the info texture; outside any body it
+- Camera-centred rings (as 0043's quadtree and Crest's LOD rings): each ring is twice the scale of
+  the one inside, vertices morph between levels by distance, and the outermost ring of an ocean
+  runs to the horizon. A vertex reads its height from the info texture; outside any body it
   collapses below the ground, and the fragment stage discards.
+- *As built:* 16 rings of 64 × 64 cells, the innermost 0.5 m a cell. Ring k centres on a multiple
+  of twice its cell, so ring k − 1's square sits in its 32 × 32 hole a whole cell to either side:
+  four index ranges, one per offset, and no T-junctions. Its outer quarter morphs odd vertices onto
+  the next ring's grid (CDLOD's rule). A vertex reads the info level whose texels are at least its
+  cell, bilinear over the wet texels around it, and dry vertices next to water keep its level
+  (the 4×4 texels around), so the edge triangles don't slope. The fragment discards where the
+  finest level's wetness is under ½.
 - The surface draws in a dedicated **water pass** after opaque geometry and before transparents
-  (below). Its instance data goes through 0022's instance buffer, so GPU culling applies.
+  (below). *As built*, each ring is one draw from a static mesh, not instances in 0022's buffer:
+  sixteen draws, of which a lakes-only view skips the rings that reach no body.
 
 ### Water as a volume
 
@@ -137,12 +181,25 @@ The water pass shades every surface and side fragment completely, and writes dep
   (`opaqueCopyPlugin`, 0056 rules): after opaque geometry, a copy of the HDR colour (half
   resolution, with mips for rough refraction) and the resolved depth, exposed to materials and
   nodes that declare `reads: ['opaque-color', 'opaque-depth']`. It runs only in frames where
-  something reads it. Glass and heat haze can use it later.
+  something reads it. Glass and heat haze can use it later. *As built:* graph nodes read it (the
+  graph culls the copy when none does); a material reading it comes with the first material that
+  needs one, since it binds per view and per frame. `opaque-depth` is `r32float` at full
+  resolution; with MSAA it holds the nearest of a pixel's samples, so an edge pixel counts as the
+  surface in front. On baseline it reads the single-sample depth prepass.
 - **Refraction**: the opaque copy, sampled at the pixel offset by the surface normal × thickness
   (clamped), and rejected when the offset sample is in front of the water (no leaking of objects
-  above the surface into it).
-- **Colour**: `refracted × T + inscatter × (1 − T)`, where `T = exp(−absorption × thickness)` and
-  inscatter is the sun and sky light scattered toward the camera with the body's phase `g`.
+  above the surface into it). *As built*, "in front" isn't enough: a box floating over the water
+  can be farther than the surface point and still above it. A sample counts only if it's behind
+  the surface point **and** below the surface (its position rebuilt from the opaque depth; sky is
+  above). The filtering is held to the same rule: a mip's footprint that reaches anything else
+  falls back to mip 0, whose half-resolution texels count only if every pixel under them passes,
+  so nothing above the surface bleeds in through filtering either.
+- **Colour**: `refracted × T + inscatter × (1 − T)`, where `T = exp(−(absorption + scattering) ×
+  thickness)` (scattering takes light out of the view ray too) and inscatter is the sun and sky
+  light scattered toward the camera with the body's phase `g`, times the single-scattering albedo
+  `scattering / (absorption + scattering)`. Part 1's thickness is opaque depth minus the surface's.
+- **Thin water**: the pass blends by `thickness / 0.35 m`, so water fades into what's under it as it
+  thins and the shore has no edge; depth is written regardless.
 - **Reflection**: with 0101 loaded, `shard::ssr::trace` against the opaque copy first (docks,
   boats, cliffs), blended by its confidence into the environment reflection. The environment is the
   camera's (0019's `EnvironmentMap` or `ProceduralSky`, and 0044's
@@ -158,7 +215,10 @@ The water pass shades every surface and side fragment completely, and writes dep
   which work from depth, haze the water by its own distance, not the seabed's. Transparents draw
   after it and over it, sorted as today.
 - **Baseline (WebGL2)**: the same pass. The opaque copy is a blit; the back-face thickness target
-  is an `R16F` render target. Nothing in this spec needs compute.
+  is an `R16F` render target. Nothing in this spec needs compute. With MSAA, later passes read
+  `depth` from the single-sample prepass, so a `water/depth` node draws the surface's depth into it
+  as well (only when something reads `depth`). Compatibility mode wants one write mask for every
+  target, so a level's first info draw writes both of its targets whole.
 
 ### Masks
 
@@ -185,6 +245,10 @@ waterAt(world, position: Vec3, out: WaterSample): WaterSample
 
 - No allocation; CPU-only; deterministic. With 0098 loaded, `surfaceHeight` and `normal` include
   the waves from its CPU evaluator.
+- Without water, `body` is null and `surfaceHeight` and `depth` NaN; without known ground,
+  `groundHeight` is −Infinity. `underwater` is below the surface and above the ground. Bodies are
+  as of the last `water/bodies` run (PostUpdate, after transforms); the ground is the finest
+  heightfield page on the CPU, as `terrainHeightAt` reads it.
 
 ### API sketch
 
@@ -203,12 +267,17 @@ world.spawn([WaterBody, { kind: 'volume', optics: { path: 'assets/water/pool.wat
 - `water.describe` (MCP `describe_water`): bodies, their extents and optics, the zone's clipmap
   levels, masks, pass time, and info texture rebuilds per frame.
 - `water.sample { position }` runs `waterAt`.
-- `render.capture { debug: 'water-info' | 'water-thickness' | 'water-masks' }`.
+- `render.capture { debug: 'water-info' | 'water-thickness' | 'water-masks' }`. Part 1 has
+  `water-info`: the four levels in a 2×2 grid, water blue by depth over the ground, dry ground grey.
+  Plugins add such views through `protocol/CaptureDebugViews`, so the protocol doesn't import water.
 - A generated skill, `make-water.md`: a lake from a spline, a river into it, a tank, a hull mask.
 - **Errors:** `water/bad-spline` (fewer than 3 points for a closed spline, 2 for a river, a
   self-intersecting lake), `water/open-mask-mesh` (a mesh mask that isn't closed),
   `water/not-convex` (a `convex` volume's mesh isn't), `water/no-optics`
-  (warning: the default `clear` is used), `water/too-many-masks` (warning).
+  (warning: the default `clear` is used), `water/too-many-masks` (warning),
+  `water/unknown-optics` (`waterOptics()` with a name no preset has).
+- **Budgets:** `gpu:water` (below), `water/at` (0.5 µs a call; 88 ns measured with 9 bodies) and
+  `water/frame` (0.1 ms: gathering bodies, the clipmap and the rings; 57 µs measured).
 
 ## Decisions
 
@@ -224,20 +293,39 @@ world.spawn([WaterBody, { kind: 'volume', optics: { path: 'assets/water/pool.wat
 
 ## Acceptance criteria
 
+Part 1:
+
+- [x] A lake's shore fades into the ground with no visible edge (golden). (`water/src/gpu.test.ts`:
+      the `lake-shore` golden on a heightfield basin, and the `shore` golden over a 1:10 beach,
+      where pixels under less than 5 cm of water match the dry beach to the level.)
+- [x] Objects above the water never appear in its refraction (golden at a grazing angle). (The
+      `refraction-grazing` golden: a glowing box 0.1 m over clear water, seen from 1.4 m. The
+      same frame with the box's glow another color changes no water pixel around it; with
+      rejection turned off, 405 change, by up to 52 levels of 255.)
+- [x] `waterAt` matches the info texture's surface height within 1 cm at 1 000 points (readback).
+      (1 000 texel centres over a heightfield lake and the ocean, half on the finest level: worst
+      0 m, no wet/dry disagreement; the ground matches at the 511 texels on the terrain.)
+- [x] The water pass takes under `gpu:water` (proposed: 1.5 ms on `laptop` at 1080p for the lake
+      scene) on WebGPU, and runs on WebGL2 (`demos.test.ts` curated set). (0.6–0.8 ms on an M5
+      Max, not a named machine, so not enforced yet; the `water` demo passes on both backends in
+      Chromium, and the shim translates every water shader with naga, the prepass path included.)
+- [x] A scene with `waterPlugin()` and no bodies adds no passes (`render.describe`): no
+      `water`, `water/info`, `water/depth` or `opaque-copy` in the view's order.
+- [x] With water drawn, 0044's aerial perspective and 0023's fog haze the water by its own distance,
+      not the seabed's: the `depth` they read holds the water's surface, on WebGPU with MSAA and
+      on baseline (Dawn compatibility mode; the WebGL2 prepass path in the shim test).
+
+Part 2:
+
 - [ ] A lake, a river flowing into it and the ocean share one surface with no visible seam where
       they meet (golden image), and the river's flow shows in its ripples.
 - [ ] A lake whose spline runs past a cliff ends in a wall of water whose top follows the surface
-      (golden), and the same lake's shore fades into the ground with no visible edge.
+      (golden).
 - [ ] A `WaterVolume` box at `fill: 0.85` behind glass, and a sphere at `fill: 1` in mid-air, look
       darker where they're thicker (golden, plus a thickness readback).
 - [ ] A boat with a mesh mask moving through the lake has no water inside its hull in any frame
       of a 10 s capture, and `waterAt` inside the hull says it isn't under water.
-- [ ] Objects above the water never appear in its refraction (golden at a grazing angle).
-- [ ] `waterAt` matches the info texture's surface height within 1 cm at 1 000 points, headless
-      and on the GPU.
-- [ ] The water pass takes under `gpu:water` (proposed: 1.5 ms on `laptop` at 1080p for the lake
-      scene) on WebGPU, and runs on WebGL2 (`demos.test.ts` curated set).
-- [ ] A scene with `waterPlugin()` and no bodies adds no passes (`render.describe`).
+- [ ] `waterAt` matches the info texture with rivers, flow and masks as well.
 
 ## Open questions
 

@@ -359,6 +359,14 @@ export {
   onMaterialTypeChange,
 } from './materials'
 export {
+  OPAQUE_COPY_MIPS,
+  OPAQUE_COPY_PHASE,
+  OPAQUE_COPY_SHADERS,
+  opaqueCopyMips,
+  opaqueCopyNode,
+  opaqueCopyPlugin,
+} from './opaque-copy'
+export {
   MAX_OUTLINE_STYLES,
   OUTLINE_OCCLUSION,
   Outline,

@@ -12,6 +12,7 @@ import { fxaaPlugin } from './fxaa'
 import { gizmosPlugin } from './gizmos-plugin'
 import { interiorPlugin } from './interior-plugin'
 import { lensPlugin } from './lens-plugin'
+import { opaqueCopyPlugin } from './opaque-copy'
 import { outlinePlugin } from './outline-plugin'
 import { pickingPlugin } from './picking-plugin'
 import { pixelPerfectPlugin } from './pixel-perfect-plugin'
@@ -50,6 +51,7 @@ export function forwardPlugin(options: ForwardPluginOptions = {}): Plugin {
         dynamicResolutionPlugin,
         ribbonsPlugin,
         decalsPlugin,
+        opaqueCopyPlugin,
         renderDescribePlugin,
       )
     },

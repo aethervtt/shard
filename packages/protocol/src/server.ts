@@ -91,6 +91,7 @@ import {
 } from '@aethervtt/shard-transform'
 import { ABLATE_METHODS } from './ablate'
 import { BUDGET_METHODS } from './budgets'
+import { CaptureDebugViews } from './capture-views'
 import { encodePng, toBase64 } from './png'
 
 const CAPTURE_DEBUG_VIEWS = ['clusters', 'cascades', 'lod', 'culling', 'none']
@@ -727,7 +728,7 @@ export const METHODS: MethodDef[] = [
       height: t.u32({ min: 0, max: 4096 }),
       debug: t.string({
         description:
-          "A debug view instead of the image: 'clusters' (lights per cluster heat map), 'cascades' (cascades tinted by index), 'lod' (meshes tinted by LOD level: green, yellow, orange, red), 'shadow-map:<light>[:<layer>]' (a light's raw shadow map), or 'culling' (freezes what the camera culls with, and keeps it frozen for later captures while the camera moves; 'none' unfreezes).",
+          "A debug view instead of the image: 'clusters' (lights per cluster heat map), 'cascades' (cascades tinted by index), 'lod' (meshes tinted by LOD level: green, yellow, orange, red), 'shadow-map:<light>[:<layer>]' (a light's raw shadow map), 'culling' (freezes what the camera culls with, and keeps it frozen for later captures while the camera moves; 'none' unfreezes), or one a plugin adds ('water-info': the water's clipmap levels).",
       }),
       overlays: t.list(t.string, {
         description: `Debug overlays drawn into this capture only: ${OVERLAYS.join(', ')}, plus any a plugin registers (e.g. colliders). 'labels' writes each entity's scene path next to it; 'bounds' outlines what the renderer thinks is there.`,
@@ -781,9 +782,21 @@ export const METHODS: MethodDef[] = [
           data: toBase64(await encodePng(image.data, image.width, image.height)),
         }
       }
+      // A plugin's own view (0097's 'water-info'): an image of its data, not of the camera's pass.
+      const pluginView = debug ? world.tryResource(CaptureDebugViews)?.get(debug) : undefined
+      if (pluginView) {
+        await whenRenderReady(world, () => (renderNow ? renderOnly(app) : nextFrame(app)))
+        const image = await pluginView.capture(world, cameraEntity)
+        return {
+          mimeType: 'image/png',
+          width: image.width,
+          height: image.height,
+          data: toBase64(await encodePng(image.data, image.width, image.height)),
+        }
+      }
       if (debug && !CAPTURE_DEBUG_VIEWS.includes(debug)) {
         throw new ShardError('protocol/unknown-debug-view', `Unknown debug view "${debug}"`, {
-          hint: "Use 'clusters', 'cascades', 'lod', 'culling', 'none', or 'shadow-map:<light>'.",
+          hint: "Use 'clusters', 'cascades', 'lod', 'culling', 'none', 'shadow-map:<light>', or one a plugin adds (water's 'water-info').",
         })
       }
       if (debug) setDebugView(world, cameraEntity, debug as DebugView)
