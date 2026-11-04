@@ -41,12 +41,21 @@ importers:
       '@aethervtt/shard-effects':
         specifier: workspace:*
         version: link:../../packages/effects
+      '@aethervtt/shard-gltf':
+        specifier: workspace:*
+        version: link:../../packages/gltf
       '@aethervtt/shard-gpu':
         specifier: workspace:*
         version: link:../../packages/gpu
       '@aethervtt/shard-gpu-webgl2':
         specifier: workspace:*
         version: link:../../packages/gpu-webgl2
+      '@aethervtt/shard-mesh':
+        specifier: workspace:*
+        version: link:../../packages/mesh
+      '@aethervtt/shard-nature':
+        specifier: workspace:*
+        version: link:../../packages/nature
       '@aethervtt/shard-nav':
         specifier: workspace:*
         version: link:../../packages/nav
@@ -204,6 +213,9 @@ importers:
       '@aethervtt/shard-mirror':
         specifier: workspace:*
         version: link:../../packages/mirror
+      '@aethervtt/shard-nature':
+        specifier: workspace:*
+        version: link:../../packages/nature
       '@aethervtt/shard-nav':
         specifier: workspace:*
         version: link:../../packages/nav
@@ -1088,6 +1100,52 @@ importers:
         specifier: ^26.6.2
         version: 26.6.2
 
+  packages/nature:
+    dependencies:
+      '@aethervtt/shard-assets':
+        specifier: workspace:*
+        version: link:../assets
+      '@aethervtt/shard-core':
+        specifier: workspace:*
+        version: link:../core
+      '@aethervtt/shard-gltf':
+        specifier: workspace:*
+        version: link:../gltf
+      '@aethervtt/shard-mesh':
+        specifier: workspace:*
+        version: link:../mesh
+      '@aethervtt/shard-procgen':
+        specifier: workspace:*
+        version: link:../procgen
+      '@aethervtt/shard-render':
+        specifier: workspace:*
+        version: link:../render
+      '@aethervtt/shard-runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@aethervtt/shard-scatter':
+        specifier: workspace:*
+        version: link:../scatter
+      '@aethervtt/shard-texture':
+        specifier: workspace:*
+        version: link:../texture
+    devDependencies:
+      '@aethervtt/shard-gpu':
+        specifier: workspace:*
+        version: link:../gpu
+      '@aethervtt/shard-transform':
+        specifier: workspace:*
+        version: link:../transform
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+      '@webgpu/types':
+        specifier: ^0.1.74
+        version: 0.1.74
+      webgpu:
+        specifier: 0.6.1
+        version: 0.6.1
+
   packages/nav:
     dependencies:
       '@aethervtt/shard-assets':
@@ -1526,6 +1584,9 @@ importers:
       '@aethervtt/shard-input':
         specifier: workspace:*
         version: link:../input
+      '@aethervtt/shard-nature':
+        specifier: workspace:*
+        version: link:../nature
       '@aethervtt/shard-nav':
         specifier: workspace:*
         version: link:../nav

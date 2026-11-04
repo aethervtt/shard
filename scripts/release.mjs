@@ -158,10 +158,11 @@ function buildPackage(name, { app = false } = {}) {
   // Types: tsc over the package's source, declarations only. Apps are commands, not libraries.
   if (!app) emitDeclarations(dir, name, target)
 
-  // Files loaded at runtime by URL, next to dist as they are next to src. An app also ships its
-  // entry point (bin/) and the pages it serves (the CLI's runner/, compiled by Vite at run time).
+  // Files loaded at runtime by URL, or copied into projects (nature's textures), next to dist as
+  // they are next to src. An app also ships its entry point (bin/) and the pages it serves (the
+  // CLI's runner/, compiled by Vite at run time).
   const extra = []
-  for (const sub of app ? ['bin', 'runner'] : ['wasm', 'vendor']) {
+  for (const sub of app ? ['bin', 'runner'] : ['wasm', 'vendor', 'assets']) {
     if (existsSync(join(dir, sub))) {
       cpSync(join(dir, sub), join(target, sub), {
         recursive: true,

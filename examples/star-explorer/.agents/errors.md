@@ -34,6 +34,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `app/plugin-cycle` | @aethervtt/shard-runtime |  |
 | `app/system-cycle` | @aethervtt/shard-core | Remove one of the after/before constraints in this cycle. |
 | `app/system-failed` | @aethervtt/shard-core |  |
+| `asset/not-found` | @aethervtt/shard-cli | Pass a *.material.json path inside the project. |
 | `assets/dependency-failed` | @aethervtt/shard-assets | Fix that file first; this one re-imports with it. |
 | `assets/duplicate-extension` | @aethervtt/shard-assets | Every data type needs its own extension. Pick another one. |
 | `assets/import-cycle` | @aethervtt/shard-assets | An asset can’t depend on itself, directly or through others. |
@@ -163,6 +164,8 @@ Every engine error is a `ShardError` with one of these codes.
 | `gltf/invalid` | @aethervtt/shard-gltf | Only glTF 2.0 files are supported. |
 | `gltf/tangents-unavailable` | @aethervtt/shard-gltf |  |
 | `gltf/unsupported-extension` | @aethervtt/shard-gltf |  |
+| `gltf/write-invalid` | @aethervtt/shard-gltf |  |
+| `gltf/write-unsupported` | @aethervtt/shard-cli | GLB export embeds PNG and JPEG source files. |
 | `gpu-webgl2/lost` | @aethervtt/shard-gpu-webgl2 |  |
 | `gpu-webgl2/naga-crashed` | @aethervtt/shard-gpu-webgl2 | Report the shader: naga should return an error, not crash. |
 | `gpu-webgl2/naga-load-failed` | @aethervtt/shard-gpu-webgl2 | packages/gpu-webgl2/wasm must be served with the app (rebuild with `pnpm build:wasm`). |
@@ -192,6 +195,8 @@ Every engine error is a `ShardError` with one of these codes.
 | `mesh/simplifier-not-loaded` | @aethervtt/shard-mesh | await loadMeshSimplifier() once (generators get it loaded for them) before simplifying. |
 | `mirror/duplicate-key` | @aethervtt/shard-mirror | Keys are the host ids of documents: each may appear once per list. |
 | `mirror/no-diff` | @aethervtt/shard-mirror | Pass rev: (doc) => doc.rev when documents carry a revision (cheapest), or equal(prev, next). |
+| `nature/bad-species` | @aethervtt/shard-nature | levels[0] is the trunk; each further entry is a level of branches. |
+| `nature/too-big` | @aethervtt/shard-nature | Fewer children per branch, fewer leaves per twig, or fewer sections and segments. |
 | `nav/bad-cache` | @aethervtt/shard-nav |  |
 | `nav/bake-failed` | @aethervtt/shard-nav | Check the NavSource geometry has upward faces flatter than maxSlope, wide enough for agentRadius. |
 | `nav/invalid-grid` | @aethervtt/shard-nav |  |

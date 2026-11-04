@@ -118,6 +118,7 @@ acceptance evidence are mapped in [the implementation checklist](research/audio-
 | [0071](0071-heightfield-terrain.md) | Heightfield terrain (layer stack baked to pages, shared quadtree, streamed pages, heightfield colliders) | accepted |
 | [0072](0072-world-partition.md) | World partition and streaming (cells as scene files, streaming sources, diffs for unloaded cells) | accepted |
 | [0073](0073-hlod.md) | Hierarchical LOD (baked proxies for unloaded cells: instances, merged, baked) | accepted |
+| [0095](0095-procedural-trees.md) | Procedural trees (EZ-Tree port in an experimental `nature` package, species assets, GLB export) | implemented |
 
 Open worlds land in order: 0071 (terrain), 0072 (partition, its always scene holds the terrain),
 then 0073 (HLOD over the partition's cells). 0073 uses 0045's simplifier (`simplifyLods`). 2D

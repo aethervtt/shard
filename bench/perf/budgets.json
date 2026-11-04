@@ -162,6 +162,12 @@
       "desktop": 0.2,
       "note": "0055: syncing 5,000 unchanged wall documents, median. mirror/src/mirror.test.ts."
     },
+    "nature/generate": {
+      "kind": "target",
+      "laptop": 30,
+      "desktop": 30,
+      "note": "0095 proposed: growing and meshing oak_medium (13.8k triangles) with its two LODs and tangents, median of 10 after a warm-up; about what EZ-Tree takes in a browser. The laptop measured 4 ms in Node while the spec was implemented (2026-11-03). nature/src/tree.test.ts."
+    },
     "nav/find-path": {
       "kind": "target",
       "laptop": 2,
