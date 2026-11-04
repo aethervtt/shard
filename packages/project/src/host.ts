@@ -36,6 +36,7 @@ import { LocaleState, loadStringTables, textPlugin } from '@aethervtt/shard-text
 import { TransformPlugin } from '@aethervtt/shard-transform'
 // Also registers the theme importer and the UiTheme asset type for every project host.
 import { uiPlugin } from '@aethervtt/shard-ui'
+import { waterPlugin } from '@aethervtt/shard-water'
 import { windPlugin } from '@aethervtt/shard-wind'
 import type { ManifestValue } from './manifest'
 
@@ -114,7 +115,7 @@ export function buildApp(options: BuildAppOptions): App {
     names.add('core/transform')
   }
   // Foliage and trees sway with the shared wind; servers keep it (it isn't display-only).
-  if (names.has('scatter') || names.has('nature')) names.add('wind')
+  if (names.has('scatter') || names.has('nature') || names.has('water')) names.add('wind')
   if (
     names.has('physics3d') ||
     names.has('physics2d') ||
@@ -170,6 +171,8 @@ export function buildApp(options: BuildAppOptions): App {
   if (names.has('scatter')) app.addPlugin(scatterPlugin({ workers: options.platform?.workers }))
   if (names.has('nature')) app.addPlugin(naturePlugin)
   if (names.has('wind') && !app.hasPlugin('wind')) app.addPlugin(windPlugin)
+  // Water works headless (waterAt), so servers keep it too.
+  if (names.has('water')) app.addPlugin(waterPlugin())
   // noise.sample and noise.stats, whatever the manifest says: graphs are data every project can use.
   app.addPlugin(noisePlugin)
   app.addPlugin(ScenePlugin)

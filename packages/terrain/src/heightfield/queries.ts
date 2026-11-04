@@ -41,7 +41,9 @@ export function finestPage(rt: HeightfieldRuntime, x: number, z: number): Loaded
   if (x < 0 || z < 0 || x > layout.sizeX || z > layout.sizeZ) return undefined
   for (let depth = layout.depth; depth >= 0; depth--) {
     const size = rt.nodeSize(depth)
-    const [nx, nz] = rt.pages!.nodesAt(depth)
+    // nodesAt(depth) without its tuple: waterAt (0097) calls this per query and allocates nothing.
+    const nx = layout.leavesX >> (layout.depth - depth)
+    const nz = layout.leavesZ >> (layout.depth - depth)
     const px = Math.min(nx - 1, Math.floor(x / size))
     const pz = Math.min(nz - 1, Math.floor(z / size))
     const page = rt.pages!.get(nodeKey(depth, px, pz))

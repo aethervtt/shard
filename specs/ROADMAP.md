@@ -122,14 +122,14 @@ acceptance evidence are mapped in [the implementation checklist](research/audio-
 | [0073](0073-hlod.md) | Hierarchical LOD (baked proxies for unloaded cells: instances, merged, baked) | accepted |
 | [0095](0095-procedural-trees.md) | Procedural trees (EZ-Tree port in an experimental `nature` package, species assets, GLB export) | implemented |
 | [0096](0096-shared-wind.md) | Shared wind (`Wind` in m/s, `windAt` on CPU and GPU, zones, synced changes) | implemented |
-| [0097](0097-water-bodies.md) | Water bodies and surface (ocean, lakes, spline rivers, tanks; water as a volume; masks; `waterAt`) | draft |
+| [0097](0097-water-bodies.md) | Water bodies and surface (ocean, lakes, spline rivers, tanks; water as a volume; masks; `waterAt`) | draft (part 1 built) |
 | [0098](0098-ocean-waves.md) | Ocean waves (JONSWAP FFT cascades on both tiers, foam, shores, CPU evaluator, tick-synced) | draft |
 | [0099](0099-underwater.md) | Underwater and water optics (per-pixel waterline, fog, Snell's window, caustics, light shafts, aquariums) | draft |
 | [0100](0100-water-interaction.md) | Water interaction (buoyancy, Kelvin wakes, interaction foam, spray) | draft |
 
-Water lands in order: 0096 (wind, which trees and grass read too), 0097 (bodies, the opaque copy
-it adds to the renderer, `waterAt`), then 0098, 0099 and 0100, each an opt-in plugin of
-`@aethervtt/shard-water`. 0099 and 0100 only need 0097; with 0098 they also use its waves and foam.
+Water lands in order: 0096 (wind, which trees and grass read too), 0097 part 1 (oceans and lakes,
+the opaque copy it adds to the renderer, `waterAt`; built), 0098, 0097 part 2 (rivers, volumes and
+sides, masks, shore foam), then 0100 and 0099, each an opt-in plugin of `@aethervtt/shard-water`. 0099 and 0100 only need 0097; with 0098 they also use its waves and foam.
 
 Open worlds land in order: 0071 (terrain), 0072 (partition, its always scene holds the terrain),
 then 0073 (HLOD over the partition's cells). 0073 uses 0045's simplifier (`simplifyLods`). 2D

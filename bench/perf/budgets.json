@@ -149,6 +149,12 @@
       "desktop": 1,
       "note": "0058: projected fog's passes after appending a region to 4,000 (the GPU time render.describe reports). fog/src/fog.test.ts."
     },
+    "gpu:water": {
+      "kind": "target",
+      "laptop": 1.5,
+      "desktop": 1.5,
+      "note": "0097 proposed: the water pass (the shared surface, shaded and writing depth) for the lake scene at 1080p: an ocean and a lake on a heightfield, the camera at the shore. water/src/gpu.test.ts."
+    },
     "gpu:foliage": {
       "kind": "guard",
       "margin": 0.1,
@@ -492,6 +498,19 @@
       "laptop": 0.1,
       "desktop": 0.1,
       "note": "0096 proposed: wind/sync and wind/field together with 24 WindZones (the 16 nearest the camera uploaded), mean of 2,000 frames. The laptop measured 8 µs (2026-11-04). wind/src/wind.test.ts."
+    },
+    "water/at": {
+      "kind": "unit",
+      "per": "call",
+      "laptop": 0.0005,
+      "desktop": 0.0005,
+      "note": "0097 proposed: waterAt with an ocean and 8 lakes of 16 control points (outline tests by z band), 100k calls after a warm-up. water/src/water.test.ts."
+    },
+    "water/frame": {
+      "kind": "target",
+      "laptop": 0.1,
+      "desktop": 0.1,
+      "note": "0097 proposed: a frame's water CPU work with 9 bodies and the camera flying 0.7 m a frame: gathering bodies, moving the info clipmap (its ground fill included, no terrain) and placing the surface rings, mean of 2,000 frames. water/src/water.test.ts."
     },
     "effects/update": {
       "kind": "target",

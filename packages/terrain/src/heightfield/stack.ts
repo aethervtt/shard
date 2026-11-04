@@ -1,4 +1,5 @@
 import { ShardError } from '@aethervtt/shard-core'
+import { sampleCatmullRom } from '@aethervtt/shard-mesh'
 import { computeOrigins, evalProgram, type NoiseGraph, noiseKernel } from '@aethervtt/shard-noise'
 import {
   BLEND_ADD,
@@ -64,35 +65,13 @@ export function tessellate(
   step: number,
 ): number[] {
   const p = spline.points
-  const n = p.length
-  const out: number[] = []
-  const at = (i: number) => {
-    const k = Math.min(n - 1, Math.max(0, i))
-    return [p[k]![0], heights[k]!, p[k]![2]] as const
+  const points = new Float64Array(p.length * 3)
+  for (let i = 0; i < p.length; i++) {
+    points[i * 3] = p[i]![0]
+    points[i * 3 + 1] = heights[i]!
+    points[i * 3 + 2] = p[i]![2]
   }
-  for (let s = 0; s + 1 < n; s++) {
-    const p0 = at(s - 1)
-    const p1 = at(s)
-    const p2 = at(s + 1)
-    const p3 = at(s + 2)
-    const len = Math.hypot(p2[0] - p1[0], p2[2] - p1[2])
-    const pieces = Math.max(1, Math.ceil(len / step))
-    for (let k = s === 0 ? 0 : 1; k <= pieces; k++) {
-      const t = k / pieces
-      const t2 = t * t
-      const t3 = t2 * t
-      for (let c = 0; c < 3; c++) {
-        out.push(
-          0.5 *
-            (2 * p1[c]! +
-              (-p0[c]! + p2[c]!) * t +
-              (2 * p0[c]! - 5 * p1[c]! + 4 * p2[c]! - p3[c]!) * t2 +
-              (-p0[c]! + 3 * p1[c]! - 3 * p2[c]! + p3[c]!) * t3),
-        )
-      }
-    }
-  }
-  return out
+  return sampleCatmullRom(points, false, step)
 }
 
 /**

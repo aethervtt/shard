@@ -27,6 +27,7 @@ import { terrainMethods } from '@aethervtt/shard-terrain'
 import { localeMethods } from '@aethervtt/shard-text'
 import { uiMethods } from '@aethervtt/shard-ui'
 import { metricsMethods } from '@aethervtt/shard-verify/metrics'
+import { waterMethods } from '@aethervtt/shard-water'
 import { windMethods } from '@aethervtt/shard-wind'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import {
@@ -89,6 +90,7 @@ const PLUGIN_METHODS = [
   ...metricsMethods,
   ...tilemapMethods,
   ...windMethods,
+  ...waterMethods,
 ]
 
 /** The protocol method's parameter schema, as an MCP input schema. */
@@ -411,6 +413,16 @@ export const TOOLS: Tool[] = [
     'describe_wind',
     'wind.describe',
     'The wind (wind/Wind) as data: direction, speed in m/s with its Beaufort name, gustiness and gust scale, the sway strength (speed / 6), the wind clock, every WindZone in the order it applies, and windAt at a point (direction, steady speed, gust now). Example: { "position": [12, 2, -40] } to check a WindZone shelters that spot. Scenes set it under "resources": { "wind/Wind": { "speed": 18 } } (0 calm, 6 a breeze, 18 a gale).',
+  ),
+  forward(
+    'describe_water',
+    'water.describe',
+    'Water (0097) as data: every water/WaterBody (kind, surface level, priority, outline points and bounds, optics and whether they fell back to clear, its wind, any water/bad-spline problem), the info clipmap around the camera (texel size, corner and extent per level, redraws) and the water pass’s GPU time. Example: {} after adding a lake, to check its outline closed and its optics loaded.',
+  ),
+  forward(
+    'sample_water',
+    'water.sample',
+    'waterAt at a world point: the body there, its surface height, the point’s depth below it, the ground under it and whether it is under water. CPU only, the same headless. Example: { "position": [12, 3, -40] } to check a spawn point is dry.',
   ),
   forward(
     'sample_atmosphere',

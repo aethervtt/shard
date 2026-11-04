@@ -138,6 +138,8 @@ export const BUILTIN_PLUGINS = {
   nature:
     'experimental (0095): procedural trees and bushes: the nature/Tree generator, nature/TreeSpecies (*.tree.json) and the nature/Tree material; shard nature init copies preset species, materials and textures into assets/nature (add scatter to place them; includes wind)',
   wind: 'shared wind (0096): the wind/Wind resource in m/s, WindZone volumes, windAt for gameplay, shard::wind for shaders, wind.describe; replicate wind/WindState to keep clients on the server’s wind (scatter and nature include it; servers keep it)',
+  water:
+    'water bodies (0097, part 1): water/WaterBody oceans and lakes (a closed water/WaterSpline), water/WaterOptics (*.water.json, presets water/<clear|ocean|coastal|lake|river|murky|pool>.water.json), waterAt for gameplay (works headless), the water pass (refraction, absorption, reflections, wind ripples), water.describe and water.sample (includes wind and core/transform; add render/forward to draw it, terrain for ground under lakes)',
   dice: 'the dice table (0054): dice skins, face layouts and effect recipes as data, dice.play and dice.describe, dice/RollRequest in scenes; tracks record on the calling thread (includes render/forward)',
   'core/transform': 'Transform and hierarchy propagation',
 } as const
