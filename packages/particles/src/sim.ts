@@ -10,6 +10,7 @@ import {
 import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
 import type { Mesh } from '@aethervtt/shard-mesh'
 import {
+  Camera3d,
   type CameraData,
   ComputedVisibility,
   cameraOf,
@@ -17,6 +18,7 @@ import {
   DataStore,
   dataEntry,
   depthReadEntry,
+  drivingView,
   ForwardStateResource,
   Gpu,
   GpuAssetsResource,
@@ -24,10 +26,8 @@ import {
   type NodeContext,
   type NodeDescriptor,
   RenderPhase,
-  type RenderView,
   reportUnsupported,
   Shaders,
-  Views,
 } from '@aethervtt/shard-render'
 import { FrameDemand, Time } from '@aethervtt/shard-runtime'
 import { type Texture, Textures } from '@aethervtt/shard-texture'
@@ -445,26 +445,24 @@ function reach(effect: ParticleEffect): number {
 }
 
 /**
- * Advances every ParticleSystem: spawn counts, uniforms, culling against the main camera, and the
- * CPU backend. The GPU work runs in the `particles/simulate` node.
+ * Advances every ParticleSystem: spawn counts, uniforms, culling against the driving camera
+ * (`viewCamera`), and the CPU backend. The GPU work runs in the `particles/simulate` node.
  */
 export const prepareParticles = defineSystem({
   name: 'particles/prepare',
   description: 'Schedules spawns, writes particle uniforms, and runs the CPU backend.',
   setup: (world) => ({
     q: world.query({ with: [ParticleSystem, GlobalTransform, ComputedVisibility] }),
+    cameras: world.query({ with: [Camera3d] }),
   }),
-  run: ({ q }, world) => {
+  run: ({ q, cameras }, world) => {
     const store = world.resource(Particles)
     const gpu = world.resource(Gpu)
     const effects = world.resource(ParticleEffects)
     const time = world.resource(Time)
     store.frame++
-    // The primary camera: the first view in render order.
-    let primary: RenderView | undefined
-    for (const view of world.resource(Views).list) {
-      if (cameraOf(view) && (!primary || view.order < primary.order)) primary = view
-    }
+    // The primary camera: the one that drives view-dependent work (any layer; systems have none).
+    const primary = drivingView(world, cameras, 0xffff)
     store.primary = primary?.name
     store.primaryCamera = primary ? cameraOf(primary) : undefined
     const cam = store.primaryCamera

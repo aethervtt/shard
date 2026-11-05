@@ -114,7 +114,7 @@ Like Unreal, the bodies that share a surface (ocean, lakes, rivers) render throu
 one top-down texture, so where they meet there's no seam.
 
 - **Info texture**: a clipmap of 4 levels at 256² (4 m, 16 m, 64 m and 256 m texels), centred on
-  the first camera, `rgba32float` each: water surface height (−1e9 where dry), ground height under
+  the view camera (0106), `rgba32float` each: water surface height (−1e9 where dry), ground height under
   the water (−1e9 where unknown), flow xy (part 2). A second `rg8unorm` layer holds the body index
   (draw slot + 1, 0 where dry: the surface blends each body's optics from it) and, in part 2, the
   shore distance. *(Built: `rgba32float`, not the drafted `rgba16float`: half floats hold a height

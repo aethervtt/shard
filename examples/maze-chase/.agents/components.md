@@ -1100,6 +1100,14 @@ Brings along: `core/Transform`.
 | `cascades` | object | `{"count":4,"maxDistance":150,"splitLambda":0.8}` |  | How cascaded shadow maps divide the view. |
 | `angularDiameter` | number | `0.53` | ≥ 0, ≤ 30, deg | The sun disk's size in an atmosphere's sky (the Sun 0.53°). 0: no disk. Illuminance is at the top of the atmosphere. |
 
+## `render/DrivesView`
+
+An offscreen camera that is a real view (a minimap, split screen): terrain LOD, the water clipmap, particle culling and shadow ranking may follow it like a window camera.
+
+Brings along: `render/Camera3d`.
+
+Tag (no fields).
+
 ## `render/EnvironmentMap`
 
 Image-based lighting for a camera: ambient light and reflections from an HDR environment, prefiltered on the GPU.

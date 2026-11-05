@@ -1,5 +1,5 @@
 import type { World } from '@aethervtt/shard-core'
-import { Camera3d, defineOverlay } from '@aethervtt/shard-render'
+import { Camera3d, defineOverlay, viewCamera } from '@aethervtt/shard-render'
 import { GlobalTransform } from '@aethervtt/shard-transform'
 import { type WindSample, windAt, windSample } from './wind'
 
@@ -21,23 +21,21 @@ function speedColor(speed: number): number[] {
   return color
 }
 
-/** Arrows on a grid around the first camera, a metre below it: windAt, coloured by speed. */
+/** Arrows on a grid around the driving camera, a metre below it: windAt, coloured by speed. */
 export const windOverlay = defineOverlay({
   name: 'wind',
   description:
     'Wind (0096): arrows on a 9×9 grid every 4 m around the camera, a metre below it, pointing downwind, as long as the speed with gusts (a metre per 6 m/s), blue when calm to red in a gale. Shows WindZones at work.',
   draw: (world: World, g) => {
-    const cameras = world.query({ with: [Camera3d, GlobalTransform] })
+    const camera = viewCamera(world.query({ with: [Camera3d, GlobalTransform] }), 0xffff)
     let cx = 0
     let cy = 0
     let cz = 0
-    for (const table of cameras.tables) {
-      if (table.count === 0) continue
-      const m = table.column(GlobalTransform, 'matrix')
+    if (camera !== undefined) {
+      const m = world.get(camera, GlobalTransform).matrix
       cx = m[3]!
       cy = m[7]! - 1
       cz = m[11]!
-      break
     }
     const half = ((GRID - 1) / 2) * SPACING
     for (let i = 0; i < GRID; i++) {

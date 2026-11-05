@@ -105,7 +105,7 @@ WindZone { shape: 'box' | 'sphere', size: vec3 = [10, 10, 10] (m), falloff: f32 
   so the highest wins where they overlap. Gusts scale with the resulting speed.
 - `override` is flattened into three fields (`override`, `direction`, `speed`): component fields
   are columns, and a struct field would be JSON on every read.
-- `windAt` uses every zone. Up to 16 are uploaded, the 16 nearest the first camera when there are
+- `windAt` uses every zone. Up to 16 are uploaded, the 16 nearest the view camera (0106) when there are
   more (logged once per count as `wind/too-many-zones`).
 
 ### Multiplayer

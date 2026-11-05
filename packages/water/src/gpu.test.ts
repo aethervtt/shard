@@ -23,6 +23,7 @@ import {
   captureBuffer,
   captureView,
   DirectionalLight,
+  DrivesView,
   describeRender,
   Exposure,
   Fog,
@@ -41,13 +42,19 @@ import {
 } from '@aethervtt/shard-render'
 import { compareGolden, settle, watchBaseline } from '@aethervtt/shard-render/testing'
 import { App, LogResource } from '@aethervtt/shard-runtime'
-import { Terrain, TerrainSources, TerrainWorld, terrainPlugin } from '@aethervtt/shard-terrain'
+import {
+  type HeightfieldRender,
+  Terrain,
+  TerrainSources,
+  TerrainWorld,
+  terrainPlugin,
+} from '@aethervtt/shard-terrain'
 import { sourceAsset } from '@aethervtt/shard-terrain/testing'
 import { Grid, lookAt, Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { Wind } from '@aethervtt/shard-wind'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { WaterBodies } from './bodies'
-import { levelTexel } from './clipmap'
+import { INFO_SNAP, levelTexel } from './clipmap'
 import { WaterBody, WaterSpline } from './components'
 import { readWaterInfo } from './debug'
 import { type WaterOpticsPreset, waterOptics } from './optics'
@@ -93,6 +100,8 @@ interface SceneOptions {
   /** The ocean's optics (default ocean) and how deep its bed is (default 4 m). */
   optics?: WaterOpticsPreset
   bed?: number
+  /** The camera shows on the window (its target null) instead of an offscreen target. */
+  window?: boolean
 }
 
 /** The bowl the lake sits in: −6 m at the middle, rising to +12 m 100 m out. */
@@ -135,21 +144,21 @@ const circle = (r: number, n = 16) =>
   }))
 
 async function scene(g: GpuContext, o: SceneOptions) {
+  const target = new OffscreenTarget(g, {
+    label: 'water',
+    width: o.width ?? 160,
+    height: o.height ?? 96,
+  })
   const app = new App().addPlugin(
     TransformPlugin,
-    renderPlugin({ gpu: g, windowView: false }),
+    renderPlugin({ gpu: g, windowView: false, ...(o.window ? { target } : {}) }),
     forwardPlugin({ msaa: o.msaa ?? 4 }),
   )
   if (o.lake) app.addPlugin(terrainPlugin())
   app.addPlugin(waterPlugin())
   await app.init()
   const world = app.world
-  const target = new OffscreenTarget(g, {
-    label: 'water',
-    width: o.width ?? 160,
-    height: o.height ?? 96,
-  })
-  const targetRef = world.resource(RenderTargets).add(target, 'water')
+  const targetRef = o.window ? null : world.resource(RenderTargets).add(target, 'water')
   world.resource(Wind).speed = 7
   world.spawn(
     [DirectionalLight, { illuminance: 80_000, shadows: o.shadows ?? true }],
@@ -540,6 +549,60 @@ describe('the water pass (0097)', () => {
     expect(worst).toBeLessThan(0.01)
     expect(groundKnown).toBeGreaterThan(200)
     expect(s.world.resource(WaterBodies).count).toBe(2)
+    expect(problems(s.world)).toEqual([])
+    await s.app.dispose()
+  })
+
+  it('keeps terrain selection and the info clipmap on the window camera while a thumbnail renders', {
+    timeout: timeout(120_000),
+  }, async () => {
+    const eye: Vec3 = [0, 30, -140]
+    const s = await scene(gpu, { eye, at: [0, 0, 0], lake: true, window: true })
+    // A game's thumbnail camera: offscreen, an earlier order, its own layer, 4 km away. With only
+    // the required components, its table comes before the main camera's in a query.
+    const thumbnails = new OffscreenTarget(gpu, { label: 'thumbnail', width: 32, height: 32 })
+    const thumbnail = s.world.spawn(
+      [
+        Camera3d,
+        {
+          target: s.world.resource(RenderTargets).add(thumbnails, 'thumbnail'),
+          order: -10,
+          layers: 2,
+        },
+      ],
+      Exposure,
+      [Transform, { translation: [4000, 30, 0] }],
+    )
+    const drivenBy = () => {
+      const rt = s.world.resource(TerrainWorld).heightfields.get(s.terrain!)!
+      const terrain = (rt.parts.get('render') as HeightfieldRender).camera
+      const clip = s.world.resource(WaterRender).clip
+      const half = (INFO_SIZE / 2) * levelTexel(0)
+      return {
+        terrain: [terrain[0]!, terrain[2]!],
+        // The centre of the finest level's window, which moves in steps of INFO_SNAP texels.
+        water: [clip.corner(0, 0) + half, clip.corner(0, 1) + half],
+      }
+    }
+    await ready(s)
+    const near = (v: number[], x: number, z: number) =>
+      Math.abs(v[0]! - x) <= INFO_SNAP * levelTexel(0) &&
+      Math.abs(v[1]! - z) <= INFO_SNAP * levelTexel(0)
+    let driven = drivenBy()
+    expect(near(driven.terrain, eye[0], eye[2]), `terrain at ${driven.terrain}`).toBe(true)
+    expect(near(driven.water, eye[0], eye[2]), `water at ${driven.water}`).toBe(true)
+    // Showing layer 1 too, it still renders offscreen: the window camera keeps driving.
+    s.world.set(thumbnail, Camera3d, { layers: 0xffff })
+    for (let i = 0; i < 3; i++) s.app.update(1 / 60)
+    driven = drivenBy()
+    expect(near(driven.terrain, eye[0], eye[2]), `terrain at ${driven.terrain}`).toBe(true)
+    expect(near(driven.water, eye[0], eye[2]), `water at ${driven.water}`).toBe(true)
+    // A minimap that's a real view opts in with DrivesView, and its earlier order wins.
+    s.world.add(thumbnail, DrivesView)
+    for (let i = 0; i < 3; i++) s.app.update(1 / 60)
+    driven = drivenBy()
+    expect(near(driven.terrain, 4000, 0), `terrain at ${driven.terrain}`).toBe(true)
+    expect(near(driven.water, 4000, 0), `water at ${driven.water}`).toBe(true)
     expect(problems(s.world)).toEqual([])
     await s.app.dispose()
   })

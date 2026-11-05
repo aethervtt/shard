@@ -5,7 +5,6 @@ import {
   defineSystem,
   type Entity,
   ProfilerResource,
-  type Query,
   type World,
 } from '@aethervtt/shard-core'
 import type { GpuContext } from '@aethervtt/shard-gpu'
@@ -30,6 +29,7 @@ import {
   RenderPhase,
   Shaders,
   Visibility,
+  viewCamera,
 } from '@aethervtt/shard-render'
 import type { App } from '@aethervtt/shard-runtime'
 import { Time } from '@aethervtt/shard-runtime'
@@ -233,27 +233,6 @@ function normalize3(v: Float64Array): void {
   v[2] = v[2]! / l
 }
 
-/** The camera that drives selection: the active one with the lowest `order`, then the lowest entity. */
-export function pickCamera(q: Query): { entity: Entity; table: number; row: number } | undefined {
-  let best: { entity: Entity; table: number; row: number } | undefined
-  let bestOrder = Infinity
-  for (let t = 0; t < q.tables.length; t++) {
-    const table = q.tables[t]!
-    const order = table.column(Camera3d, 'order')
-    const active = table.column(Camera3d, 'active')
-    for (let row = 0; row < table.count; row++) {
-      if (active[row] === 0) continue
-      const o = order[row]!
-      const e = table.entities[row]!
-      if (o < bestOrder || (o === bestOrder && best && e < best.entity)) {
-        bestOrder = o
-        best = { entity: e, table: t, row }
-      }
-    }
-  }
-  return best
-}
-
 function updateView(world: World, rt: PlanetRuntime, pr: PlanetRender, camera: Entity): void {
   const m = world.get(camera, GlobalTransform).matrix
   const cam = world.get(camera, Camera3d)
@@ -337,18 +316,18 @@ export const selectChunks = defineSystem({
       const pr = rt.parts.get('render') as PlanetRender | undefined
       if (pr) jobs -= pr.jobs.length
     }
-    const picked = pickCamera(s.cameras)
+    const picked = viewCamera(s.cameras)
     for (const rt of state.planets.values()) {
       if (!rt.ready || !world.isAlive(rt.entity)) continue
       const pr = renderOf(world, rt)
       updateMaterials(world, rt, pr)
-      if (!picked) {
+      if (picked === undefined) {
         pr.hasCamera = false
         hideAll(world, pr, frame)
         continue
       }
       pr.hasCamera = true
-      updateView(world, rt, pr, picked.entity)
+      updateView(world, rt, pr, picked)
       selectNodes(rt.tree, pr.view, selectionParams(rt, TERRAIN), frame, rt.selection)
       adaptDetail(rt, budget.triangles)
       const ocean = rt.settings!.ocean

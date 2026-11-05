@@ -150,7 +150,7 @@ draw   (render) : capacity instances; dead slots collapse to nothing in the vert
   where the pipelines are still compiling spawns nothing and simulates nothing, and the next
   dispatched frame catches up the spawns. The determinism test compiles with `playing: false`
   before stepping.
-- Sorting and simulation run for the primary camera only. Other views draw the same particles
+- Sorting and simulation run for the primary camera only: the view camera (0106), any layer. Other views draw the same particles
   unsorted.
 - The CPU backend runs every module except collision (it has no depth buffer), and it draws
   through the same render path by uploading its particles.

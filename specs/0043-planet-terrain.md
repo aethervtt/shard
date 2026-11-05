@@ -101,10 +101,10 @@ BiomeSet { biomes: list(handle('terrain/Biome')), albedo, normal, orm: handle('T
   0041's `sampleSpherePatch` uses the same mapping.
 - Node keys are `(face, depth, x, y)`, packed with 3 + 5 + 24 + 24 bits into two u32s. They're
   stable and hashable.
-- `terrain/select` runs in PostUpdate after transform propagation. Per camera it walks the six
-  trees and computes each node's projected error from its geometric error (its max height
-  deviation from its parent's surface, recorded at generation) and its distance to the camera's
-  frustum. It splits above `errorPixels`, merges below half of it, and culls nodes beyond the
+- `terrain/select` runs in PostUpdate after transform propagation. For the view camera (0106) it
+  walks the six trees and computes each node's projected error from its geometric error (its max
+  height deviation from its parent's surface, recorded at generation) and its distance to the
+  camera's frustum. It splits above `errorPixels`, merges below half of it, and culls nodes beyond the
   horizon (a sphere-horizon test) or outside the frustum. The walk uses scratch arrays with no
   allocation, and the tree is kept as flat TypedArrays indexed by node slot. Pixels are CSS
   pixels (0051): the view's height is `displayHeight / pixelRatio`, so a Retina display selects

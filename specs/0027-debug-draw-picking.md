@@ -72,7 +72,8 @@ the forward queue, draws the enabled overlays through `Gizmos`:
 
 - bounds: each visible mesh's local bounds through its transform (an oriented box).
 - lights: point-light range spheres, spot cones at range, arrows along directional lights.
-- cameras: other cameras' frustums (not the primary camera's, which you're looking through).
+- cameras: other cameras' frustums (not the primary camera's, which you're looking through: the
+  view camera, 0106).
 - cascades: the primary camera's shadow cascade boxes, tinted by index.
 - normals: vertex normals of visible meshes, at most 1500 per mesh.
 - axes: every transform's X, Y, Z.

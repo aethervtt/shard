@@ -10,6 +10,7 @@ import {
   type RenderView,
   registerShaders,
   Shaders,
+  viewCamera,
 } from '@aethervtt/shard-render'
 import { definePlugin, LogResource, type Plugin } from '@aethervtt/shard-runtime'
 import { GlobalTransform, TransformSystems } from '@aethervtt/shard-transform'
@@ -27,8 +28,8 @@ import { infoNode, WaterGpu, WaterRender, waterDepthNode, waterNode } from './re
 import { WATER_SHADERS } from './shaders'
 
 /**
- * Moves the info clipmap to the first camera and fills the ground that scrolled in (0097), before
- * the frame renders. Nothing while there's no water.
+ * Moves the info clipmap to the driving camera (`viewCamera`, layer 1, where water draws) and fills
+ * the ground that scrolled in (0097), before the frame renders. Nothing while there's no water.
  */
 export const prepareWater = defineSystem({
   name: 'water/prepare',
@@ -41,13 +42,12 @@ export const prepareWater = defineSystem({
     const render = world.tryResource(WaterRender)
     const state = world.resource(WaterBodies)
     if (!render || state.count === 0) return
-    for (const table of s.cameras.tables) {
-      if (table.count === 0) continue
-      const m = table.column(GlobalTransform, 'matrix')
-      render.clip.rebuilds = 0
-      render.clip.update(state, m[3]!, m[11]!)
-      return
-    }
+    const camera = viewCamera(s.cameras)
+    if (camera === undefined) return
+    const m = world.entityTable(camera).column(GlobalTransform, 'matrix')
+    const o = world.entityRow(camera) * 12
+    render.clip.rebuilds = 0
+    render.clip.update(state, m[o + 3]!, m[o + 11]!)
   },
 })
 
