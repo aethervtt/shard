@@ -321,6 +321,14 @@ export function terrainJsonSchema(): Record<string, unknown> {
               required: ['spline'],
               additionalProperties: false,
             },
+            {
+              type: 'object',
+              description:
+                'Where runtime edits apply (spec 0104): sculpting here, painting at the same kind of entry in "paint". At most one per list; without one, edits sit just before the first spline entry, so roads and paths win over them.',
+              properties: { edits: { const: true } },
+              required: ['edits'],
+              additionalProperties: false,
+            },
           ],
         },
       },
@@ -369,44 +377,56 @@ export function terrainJsonSchema(): Record<string, unknown> {
         description:
           'Paint layers, in order: the first is the base; each later one paints its layer over what’s below where all its masks pass.',
         items: {
-          type: 'object',
-          properties: {
-            layer: { type: 'string', description: 'A material layer’s name.' },
-            height: pairOf('Where the height is in [min, max] (m).', [[600, 2000]]),
-            slope: pairOf('Where the slope is in [min, max] degrees (0 flat, 90 a cliff).', [
-              [32, 90],
-            ]),
-            noise: {
-              ...refOf('A noise graph above a threshold.', 'noise/patches.noise.json'),
-              properties: {
-                path: { type: 'string' },
-                guid: { type: 'string' },
-                above: num('Paints where the graph is above this (default 0).', {
-                  examples: [0.2],
-                }),
-              },
-            },
-            mask: {
+          oneOf: [
+            {
               type: 'object',
-              description: 'A Heightmap over a rectangle: paints by its value (0–1).',
               properties: {
-                path: { type: 'string' },
-                guid: { type: 'string' },
-                ...rect,
+                layer: { type: 'string', description: 'A material layer’s name.' },
+                height: pairOf('Where the height is in [min, max] (m).', [[600, 2000]]),
+                slope: pairOf('Where the slope is in [min, max] degrees (0 flat, 90 a cliff).', [
+                  [32, 90],
+                ]),
+                noise: {
+                  ...refOf('A noise graph above a threshold.', 'noise/patches.noise.json'),
+                  properties: {
+                    path: { type: 'string' },
+                    guid: { type: 'string' },
+                    above: num('Paints where the graph is above this (default 0).', {
+                      examples: [0.2],
+                    }),
+                  },
+                },
+                mask: {
+                  type: 'object',
+                  description: 'A Heightmap over a rectangle: paints by its value (0–1).',
+                  properties: {
+                    path: { type: 'string' },
+                    guid: { type: 'string' },
+                    ...rect,
+                  },
+                  required: ['path', 'at', 'size'],
+                },
+                spline: {
+                  type: 'string',
+                  description: 'Paints along a spline, out to half its width.',
+                },
+                blend: num(
+                  'Softens the masks’ edges: metres for height, masks and splines, degrees for slope (default 0, hard).',
+                  { examples: [6] },
+                ),
               },
-              required: ['path', 'at', 'size'],
+              required: ['layer'],
+              additionalProperties: false,
             },
-            spline: {
-              type: 'string',
-              description: 'Paints along a spline, out to half its width.',
+            {
+              type: 'object',
+              description:
+                'Where runtime painting applies (spec 0104). At most one; without one, just before the first spline entry.',
+              properties: { edits: { const: true } },
+              required: ['edits'],
+              additionalProperties: false,
             },
-            blend: num(
-              'Softens the masks’ edges: metres for height, masks and splines, degrees for slope (default 0, hard).',
-              { examples: [6] },
-            ),
-          },
-          required: ['layer'],
-          additionalProperties: false,
+          ],
         },
       },
     },

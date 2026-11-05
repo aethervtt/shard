@@ -11,6 +11,8 @@ import { Planet, TerrainBudget } from './components'
 import { clearHeightfieldColliders } from './heightfield/colliders'
 import * as heightfieldComponentModule from './heightfield/component'
 import { Terrain } from './heightfield/component'
+import * as heightfieldEditorModule from './heightfield/editor'
+import { editHeightfields } from './heightfield/editor'
 import * as heightmapModule from './heightfield/heightmap'
 import * as heightfieldMaterialModule from './heightfield/material'
 import {
@@ -101,6 +103,7 @@ export function terrainPlugin(options: TerrainPluginOptions = {}): Plugin {
       componentsModule,
       heightsModule,
       heightfieldComponentModule,
+      heightfieldEditorModule,
       heightfieldMaterialModule,
       heightmapModule,
       materialModule,
@@ -135,9 +138,10 @@ export function terrainPlugin(options: TerrainPluginOptions = {}): Plugin {
       app.addSystems(PostUpdate, updateHeightfields.after(updatePlanets))
       app.addMethod(...terrainMethods)
       app.addSystems(PostUpdate, selectChunks.after(updatePlanets).before(computeVisibility))
+      app.addSystems(PostUpdate, editHeightfields.after(updateHeightfields))
       app.addSystems(
         PostUpdate,
-        selectHeightfields.after(updateHeightfields).before(computeVisibility),
+        selectHeightfields.after(editHeightfields).before(computeVisibility),
       )
       app.addSystems(First, uploadHeightfieldPages)
       for (const extend of terrainExtensions) extend(app)

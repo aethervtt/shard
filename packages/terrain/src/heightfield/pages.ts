@@ -6,6 +6,7 @@ import {
   leafNormals,
   type NoiseAccess,
   pageTexels,
+  patchLeaf,
   readPage,
   SIDE,
   type Stack,
@@ -80,6 +81,11 @@ export class PageStore {
   /** Decoded pages by key, in use order (Map insertion order: oldest first). */
   private readonly cache = new Map<number, LoadedPage>()
   private readonly pinned = new Set<number>()
+  /**
+   * Pages rebaked by runtime edits (spec 0104): ahead of the packs, never evicted, and a read
+   * landing for one is dropped. A rebake that includes the edits clears them.
+   */
+  private readonly overrides = new Map<number, LoadedPage>()
   stats = { reads: 0, bytesRead: 0, inflated: 0, bakedInline: 0 }
 
   constructor(store: PackStore, layout: TerrainLayout, lo: number, hi: number, workers?: Workers) {
@@ -96,8 +102,10 @@ export class PageStore {
     return [this.layout.leavesX >> level, this.layout.leavesZ >> level]
   }
 
-  /** A node's index entry, if its pack's index is loaded. */
+  /** A node's index entry, if its pack's index is loaded (an edited page's range otherwise). */
   entry(depth: number, x: number, z: number): PackEntry | undefined {
+    const o = this.overrides.get(nodeKey(depth, x, z))
+    if (o) return { offset: 0, length: 1, min: o.min, max: o.max, error: o.error }
     const { path, slot } = packOf(depth, x, z)
     const index = this.indexes.get(path)
     const e = index?.entries[slot]
@@ -136,6 +144,8 @@ export class PageStore {
 
   /** A decoded page in the CPU cache (marked used), or undefined. */
   get(key: number): LoadedPage | undefined {
+    const o = this.overrides.get(key)
+    if (o) return o
     const p = this.cache.get(key)
     if (p && !this.pinned.has(key)) {
       this.cache.delete(key)
@@ -160,7 +170,7 @@ export class PageStore {
    */
   load(depth: number, x: number, z: number): Promise<LoadedPage | undefined> {
     const key = nodeKey(depth, x, z)
-    const cached = this.cache.get(key)
+    const cached = this.overrides.get(key) ?? this.cache.get(key)
     if (cached) return Promise.resolve(cached)
     let p = this.inflight.get(key)
     if (p) return p
@@ -198,6 +208,9 @@ export class PageStore {
           )
         : decodeInline(packed, leaf, this.layout.cells, this.lo, this.hi, this.layout.spacing)
     this.stats.inflated++
+    // Edited while the read was out: the edit's page stands.
+    const edited = this.overrides.get(key)
+    if (edited) return edited
     const page: LoadedPage = {
       key,
       depth,
@@ -240,10 +253,18 @@ export class PageStore {
     const key = nodeKey(depth, x, z)
     const cached = this.get(key)
     if (cached) return cached
-    const baked = bakeLeaf(noise, stack, this.layout, x, z)
+    const page = this.bakeLeaf(noise, stack, x, z)
     this.stats.bakedInline++
-    const page: LoadedPage = {
-      key,
+    this.put(page)
+    return page
+  }
+
+  /** A leaf baked from the stack on this thread (the pack's bytes, edits included), uncached. */
+  bakeLeaf(noise: NoiseAccess, stack: Stack, x: number, z: number): LoadedPage {
+    const depth = this.layout.depth
+    const baked = bakeLeaf(noise, stack, this.layout, x, z)
+    return {
+      key: nodeKey(depth, x, z),
       depth,
       x,
       z,
@@ -262,13 +283,96 @@ export class PageStore {
       max: baked.max,
       error: 0,
     }
-    this.put(page)
-    return page
   }
 
-  /** Every decoded page (pinned and cached). */
+  /**
+   * A leaf with leaf-local samples [i0, i1] × [j0, j1] (or, `paintOnly`, just the control texels
+   * over them) rebaked from the stack, the rest kept: the page `bakeLeaf` would make (0104).
+   */
+  patchLeaf(
+    noise: NoiseAccess,
+    stack: Stack,
+    page: LoadedPage,
+    i0: number,
+    j0: number,
+    i1: number,
+    j1: number,
+    paintOnly: boolean,
+  ): LoadedPage {
+    const heights = page.heights.slice()
+    const control = page.control.slice()
+    const [min, max] = patchLeaf(
+      noise,
+      stack,
+      this.layout,
+      page.x,
+      page.z,
+      heights,
+      control,
+      i0,
+      j0,
+      i1,
+      j1,
+      paintOnly,
+    )
+    return {
+      key: page.key,
+      depth: page.depth,
+      x: page.x,
+      z: page.z,
+      leaf: true,
+      heights,
+      normals: paintOnly
+        ? page.normals
+        : leafNormals(
+            heights,
+            this.lo,
+            this.hi,
+            this.layout.spacing,
+            new Uint8Array(SIDE * SIDE * 2),
+          ),
+      control,
+      texels: undefined,
+      min,
+      max,
+      error: 0,
+    }
+  }
+
+  /** Puts an edited page ahead of the packs (spec 0104). */
+  override(page: LoadedPage): void {
+    this.overrides.set(page.key, page)
+    this.cache.delete(page.key)
+  }
+
+  /** Whether a page is an edit's. */
+  overridden(key: number): boolean {
+    return this.overrides.has(key)
+  }
+
+  get overrideCount(): number {
+    return this.overrides.size
+  }
+
+  /** Drops the edits' pages (a rebake now holds them). */
+  clearOverrides(): void {
+    this.overrides.clear()
+  }
+
+  /** A page's texels for the GPU pool: its own until uploaded, else made again from it. */
+  texelsOf(page: LoadedPage, out: Uint8Array): Uint8Array {
+    if (page.texels) return page.texels
+    return pageTexels(page, page.leaf, this.lo, this.hi, this.layout.spacing, out)
+  }
+
+  /** Every decoded page (pinned and cached; not edits' pages, see `edited`). */
   pages(): IterableIterator<LoadedPage> {
     return this.cache.values()
+  }
+
+  /** The edits' pages. */
+  edited(): IterableIterator<LoadedPage> {
+    return this.overrides.values()
   }
 
   get cached(): number {
@@ -284,6 +388,7 @@ export class PageStore {
     this.indexes.clear()
     this.cache.clear()
     this.pinned.clear()
+    this.overrides.clear()
   }
 }
 

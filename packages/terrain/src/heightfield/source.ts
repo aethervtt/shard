@@ -116,6 +116,12 @@ export interface TerrainSource {
   layers: SourceMaterialLayer[]
   textures: { albedo: SourceRef | null; normal: SourceRef | null; orm: SourceRef | null }
   paint: SourcePaint[]
+  /**
+   * Where the edit layers apply (spec 0104): the `height` index the sculpt layer goes before, and
+   * the `paint` index the paint layer goes before (a list's length: after its last entry). From an
+   * `{ "edits": true }` entry, else just before the list's first spline entry.
+   */
+  edits: { height: number; paint: number }
 }
 
 /** The terrain's grid (spec 0071): roots, depths, blocks, and paint cells. */
@@ -192,6 +198,31 @@ function known(o: Record<string, unknown>, keys: readonly string[], path: string
     if (k === '$schema' || keys.includes(k)) continue
     throw shape(pointer(path, k), `Unknown field "${k}"`, `Fields here: ${keys.join(', ')}.`)
   }
+}
+
+/**
+ * A list's `{ "edits": true }` entry (spec 0104): its index, and the list without it. At most one.
+ */
+function editsEntry(list: unknown[], path: string): { at: number; rest: unknown[] } {
+  let at = -1
+  const rest: unknown[] = []
+  list.forEach((value, i) => {
+    if (!isPlainObject(value) || value.edits === undefined) {
+      rest.push(value)
+      return
+    }
+    const p = pointer(path, i)
+    known(value, ['edits'], p)
+    if (value.edits !== true)
+      throw shape(
+        pointer(p, 'edits'),
+        'edits is true',
+        'It marks where edits apply: { "edits": true }.',
+      )
+    if (at >= 0) throw shape(p, 'A list has at most one { "edits": true } entry')
+    at = rest.length
+  })
+  return { at, rest }
 }
 
 /**
@@ -295,8 +326,11 @@ export function parseTerrainSource(json: unknown): TerrainSource {
       'height is a list of layers',
       'e.g. [{ "noise": { "path": "…" }, "scale": 200 }]',
     )
-  const height = json.height.map((value, i): SourceHeightLayer => {
-    const path = pointer('/height', i)
+  const heightEdits = editsEntry(json.height, '/height')
+  // Pointers into the file count the edits entry.
+  const heightIndex = (i: number) => (heightEdits.at >= 0 && i >= heightEdits.at ? i + 1 : i)
+  const height = heightEdits.rest.map((value, i): SourceHeightLayer => {
+    const path = pointer('/height', heightIndex(i))
     if (!isPlainObject(value)) throw shape(path, 'A height layer is an object')
     const kinds = ['noise', 'image', 'spline'].filter((k) => value[k] !== undefined)
     if (kinds.length !== 1) {
@@ -403,8 +437,10 @@ export function parseTerrainSource(json: unknown): TerrainSource {
   // Paint.
   const paintList = json.paint ?? []
   if (!Array.isArray(paintList)) throw shape('/paint', 'paint is a list of paint layers')
-  const paint = paintList.map((value, i): SourcePaint => {
-    const path = pointer('/paint', i)
+  const paintEdits = editsEntry(paintList, '/paint')
+  const paintIndex = (i: number) => (paintEdits.at >= 0 && i >= paintEdits.at ? i + 1 : i)
+  const paint = paintEdits.rest.map((value, i): SourcePaint => {
+    const path = pointer('/paint', paintIndex(i))
     if (!isPlainObject(value)) throw shape(path, 'A paint layer is an object')
     known(value, ['layer', 'height', 'slope', 'noise', 'mask', 'spline', 'blend'], path)
     if (typeof value.layer !== 'string' || !names.has(value.layer)) {
@@ -446,6 +482,12 @@ export function parseTerrainSource(json: unknown): TerrainSource {
       blend,
     }
   })
+  // Edits sit below the first spline entry by default, so roads and paths win over them.
+  const firstSpline = (at: number, list: { kind?: string; spline?: string | null }[]) => {
+    if (at >= 0) return at
+    const i = list.findIndex((l) => l.kind === 'spline' || (l.kind === undefined && l.spline))
+    return i >= 0 ? i : list.length
+  }
   const source: TerrainSource = {
     size,
     spacing,
@@ -457,6 +499,10 @@ export function parseTerrainSource(json: unknown): TerrainSource {
     layers,
     textures,
     paint,
+    edits: {
+      height: firstSpline(heightEdits.at, height),
+      paint: firstSpline(paintEdits.at, paint),
+    },
   }
   terrainLayout(source)
   return source

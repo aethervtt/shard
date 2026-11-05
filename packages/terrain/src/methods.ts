@@ -11,9 +11,11 @@ import type { AppMethod } from '@aethervtt/shard-runtime'
 import { collidersOf } from './colliders'
 import {
   describeHeightfield,
+  editHeightfield,
   heightfieldMap,
   resolveHeightfield,
   sampleHeightfield,
+  undoHeightfield,
 } from './heightfield/methods'
 import { TerrainWorld, terrainSample } from './heights'
 import type { PlanetRuntime } from './planet'
@@ -307,9 +309,32 @@ export const terrainMethods: AppMethod[] = [
     },
   },
   {
+    name: 'terrain.edit',
+    description:
+      'Edits a heightfield terrain (0104), as a player would: `edit` is one shape edit ({ "shape": circle | rect | polygon | spline, then "set", "raise", "lower", "slope" (with "from"/"to" off splines) or "paint" (a layer, null erases) with "strength", and "edge": { "angle" } or { "falloff" } }), or `stroke` a brush along points ({ "brush": raise | lower | smooth | flatten | roughen, or "paint": layer, "radius", "strength", "falloff", "points": [[x, z], …] }). Metres from the terrain’s corner. Waits until the terrain shows it; returns the leaves rebaked and their rectangle. One undo step.',
+    params: defineSchema('terrain/EditParams', {
+      terrain: terrainField,
+      edit: t.json({ description: 'A shape edit (see the method description).' }),
+      stroke: t.json({ description: 'A stroke: brush options and points.' }),
+    }),
+    handler: ({ world }, p) => editHeightfield(world, resolveHeightfield(world, p.terrain), p),
+  },
+  {
+    name: 'terrain.undo',
+    description: 'Undoes the last edit (stroke or shape) of a heightfield terrain (0104).',
+    params: defineSchema('terrain/UndoParams', { terrain: terrainField }),
+    handler: ({ world }, p) => undoHeightfield(world, resolveHeightfield(world, p.terrain), false),
+  },
+  {
+    name: 'terrain.redo',
+    description: 'Redoes the last undone edit of a heightfield terrain (0104).',
+    params: defineSchema('terrain/RedoParams', { terrain: terrainField }),
+    handler: ({ world }, p) => undoHeightfield(world, resolveHeightfield(world, p.terrain), true),
+  },
+  {
     name: 'terrain.map',
     description:
-      'A PNG of terrain. A planet: equirectangular (width × width/2; latitude +90 at the top, longitude −180 to 180 left to right), "biomes" colors land by its dominant biome’s tint (shaded by slope), "height" dark lowlands to white peaks; water is blue, darker when deeper. A heightfield terrain (0071): top-down (+X right, +Z down), "height", "slope" (flat black to 60° white), "layers" (the heaviest paint layer’s tint), or "bake" (blocks green when current, amber when stale, cyan where the last bake rebuilt them).',
+      'A PNG of terrain. A planet: equirectangular (width × width/2; latitude +90 at the top, longitude −180 to 180 left to right), "biomes" colors land by its dominant biome’s tint (shaded by slope), "height" dark lowlands to white peaks; water is blue, darker when deeper. A heightfield terrain (0071): top-down (+X right, +Z down), "height", "slope" (flat black to 60° white), "layers" (the heaviest paint layer’s tint), or "bake" (blocks green when current, amber when stale, cyan where the last bake rebuilt them, magenta the leaves the last edit rebaked).',
     params: defineSchema('terrain/MapParams', {
       planet: planetField,
       terrain: terrainField,

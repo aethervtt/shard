@@ -153,11 +153,13 @@ export interface TerrainBudgetValue {
   pages: number
   /** Heightfields: pages uploaded to the pool per frame, at most. */
   pagesPerFrame: number
+  /** Heightfields (0104): milliseconds a frame for rebaking what edits touched, per terrain. */
+  editMs: number
 }
 
 export const TerrainBudget = defineResource<TerrainBudgetValue>('terrain/Budget', {
   description:
-    'How much terrain work a frame may do: chunk generations, GPU milliseconds, page uploads, and how many chunks and pages stay cached.',
+    'How much terrain work a frame may do: chunk generations, GPU milliseconds, page uploads, edit rebakes, and how many chunks and pages stay cached.',
   init: () => ({
     chunksPerFrame: 8,
     triangles: 2_000_000,
@@ -166,5 +168,6 @@ export const TerrainBudget = defineResource<TerrainBudgetValue>('terrain/Budget'
     colliderCache: 256,
     pages: 1024,
     pagesPerFrame: 16,
+    editMs: 4,
   }),
 })

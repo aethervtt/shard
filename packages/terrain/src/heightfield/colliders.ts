@@ -111,11 +111,7 @@ export function updateHeightfieldColliders(
     const page = cached ?? pages.leafNow(mainNoise(), rt.stack!, keyX(key), keyZ(key))
     if (cached) set.fromPages++
     else set.bakedInline++
-    const heights = new Array<number>(SIDE * SIDE)
-    for (let j = 0; j < SIDE; j++) {
-      for (let i = 0; i < SIDE; i++)
-        heights[j * SIDE + i] = dequantize(page.heights[(j + 1) * LEAF_SIDE + i + 1]!, rt.lo, rt.hi)
-    }
+    const heights = tileHeights(rt, page, new Array<number>(SIDE * SIDE))
     if (tile) despawnTile(world, tile)
     const next: ColliderTile = {
       key,
@@ -140,6 +136,19 @@ export function updateHeightfieldColliders(
     for (let i = 0; i < idle.length && set.tiles.size > cacheSize; i++)
       set.tiles.delete(idle[i]!.key)
   }
+}
+
+/** A leaf page's heights as its collider takes them: SIDE × SIDE metres, row by row along +Z. */
+export function tileHeights(
+  rt: HeightfieldRuntime,
+  page: { heights: Uint16Array },
+  out: number[],
+): number[] {
+  for (let j = 0; j < SIDE; j++) {
+    for (let i = 0; i < SIDE; i++)
+      out[j * SIDE + i] = dequantize(page.heights[(j + 1) * LEAF_SIDE + i + 1]!, rt.lo, rt.hi)
+  }
+  return out
 }
 
 const center = new Float64Array(3)

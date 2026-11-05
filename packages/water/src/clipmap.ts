@@ -68,14 +68,21 @@ export class InfoClipmap {
       this.bodiesVersion = state.version
       this.dirty.fill(1)
     }
-    if (state.terrainVersion !== this.terrainVersion) {
+    if (state.terrainVersion !== this.terrainVersion || state.groundRefresh) {
       this.terrainVersion = state.terrainVersion
+      state.groundRefresh = false
+      state.groundEdits.length = 0
       for (let l = 0; l < INFO_LEVELS; l++) {
         this.cellX[l]!.fill(UNFILLED)
         this.pending[l] = 1
         this.cursor[l] = 0
       }
     }
+    // Terrain edits (0104): the texels under them refill.
+    const edits = state.groundEdits
+    for (let k = 0; k < edits.length; k += 4)
+      this.invalidate(edits[k]!, edits[k + 1]!, edits[k + 2]!, edits[k + 3]!)
+    edits.length = 0
     for (let l = 0; l < INFO_LEVELS; l++) {
       const t = levelTexel(l)
       const ox = Math.floor(Math.floor(x / t) / INFO_SNAP) * INFO_SNAP - INFO_SIZE / 2
@@ -96,6 +103,27 @@ export class InfoClipmap {
     let any = false
     for (let l = 0; l < INFO_LEVELS; l++) if (this.dirty[l]) any = true
     return any
+  }
+
+  /** Marks every level's ground texels over a world rectangle unfilled, so they read the ground again. */
+  invalidate(x0: number, z0: number, x1: number, z1: number): void {
+    for (let l = 0; l < INFO_LEVELS; l++) {
+      const t = levelTexel(l)
+      const cx = this.cellX[l]!
+      let any = false
+      for (let z = Math.floor(z0 / t); z <= Math.floor(z1 / t); z++) {
+        for (let x = Math.floor(x0 / t); x <= Math.floor(x1 / t); x++) {
+          const i = mod(z, INFO_SIZE) * INFO_SIZE + mod(x, INFO_SIZE)
+          if (cx[i] !== x || this.cellZ[l]![i] !== z) continue
+          cx[i] = UNFILLED
+          any = true
+        }
+      }
+      if (any) {
+        this.pending[l] = 1
+        this.cursor[l] = 0
+      }
+    }
   }
 
   /** Fills a level's ground texels that don't hold their window's cells yet, from the cursor on. */

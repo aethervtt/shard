@@ -20,6 +20,9 @@ export declare const MODE_CARVE: 2
 export declare const LAYER_NOISE: 0
 export declare const LAYER_IMAGE: 1
 export declare const LAYER_SPLINE: 2
+export declare const EDIT_TILE: number
+export declare const EDIT_KEY: number
+export declare const PAINT_ONE: number
 
 /** The noise kernel a bake samples with: this thread's instance and its functions. */
 export interface NoiseAccess {
@@ -120,6 +123,20 @@ export interface StackPaint {
   readonly blend: number
 }
 
+/**
+ * A terrain's edit layers as the kernel reads them (spec 0104): where they apply in the height and
+ * paint lists, and their tiles by key (tz × EDIT_KEY + tx). Sculpt tiles hold EDIT_TILE² metres
+ * of delta per leaf sample; paint tiles four u16s per paint texel (layer, layer, weight, weight).
+ */
+export interface StackEdits {
+  /** Height layer index the sculpt layer applies before (the layer count: after the last). */
+  readonly at: number
+  /** Paint entry index the paint layer applies before. */
+  readonly paintAt: number
+  sculpt: ReadonlyMap<number, Float32Array> | null
+  paint: ReadonlyMap<number, Uint16Array> | null
+}
+
 /** A terrain source compiled for the kernel (heightfield/stack.ts): structured-cloneable. */
 export interface Stack {
   readonly spacing: number
@@ -129,6 +146,7 @@ export interface Stack {
   readonly layerCount: number
   readonly height: readonly StackHeightLayer[]
   readonly paint: readonly StackPaint[]
+  readonly edits: StackEdits
 }
 
 /** What bakeBlock needs of the terrain's grid (heightfield/source.ts TerrainLayout). */
@@ -205,6 +223,7 @@ export declare function evalHeights(
   nz: number,
   upTo: number,
   out: Float64Array,
+  edits?: boolean,
 ): void
 export declare function evalHeightPoints(
   noise: NoiseAccess,
@@ -264,6 +283,20 @@ export declare function bakeLeaf(
   x: number,
   z: number,
 ): { page: DecodedPage; min: number; max: number }
+export declare function patchLeaf(
+  noise: NoiseAccess,
+  stack: Stack,
+  layout: KernelLayout,
+  x: number,
+  z: number,
+  heights: Uint16Array,
+  control: Uint8Array,
+  i0: number,
+  j0: number,
+  i1: number,
+  j1: number,
+  paintOnly: boolean,
+): [number, number]
 export declare function parentPage(
   children: readonly (DecodedPage | null)[],
   cells: number,

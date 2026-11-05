@@ -396,6 +396,11 @@ export const TOOLS: Tool[] = [
     'Terrain as data. Planets: chunks selected per depth, partial chunks waiting for children, requests in flight, pool use, collider chunks and their anchors, vertex spacing, and the height, biome, and slope under the camera. Heightfield terrains (*.terrain.json): the bake (blocks current, stale, baking; what the last bake rebuilt and any heights clipped by heightRange), chunks per depth, pages resident and in flight, the GPU pool, and collider tiles. Problems show here too. Use it to check LOD, streaming and colliders while flying around, and that an edit rebaked what you expected.',
   ),
   forward(
+    'edit_terrain',
+    'terrain.edit',
+    'Sculpts or paints a heightfield terrain the way a player would (spec 0104), as one undo step, and waits until it shows. `edit` is a shape: { "shape": { "circle": { "at": [x, z], "radius": 12 } } (or rect, polygon [[x, z], …], spline { points, width }), then one of "set": 4, "raise": 2, "lower": 3, "slope": [h0, h1] (with "from"/"to" off splines), or "paint": "sand" (null erases) with "strength", and "edge": { "angle": 35 } or { "falloff": 4 } }. `stroke` drags a brush: { "brush": "raise" | "lower" | "smooth" | "flatten" | "roughen" (or "paint": layer), "radius", "strength", "falloff", "points": [[x, z], …] }. Metres from the terrain’s corner. Check the result with sample_terrain or terrain_map; undo with the terrain.undo method.',
+  ),
+  forward(
     'sample_terrain',
     'terrain.sample',
     'The ground at up to 4096 points, exactly what colliders use. A planet: height above the radius, underwater and water depth, slope, climate and biome weights; points are directions from the center or [lat, lon] in degrees, e.g. { "latlon": [[0, 0], [80, 20]] }. A heightfield terrain: height, normal, slope, and the two heaviest paint layers; points are [x, z] metres from its corner, e.g. { "points": [[120, 300], [124, 300]] } to check a road is flat across.',

@@ -437,6 +437,18 @@
       "desktop": 2000,
       "note": "0071: moving one image layer of the 2 km test terrain (0.5 m spacing) rebakes the blocks its old and new rectangles touch and their ancestors, on the worker pool, and rewrites their packs. terrain/src/heightfield/rebake.test.ts. Proposed: not yet measured on either machine."
     },
+    "terrain/edit-brush": {
+      "kind": "target",
+      "laptop": 4,
+      "desktop": 4,
+      "note": "0104: main-thread edit work a frame (the stroke's dabs plus the terrain/heightfield-edits system: leaf rebakes, ancestors, pool rewrites, colliders), p95, while a 20 m brush (raise, smooth, paint) drags 3 m a frame across the zoo's map (1024 m at 0.5 m, every leaf on the CPU). Matches TerrainBudget.editMs's default. terrain/src/heightfield/edit-bench.test.ts. Proposed: not yet measured on either machine; an Apple M5 Max (not a listed machine) measured p95 1.59 ms (raise), 1.41 (smooth), 0.74 (paint)."
+    },
+    "terrain/edit-shape": {
+      "kind": "target",
+      "laptop": 1000,
+      "desktop": 1000,
+      "note": "0104: a 200 m polygon cut (set, 35° walls) on the zoo's map is in (pages, ancestors, colliders, event) within this many ms at 60 fps: the frames it takes at TerrainBudget.editMs a frame, or its work if longer. terrain/src/heightfield/edit-bench.test.ts. Proposed: not yet measured on either machine; an Apple M5 Max (not a listed machine) measured 150 ms (a 50 ms apply, then 7–8 frames of rebakes)."
+    },
     "text/build-font": {
       "kind": "guard",
       "margin": 0.25,
