@@ -1,6 +1,12 @@
 import { ChildOf, defineSystem, FixedUpdate, ProfilerResource } from '@aethervtt/shard-core'
 import { budget } from '@aethervtt/shard-core/test-env'
-import { addActions, defineActions, injectInput } from '@aethervtt/shard-input'
+import {
+  addActions,
+  defineActions,
+  Gesture,
+  gesturesPlugin,
+  injectInput,
+} from '@aethervtt/shard-input'
 import { Camera3d } from '@aethervtt/shard-render'
 import { LogResource } from '@aethervtt/shard-runtime'
 import { measureText } from '@aethervtt/shard-text'
@@ -430,6 +436,32 @@ describe('interaction', () => {
     injectInput(world, { type: 'wheel', dx: 0, dy: 400 })
     frame()
     expect(world.get(list, UiNode).scroll).toEqual([0, 70])
+  })
+
+  it('a wheel turned over the UI scrolls it and sends no wheel or pinch gesture', async () => {
+    const { world, frame } = await uiApp([gesturesPlugin])
+    const reader = world.reader(Gesture)
+    const r = root(world, 400, 400)
+    world.set(r, UiNode, { alignItems: 'start' })
+    const list = node(world, r, [
+      UiNode,
+      { width: 100, height: 50, overflow: 'scroll', direction: 'column' },
+    ])
+    for (let i = 0; i < 4; i++) node(world, list, [UiNode, { height: 30, shrink: 0 }])
+    frame()
+    mouse(world, 50, 40)
+    injectInput(world, { type: 'wheel', dx: 0, dy: 25 })
+    injectInput(world, { type: 'wheel', dx: 0, dy: -10, modifiers: 2 })
+    frame()
+    expect(world.get(list, UiNode).scroll[1]).toBeGreaterThan(0)
+    expect([...reader.read()]).toEqual([])
+    // Off the UI, the same wheel reaches gesture consumers.
+    mouse(world, 300, 300)
+    frame()
+    injectInput(world, { type: 'wheel', dx: 0, dy: 25 })
+    injectInput(world, { type: 'wheel', dx: 0, dy: -10, modifiers: 2 })
+    frame()
+    expect([...reader.read()].map((g) => g.kind)).toEqual(['wheel', 'pinch'])
   })
 })
 
