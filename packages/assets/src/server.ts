@@ -1141,19 +1141,26 @@ export class AssetServer {
         }
       }
     }
-    // Dependencies of reachable assets are reachable.
+    // Dependencies of reachable assets are reachable, and so is what their objects reference at
+    // runtime: a material made in code holds a loaded texture that no file records.
     const stack = [...reachable]
+    const add = (guid: string): void => {
+      if (reachable.has(guid)) return
+      reachable.add(guid)
+      stack.push(guid)
+    }
     while (stack.length > 0) {
-      const entry = this.entries.get(stack.pop()!)
+      const guid = stack.pop()!
+      const entry = this.entries.get(guid)
       const asset = entry && this.assetRecord(entry)
-      if (!asset) continue
-      for (const dep of asset.dependencies) {
-        const d = this.entry(dep)
-        if (d && !reachable.has(d.guid)) {
-          reachable.add(d.guid)
-          stack.push(d.guid)
+      if (asset)
+        for (const dep of asset.dependencies) {
+          const d = this.entry(dep)
+          if (d) add(d.guid)
         }
-      }
+      const [type, item] = this.itemOf(guid)
+      if (type?.references && item !== undefined)
+        for (const ref of type.references(item)) if (typeof ref?.guid === 'string') add(ref.guid)
     }
     return reachable
   }

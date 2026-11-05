@@ -531,7 +531,8 @@ function apply(
   fy: number,
 ): void {
   if (e.type === 'wheel') {
-    wheel(world, e, fx, fy)
+    // The UI scrolls with a wheel turned over it (`interactUi` sets `captured` earlier in `First`).
+    if (!world.tryResource(Mouse)?.captured) wheel(world, e, fx, fy)
     return
   }
   if (e.type === 'focus') {

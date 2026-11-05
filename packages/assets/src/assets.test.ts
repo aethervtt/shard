@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import {
+  type AssetRef,
   defineComponent,
   defineResource,
   defineSchema,
@@ -68,6 +69,26 @@ const Note = defineSchema('test-assets/Note', {
 defineDataAsset('Text', Note, { extension: 'note' })
 
 const HoldsText = defineComponent('test-assets/HoldsText', { text: t.handle('Text') })
+
+// An asset that uses Texts at runtime, as a material uses its textures.
+class BundleAsset {
+  texts: AssetRef[]
+  constructor(texts: AssetRef[]) {
+    this.texts = texts
+  }
+}
+
+const Bundles = defineResource<AssetStore<BundleAsset, 'Bundle'>>('test-assets/Bundles', {
+  init: () => new AssetStore('Bundle'),
+})
+
+defineAssetType<BundleAsset>('Bundle', {
+  store: Bundles,
+  load: () => new BundleAsset([]),
+  references: (bundle) => bundle.texts,
+})
+
+const HoldsBundle = defineComponent('test-assets/HoldsBundle', { bundle: t.handle('Bundle') })
 
 // --- helpers ---------------------------------------------------------------------
 
@@ -343,6 +364,24 @@ describe('loading', () => {
     // Unloaded assets load again on request.
     await s.load('assets/c.txt')
     expect(s.state('assets/c.txt')).toBe('loaded')
+  })
+
+  it('collect keeps loaded assets that a live asset made in code references', async () => {
+    write('assets/a.txt', 'a')
+    write('assets/b.txt', 'b')
+    const s = server()
+    await s.scan()
+    await s.whenSettled(['assets/a.txt', 'assets/b.txt'])
+    const bundles = s.world.initResource(Bundles)
+    const used = bundles.add(new BundleAsset([s.resolve('assets/a.txt')!]))
+    // A bundle nothing holds doesn't keep its text.
+    bundles.add(new BundleAsset([s.resolve('assets/b.txt')!]))
+    const e = s.world.spawn([HoldsBundle, { bundle: used }])
+    expect(s.collect()).toEqual(['assets/b.txt'])
+    expect(s.state('assets/a.txt')).toBe('loaded')
+    expect(bundles.get(used)).toBeDefined()
+    s.world.despawn(e)
+    expect(s.collect()).toEqual(['assets/a.txt'])
   })
 
   it('a host that cannot list files loads from the prebuilt catalog', async () => {

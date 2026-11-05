@@ -70,7 +70,9 @@ weren't there.
 - `pinch` (`scale`), `twist` (`angle`) and `pan2` (`dx`, `dy`) about the two fingers' center, in
   that order per move: pan first, then scale and turn about where the fingers are now. A one-finger
   drag that gains a second finger ends as a drag, and the two-finger gesture takes over;
-- `wheel`, and a ctrl wheel (a trackpad pinch) as `pinch` with id 0.
+- `wheel`, and a ctrl wheel (a trackpad pinch) as `pinch` with id 0. Neither is sent while the
+  pointer is over UI (`Mouse.captured`): the UI scrolls with that wheel, as action maps read it
+  released there (0036).
 
 Every event has the gesture's `id`. The thresholds are `Gestures.settings`.
 
