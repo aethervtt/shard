@@ -1,5 +1,18 @@
-import { defineSystem, PostUpdate, PreUpdate, ShardError, type World } from '@aethervtt/shard-core'
-import { Camera3d, registerShaders, ShaderGlobals, Shaders } from '@aethervtt/shard-render'
+import {
+  defineSystem,
+  PostUpdate,
+  PreUpdate,
+  type Query,
+  ShardError,
+  type World,
+} from '@aethervtt/shard-core'
+import {
+  Camera3d,
+  registerShaders,
+  ShaderGlobals,
+  Shaders,
+  viewCamera,
+} from '@aethervtt/shard-render'
 import { definePlugin, LogResource } from '@aethervtt/shard-runtime'
 import { GlobalTransform, TransformSystems } from '@aethervtt/shard-transform'
 import { windMethods } from './methods'
@@ -80,23 +93,23 @@ export const updateWindField = defineSystem({
       for (let i = 0, n = field.count * ZONE_FLOATS; i < n; i++) v[zones + i] = z[i]!
       field.uploaded = field.count
     } else {
-      cameraPosition(s.cameras, camera)
+      cameraPosition(world, s.cameras, camera)
       field.uploaded = uploadNearest(field, v, zones)
     }
     v[o + 10] = field.uploaded
   },
 })
 
-function cameraPosition(cameras: ReturnType<World['query']>, out: Float64Array): void {
+/** Where the driving camera (`viewCamera`) is, or the origin without one. */
+function cameraPosition(world: World, cameras: Query, out: Float64Array): void {
   out.fill(0)
-  for (const table of cameras.tables) {
-    if (table.count === 0) continue
-    const m = table.column(GlobalTransform, 'matrix')
-    out[0] = m[3]!
-    out[1] = m[7]!
-    out[2] = m[11]!
-    return
-  }
+  const entity = viewCamera(cameras)
+  if (entity === undefined) return
+  const m = world.entityTable(entity).column(GlobalTransform, 'matrix')
+  const o = world.entityRow(entity) * 12
+  out[0] = m[o + 3]!
+  out[1] = m[o + 7]!
+  out[2] = m[o + 11]!
 }
 
 /** The MAX_UPLOADED_ZONES zones nearest the camera, in priority order. Returns how many. */

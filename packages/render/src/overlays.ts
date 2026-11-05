@@ -22,9 +22,9 @@ import { defineOverlay, OVERLAYS, type Overlay, registeredOverlays } from './ove
 
 const extraOverlays = registeredOverlays()
 
+import { Camera3d } from './camera'
 import { drawPerfOverlay } from './perf-overlay'
-import { Views } from './plugin'
-import { Cameras, cameraOf } from './view'
+import { Cameras, cameraOf, drivingView } from './view'
 
 export {
   allOverlays,
@@ -280,18 +280,10 @@ function drawLights(
   }
 }
 
-/** The camera views render in order; the first is the one whose frustum you're looking through. */
+/** The camera whose frustum you're looking through (`drivingView`, any layer). */
 function primaryCamera(world: World): Entity | undefined {
-  let best: Entity | undefined
-  let order = Number.POSITIVE_INFINITY
-  for (const view of world.resource(Views).list) {
-    const cam = cameraOf(view)
-    if (cam && view.order < order) {
-      order = view.order
-      best = cam.entity
-    }
-  }
-  return best
+  const view = drivingView(world, world.query({ with: [Camera3d] }), 0xffff)
+  return view && cameraOf(view)?.entity
 }
 
 /** Draws the enabled overlays into Gizmos (Last, before gizmos upload). */

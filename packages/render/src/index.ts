@@ -61,6 +61,7 @@ export {
   Camera3d,
   type Camera3dValue,
   camera2d,
+  DrivesView,
   Exposure,
   type ExposurePreset,
   ExposurePresets,
@@ -72,6 +73,7 @@ export {
   LightPresets,
   lux,
   PhysicalCamera,
+  viewCamera,
 } from './camera'
 export {
   CLUSTER_COUNT,
@@ -547,6 +549,7 @@ export {
   Cameras,
   cameraOf,
   DEFAULT_CURVE,
+  drivingView,
   isScaled,
   RenderPath,
   shiftCameraHistory,

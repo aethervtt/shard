@@ -24,7 +24,7 @@ import {
 } from './assets'
 import { Atmospheres } from './atmosphere-state'
 import type { BaselineViewLights } from './baseline/lights'
-import { applyPhysicalCameras, Camera3d, Exposure, PhysicalCamera } from './camera'
+import { applyPhysicalCameras, Camera3d, DrivesView, Exposure, PhysicalCamera } from './camera'
 import {
   CLUSTER_COUNT,
   CLUSTER_Z,
@@ -150,6 +150,7 @@ import {
   Cameras,
   cameraOf,
   DeferredPath,
+  drivingView,
   extractCameras,
   RenderPath,
   Tonemapping,
@@ -229,27 +230,21 @@ const State = ForwardStateResource
 
 // --- prepare -------------------------------------------------------------------
 
-/** Ranks shadowed spot and point lights for the main camera and uploads changed lights. */
+/** Ranks shadowed spot and point lights for the driving camera and uploads changed lights. */
 const prepareLights = defineSystem({
   name: 'render/prepare-lights',
   description: 'Assigns shadow maps within the budgets and uploads changed lights.',
-  run: (_, world) => {
+  setup: (world) => ({ cameras: world.query({ with: [Camera3d] }) }),
+  run: ({ cameras }, world) => {
     const lights = world.resource(Lights)
     const shadows = world.resource(ShadowsResource)
     const settings = world.resource(LightingSettings)
-    let main: CameraData | undefined
-    let order = Number.POSITIVE_INFINITY
-    for (const view of world.resource(Views).list) {
-      const cam = cameraOf(view)
-      if (cam && view.order < order) {
-        main = cam
-        order = view.order
-      }
-    }
+    // Lights reach every layer, so any camera may rank them.
+    const main = drivingView(world, cameras, 0xffff)
     assignLocalShadows(
       shadows.local,
       lights,
-      main,
+      main && cameraOf(main),
       settings.maxShadowedSpots,
       settings.maxShadowedPoints,
     )
@@ -1739,6 +1734,7 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       Camera3d,
       Exposure,
       PhysicalCamera,
+      DrivesView,
       ForwardStateResource,
       Mesh3d,
       MeshMaterial,

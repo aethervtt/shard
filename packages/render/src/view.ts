@@ -7,6 +7,7 @@ import {
   type Entity,
   frustum,
   mat4,
+  type Query,
   t,
   vec3,
   type World,
@@ -14,7 +15,7 @@ import {
 import { LogResource, Time } from '@aethervtt/shard-runtime'
 import { GlobalTransform } from '@aethervtt/shard-transform'
 import { RenderTargets } from './assets'
-import { Camera3d, Exposure, exposureScale } from './camera'
+import { Camera3d, Exposure, exposureScale, viewCamera } from './camera'
 import { warnFeatureMissing } from './features'
 import type { RenderView } from './graph'
 import { createDrawList, type DrawList } from './instances'
@@ -572,4 +573,17 @@ function halton(k: number, base: number): number {
 /** The camera data of a view, if it's a camera view. */
 export function cameraOf(view: RenderView): CameraData | undefined {
   return view.data.camera as CameraData | undefined
+}
+
+/**
+ * The view of the camera that drives view-dependent work (`viewCamera`), when it renders this
+ * frame: undefined while that camera has no view (headless without a target).
+ */
+export function drivingView(world: World, cameras: Query, layers = 1): RenderView | undefined {
+  const entity = viewCamera(cameras, layers)
+  if (entity === undefined) return undefined
+  for (const view of world.resource(Views).list) {
+    if (cameraOf(view)?.entity === entity) return view
+  }
+  return undefined
 }

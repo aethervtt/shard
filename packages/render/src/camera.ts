@@ -1,4 +1,12 @@
-import { defineComponent, defineSystem, type Infer, t } from '@aethervtt/shard-core'
+import {
+  defineComponent,
+  defineSystem,
+  defineTag,
+  type Entity,
+  type Infer,
+  type Query,
+  t,
+} from '@aethervtt/shard-core'
 import { Transform } from '@aethervtt/shard-transform'
 
 /** Light presets in lux, paired with the exposure presets below. */
@@ -115,6 +123,53 @@ export const Camera3d = defineComponent(
 )
 
 export type Camera3dValue = Infer<typeof Camera3d>
+
+/**
+ * Lets a camera with an offscreen `target` drive view-dependent work as a window camera does
+ * (`viewCamera`): a minimap or a split-screen half that's a real view, not a thumbnail.
+ */
+export const DrivesView = defineTag('render/DrivesView', {
+  description:
+    'An offscreen camera that is a real view (a minimap, split screen): terrain LOD, the water clipmap, particle culling and shadow ranking may follow it like a window camera.',
+  requires: [Camera3d],
+})
+
+/**
+ * The camera that drives view-dependent work (terrain LOD, the water clipmap, particle culling,
+ * shadowed-light ranking): an active camera whose `layers` share a bit with `layers` (the layers
+ * the system's renderables draw on; 1 by default, as RenderLayers). One showing on the window, or
+ * with DrivesView, wins over one rendering offscreen; then the lowest `order`, then the lowest
+ * entity. A thumbnail camera only drives when nothing else can. `cameras` queries Camera3d; make it
+ * once, in a system's setup.
+ */
+export function viewCamera(cameras: Query, layers = 1): Entity | undefined {
+  let best: Entity | undefined
+  let bestOffscreen = true
+  let bestOrder = Number.POSITIVE_INFINITY
+  for (const table of cameras.tables) {
+    if (table.count === 0) continue
+    const active = table.column(Camera3d, 'active')
+    const mask = table.column(Camera3d, 'layers')
+    const order = table.column(Camera3d, 'order')
+    const target = table.column(Camera3d, 'target')
+    const drives = table.has(DrivesView)
+    for (let row = 0; row < table.count; row++) {
+      if (active[row] === 0 || (mask[row]! & layers) === 0) continue
+      const offscreen = !drives && !!target[row]
+      const o = order[row]!
+      const e = table.entities[row]!
+      if (best !== undefined) {
+        if (offscreen !== bestOffscreen) {
+          if (offscreen) continue
+        } else if (o > bestOrder || (o === bestOrder && e > best)) continue
+      }
+      best = e
+      bestOffscreen = offscreen
+      bestOrder = o
+    }
+  }
+  return best
+}
 
 export const PhysicalCamera = defineComponent(
   'render/PhysicalCamera',

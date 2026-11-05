@@ -21,6 +21,7 @@ import {
   Meshes,
   MeshMaterial,
   Visibility,
+  viewCamera,
 } from '@aethervtt/shard-render'
 import { Time } from '@aethervtt/shard-runtime'
 import { Texture, Textures, toHalf } from '@aethervtt/shard-texture'
@@ -36,7 +37,6 @@ import { TerrainWorld } from '../heights'
 import { adaptLodBias } from '../lod'
 import { TEXTURE_PERIOD } from '../material'
 import { NODE_READY, nearAnchor, type SelectionParams, selectNodes } from '../quadtree'
-import { pickCamera } from '../render'
 import { createView, perspectiveView } from '../view'
 import { TerrainChunk } from './component'
 import { LEAF_SIDE, PAGE } from './kernel'
@@ -715,7 +715,7 @@ export const selectHeightfields = defineSystem({
     if (!state) return
     const budget = world.resource(TerrainBudget)
     const frame = state.frame
-    const picked = pickCamera(s.cameras)
+    const picked = viewCamera(s.cameras)
     for (const rt of state.heightfields.values()) {
       if (!rt.ready || !rt.streaming || !world.isAlive(rt.entity)) continue
       let r = heightfieldRenderOf(world, rt)
@@ -728,13 +728,13 @@ export const selectHeightfields = defineSystem({
       ensurePool(world, rt, r, budget.pages)
       if (r.version !== rt.version) reloadPool(rt, r)
       updateMaterial(world, rt, r)
-      if (!picked) {
+      if (picked === undefined) {
         r.hasCamera = false
         hideAll(world, r)
         continue
       }
       r.hasCamera = true
-      updateView(world, rt, r, picked.entity)
+      updateView(world, rt, r, picked)
       const params = selectionParams(rt)
       selectNodes(rt.tree, r.view, params, frame, rt.selection)
       rt.lodBias = adaptLodBias(
