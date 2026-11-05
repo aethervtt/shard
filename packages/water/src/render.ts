@@ -89,6 +89,8 @@ interface ViewWater {
   uniform: GpuBuffer
   data: Float32Array
   group: GPUBindGroup | undefined
+  /** This frame's waves group (0098), when there's a sea. */
+  waves: GPUBindGroup | undefined
   /** What the group binds: uniform version, info, opaque color, opaque depth. */
   bound: [number, unknown, unknown, unknown]
 }
@@ -183,8 +185,9 @@ export class WaterGpu {
           texture: { sampleType: 'unfilterable-float', viewDimension: '2d-array' },
         },
         {
+          // The vertex stage reads it too, with waves (0098): whose sea moves each vertex.
           binding: 2,
-          visibility: F,
+          visibility: V | F,
           texture: { sampleType: 'unfilterable-float', viewDimension: '2d-array' },
         },
         { binding: 3, visibility: F, texture: { sampleType: 'float' } },
@@ -331,6 +334,7 @@ export class WaterGpu {
         }),
         data,
         group: undefined,
+        waves: undefined,
         bound: [-1, undefined, undefined, undefined],
       }
       this.views.set(name, v)
@@ -569,12 +573,19 @@ function surfacePipeline(
   msaa: number,
   alpha: boolean,
   depthOnly: boolean,
+  waves: GPUBindGroupLayout | undefined,
 ): GPURenderPipeline | undefined {
-  const key = depthOnly ? 'surface/depth' : `surface/${msaa}${alpha ? '/alpha' : ''}`
+  const base = depthOnly ? 'surface/depth' : `surface/${msaa}${alpha ? '/alpha' : ''}`
+  const key = waves ? `${base}/waves` : base
   const cached = water.pipelines.get(key)
   if (cached) return cached
   const gpu = ctx.gpu
-  const module = ctx.world.resource(Shaders).module(gpu, { root: 'water::surface' })
+  const module = ctx.world
+    .resource(Shaders)
+    .module(
+      gpu,
+      waves ? { root: 'water::surface', defines: { WAVES: true } } : { root: 'water::surface' },
+    )
   if (!module) {
     gpu.pipelines.skipped++
     return undefined
@@ -582,8 +593,10 @@ function surfacePipeline(
   const pipeline = gpu.pipelines.render({
     label: `water/${key}`,
     layout: gpu.layouts.pipelineLayout({
-      label: 'water/surface',
-      bindGroupLayouts: [viewLayout, water.waterLayout],
+      label: waves ? 'water/surface/waves' : 'water/surface',
+      bindGroupLayouts: waves
+        ? [viewLayout, water.waterLayout, waves]
+        : [viewLayout, water.waterLayout],
     }),
     vertex: {
       module,
@@ -684,7 +697,14 @@ export function waterNode(
     // Its own render pass, so its GPU time is its own (gpu:water).
     ownPass: true,
     enabled: active,
-    reads: ['opaque-color', 'opaque-depth', 'water-info', 'environment', 'shadow-cascades'],
+    reads: [
+      'opaque-color',
+      'opaque-depth',
+      'water-info',
+      'water-waves',
+      'environment',
+      'shadow-cascades',
+    ],
     writes: ['scene-color', 'scene-depth', 'hdr'],
     color: (view: RenderView) => sceneColor(view),
     depth: { resource: 'scene-depth' },
@@ -695,6 +715,9 @@ export function waterNode(
       if (!cam || !pv) return
       const gpu = ctx.gpu
       water.ensure(gpu)
+      // Waves (0098), when a sea is ready this frame.
+      const hook = ctx.world.tryResource(WaterSurfaceWaves)
+      const wavesGroup = hook?.group(ctx, bodies())
       const pipeline = surfacePipeline(
         ctx,
         water,
@@ -702,15 +725,18 @@ export function waterNode(
         cam.msaa,
         cam.alphaOutput,
         false,
+        wavesGroup ? hook!.layout(gpu) : undefined,
       )
       if (!pipeline) return
       const v = water.view(gpu, ctx.view.name)
       writeUniform(v, cam, clip, bodies(), ctx.texture('opaque-color').mipLevelCount)
       v.uniform.write(v.data)
+      v.waves = wavesGroup
       const pass = ctx.renderPass!
       pass.setPipeline(pipeline)
       pass.setBindGroup(0, viewBindGroup(gpu, ctx.world, pv, cam))
       pass.setBindGroup(1, surfaceGroup(ctx, water, v))
+      if (wavesGroup) pass.setBindGroup(2, wavesGroup)
       drawRings(pass, water, v.rings)
     },
   }
@@ -730,7 +756,7 @@ export function waterDepthNode(
     kind: 'render',
     phase: WATER_PHASE,
     enabled: (view: RenderView) => baseline && (cameraOf(view)?.msaa ?? 1) > 1 && active(view),
-    reads: ['water-info', 'opaque-color', 'opaque-depth'],
+    reads: ['water-info', 'water-waves', 'opaque-color', 'opaque-depth'],
     writes: ['depth'],
     after: ['water'],
     depth: { resource: 'depth' },
@@ -741,19 +767,42 @@ export function waterDepthNode(
       if (!cam || !pv) return
       const gpu = ctx.gpu
       water.ensure(gpu)
-      const pipeline = surfacePipeline(ctx, water, state.layouts.view, 1, false, true)
-      if (!pipeline) return
-      // The surface pass wrote this view's uniform and group earlier in the frame.
+      // The surface pass wrote this view's uniform and groups earlier in the frame.
       const v = water.views.get(ctx.view.name)
       if (!v?.group) return
+      const hook = ctx.world.tryResource(WaterSurfaceWaves)
+      const pipeline = surfacePipeline(
+        ctx,
+        water,
+        state.layouts.view,
+        1,
+        false,
+        true,
+        v.waves ? hook?.layout(gpu) : undefined,
+      )
+      if (!pipeline) return
       const pass = ctx.renderPass!
       pass.setPipeline(pipeline)
       pass.setBindGroup(0, viewBindGroup(gpu, ctx.world, pv, cam))
       pass.setBindGroup(1, v.group)
+      if (v.waves) pass.setBindGroup(2, v.waves)
       drawRings(pass, water, v.rings)
     },
   }
 }
+
+/**
+ * How the water pass gets the waves (0098) without importing them: oceanWavesPlugin inserts it.
+ * `group` is this frame's group 2 (the cascades and what they cover), or undefined with no sea.
+ */
+export interface SurfaceWaves {
+  layout(gpu: GpuContext): GPUBindGroupLayout
+  group(ctx: NodeContext, bodies: WaterBodiesState): GPUBindGroup | undefined
+}
+
+export const WaterSurfaceWaves = defineResource<SurfaceWaves>('water/SurfaceWaves', {
+  description: 'The waves’ bind group for the water pass (0098), from oceanWavesPlugin.',
+})
 
 export interface WaterRenderState {
   gpu: WaterGpu

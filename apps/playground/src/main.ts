@@ -49,7 +49,7 @@ import { uiPlugin } from '@aethervtt/shard-ui'
 import { vectorPlugin } from '@aethervtt/shard-vector'
 import { metricsPlugin } from '@aethervtt/shard-verify/metrics'
 import { installCapturePage } from '@aethervtt/shard-verify/page'
-import { waterPlugin } from '@aethervtt/shard-water'
+import { oceanWavesPlugin, waterPlugin } from '@aethervtt/shard-water'
 import { animationDemoPlugin } from './animation'
 import { animgraphDemoPlugin } from './animgraph'
 import { atmosphereDemoPlugin } from './atmosphere'
@@ -343,6 +343,7 @@ if (demo === 'galaxy') {
     forwardPlugin(),
     terrainPlugin({ workers: createWebWorkers() }),
     waterPlugin(),
+    oceanWavesPlugin(),
     ...controls(),
     hudPlugin,
     waterDemoPlugin,

@@ -2423,6 +2423,9 @@ importers:
       '@aethervtt/shard-mesh':
         specifier: workspace:*
         version: link:../mesh
+      '@aethervtt/shard-net':
+        specifier: workspace:*
+        version: link:../net
       '@aethervtt/shard-protocol':
         specifier: workspace:*
         version: link:../protocol
@@ -2432,6 +2435,9 @@ importers:
       '@aethervtt/shard-runtime':
         specifier: workspace:*
         version: link:../runtime
+      '@aethervtt/shard-shader':
+        specifier: workspace:*
+        version: link:../shader
       '@aethervtt/shard-terrain':
         specifier: workspace:*
         version: link:../terrain

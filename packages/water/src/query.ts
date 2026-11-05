@@ -2,12 +2,13 @@ import type { Entity, World } from '@aethervtt/shard-core'
 import { finestPage, type HeightfieldRuntime, pageHeight } from '@aethervtt/shard-terrain'
 import { insideShape, WaterBodies, type WaterBodiesState, type WaterBodyRecord } from './bodies'
 import type { WaterOpticsValue } from './optics'
+import { seaAt, seaSample, WaveSets, waveTick, waveTime } from './waves/sea'
 
 /** What `waterAt` writes. */
 export interface WaterSample {
   /** The body whose water is here, or null. */
   body: Entity | null
-  /** The water surface's height here (NaN without water). */
+  /** The water surface's height here, waves included (NaN without water). */
   surfaceHeight: number
   /** How far below the surface the point is (surface − y; negative above it, NaN without water). */
   depth: number
@@ -15,7 +16,7 @@ export interface WaterSample {
   groundHeight: number
   /** Water velocity (m/s); rivers bring it in 0097 part 2, so zero for now. */
   flow: [number, number, number]
-  /** The surface normal (straight up until waves, 0098). */
+  /** The surface normal, waves included (0098). */
   normal: [number, number, number]
   /** Whether the point is in water: below the surface and above the ground. */
   underwater: boolean
@@ -37,6 +38,7 @@ export function waterSample(): WaterSample {
 }
 
 const local = new Float64Array(3)
+const sea = seaSample()
 
 /**
  * The ground under world (x, z), from the first heightfield terrain (0071) that covers it, as
@@ -113,10 +115,22 @@ export function waterAt(world: World, position: ArrayLike<number>, out: WaterSam
     out.optics = null
     return out
   }
+  let surface = r.level
+  // Waves (0098), at the tick: the CPU evaluator, attenuated by the water's depth here.
+  const set = world.tryResource(WaveSets)?.sets.get(r.entity)
+  if (set && !set.problem) {
+    const tick = waveTick(world)
+    seaAt(set, x, z, waveTime(world, tick), tick, r.level - ground, sea)
+    surface += sea.height
+    const l = Math.sqrt(sea.slopeX * sea.slopeX + 1 + sea.slopeZ * sea.slopeZ)
+    out.normal[0] = -sea.slopeX / l
+    out.normal[1] = 1 / l
+    out.normal[2] = -sea.slopeZ / l
+  }
   out.body = r.entity
-  out.surfaceHeight = r.level
-  out.depth = r.level - y
-  out.underwater = y < r.level && y > ground
+  out.surfaceHeight = surface
+  out.depth = surface - y
+  out.underwater = y < surface && y > ground
   out.optics = r.optics
   return out
 }

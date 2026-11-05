@@ -19,6 +19,7 @@ import { sourceAsset } from '@aethervtt/shard-terrain/testing'
 import { Grid, Transform } from '@aethervtt/shard-transform'
 import {
   describeWater,
+  OceanWaves,
   WaterBody,
   WaterSpline,
   waterAt,
@@ -32,8 +33,9 @@ import { hudExtras } from './hud'
 /**
  * Water bodies (spec 0097, part 1): an island heightfield rising out of an ocean, a lake on its
  * plateau, and a dock, buoys and a rock above the water to see refraction (and that nothing above
- * the surface shows in it) and reflections of the sky. 1–3 move the camera (the lake, the dock,
- * from above), W cycles the wind.
+ * the surface shows in it) and reflections of the sky. The ocean has waves from the wind and a
+ * swell (spec 0098), the lake has chop. 1–3 move the camera (the lake, the dock, from above), W
+ * cycles the wind.
  */
 
 type Vec3 = [number, number, number]
@@ -110,6 +112,16 @@ let demo: Demo | undefined
 const sample = waterSample()
 const eye = new Float64Array(3)
 
+/** The seas' significant heights, and their GPU time. */
+function seas(w: ReturnType<typeof describeWater>): string {
+  const waves = (w as { waves?: { seas: { hs: number }[]; gpu: { ms: number | null } | null } })
+    .waves
+  if (!waves) return 'none'
+  const hs = waves.seas.map((s) => `Hs ${s.hs.toFixed(1)} m`).join(', ')
+  const ms = waves.gpu?.ms
+  return `${hs}${ms === null || ms === undefined ? '' : `, ${ms.toFixed(2)} ms`}`
+}
+
 function setView(world: World, d: Demo, i: number, from = VIEWS[i]![1], to = VIEWS[i]![2]): void {
   d.view = i
   const [component, value] = orbitFrom(from, to)
@@ -132,6 +144,7 @@ export const waterDemoPlugin = definePlugin({
       return [
         '',
         `water     ${w.drawn} bodies, pass ${gpu === null ? '–' : `${gpu.toFixed(2)} ms`}, ${w.zone?.rebuilds ?? 0} info redraws`,
+        `waves     ${seas(w)}`,
         `below     ${sample.body === null ? 'no water' : `surface ${sample.surfaceHeight.toFixed(1)} m, ${(-sample.depth).toFixed(1)} m above it`}`,
         `wind      ${WINDS[d.wind]![0]} (${world.resource(Wind).speed} m/s)`,
         `1 lake  2 dock  3 above (${VIEWS[d.view]![0]})   w wind`,
@@ -162,7 +175,22 @@ export const waterDemoPlugin = definePlugin({
       [Terrain, { source: ref }],
       [Transform, { translation: [-SIZE / 2, 0, -SIZE / 2] }],
     )
-    world.spawn([WaterBody, { kind: 'ocean', optics: waterOptics('ocean') }], Transform)
+    // Ocean waves (0098): a sea from the wind with a swell from the west, and chop on the lake.
+    world.spawn(
+      [WaterBody, { kind: 'ocean', optics: waterOptics('ocean') }],
+      [
+        OceanWaves,
+        {
+          seed: 7,
+          fetch: 200,
+          swell: true,
+          swellHeight: 0.8,
+          swellPeriod: 11,
+          swellDirection: [1, 0, 0.3],
+        },
+      ],
+      Transform,
+    )
     // The lake's outline runs under the bowl's rim (the ground reaches 11 m 35.5 m out, 12 m by
     // 40 m): its shore is where the water thins out on the ground, not the outline.
     world.spawn(
@@ -182,6 +210,7 @@ export const waterDemoPlugin = definePlugin({
           }),
         },
       ],
+      [OceanWaves, { seed: 3, fetch: 0.5, cascades: [{ length: 17 }] }],
       [Transform, { translation: [0, LAKE_LEVEL, 0] }],
     )
     // A dock out from the beach, buoys, and a rock in the lake: things above the surface.

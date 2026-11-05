@@ -140,6 +140,8 @@ export const BUILTIN_PLUGINS = {
   wind: 'shared wind (0096): the wind/Wind resource in m/s, WindZone volumes, windAt for gameplay, shard::wind for shaders, wind.describe; replicate wind/WindState to keep clients on the server’s wind (scatter and nature include it; servers keep it)',
   water:
     'water bodies (0097, part 1): water/WaterBody oceans and lakes (a closed water/WaterSpline), water/WaterOptics (*.water.json, presets water/<clear|ocean|coastal|lake|river|murky|pool>.water.json), waterAt for gameplay (works headless), the water pass (refraction, absorption, reflections, wind ripples), water.describe and water.sample (includes wind and core/transform; add render/forward to draw it, terrain for ground under lakes)',
+  'water/waves':
+    'ocean waves (0098): water/OceanWaves on an ocean or lake: a JONSWAP wind sea and swell from wind/Wind, FFT cascades on the GPU (both tiers), whitecaps and shore foam, the same sea at a tick on every machine, waterAt with waves, water.waves to preview a spectrum (includes water)',
   dice: 'the dice table (0054): dice skins, face layouts and effect recipes as data, dice.play and dice.describe, dice/RollRequest in scenes; tracks record on the calling thread (includes render/forward)',
   'core/transform': 'Transform and hierarchy propagation',
 } as const

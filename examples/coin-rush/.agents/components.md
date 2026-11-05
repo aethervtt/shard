@@ -2295,6 +2295,33 @@ Brings along: `ui/UiNode`, `ui/UiInteraction`.
 | `on` | boolean | `false` |  | Checked. |
 | `disabled` | boolean | `false` |  | Ignores input. |
 
+## `water/OceanWaves`
+
+Waves on an ocean or lake (0098): a JONSWAP wind sea and an optional swell, simulated by FFT cascades on the GPU and summed on the CPU for waterAt.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `seed` | integer | `1` | ≥ 0, ≤ 4294967295 | Picks the sea’s phases: the same seed, the same sea. |
+| `wind` | `"body"` \| `"own"` | `"body"` |  | body: the body’s wind (its own, or wind/Wind). own: windSpeed and windDirection here. |
+| `windSpeed` | number | `10` | ≥ 0, m/s | With wind: own. |
+| `windDirection` | number[3] | `[1,0,0]` |  | With wind: own; where it blows. |
+| `fetch` | number | `100` | ≥ 0.1, km | How far the wind has blown over water: short fetch is chop, long fetch builds big seas. |
+| `gamma` | number | `3.3` | ≥ 1, ≤ 10 | JONSWAP peak enhancement: higher is a sharper, more regular peak. |
+| `spread` | number | `1` | ≥ 0, ≤ 1 | Directional spreading: 1 Donelan–Banner (waves fan out), 0 waves from all ways. |
+| `swell` | boolean | `false` |  | Adds a swell from far away. |
+| `swellHeight` | number | `1` | ≥ 0, m | The swell’s significant wave height. |
+| `swellPeriod` | number | `11` | ≥ 1, s | The swell’s peak period. |
+| `swellDirection` | number[3] | `[1,0,0]` |  | Where the swell travels. |
+| `swellSpread` | number | `0.3` | ≥ 0, ≤ 1 | The swell’s spreading. |
+| `depth` | number | `0` | ≥ 0, m | 0: deep water, with waves shrinking near shores by the info texture’s depth. Above 0: TMA reshapes the whole spectrum for water this deep. |
+| `choppiness` | number | `1` | ≥ 0, ≤ 2 | Horizontal displacement λ: 0 rolling, 1 sharp crests. |
+| `cascades` | object[] | `[]` |  | Patch lengths of the FFT cascades, largest first (1–4). Default 250, 17 and 5 m: not integer ratios, so no repeat shows. |
+| `resolution` | integer | `256` | ≥ 0, ≤ 4294967295 | Texels per cascade side: 128, 256 or 512. |
+| `foamThreshold` | number | `0.2` |  | Foam grows where a cascade folds past this (1 − its Jacobian): 0.2 gives scattered whitecaps in a breeze and many in a gale. |
+| `foamGrowth` | number | `2` | ≥ 0 | Foam added a second where it folds. |
+| `foamDecay` | number | `0.35` | ≥ 0 | Foam lost a second elsewhere. |
+| `changedAt` | integer | `-1` | ≥ -2147483648, ≤ 2147483647 | The tick the spectrum last changed (the server stamps it): every client crossfades from it. |
+
 ## `water/WaterBody`
 
 A body of water (0097): its surface joins the shared water surface, shaded in the water pass with refraction, absorption and reflections, and waterAt reports it.
