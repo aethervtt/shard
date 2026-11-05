@@ -118,6 +118,8 @@ acceptance evidence are mapped in [the implementation checklist](research/audio-
 | [0050](0050-soundscapes.md) | Soundscapes and procedural audio | accepted |
 | [0051](0051-render-scale.md) | Render scale and dynamic resolution (high-DPI displays) | implemented |
 | [0071](0071-heightfield-terrain.md) | Heightfield terrain (layer stack baked to pages, shared quadtree, streamed pages, heightfield colliders) | accepted |
+| [0104](0104-terrain-editing.md) | Terrain editing at runtime (sculpt and paint delta layers, brushes and shapes, undo, saves, leaf rebakes, events, ray cast, preview) | draft (built) |
+| [0105](0105-terrain-normal-maps.md) | Terrain layer normal maps (planar and triplanar, one table texture so baseline keeps 16) | draft (built) |
 | [0072](0072-world-partition.md) | World partition and streaming (cells as scene files, streaming sources, diffs for unloaded cells) | accepted |
 | [0073](0073-hlod.md) | Hierarchical LOD (baked proxies for unloaded cells: instances, merged, baked) | accepted |
 | [0095](0095-procedural-trees.md) | Procedural trees (EZ-Tree port in an experimental `nature` package, species assets, GLB export) | implemented |

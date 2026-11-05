@@ -53,7 +53,7 @@ export function finestPage(rt: HeightfieldRuntime, x: number, z: number): Loaded
 }
 
 /** The page's sample (i, j) in metres. */
-function sample(rt: HeightfieldRuntime, page: LoadedPage, i: number, j: number): number {
+export function pageSample(rt: HeightfieldRuntime, page: LoadedPage, i: number, j: number): number {
   const side = page.leaf ? LEAF_SIDE : SIDE
   const o = page.leaf ? 1 : 0
   return dequantize(page.heights[(j + o) * side + i + o]!, rt.lo, rt.hi)
@@ -71,10 +71,10 @@ export function pageHeight(rt: HeightfieldRuntime, page: LoadedPage, x: number, 
   const j = Math.min(PAGE - 1, Math.max(0, Math.floor(fz)))
   const u = Math.min(1, Math.max(0, fx - i))
   const v = Math.min(1, Math.max(0, fz - j))
-  const h00 = sample(rt, page, i, j)
-  const h10 = sample(rt, page, i + 1, j)
-  const h01 = sample(rt, page, i, j + 1)
-  const h11 = sample(rt, page, i + 1, j + 1)
+  const h00 = pageSample(rt, page, i, j)
+  const h10 = pageSample(rt, page, i + 1, j)
+  const h01 = pageSample(rt, page, i, j + 1)
+  const h11 = pageSample(rt, page, i + 1, j + 1)
   return u + v <= 1
     ? h00 + u * (h10 - h00) + v * (h01 - h00)
     : h11 + (1 - u) * (h01 - h11) + (1 - v) * (h10 - h11)
@@ -180,11 +180,11 @@ export function heightfieldSample(rt: HeightfieldRuntime, x: number, z: number):
   let dx: number
   let dz: number
   if (u + v <= 1) {
-    dx = (sample(rt, page, ci + 1, cj) - sample(rt, page, ci, cj)) / spacing
-    dz = (sample(rt, page, ci, cj + 1) - sample(rt, page, ci, cj)) / spacing
+    dx = (pageSample(rt, page, ci + 1, cj) - pageSample(rt, page, ci, cj)) / spacing
+    dz = (pageSample(rt, page, ci, cj + 1) - pageSample(rt, page, ci, cj)) / spacing
   } else {
-    dx = (sample(rt, page, ci + 1, cj + 1) - sample(rt, page, ci, cj + 1)) / spacing
-    dz = (sample(rt, page, ci + 1, cj + 1) - sample(rt, page, ci + 1, cj)) / spacing
+    dx = (pageSample(rt, page, ci + 1, cj + 1) - pageSample(rt, page, ci, cj + 1)) / spacing
+    dz = (pageSample(rt, page, ci + 1, cj + 1) - pageSample(rt, page, ci + 1, cj)) / spacing
   }
   const l = Math.sqrt(dx * dx + 1 + dz * dz)
   const normal: [number, number, number] = [-dx / l, 1 / l, -dz / l]

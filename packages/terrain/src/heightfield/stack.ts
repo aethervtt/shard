@@ -16,6 +16,7 @@ import {
   MODE_RAISE,
   type NoiseAccess,
   type Stack,
+  type StackEdits,
   type StackHeightLayer,
   type StackMap,
   type StackPaint,
@@ -102,6 +103,13 @@ export function compileStack(
     layerCount: Math.max(1, source.layers.length),
     height,
     paint: [] as StackPaint[],
+    // The runtime attaches its edit layers' tiles (heightfield/edits.ts).
+    edits: {
+      at: source.edits.height,
+      paintAt: source.edits.paint,
+      sculpt: null,
+      paint: null,
+    } as StackEdits,
   }
   const step = splineStep(source.spacing)
   const splineFor = (name: string, reach: (s: SourceSpline) => number, ground: number) => {

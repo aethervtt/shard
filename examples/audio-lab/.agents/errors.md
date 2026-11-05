@@ -461,6 +461,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `sprite/unsupported-image` | @aethervtt/shard-sprite |  |
 | `structure/too-many-blocked-lights` | @aethervtt/shard-structure | Raise StructureSettings.interior.maxBlockedLights, or block fewer lights (each row costs one texture row). |
 | `terrain/bad-direction` | @aethervtt/shard-terrain | Pass a direction from the planet’s center in its frame, e.g. the position of a point on it. |
+| `terrain/bad-edit` | @aethervtt/shard-terrain | e.g. { "edit": { "shape": { "circle": { "at": [300, 300], "radius": 10 } }, "raise": 2 } } or { "stroke": { "brush": "smooth", "radius": 8, "strength": 0.5, "points": [[300, 300], [340, 310]] } }. |
 | `terrain/bad-points` | @aethervtt/shard-terrain | Points are metres from the terrain’s corner, e.g. { "points": [[120, 300]] }. |
 | `terrain/bad-resolution` | @aethervtt/shard-terrain | Use 17, 33 (the default), 65, or 129 vertices per chunk edge. |
 | `terrain/bad-size` | @aethervtt/shard-terrain | Terrains run from 256 m to 64 km a side. Bigger worlds are planets (0043). |
@@ -469,6 +470,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `terrain/bake-failed` | @aethervtt/shard-terrain | Check the project cache is writable (.shard/cache/terrain), then run `shard terrain bake --force`. |
 | `terrain/climate-outputs` | @aethervtt/shard-terrain | Name the two climate layers "temperature" and "moisture"; each should stay in [−1, 1]. |
 | `terrain/corrupt-pack` | @aethervtt/shard-terrain | The pack is damaged or from another bake: `shard terrain bake --force` rewrites it. |
+| `terrain/edits-mismatch` | @aethervtt/shard-terrain | Edits load into the terrain they were saved from; its size and spacings must match. |
 | `terrain/heightmap-format` | @aethervtt/shard-terrain | Heightmaps are 16-bit grayscale PNGs, or .r16/.r32 raw files with "width" and "height" in their .meta settings. An 8-bit PNG is a texture, not a heightmap. |
 | `terrain/missing-pack` | @aethervtt/shard-terrain | The terrain isn’t baked (or was baked for another grid): `shard terrain bake`. |
 | `terrain/no-planet` | @aethervtt/shard-terrain | Add terrain/Planet (with a Grid) to an entity, and the terrain plugin to the app. |

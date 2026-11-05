@@ -3,8 +3,13 @@ import { defineMaterial } from '@aethervtt/shard-render'
 import { MORPH_WGSL } from '../lod'
 import { LEAF_SIDE, PAGE } from './kernel'
 
-/** Texels a side of the chunk table (one RGBA8 texel per pool slot, rows of this many). */
+/**
+ * Texels a row of the table texture (spec 0105): row 0 holds the layer table (two texels per
+ * material layer), rows from 1 one texel per pool slot (the chunk table).
+ */
 export const CHUNK_TABLE_WIDTH = 1024
+/** Points a preview outline holds (spec 0104): four mat4s of eight (x, z) pairs. */
+export const PREVIEW_POINTS = 32
 
 const hidden = (description: string) => t.vec4({ hidden: true, description })
 
@@ -13,13 +18,14 @@ const hidden = (description: string) => t.vec4({ hidden: true, description })
  * stage reads heights from the chunk's page in the pool (vertex fetch), geomorphs odd vertices
  * toward their parent level from the page's own samples, and drops skirts; its surface stage reads
  * the page's normals and control texels per fragment and blends the two heaviest material layers
- * from the albedo and ORM arrays (planar on XZ, triplanar on steep `triplanar` layers). Shading
- * normals are the pages' (averaged from their subtree, so far ground keeps its relief); layer
- * normal maps would take a 17th sampled texture on the baseline tier.
+ * from the albedo, ORM and normal arrays (planar on XZ, triplanar on steep `triplanar` layers).
+ * Shading normals are the pages' (averaged from their subtree, so far ground keeps its relief),
+ * with the layers' normal maps on top (spec 0105). The chunk and layer tables share one texture,
+ * so the baseline tier binds 16 textures with normal maps. It also draws edit previews (0104).
  */
 export const TerrainSurfaceMaterial = defineMaterial('terrain/TerrainSurface', {
   shader: 'terrain::heightfield',
-  arrays: ['pages', 'control', 'albedoArray', 'ormArray'],
+  arrays: ['pages', 'control', 'albedoArray', 'ormArray', 'normalArray'],
   standardTextures: false,
   fields: {
     pages: t.handle('Texture', {
@@ -31,19 +37,17 @@ export const TerrainSurfaceMaterial = defineMaterial('terrain/TerrainSurface', {
       hidden: true,
       description: 'Set by the terrain: control texels per page (two layers and their blend).',
     }),
-    chunks: t.handle('Texture', {
+    table: t.handle('Texture', {
       hidden: true,
       description:
-        'Set by the terrain: per pool slot, edge locks, drawn quadrants, fade and depth.',
-    }),
-    layerTable: t.handle('Texture', {
-      hidden: true,
-      description:
-        'Set by the terrain: per material layer, its array layers, scale, tint, triplanar.',
+        'Set by the terrain (rgba16float): row 0, per material layer, its array layers, scale, tint and triplanar; from row 1, per pool slot, edge locks, drawn quadrants, fade and depth.',
     }),
     albedoArray: t.handle('Texture', { description: 'The source’s albedo texture array.' }),
     ormArray: t.handle('Texture', {
       description: 'The source’s occlusion/roughness/metallic array.',
+    }),
+    normalArray: t.handle('Texture', {
+      description: 'The source’s normal map array (OpenGL convention: +Y up the image).',
     }),
     center: hidden('Set by the terrain: its origin in the origin frame (xyz).'),
     rot0: hidden('Set by the terrain: origin → terrain rotation rows (xyz), texture origin (w).'),
@@ -67,6 +71,15 @@ export const TerrainSurfaceMaterial = defineMaterial('terrain/TerrainSurface', {
     debug: hidden(
       'Set by the terrain: debug mode (0 off, 1 layers, 2 seams, 3 levels, 4 normals, 5 pages), has albedo, has ORM, texture period.',
     ),
+    maps: hidden('Set by the terrain: normal maps on (x).'),
+    previewShape: hidden(
+      'Set by the terrain: preview kind (0 none, 1 circle, 2 polygon, 3 path), points, radius or half width, second ring offset (m).',
+    ),
+    previewColor: hidden('Set by the terrain: preview color (rgb) and fill opacity (a).'),
+    previewA: t.mat4({ hidden: true, description: 'Set by the terrain: preview points 0–7.' }),
+    previewB: t.mat4({ hidden: true, description: 'Set by the terrain: preview points 8–15.' }),
+    previewC: t.mat4({ hidden: true, description: 'Set by the terrain: preview points 16–23.' }),
+    previewD: t.mat4({ hidden: true, description: 'Set by the terrain: preview points 24–31.' }),
   },
   description:
     'Heightfield terrain: vertex fetch from streamed pages, geomorphing between levels, and two blended material layers from the paint control pages.',
@@ -79,7 +92,7 @@ export const HEIGHTFIELD_SHADERS: Record<string, string> = {
 import shard::pbr::types::{ VertexOutput, PbrInput };
 import shard::view::view;
 import shard::mesh::{ vertex_world, vertex_instance_data };
-import material::terrain_surface::{ ${S}, ${S}_pages, ${S}_pages_sampler, ${S}_control, ${S}_chunks, ${S}_layerTable, ${S}_albedoArray, ${S}_albedoArray_sampler, ${S}_ormArray, ${S}_ormArray_sampler };
+import material::terrain_surface::{ ${S}, ${S}_pages, ${S}_pages_sampler, ${S}_control, ${S}_table, ${S}_albedoArray, ${S}_albedoArray_sampler, ${S}_ormArray, ${S}_ormArray_sampler, ${S}_normalArray, ${S}_normalArray_sampler };
 
 /** Page grid: PAGE segments a side; each page takes CELL texels a side in the pool (a border). */
 const PAGE: i32 = ${PAGE};
@@ -104,15 +117,15 @@ fn terrain_cell(slot: u32) -> vec3i {
   return vec3i(i32(cell % per_row) * CELL, i32(cell / per_row) * CELL, i32(slot / per_layer));
 }
 
-/** The drawn chunk: InstanceData.y is its pool slot; the chunk table has the rest. */
+/** The drawn chunk: InstanceData.y is its pool slot; the chunk table (from row 1) has the rest. */
 fn terrain_chunk() -> Chunk {
   let slot = u32(vertex_instance_data().y + 0.5);
-  let t = textureLoad(${S}_chunks, vec2i(i32(slot % ${CHUNK_TABLE_WIDTH}u), i32(slot / ${CHUNK_TABLE_WIDTH}u)), 0);
+  let t = textureLoad(${S}_table, vec2i(i32(slot % ${CHUNK_TABLE_WIDTH}u), 1 + i32(slot / ${CHUNK_TABLE_WIDTH}u)), 0);
   var c: Chunk;
-  c.locks = u32(t.r * 255.0 + 0.5);
-  c.mask = u32(t.g * 255.0 + 0.5);
-  c.fade = t.b;
-  let d = u32(t.a * 255.0 + 0.5);
+  c.locks = u32(t.r + 0.5);
+  c.mask = u32(t.g + 0.5);
+  c.fade = t.b / 255.0;
+  let d = u32(t.a + 0.5);
   c.depth = d & 127u;
   c.anchored = d >= 128u;
   let cell = terrain_cell(slot);
@@ -215,12 +228,13 @@ override fn vertex_extra(position: vec3f, normal: vec3f, uv: vec2f) -> vec4f {
   return vec4f(position.x / f32(PAGE), position.z / f32(PAGE), f32(slot), f32(c.depth));
 }
 
+/** A layer's array layers (albedo, normal, ORM) and repeat (m): the table's row 0. */
 fn layer_info(l: u32) -> vec4f {
-  return textureLoad(${S}_layerTable, vec2i(0, i32(l)), 0);
+  return textureLoad(${S}_table, vec2i(2 * i32(l), 0), 0);
 }
 
 fn layer_tint(l: u32) -> vec4f {
-  return textureLoad(${S}_layerTable, vec2i(1, i32(l)), 0);
+  return textureLoad(${S}_table, vec2i(2 * i32(l) + 1, 0), 0);
 }
 
 /** The two heaviest layers so far (l0 first), and their summed weights (-1 before any). */
@@ -264,7 +278,20 @@ struct Layered {
   orm: vec3f,
 }
 
-/** One material layer at terrain-space point q: planar on XZ, or triplanar where steep. */
+/**
+ * A layer's tangent normal from the normal array, unpacked. The arrays are OpenGL convention (+Y
+ * up the image, toward smaller v), and v grows with the projection's second axis: y flips.
+ */
+fn layer_tangent(uv: vec2f, layer: i32, dx: vec2f, dy: vec2f) -> vec3f {
+  let t = textureSampleGrad(${S}_normalArray, ${S}_normalArray_sampler, uv, layer, dx, dy).xyz * 2.0 - 1.0;
+  return vec3f(t.x, -t.y, t.z);
+}
+
+/**
+ * One material layer at terrain-space point q: planar on XZ, or triplanar where steep. With
+ * normal maps on, its normal is the page normal n with the map's on top: whiteout blending per
+ * projection (Golus's triplanar), weighted like the albedo.
+ */
 fn sample_layer(l: u32, q: vec3f, gx: vec3f, gy: vec3f, n: vec3f) -> Layered {
   var out: Layered;
   let info = layer_info(l);
@@ -277,7 +304,9 @@ fn sample_layer(l: u32, q: vec3f, gx: vec3f, gy: vec3f, n: vec3f) -> Layered {
   }
   let s = 1.0 / max(info.w, 1e-3);
   let ia = i32(info.x + 0.5);
+  let inr = i32(info.y + 0.5);
   let io = i32(info.z + 0.5);
+  let maps = ${S}.maps.x > 0.5;
   var w = vec3f(0.0, 1.0, 0.0);
   if (tint.w > 0.5 && n.y < 0.7071) {
     w = pow(abs(n), vec3f(4.0));
@@ -285,23 +314,65 @@ fn sample_layer(l: u32, q: vec3f, gx: vec3f, gy: vec3f, n: vec3f) -> Layered {
   }
   var albedo = vec3f(0.0);
   var orm = vec3f(0.0);
+  var nn = vec3f(0.0);
   // Top-down always (weight w.y); the sides only on steep triplanar layers.
   let uy = q.xz * s;
   albedo += textureSampleGrad(${S}_albedoArray, ${S}_albedoArray_sampler, uy, ia, gx.xz * s, gy.xz * s).rgb * w.y;
   orm += textureSampleGrad(${S}_ormArray, ${S}_ormArray_sampler, uy, io, gx.xz * s, gy.xz * s).rgb * w.y;
+  if (maps) {
+    let t = layer_tangent(uy, inr, gx.xz * s, gy.xz * s);
+    nn += vec3f(t.x + n.x, abs(t.z) * n.y, t.y + n.z) * w.y;
+  }
   if (w.x > 0.001) {
     let ux = q.zy * s;
     albedo += textureSampleGrad(${S}_albedoArray, ${S}_albedoArray_sampler, ux, ia, gx.zy * s, gy.zy * s).rgb * w.x;
     orm += textureSampleGrad(${S}_ormArray, ${S}_ormArray_sampler, ux, io, gx.zy * s, gy.zy * s).rgb * w.x;
+    if (maps) {
+      let t = layer_tangent(ux, inr, gx.zy * s, gy.zy * s);
+      nn += vec3f(abs(t.z) * n.x, t.y + n.y, t.x + n.z) * w.x;
+    }
   }
   if (w.z > 0.001) {
     let uz = q.xy * s;
     albedo += textureSampleGrad(${S}_albedoArray, ${S}_albedoArray_sampler, uz, ia, gx.xy * s, gy.xy * s).rgb * w.z;
     orm += textureSampleGrad(${S}_ormArray, ${S}_ormArray_sampler, uz, io, gx.xy * s, gy.xy * s).rgb * w.z;
+    if (maps) {
+      let t = layer_tangent(uz, inr, gx.xy * s, gy.xy * s);
+      nn += vec3f(t.x + n.x, t.y + n.y, abs(t.z) * n.z) * w.z;
+    }
   }
   out.albedo = albedo * tint.rgb;
   out.orm = orm;
+  if (maps) { out.normal = normalize(nn); }
   return out;
+}
+
+/** Preview point i (terrain metres): eight (x, z) pairs per mat4, two per column. */
+fn preview_point(i: u32) -> vec2f {
+  let k = (i % 8u) / 2u;
+  var c: vec4f;
+  if (i < 8u) { c = ${S}.previewA[k]; } else if (i < 16u) { c = ${S}.previewB[k]; } else if (i < 24u) { c = ${S}.previewC[k]; } else { c = ${S}.previewD[k]; }
+  return select(c.zw, c.xy, (i & 1u) == 0u);
+}
+
+/** Distance from p to the preview's outline (m), negative inside it. */
+fn preview_distance(p: vec2f) -> f32 {
+  let kind = u32(${S}.previewShape.x + 0.5);
+  if (kind == 1u) { return length(p - preview_point(0u)) - ${S}.previewShape.z; }
+  let count = u32(${S}.previewShape.y + 0.5);
+  var best = 1e9;
+  var inside = false;
+  let segments = select(count, count - 1u, kind == 3u);
+  for (var i = 0u; i < segments; i++) {
+    let a = preview_point(i);
+    let b = preview_point(select(i + 1u, 0u, i + 1u == count));
+    let e = b - a;
+    let t = clamp(dot(p - a, e) / max(dot(e, e), 1e-9), 0.0, 1.0);
+    best = min(best, length(p - (a + e * t)));
+    if ((a.y > p.y) != (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x) { inside = !inside; }
+  }
+  if (kind == 3u) { return best - ${S}.previewShape.z; }
+  return select(best, -best, inside);
 }
 
 override fn pbr_input(in: VertexOutput) -> PbrInput {
@@ -395,12 +466,29 @@ override fn pbr_input(in: VertexOutput) -> PbrInput {
     let b = sample_layer(l1, q, gx, gy, nl);
     c.albedo = mix(a.albedo, b.albedo, share);
     c.orm = mix(a.orm, b.orm, share);
+    c.normal = normalize(mix(a.normal, b.normal, share));
   }
   p.base_color = c.albedo;
+  if (${S}.maps.x > 0.5) {
+    p.normal = normalize(${S}.rot0.xyz * c.normal.x + ${S}.rot1.xyz * c.normal.y + ${S}.rot2.xyz * c.normal.z);
+  }
   if (${S}.debug.z > 0.5) {
     p.occlusion = c.orm.r;
     p.roughness = clamp(c.orm.g, 0.045, 1.0);
     p.metallic = c.orm.b;
+  }
+  // An edit's preview (0104): its outline, a second ring (falloff or wall), and a tinted fill.
+  if (${S}.previewShape.x > 0.5) {
+    let rel = in.world_position - ${S}.center.xyz;
+    let tp = vec2f(dot(${S}.rot0.xyz, rel), dot(${S}.rot2.xyz, rel));
+    let d = preview_distance(tp);
+    let px = max(fwidth(d), 1e-4);
+    let line = 1.0 - smoothstep(px, 2.0 * px, abs(d));
+    let ring = (1.0 - smoothstep(0.5 * px, 1.5 * px, abs(d - ${S}.previewShape.w))) * 0.7;
+    let fill = select(0.0, ${S}.previewColor.a, d < 0.0);
+    let k = max(max(line, ring), fill);
+    p.base_color = mix(p.base_color, ${S}.previewColor.rgb, k);
+    p.emissive += ${S}.previewColor.rgb * max(line, ring) * 3000.0;
   }
   return p;
 }

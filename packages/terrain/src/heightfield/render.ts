@@ -42,6 +42,7 @@ import { TerrainChunk } from './component'
 import { LEAF_SIDE, PAGE } from './kernel'
 import { CHUNK_TABLE_WIDTH, TerrainSurfaceMaterial } from './material'
 import { keyDepth, keyX, keyZ, type LoadedPage, nodeKey } from './pages'
+import type { PreviewState } from './preview'
 import type { HeightfieldRuntime } from './runtime'
 
 const NONE = -1
@@ -61,6 +62,8 @@ const MAX_READS = 32
 export const HeightfieldDebug = {
   /** 0 off, 1 layers, 2 seams, 3 levels, 4 normals, 5 pages. */
   mode: 0,
+  /** The layers' normal maps (0105), where the source has them: off to compare. */
+  normalMaps: true,
 }
 
 /** The chunk drawing one pool slot. */
@@ -93,10 +96,16 @@ export class HeightfieldRender {
   gpuControl: GPUTexture | undefined
   control: Texture | undefined
   controlRef: AssetRef | undefined
+  /** The table texture (0105): row 0 the layer table, then the chunk table. */
   chunksTexture: Texture | undefined
   chunksRef: AssetRef | undefined
-  layerRef: AssetRef | undefined
   layerHash = ''
+  /** Row 0 of the table, as halves: per material layer, its array layers, scale, tint, triplanar. */
+  layerRow = new Uint16Array(CHUNK_TABLE_WIDTH * 4)
+  /** The whole table as halves, as written. */
+  halves = new Uint16Array(0)
+  /** The preview version the material holds. */
+  previewVersion = -1
   /** Per slot: node key (−1 free), frame last drawn, pinned. */
   slotKey = new Float64Array(0)
   slotUsed = new Uint32Array(0)
@@ -123,7 +132,15 @@ export class HeightfieldRender {
   layout: object | undefined
   /** The terrain version whose coarse levels went to the pool. */
   residentVersion = -1
-  stats = { uploaded: 0, evicted: 0, uploadedLastFrame: 0, requested: 0, skippedFull: 0 }
+  stats = {
+    uploaded: 0,
+    evicted: 0,
+    uploadedLastFrame: 0,
+    requested: 0,
+    skippedFull: 0,
+    /** Edited pages rewritten in place (0104). */
+    rewritten: 0,
+  }
 
   constructor(world: World) {
     this.material = new MaterialAsset(
@@ -198,17 +215,16 @@ function ensurePool(
     for (const key of [...r.keySlot.keys()]) dropSlot(rt, r, r.keySlot.get(key)!)
   }
   if (r.chunksRef?.guid) textures.delete(r.chunksRef.guid)
-  r.chunksTexture = Texture.gpu({
-    width: CHUNK_TABLE_WIDTH,
-    height: Math.max(2, Math.ceil(capacity / CHUNK_TABLE_WIDTH)),
-    format: 'rgba8unorm',
-  })
-  r.chunksRef = textures.add(r.chunksTexture, 'terrain/heightfield-chunks')
+  // Row 0 the layer table, then a row per CHUNK_TABLE_WIDTH slots (spec 0105).
+  const rows = 1 + Math.max(1, Math.ceil(capacity / CHUNK_TABLE_WIDTH))
+  r.chunksTexture = Texture.gpu({ width: CHUNK_TABLE_WIDTH, height: rows, format: 'rgba16float' })
+  r.chunksRef = textures.add(r.chunksTexture, 'terrain/heightfield-table')
+  r.halves = new Uint16Array(CHUNK_TABLE_WIDTH * rows * 4)
   r.capacity = capacity
   const v = r.material.value as Record<string, unknown>
   v.pages = r.pagesRef
   v.control = r.controlRef
-  v.chunks = r.chunksRef
+  v.table = r.chunksRef
   r.material.version++
 }
 
@@ -262,6 +278,9 @@ function acquireSlot(
   return best
 }
 
+/** Texels of a page that has uploaded before (its own are dropped then), made again. */
+const texelScratch = new Uint8Array(LEAF_SIDE * LEAF_SIDE * 4)
+
 /** Writes a page's texels and control into its slot. */
 function writeSlot(
   gpu: GpuContext,
@@ -270,6 +289,7 @@ function writeSlot(
   slot: number,
   page: LoadedPage,
 ) {
+  const texels = rt.pages!.texelsOf(page, texelScratch)
   const layout = rt.layout!
   const cside = layout.cells + 1
   const layer = Math.floor(slot / PER_LAYER)
@@ -281,7 +301,7 @@ function writeSlot(
   const control = r.gpuControl!
   queue.writeTexture(
     { texture: pages, origin: { x: col * LEAF_SIDE, y: row * LEAF_SIDE, z: layer } },
-    page.texels! as Uint8Array<ArrayBuffer>,
+    texels as Uint8Array<ArrayBuffer>,
     { bytesPerRow: LEAF_SIDE * 4, rowsPerImage: LEAF_SIDE },
     { width: LEAF_SIDE, height: LEAF_SIDE, depthOrArrayLayers: 1 },
   )
@@ -328,13 +348,14 @@ export const uploadHeightfieldPages = defineSystem({
       let uploaded = 0
       let i = 0
       for (; i < r.arrived.length; i++) {
-        const page = r.arrived[i]!
+        // A page read before an edit rebaked it uploads as edited (0104).
+        const read = r.arrived[i]!
+        const page = rt.pages!.overridden(read.key) ? rt.pages!.get(read.key)! : read
         const pinned = page.depth <= rt.residentDepth
         // The coarse levels go in at once, outside the budget (at start, and after a rebake):
         // until they're in, there's nothing to draw.
         if (!pinned && uploaded >= budget.pagesPerFrame) break
         r.pending.delete(page.key)
-        if (!page.texels) continue
         let slot = r.slotOf(page.key)
         if (slot === NONE) {
           const n = rt.nodeOf(page.depth, page.x, page.z)
@@ -366,6 +387,33 @@ export const uploadHeightfieldPages = defineSystem({
     }
   },
 })
+
+/**
+ * Rewrites an edited page in the pool where it's resident (spec 0104), at once rather than
+ * behind streaming's budget. Pages not in the pool load from the edits' overrides when selected.
+ */
+export function rewriteHeightfieldPage(
+  world: World,
+  rt: HeightfieldRuntime,
+  page: LoadedPage,
+): void {
+  const r = rt.parts.get('render') as HeightfieldRender | undefined
+  if (!r) return
+  const slot = r.slotOf(page.key)
+  if (slot === NONE) return
+  const assets = world.tryResource(GpuAssetsResource)
+  const pages = r.pages && assets?.texture(r.pages)?.texture
+  const control = r.control && assets?.texture(r.control)?.texture
+  if (!assets || !pages || !control) {
+    r.arrived.push(page)
+    return
+  }
+  r.gpuPages = pages
+  r.gpuControl = control
+  writeSlot(assets.gpu, rt, r, slot, page)
+  page.texels = undefined
+  r.stats.rewritten++
+}
 
 // --- selection ---------------------------------------------------------------------------------
 
@@ -741,16 +789,24 @@ export function enqueueResident(rt: HeightfieldRuntime, r: HeightfieldRender): v
   }
 }
 
+/** Bytes 0–255 as halves: the chunk table's entries are whole numbers in an rgba16float texture. */
+const BYTE_HALVES = toHalf(Float32Array.from({ length: 256 }, (_, i) => i))
+
 function writeTable(world: World, r: HeightfieldRender): void {
   if (!r.tableDirty || !r.chunksTexture) return
   const assets = world.resource(GpuAssetsResource)
   const tex = assets.texture(r.chunksTexture)?.texture
   if (!tex) return
-  const rows = Math.ceil(r.table.length / 4 / CHUNK_TABLE_WIDTH)
+  const halves = r.halves
+  const rows = halves.length / 4 / CHUNK_TABLE_WIDTH
+  halves.set(r.layerRow)
+  const table = r.table
+  const n = Math.min(table.length, halves.length - CHUNK_TABLE_WIDTH * 4)
+  for (let i = 0; i < n; i++) halves[CHUNK_TABLE_WIDTH * 4 + i] = BYTE_HALVES[table[i]!]!
   assets.gpu.device.queue.writeTexture(
     { texture: tex },
-    r.table as Uint8Array<ArrayBuffer>,
-    { bytesPerRow: CHUNK_TABLE_WIDTH * 4, rowsPerImage: rows },
+    halves as Uint16Array<ArrayBuffer>,
+    { bytesPerRow: CHUNK_TABLE_WIDTH * 8, rowsPerImage: rows },
     { width: CHUNK_TABLE_WIDTH, height: rows, depthOrArrayLayers: 1 },
   )
   r.tableDirty = false
@@ -812,22 +868,15 @@ function updateMaterial(world: World, rt: HeightfieldRuntime, r: HeightfieldRend
       data[o + 6] = l.tint[2]
       data[o + 7] = l.triplanar ? 1 : 0
     })
-    const textures = world.initResource(Textures)
-    if (r.layerRef?.guid) textures.delete(r.layerRef.guid)
-    const tex = Texture.create({
-      width: 2,
-      height: count,
-      format: 'rgba16float',
-      usage: 'data',
-      mips: [new Uint8Array(toHalf(data).buffer)],
-    })
-    r.layerRef = textures.add(tex, 'terrain/heightfield-layers')
+    r.layerRow.fill(0)
+    r.layerRow.set(toHalf(data).subarray(0, Math.min(data.length, r.layerRow.length)))
+    r.tableDirty = true
     const deps = asset.deps
     const ref = (t: { path: string } | null) =>
       t && deps[t.path] ? { type: 'Texture', guid: deps[t.path]!.guid, path: t.path } : null
-    v.layerTable = r.layerRef
     v.albedoArray = ref(source.textures.albedo)
     v.ormArray = ref(source.textures.orm)
+    v.normalArray = ref(source.textures.normal)
     r.material.version++
   }
   // Per frame: the terrain's frame against the origin, the camera, the pool, errors and skirts.
@@ -861,7 +910,25 @@ function updateMaterial(world: World, rt: HeightfieldRuntime, r: HeightfieldRend
     v.debug = [debug, hasAlbedo, hasOrm, TEXTURE_PERIOD]
     r.material.version++
   }
+  // Normal maps (0105) where the source has an array, unless turned off; and edit previews (0104).
+  set4(v, 'maps', HeightfieldDebug.normalMaps && v.normalArray && debug === 0 ? 1 : 0, 0, 0, 0)
+  const pv = rt.parts.get('preview') as PreviewState | undefined
+  if (pv && pv.version !== r.previewVersion) {
+    r.previewVersion = pv.version
+    set4(v, 'previewShape', pv.kind, pv.count, pv.radius, pv.ring)
+    set4(v, 'previewColor', pv.color[0], pv.color[1], pv.color[2], pv.color[3])
+    PREVIEW_FIELDS.forEach((key, m) => {
+      let a = v[key] as number[] | undefined
+      if (!Array.isArray(a) || a.length !== 16) {
+        a = new Array(16).fill(0)
+        v[key] = a
+      }
+      for (let i = 0; i < 16; i++) a[i] = pv.points[m * 16 + i]!
+    })
+  }
 }
+
+const PREVIEW_FIELDS = ['previewA', 'previewB', 'previewC', 'previewD'] as const
 
 /** Despawns a heightfield's chunk entities and frees its textures, meshes and material. */
 export function cleanupHeightfieldRender(world: World, rt: HeightfieldRuntime): void {
@@ -869,7 +936,7 @@ export function cleanupHeightfieldRender(world: World, rt: HeightfieldRuntime): 
   if (!r) return
   for (const c of r.chunks) if (c && world.isAlive(c.entity)) world.despawn(c.entity)
   const textures = world.tryResource(Textures)
-  for (const ref of [r.pagesRef, r.controlRef, r.chunksRef, r.layerRef])
+  for (const ref of [r.pagesRef, r.controlRef, r.chunksRef])
     if (ref?.guid) textures?.delete(ref.guid)
   const meshes = world.tryResource(Meshes)
   for (const ref of r.meshes.values()) if (ref.guid) meshes?.delete(ref.guid)

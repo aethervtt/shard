@@ -3,10 +3,13 @@ import { type AssetRef, type Entity, ShardError, type World } from '@aethervtt/s
 import type { PlatformFileSystem, Workers } from '@aethervtt/shard-platform'
 import { LogResource } from '@aethervtt/shard-runtime'
 import { PlanetFrame } from '../frame'
+import { TerrainWorld } from '../heights'
 import { capErrors } from '../lod'
 import { createSelection, NODE_BOUNDS, NODE_READY, QuadTree } from '../quadtree'
-import { type BakeManifest, type BakeReport, bakeTerrain, readManifest } from './bake'
+import { type BakeManifest, type BakeReport, bakeTerrain, editsDigest, readManifest } from './bake'
 import { Terrain } from './component'
+import { heightfieldEditorOf } from './editor'
+import { TerrainEdits } from './edits'
 import { dequantize, LEAF_SIDE, PAGE, type Stack } from './kernel'
 import { fsPackStore, memoryPackStore, type PackStore } from './pack'
 import { nodeKey, PageStore } from './pages'
@@ -14,6 +17,7 @@ import { stackFor, terrainCacheDir } from './project'
 import { RootGrid } from './root-grid'
 import type { TerrainLayout } from './source'
 import { type TerrainSourceAsset, TerrainSources } from './source-asset'
+import { mainNoise } from './stack'
 
 /** GPU bytes a page takes in the pool: its texels and its control texels. */
 export function pageGpuBytes(layout: TerrainLayout): number {
@@ -34,6 +38,37 @@ export interface HeightfieldSettings {
 
 /** Where a terrain is in getting ready to stream. */
 export type BakeState = 'idle' | 'checking' | 'baking' | 'current' | 'failed'
+
+/** Edits that are in, newest last (spec 0104): what caches of the ground (water's) refresh. */
+export class EditLog {
+  static readonly SIZE = 64
+  /** Bumps per rectangle; `since(seq)` lists the ones after it. */
+  seq = 0
+  private readonly rects = new Float64Array(EditLog.SIZE * 4)
+
+  /** Adds a rectangle, [x0, z0] to [x1, z1] metres in the terrain's frame. */
+  push(x0: number, z0: number, x1: number, z1: number): void {
+    const o = (this.seq % EditLog.SIZE) * 4
+    this.rects[o] = x0
+    this.rects[o + 1] = z0
+    this.rects[o + 2] = x1
+    this.rects[o + 3] = z1
+    this.seq++
+  }
+
+  /**
+   * Visits the rectangles after `seq`, oldest first. Returns false (visiting none) when more than
+   * the log holds came after it: the caller refreshes everything.
+   */
+  since(seq: number, visit: (x0: number, z0: number, x1: number, z1: number) => void): boolean {
+    if (this.seq - seq > EditLog.SIZE) return false
+    for (let s = seq; s < this.seq; s++) {
+      const o = (s % EditLog.SIZE) * 4
+      visit(this.rects[o]!, this.rects[o + 1]!, this.rects[o + 2]!, this.rects[o + 3]!)
+    }
+    return true
+  }
+}
 
 /**
  * Everything the terrain keeps per `Terrain` entity (spec 0071): its source and compiled stack,
@@ -77,6 +112,9 @@ export class HeightfieldRuntime {
   anchorEntity: Entity[] = []
   anchors = 0
   readonly parts = new Map<string, unknown>()
+  /** The edit layers (spec 0104), for the current grid. */
+  edits: TerrainEdits | undefined
+  readonly editLog = new EditLog()
   /** The source hash the pages and manifest match. */
   private bakedHash = ''
   private generation = 0
@@ -192,10 +230,74 @@ export class HeightfieldRuntime {
         // Until the bake says, a node's error is its spacing's: selection works, coarsely.
         for (let d = 0; d <= asset.layout.depth; d++) this.rawErrors[d] = this.spacing(d) * 8
         settingsChanged = true
+        // Edits are for a grid: a new one starts without them.
+        this.edits = this.createEdits(world)
+      }
+      // The edit layers ride on every compiled stack.
+      this.stack.edits.sculpt = this.edits!.sculpt
+      this.stack.edits.paint = this.edits!.paint
+      // Saved edits waiting for the source go in ahead of the bake, which bakes them.
+      const saved = world.tryResource(TerrainWorld)?.pendingEdits
+      const data = saved?.get(this.entity)
+      if (data) {
+        saved!.delete(this.entity)
+        this.loadingEdits = true
+        try {
+          this.edits!.load(data)
+        } catch (err) {
+          this.report(world, err as ShardError)
+        } finally {
+          this.loadingEdits = false
+        }
       }
       void this.prepare(world, env)
     }
     if (settingsChanged) this.capErrors()
+  }
+
+  /** Loading saved edits ahead of a bake: the bake bakes them, so nothing is queued. */
+  private loadingEdits = false
+
+  /** Edit layers for the current grid, reporting their changes to the editor's queue. */
+  private createEdits(world: World): TerrainEdits {
+    const edits = new TerrainEdits({
+      layout: this.layout!,
+      stack: () => this.stack!,
+      noise: mainNoise,
+      layers: () => this.asset?.source.layers.map((l) => l.name) ?? [],
+      bounds: (x0, z0, x1, z1) => this.groundBounds(x0, z0, x1, z1),
+    })
+    edits.onChange = (change, cause) => {
+      if (this.loadingEdits) return
+      heightfieldEditorOf(this).changed(change, cause, world.tryResource(TerrainWorld)?.frame ?? 0)
+    }
+    return edits
+  }
+
+  /** The ground's height range over a rectangle of metres, from the root pages' ranges. */
+  groundBounds(x0: number, z0: number, x1: number, z1: number): [number, number] {
+    const l = this.layout
+    if (!l || !this.pages) return [this.lo, this.hi]
+    let lo = Infinity
+    let hi = -Infinity
+    const s = l.rootSize
+    for (
+      let z = Math.max(0, Math.floor(z0 / s));
+      z <= Math.min(l.rootsZ - 1, Math.floor(z1 / s));
+      z++
+    ) {
+      for (
+        let x = Math.max(0, Math.floor(x0 / s));
+        x <= Math.min(l.rootsX - 1, Math.floor(x1 / s));
+        x++
+      ) {
+        const e = this.pages.entry(0, x, z)
+        if (!e) return [this.lo, this.hi]
+        lo = Math.min(lo, dequantize(e.min, this.lo, this.hi))
+        hi = Math.max(hi, dequantize(e.max, this.lo, this.hi))
+      }
+    }
+    return lo <= hi ? [lo, hi] : [this.lo, this.hi]
   }
 
   private report(world: World, err: ShardError): void {
@@ -233,8 +335,11 @@ export class HeightfieldRuntime {
     let store = this.store!
     this.bake = 'checking'
     try {
+      // With edits, the packs are of the source and these edits (0104).
+      const digest = await editsDigest(stack.edits)
+      const hash = digest ? `${asset.hash}:${digest}` : asset.hash
       let manifest = await readManifest(store)
-      if (manifest?.sourceHash !== asset.hash) {
+      if (manifest?.sourceHash !== hash) {
         if (!store.writable) {
           // A read-only host (a static web build) without current packs bakes in memory.
           store = memoryPackStore()
@@ -242,7 +347,8 @@ export class HeightfieldRuntime {
           pages.store = store
         }
         this.bake = 'baking'
-        const report = await bakeTerrain(asset, stack, store, {
+        const input = { source: asset.source, layout: asset.layout, deps: asset.deps, hash }
+        const report = await bakeTerrain(input, stack, store, {
           ...(env.workers ? { workers: env.workers } : {}),
           warn: (problem) =>
             world.tryResource(LogResource)?.warn(problem.message, { code: problem.code }),

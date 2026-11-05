@@ -28,6 +28,7 @@ import {
   Tonemapping,
 } from '@aethervtt/shard-render'
 import { App, type Plugin } from '@aethervtt/shard-runtime'
+import { type Texture, Textures } from '@aethervtt/shard-texture'
 import {
   FloatingOrigin,
   Grid,
@@ -43,6 +44,8 @@ import { morphFactor } from '../lod'
 import { terrainPlugin } from '../plugin'
 import { tilesOf } from './colliders'
 import { Terrain } from './component'
+import { loadTerrainEdits } from './editor'
+import type { TerrainEditsData } from './edits'
 import { type Heightmap, Heightmaps } from './heightmap'
 import { dequantize, LEAF_SIDE, PAGE, SIDE } from './kernel'
 import { nodeKey } from './pages'
@@ -78,6 +81,10 @@ export interface HeightfieldOptions {
   fs?: PlatformFileSystem
   /** The source asset's guid (its cache directory), default `mem:…`. */
   name?: string
+  /** Saved edits (0104), loaded before the first frame: the first bake bakes them in. */
+  edits?: TerrainEditsData
+  /** Texture arrays the source's `textures` name, by path (made in memory). */
+  textures?: Record<string, Texture>
 }
 
 export interface HeightfieldApp {
@@ -105,6 +112,10 @@ export function sourceAsset(world: World, o: HeightfieldOptions): TerrainSourceA
   for (const [path, map] of Object.entries(o.heightmaps ?? {})) {
     const ref = maps.add({ ...map, version: 0 } as Heightmap, path)
     deps[path] = { guid: ref.guid!, type: 'Heightmap', hash: path }
+  }
+  for (const [path, texture] of Object.entries(o.textures ?? {})) {
+    const ref = world.initResource(Textures).add(texture, path)
+    deps[path] = { guid: ref.guid!, type: 'Texture', hash: path }
   }
   return new TerrainSourceAsset({
     format: 1,
@@ -148,6 +159,7 @@ export async function heightfieldApp(
     ],
     [Transform, { translation: o.at ?? [0, 0, 0] }],
   )
+  if (o.edits) loadTerrainEdits(world, terrain, o.edits)
   let view = ''
   let camera = -1 as Entity
   let sun = -1 as Entity
@@ -339,6 +351,63 @@ export function valleySource(size = 2048, spacing = 0.5) {
     },
     heightmaps: { valley: { width: 64, height: 64, data: bowl } },
   }
+}
+
+/**
+ * A terrain to edit (0104), shaped like the zoo's map: 512 m at 0.5 m (a depth of 1, so leaves
+ * have parents; 1024 m is the zoo's size, depth 2), gentle hills, and a path flattened and painted
+ * through it. Bake it with small blocks (`block: 4`) to get several.
+ */
+export function editSource(size = 512) {
+  return {
+    source: {
+      size: [size, size],
+      spacing: 0.5,
+      heightRange: [-40, 60],
+      seed: 7,
+      splines: {
+        path: {
+          points: [
+            [60, 'ground', 80],
+            [250, 'ground', 260],
+            [460, 'ground', 300],
+          ],
+          width: 6,
+          falloff: 10,
+        },
+      },
+      height: [
+        { noise: { path: 'hills' }, scale: 16 },
+        { spline: 'path', mode: 'flatten' },
+      ],
+      layers: [{ name: 'grass' }, { name: 'rock' }, { name: 'sand' }, { name: 'gravel' }],
+      paint: [
+        { layer: 'grass' },
+        { layer: 'rock', slope: [28, 90], blend: 6 },
+        { layer: 'gravel', spline: 'path', blend: 1 },
+      ],
+    },
+  }
+}
+
+/** The zoo's hills: rolling ground with a little detail. */
+export const EDIT_HILLS = {
+  output: 'h',
+  nodes: {
+    base: { fbm: { source: 'simplex', octaves: 5, frequency: 0.0025, seed: 1 } },
+    detail: { fbm: { source: 'simplex', octaves: 4, frequency: 0.02, seed: 2 } },
+    h: { add: ['base', { multiply: ['detail', 0.06] }] },
+  },
+}
+
+/** Runs frames until every edit so far is in (pages, ancestors, events); returns the frames run. */
+export function untilEdited(p: HeightfieldApp, maxFrames = 600): number {
+  for (let f = 0; f < maxFrames; f++) {
+    const e = p.runtime().parts.get('editor') as { busy: boolean } | undefined
+    if (!e?.busy) return f
+    p.app.update(1 / 60)
+  }
+  throw new Error(`edits not in after ${maxFrames} frames`)
 }
 
 /** The hills graph of the valley terrain (the playground's #heightfield page uses it too). */

@@ -35,6 +35,12 @@ export const MODE_CARVE = 2
 export const LAYER_NOISE = 0
 export const LAYER_IMAGE = 1
 export const LAYER_SPLINE = 2
+/** Lattice points per side of an edit tile (spec 0104): sculpt tiles hold leaf samples, paint tiles paint texels. */
+export const EDIT_TILE = 64
+/** An edit tile's key: tz × EDIT_KEY + tx. */
+export const EDIT_KEY = 65536
+/** A paint weight of 1 in an edit record. */
+export const PAINT_ONE = 65535
 
 export { deflate, inflate }
 
@@ -313,17 +319,48 @@ const near = new Float64Array(4)
 let values = new Float64Array(0)
 
 /**
- * Applies height layers [0, `upTo`) to a grid of samples (see noiseGrid for the layout): `out`
- * gets metres, f64, row by row. The stack is the compiled source (heightfield/stack.ts).
+ * Adds the sculpt layer (spec 0104) to a grid of samples: metres per leaf sample, from tiles of
+ * EDIT_TILE² samples (missing tiles are zero). Samples off the lattice's positive quadrant (a
+ * border past the terrain's edge) get nothing.
  */
-export function evalHeights(noise, stack, gi0, gj0, step, nx, nz, upTo, out) {
+function addSculpt(tiles, gi0, gj0, step, nx, nz, out) {
+  for (let b = 0; b < nz; b++) {
+    const gj = gj0 + b * step
+    if (gj < 0) continue
+    const row = Math.floor(gj / EDIT_TILE) * EDIT_KEY
+    const tj = (gj % EDIT_TILE) * EDIT_TILE
+    let key = -1
+    let tile
+    for (let a = 0; a < nx; a++) {
+      const gi = gi0 + a * step
+      if (gi < 0) continue
+      const k = row + Math.floor(gi / EDIT_TILE)
+      if (k !== key) {
+        key = k
+        tile = tiles.get(k)
+      }
+      if (tile) out[b * nx + a] += tile[tj + (gi % EDIT_TILE)]
+    }
+  }
+}
+
+/**
+ * Applies height layers [0, `upTo`) to a grid of samples (see noiseGrid for the layout): `out`
+ * gets metres, f64, row by row. The stack is the compiled source (heightfield/stack.ts). The sculpt
+ * layer (spec 0104) applies before layer `stack.edits.at` (after the last, at the end) when that's
+ * within `upTo` and `edits` is set: the stack below the edits is `upTo = at, edits = false`.
+ */
+export function evalHeights(noise, stack, gi0, gj0, step, nx, nz, upTo, out, edits = true) {
   const n = nx * nz
   const sp = stack.spacing
   out.fill(0, 0, n)
   if (values.length < n) values = new Float64Array(n)
   const layers = stack.height
   const count = Math.min(upTo, layers.length)
+  const sculpt = edits && stack.edits?.sculpt?.size > 0 ? stack.edits.sculpt : null
+  const at = sculpt && stack.edits.at <= upTo ? stack.edits.at : -1
   for (let l = 0; l < count; l++) {
+    if (l === at) addSculpt(sculpt, gi0, gj0, step, nx, nz, out)
     const layer = layers[l]
     if (layer.kind === LAYER_NOISE) {
       noiseGrid(
@@ -390,12 +427,13 @@ export function evalHeights(noise, stack, gi0, gj0, step, nx, nz, upTo, out) {
       }
     }
   }
+  if (at >= count) addSculpt(sculpt, gi0, gj0, step, nx, nz, out)
 }
 
 /**
  * Heights of layers [0, `upTo`) at arbitrary points (x, z pairs): what a spline's "ground" point
  * takes. The same per-sample rules as evalHeights, so a point on the leaf lattice gets the same
- * value either way.
+ * value either way. Without the sculpt layer: a spline's "ground" points read the source alone (0104).
  */
 export function evalHeightPoints(noise, stack, xz, count, upTo, out) {
   out.fill(0, 0, count)
@@ -506,6 +544,24 @@ function slopeAt(h, nx, k, step) {
 // --- paint -------------------------------------------------------------------------------------
 
 /**
+ * Applies paint texel (pi, pj)'s edit record (spec 0104) to weights `w`, as a paint entry would:
+ * every weight scales by (1 − its coverage), then its two layers gain their weights. A record is
+ * four u16s in its tile: layer, layer, weight, weight (PAINT_ONE is 1).
+ */
+function addPaint(tiles, pi, pj, w, layers) {
+  const tile = tiles.get(Math.floor(pj / EDIT_TILE) * EDIT_KEY + Math.floor(pi / EDIT_TILE))
+  if (!tile) return
+  const o = ((pj % EDIT_TILE) * EDIT_TILE + (pi % EDIT_TILE)) * 4
+  const wa = tile[o + 2] / PAINT_ONE
+  const wb = tile[o + 3] / PAINT_ONE
+  const cover = wa + wb
+  if (cover <= 0) return
+  for (let l = 0; l < layers; l++) w[l] *= 1 - cover
+  if (tile[o] < layers) w[tile[o]] += wa
+  if (tile[o + 1] < layers) w[tile[o + 1]] += wb
+}
+
+/**
  * Control texels for paint samples: paint sample (a, b) is leaf sample (gi0 + a × k, gj0 + b × k),
  * whose height and slope come from `hq` (dequantized leaf heights, `hx` wide, with sample (gi0,
  * gj0) at index `h0`, one sample of margin all round). Writes four bytes per texel: the heaviest
@@ -515,6 +571,9 @@ export function evalControl(noise, stack, gi0, gj0, k, nx, nz, hq, hx, h0, out) 
   const layers = stack.layerCount
   const w = new Float64Array(layers)
   const paint = stack.paint
+  // The paint layer (spec 0104) applies before entry `paintAt` (after the last, at the end).
+  const painted = stack.edits?.paint?.size > 0 ? stack.edits.paint : null
+  const paintAt = painted ? stack.edits.paintAt : -1
   const sp = stack.spacing
   // Noise masks for the whole grid first, per entry.
   const noiseValues = paint.map((entry) => {
@@ -549,12 +608,14 @@ export function evalControl(noise, stack, gi0, gj0, k, nx, nz, hq, hx, h0, out) 
           const d = nearestOnSpline(entry.spline, x, z, near)
           m *= d === Infinity ? 0 : fade(d - entry.spline.width / 2, entry.blend)
         }
+        if (e === paintAt) addPaint(painted, gi0 / k + a, gj0 / k + b, w, layers)
         if (m <= 0) continue
         if (m > 1) m = 1
         // Paints over what's below: every weight scales by (1 − m), this layer gains m.
         for (let l = 0; l < layers; l++) w[l] *= 1 - m
         w[entry.layer] += m
       }
+      if (paintAt >= paint.length) addPaint(painted, gi0 / k + a, gj0 / k + b, w, layers)
       let a0 = 0
       let a1 = -1
       for (let l = 1; l < layers; l++) if (w[l] > w[a0]) a0 = l
@@ -966,6 +1027,68 @@ export function bakeLeaf(noise, stack, layout, X, Z) {
   const control = new Uint8Array((cells + 1) * (cells + 1) * 4)
   evalControl(noise, stack, X * PAGE, Z * PAGE, k, cells + 1, cells + 1, Hq, n, n + 1, control)
   return { page: { heights, normals: null, control }, min: qmin, max: qmax }
+}
+
+/**
+ * Rebakes part of a leaf page in place (spec 0104): its samples [i0, i1] × [j0, j1] (leaf-local,
+ * −1 to PAGE + 1 with the border) unless `paintOnly`, then the control texels whose slopes read
+ * them (one sample past), or (paint) whose samples they are. Every sample and texel is canonical,
+ * so the page ends as `bakeLeaf` would write it. Returns its new quantized range.
+ */
+export function patchLeaf(noise, stack, layout, X, Z, heights, control, i0, j0, i1, j1, paintOnly) {
+  const n = LEAF_SIDE
+  const k = layout.paintStep
+  const cells = layout.cells
+  i0 = Math.max(-1, i0)
+  j0 = Math.max(-1, j0)
+  i1 = Math.min(PAGE + 1, i1)
+  j1 = Math.min(PAGE + 1, j1)
+  if (!paintOnly && i1 >= i0 && j1 >= j0) {
+    const nx = i1 - i0 + 1
+    const nz = j1 - j0 + 1
+    const H = new Float64Array(nx * nz)
+    evalHeights(noise, stack, X * PAGE + i0, Z * PAGE + j0, 1, nx, nz, stack.height.length, H)
+    for (let b = 0; b < nz; b++)
+      for (let a = 0; a < nx; a++)
+        heights[(j0 + b + 1) * n + i0 + a + 1] = quantize(H[b * nx + a], stack.lo, stack.hi)
+  }
+  // Control texels over the samples, one past them for slopes (paint: exactly theirs).
+  const m = paintOnly ? 0 : 1
+  const a0 = Math.max(0, Math.ceil((i0 - m) / k))
+  const b0 = Math.max(0, Math.ceil((j0 - m) / k))
+  const a1 = Math.min(cells, Math.floor((i1 + m) / k))
+  const b1 = Math.min(cells, Math.floor((j1 + m) / k))
+  if (a1 >= a0 && b1 >= b0) {
+    const Hq = new Float64Array(n * n)
+    for (let i = 0; i < n * n; i++) Hq[i] = dequantize(heights[i], stack.lo, stack.hi)
+    const tx = a1 - a0 + 1
+    const tz = b1 - b0 + 1
+    const C = evalControl(
+      noise,
+      stack,
+      X * PAGE + a0 * k,
+      Z * PAGE + b0 * k,
+      k,
+      tx,
+      tz,
+      Hq,
+      n,
+      (b0 * k + 1) * n + a0 * k + 1,
+      new Uint8Array(tx * tz * 4),
+    )
+    for (let b = 0; b < tz; b++)
+      control.set(C.subarray(b * tx * 4, (b + 1) * tx * 4), ((b0 + b) * (cells + 1) + a0) * 4)
+  }
+  let qmin = 65535
+  let qmax = 0
+  for (let j = 1; j < n - 1; j++) {
+    for (let i = 1; i < n - 1; i++) {
+      const q = heights[j * n + i]
+      if (q < qmin) qmin = q
+      if (q > qmax) qmax = q
+    }
+  }
+  return [qmin, qmax]
 }
 
 /**

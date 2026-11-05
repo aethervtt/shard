@@ -84,6 +84,14 @@ export class WaterBodiesState {
   terrainCount = 0
   /** Sum of the terrains' versions: the ground in the info texture is refilled when it changes. */
   terrainVersion = 0
+  /**
+   * Terrain edits (0104) since the info texture last read them: world rectangles (x0, z0, x1, z1)
+   * whose ground refills. `groundRefresh` when more came than this holds: refill everything.
+   */
+  readonly groundEdits: number[] = []
+  groundRefresh = false
+  /** Each terrain's edit log position, as far as groundEdits has it. */
+  readonly editSeen = new WeakMap<HeightfieldRuntime, number>()
   frame = 0
   readonly reported = new Set<string>()
 }
@@ -428,6 +436,33 @@ const zero = (): WaterBodyRecord => ({
   problem: null,
 })
 
+/** Ground edits kept for the info texture before it refills everything instead. */
+const MAX_GROUND_EDITS = 64
+const corner = new Float64Array(3)
+let editRt: HeightfieldRuntime | undefined
+
+/** One terrain edit's rectangle (terrain frame) into terrainState's groundEdits, in the world. */
+function addGroundEdit(x0: number, z0: number, x1: number, z1: number): void {
+  const s = terrainState!
+  if (s.groundEdits.length >= MAX_GROUND_EDITS * 4) {
+    s.groundRefresh = true
+    s.groundEdits.length = 0
+  }
+  if (s.groundRefresh) return
+  let minX = Infinity
+  let minZ = Infinity
+  let maxX = -Infinity
+  let maxZ = -Infinity
+  for (let c = 0; c < 4; c++) {
+    editRt!.frame.pointToOrigin(c & 1 ? x1 : x0, 0, c & 2 ? z1 : z0, corner)
+    minX = Math.min(minX, corner[0]!)
+    maxX = Math.max(maxX, corner[0]!)
+    minZ = Math.min(minZ, corner[2]!)
+    maxZ = Math.max(maxZ, corner[2]!)
+  }
+  s.groundEdits.push(minX, minZ, maxX, maxZ)
+}
+
 let terrainState: WaterBodiesState | undefined
 function collectTerrain(rt: HeightfieldRuntime): void {
   const s = terrainState!
@@ -439,6 +474,14 @@ function collectTerrain(rt: HeightfieldRuntime): void {
   // Its rebakes, and its frame (a moved terrain, or the floating origin moving under it).
   const m = rt.frame.toOrigin
   s.terrainVersion += rt.version + 1 + m[3]! + m[7]! + m[11]!
+  // Its edits since last frame (0104): only the ground under them refills.
+  const seen = s.editSeen.get(rt)
+  if (seen !== undefined && seen !== rt.editLog.seq) {
+    editRt = rt
+    if (!rt.editLog.since(seen, addGroundEdit)) s.groundRefresh = true
+    editRt = undefined
+  }
+  s.editSeen.set(rt, rt.editLog.seq)
 }
 
 /** Whether `a` draws before `b`: lower priority first, then the lower entity. */

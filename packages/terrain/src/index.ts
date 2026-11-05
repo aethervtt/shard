@@ -89,6 +89,27 @@ export {
 } from './heightfield/colliders'
 export { Terrain, TerrainChunk } from './heightfield/component'
 export {
+  editHeightfields,
+  loadTerrainEdits,
+  TerrainEdited,
+  type TerrainEditedData,
+  TerrainEditor,
+  terrainEditor,
+} from './heightfield/editor'
+export {
+  brushWeight,
+  type EditCause,
+  type EditChange,
+  type EditShape,
+  EditStroke,
+  type LatticeRect,
+  type SculptBrush,
+  type ShapeEdit,
+  type StrokeOptions,
+  TerrainEdits,
+  type TerrainEditsData,
+} from './heightfield/edits'
+export {
   decodeHeightPng,
   type Heightmap,
   HeightmapAssetType,
@@ -118,6 +139,7 @@ export {
   readIndex,
   writePack,
 } from './heightfield/pack'
+export { type TerrainPreview, terrainPreview } from './heightfield/preview'
 export {
   type BakeHost,
   bakeIsCurrent,
@@ -133,11 +155,13 @@ export {
   heightfieldSample,
   loadTerrainRegion,
   pageHeight,
+  pageSample,
   type TerrainHeight,
   terrainHeightAt,
 } from './heightfield/queries'
+export { type TerrainHit, terrainRaycast } from './heightfield/raycast'
 export { HeightfieldDebug, type HeightfieldRender } from './heightfield/render'
-export { HeightfieldRuntime } from './heightfield/runtime'
+export { EditLog, HeightfieldRuntime } from './heightfield/runtime'
 export {
   MAX_MATERIAL_LAYERS,
   parseTerrainSource,

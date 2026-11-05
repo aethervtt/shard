@@ -1959,10 +1959,10 @@ Heightfield terrain: vertex fetch from streamed pages, geomorphing between level
 | `emissiveTexture` | object | `{"texture":null,"uv":0,"offset":[0,0],"scale":[1,1],"rotation":0,"wrap":"repeat","filter":"linear"}` |  | Emission color (sRGB), multiplied with emissive. |
 | `pages` | null or Texture ref | `null` |  | Set by the terrain: the page pool, RGBA8 texels of (height low, height high, normal x, normal z). |
 | `control` | null or Texture ref | `null` |  | Set by the terrain: control texels per page (two layers and their blend). |
-| `chunks` | null or Texture ref | `null` |  | Set by the terrain: per pool slot, edge locks, drawn quadrants, fade and depth. |
-| `layerTable` | null or Texture ref | `null` |  | Set by the terrain: per material layer, its array layers, scale, tint, triplanar. |
+| `table` | null or Texture ref | `null` |  | Set by the terrain (rgba16float): row 0, per material layer, its array layers, scale, tint and triplanar; from row 1, per pool slot, edge locks, drawn quadrants, fade and depth. |
 | `albedoArray` | null or Texture ref | `null` |  | The source’s albedo texture array. |
 | `ormArray` | null or Texture ref | `null` |  | The source’s occlusion/roughness/metallic array. |
+| `normalArray` | null or Texture ref | `null` |  | The source’s normal map array (OpenGL convention: +Y up the image). |
 | `center` | number[4] | `[0,0,0,0]` |  | Set by the terrain: its origin in the origin frame (xyz). |
 | `rot0` | number[4] | `[0,0,0,0]` |  | Set by the terrain: origin → terrain rotation rows (xyz), texture origin (w). |
 | `rot1` | number[4] | `[0,0,0,0]` |  | Set by the terrain. |
@@ -1977,6 +1977,13 @@ Heightfield terrain: vertex fetch from streamed pages, geomorphing between level
 | `skirts1` | number[4] | `[0,0,0,0]` |  | Set by the terrain: skirt depth per depth (4–7). |
 | `skirts2` | number[4] | `[0,0,0,0]` |  | Set by the terrain: skirt depth per depth (8–11). |
 | `debug` | number[4] | `[0,0,0,0]` |  | Set by the terrain: debug mode (0 off, 1 layers, 2 seams, 3 levels, 4 normals, 5 pages), has albedo, has ORM, texture period. |
+| `maps` | number[4] | `[0,0,0,0]` |  | Set by the terrain: normal maps on (x). |
+| `previewShape` | number[4] | `[0,0,0,0]` |  | Set by the terrain: preview kind (0 none, 1 circle, 2 polygon, 3 path), points, radius or half width, second ring offset (m). |
+| `previewColor` | number[4] | `[0,0,0,0]` |  | Set by the terrain: preview color (rgb) and fill opacity (a). |
+| `previewA` | number[16] | `[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]` |  | Set by the terrain: preview points 0–7. |
+| `previewB` | number[16] | `[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]` |  | Set by the terrain: preview points 8–15. |
+| `previewC` | number[16] | `[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]` |  | Set by the terrain: preview points 16–23. |
+| `previewD` | number[16] | `[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]` |  | Set by the terrain: preview points 24–31. |
 
 ## `text/Localized`
 

@@ -41,8 +41,7 @@ chunk), how they stream, and how the ground is authored.
 ## Non-goals
 
 - Runtime deformation, caves and overhangs (as in 0043).
-- Brush sculpting and painting. That's a Studio tool for later. It would write a delta layer in
-  the format this spec defines.
+- Brush sculpting and painting: 0104 adds them at runtime, as delta layers in the stack.
 - Unbounded flat terrain generated as you walk. Planets cover that case.
 - Water. Rivers and lakes need their own spec.
 - Holes for cave mouths. The control page reserves a bit for them, but nothing reads it yet.
@@ -295,8 +294,8 @@ chunk), how they stream, and how the ground is authored.
   and stitched edges); a chunk table texture holds its locks, mask, fade and depth. A leaf within
   `colliderRadius` of an anchor draws without its distance morph, so the drawn ground is the
   collider's to the centimetre; when it stops being anchored it's ~96 m from the camera, where a
-  leaf's detail is a fraction of a pixel. The layers' normal maps aren't sampled (a 17th texture
-  on the baseline tier); shading normals are the pages'. Not built: 0068's variation on this
+  leaf's detail is a fraction of a pixel. Layer normal maps are 0105's (the chunk and layer tables
+  share one texture so the baseline tier has room). Not built: 0068's variation on this
   material (deferred).
 - **Streaming.** Pages are requested by projected error, at most 32 reads in flight per terrain,
   through `PageStore` (pack indexes, `readRange`, inflate and leaf normals on the pool, a CPU cache

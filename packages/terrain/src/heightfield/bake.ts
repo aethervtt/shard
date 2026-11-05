@@ -9,6 +9,8 @@ import {
   bakeBlock,
   type DecodedPage,
   deflate,
+  EDIT_KEY,
+  EDIT_TILE,
   encodePage,
   PAGE,
   pageBytes,
@@ -17,6 +19,7 @@ import {
   readPage,
   SIDE,
   type Stack,
+  type StackEdits,
 } from './kernel'
 import { PACK, type PackIndex, type PackStore, packOf, readIndex, writePack } from './pack'
 import type { SourceRect, TerrainLayout, TerrainSource } from './source'
@@ -145,6 +148,102 @@ function rectBox(r: SourceRect, grow: number): Box {
 
 const overlaps = (a: Box, b: Box) => a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3]
 
+/** Edit tile keys in a lattice range of tile coordinates, sorted. */
+function tilesIn(
+  tiles: ReadonlyMap<number, unknown> | null,
+  t0x: number,
+  t0z: number,
+  t1x: number,
+  t1z: number,
+): number[] {
+  const out: number[] = []
+  if (!tiles || tiles.size === 0) return out
+  for (const key of tiles.keys()) {
+    const tx = key % EDIT_KEY
+    const tz = Math.floor(key / EDIT_KEY)
+    if (tx >= t0x && tx <= t1x && tz >= t0z && tz <= t1z) out.push(key)
+  }
+  return out.sort((a, b) => a - b)
+}
+
+/**
+ * The edit tiles a block's bake reads (spec 0104): sculpt tiles under its samples and the margin
+ * its normals reach, paint tiles under its paint texels.
+ */
+export function blockEditTiles(
+  edits: StackEdits,
+  layout: TerrainLayout,
+  bx: number,
+  bz: number,
+): { sculpt: number[]; paint: number[] } {
+  const margin = 2 ** Math.min(layout.blockLevels, layout.depth) + 1
+  const lx0 = bx * layout.block
+  const lz0 = bz * layout.block
+  const lx1 = Math.min(layout.leavesX, lx0 + layout.block)
+  const lz1 = Math.min(layout.leavesZ, lz0 + layout.block)
+  const t = (v: number) => Math.floor(v / EDIT_TILE)
+  return {
+    sculpt: tilesIn(
+      edits.sculpt,
+      t(Math.max(0, lx0 * PAGE - margin)),
+      t(Math.max(0, lz0 * PAGE - margin)),
+      t(lx1 * PAGE + margin),
+      t(lz1 * PAGE + margin),
+    ),
+    paint: tilesIn(
+      edits.paint,
+      t(lx0 * layout.cells),
+      t(lz0 * layout.cells),
+      t(lx1 * layout.cells),
+      t(lz1 * layout.cells),
+    ),
+  }
+}
+
+/** SHA-256 of edit tiles (their keys and values), or '' for none. */
+async function tilesDigest(edits: StackEdits, sculpt: number[], paint: number[]): Promise<string> {
+  if (sculpt.length === 0 && paint.length === 0) return ''
+  let size = 16 * (sculpt.length + paint.length)
+  for (const k of sculpt) size += edits.sculpt!.get(k)!.byteLength
+  for (const k of paint) size += edits.paint!.get(k)!.byteLength
+  const all = new Uint8Array(size)
+  const view = new DataView(all.buffer)
+  let o = 0
+  const put = (kind: number, key: number, v: ArrayBufferView) => {
+    view.setFloat64(o, kind)
+    view.setFloat64(o + 8, key)
+    o += 16
+    all.set(new Uint8Array(v.buffer, v.byteOffset, v.byteLength), o)
+    o += v.byteLength
+  }
+  for (const k of sculpt) put(0, k, edits.sculpt!.get(k)!)
+  for (const k of paint) put(1, k, edits.paint!.get(k)!)
+  return sha256Hex(all)
+}
+
+/** A digest of every edit tile: part of the packs' source hash when a terrain has edits (0104). */
+export function editsDigest(edits: StackEdits): Promise<string> {
+  const all = (m: ReadonlyMap<number, unknown> | null) =>
+    m ? [...m.keys()].sort((a, b) => a - b) : []
+  return tilesDigest(edits, all(edits.sculpt), all(edits.paint))
+}
+
+/** The stack a block bakes with: only the edit tiles it reads, so a pool job copies little. */
+function blockStack(stack: Stack, layout: TerrainLayout, bx: number, bz: number): Stack {
+  const e = stack.edits
+  if (!e.sculpt?.size && !e.paint?.size) return stack
+  const { sculpt, paint } = blockEditTiles(e, layout, bx, bz)
+  return {
+    ...stack,
+    edits: {
+      ...e,
+      // Copies: live edits may write the tiles while the job waits for a worker.
+      sculpt: new Map(sculpt.map((k) => [k, e.sculpt!.get(k)!.slice()])),
+      paint: new Map(paint.map((k) => [k, e.paint!.get(k)!.slice()])),
+    },
+  }
+}
+
 /**
  * Each block's key (spec 0071): SHA-256 of the bake version, the grid, the seed, and every layer
  * (height and paint) whose region plus falloff touches the block's samples, with its dependency's
@@ -239,6 +338,10 @@ export async function blockKeys(input: BakeInput, stack: Stack): Promise<string[
         Math.min(layout.sizeZ, (bz + 1) * size) + margin,
       ]
       const touching = parts.filter((p) => !p.box || overlaps(p.box, box)).map((p) => p.digest)
+      // The edit layers' tiles it reads (0104), where it has any.
+      const tiles = blockEditTiles(stack.edits, layout, bx, bz)
+      const edits = await tilesDigest(stack.edits, tiles.sculpt, tiles.paint)
+      if (edits) touching.push(`e ${edits}`)
       keys.push(await sha256Hex(encoder.encode(`${base}\n${touching.join('\n')}`)))
     }
   }
@@ -320,6 +423,64 @@ class PageReader {
   }
 }
 
+/** Something with a page's normal planes (x then z, SIDE² each): a decoded or loaded page. */
+type WithNormals = { readonly normals: Uint8Array | null }
+
+/** Unpacks pages' normals to unit vectors once each (a parent rebuild reads each many times). */
+export function normalCache(): (page: WithNormals) => Float32Array {
+  const normals = new WeakMap<WithNormals, Float32Array>()
+  const v = new Float64Array(3)
+  return (page) => {
+    let n = normals.get(page)
+    if (!n) {
+      n = new Float32Array(SIDE * SIDE * 3)
+      for (let k = 0; k < SIDE * SIDE; k++) {
+        pageNormal(page as DecodedPage, k % SIDE, Math.floor(k / SIDE), v)
+        n[k * 3] = v[0]!
+        n[k * 3 + 1] = v[1]!
+        n[k * 3 + 2] = v[2]!
+      }
+      normals.set(page, n)
+    }
+    return n
+  }
+}
+
+/**
+ * `parentPage`'s normal lookup over a parent's children and the ring around them: ring[(r + 1) ×
+ * 4 + c + 1] is the child-level page at (2X + c, 2Z + r), c and r from −1 to 2 (null past the
+ * terrain's edge, where the nearest texel inside stands in).
+ */
+export function ringNormalAt(
+  ring: readonly (WithNormals | null)[],
+  unpacked: (page: WithNormals) => Float32Array,
+): (gi: number, gj: number, out: Float64Array) => void {
+  return (gi, gj, out) => {
+    let c = gi < 0 ? -1 : gi > 2 * PAGE ? 2 : gi === 2 * PAGE ? 1 : Math.floor(gi / PAGE)
+    let r = gj < 0 ? -1 : gj > 2 * PAGE ? 2 : gj === 2 * PAGE ? 1 : Math.floor(gj / PAGE)
+    let page = ring[(r + 1) * 4 + c + 1]
+    if (!page) {
+      // Past the terrain's edge: the nearest texel inside.
+      gi = Math.min(2 * PAGE, Math.max(0, gi))
+      gj = Math.min(2 * PAGE, Math.max(0, gj))
+      c = gi === 2 * PAGE ? 1 : Math.floor(gi / PAGE)
+      r = gj === 2 * PAGE ? 1 : Math.floor(gj / PAGE)
+      page = ring[(r + 1) * 4 + c + 1]
+    }
+    if (!page) {
+      out[0] = 0
+      out[1] = 1
+      out[2] = 0
+      return
+    }
+    const n = unpacked(page)
+    const o = ((gj - r * PAGE) * SIDE + gi - c * PAGE) * 3
+    out[0] = n[o]!
+    out[1] = n[o + 1]!
+    out[2] = n[o + 2]!
+  }
+}
+
 /**
  * Bakes a terrain source into page packs (spec 0071), incrementally: blocks whose key changed are
  * rebaked (on the pool when there is one), every ancestor of a rebaked block is rebuilt from its
@@ -383,7 +544,7 @@ export async function bakeTerrain(
         ? await workers.run<BlockResult>(
             WORKER,
             'bakeBlock',
-            [NOISE_KERNEL_MODULE, kernel.module, stack, layout, bx, bz],
+            [NOISE_KERNEL_MODULE, kernel.module, blockStack(stack, layout, bx, bz), layout, bx, bz],
             { kind: 'terrain/bake-block' },
           )
         : bakeBlock(mainNoise(), stack, layout, bx, bz)
@@ -434,23 +595,7 @@ export async function bakeTerrain(
   )
   // Levels above the blocks: every ancestor of a rebaked block, from its children.
   let ancestors = 0
-  const normals = new WeakMap<DecodedPage, Float32Array>()
-  const v = new Float64Array(3)
-  /** A page's normals as unit vectors, unpacked once. */
-  const unpacked = (page: DecodedPage) => {
-    let n = normals.get(page)
-    if (!n) {
-      n = new Float32Array(SIDE * SIDE * 3)
-      for (let k = 0; k < SIDE * SIDE; k++) {
-        pageNormal(page, k % SIDE, Math.floor(k / SIDE), v)
-        n[k * 3] = v[0]!
-        n[k * 3 + 1] = v[1]!
-        n[k * 3 + 2] = v[2]!
-      }
-      normals.set(page, n)
-    }
-    return n
-  }
+  const unpacked = normalCache()
   for (let L = lmax + 1; L <= D; L++) {
     const dirty = new Set<string>()
     for (const [bx, bz] of stale)
@@ -466,30 +611,7 @@ export async function bakeTerrain(
         }),
       )
       const children = [ring[5]!, ring[6]!, ring[9]!, ring[10]!]
-      const normalAt = (gi: number, gj: number, out: Float64Array) => {
-        let c = gi < 0 ? -1 : gi > 2 * PAGE ? 2 : gi === 2 * PAGE ? 1 : Math.floor(gi / PAGE)
-        let r = gj < 0 ? -1 : gj > 2 * PAGE ? 2 : gj === 2 * PAGE ? 1 : Math.floor(gj / PAGE)
-        let page = ring[(r + 1) * 4 + c + 1]
-        if (!page) {
-          // Past the terrain's edge: the nearest texel inside.
-          gi = Math.min(2 * PAGE, Math.max(0, gi))
-          gj = Math.min(2 * PAGE, Math.max(0, gj))
-          c = gi === 2 * PAGE ? 1 : Math.floor(gi / PAGE)
-          r = gj === 2 * PAGE ? 1 : Math.floor(gj / PAGE)
-          page = ring[(r + 1) * 4 + c + 1]
-        }
-        if (!page) {
-          out[0] = 0
-          out[1] = 1
-          out[2] = 0
-          return
-        }
-        const n = unpacked(page)
-        const o = ((gj - r * PAGE) * SIDE + gi - c * PAGE) * 3
-        out[0] = n[o]!
-        out[1] = n[o + 1]!
-        out[2] = n[o + 2]!
-      }
+      const normalAt = ringNormalAt(ring, unpacked)
       const parent = parentPage(children, layout.cells, normalAt)
       let min = 65535
       let max = 0

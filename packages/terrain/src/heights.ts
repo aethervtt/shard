@@ -1,6 +1,7 @@
 import { defineResource, type Entity, ShardError, type World } from '@aethervtt/shard-core'
 import type { PlatformFileSystem, Workers } from '@aethervtt/shard-platform'
 import { biomeWeights, dominantBiome, MAX_BIOMES } from './biomes'
+import type { TerrainEditsData } from './heightfield/edits'
 import type { HeightfieldRuntime } from './heightfield/runtime'
 import type { PlanetRuntime } from './planet'
 import { samplePoint } from './points'
@@ -16,6 +17,8 @@ export class TerrainState {
   fs: PlatformFileSystem | undefined
   /** Set when a graph or biome asset (re)loaded: planets re-resolve their assets. */
   dirty = true
+  /** Saved edits waiting for their terrain's source (0104), applied before its first bake. */
+  readonly pendingEdits = new Map<Entity, TerrainEditsData>()
 }
 
 export const TerrainWorld = defineResource<TerrainState>('terrain/World', {
