@@ -229,12 +229,17 @@ export function textureCapabilities(): TextureCapabilities {
   return { ...capabilities }
 }
 
-/** The best transcode target for a usage on this device. */
+/**
+ * The best transcode target for a usage on this device. Basis fills the two-channel formats (BC5,
+ * EAC RG11) from red and alpha, so only a normal map that holds Y in alpha (`normalYInAlpha`, as
+ * the importer writes them) takes one; any other reads its RGB from a four-channel format.
+ */
 export function transcodeTarget(
   usage: TextureUsage,
   caps: TextureCapabilities = capabilities,
+  normalYInAlpha = false,
 ): TranscodeTarget {
-  if (usage === 'normal')
+  if (usage === 'normal' && normalYInAlpha)
     return caps.bc ? 'bc5' : caps.astc ? 'astc' : caps.etc2 ? 'eac-rg11' : 'rgba8'
   return caps.bc ? 'bc7' : caps.astc ? 'astc' : caps.etc2 ? 'etc2' : 'rgba8'
 }
@@ -257,7 +262,10 @@ export async function textureFromKtx2(
   const { readKtx2 } = await import('./ktx2')
   const ktx = readKtx2(bytes)
   if (ktx.basis) {
-    const out = await transcodeBasis(bytes, transcodeTarget(ktx.usage))
+    const out = await transcodeBasis(
+      bytes,
+      transcodeTarget(ktx.usage, capabilities, ktx.normalYInAlpha),
+    )
     return new Texture({
       width: out.width,
       height: out.height,

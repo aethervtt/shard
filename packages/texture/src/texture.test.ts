@@ -263,6 +263,65 @@ describe('KTX2 and Basis', () => {
     setTextureCapabilities({ bc: false, astc: false, etc2: false })
     expect((await textureFromKtx2(bytes)).format).toBe('rgba8unorm')
   })
+
+  it('compressed normal maps keep Y in BC5 and EAC RG11, which Basis fills from alpha', {
+    timeout: timeout(60_000),
+  }, async () => {
+    // A tilted normal per row: X and Y vary independently, Z is whatever keeps it unit length.
+    const size = 32
+    const src = new Uint8Array(size * size * 4)
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const nx = (x / size - 0.5) * 0.8
+        const ny = (y / size - 0.5) * 0.8
+        const nz = Math.sqrt(1 - nx * nx - ny * ny)
+        src.set(
+          [(nx * 0.5 + 0.5) * 255, (ny * 0.5 + 0.5) * 255, (nz * 0.5 + 0.5) * 255, 255],
+          (y * size + x) * 4,
+        )
+      }
+    }
+    /** BC4 block → 16 values (the half of BC5 that holds one channel). */
+    const bc4 = (b: Uint8Array, o: number) => {
+      const [r0, r1] = [b[o]!, b[o + 1]!]
+      const palette =
+        r0 > r1
+          ? [r0, r1, ...[1, 2, 3, 4, 5, 6].map((i) => ((7 - i) * r0 + i * r1) / 7)]
+          : [r0, r1, ...[1, 2, 3, 4].map((i) => ((5 - i) * r0 + i * r1) / 5), 0, 255]
+      let bits = 0n
+      for (let i = 0; i < 6; i++) bits |= BigInt(b[o + 2 + i]!) << BigInt(8 * i)
+      return Array.from({ length: 16 }, (_, i) => palette[Number((bits >> BigInt(3 * i)) & 7n)]!)
+    }
+    for (const compression of ['uastc', 'etc1s'] as const) {
+      const { bytes } = await importImageBytes(await pngOf(src, size, size), {
+        usage: 'normal',
+        mipmaps: true,
+        compression,
+        maxSize: 4096,
+        flipY: false,
+        premultiplyAlpha: false,
+      })
+      expect(readKtx2(bytes).normalYInAlpha).toBe(true)
+      setTextureCapabilities({ bc: true, astc: false, etc2: false })
+      const bc5 = await textureFromKtx2(bytes)
+      expect(bc5.format).toBe('bc5-rg-unorm')
+      let err = 0
+      const blocks = size / 4
+      for (let b = 0; b < blocks * blocks; b++) {
+        const [r, g] = [bc4(bc5.levels![0]!, b * 16), bc4(bc5.levels![0]!, b * 16 + 8)]
+        for (let i = 0; i < 16; i++) {
+          const p = (((b / blocks) | 0) * 4 + (i >> 2)) * size + (b % blocks) * 4 + (i & 3)
+          err += Math.abs(r[i]! - src[p * 4]!) + Math.abs(g[i]! - src[p * 4 + 1]!)
+        }
+      }
+      expect(err / (size * size * 2)).toBeLessThan(compression === 'uastc' ? 2 : 6)
+    }
+    // A Basis normal map from elsewhere keeps Y in green only: it transcodes to four channels.
+    const plain = await encodeBasis(src, size, size, 'normal', 'uastc', true)
+    setTextureCapabilities({ bc: true, astc: false, etc2: false })
+    expect((await textureFromKtx2(plain)).format).toBe('bc7-rgba-unorm')
+    setTextureCapabilities({ bc: false, astc: false, etc2: false })
+  })
 })
 
 /** A PNG from RGBA8 pixels, via the protocol encoder's approach (deflate stored as zlib). */

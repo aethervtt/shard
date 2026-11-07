@@ -81,6 +81,7 @@ export async function previewKtx2(
   let rgba: Uint8Array
   if (ktx.basis) {
     rgba = (await transcodeBasis(ktx.bytes, 'rgba8')).levels[0]!
+    if (ktx.normalYInAlpha) for (let i = 3; i < rgba.length; i += 4) rgba[i] = 255
   } else if (ktx.usage === 'hdr') {
     const half = new Uint16Array(ktx.levels[0]!.slice().buffer)
     rgba = new Uint8Array(ktx.width * ktx.height * 4)

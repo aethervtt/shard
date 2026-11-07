@@ -47,6 +47,7 @@ headless, and checks screenshots.
 | [0016](0016-textures.md) | Textures (KTX2 pipeline, fallback, material slots, previews) | implemented |
 | [0017](0017-user-scripts.md) | User scripts: bundling and hot reload | implemented |
 | [0103](0103-generated-lods.md) | Generated LODs for imported meshes (seams kept, skinned and morphed, sizes from error) | implemented |
+| [0107](0107-model-texture-compression.md) | Compressed textures for imported models (per-model Basis and size cap, modes by role) | implemented |
 
 ## M5 — Renderer v1
 

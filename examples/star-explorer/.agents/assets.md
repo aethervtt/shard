@@ -191,6 +191,8 @@ Files: `*.gltf`, `*.glb`
 | `lods` | `"auto"` \| `"authored"` \| `"none"` | `"auto"` |  | Level of detail: "auto" turns MSFT_lod chains and sibling nodes named <name>_LOD0, _LOD1… into one entity with a render/Lod component, and generates levels (lodTriangles) for meshes without a chain; "authored" only uses chains; "none" imports every node as is. |
 | `lodTriangles` | number[] | `[0.5,0.2,0.05]` |  | Generated levels (lods: "auto"), one per entry: the fraction of the source's triangles each keeps. [] generates none. Meshes under 1024 triangles get none. |
 | `lodPixelError` | number | `1` | ≥ 0 | How far (in pixels at 1080 rows) a generated level may stray before the next finer one draws: sets each level's screenSize from its measured error. |
+| `textureCompression` | `"none"` \| `"auto"` \| `"etc1s"` \| `"uastc"` | `"none"` |  | Basis Universal for the images embedded in the file (an external image has its own .meta). "auto": etc1s for color, uastc for normal and data maps (etc1s shares one intensity across RGB, so it bleeds packed channels like occlusion/roughness/metallic into each other). "none" stores RGBA8 with mips. Encoding takes seconds per texture on first import; the cache keeps the result. KTX2 images (KHR_texture_basisu) keep their own encoding. |
+| `textureMaxSize` | integer | `4096` | ≥ 1, ≤ 16384 | Downscale embedded images larger than this on either side (1024 or 512 suits a character). |
 | `materialTypes` | any | `{}` |  | Material types by glTF material name: { "Lava*": "my-game/Lava" } (* matches anything). A material's extras.shardMaterial names a type directly. Imported materials are StandardMaterial otherwise. |
 
 ## `data/tree`
