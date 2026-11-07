@@ -6,7 +6,15 @@ import {
 } from '@aethervtt/shard-animation'
 import { defineImporter, type ImportContext, type ImportedAsset } from '@aethervtt/shard-assets'
 import { defineSchema, type JsonValue, ShardError, t } from '@aethervtt/shard-core'
-import { encodeMesh, Mesh, type MeshData, type MorphTarget } from '@aethervtt/shard-mesh'
+import {
+  encodeMesh,
+  generateLods,
+  loadMeshSimplifier,
+  Mesh,
+  type MeshData,
+  type MorphTarget,
+  weldMesh,
+} from '@aethervtt/shard-mesh'
 import { nodeCodecs, requireCodec } from '@aethervtt/shard-platform-node/codecs'
 import { MAX_JOINTS, StandardMaterial, skinArtifact } from '@aethervtt/shard-render'
 import type { SceneEntity, SceneFile } from '@aethervtt/shard-scene'
@@ -45,9 +53,20 @@ export const GltfImportSettings = defineSchema(
     generateNormals: t.enum(['missing', 'always', 'never'], {
       description: 'Flat normals for primitives without them ("missing"), for all, or never.',
     }),
-    lods: t.enum(['auto', 'none'], {
+    lods: t.enum(['auto', 'authored', 'none'], {
       description:
-        'Level of detail: "auto" turns MSFT_lod chains and sibling nodes named <name>_LOD0, _LOD1… into one entity with a render/Lod component; "none" imports every node as is.',
+        'Level of detail: "auto" turns MSFT_lod chains and sibling nodes named <name>_LOD0, _LOD1… into one entity with a render/Lod component, and generates levels (lodTriangles) for meshes without a chain; "authored" only uses chains; "none" imports every node as is.',
+    }),
+    lodTriangles: t.list(t.f32({ min: 0, max: 1 }), {
+      default: [0.5, 0.2, 0.05],
+      description:
+        'Generated levels (lods: "auto"), one per entry: the fraction of the source\'s triangles each keeps. [] generates none. Meshes under 1024 triangles get none.',
+    }),
+    lodPixelError: t.f32({
+      default: 1,
+      min: 0,
+      description:
+        "How far (in pixels at 1080 rows) a generated level may stray before the next finer one draws: sets each level's screenSize from its measured error.",
     }),
     materialTypes: t.json({
       default: {},
@@ -301,6 +320,11 @@ function toTriangleList(mode: number, source: ArrayLike<number>): Uint32Array {
 
 // --- the importer --------------------------------------------------------------------------
 
+/** Meshes smaller than this get no generated levels: drawing them is already cheap. */
+const MIN_LOD_TRIANGLES = 1024
+/** A generated level whose error is ~0 never needs the finer one: its size caps here. */
+const MAX_SCREEN_SIZE = 1000
+
 interface Settings {
   scale: number
   forward: '+z' | '-z'
@@ -309,7 +333,9 @@ interface Settings {
   lights: boolean
   generateNormals: 'missing' | 'always' | 'never'
   materialTypes: Record<string, string>
-  lods: 'auto' | 'none'
+  lods: 'auto' | 'authored' | 'none'
+  lodTriangles: number[]
+  lodPixelError: number
 }
 
 async function loadBuffers(doc: GltfDocument, bin: Uint8Array | undefined, ctx: ImportContext) {
@@ -526,7 +552,7 @@ function buildPrimitive(
 
 export const GltfImporter = defineImporter({
   name: 'gltf',
-  version: 3,
+  version: 4,
   extensions: ['.gltf', '.glb'],
   settings: GltfImportSettings,
   async import(source, ctx) {
@@ -679,72 +705,7 @@ export const GltfImporter = defineImporter({
       })
     }
 
-    // Meshes: one Mesh per primitive.
-    const meshLabels = labels(doc.meshes)
-    const primLabels: (string | undefined)[][] = []
-    for (const [mi, mesh] of (doc.meshes ?? []).entries()) {
-      const out: (string | undefined)[] = []
-      for (const [pi, prim] of mesh.primitives.entries()) {
-        const ptr = `/meshes/${mi}/primitives/${pi}`
-        let data = buildPrimitive(prim, acc, settings, ctx.warn, ptr)
-        if (!data) {
-          out.push(undefined)
-          continue
-        }
-        const material = prim.material === undefined ? undefined : doc.materials?.[prim.material]
-        if (material?.normalTexture && !data.tangents && data.normals && data.uvs) {
-          data = await generateTangents(data)
-        }
-        let built: Mesh
-        try {
-          built = Mesh.create(data)
-        } catch (err) {
-          throw new ShardError('gltf/invalid', `${ptr}: ${(err as Error).message}`, {
-            path: ptr,
-            cause: err,
-          })
-        }
-        const label =
-          mesh.primitives.length === 1 ? `Mesh/${meshLabels[mi]}` : `Mesh/${meshLabels[mi]}/${pi}`
-        out.push(label)
-        const b = built.bounds
-        assets.push({
-          label,
-          type: 'Mesh',
-          bytes: encodeMesh(built),
-          info: {
-            vertices: built.vertexCount,
-            triangles: Math.floor(built.drawCount / 3),
-            bounds: { min: [b[0]!, b[1]!, b[2]!], max: [b[3]!, b[4]!, b[5]!] },
-          },
-        })
-      }
-      primLabels.push(out)
-    }
-
-    // Scenes: node trees. Paths are computed from the default scene (for skins and animations).
     const nodes = doc.nodes ?? []
-    const skinLabels = labels(doc.skins)
-    // Every entity a node's primitives become: the node itself, then children "1", "2"…
-    const primitivePaths = new Map<number, string[]>()
-    const nodePaths = new Map<number, string>()
-    const rootRotation: Quat = settings.forward === '-z' ? [0, 1, 0, 0] : [0, 0, 0, 1]
-    const rootScale = settings.scale
-    const lights =
-      (
-        doc.extensions?.KHR_lights_punctual as
-          | {
-              lights?: {
-                type: string
-                intensity?: number
-                color?: number[]
-                range?: number
-                spot?: { innerConeAngle?: number; outerConeAngle?: number }
-              }[]
-            }
-          | undefined
-      )?.lights ?? []
-
     // LOD chains: a base node and its lower levels (MSFT_lod ids, or _LOD<n> siblings), with the
     // MSFT screen coverage when the file has one.
     type LodChain = { ids: number[]; coverage: number[] | undefined }
@@ -791,6 +752,117 @@ export const GltfImporter = defineImporter({
       }
       return { build, chains }
     }
+    // Meshes in an authored chain (as base or lower level, on any node) get no generated levels.
+    const chainMeshes = new Set<number>()
+    if (lodOn) {
+      const lists: (readonly number[])[] = (doc.scenes ?? []).map((scene) => scene.nodes ?? [])
+      for (const node of nodes) if (node.children) lists.push(node.children)
+      for (const list of lists) {
+        for (const [base, chain] of lodGroups(list).chains) {
+          for (const ni of [base, ...chain.ids]) {
+            const mesh = nodes[ni]?.mesh
+            if (mesh !== undefined) chainMeshes.add(mesh)
+          }
+        }
+      }
+    }
+    const generate = settings.lods === 'auto' && settings.lodTriangles.length > 0
+    /** Generated levels by base mesh label: their labels and errors (mesh units). */
+    const generated = new Map<string, { labels: string[]; errors: number[] }>()
+
+    // Meshes: one Mesh per primitive.
+    const meshLabels = labels(doc.meshes)
+    const primLabels: (string | undefined)[][] = []
+    for (const [mi, mesh] of (doc.meshes ?? []).entries()) {
+      const out: (string | undefined)[] = []
+      for (const [pi, prim] of mesh.primitives.entries()) {
+        const ptr = `/meshes/${mi}/primitives/${pi}`
+        let data = buildPrimitive(prim, acc, settings, ctx.warn, ptr)
+        if (!data) {
+          out.push(undefined)
+          continue
+        }
+        const material = prim.material === undefined ? undefined : doc.materials?.[prim.material]
+        if (material?.normalTexture && !data.tangents && data.normals && data.uvs) {
+          // Generated per corner: welding restores the shared vertices it split.
+          data = weldMesh(await generateTangents(data))
+        }
+        const triangles = (data.indices?.length ?? data.positions.length / 3) / 3
+        const lodLevels = generate && triangles >= MIN_LOD_TRIANGLES && !chainMeshes.has(mi)
+        if (lodLevels && !data.indices) data = weldMesh(data)
+        let built: Mesh
+        try {
+          built = Mesh.create(data)
+        } catch (err) {
+          throw new ShardError('gltf/invalid', `${ptr}: ${(err as Error).message}`, {
+            path: ptr,
+            cause: err,
+          })
+        }
+        const label =
+          mesh.primitives.length === 1 ? `Mesh/${meshLabels[mi]}` : `Mesh/${meshLabels[mi]}/${pi}`
+        out.push(label)
+        const b = built.bounds
+        assets.push({
+          label,
+          type: 'Mesh',
+          bytes: encodeMesh(built),
+          info: {
+            vertices: built.vertexCount,
+            triangles: Math.floor(built.drawCount / 3),
+            bounds: { min: [b[0]!, b[1]!, b[2]!], max: [b[3]!, b[4]!, b[5]!] },
+          },
+        })
+        if (lodLevels) {
+          await loadMeshSimplifier()
+          const levels = generateLods(data, settings.lodTriangles)
+          const entry = { labels: [] as string[], errors: [] as number[] }
+          for (const [k, level] of levels.entries()) {
+            const lodMesh = Mesh.trusted(level.mesh)
+            const lodLabel = `${label}/LOD${k + 1}`
+            const lb = lodMesh.bounds
+            entry.labels.push(lodLabel)
+            entry.errors.push(level.error)
+            assets.push({
+              label: lodLabel,
+              type: 'Mesh',
+              bytes: encodeMesh(lodMesh),
+              info: {
+                vertices: lodMesh.vertexCount,
+                triangles: Math.floor(lodMesh.drawCount / 3),
+                bounds: { min: [lb[0]!, lb[1]!, lb[2]!], max: [lb[3]!, lb[4]!, lb[5]!] },
+                lod: { of: label, level: k + 1, error: level.error },
+              },
+            })
+          }
+          if (entry.labels.length) generated.set(label, entry)
+        }
+      }
+      primLabels.push(out)
+    }
+
+    // Scenes: node trees. Paths are computed from the default scene (for skins and animations).
+    const skinLabels = labels(doc.skins)
+    // Every entity a node's primitives become: the node itself, then children "1", "2"…
+    const primitivePaths = new Map<number, string[]>()
+    const nodePaths = new Map<number, string>()
+    const rootRotation: Quat = settings.forward === '-z' ? [0, 1, 0, 0] : [0, 0, 0, 1]
+    const rootScale = settings.scale
+    const lights =
+      (
+        doc.extensions?.KHR_lights_punctual as
+          | {
+              lights?: {
+                type: string
+                intensity?: number
+                color?: number[]
+                range?: number
+                spot?: { innerConeAngle?: number; outerConeAngle?: number }
+              }[]
+            }
+          | undefined
+      )?.lights ?? []
+
     /**
      * Screen size (diameter / viewport height) for LOD level k of n. MSFT coverage is a fraction of
      * the screen's area, so its square root; without one, each level halves twice, and the last
@@ -800,6 +872,31 @@ export const GltfImporter = defineImporter({
       const c = coverage?.[k]
       if (c !== undefined) return Math.sqrt(Math.max(0, c))
       return k === n - 1 ? 0 : 0.25 / 4 ** k
+    }
+
+    /**
+     * Screen sizes for a generated chain: each level draws until the next one's error reaches
+     * lodPixelError pixels at 1080 rows; the last always draws.
+     */
+    const generatedSizes = (label: string, errors: number[]) => {
+      const info = assets.find((x) => x.label === label)?.info as {
+        bounds: { min: number[]; max: number[] }
+      }
+      const { min, max } = info.bounds
+      const diameter = Math.hypot(max[0]! - min[0]!, max[1]! - min[1]!, max[2]! - min[2]!)
+      const sizes: number[] = []
+      for (let k = 0; k <= errors.length; k++) {
+        if (k === errors.length) {
+          sizes.push(0)
+          continue
+        }
+        const error = errors[k]!
+        let size =
+          error > 0 ? (settings.lodPixelError * diameter) / (error * 1080) : MAX_SCREEN_SIZE
+        size = Math.min(size, MAX_SCREEN_SIZE, k > 0 ? sizes[k - 1]! : MAX_SCREEN_SIZE)
+        sizes.push(Number(size.toPrecision(4)))
+      }
+      return sizes
     }
 
     const buildScene = (roots: number[], record: boolean) => {
@@ -862,6 +959,16 @@ export const GltfImporter = defineImporter({
               const initial = node.weights ?? mesh?.weights ?? []
               comps['render/MorphWeights'] = {
                 weights: Array.from({ length: targets }, (_, k) => initial[k] ?? 0),
+              }
+            }
+            const gen = lod ? undefined : generated.get(label)
+            if (gen) {
+              const sizes = generatedSizes(label, gen.errors)
+              comps['render/Lod'] = {
+                levels: [label, ...gen.labels].map((l, k) => {
+                  deps.add(`#${l}`)
+                  return { mesh: { path: `#${l}` }, screenSize: sizes[k]! }
+                }),
               }
             }
             if (lod) {

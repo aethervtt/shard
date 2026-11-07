@@ -30,7 +30,7 @@ visible, not with what exists.
 ## Non-goals
 
 - Occlusion culling, hierarchical-Z, meshlets (later: GPU-driven rendering, M7).
-- Automatic LOD mesh generation (simplification is an importer feature, later).
+- Automatic LOD mesh generation (simplification is an importer feature: 0103).
 - Dithered LOD crossfades (later; v1 switches with hysteresis).
 
 ## Design
@@ -166,6 +166,8 @@ applied in the cull pass.
   - Level k uses the same primitive of each lower node's mesh.
   - `MSFT_screencoverage` is a fraction of screen area, so its square root becomes the
     `screenSize`. Without it, levels step down by 4× and the last level always draws.
+  - 0103 adds `authored` (this behavior) and makes `auto` also generate levels for meshes without
+    a chain. It also gives skinned and morphed LOD slots a per-level table (deform record word 11).
 - **Agent surface:**
   - `render.describe` has a `culling` section with the mode (gpu or cpu), instances, batches, LOD
     sets, and bytes uploaded.

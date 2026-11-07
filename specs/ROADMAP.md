@@ -46,6 +46,7 @@ headless, and checks screenshots.
 | [0015](0015-gltf-loader.md) | glTF/GLB loader | implemented |
 | [0016](0016-textures.md) | Textures (KTX2 pipeline, fallback, material slots, previews) | implemented |
 | [0017](0017-user-scripts.md) | User scripts: bundling and hot reload | implemented |
+| [0103](0103-generated-lods.md) | Generated LODs for imported meshes (seams kept, skinned and morphed, sizes from error) | implemented |
 
 ## M5 — Renderer v1
 

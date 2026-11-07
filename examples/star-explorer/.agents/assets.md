@@ -188,7 +188,9 @@ Files: `*.gltf`, `*.glb`
 | `cameras` | boolean | `false` |  | Spawn the file's cameras. |
 | `lights` | boolean | `false` |  | Spawn the file's lights (KHR_lights_punctual). |
 | `generateNormals` | `"missing"` \| `"always"` \| `"never"` | `"missing"` |  | Flat normals for primitives without them ("missing"), for all, or never. |
-| `lods` | `"auto"` \| `"none"` | `"auto"` |  | Level of detail: "auto" turns MSFT_lod chains and sibling nodes named <name>_LOD0, _LOD1… into one entity with a render/Lod component; "none" imports every node as is. |
+| `lods` | `"auto"` \| `"authored"` \| `"none"` | `"auto"` |  | Level of detail: "auto" turns MSFT_lod chains and sibling nodes named <name>_LOD0, _LOD1… into one entity with a render/Lod component, and generates levels (lodTriangles) for meshes without a chain; "authored" only uses chains; "none" imports every node as is. |
+| `lodTriangles` | number[] | `[0.5,0.2,0.05]` |  | Generated levels (lods: "auto"), one per entry: the fraction of the source's triangles each keeps. [] generates none. Meshes under 1024 triangles get none. |
+| `lodPixelError` | number | `1` | ≥ 0 | How far (in pixels at 1080 rows) a generated level may stray before the next finer one draws: sets each level's screenSize from its measured error. |
 | `materialTypes` | any | `{}` |  | Material types by glTF material name: { "Lava*": "my-game/Lava" } (* matches anything). A material's extras.shardMaterial names a type directly. Imported materials are StandardMaterial otherwise. |
 
 ## `data/tree`

@@ -5,11 +5,13 @@ import { fileURLToPath } from 'node:url'
 import { type AssetServer, assetServer } from '@aethervtt/shard-assets'
 import { World } from '@aethervtt/shard-core'
 import { timeout } from '@aethervtt/shard-core/test-env'
+import { MeshBuilder } from '@aethervtt/shard-mesh'
 import { createNodePlatform } from '@aethervtt/shard-platform-node'
 import { Materials, Meshes } from '@aethervtt/shard-render'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parseGltf } from './document'
 import { AnimationClips, Skins } from './index'
+import { writeGlb } from './writer'
 import './index'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -333,6 +335,113 @@ describe('importing the Khronos samples', () => {
     expect(clip.duration).toBeGreaterThan(1)
     // Joint paths are entity paths under the model root.
     expect(skin.joints[0]).toMatch(/\//)
+  })
+})
+
+describe('generated levels (0103)', () => {
+  type Entity = { name: string; components: Record<string, Record<string, unknown>> }
+  type Levels = { levels: { mesh: { path: string }; screenSize: number }[] }
+  const ball = (detail: number) => MeshBuilder.create().icosphere(detail).uvsTriplanar(0.5).finish()
+
+  function glbProject(file: Uint8Array, settings?: Record<string, unknown>): string {
+    const root = project({})
+    mkdirSync(join(root, 'assets'), { recursive: true })
+    writeFileSync(join(root, 'assets/model.glb'), file)
+    if (settings) {
+      writeFileSync(
+        join(root, 'assets/model.glb.meta'),
+        JSON.stringify({ guid: 'e'.repeat(32), settings }),
+      )
+    }
+    return root
+  }
+
+  const lodsOf = async (s: AssetServer) => {
+    const scene = (await s.artifact('assets/model.glb#Scene')).json as { entities: Entity[] }
+    return scene.entities.map((e) => e.components['render/Lod'] as Levels | undefined)
+  }
+  const generatedLabels = (s: AssetServer) =>
+    s.info('assets/model.glb').subAssets!.filter((a) => /\/LOD\d+$/.test(a.path))
+
+  it('a mesh without a chain gets levels at decreasing sizes, cached with the import', async () => {
+    const root = glbProject(
+      writeGlb({ nodes: [{ name: 'Ball', primitives: [{ mesh: ball(4) }] }] }),
+    )
+    const s = await server(root)
+    const [lod] = await lodsOf(s)
+    expect(lod!.levels.map((l) => l.mesh.path)).toEqual([
+      '#Mesh/Ball',
+      '#Mesh/Ball/LOD1',
+      '#Mesh/Ball/LOD2',
+      '#Mesh/Ball/LOD3',
+    ])
+    const sizes = lod!.levels.map((l) => l.screenSize)
+    for (let k = 1; k < sizes.length; k++) expect(sizes[k]).toBeLessThan(sizes[k - 1]!)
+    expect(sizes.at(-1)).toBe(0)
+    const source = 5120
+    for (const [k, f] of [0.5, 0.2, 0.05].entries()) {
+      const info = s.info(`assets/model.glb#Mesh/Ball/LOD${k + 1}`).info as {
+        triangles: number
+        lod: { of: string; level: number; error: number }
+      }
+      expect(info.triangles / source).toBeLessThanOrEqual(f * 1.1)
+      expect(info.triangles / source).toBeGreaterThanOrEqual(f * 0.9)
+      expect(info.lod).toMatchObject({ of: 'Mesh/Ball', level: k + 1 })
+      expect(info.lod.error).toBeGreaterThan(0)
+    }
+    // Loading again simplifies nothing: the levels come from the cache.
+    const again = assetServer(new World()).configure({
+      platform: createNodePlatform({ root, logTo: () => {} }),
+    })
+    const report = await again.scan()
+    expect(report.imported).toEqual([])
+    expect(generatedLabels(again).length).toBe(3)
+  })
+
+  it('generates nothing for authored chains, small meshes, or when turned off', async () => {
+    const chain = writeGlb({
+      nodes: [
+        { name: 'Rock_LOD0', primitives: [{ mesh: ball(4) }] },
+        { name: 'Rock_LOD1', primitives: [{ mesh: ball(3) }] },
+      ],
+    })
+    const chained = await server(glbProject(chain))
+    expect(generatedLabels(chained)).toEqual([])
+    expect((await lodsOf(chained))[0]!.levels.length).toBe(2)
+
+    const one = writeGlb({ nodes: [{ name: 'Ball', primitives: [{ mesh: ball(4) }] }] })
+    for (const settings of [{ lods: 'authored' }, { lods: 'none' }, { lodTriangles: [] }]) {
+      const s = await server(glbProject(one, settings))
+      expect(generatedLabels(s)).toEqual([])
+      expect(await lodsOf(s)).toEqual([undefined])
+    }
+    const small = writeGlb({ nodes: [{ name: 'Ball', primitives: [{ mesh: ball(2) }] }] })
+    expect(generatedLabels(await server(glbProject(small)))).toEqual([])
+  })
+
+  it('a skinned mesh keeps its skin next to its Lod, and every level carries joints and weights', async () => {
+    const s = await server(
+      project({ 'assets/CesiumMan.glb': 'CesiumMan/glTF-Binary/CesiumMan.glb' }),
+    )
+    const scene = (await s.artifact('assets/CesiumMan.glb#Scene')).json as { entities: Entity[] }
+    const all: Entity[] = []
+    const walk = (list: (Entity & { children?: Entity[] })[]) => {
+      for (const e of list) {
+        all.push(e)
+        walk((e as { children?: Entity[] }).children ?? [])
+      }
+    }
+    walk(scene.entities)
+    const skinned = all.find((e) => e.components['render/SkinnedMesh'])!
+    const lod = skinned.components['render/Lod'] as Levels
+    expect(lod.levels.length).toBeGreaterThan(1)
+    const paths = lod.levels.map((l) => `assets/CesiumMan.glb${l.mesh.path}`)
+    await s.whenSettled(paths)
+    for (const path of paths) {
+      const mesh = s.world.resource(Meshes).get(s.resolve(path))!
+      expect(mesh.joints?.length).toBe(mesh.vertexCount * 4)
+      expect(mesh.weights?.length).toBe(mesh.vertexCount * 4)
+    }
   })
 })
 

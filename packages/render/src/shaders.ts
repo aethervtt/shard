@@ -185,8 +185,12 @@ struct Deform {
   vertex_count: u32,
   morph_count: u32,
   weights_base: u32,
-  _pad: u32,
+  /** 1 + the first word of the slot's LOD level table in deform_data (4 words a level), or 0. */
+  levels: u32,
 }
+
+/** A level table's skin base for a level without joints and weights. */
+const NO_SKIN: u32 = 0xffffffffu;
 
 const FLAG_SKINNED: u32 = 32u;
 const FLAG_MORPH: u32 = 64u;
@@ -215,23 +219,38 @@ fn deform_vertex(instance_index: u32, vertex_index: u32, position: vec3f, normal
   out.position = position;
   out.normal = normal;
   out.tangent = tangent;
-  let slot = visible[instance_index] & SLOT_MASK;
+  let entry = visible[instance_index];
+  let slot = entry & SLOT_MASK;
   let flags = instances[slot].flags;
   if ((flags & (FLAG_SKINNED | FLAG_MORPH)) == 0u) { return out; }
   let d = deforms[slot];
-  if (vertex_index >= d.vertex_count) { return out; }
+  // The record describes level 0's mesh; a lower level reads its own row of the level table.
+  var skin_base = d.skin_base;
+  var morph_base = d.morph_base;
+  var vertex_count = d.vertex_count;
+  var target_count = 0xffffffffu;
+  let level = entry >> 28u;
+  if (level > 0u && d.levels != 0u) {
+    let row = d.levels - 1u + level * 4u;
+    skin_base = deform_data[row];
+    morph_base = deform_data[row + 1u];
+    vertex_count = deform_data[row + 2u];
+    target_count = deform_data[row + 3u];
+  }
+  if (vertex_index >= vertex_count) { return out; }
   for (var k = 0u; k < d.morph_count; k++) {
     let pair = poses[d.weights_base + k / 2u];
     let odd = (k & 1u) == 1u;
     let target_index = u32(select(pair.x, pair.z, odd));
+    if (target_index >= target_count) { continue; }
     let w = select(pair.y, pair.w, odd);
-    let o = d.morph_base + (target_index * d.vertex_count + vertex_index) * 9u;
+    let o = morph_base + (target_index * vertex_count + vertex_index) * 9u;
     out.position += deform_vec3(o) * w;
     out.normal += deform_vec3(o + 3u) * w;
     out.tangent = vec4f(out.tangent.xyz + deform_vec3(o + 6u) * w, out.tangent.w);
   }
-  if ((flags & FLAG_SKINNED) != 0u && d.joint_count > 0u) {
-    let s = d.skin_base + vertex_index * 6u;
+  if ((flags & FLAG_SKINNED) != 0u && d.joint_count > 0u && skin_base != NO_SKIN) {
+    let s = skin_base + vertex_index * 6u;
     let j01 = deform_data[s];
     let j23 = deform_data[s + 1u];
     let joints = vec4u(j01 & 0xffffu, j01 >> 16u, j23 & 0xffffu, j23 >> 16u);
