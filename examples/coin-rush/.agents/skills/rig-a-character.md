@@ -37,7 +37,8 @@ to it when the model reloads.
 - Retarget clips made for another skeleton: `"animation/Retarget": { "source": { "path":
   "assets/mixamo.glb#Skin/Skin0" }, "mode": "rotation-and-root" }` on the player. Names match after
   normalizing (`mixamorig:LeftUpLeg` = `UpLeg_L`); others go in a `*.jointmap.json`
-  (`{ "joints": { "Spine1": "Chest" } }`, the `map` field).
+  (`{ "joints": { "Spine1": "Chest" } }`, the `map` field). Rest poses may differ (an A-pose
+  model, an arms-down clip): `align` (on) turns its limbs to point like the source's first.
 - `animation_describe` on the model: `ik` (distance left to each target, foot hits, hips drop,
-  problems like `ik/unknown-joint`) and `retarget` (hip ratio, unmapped joints). Screenshot with
-  `"overlays": ["ik", "skeleton"]` to see targets, poles, and foot rays.
+  problems like `ik/unknown-joint`) and `retarget` (hip ratio, unmapped and aligned joints).
+  Screenshot with `"overlays": ["ik", "skeleton"]` to see targets, poles, and foot rays.

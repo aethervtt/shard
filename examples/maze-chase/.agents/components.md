@@ -92,13 +92,14 @@ Turns a joint (and a share of the joints above it) to face a target, clamped to 
 
 ## `animation/Retarget`
 
-Plays clips authored for another skeleton on this player's model: channels bind by joint name, and each rotation is carried from the source's rest pose to this model's.
+Plays clips authored for another skeleton on this player's model: channels bind by joint name, and each rotation is carried from the source's rest pose to this model's (its limbs aligned to the source's, with align).
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `source` | null or Skin ref | `null` |  | The skeleton the clips were authored for (its #Skin sub-asset): its rest pose and joint names. |
 | `map` | null or JointMap ref | `null` |  | Optional *.jointmap.json of source → target names. Without one, names match after normalizing case, prefixes (mixamorig:), and sides (_L, .L, Left). |
 | `mode` | `"rotation"` \| `"rotation-and-root"` | `"rotation"` |  | rotation: only joint rotations carry over (bone lengths stay the target's). rotation-and-root: the root joint's translation too, scaled by the ratio of hip heights (root motion scales with it). |
+| `align` | boolean | `true` |  | Turns each of this model's limbs to point the way the source's does at rest before the clip plays (an A-pose model's arms come down to an arms-down source's), so clips land the same whatever the two rest poses. Off: rotations are carried relative to this model's own rest pose. |
 
 ## `animation/RootMotion`
 

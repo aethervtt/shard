@@ -101,6 +101,7 @@ Retarget {
   source: handle('Skin')                    // the skeleton the clips were authored for
   map: handle('JointMap')                   // optional: source joint → target joint names
   mode: 'rotation' | 'rotation-and-root'    // root translation scaled by the hip height ratio
+  align: bool = true                        // carry rotations onto a pose with limbs aligned to the source's
 }
 ```
 
@@ -112,7 +113,24 @@ Retarget {
   `target = C⁻¹ · sampled · sourceRest⁻¹ · C · targetRest`, where `C = sourceParentRest⁻¹ ·
   targetParentRest` (model-space rest rotations). With parents that agree (`C = 1`) this is
   `sampled · sourceRest⁻¹ · targetRest`. Source rest poses come from the skin's rest pose, with the
-  top joint placed by its inverse bind matrix; the target's are its pose when the clip binds.
+  top joint placed by its inverse bind matrix; the target's are its pose when the clip binds. In
+  model space the target joint ends up at `Δ · targetPose`, where `Δ` is the source joint's turn
+  from its rest.
+- **Retarget pose (`align`, on by default).** Rigs whose rest poses differ (an A-pose model playing
+  clips of an arms-down one) would keep the difference: the clip turns each limb from where it
+  rests. With `align`, rotations are carried onto a retarget pose instead of the target's rest
+  pose: each animated target joint with exactly one child joint both rigs share (a limb link:
+  upper arm to forearm, thigh to shin, foot to toe) is turned by the shortest arc that points its
+  bone (joint to that child, model space at rest) like the source's. Joints with several shared
+  children (hips, chest, a hand with fingers) or none turn with their parent, keeping their own
+  rest relative to it. `targetPose` and the parent's pose in `C` are this pose's model-space
+  rotations, so the formula above is unchanged. With identical rest poses every turn is identity.
+  Twist about the bone isn't touched.
+- **Models that spawn after the player binds.** A clip on a SceneInstance whose model hasn't spawned
+  binds against nothing. Unbound channels (no Retarget) retry; a retargeted clip whose source joints
+  matched nothing retries too, and replans when the paths under the player changed. Retries come
+  every 30 frames, or every frame while nothing is under the player yet. `retarget/unmapped-root` is
+  logged only once the model is there.
 - The source root is the shallowest skin joint the clip animates. In `rotation-and-root` its
   translation is carried into the target parent's frame and scaled by the ratio of hip heights
   (target / source, model space), so root motion scales too. Other translations and scales are
@@ -127,7 +145,8 @@ Retarget {
 - `animation.describe` lists IK solvers under the player (and all of them without an entity):
   kind, weight, whether it solved, distance left to the target (angle for look-at, clamped),
   FABRIK iterations, each foot's hit and normal and how far the hips dropped, and any problem. With
-  a Retarget: the source skin, root mapping, hip ratio, and source joints that matched nothing.
+  a Retarget: the source skin, root mapping, hip ratio, source joints that matched nothing, and
+  `alignedJoints` (target joint → degrees `align` turned it, past half a degree).
 - The `ik` overlay draws IK targets, poles, solved chains, and foot rays (green hits, red misses).
   The `skeleton` overlay (render) still draws the joints.
 - **Errors:** `ik/not-a-chain` (the joints aren't ancestors of each other), `ik/unknown-joint`
@@ -140,6 +159,13 @@ Retarget {
   physics) sees one final pose, and blending with `weight` is a slerp.
 - **Retarget by rest pose, not by bone lengths alone.** Rest-pose correction handles different
   bind orientations, which is the common failure when sharing clips across rigs.
+- **Align limbs at bind, by default.** Rigs from one generator (Tripo's Mixamo skeletons) come in
+  different rest poses, and fixing each model offline is a step per model. Aligning bone directions
+  is what Unreal's retarget pose and Unity's Humanoid T-pose normalization do; with matching rest
+  poses it changes nothing, so it's the default. `align: false` keeps the old behavior.
+- **Align only single-child links.** A joint with several children has no one bone direction, and
+  averaging them (hips: spine and both legs) gives a direction that means little. Those joints turn
+  with their parent instead.
 - **Sockets are data on the model.** A prefab places a weapon by socket name, so swapping the
   character model doesn't break attachments.
 - **Joints are paths, not entity fields.** Scene files and prefabs can't reference a model's
@@ -162,7 +188,13 @@ Retarget {
       keeps feet on the ground plane (golden image) and scales root motion by the hip ratio.
 - [x] An entity attached to a socket follows the hand through a clip, and survives a model reload.
 - [x] 100 characters with two-bone foot IK solve in under 1 ms per frame (bench).
+- [x] A target rested in an A-pose (arms 36° out) plays an idle authored on an arms-down rig with
+      its upper arms and forearms within 2° of the source's; with `align: false` they stay 36° off.
+- [x] An entity spawned with SceneInstance, AnimationPlayer, and Retarget in one go animates once
+      its model loads, posed exactly as when the player is added after the model spawned.
 
 ## Open questions
 
-- None blocking.
+- Source poses are in the skin's space (the top joint placed by its inverse bind matrix) and the
+  target's in the model's. A model whose skin space isn't its model space (CesiumMan's `Z_UP` node)
+  retargets wrongly with or without `align`. See `TODO.md`.

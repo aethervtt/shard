@@ -68,7 +68,8 @@ sharpening is a clamped unsharp mask over the four neighbors, so it can't ring p
 min/max.
 
 Pixel-perfect cameras keep their own integer upscale and aren't scaled. Neither are cameras that
-render to a render-target asset.
+render to a render-target asset. A pixel-perfect camera's screen overlays still draw at display
+resolution, in its upscale view (0024).
 
 ### Display density
 

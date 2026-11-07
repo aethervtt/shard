@@ -289,8 +289,9 @@ function screenOf(
   if (w <= 0) return false
   const cx = (m[0]! * x + m[4]! * y + m[8]! * z + m[12]!) / w
   const cy = (m[1]! * x + m[5]! * y + m[9]! * z + m[13]!) / w
-  out[0] = ((cx + 1) / 2) * (cam.displayWidth / cam.pixelRatio)
-  out[1] = ((1 - cy) / 2) * (cam.displayHeight / cam.pixelRatio)
+  const vp = cam.viewport
+  out[0] = (vp[0]! + ((cx + 1) / 2) * vp[2]!) / cam.pixelRatio
+  out[1] = (vp[1]! + ((1 - cy) / 2) * vp[3]!) / cam.pixelRatio
   return true
 }
 

@@ -19,6 +19,7 @@ import {
   GroundLayer,
   type NodeContext,
   type NodeDescriptor,
+  overlayCameraOf,
   PICK_TARGETS,
   RenderPhase,
   type RenderView,
@@ -1206,7 +1207,8 @@ function viewGroup(ctx: NodeContext, cam: CameraData): GPUBindGroup {
     c.views.set(ctx.view.name, v)
   }
   viewScratch.set(cam.viewProj, 0)
-  // Only screen space reads the viewport, and it draws after the upscale: display size (0051).
+  // Only screen space reads the viewport, and it draws after the upscale (0051, or PixelPerfect's
+  // view): display size.
   viewScratch[16] = cam.displayWidth
   viewScratch[17] = cam.displayHeight
   viewScratch[18] = 1 / cam.displayWidth
@@ -1295,7 +1297,7 @@ function textureGroup(
 
 /** Sprite runs and tilemap layers of a space, in layer order (tilemaps first within a layer). */
 function drawSpace(ctx: NodeContext, space: number): void {
-  const cam = cameraOf(ctx.view)
+  const cam = space === SPACE_SCREEN ? overlayCameraOf(ctx.view) : cameraOf(ctx.view)
   if (!cam) return
   const store = ctx.world.tryResource(Sprites)
   const tilemaps = ctx.world.resource(Tilemaps)
@@ -1509,7 +1511,8 @@ export function overlayNode(world: World): NodeDescriptor {
   return {
     kind: 'render',
     phase: RenderPhase.Overlay,
-    enabled: (view: RenderView) => cameraOf(view) !== undefined && hasSpace(world, SPACE_SCREEN),
+    enabled: (view: RenderView) =>
+      overlayCameraOf(view) !== undefined && hasSpace(world, SPACE_SCREEN),
     writes: ['view-target'],
     color: [{ resource: 'view-target' }],
     run: (ctx) => drawSpace(ctx, SPACE_SCREEN),

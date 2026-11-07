@@ -537,9 +537,12 @@ const noTransmittance = new Float32Array(16).fill(1)
 
 const pixelScaleScratch = new Float32Array(4)
 
-/** `ViewUniform.pixelScale` for a camera: see the field. */
+/**
+ * `ViewUniform.pixelScale` for a camera: see the field. On a PixelPerfect camera a pixel of a scene
+ * measure (a line's width) is a texel, the art's pixel, whatever the scale up.
+ */
 export function viewPixelScale(cam: CameraData, out: Float32Array): Float32Array {
-  out[0] = (cam.pixelRatio * cam.width) / Math.max(1, cam.displayWidth)
+  out[0] = cam.pixelPerfect ? 1 : (cam.pixelRatio * cam.width) / Math.max(1, cam.displayWidth)
   out[1] = cam.orthographic
     ? cam.orthoHeight / Math.max(1, cam.height)
     : (2 * Math.tan(cam.fovY / 2)) / Math.max(1, cam.height)

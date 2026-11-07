@@ -75,6 +75,13 @@ interface ClipBinding {
   cursors: Uint32Array
   /** Channels whose target is missing: `target component.field (why)`. */
   unbound: string[]
+  /**
+   * Retargeted: source joints matched nothing on the model (it may not have spawned yet). Retried
+   * like `unbound`, replanned when the paths under the player changed.
+   */
+  unmapped: boolean
+  /** How many paths were under the player when it bound. */
+  pathCount: number
   /** Frame to retry the unbound ones (instances spawn late). */
   retryAt: number
   /** Retargeted: per channel, how its value is corrected (see RetargetPlan). */
@@ -109,12 +116,15 @@ interface Binding {
   retarget: RetargetConfig | null
   /** Per clip: what retargeting mapped, for describe. */
   plans: Map<AnimationClipAsset, RetargetPlan>
+  /** Clips whose retarget problem was logged, so it logs once while it lasts. */
+  reported: Set<AnimationClipAsset>
 }
 
 interface RetargetConfig {
   skin: SkinAsset
   map: JointMapAsset | undefined
   mode: (typeof RETARGET_MODES)[number]
+  align: boolean
 }
 
 /** Root motion: which slots are the root's translation and rotation, and this frame's motion. */
@@ -174,6 +184,7 @@ function createBinding(world: World, root: Entity): Binding {
     added: new Float32Array(3),
     retarget: null,
     plans: new Map(),
+    reported: new Set(),
   }
 }
 
@@ -315,7 +326,10 @@ function bindClip(world: World, b: Binding, clip: AnimationClipAsset, frame: num
     slotOf: new Int32Array(channels.length).fill(-1),
     cursors: new Uint32Array(channels.length),
     unbound: [],
-    retryAt: frame + 30,
+    unmapped: false,
+    pathCount: b.paths.size,
+    // Nothing under the player yet (its model is spawning): look again next frame.
+    retryAt: frame + (b.paths.size > 1 ? 30 : 1),
     rtKinds: null,
     rtCorr: null,
   }
@@ -323,6 +337,7 @@ function bindClip(world: World, b: Binding, clip: AnimationClipAsset, frame: num
   if (plan) {
     cb.rtKinds = plan.kinds
     cb.rtCorr = plan.corrections
+    cb.unmapped = plan.unmapped.length > 0
   }
   for (let i = 0; i < channels.length; i++) {
     const c = channels[i]!
@@ -358,9 +373,13 @@ function retargetPlan(world: World, b: Binding, clip: AnimationClipAsset): Retar
         : [...b.rest.subarray(b.slots[pos]!.offset, b.slots[pos]!.offset + 3)]
     return { t: [...tr], r: [...r], s: [...t.scale] }
   }
-  const plan = planRetarget(clip.channels, cfg.skin, cfg.map, cfg.mode, b.paths, restOf)
-  if (plan.problem && !b.plans.get(clip)?.problem)
+  const plan = planRetarget(clip.channels, cfg.skin, cfg.map, cfg.mode, b.paths, restOf, cfg.align)
+  // Before the model spawns nothing matches: that's waiting, not a problem worth logging.
+  if (!plan.problem) b.reported.delete(clip)
+  else if (b.paths.size > 1 && !b.reported.has(clip)) {
+    b.reported.add(clip)
     world.tryResource(LogResource)?.error(plan.problem)
+  }
   b.plans.set(clip, plan)
   return plan
 }
@@ -379,21 +398,28 @@ function syncRetarget(
   let skin: SkinAsset | undefined
   let map: JointMapAsset | undefined
   let mode = 0
+  let align = true
   if (skins && table.has(Retarget)) {
     skin = skins.get((table.column(Retarget, 'source') as (AssetRef | null)[])[i]!)
     const mapRef = (table.column(Retarget, 'map') as (AssetRef | null)[])[i]!
     map = mapRef ? world.tryResource(JointMaps)?.get(mapRef) : undefined
     mode = table.column(Retarget, 'mode')[i]!
+    align = table.column(Retarget, 'align')[i] !== 0
   }
   const was = b.retarget
   const same =
     skin === undefined
       ? was === null
-      : was !== null && was.skin === skin && was.map === map && was.mode === RETARGET_MODES[mode]
+      : was !== null &&
+        was.skin === skin &&
+        was.map === map &&
+        was.mode === RETARGET_MODES[mode] &&
+        was.align === align
   if (same) return
-  b.retarget = skin ? { skin, map, mode: RETARGET_MODES[mode]! } : null
+  b.retarget = skin ? { skin, map, mode: RETARGET_MODES[mode]!, align } : null
   b.clips.clear()
   b.plans.clear()
+  b.reported.clear()
   b.root_.path = undefined
 }
 
@@ -1134,10 +1160,16 @@ export const sampleAnimations = defineSystem({
           if (!clip) continue
           const cb: ClipBinding | undefined = b.clips.get(clip)
           if (!cb || cb.channels !== clip.channels) bindClip(world, b, clip, frame)
-          else if (cb.unbound.length > 0 && frame >= cb.retryAt) {
-            // Targets that weren't there (an instance still spawning) may be now.
-            b.paths = descendantPaths(world, entity)
-            bindClip(world, b, clip, frame)
+          else if ((cb.unbound.length > 0 || cb.unmapped) && frame >= cb.retryAt) {
+            // Targets that weren't there (an instance still spawning) may be now. Retargeting
+            // replans only when the paths changed: unmapped joints may simply not exist.
+            const paths = descendantPaths(world, entity)
+            if (cb.unbound.length === 0 && paths.size === cb.pathCount)
+              cb.retryAt = frame + (paths.size > 1 ? 30 : 1)
+            else {
+              b.paths = paths
+              bindClip(world, b, clip, frame)
+            }
           }
         }
         // Blend.
@@ -1313,15 +1345,20 @@ export function describeBinding(world: World, entity: Entity) {
   }
 }
 
-/** What retargeting mapped: the source skin, the root, the hip ratio, and joints left unmapped. */
+/**
+ * What retargeting mapped: the source skin, the root, the hip ratio, joints left unmapped, and the
+ * joints `align` turned (degrees).
+ */
 function describeRetarget(b: Binding) {
   if (!b.retarget) return null
   const unmapped = new Set<string>()
+  const aligned: Record<string, number> = {}
   let problem: { code: string; message: string } | null = null
   let ratio: number | null = null
   let root: { source: string; target: string | null } | null = null
   for (const plan of b.plans.values()) {
     for (const u of plan.unmapped) unmapped.add(u)
+    Object.assign(aligned, plan.aligned)
     if (plan.problem && !problem)
       problem = { code: plan.problem.code, message: plan.problem.message }
     ratio ??= plan.ratio
@@ -1330,10 +1367,12 @@ function describeRetarget(b: Binding) {
   return {
     source: b.retarget.skin.name,
     mode: b.retarget.mode,
+    align: b.retarget.align,
     map: b.retarget.map ? Object.keys(b.retarget.map.joints).length : null,
     root,
     hipRatio: ratio === null ? null : Number(ratio.toFixed(4)),
     unmappedJoints: [...unmapped].sort(),
+    alignedJoints: aligned,
     problem,
   }
 }

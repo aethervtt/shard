@@ -412,9 +412,11 @@ export {
 export { pickingPlugin } from './picking-plugin'
 export {
   PixelPerfect,
+  type PixelPerfectFit,
   type PixelPerfectLayout,
   PixelPerfectPath,
   PixelTargets,
+  pixelPerfectFit,
   pixelPerfectLayout,
 } from './pixel-perfect'
 export { pixelPerfectPlugin } from './pixel-perfect-plugin'
@@ -551,6 +553,7 @@ export {
   DEFAULT_CURVE,
   drivingView,
   isScaled,
+  overlayCameraOf,
   RenderPath,
   shiftCameraHistory,
   TONEMAP_CURVES,

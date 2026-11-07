@@ -15,6 +15,8 @@ import {
   AnimationPlayer,
   animationLayer,
   animationPlugin,
+  describePlayer,
+  Retarget,
 } from '@aethervtt/shard-animation'
 import { assetServer, findAssetPreview } from '@aethervtt/shard-assets'
 import { ChildOf, type Entity, quat } from '@aethervtt/shard-core'
@@ -38,7 +40,7 @@ import {
   SkinnedMesh,
   Visibility,
 } from '@aethervtt/shard-render'
-import { App } from '@aethervtt/shard-runtime'
+import { App, LogResource } from '@aethervtt/shard-runtime'
 import {
   findEntityByPath,
   loadScene,
@@ -247,6 +249,65 @@ describe('skinning', () => {
         expect(Math.abs(dot)).toBeGreaterThan(1 - 1e-5)
       }
     }
+  })
+
+  it('a Retarget spawned with its SceneInstance in one go animates the model once it loads', async () => {
+    const root = project({ 'assets/CesiumMan.glb': CESIUM })
+    const { app, assets } = await start(root, 32)
+    const subs = assets.info('assets/CesiumMan.glb').subAssets!
+    const clipPath = subs.find((a) => a.type === 'AnimationClip')!.path
+    const skinPath = subs.find((a) => a.type === 'Skin')!.path
+    await assets.load(clipPath)
+    await assets.load(skinPath)
+    const player = {
+      'animation/AnimationPlayer': {
+        layers: [{ clip: { path: clipPath }, time: 0.4, playing: false }],
+      },
+      'animation/Retarget': { source: { path: skinPath } },
+    }
+    const man = (name: string, extra: object): SceneEntity => ({
+      name,
+      components: {
+        'core/Transform': {},
+        'scene/SceneInstance': { scene: { path: 'assets/CesiumMan.glb#Scene' } },
+        ...extra,
+      },
+    })
+    // `together` gets everything at once; `after` the player once its model is there (the
+    // workaround), which always worked.
+    const { entities } = loadScene(
+      app.world,
+      { version: 1, entities: [man('together', player), man('after', {})] },
+      { id: 'main' },
+    )
+    const w = app.world
+    const together = entities.get('together')!
+    // The clip binds before the model is there: nothing maps yet, and that isn't logged.
+    app.update(1 / 60)
+    expect(describePlayer(w, together).retarget!.problem?.code).toBe('retarget/unmapped-root')
+    await whenSceneReady(w, 'main')
+    const after = entities.get('after')!
+    w.add(after, Retarget, { source: assets.resolve(skinPath)! as never })
+    w.add(after, AnimationPlayer, {
+      layers: [animationLayer(assets.resolve(clipPath)!, { time: 0.4, playing: false })],
+    })
+    for (let f = 0; f < 3; f++) app.update(1 / 60)
+    const d = describePlayer(w, together)
+    expect(d.retarget!.problem).toBeNull()
+    expect(d.retarget!.unmappedJoints).toEqual([])
+    expect(w.resource(LogResource).errors()).toEqual([])
+    const clip = w.resource(AnimationClips).get(assets.resolve(clipPath)!)!
+    let moved = 0
+    for (const c of clip.channels) {
+      if (c.field !== 'rotation') continue
+      const a = w.get(findEntityByPath(w, `main:after/${c.target}`)!, Transform).rotation
+      const b = w.get(findEntityByPath(w, `main:together/${c.target}`)!, Transform).rotation
+      const dot = a.reduce((sum, v, k) => sum + v * b[k]!, 0)
+      expect(Math.abs(dot)).toBeGreaterThan(1 - 1e-6)
+      const rest = [...c.values.subarray(0, 4)]
+      if (Math.abs(b.reduce((sum, v, k) => sum + v * rest[k]!, 0)) < 1 - 1e-4) moved++
+    }
+    expect(moved).toBeGreaterThan(5)
   })
 
   it('joint matrices reproduce the mesh at bind pose, and the pose sphere encloses the skinned mesh', async () => {

@@ -89,10 +89,15 @@ export const Retarget = defineComponent(
       description:
         "rotation: only joint rotations carry over (bone lengths stay the target's). rotation-and-root: the root joint's translation too, scaled by the ratio of hip heights (root motion scales with it).",
     }),
+    align: t.bool({
+      default: true,
+      description:
+        "Turns each of this model's limbs to point the way the source's does at rest before the clip plays (an A-pose model's arms come down to an arms-down source's), so clips land the same whatever the two rest poses. Off: rotations are carried relative to this model's own rest pose.",
+    }),
   },
   {
     description:
-      "Plays clips authored for another skeleton on this player's model: channels bind by joint name, and each rotation is carried from the source's rest pose to this model's.",
+      "Plays clips authored for another skeleton on this player's model: channels bind by joint name, and each rotation is carried from the source's rest pose to this model's (its limbs aligned to the source's, with align).",
   },
 )
 
@@ -151,6 +156,8 @@ export interface RetargetPlan {
   ratio: number
   /** The source root joint and where it went. */
   root: { source: string; target: string | null } | null
+  /** Target joints `align` turned to point like the source's at rest, and by how much (degrees). */
+  aligned: Record<string, number>
 }
 
 type Trs = { t: number[]; r: number[]; s: number[] }
@@ -162,7 +169,9 @@ interface Pose {
 
 /**
  * Maps a clip's channels onto the target model: `paths` are its entities by path under the player,
- * `restOf(path)` the local rest transform of one of them. Cold path: runs when a clip binds.
+ * `restOf(path)` the local rest transform of one of them. With `align`, rotations are carried onto
+ * the target's retarget pose (its limbs turned to point like the source's at rest) instead of its
+ * rest pose. Cold path: runs when a clip binds.
  */
 export function planRetarget(
   channels: readonly AnimationChannel[],
@@ -171,6 +180,7 @@ export function planRetarget(
   mode: (typeof RETARGET_MODES)[number],
   paths: ReadonlyMap<string, unknown>,
   restOf: (path: string) => Trs | undefined,
+  align = true,
 ): RetargetPlan {
   const n = channels.length
   const plan: RetargetPlan = {
@@ -181,6 +191,7 @@ export function planRetarget(
     problem: null,
     ratio: 1,
     root: null,
+    aligned: {},
   }
   // Target lookups: exact names and normalized keys, the shallowest path winning.
   const byName = new Map<string, string>()
@@ -239,6 +250,13 @@ export function planRetarget(
       plan.ratio = Math.abs(srcY) > 1e-6 ? tgtY / srcY : 1
     }
   }
+  // The pose rotations are carried onto: the target's rest pose, or with `align` its limbs turned
+  // to point like the source's at rest (model-space rotations by target path).
+  const turns = align
+    ? alignLimbs(channels, skin, srcWorld, mapped, indexOf, tgtPose, plan.aligned)
+    : new Map<string, number[]>()
+  const posed = new Map<string, number[]>()
+  const poseOf = (path: string): number[] => retargetPose(path, turns, tgtPose, restOf, posed)
   const unmapped = new Set<string>()
   for (let i = 0; i < n; i++) {
     const c = channels[i]!
@@ -267,10 +285,11 @@ export function planRetarget(
       continue
     }
     plan.targets[i] = target
-    // C = sourceParent⁻¹ · targetParent: how the parents' rest orientations differ.
+    // C = sourceParent⁻¹ · targetParent: how the parents' orientations differ (rest for the
+    // source, the retarget pose for the target).
     const srcParent = j !== undefined ? parentPose(skin, srcWorld, j) : IDENTITY
     const tgtParent = tgtPose(parentPath(target))
-    const C = qmul(qconj(srcParent.q), tgtParent.q)
+    const C = qmul(qconj(srcParent.q), poseOf(parentPath(target)))
     const pre = qconj(C)
     plan.corrections.set(pre, i * 8)
     if (c.field === 'translation') {
@@ -278,10 +297,10 @@ export function planRetarget(
       plan.corrections.set([plan.ratio * (srcParent.s / (tgtParent.s || 1)), 0, 0, 0], i * 8 + 4)
       continue
     }
-    // target = pre · sampled · post, post = sourceRest⁻¹ · C · targetRest.
+    // target = pre · sampled · post, post = sourceRest⁻¹ · sourceParent⁻¹ · targetPose (model
+    // space): the source's turn from rest, applied to the target's retarget pose.
     const srcRest = j !== undefined ? skin.restPose[j]!.rotation : [0, 0, 0, 1]
-    const tgtRest = restOf(target)?.r ?? [0, 0, 0, 1]
-    const post = qmul(qmul(qconj(srcRest), C), tgtRest)
+    const post = qmul(qmul(qconj(srcRest), qconj(srcParent.q)), poseOf(target))
     plan.kinds[i] = CHANNEL_ROTATION
     plan.corrections.set(post, i * 8 + 4)
   }
@@ -290,6 +309,114 @@ export function planRetarget(
 }
 
 const IDENTITY: Pose = { p: [0, 0, 0], q: [0, 0, 0, 1], s: 1 }
+
+/**
+ * Per animated target joint, the model-space turn that makes its bone point like the source's at
+ * rest: the shortest arc from the target bone (joint to its child) to the source's. A joint needs
+ * exactly one child that both rigs share (a limb link: upper arm to forearm); one with several
+ * (hips, chest, a hand with fingers) or none isn't turned itself and turns with its parent. Writes
+ * the joints turned past half a degree to `report`.
+ */
+function alignLimbs(
+  channels: readonly AnimationChannel[],
+  skin: SkinAsset,
+  srcWorld: Pose[],
+  mapped: (source: string) => string | undefined,
+  indexOf: (source: string) => number | undefined,
+  tgtPose: (path: string) => Pose,
+  report: Record<string, number>,
+): Map<string, number[]> {
+  const turns = new Map<string, number[]>()
+  // The source skeleton's parent joint per joint, and where each joint maps.
+  const index = new Map(skin.joints.map((p, i) => [p, i]))
+  const children: number[][] = skin.joints.map(() => [])
+  skin.joints.forEach((path, i) => {
+    for (let p = parentPath(path); p !== ''; p = parentPath(p)) {
+      const k = index.get(p)
+      if (k === undefined) continue
+      children[k]!.push(i)
+      break
+    }
+  })
+  const targetOf = skin.joints.map((p) => mapped(p))
+  for (const c of channels) {
+    if (c.component !== 'core/Transform' || c.field !== 'rotation') continue
+    const j = indexOf(c.target)
+    const target = mapped(c.target)
+    if (j === undefined || target === undefined || turns.has(target)) continue
+    let child = -1
+    let shared = 0
+    for (const k of children[j]!) {
+      const t = targetOf[k]
+      if (t === undefined || !t.startsWith(`${target}/`)) continue
+      child = k
+      shared++
+    }
+    if (shared !== 1) continue
+    const from = sub(tgtPose(targetOf[child]!).p, tgtPose(target).p)
+    const to = sub(srcWorld[child]!.p, srcWorld[j]!.p)
+    const turn = fromTo(from, to)
+    if (!turn) continue
+    turns.set(target, turn)
+    const degrees = (2 * Math.acos(Math.min(1, Math.abs(turn[3]!))) * 180) / Math.PI
+    if (degrees > 0.5)
+      report[target.slice(target.lastIndexOf('/') + 1)] = Number(degrees.toFixed(1))
+  }
+  return turns
+}
+
+/**
+ * A target entity's model-space rotation in the retarget pose: an aligned joint's rest turned by
+ * its turn, anything else its parent's pose with its own rest (so a hand turns with its forearm).
+ */
+function retargetPose(
+  path: string,
+  turns: Map<string, number[]>,
+  tgtPose: (path: string) => Pose,
+  restOf: (path: string) => Trs | undefined,
+  cache: Map<string, number[]>,
+): number[] {
+  if (path === '') return IDENTITY.q
+  const hit = cache.get(path)
+  if (hit) return hit
+  const turn = turns.get(path)
+  const pose = turn
+    ? qmul(turn, tgtPose(path).q)
+    : qmul(
+        retargetPose(parentPath(path), turns, tgtPose, restOf, cache),
+        restOf(path)?.r ?? IDENTITY.q,
+      )
+  cache.set(path, pose)
+  return pose
+}
+
+function sub(a: number[], b: number[]): number[] {
+  return [a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!]
+}
+
+/** The shortest-arc rotation taking direction `a` to `b`, or undefined for a zero-length one. */
+function fromTo(a: number[], b: number[]): number[] | undefined {
+  const la = Math.sqrt(a[0]! * a[0]! + a[1]! * a[1]! + a[2]! * a[2]!)
+  const lb = Math.sqrt(b[0]! * b[0]! + b[1]! * b[1]! + b[2]! * b[2]!)
+  if (la < 1e-6 || lb < 1e-6) return undefined
+  const x = [a[0]! / la, a[1]! / la, a[2]! / la]
+  const y = [b[0]! / lb, b[1]! / lb, b[2]! / lb]
+  const d = x[0]! * y[0]! + x[1]! * y[1]! + x[2]! * y[2]!
+  if (d < -0.999999) {
+    // Opposite: half a turn about any axis across them.
+    const axis = Math.abs(x[0]!) < 0.9 ? [0, -x[2]!, x[1]!] : [x[2]!, 0, -x[0]!]
+    const l = Math.sqrt(axis[0]! * axis[0]! + axis[1]! * axis[1]! + axis[2]! * axis[2]!)
+    return [axis[0]! / l, axis[1]! / l, axis[2]! / l, 0]
+  }
+  const q = [
+    x[1]! * y[2]! - x[2]! * y[1]!,
+    x[2]! * y[0]! - x[0]! * y[2]!,
+    x[0]! * y[1]! - x[1]! * y[0]!,
+    1 + d,
+  ]
+  const l = Math.sqrt(q[0]! * q[0]! + q[1]! * q[1]! + q[2]! * q[2]! + q[3]! * q[3]!)
+  return [q[0]! / l, q[1]! / l, q[2]! / l, q[3]! / l]
+}
 
 function depth(path: string): number {
   let d = 1
