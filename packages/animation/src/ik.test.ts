@@ -511,6 +511,58 @@ describe('retargeting', () => {
   })
 })
 
+describe('retargeting between rest poses', () => {
+  /** A joint's bone direction (to its child joint) in world space, unit length. */
+  function bone(w: App['world'], joint: (p: string) => Entity, b: Biped, from: string, to: string) {
+    const side = 'L' as const
+    const a = worldPosition(w, joint(b.path(from, side)))
+    const c = worldPosition(w, joint(b.path(to, side)))
+    const d = [c[0]! - a[0]!, c[1]! - a[1]!, c[2]! - a[2]!]
+    const l = Math.hypot(d[0]!, d[1]!, d[2]!)
+    return d.map((v) => v / l)
+  }
+  const angle = (a: number[], b: number[]) =>
+    (Math.acos(Math.min(1, a[0]! * b[0]! + a[1]! * b[1]! + a[2]! * b[2]!)) * 180) / Math.PI
+
+  it('an A-pose model plays an arms-down rig’s clip with its arms where the source’s are', async () => {
+    const app = await start()
+    const w = app.world
+    const source = biped({ scale: 1, names: 'prefix' })
+    // Arms 36° out at rest, every joint rolled, and another naming convention.
+    const apose = biped({ scale: 0.9, names: 'suffix', twisted: true, armsOut: 36, name: 'apose' })
+    const src = addBipedAssets(w, source)
+    const tgt = addBipedAssets(w, apose)
+    const layer = () => [animationLayer(src.idle, { time: 0.5, playing: false })]
+    const own = spawnBiped(w, source, src, [-2, 0, 0])
+    w.add(own.root, AnimationPlayer, { layers: layer() })
+    const aligned = spawnBiped(w, apose, tgt, [0, 0, 0])
+    w.add(aligned.root, Retarget, { source: src.skin as never })
+    w.add(aligned.root, AnimationPlayer, { layers: layer() })
+    const kept = spawnBiped(w, apose, tgt, [2, 0, 0])
+    w.add(kept.root, Retarget, { source: src.skin as never, align: false })
+    w.add(kept.root, AnimationPlayer, { layers: layer() })
+    app.update(1 / 60)
+    app.update(1 / 60)
+    for (const [from, to] of [
+      ['UpperArm', 'LowerArm'],
+      ['LowerArm', 'Hand'],
+    ] as const) {
+      const want = bone(w, own.joint, source, from, to)
+      // The source's idle holds its upper arm a little off vertical; the A-pose model matches it.
+      expect(angle(bone(w, aligned.joint, apose, from, to), want)).toBeLessThan(2)
+      // Carried from its own rest pose instead, the arm stays out by the rest poses' difference.
+      expect(angle(bone(w, kept.joint, apose, from, to), want)).toBeGreaterThan(30)
+    }
+    const upper = bone(w, own.joint, source, 'UpperArm', 'LowerArm')
+    expect(angle(upper, [0, -1, 0])).toBeGreaterThan(3)
+    const d = describePlayer(w, aligned.root)
+    expect(d.retarget!.align).toBe(true)
+    expect(d.retarget!.alignedJoints.UpperArm_L).toBeCloseTo(36, 0)
+    expect(d.retarget!.alignedJoints.UpperArm_R).toBeCloseTo(36, 0)
+    expect(d.retarget!.alignedJoints.UpLeg_L).toBeUndefined()
+  })
+})
+
 describe('sockets', () => {
   const HERO = 'prefabs/hero.prefab.json'
   const hero = (armLength: number) => ({

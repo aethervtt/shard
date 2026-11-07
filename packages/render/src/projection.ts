@@ -4,7 +4,8 @@ import { Cameras } from './view'
 // Projection helpers (0057): where a world point lands on a camera's target, in CSS pixels, and
 // back. A host positions its DOM overlays (authoring handles, labels) with them, on CameraMoved
 // and on its own edits rather than every frame. They use the camera's last extracted, unjittered
-// projection, so they agree with what the GPU drew.
+// projection, so they agree with what the GPU drew. NDC maps to the camera's viewport: the whole
+// target, or a PixelPerfect camera's letterboxed image.
 
 const scratchInv = mat4.create()
 const scratchKey = mat4.create()
@@ -41,10 +42,9 @@ export function worldToScreen(
   const cy = m[1]! * x + m[5]! * y + m[9]! * z + m[13]!
   const cw = m[3]! * x + m[7]! * y + m[11]! * z + m[15]!
   if (cw <= 1e-9) return false
-  const width = cam.displayWidth / cam.pixelRatio
-  const height = cam.displayHeight / cam.pixelRatio
-  out[0] = ((cx / cw) * 0.5 + 0.5) * width
-  out[1] = (0.5 - (cy / cw) * 0.5) * height
+  const vp = cam.viewport
+  out[0] = (vp[0]! + ((cx / cw) * 0.5 + 0.5) * vp[2]!) / cam.pixelRatio
+  out[1] = (vp[1]! + (0.5 - (cy / cw) * 0.5) * vp[3]!) / cam.pixelRatio
   return true
 }
 
@@ -68,8 +68,9 @@ export function screenToRay(
     return
   }
   const inv = inverse(cam.viewProjNoJitter)
-  const nx = (x / (cam.displayWidth / cam.pixelRatio)) * 2 - 1
-  const ny = 1 - (y / (cam.displayHeight / cam.pixelRatio)) * 2
+  const vp = cam.viewport
+  const nx = ((x * cam.pixelRatio - vp[0]!) / Math.max(1, vp[2]!)) * 2 - 1
+  const ny = 1 - ((y * cam.pixelRatio - vp[1]!) / Math.max(1, vp[3]!)) * 2
   // Reversed Z: the near plane is at depth 1; 0.5 is always in front of it.
   let px = 0
   let py = 0

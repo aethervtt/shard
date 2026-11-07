@@ -16,6 +16,7 @@ import {
   GpuAssetsResource,
   type NodeContext,
   type NodeDescriptor,
+  overlayCameraOf,
   RenderPhase,
   type RenderView,
   Shaders,
@@ -530,7 +531,7 @@ function pageTexture(ctx: NodeContext, page: FontPage): Texture | undefined {
 }
 
 function drawText(ctx: NodeContext, space: number): void {
-  const cam = cameraOf(ctx.view)
+  const cam = space === SPACE_SCREEN ? overlayCameraOf(ctx.view) : cameraOf(ctx.view)
   const store = ctx.world.tryResource(TextRenderer)
   if (!cam || !store) return
   const gpu = ctx.gpu
@@ -604,7 +605,8 @@ function writeView(cam: CameraData): void {
   viewScratch[21] = v[5]!
   viewScratch[22] = v[9]!
   viewScratch[23] = 0
-  // Only screen text reads the viewport, and it draws after the upscale: display size (0051).
+  // Only screen text reads the viewport, and it draws after the upscale (0051, or PixelPerfect's
+  // view): display size.
   viewScratch[24] = cam.displayWidth
   viewScratch[25] = cam.displayHeight
   viewScratch[26] = 1 / cam.displayWidth
@@ -639,7 +641,8 @@ export function screenTextNode(world: World): NodeDescriptor {
   return {
     kind: 'render',
     phase: RenderPhase.Overlay + 10,
-    enabled: (view: RenderView) => cameraOf(view) !== undefined && hasSpace(world, SPACE_SCREEN),
+    enabled: (view: RenderView) =>
+      overlayCameraOf(view) !== undefined && hasSpace(world, SPACE_SCREEN),
     writes: ['view-target'],
     color: [{ resource: 'view-target' }],
     run: (ctx) => drawText(ctx, SPACE_SCREEN),

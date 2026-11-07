@@ -46,6 +46,42 @@ export const PixelTargets = defineResource<Map<Entity, PixelPerfectLayout>>('ren
   init: () => new Map(),
 })
 
+/** Where a PixelPerfect camera's image lands on a target: see `pixelPerfectFit`. */
+export interface PixelPerfectFit {
+  scale: number
+  width: number
+  height: number
+  offsetX: number
+  offsetY: number
+}
+
+/**
+ * The integer scale, low-resolution size (texels), and letterbox offset (target pixels) of a
+ * PixelPerfect camera shown on a `targetWidth` × `targetHeight` target. Its projection covers
+ * `height / pixelsPerUnit` units, not quite `orthoHeight`. Pure, so CPU code (UI anchors) can
+ * place things where extraction will draw them.
+ */
+export function pixelPerfectFit(
+  targetWidth: number,
+  targetHeight: number,
+  orthoHeight: number,
+  pixelsPerUnit: number,
+  out: PixelPerfectFit,
+): PixelPerfectFit {
+  const texels = Math.max(1, Math.round(orthoHeight * pixelsPerUnit))
+  const scale = Math.max(1, Math.floor(targetHeight / texels))
+  const width = Math.max(1, Math.floor(targetWidth / scale))
+  const height = Math.max(1, Math.floor(targetHeight / scale))
+  out.scale = scale
+  out.width = width
+  out.height = height
+  out.offsetX = Math.floor((targetWidth - width * scale) / 2)
+  out.offsetY = Math.floor((targetHeight - height * scale) / 2)
+  return out
+}
+
+const fit: PixelPerfectFit = { scale: 1, width: 1, height: 1, offsetX: 0, offsetY: 0 }
+
 /** Sizes (and keeps) a PixelPerfect camera's low-resolution target for the target it shows on. */
 export function pixelPerfectLayout(
   world: World,
@@ -55,10 +91,13 @@ export function pixelPerfectLayout(
   pixelsPerUnit: number,
   snap: boolean,
 ): PixelPerfectLayout {
-  const texels = Math.max(1, Math.round(orthoHeight * pixelsPerUnit))
-  const scale = Math.max(1, Math.floor(shown.height / texels))
-  const width = Math.max(1, Math.floor(shown.width / scale))
-  const height = Math.max(1, Math.floor(shown.height / scale))
+  const { scale, width, height } = pixelPerfectFit(
+    shown.width,
+    shown.height,
+    orthoHeight,
+    pixelsPerUnit,
+    fit,
+  )
   const targets = world.initResource(PixelTargets)
   let layout = targets.get(entity)
   if (!layout) {
@@ -87,7 +126,7 @@ export function pixelPerfectLayout(
   layout.scale = scale
   layout.width = width
   layout.height = height
-  layout.offsetX = Math.floor((shown.width - width * scale) / 2)
-  layout.offsetY = Math.floor((shown.height - height * scale) / 2)
+  layout.offsetX = fit.offsetX
+  layout.offsetY = fit.offsetY
   return layout
 }

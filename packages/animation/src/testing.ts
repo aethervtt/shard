@@ -378,6 +378,11 @@ export interface BipedOptions {
   names?: 'prefix' | 'suffix'
   /** Bind every joint with its own roll (bones along +Y, like DCC exports) instead of world-aligned. */
   twisted?: boolean
+  /**
+   * Degrees the arms are raised out to the sides at rest, about the shoulder (an A-pose: 30–40).
+   * 0: they hang down.
+   */
+  armsOut?: number
   /** A name for the skin and clips. */
   name?: string
 }
@@ -394,7 +399,7 @@ interface BoneDef {
 
 const BIPED_SPEED = 1.35
 
-function bipedBones(): BoneDef[] {
+function bipedBones(armsOut: number): BoneDef[] {
   const bones: BoneDef[] = [
     { base: 'Hips', parent: -1, at: [0, 0.95, 0], end: [0, 1.05, 0], radius: 0.13 },
     { base: 'Spine', parent: 0, at: [0, 1.05, 0], end: [0, 1.25, 0], radius: 0.12 },
@@ -475,13 +480,32 @@ function bipedBones(): BoneDef[] {
       },
     )
   }
+  if (armsOut !== 0) {
+    // Turn each arm about its shoulder joint, out to its side.
+    for (const b of bones) {
+      if (b.base !== 'UpperArm' && b.base !== 'LowerArm' && b.base !== 'Hand') continue
+      const pivot = bones.find((u) => u.base === 'UpperArm' && u.side === b.side)!.at
+      const a = ((b.side === 'L' ? -armsOut : armsOut) * Math.PI) / 180
+      const turn = (p: number[]) => {
+        const x = p[0]! - pivot[0]!
+        const y = p[1]! - pivot[1]!
+        return [
+          pivot[0]! + x * Math.cos(a) - y * Math.sin(a),
+          pivot[1]! + x * Math.sin(a) + y * Math.cos(a),
+          p[2]!,
+        ]
+      }
+      b.end = turn(b.end)
+      b.at = turn(b.at)
+    }
+  }
   return bones
 }
 
 export function biped(options: BipedOptions = {}): Biped {
   const scale = options.scale ?? 1
   const style = options.names ?? 'suffix'
-  const bones = bipedBones()
+  const bones = bipedBones(options.armsOut ?? 0)
   const nameOf = (b: BoneDef) =>
     b.side === undefined
       ? b.base

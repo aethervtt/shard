@@ -78,6 +78,15 @@ touch and wheel wake it through `InputSource.onInput`. A game that plays with a 
 frame demand while one is connected, or the input plugin could hold one itself (poll at a low rate
 with `FrameDemand.after` while any pad is connected, full rate while one moved recently).
 
+## Retargeting assumes skin space is model space (0034)
+
+- Source joint poses come from the skin (the top joint placed by its inverse bind matrix), target
+  poses from the model's node tree. CesiumMan's skin space lacks its `Z_UP` node's turn (hip ratio
+  135 retargeting onto itself), so its clips retarget onto its own skeleton with joints up to 120°
+  off, with or without `align`. Mixamo rigs exported from Blender agree and retarget fine.
+- Lead: record the model-space transform of the skin's top-joint parent at import (gltf), and place
+  source poses with it instead of assuming the skin space is the model's.
+
 ## Headless runs have no frames-in-flight limit
 
 `app.update()` on an offscreen target submits GPU work without waiting, so a loop on a slow GPU

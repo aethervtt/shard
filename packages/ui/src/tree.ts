@@ -12,7 +12,15 @@ import {
   type Table,
   type World,
 } from '@aethervtt/shard-core'
-import { Camera3d, RenderTargets, Window } from '@aethervtt/shard-render'
+import {
+  Camera3d,
+  PixelPerfect,
+  type PixelPerfectFit,
+  PixelPerfectPath,
+  pixelPerfectFit,
+  RenderTargets,
+  Window,
+} from '@aethervtt/shard-render'
 import { LogResource } from '@aethervtt/shard-runtime'
 import { TextureAtlases } from '@aethervtt/shard-sprite'
 import {
@@ -1069,13 +1077,17 @@ function writeNode(t: FlexTree, r: UiRootState, i: number, c: NodeColumns, row: 
 
 // --- anchors -----------------------------------------------------------------------------------
 
+const fit: PixelPerfectFit = { scale: 1, width: 1, height: 1, offsetX: 0, offsetY: 0 }
+
 /**
  * Projects each anchor's target through its root's camera: the point (root pixels), whether it's
  * clamped or hidden, the arrow angle, and the distance scale. Returns the roots whose anchors
- * moved (without anything else changing, they reposition instead of laying out).
+ * moved (without anything else changing, they reposition instead of laying out). A PixelPerfect
+ * camera projects as extraction will draw it: its fitted height, letterbox, and snapped position.
  */
 function placeAnchors(world: World, store: UiStore, tables: readonly Table[]): Set<UiRootState> {
   movedRoots.clear()
+  const pixelInstalled = world.hasResource(PixelPerfectPath)
   for (const table of tables) {
     const target = table.column(UiAnchor, 'target')
     const offset = table.column(UiAnchor, 'offset') as unknown as Float32Array
@@ -1116,8 +1128,32 @@ function placeAnchors(world: World, store: UiStore, tables: readonly Table[]): S
         const cr = world.entityRow(cam)
         const m = ct.column(GlobalTransform, 'matrix') as unknown as Float32Array
         const o = cr * 12
-        const dx = px - m[o + 3]!
-        const dy = py - m[o + 7]!
+        const W = r.width
+        const H = r.height
+        const ortho = ct.column(Camera3d, 'projection')[cr] !== 0
+        let half = ct.column(Camera3d, 'orthoHeight')[cr]! / 2
+        // Where the projection lands in the root (root pixels): all of it, or the letterbox.
+        let vx = 0
+        let vy = 0
+        let vw = W
+        let vh = H
+        let cx = m[o + 3]!
+        let cy = m[o + 7]!
+        if (ortho && pixelInstalled && ct.has(PixelPerfect)) {
+          const ppu = ct.column(PixelPerfect, 'pixelsPerUnit')[cr]!
+          pixelPerfectFit(r.viewportW, r.viewportH, half * 2, ppu, fit)
+          half = fit.height / ppu / 2
+          vx = fit.offsetX / r.factor
+          vy = fit.offsetY / r.factor
+          vw = (fit.width * fit.scale) / r.factor
+          vh = (fit.height * fit.scale) / r.factor
+          if (ct.column(PixelPerfect, 'snap')[cr]) {
+            cx = Math.round(cx * ppu) / ppu
+            cy = Math.round(cy * ppu) / ppu
+          }
+        }
+        const dx = px - cx
+        const dy = py - cy
         const dz = pz - m[o + 11]!
         // Camera axes (columns of its world matrix), unit length.
         const rx = m[o]!,
@@ -1136,15 +1172,11 @@ function placeAnchors(world: World, store: UiStore, tables: readonly Table[]): S
         const yv = (dx * ux + dy * uy + dz * uz) / ul
         const zv = (dx * bx + dy * by + dz * bz) / bl
         distance = Math.sqrt(dx * dx + dy * dy + dz * dz)
-        const W = r.width
-        const H = r.height
-        const aspect = W / Math.max(1e-6, H)
-        const ortho = ct.column(Camera3d, 'projection')[cr] !== 0
+        const aspect = vw / Math.max(1e-6, vh)
         let nx: number
         let ny: number
         const behind = ortho ? false : zv >= -1e-6
         if (ortho) {
-          const half = ct.column(Camera3d, 'orthoHeight')[cr]! / 2
           nx = xv / (half * aspect)
           ny = yv / half
         } else {
@@ -1153,8 +1185,8 @@ function placeAnchors(world: World, store: UiStore, tables: readonly Table[]): S
           nx = (xv * f) / aspect / depth
           ny = (yv * f) / depth
         }
-        const sx = (nx * 0.5 + 0.5) * W + screenOffset[i * 2]!
-        const sy = (0.5 - ny * 0.5) * H + screenOffset[i * 2 + 1]!
+        const sx = vx + (nx * 0.5 + 0.5) * vw + screenOffset[i * 2]!
+        const sy = vy + (0.5 - ny * 0.5) * vh + screenOffset[i * 2 + 1]!
         const mg = margin[i]!
         const inside = !behind && sx >= mg && sx <= W - mg && sy >= mg && sy <= H - mg
         if (behind && hideBehind[i]) state = AnchorState.Hidden

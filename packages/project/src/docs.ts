@@ -384,7 +384,8 @@ Add \`"sprite"\` to \`plugins\` in \`shard.json\`. 2D uses the same renderer as 
    In code: \`setTile(world, map, x, y, data.tileId('stone'))\`; only that chunk re-uploads. On a
    tabletop, add \`"render/GroundLayer": { "band": 10 }\` and lay it flat (\`tilemapOnGround()\`'s
    rotation): it draws among the ground bands, lit by 3D lights, and picks return the cell.
-5. Pixel art: \`"render/PixelPerfect": { "pixelsPerUnit": 16 }\` on an orthographic camera.
+5. Pixel art: \`"render/PixelPerfect": { "pixelsPerUnit": 16 }\` on an orthographic camera. UI,
+   screen text, and screen sprites on it stay sharp, drawn over the scaled-up image.
 6. Check: \`shard validate\`, MCP \`preview_asset\` on the atlas (regions outlined and numbered) or
    the clip, and \`render.describe\` → \`sprites\` (draw calls, sprites per layer, tilemap chunks).
 7. Lights and shadows: see \`light-2d.md\`.
@@ -661,10 +662,11 @@ to it when the model reloads.
 - Retarget clips made for another skeleton: \`"animation/Retarget": { "source": { "path":
   "assets/mixamo.glb#Skin/Skin0" }, "mode": "rotation-and-root" }\` on the player. Names match after
   normalizing (\`mixamorig:LeftUpLeg\` = \`UpLeg_L\`); others go in a \`*.jointmap.json\`
-  (\`{ "joints": { "Spine1": "Chest" } }\`, the \`map\` field).
+  (\`{ "joints": { "Spine1": "Chest" } }\`, the \`map\` field). Rest poses may differ (an A-pose
+  model, an arms-down clip): \`align\` (on) turns its limbs to point like the source's first.
 - \`animation_describe\` on the model: \`ik\` (distance left to each target, foot hits, hips drop,
-  problems like \`ik/unknown-joint\`) and \`retarget\` (hip ratio, unmapped joints). Screenshot with
-  \`"overlays": ["ik", "skeleton"]\` to see targets, poles, and foot rays.
+  problems like \`ik/unknown-joint\`) and \`retarget\` (hip ratio, unmapped and aligned joints).
+  Screenshot with \`"overlays": ["ik", "skeleton"]\` to see targets, poles, and foot rays.
 `,
   'make-a-data-asset.md': `# Make a data asset
 

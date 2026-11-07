@@ -108,9 +108,18 @@ export interface CameraData {
   /** Render resolution (0051): the size of the view's scene textures. */
   width: number
   height: number
-  /** Display resolution: the target's size, which screen overlays (UI, screen text) draw at. */
+  /**
+   * Display resolution: the size of the target the camera is shown on, which screen overlays (UI,
+   * screen text) draw at. A PixelPerfect camera's is its real target's, not its low-resolution one.
+   */
   displayWidth: number
   displayHeight: number
+  /**
+   * Where the projection lands on the target, in display pixels: x, y (top left), width, height.
+   * The whole target, except for a PixelPerfect camera: its letterboxed image. Maps NDC to target
+   * pixels and back (projection helpers, picking, UI anchors).
+   */
+  viewport: Float32Array
   /**
    * The target's pixels per CSS pixel (devicePixelRatio on the window, else 1). Pixel thresholds
    * meant for the eye (terrain LOD) use `displayHeight / pixelRatio`: the same on every display
@@ -228,8 +237,12 @@ const SCALED_NO_MSAA_ALIASES = Object.freeze({
 })
 const SCALED_MSAA_ALIASES = Object.freeze({ ldr: 'display' })
 
-/** Whether a camera renders below (or above) its target's resolution and needs the upscale. */
+/**
+ * Whether a camera renders below (or above) its target's resolution and needs the upscale. A
+ * PixelPerfect camera renders at its low-resolution target's size, scaled up in a view of its own.
+ */
 export function isScaled(cam: CameraData): boolean {
+  if (cam.pixelPerfect) return false
   return cam.width !== cam.displayWidth || cam.height !== cam.displayHeight
 }
 
@@ -345,6 +358,7 @@ export const extractCameras = defineSystem({
             height: 1,
             displayWidth: 1,
             displayHeight: 1,
+            viewport: new Float32Array(4),
             pixelRatio: 1,
             exposure: 1,
             ev100: 0,
@@ -388,9 +402,22 @@ export const extractCameras = defineSystem({
           height = p.height / p.pixelsPerUnit
           cam.pixelPerfect = p
         }
-        cam.displayWidth = rt.width
-        cam.displayHeight = rt.height
-        cam.pixelRatio = rt.pixelRatio ?? 1
+        cam.displayWidth = shown.width
+        cam.displayHeight = shown.height
+        cam.pixelRatio = shown.pixelRatio ?? 1
+        const vp = cam.viewport
+        if (cam.pixelPerfect) {
+          const p = cam.pixelPerfect
+          vp[0] = p.offsetX
+          vp[1] = p.offsetY
+          vp[2] = p.width * p.scale
+          vp[3] = p.height * p.scale
+        } else {
+          vp[0] = 0
+          vp[1] = 0
+          vp[2] = shown.width
+          vp[3] = shown.height
+        }
         cam.width = rt.width
         cam.height = rt.height
         // Window cameras render at the render scale and are upscaled at Display (0051).
@@ -495,7 +522,11 @@ export const extractCameras = defineSystem({
         // The G-buffer is single-sampled; deferred views anti-alias in post (FXAA, TAA).
         const aa = antialiasingOf(table, i)
         // The default follows the display, not the render scale, so the scale can't flip it.
-        const dense = settings.msaaMaxPixelRatio > 0 && cam.pixelRatio >= settings.msaaMaxPixelRatio
+        // A PixelPerfect camera's pixels are its texels, never too small to see.
+        const dense =
+          settings.msaaMaxPixelRatio > 0 &&
+          !cam.pixelPerfect &&
+          cam.pixelRatio >= settings.msaaMaxPixelRatio
         const msaa = cam.deferred ? 1 : aa < 0 ? (dense ? 1 : settings.msaa) : aa === 3 ? 4 : 1
         cam.msaa = Math.min(msaa, maxSamples)
         cam.msaaCapped = cam.msaa < msaa
@@ -515,12 +546,13 @@ export const extractCameras = defineSystem({
         view.aliases = postAliases(cam, viewAliases(cam))
         views.push(view)
         if (cam.pixelPerfect) {
-          // A second view shows the low-resolution image on the real target.
+          // A second view shows the low-resolution image on the real target, and the camera's
+          // screen overlays over it at display resolution (overlayCameraOf).
           views.push({
             name: `pixel-perfect:${entity}`,
             target: shown,
             order: order[i]! + 0.5,
-            data: { upscale: cam.pixelPerfect, alphaOutput: cam.alphaOutput },
+            data: { upscale: cam.pixelPerfect, alphaOutput: cam.alphaOutput, overlay: cam },
           })
         }
       }
@@ -573,6 +605,17 @@ function halton(k: number, base: number): number {
 /** The camera data of a view, if it's a camera view. */
 export function cameraOf(view: RenderView): CameraData | undefined {
   return view.data.camera as CameraData | undefined
+}
+
+/**
+ * The camera whose screen overlays (UI, screen text, screen sprites) draw in this view, at display
+ * resolution. That's the camera's own view, except for a PixelPerfect camera: its overlays draw in
+ * its upscale view (`pixel-perfect:<camera>`), over the scaled image, not in its low-resolution one.
+ */
+export function overlayCameraOf(view: RenderView): CameraData | undefined {
+  const cam = view.data.camera as CameraData | undefined
+  if (cam) return cam.pixelPerfect ? undefined : cam
+  return view.data.overlay as CameraData | undefined
 }
 
 /**

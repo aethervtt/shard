@@ -24,7 +24,8 @@ Add `"sprite"` to `plugins` in `shard.json`. 2D uses the same renderer as 3D (HD
    In code: `setTile(world, map, x, y, data.tileId('stone'))`; only that chunk re-uploads. On a
    tabletop, add `"render/GroundLayer": { "band": 10 }` and lay it flat (`tilemapOnGround()`'s
    rotation): it draws among the ground bands, lit by 3D lights, and picks return the cell.
-5. Pixel art: `"render/PixelPerfect": { "pixelsPerUnit": 16 }` on an orthographic camera.
+5. Pixel art: `"render/PixelPerfect": { "pixelsPerUnit": 16 }` on an orthographic camera. UI,
+   screen text, and screen sprites on it stay sharp, drawn over the scaled-up image.
 6. Check: `shard validate`, MCP `preview_asset` on the atlas (regions outlined and numbered) or
    the clip, and `render.describe` → `sprites` (draw calls, sprites per layer, tilemap chunks).
 7. Lights and shadows: see `light-2d.md`.

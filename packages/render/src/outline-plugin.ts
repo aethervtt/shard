@@ -24,7 +24,7 @@ import { MAX_OUTLINE_STYLES, OUTLINE_OCCLUSION, Outline, OutlinePath } from './o
 import { Graph, RenderDescribers, RenderSet, Shaders, Views } from './plugin'
 import { beginPass, depthTex, idOf, PostCache, tex, uniform } from './post-common'
 import { registerShaders } from './shaders'
-import { cameraOf } from './view'
+import { type CameraData, cameraOf } from './view'
 
 // Outlines (0057): outlined slots draw into a small mask (style and depth), jump flood spreads the
 // nearest silhouette pixel outward, and a composite draws the ring on the finished view target.
@@ -292,16 +292,20 @@ export const queueOutlines = defineSystem({
       ov.count = entryCount
       store.packEntries(ov.draws, entries, entryBatches, entryCount)
       // Uniforms: widths in target pixels, and the render / target scale for the scene depth.
+      // A PixelPerfect camera outlines its low-resolution image, in texels.
       const d = ov.data
       d.fill(0)
+      const ratio = outlinePixelRatio(cam)
       for (let i = 0; i < ov.styles.length; i++) {
         const s = ov.styles[i]!
         d.set(s.color, i * 4)
-        d[MAX_OUTLINE_STYLES * 4 + i * 4] = s.width * cam.pixelRatio
+        d[MAX_OUTLINE_STYLES * 4 + i * 4] = s.width * ratio
         d[MAX_OUTLINE_STYLES * 4 + i * 4 + 1] = s.occluded
       }
-      d[MAX_OUTLINE_STYLES * 8] = cam.width / Math.max(1, cam.displayWidth)
-      d[MAX_OUTLINE_STYLES * 8 + 1] = cam.height / Math.max(1, cam.displayHeight)
+      d[MAX_OUTLINE_STYLES * 8] = cam.pixelPerfect ? 1 : cam.width / Math.max(1, cam.displayWidth)
+      d[MAX_OUTLINE_STYLES * 8 + 1] = cam.pixelPerfect
+        ? 1
+        : cam.height / Math.max(1, cam.displayHeight)
     }
     for (const [name, v] of views) {
       if (!live.has(name)) {
@@ -311,6 +315,11 @@ export const queueOutlines = defineSystem({
     }
   },
 })
+
+/** Target pixels per CSS pixel of an outline's width: a texel on a PixelPerfect camera. */
+function outlinePixelRatio(cam: CameraData): number {
+  return cam.pixelPerfect ? 1 : cam.pixelRatio
+}
 
 function destroyTextures(t: OutlineTextures | undefined): undefined {
   if (t) for (const x of [t.mask, t.depth, t.a, t.b]) x.destroy()
@@ -508,7 +517,7 @@ function outlineNode(world: World): NodeDescriptor {
       styles.write(ov.data)
       const depth = ctx.texture('depth')
       let widest = 1
-      for (const s of ov.styles) widest = Math.max(widest, s.width * cam.pixelRatio + 1)
+      for (const s of ov.styles) widest = Math.max(widest, s.width * outlinePixelRatio(cam) + 1)
       let step = 1
       while (step * 2 <= widest) step *= 2
       let steps = 0

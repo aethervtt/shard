@@ -9,7 +9,6 @@ import {
 import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
 import {
   addRenderFeatures,
-  cameraOf,
   DataStore,
   DebugOverlays,
   dataEntry,
@@ -20,6 +19,7 @@ import {
   isOverlayOn,
   type NodeContext,
   type NodeDescriptor,
+  overlayCameraOf,
   Picking,
   RenderDescribers,
   RenderPhase,
@@ -919,7 +919,7 @@ const viewScratch = new Float32Array(4)
 
 /** Draws the runs of roots over this view's camera. */
 function drawUi(ctx: NodeContext): void {
-  const cam = cameraOf(ctx.view)
+  const cam = overlayCameraOf(ctx.view)
   const store = ctx.world.tryResource(UiRenderer)
   if (!cam || !store || store.drawCount === 0) return
   const gpu = ctx.gpu
@@ -935,7 +935,7 @@ function drawUi(ctx: NodeContext): void {
     })
     c.views.set(ctx.view.name, uniform)
   }
-  // UI draws over the upscaled image, at display resolution (0051).
+  // UI draws over the upscaled image, at display resolution (0051; PixelPerfect's too).
   viewScratch[0] = cam.displayWidth
   viewScratch[1] = cam.displayHeight
   viewScratch[2] = 1 / cam.displayWidth
@@ -991,7 +991,7 @@ export function uiNode(world: World): NodeDescriptor {
     kind: 'render',
     phase: RenderPhase.Overlay + 20,
     enabled: (view: RenderView) => {
-      const cam = cameraOf(view)
+      const cam = overlayCameraOf(view)
       const store = world.tryResource(UiRenderer)
       if (!cam || !store || store.drawCount === 0) return false
       for (let d = 0; d < store.drawCount; d++) {
