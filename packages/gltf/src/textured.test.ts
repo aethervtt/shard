@@ -29,7 +29,7 @@ import {
 } from '@aethervtt/shard-render'
 import { App, LogResource } from '@aethervtt/shard-runtime'
 import { loadScene, type SceneFile, ScenePlugin, whenSceneReady } from '@aethervtt/shard-scene'
-import { Texture, Textures } from '@aethervtt/shard-texture'
+import { decodeImage, encodeBasis, Texture, Textures } from '@aethervtt/shard-texture'
 import { TransformPlugin } from '@aethervtt/shard-transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { parseGltf } from './document'
@@ -60,11 +60,11 @@ function project(files: Record<string, string | Uint8Array>): string {
   return root
 }
 
-async function start(root: string, size: number) {
-  const target = new OffscreenTarget(gpu, { label: 'textured', width: size, height: size })
+async function start(root: string, size: number, context = gpu) {
+  const target = new OffscreenTarget(context, { label: 'textured', width: size, height: size })
   const app = new App().addPlugin(
     TransformPlugin,
-    renderPlugin({ gpu, target }),
+    renderPlugin({ gpu: context, target }),
     forwardPlugin(),
     ScenePlugin,
   )
@@ -77,11 +77,11 @@ async function start(root: string, size: number) {
   return { app, assets }
 }
 
-async function frames(app: App, n: number) {
+async function frames(app: App, n: number, context = gpu) {
   for (let i = 0; i < n; i++) {
     app.update(1 / 60)
     await app.world.resource(Shaders).whenIdle()
-    await gpu.pipelines.whenIdle()
+    await context.pipelines.whenIdle()
   }
 }
 
@@ -134,11 +134,16 @@ function modelScene(model: string, camera: number[], extra: SceneFile['entities'
   }
 }
 
-async function render(files: Record<string, string | Uint8Array>, scene: SceneFile, size = 96) {
-  const { app, assets } = await start(project(files), size)
+async function render(
+  files: Record<string, string | Uint8Array>,
+  scene: SceneFile,
+  size = 96,
+  context = gpu,
+) {
+  const { app, assets } = await start(project(files), size, context)
   const { entities } = loadScene(app.world, scene, { id: 'main' })
   await whenSceneReady(app.world, 'main')
-  await frames(app, 10)
+  await frames(app, 10, context)
   return {
     app,
     assets,
@@ -147,11 +152,15 @@ async function render(files: Record<string, string | Uint8Array>, scene: SceneFi
   }
 }
 
-/** Repacks a GLB with its JSON changed (e.g. attributes removed). */
-function editGlb(file: string, edit: (json: Record<string, unknown>) => void): Uint8Array {
+/** Repacks a GLB with its JSON changed (e.g. attributes removed), and its binary chunk if given. */
+function editGlb(
+  file: string,
+  edit: (json: Record<string, unknown>, bin: Uint8Array) => Uint8Array | undefined,
+): Uint8Array {
   const bytes = new Uint8Array(readFileSync(join(fixtures, file)))
-  const { json, bin } = parseGltf(bytes)
-  edit(json as unknown as Record<string, unknown>)
+  const parsed = parseGltf(bytes)
+  const json = parsed.json
+  const bin = edit(json as unknown as Record<string, unknown>, parsed.bin!) ?? parsed.bin
   const text = JSON.stringify(json)
   const jsonBytes = new TextEncoder().encode(text.padEnd(Math.ceil(text.length / 4) * 4, ' '))
   const binPadded = Math.ceil(bin!.length / 4) * 4
@@ -393,6 +402,173 @@ describe('compressed textures', () => {
     let sum = 0
     for (let i = 0; i < a.image.length; i++) sum += Math.abs(a.image[i]! - b.image[i]!)
     expect(sum / a.image.length).toBeLessThan(3)
+  })
+})
+
+describe('compressed embedded textures', () => {
+  const MIRROR = 'NormalTangentMirrorTest/glTF-Binary/NormalTangentMirrorTest.glb'
+  const meta = (settings: Record<string, unknown>) =>
+    new TextEncoder().encode(JSON.stringify({ guid: 'c'.repeat(32), importer: 'gltf', settings }))
+  const diff = (a: Uint8Array, b: Uint8Array) => {
+    let sum = 0
+    for (let i = 0; i < a.length; i++) sum += Math.abs(a[i]! - b[i]!)
+    return sum / a.length
+  }
+  type TextureInfo = {
+    usage: string
+    compression: string
+    width: number
+    sourceWidth?: number
+    bytes: number
+    gpuBytes: number
+  }
+  const textures = (assets: Awaited<ReturnType<typeof render>>['assets'], path: string) =>
+    assets
+      .info(path)
+      .subAssets!.filter((a) => a.type === 'Texture')
+      .map((a) => ({ path: a.path, ...(assets.info(a.path).info as TextureInfo) }))
+
+  it('textureCompression "auto" picks a mode per role, textureMaxSize caps them, and they render like the RGBA8 import', {
+    timeout: timeout(180_000),
+  }, async () => {
+    const scene = (model: string) => modelScene(`assets/${model}#Scene`, [0, 0, 3.1])
+    const raw = await render({ 'assets/raw.glb': MIRROR }, scene('raw.glb'), 128)
+    const files = {
+      'assets/basis.glb': MIRROR,
+      'assets/basis.glb.meta': meta({ textureCompression: 'auto', textureMaxSize: 256 }),
+    }
+    const basis = await render(files, scene('basis.glb'), 128)
+
+    // Three 2048² PNGs: the default keeps them whole, RGBA8 with mips.
+    const before = textures(raw.assets, 'assets/raw.glb')
+    expect(before.map((t) => [t.usage, t.compression, t.width])).toEqual([
+      ['data', 'none', 2048],
+      ['normal', 'none', 2048],
+      ['color', 'none', 2048],
+    ])
+    const after = textures(basis.assets, 'assets/basis.glb')
+    expect(after.map((t) => [t.usage, t.compression, t.width, t.sourceWidth])).toEqual([
+      ['data', 'uastc', 256, 2048],
+      ['normal', 'uastc', 256, 2048],
+      ['color', 'etc1s', 256, 2048],
+    ])
+    const sum = (list: TextureInfo[], key: 'bytes' | 'gpuBytes') =>
+      list.reduce((n, t) => n + t[key], 0)
+    expect(sum(before, 'bytes')).toBeGreaterThan(65_000_000)
+    expect(sum(after, 'bytes')).toBeLessThan(200_000)
+    expect(sum(after, 'gpuBytes')).toBeLessThan(300_000)
+
+    // Transcoded for this device: BC7 for color and data, BC5 for the normal map.
+    const bc = gpu.features.has('texture-compression-bc')
+    const store = basis.app.world.resource(Textures)
+    const formats = after.map((t) => store.get(basis.assets.resolve(t.path))!.format)
+    expect(formats).toEqual(
+      bc ? ['bc7-rgba-unorm', 'bc5-rg-unorm', 'bc7-rgba-unorm'] : Array(3).fill('rgba8unorm'),
+    )
+    expect(diff(raw.image, basis.image)).toBeLessThan(1.5)
+
+    // No compressed formats on the device (WebGL2 without the extensions): RGBA8 transcodes.
+    const plain = await createNodeGpuContext({ compressedTextures: false })
+    try {
+      const fallback = await render(files, scene('basis.glb'), 128, plain)
+      const store = fallback.app.world.resource(Textures)
+      for (const t of textures(fallback.assets, 'assets/basis.glb')) {
+        expect(store.get(fallback.assets.resolve(t.path))!.format).toBe('rgba8unorm')
+      }
+      expect(diff(raw.image, fallback.image)).toBeLessThan(1.5)
+    } finally {
+      plain.destroy()
+    }
+  })
+
+  it('a skinned model with generated LODs compresses its textures too', {
+    timeout: timeout(120_000),
+  }, async () => {
+    const CESIUM = 'CesiumMan/glTF-Binary/CesiumMan.glb'
+    const scene = (model: string) => modelScene(`assets/${model}#Scene`, [0, 0.75, 2.4])
+    const raw = await render({ 'assets/raw.glb': CESIUM }, scene('raw.glb'), 96)
+    const basis = await render(
+      {
+        'assets/man.glb': CESIUM,
+        'assets/man.glb.meta': meta({
+          lods: 'auto',
+          textureCompression: 'etc1s',
+          textureMaxSize: 512,
+        }),
+      },
+      scene('man.glb'),
+      96,
+    )
+    const info = basis.assets.info('assets/man.glb')
+    expect(info.subAssets!.filter((a) => /\/LOD\d+$/.test(a.path)).length).toBeGreaterThan(0)
+    expect(info.subAssets!.some((a) => a.type === 'Skin')).toBe(true)
+    expect(textures(basis.assets, 'assets/man.glb').map((t) => [t.compression, t.width])).toEqual([
+      ['etc1s', 512],
+    ])
+    expect(diff(raw.image, basis.image)).toBeLessThan(1.5)
+  })
+
+  it('KHR_texture_basisu images keep their KTX2, and the fallback image is skipped', {
+    timeout: timeout(60_000),
+  }, async () => {
+    const BOX = 'BoxTextured/glTF-Binary/BoxTextured.glb'
+    type Doc = {
+      images: { bufferView: number; mimeType: string }[]
+      bufferViews: { buffer: number; byteOffset?: number; byteLength: number }[]
+      buffers: { byteLength: number }[]
+      textures: { source: number; extensions?: Record<string, unknown> }[]
+      extensionsUsed?: string[]
+      extensionsRequired?: string[]
+    }
+    const { json, bin } = parseGltf(new Uint8Array(readFileSync(join(fixtures, BOX))))
+    const view = json.bufferViews![json.images![0]!.bufferView!]!
+    const png = bin!.subarray(view.byteOffset ?? 0, (view.byteOffset ?? 0) + view.byteLength)
+    const image = await decodeImage(png)
+    const ktx = await encodeBasis(
+      image.data as Uint8Array,
+      image.width,
+      image.height,
+      'color',
+      'uastc',
+      true,
+    )
+    // The texture reads the KTX2 through the extension; its own source stays as the PNG fallback.
+    const glb = (required: boolean) =>
+      editGlb(BOX, (raw, bin) => {
+        const doc = raw as unknown as Doc
+        const offset = Math.ceil(bin.length / 4) * 4
+        const out = new Uint8Array(offset + ktx.length)
+        out.set(bin)
+        out.set(ktx, offset)
+        doc.bufferViews.push({ buffer: 0, byteOffset: offset, byteLength: ktx.length })
+        doc.buffers[0]!.byteLength = out.length
+        doc.images.push({ bufferView: doc.bufferViews.length - 1, mimeType: 'image/ktx2' })
+        doc.textures[0]!.extensions = { KHR_texture_basisu: { source: 1 } }
+        doc.extensionsUsed = [...(doc.extensionsUsed ?? []), 'KHR_texture_basisu']
+        if (required) doc.extensionsRequired = ['KHR_texture_basisu']
+        return out
+      })
+    const scene = modelScene('assets/box.glb#Scene', [0.9, 0.7, 2.4])
+    scene.entities.at(-1)!.components!['core/Transform'] = {
+      translation: [1.3, 1.1, 2.2],
+      rotationEuler: [-20, 30, 0],
+    }
+    for (const required of [false, true]) {
+      const { image, assets } = await render(
+        {
+          'assets/box.glb': glb(required),
+          // Settings that would re-encode an image don't touch a KTX2 source.
+          'assets/box.glb.meta': meta({ textureCompression: 'etc1s' }),
+        },
+        scene,
+      )
+      expect(assets.info('assets/box.glb').warnings).toEqual([])
+      const list = textures(assets, 'assets/box.glb')
+      expect(list.map((t) => [t.path, t.usage, t.compression, t.bytes])).toEqual([
+        ['assets/box.glb#Texture/1', 'color', 'uastc', expect.any(Number)],
+      ])
+      golden('box-textured.rgba', image, 96)
+    }
   })
 })
 

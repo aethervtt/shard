@@ -323,6 +323,15 @@ export const animationDemoPlugin = definePlugin({
       ),
     )
     await platform.fs.writeBytes('assets/CesiumMan.glb', cesium!)
+    // Its texture compressed (Basis), as characters ship: transcoded for whichever backend runs.
+    await platform.fs.writeText(
+      'assets/CesiumMan.glb.meta',
+      JSON.stringify({
+        guid: 'ce51a3a4000000000000000000000001',
+        importer: 'gltf',
+        settings: { textureCompression: 'auto', textureMaxSize: 512 },
+      }),
+    )
     await platform.fs.writeBytes('assets/AnimatedMorphCube.glb', morph!)
     await platform.fs.writeText('assets/anims/radar.anim.json', JSON.stringify(RADAR, null, 2))
     for (const [path, json] of Object.entries(MATERIALS))

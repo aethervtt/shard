@@ -16,6 +16,7 @@ import { type MipChain, type TextureUsage, toHalf } from './mips'
 
 const USAGE_KEY = 'shard.usage'
 const PREMULTIPLIED_KEY = 'shard.premultiplied'
+const NORMAL_Y_KEY = 'shard.normalY'
 const KHR_DF_FLAG_ALPHA_PREMULTIPLIED = 1
 
 /**
@@ -95,6 +96,8 @@ export interface Ktx2Data {
   layers: number
   /** Color is already multiplied by alpha. */
   premultiplied: boolean
+  /** A Basis normal map that also holds Y in alpha, where two-channel transcodes read it. */
+  normalYInAlpha: boolean
 }
 
 export function readKtx2(bytes: Uint8Array): Ktx2Data {
@@ -182,13 +185,23 @@ export function readKtx2(bytes: Uint8Array): Ktx2Data {
     premultiplied:
       c.keyValue[PREMULTIPLIED_KEY] !== undefined ||
       ((dfd?.flags ?? 0) & KHR_DF_FLAG_ALPHA_PREMULTIPLIED) !== 0,
+    normalYInAlpha: c.keyValue[NORMAL_Y_KEY] !== undefined,
   }
 }
 
-/** Re-tags a KTX2 (e.g. one the Basis encoder wrote) with the engine's usage key. */
-export function tagKtx2(bytes: Uint8Array, usage: TextureUsage, premultiplied = false): Uint8Array {
+/**
+ * Re-tags a KTX2 (e.g. one the Basis encoder wrote) with the engine's usage key. `normalYInAlpha`
+ * marks a normal map whose alpha repeats Y (`ktx2.normalYInAlpha`).
+ */
+export function tagKtx2(
+  bytes: Uint8Array,
+  usage: TextureUsage,
+  premultiplied = false,
+  normalYInAlpha = false,
+): Uint8Array {
   const c = read(bytes)
   c.keyValue[USAGE_KEY] = usage
   if (premultiplied) c.keyValue[PREMULTIPLIED_KEY] = 'true'
+  if (normalYInAlpha) c.keyValue[NORMAL_Y_KEY] = 'alpha'
   return write(c)
 }

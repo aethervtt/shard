@@ -68,6 +68,17 @@ export const GltfImportSettings = defineSchema(
       description:
         "How far (in pixels at 1080 rows) a generated level may stray before the next finer one draws: sets each level's screenSize from its measured error.",
     }),
+    textureCompression: t.enum(['none', 'auto', 'etc1s', 'uastc'], {
+      description:
+        'Basis Universal for the images embedded in the file (an external image has its own .meta). "auto": etc1s for color, uastc for normal and data maps (etc1s shares one intensity across RGB, so it bleeds packed channels like occlusion/roughness/metallic into each other). "none" stores RGBA8 with mips. Encoding takes seconds per texture on first import; the cache keeps the result. KTX2 images (KHR_texture_basisu) keep their own encoding.',
+    }),
+    textureMaxSize: t.u32({
+      default: 4096,
+      min: 1,
+      max: 16384,
+      description:
+        'Downscale embedded images larger than this on either side (1024 or 512 suits a character).',
+    }),
     materialTypes: t.json({
       default: {},
       description:
@@ -100,6 +111,7 @@ const SUPPORTED_EXTENSIONS = new Set([
   'KHR_lights_punctual',
   'KHR_materials_emissive_strength',
   'KHR_mesh_quantization',
+  'KHR_texture_basisu',
   'KHR_texture_transform',
   'MSFT_lod',
 ])
@@ -336,6 +348,20 @@ interface Settings {
   lods: 'auto' | 'authored' | 'none'
   lodTriangles: number[]
   lodPixelError: number
+  textureCompression: 'none' | 'auto' | 'etc1s' | 'uastc'
+  textureMaxSize: number
+}
+
+/**
+ * The Basis mode for an embedded image. "auto" keeps etc1s for color: it modulates one intensity
+ * across RGB, which normal vectors and packed data channels can't share without artifacts.
+ */
+function compressionFor(
+  setting: Settings['textureCompression'],
+  usage: TextureUsage,
+): 'none' | 'etc1s' | 'uastc' {
+  if (setting !== 'auto') return setting
+  return usage === 'color' ? 'etc1s' : 'uastc'
 }
 
 async function loadBuffers(doc: GltfDocument, bin: Uint8Array | undefined, ctx: ImportContext) {
@@ -552,7 +578,7 @@ function buildPrimitive(
 
 export const GltfImporter = defineImporter({
   name: 'gltf',
-  version: 4,
+  version: 5,
   extensions: ['.gltf', '.glb'],
   settings: GltfImportSettings,
   async import(source, ctx) {
@@ -620,10 +646,21 @@ export const GltfImporter = defineImporter({
       use(m.occlusionTexture, 'data', `${ptr}/occlusionTexture`)
       use(m.normalTexture, 'normal', `${ptr}/normalTexture`)
     }
+    // A KHR_texture_basisu texture's own `source` is a fallback for readers without the
+    // extension; this one reads the KTX2, so a fallback nothing else uses isn't imported.
+    const fallbacks = new Set<number>()
+    for (const tex of doc.textures ?? []) {
+      if (tex.extensions?.KHR_texture_basisu && tex.source !== undefined) fallbacks.add(tex.source)
+    }
+    for (const index of (doc.textures ?? []).keys()) {
+      const image = imageOf(index)
+      if (image !== undefined) fallbacks.delete(image)
+    }
     const imageLabels = labels(doc.images).map((l) => `Texture/${l}`)
     const imagePaths = new Map<number, string>()
     for (const [i, image] of (doc.images ?? []).entries()) {
       const ptr = `/images/${i}`
+      if (fallbacks.has(i)) continue
       const usage = imageUsage.get(i) ?? 'color'
       let bytes: Uint8Array | undefined
       if (image.bufferView !== undefined) {
@@ -662,8 +699,8 @@ export const GltfImporter = defineImporter({
         {
           usage,
           mipmaps: true,
-          compression: 'none',
-          maxSize: 4096,
+          compression: compressionFor(settings.textureCompression, usage),
+          maxSize: settings.textureMaxSize,
           flipY: false,
           premultiplyAlpha: false,
         },

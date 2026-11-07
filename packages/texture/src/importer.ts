@@ -72,6 +72,18 @@ function padTo4(rgba: Uint8Array, w: number, h: number) {
   return { data: out, width: pw, height: ph }
 }
 
+/**
+ * GPU bytes of a Basis texture transcoded to a 4x4 block format (BC7, BC5, ASTC 4x4, ETC2, EAC
+ * RG11 are all 16 bytes a block). The RGBA8 fallback takes four times as much.
+ */
+function blockBytes(width: number, height: number, mips: number): number {
+  let sum = 0
+  for (let level = 0; level < mips; level++) {
+    sum += Math.ceil(Math.max(1, width >> level) / 4) * Math.ceil(Math.max(1, height >> level) / 4)
+  }
+  return sum * 16
+}
+
 /** sRGB RGBA8 → linear float (for a color image imported as hdr). */
 function toLinearFloat(image: Image): Image {
   if (image.kind === 'f32') return image
@@ -97,6 +109,11 @@ export async function importImageBytes(
   if (format === 'ktx2') {
     const ktx = readKtx2(bytes)
     const tagged = tagKtx2(bytes, settings.usage)
+    if (ktx.width > settings.maxSize || ktx.height > settings.maxSize) {
+      warn(
+        `A KTX2 source keeps its size (${ktx.width}x${ktx.height}) and encoding; maxSize and compression don't apply to it.`,
+      )
+    }
     return {
       bytes: tagged,
       info: {
@@ -106,6 +123,10 @@ export async function importImageBytes(
         compression: ktx.basis ?? 'none',
         mips: ktx.levels.length,
         usage: settings.usage,
+        bytes: tagged.byteLength,
+        gpuBytes: ktx.basis
+          ? blockBytes(ktx.width, ktx.height, ktx.levels.length)
+          : ktx.levels.reduce((sum, level) => sum + level.byteLength, 0),
       },
     }
   }
@@ -119,6 +140,10 @@ export async function importImageBytes(
     )
   }
   const info: Record<string, JsonValue> = { source: format ?? 'unknown', usage }
+  if (image.width > settings.maxSize || image.height > settings.maxSize) {
+    info.sourceWidth = image.width
+    info.sourceHeight = image.height
+  }
   if (settings.compression !== 'none' && usage !== 'hdr') {
     const base = buildMips(image, { ...settings, mipmaps: false })
     const padded = padTo4(base.levels[0] as Uint8Array, base.width, base.height)
@@ -127,6 +152,10 @@ export async function importImageBytes(
         `Padded ${base.width}x${base.height} to ${padded.width}x${padded.height}: Basis needs multiples of 4.`,
       )
     }
+    // Basis transcodes BC5 and EAC RG11 from red and alpha: Y goes in alpha too, so normal maps
+    // can take those, while every four-channel target still reads RGB.
+    const normal = usage === 'normal'
+    if (normal) for (let k = 1; k < padded.data.length; k += 4) padded.data[k + 2] = padded.data[k]!
     const encoded = await encodeBasis(
       padded.data,
       padded.width,
@@ -135,7 +164,7 @@ export async function importImageBytes(
       settings.compression,
       settings.mipmaps,
     )
-    const out = tagKtx2(encoded, usage, settings.premultiplyAlpha)
+    const out = tagKtx2(encoded, usage, settings.premultiplyAlpha, normal)
     const ktx = readKtx2(out)
     return {
       bytes: out,
@@ -146,6 +175,7 @@ export async function importImageBytes(
         mips: ktx.levels.length,
         compression: settings.compression,
         bytes: out.byteLength,
+        gpuBytes: blockBytes(ktx.width, ktx.height, ktx.levels.length),
       },
     }
   }
@@ -161,6 +191,9 @@ export async function importImageBytes(
       mips: chain.levels.length,
       compression: 'none',
       bytes: out.byteLength,
+      gpuBytes:
+        (chain.levels.reduce((sum, level) => sum + level.length, 0) / 4) *
+        (usage === 'hdr' ? 8 : 4),
     },
   }
 }

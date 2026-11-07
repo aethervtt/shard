@@ -228,6 +228,8 @@ time, and frame count are untouched. Scene previews reuse `SceneInstance`.
 - **Performance:** mip filtering uses a 16k-entry linear→sRGB table. A 2048² PNG imports in about
   570 ms.
 - **Normal maps:** the shader always rebuilds z from xy, so BC5 and EAC RG11 transcodes work.
+  Basis fills those two channels from red and alpha, so compressed normal maps also hold Y in alpha
+  and are tagged `shard.normalY`. Untagged ones transcode to a four-channel format (0107).
 - **`KHR_texture_transform` rotation** was checked against Khronos' TextureTransformTest (the
   arrows land on "Correct"). The shader computes `(c·u + s·v, −s·u + c·v)`.
 - **Tangents:** MikkTSpace comes from the `mikktspace` WASM package, which loads through Node's
