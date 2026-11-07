@@ -22,12 +22,15 @@ export {
   torus,
 } from './primitives'
 export {
+  type GeneratedLod,
+  generateLods,
   loadMeshSimplifier,
   meshSimplifierLoaded,
   type Simplified,
   type SimplifyOptions,
   simplifyLods,
   simplifyMesh,
+  weldMesh,
 } from './simplify'
 export { catmullRom, sampleCatmullRom } from './spline'
 export {

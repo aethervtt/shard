@@ -138,8 +138,9 @@ export const prepareDeforms = defineSystem({
           d.clear(slot)
           continue
         }
-        const md = d.meshData(mesh)
         const o = slot * DEFORM_WORDS
+        writeLevels(store, slot, o)
+        const md = d.meshData(mesh)
         writeMeshFields(records, o, md)
         const skin = skins?.get(skinRefs[i])
         let jointCount = 0
@@ -191,8 +192,9 @@ export const prepareDeforms = defineSystem({
           d.clear(slot)
           continue
         }
-        const md = d.meshData(mesh)
         const o = slot * DEFORM_WORDS
+        writeLevels(store, slot, o)
+        const md = d.meshData(mesh)
         writeMeshFields(records, o, md)
         records[o + 5] = 0
         d.recordF32[o + 3] = 0
@@ -202,6 +204,26 @@ export const prepareDeforms = defineSystem({
     }
   },
 })
+
+/**
+ * Record word 11: the slot's LOD level table (each level's own skin and morph data), so a lower
+ * level reads its own vertices' joints, weights, and deltas, not level 0's. 0 without Lod.
+ */
+function writeLevels(store: InstanceStore, slot: number, o: number): void {
+  const d = store.deform
+  const a = store.batchOf[slot]!
+  if (a > -2) {
+    d.records[o + 11] = 0
+    return
+  }
+  const set = store.lodSets[-2 - a]!
+  const n = set.batches.length
+  // Every level first: packing one may repack the buffer, which moves the table.
+  for (let k = 0; k < n; k++) d.meshData(store.batches[set.batches[k]!]!.mesh)
+  const base = d.levelTable(set, n)
+  for (let k = 0; k < n; k++) d.setLevel(base, k, d.meshData(store.batches[set.batches[k]!]!.mesh))
+  d.records[o + 11] = base + 1
+}
 
 function writeMeshFields(records: Uint32Array, o: number, md: MeshDeform): void {
   records[o + 6] = md.skinBase >= 0 ? md.skinBase : 0

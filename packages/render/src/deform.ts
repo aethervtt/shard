@@ -10,7 +10,10 @@ import { DataStore } from './data-store'
  *   6    first word of the mesh's skin data (joints, weights)           7  first morph delta word
  *   8    vertex count      9  active morph targets (≤ 8)               10  their (index, weight)
  *                                                                          pairs (vec4 index)
- *  11    unused
+ *  11    1 + first word of the slot's LOD level table, or 0 without Lod (spec 0103)
+ *
+ * Words 6-8 describe level 0's mesh. A LOD set's level table, in the vertex data, has a row of
+ * `LEVEL_WORDS` per level: skin base (`NO_SKIN` without), morph base, vertex count, target count.
  */
 export const DEFORM_WORDS = 12
 const DEFORM_BYTES = DEFORM_WORDS * 4
@@ -18,6 +21,10 @@ const DEFORM_BYTES = DEFORM_WORDS * 4
 export const SKIN_WORDS = 6
 /** Floats per vertex per morph target: position, normal, and tangent deltas. */
 export const MORPH_WORDS = 9
+/** Words per level in a LOD set's level table. */
+export const LEVEL_WORDS = 4
+/** A level table's skin base for a level whose mesh has no joints and weights. */
+export const NO_SKIN = 0xffffffff
 
 /** Where a mesh's static deform data sits in the shared vertex-data buffer. */
 export interface MeshDeform {
@@ -52,6 +59,8 @@ export class DeformStore {
   private vertexWords = 0
   private wasted = 0
   readonly meshes = new Map<Mesh, MeshDeform>()
+  /** First word of each LOD set's level table, by set (cleared by a repack). */
+  private readonly levelTables = new Map<object, number>()
   readonly recordBuffer: DataStore
   readonly poseBuffer: DataStore
   readonly vertexBuffer: DataStore
@@ -147,6 +156,41 @@ export class DeformStore {
     return entry
   }
 
+  /**
+   * The first word of a LOD set's level table (`levels` rows), reserved on first use and again
+   * after a repack. Call it after `meshData` for every level this frame, so none repacks after.
+   */
+  levelTable(set: object, levels: number): number {
+    let base = this.levelTables.get(set)
+    if (base === undefined) {
+      base = this.reserve(levels * LEVEL_WORDS)
+      this.vertexData.fill(0, base, base + levels * LEVEL_WORDS)
+      this.levelTables.set(set, base)
+    }
+    return base
+  }
+
+  /** Writes level `k`'s row of the table at `base` (uploading only when it changed). */
+  setLevel(base: number, k: number, md: MeshDeform): void {
+    const o = base + k * LEVEL_WORDS
+    const u = this.vertexData
+    const skin = md.skinBase >= 0 ? md.skinBase : NO_SKIN
+    const morph = md.morphBase >= 0 ? md.morphBase : 0
+    if (
+      u[o] === skin &&
+      u[o + 1] === morph &&
+      u[o + 2] === md.vertexCount &&
+      u[o + 3] === md.targetCount
+    ) {
+      return
+    }
+    u[o] = skin
+    u[o + 1] = morph
+    u[o + 2] = md.vertexCount
+    u[o + 3] = md.targetCount
+    this.vertexDirty = true
+  }
+
   private wordsOf(entry: MeshDeform): number {
     return (
       (entry.skinBase >= 0 ? entry.vertexCount * SKIN_WORDS : 0) +
@@ -211,6 +255,7 @@ export class DeformStore {
   private repack(): void {
     this.vertexWords = 0
     this.wasted = 0
+    this.levelTables.clear()
     for (const [mesh, entry] of this.meshes) {
       if (entry.used < this.frame - 600 && mesh.version === entry.version) {
         this.meshes.delete(mesh)

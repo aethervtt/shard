@@ -246,14 +246,17 @@ describe('textured models', () => {
     const authored = app.world.resource(Meshes).get(assets.resolve(path))!
     const generated = app.world.resource(Meshes).get(assets.resolve(other))!
     expect(authored.tangents).toBeDefined()
-    expect(generated.indices).toBeUndefined() // unwelded by generation
     const tri = authored.indices!
+    // Generated per corner, then welded: the same triangles, with shared vertices again.
+    const corners = generated.indices!
+    expect(corners.length).toBe(tri.length)
+    expect(generated.vertexCount).toBeLessThan(tri.length)
     let worst = 0
     let signs = 0
     for (let k = 0; k < tri.length; k++) {
       const v = tri[k]!
       const t = authored.tangents!.subarray(v * 4, v * 4 + 4)
-      const g = generated.tangents!.subarray(k * 4, k * 4 + 4)
+      const g = generated.tangents!.subarray(corners[k]! * 4, corners[k]! * 4 + 4)
       const dot =
         (t[0]! * g[0]! + t[1]! * g[1]! + t[2]! * g[2]!) /
         (Math.hypot(t[0]!, t[1]!, t[2]!) * Math.hypot(g[0]!, g[1]!, g[2]!))
