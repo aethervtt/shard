@@ -377,6 +377,8 @@ export {
 export {
   describeOutlines,
   OUTLINE_SHADERS,
+  OutlineSlots,
+  type OutlineSlotsValue,
   type OutlineView,
   OutlineViews,
   outlinePlugin,
@@ -533,6 +535,17 @@ export {
 } from './target'
 export { bindingDimension, depthReadEntry } from './tier'
 export { GpuTimer } from './timer'
+export {
+  createToonSettings,
+  extractToon,
+  Ink,
+  MAX_TOON_TONES,
+  observeToonWithoutPlugin,
+  Toon,
+  ToonPath,
+  type ToonSettings,
+} from './toon'
+export { describeToon, TOON_SHADERS, toonPlugin } from './toon-plugin'
 export {
   addShaderVariantSource,
   type MaterialVariantEntry,

@@ -1159,6 +1159,19 @@ Brings along: `core/Transform`.
 | `order` | integer | `0` | ≥ -2147483648, ≤ 2147483647 | Order within the band: higher draws over lower. |
 | `level` | integer | `0` | ≥ -16, ≤ 15 | Structure level index (0067): ground layers sort by level first, so a lower level never draws over an upper one. 0 is the ground level. |
 
+## `render/Ink`
+
+Comic ink for a camera: lines where depth or surface direction jumps, on silhouettes and inside them, from the depth and normals of opaque geometry. Stable as the camera moves, orthographic included.
+
+Brings along: `render/Camera3d`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `width` | number | `1.5` | ≥ 0.5, ≤ 8, px | Line width in CSS pixels (texels on a PixelPerfect camera). |
+| `color` | string or number[4] | `[0.02,0.02,0.03,1]` |  | Line color (linear), with alpha. Mixed in before tonemapping, so it is graded with the scene; black stays black. |
+| `depthThreshold` | number | `0.1` | ≥ 0, m | How far a surface must fall back behind the plane of its neighbours to draw a line (silhouettes, an arm across a body). Planes never draw one, at any slant. |
+| `normalThreshold` | number | `35` | ≥ 0, ≤ 180, ° | How sharply surface direction must turn between neighbouring pixels to draw a line (creases, a box edge facing the camera). |
+
 ## `render/InstanceData`
 
 Two numbers this instance's material reads in its vertex stage (vertex_instance_data() in shard::mesh), e.g. a fade or per-edge flags. They share the slot word VisibilityRange uses, so an entity has one or the other.
@@ -1253,13 +1266,14 @@ Tag (no fields).
 
 ## `render/Outline`
 
-Outlines a renderable, or every renderable under this entity. Selection and hover are two Outlines with different colors; the host sets and clears them.
+Outlines a renderable, or every renderable under this entity, with a ring outside its silhouette that draws over other outlined objects behind it. Selection and hover are two Outlines with different colors; the host sets and clears them.
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `color` | string or number[4] | `[1,0.78,0.2,1]` |  | Outline color (linear), with alpha. |
 | `width` | number | `2` | ≥ 0, ≤ 32, px | Width in CSS pixels, outside the silhouette, at any zoom and display density. |
 | `occluded` | `"hide"` \| `"show"` \| `"dim"` | `"hide"` |  | Where something hides the outlined object: hide the outline there, show it anyway, or dim it. |
+| `priority` | integer | `0` | ≥ -2147483648, ≤ 2147483647 | When Outlines on an entity and its descendants cover one renderable, the highest priority draws (on a tie, the nearest). Its ring also draws over the silhouettes of lower ones: hover at 1 over meshes outlined at 0. |
 
 ## `render/PhysicalCamera`
 
@@ -1431,6 +1445,19 @@ Tonemapping for a camera. Without it, cameras use the default curve with ditheri
 | `curve` | `"aces"` \| `"agx"` \| `"pbr-neutral"` \| `"reinhard"` \| `"none"` | `"agx"` |  | How HDR becomes display color. agx: saturated highlights (glows, lava, neon) keep their hue; aces: punchy filmic contrast; pbr-neutral: faithful product colors (Khronos); reinhard: simple, soft; none: clamp only, for measuring. |
 | `dither` | boolean | `true` |  | Adds ±1 LSB noise against banding. |
 
+## `render/Toon`
+
+Cel shading for a camera's view: each light's diffuse falls into hard bands on the models' own colors and textures, without specular. Shadows, ambient light, SSAO and emissive are kept. Other cameras are unaffected.
+
+Brings along: `render/Camera3d`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `bands` | integer | `2` | ≥ 2, ≤ 8 | Tones light falls into, the shadow side included: 2 is lit and shadow, 3 adds a half-lit band. Their edges are evenly spaced over how directly a surface faces each light. |
+| `softness` | number | `0.05` | ≥ 0, ≤ 1 | Width of each band's edge, in light amount (0–1): 0 is a hard step, 1 blends the bands into a smooth ramp. |
+| `shadowColor` | string or number[4] | `"#000000"` |  | What a light still gives the side facing away from it, or in its shadow, as a fraction of the lit side (linear). Black: only ambient light there; a dim violet tints comic shadows. |
+| `ramp` | string or number[4][] | `[]` |  | Explicit tones, darkest first (2–8): each light picks one by how directly the surface faces it. Replaces bands and shadowColor. |
+
 ## `render/Trail`
 
 World-space ribbon history of this entity/bone; stops emitting when playing is false and drains by lifetime (0082).
@@ -1475,6 +1502,9 @@ Brings along: `core/Transform`.
 | `jitter` | number[4] | `[0,0,0,0]` |  |  |
 | `sunTransmittance` | number[16] | `[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]` |  |  |
 | `pixelScale` | number[4] | `[0,0,0,0]` |  |  |
+| `toon` | number[4] | `[0,0,0,0]` |  |  |
+| `toonRamp` | number[16] | `[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]` |  |  |
+| `toonRampHigh` | number[16] | `[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]` |  |  |
 
 ## `render/ViewVisibility`
 

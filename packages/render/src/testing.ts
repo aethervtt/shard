@@ -8,10 +8,16 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { deflateSync } from 'node:zlib'
+import type { AssetRef, Entity, World } from '@aethervtt/shard-core'
+import { Mesh, type MeshData, simplifyMesh } from '@aethervtt/shard-mesh'
 import type { App } from '@aethervtt/shard-runtime'
+import { Transform } from '@aethervtt/shard-transform'
+import { Meshes } from './assets'
 import { Culler } from './culling'
 import type { CapturedImage } from './graph'
+import { Lod, Mesh3d, MeshMaterial, SkinnedMesh } from './instances'
 import { captureView, Gpu, Shaders } from './plugin'
+import { Skins } from './skin-asset'
 
 export {
   expectScenario,
@@ -206,4 +212,86 @@ export function meanDifference(a: ArrayLike<number>, b: ArrayLike<number>): numb
   let sum = 0
   for (let i = 0; i < a.length; i++) sum += Math.abs(a[i]! - b[i]!)
   return sum / a.length
+}
+
+/** A 2 m tube on two joints (the upper one at 1 m), as the skinning tests build it. */
+function tube(): MeshData {
+  const rings = 41
+  const sides = 24
+  const n = rings * (sides + 1)
+  const positions = new Float32Array(n * 3)
+  const normals = new Float32Array(n * 3)
+  const uvs = new Float32Array(n * 2)
+  const joints = new Uint16Array(n * 4)
+  const weights = new Float32Array(n * 4)
+  for (let r = 0; r < rings; r++) {
+    const y = (r / (rings - 1)) * 2
+    const upper = Math.min(1, Math.max(0, (y - 0.8) / 0.4))
+    for (let s = 0; s <= sides; s++) {
+      const v = r * (sides + 1) + s
+      const a = (s / sides) * Math.PI * 2
+      positions.set([Math.cos(a) * 0.15, y, Math.sin(a) * 0.15], v * 3)
+      normals.set([Math.cos(a), 0, Math.sin(a)], v * 3)
+      uvs.set([s / sides, y / 2], v * 2)
+      joints.set([0, 1, 0, 0], v * 4)
+      weights.set([1 - upper, upper, 0, 0], v * 4)
+    }
+  }
+  const indices: number[] = []
+  for (let r = 0; r < rings - 1; r++) {
+    for (let s = 0; s < sides; s++) {
+      const a = r * (sides + 1) + s
+      const b = a + sides + 1
+      indices.push(a, b, a + 1, a + 1, b, b + 1)
+    }
+  }
+  return { positions, normals, uvs, joints, weights, indices: Uint32Array.from(indices) }
+}
+
+/**
+ * A skinned 2 m tube standing at the origin, bent 45° toward -x at its upper joint (1 m up); with
+ * `lod`, drawn through a Lod whose second level is simplified (for pose-following checks).
+ */
+export function bentTube(world: World, material: AssetRef<'Material'>, lod: boolean): Entity {
+  const meshes = world.resource(Meshes)
+  const source = tube()
+  const l0 = meshes.add(Mesh.create(source))
+  const l1 = meshes.add(Mesh.create(simplifyMesh(source, 0.3, { keepSeams: true }).mesh))
+  const skin = world.resource(Skins).add({
+    name: 'tube',
+    joints: ['j0', 'j1'],
+    restPose: [
+      { translation: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] },
+      { translation: [0, 1, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] },
+    ],
+    inverseBindMatrices: Float32Array.from([
+      1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, -1, 0,
+      1,
+    ]),
+  })
+  const j0 = world.spawn([Transform, {}])
+  const half = Math.PI / 8
+  const j1 = world.spawn([
+    Transform,
+    { translation: [0, 1, 0], rotation: [0, 0, Math.sin(half), Math.cos(half)] },
+  ])
+  return world.spawn(
+    [Mesh3d, { mesh: l0 }],
+    [MeshMaterial, { material }],
+    [Transform, {}],
+    [SkinnedMesh, { skin, joints: [j0, j1] }],
+    ...(lod
+      ? [
+          [
+            Lod,
+            {
+              levels: [
+                { mesh: l0, screenSize: 1000 },
+                { mesh: l1, screenSize: 0 },
+              ],
+            },
+          ] as const,
+        ]
+      : []),
+  )
 }

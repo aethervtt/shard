@@ -149,16 +149,19 @@ orthographic.
 
 ### Outlines
 
-`Outline { color: color, width: f32 (CSS px) = 2, occluded: 'hide' | 'show' | 'dim' }` on any
-renderable, or on a parent (applied to every descendant). The post pass renders outlined entities'
-style and depth into a small mask (through the mesh vertex stage, so skinned meshes outline where
-they are), seeds jump flood from it (parts something hides seed only for `show` and `dim`),
-floods to `width`, and composites the ring on the view target after the display stage. It runs
-only while at least one `Outline` exists in the view; with none, it isn't in the graph. Selection
-and hover are two `Outline`s with different colors; the host sets and clears them. A view draws up
-to 16 styles at once: the style rides in the top four bits of each visible-list entry. The
-component is core; the pass is `outlinePlugin` (in `forwardPlugin`), and an Outline without it
-logs `render/feature-missing`.
+`Outline { color: color, width: f32 (CSS px) = 2, occluded: 'hide' | 'show' | 'dim', priority:
+i32 = 0 }` on any renderable, or on a parent (applied to every descendant). The post pass renders
+outlined entities' style, depth, owner and priority into a small mask (through the mesh vertex
+stage, so skinned meshes outline where they are), seeds jump flood from the edges of each owner's
+silhouette (parts something hides seed only for `show` and `dim`), floods to `width`, and
+composites the ring on the view target after the display stage. It runs only while at least one
+`Outline` exists in the view; with none, it isn't in the graph. Selection and hover are two
+`Outline`s with different colors; the host sets and clears them. A view draws up to 16 styles at
+once. The component is core; the pass is `outlinePlugin` (in `forwardPlugin`), and an Outline
+without it logs `render/feature-missing`. 0108 changed how rings meet: a ring draws outside its
+own silhouette and over outlined surfaces behind it or lower in priority, nested Outlines resolve
+by priority then nearness, and the style rides in a per-slot array instead of the visible
+entries' top bits (which the deform stage reads as the LOD level).
 
 ### Lights
 

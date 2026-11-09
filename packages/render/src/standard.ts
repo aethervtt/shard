@@ -20,6 +20,7 @@ import { postPlugin } from './post-plugin'
 import { ribbonsPlugin } from './ribbons-plugin'
 import { shadowCatcherPlugin } from './shadow-catcher'
 import { skinningPlugin } from './skinning-plugin'
+import { toonPlugin } from './toon-plugin'
 import { viewVisibilityPlugin } from './view-visibility-plugin'
 
 /**
@@ -43,6 +44,7 @@ export function forwardPlugin(options: ForwardPluginOptions = {}): Plugin {
         pixelPerfectPlugin,
         lensPlugin,
         outlinePlugin,
+        toonPlugin,
         cutawayPlugin,
         viewVisibilityPlugin,
         interiorPlugin,

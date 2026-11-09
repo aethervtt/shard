@@ -8,6 +8,7 @@ import {
 } from '@aethervtt/shard-core'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { definePlugin } from '@aethervtt/shard-runtime'
+import { DataStore, dataEntry } from './data-store'
 import { addRenderFeatures } from './features'
 import { ForwardStateResource, forwardQueue, VERTEX_BUFFERS, viewBindGroup } from './forward'
 import { GpuAssetsResource } from './gpu-assets'
@@ -20,24 +21,37 @@ import {
   InstanceSlot,
   Instances,
 } from './instances'
-import { MAX_OUTLINE_STYLES, OUTLINE_OCCLUSION, Outline, OutlinePath } from './outline'
+import {
+  MAX_OUTLINE_PRIORITIES,
+  MAX_OUTLINE_STYLES,
+  OUTLINE_OCCLUSION,
+  Outline,
+  OutlinePath,
+} from './outline'
 import { Graph, RenderDescribers, RenderSet, Shaders, Views } from './plugin'
 import { beginPass, depthTex, idOf, PostCache, tex, uniform } from './post-common'
 import { registerShaders } from './shaders'
 import { type CameraData, cameraOf } from './view'
 
-// Outlines (0057): outlined slots draw into a small mask (style and depth), jump flood spreads the
-// nearest silhouette pixel outward, and a composite draws the ring on the finished view target.
-// It runs only while an Outline is in view; with none, the node isn't in the graph.
+// Outlines (0057, 0108): outlined slots draw into a small mask (style, depth, owner, precedence),
+// jump flood spreads the nearest silhouette pixel outward, and a composite draws the ring on the
+// finished view target. It runs only while an Outline is in view; with none, the node isn't in the
+// graph. A renderable's Outline (its owner) is the highest priority among the Outlines on it and its
+// ancestors, the nearest on a tie; what it draws with rides in a per-slot array, so the visible
+// entries stay plain slots that deform like any other draw (skinned meshes on any LOD level).
 
 export const OUTLINE_SHADERS: Record<string, string> = {
   'shard::outline::mask': `
 import shard::view::view;
-import shard::mesh::{ mesh_vertex_at, visible };
+import shard::mesh::{ mesh_vertex_at, visible, SLOT_MASK };
+
+/** Per slot: style (bits 0–3), priority level (4–7), owner + 1 (8 up). */
+@data @group(1) @binding(0) var<storage, read> outline_slots: array<u32>;
 
 struct MaskVertex {
   @builtin(position) clip: vec4f,
-  @location(0) @interpolate(flat) style: u32,
+  /** Style + 1, owner + 1, priority level. */
+  @location(0) @interpolate(flat) id: vec4f,
 }
 
 @vertex fn vs(
@@ -52,14 +66,17 @@ struct MaskVertex {
   let m = mesh_vertex_at(instance_index, vertex_index, position, normal, uv, uv1, tangent);
   var out: MaskVertex;
   out.clip = view.viewProjNoJitter * vec4f(m.world_position, 1.0);
-  // The pass packs each slot's style into its visible entry's top 4 bits.
-  out.style = visible[instance_index] >> 28u;
+  let word = outline_slots[visible[instance_index] & SLOT_MASK];
+  out.id = vec4f(f32(word & 15u) + 1.0, f32(word >> 8u), f32((word >> 4u) & 15u), 0.0);
   return out;
 }
 
-/** Style + 1 (0 where nothing is outlined), and the surface's reversed-Z depth. */
+/**
+ * Style + 1 (0 where nothing is outlined), the surface's reversed-Z depth, owner + 1, and priority
+ * level.
+ */
 @fragment fn fs(in: MaskVertex) -> @location(0) vec4f {
-  return vec4f(f32(in.style) + 1.0, in.clip.z, 0.0, 0.0);
+  return vec4f(in.id.x, in.clip.z, in.id.y, in.id.z);
 }`,
 
   'shard::outline::post': `
@@ -82,22 +99,45 @@ struct Styles {
 
 const NONE = vec4f(-1.0e9, -1.0e9, 0.0, 0.0);
 
+/** Whether the outlined surface \`m\` at mask pixel p is in front of the scene there. */
+fn seen_at(p: vec2i, m: vec4f) -> bool {
+  let size = vec2i(textureDimensions(scene_depth));
+  let q = clamp(vec2i((vec2f(p) + 0.5) * styles.scale.xy), vec2i(0), size - 1);
+  // Reversed Z: nearer is larger. The mask draws unjittered, the scene may not: a little slack.
+  return m.y >= textureLoad(scene_depth, q, 0) * 0.998 - 1e-7;
+}
+
+/** The mask at p, with what a hiding style hides cleared (so its seen part's edge seeds). */
+fn mask_at(p: vec2i) -> vec4f {
+  let m = textureLoad(source, p, 0);
+  if (m.x < 0.5 || styles.params[u32(m.x) - 1u].y > 0.5 || seen_at(p, m)) { return m; }
+  return vec4f(0.0);
+}
+
 /**
- * Seeds: every outlined pixel, as (x, y, style + 1, visible). Parts something hides seed only
+ * Seeds: the edge of each owner's silhouette, as (x, y, code, depth), code packing owner + 1,
+ * priority level, style and whether it's seen. A pixel is on the edge where a neighbour is outside
+ * every outlined silhouette, or another owner's lower in precedence (a lower priority, or the same
+ * one farther away): rings draw over what's behind or below them. Parts something hides seed only
  * when their style shows or dims them.
  */
 @fragment fn seed(@builtin(position) frag: vec4f) -> @location(0) vec4f {
   let p = vec2i(frag.xy);
-  let m = textureLoad(source, p, 0);
+  let m = mask_at(p);
   if (m.x < 0.5) { return NONE; }
+  let size = vec2i(textureDimensions(source));
+  var edge = false;
+  for (var k = 0; k < 4; k++) {
+    let q = p + select(vec2i(0, (k & 1) * 2 - 1), vec2i((k & 1) * 2 - 1, 0), k < 2);
+    if (any(q < vec2i(0)) || any(q >= size)) { continue; }
+    let o = mask_at(q);
+    if (o.x < 0.5 || (o.z != m.z && (o.w < m.w || (o.w == m.w && o.y < m.y)))) { edge = true; }
+  }
+  if (!edge) { return NONE; }
   let style = u32(m.x) - 1u;
-  let size = vec2i(textureDimensions(scene_depth));
-  let q = clamp(vec2i(frag.xy * styles.scale.xy), vec2i(0), size - 1);
-  let scene = textureLoad(scene_depth, q, 0);
-  // Reversed Z: nearer is larger. The mask draws unjittered, the scene may not: a little slack.
-  let seen = m.y >= scene * 0.998 - 1e-7;
-  if (!seen && styles.params[style].y < 0.5) { return NONE; }
-  return vec4f(frag.xy, m.x, select(0.0, 1.0, seen));
+  let seen = seen_at(p, m);
+  let code = m.z * 512.0 + m.w * 32.0 + f32(style) * 2.0 + select(0.0, 1.0, seen);
+  return vec4f(frag.xy, code, m.y);
 }
 
 /** One jump flood step: the nearest seed among the 3×3 neighbours \`step.x\` pixels apart. */
@@ -122,17 +162,24 @@ const NONE = vec4f(-1.0e9, -1.0e9, 0.0, 0.0);
   return best;
 }
 
-/** The ring: pixels outside every silhouette within their nearest seed's width. */
+/**
+ * The ring: pixels within their nearest seed's width, outside its owner's silhouette and any that
+ * comes before it (a higher priority, or the same one nearer).
+ */
 @fragment fn composite(@builtin(position) frag: vec4f) -> @location(0) vec4f {
   let p = vec2i(frag.xy);
-  if (textureLoad(mask, p, 0).x > 0.5) { discard; }
   let c = textureLoad(source, p, 0);
   if (c.z < 0.5) { discard; }
-  let style = u32(c.z) - 1u;
+  let code = u32(c.z);
+  let owner = f32(code >> 9u);
+  let level = f32((code >> 5u) & 15u);
+  let m = textureLoad(mask, p, 0);
+  if (m.x > 0.5 && (m.z == owner || m.w > level || (m.w == level && m.y > c.w))) { discard; }
+  let style = (code >> 1u) & 15u;
   let params = styles.params[style];
   let d = distance(frag.xy, c.xy);
   var a = clamp(params.x + 0.5 - d, 0.0, 1.0);
-  if (c.w < 0.5 && params.y > 1.5) { a *= 0.35; }
+  if ((code & 1u) == 0u && params.y > 1.5) { a *= 0.35; }
   let color = styles.colors[style];
   a *= color.a;
   if (a <= 0.0) { discard; }
@@ -178,13 +225,88 @@ export const OutlineViews = defineResource<Map<string, OutlineView>>('render/Out
 })
 
 const STYLE_FLOATS = MAX_OUTLINE_STYLES * 8 + 4
+/** Owners the mask tells apart: owner + 1 rides in 15 bits of the seeds' code. */
+const MAX_OWNERS = 32766
 
-/** Scratch for gathering: entries (slot | style << 28) and their batches. */
+/**
+ * The Outline each outlined renderable takes this frame (0108), by slot: what the mask's vertex
+ * stage reads (`outline_slots`), and the slots it draws.
+ */
+export interface OutlineSlotsValue {
+  /** By slot: style | priority level << 4 | (owner + 1) << 8. */
+  words: Uint32Array
+  /** The slots that took an Outline, and the batch each draws in the mask. */
+  slots: Int32Array
+  batches: Int32Array
+  count: number
+  /** The lowest and highest slot written this frame. */
+  lo: number
+  hi: number
+}
+
+export const OutlineSlots = defineResource<OutlineSlotsValue>('render/OutlineSlots', {
+  description: 'The Outline each outlined renderable takes this frame, by instance slot (0108).',
+  init: () => ({
+    words: new Uint32Array(64),
+    slots: new Int32Array(64),
+    batches: new Int32Array(64),
+    count: 0,
+    lo: 0,
+    hi: -1,
+  }),
+})
+
+/** Per slot, the winning Outline's priority and depth below it, and the frame that set them. */
+let winPriority = new Int32Array(64)
+let winDepth = new Int32Array(64)
+let winStamp = new Uint32Array(64)
+let stamp = 0
+
+function ensureSlots(out: OutlineSlotsValue, n: number): void {
+  if (n > winStamp.length) {
+    let size = winStamp.length
+    while (size < n) size *= 2
+    const priority = new Int32Array(size)
+    priority.set(winPriority)
+    winPriority = priority
+    const depth = new Int32Array(size)
+    depth.set(winDepth)
+    winDepth = depth
+    const stamps = new Uint32Array(size)
+    stamps.set(winStamp)
+    winStamp = stamps
+  }
+  if (n > out.words.length) {
+    let size = out.words.length
+    while (size < n) size *= 2
+    const words = new Uint32Array(size)
+    words.set(out.words)
+    out.words = words
+  }
+}
+
+function wonSlot(out: OutlineSlotsValue, slot: number, batch: number): void {
+  if (out.count >= out.slots.length) {
+    const s = new Int32Array(out.slots.length * 2)
+    s.set(out.slots)
+    out.slots = s
+    const b = new Int32Array(out.batches.length * 2)
+    b.set(out.batches)
+    out.batches = b
+  }
+  out.slots[out.count] = slot
+  out.batches[out.count] = batch
+  out.count++
+  if (slot < out.lo) out.lo = slot
+  if (slot > out.hi) out.hi = slot
+}
+
+/** Scratch for a view's mask: entries (slots) and their batches. */
 let entries = new Uint32Array(64)
 let entryBatches = new Int32Array(64)
 let entryCount = 0
 
-function push(slot: number, style: number, batch: number): void {
+function push(slot: number, batch: number): void {
   if (entryCount >= entries.length) {
     const e = new Uint32Array(entries.length * 2)
     e.set(entries)
@@ -193,36 +315,98 @@ function push(slot: number, style: number, batch: number): void {
     b.set(entryBatches)
     entryBatches = b
   }
-  entries[entryCount] = (slot | (style << 28)) >>> 0
+  entries[entryCount] = slot
   entryBatches[entryCount] = batch
   entryCount++
 }
 
-/** Adds an entity's renderable (and its descendants') to this view's mask. */
-function gather(world: World, e: Entity, style: number, layers: number, seen: Set<Entity>): void {
+/**
+ * Offers an Outline (its mask word and priority) to an entity's renderable and its descendants':
+ * each keeps the highest priority, and on a tie the Outline fewest levels up.
+ */
+function gather(
+  world: World,
+  out: OutlineSlotsValue,
+  e: Entity,
+  word: number,
+  priority: number,
+  depth: number,
+  seen: Set<Entity>,
+): void {
   if (seen.has(e) || !world.isAlive(e)) return
   seen.add(e)
   const store = world.resource(Instances)
   const slotData = world.tryGet(e, InstanceSlot)
   const slot = slotData ? slotData.slot - 1 : -1
   if (slot >= 0) {
-    const flags = store.u32[slot * INSTANCE_FLOATS + 13]!
     const a = store.batchOf[slot]!
-    const visible = (flags & InstanceFlags.Visible) !== 0
-    if (visible && a !== -1 && (store.layers[slot]! & layers) !== 0) {
-      const batch = a >= 0 ? a : store.lodSets[-2 - a]!.batches[0]!
-      push(slot, style, batch)
+    if (a !== -1) {
+      ensureSlots(out, slot + 1)
+      const fresh = winStamp[slot] !== stamp
+      if (
+        fresh ||
+        priority > winPriority[slot]! ||
+        (priority === winPriority[slot] && depth < winDepth[slot]!)
+      ) {
+        if (fresh) {
+          winStamp[slot] = stamp
+          wonSlot(out, slot, a >= 0 ? a : store.lodSets[-2 - a]!.batches[0]!)
+        }
+        winPriority[slot] = priority
+        winDepth[slot] = depth
+        out.words[slot] = word
+      }
     }
   }
   const children = world.tryGet(e, Children)
   if (children)
     for (const child of children.entities)
-      if (child !== null) gather(world, child, style, layers, seen)
+      if (child !== null) gather(world, out, child, word, priority, depth + 1, seen)
 }
 
 /**
- * Gathers each camera view's outlined renderables into its mask draws, after the forward queue
- * (so this frame's visible lists are open) and before the upload.
+ * The index of an Outline's style in `styles` (its color at `c` in a color column), added if new;
+ * past the cap, the last one.
+ */
+function styleOf(
+  styles: Style[],
+  pool: Style[],
+  color: ArrayLike<number>,
+  c: number,
+  width: number,
+  occluded: number,
+): number {
+  for (let i = 0; i < styles.length; i++) {
+    const s = styles[i]!
+    if (
+      s.width === width &&
+      s.occluded === occluded &&
+      s.color[0] === color[c] &&
+      s.color[1] === color[c + 1] &&
+      s.color[2] === color[c + 2] &&
+      s.color[3] === color[c + 3]
+    ) {
+      return i
+    }
+  }
+  if (styles.length >= MAX_OUTLINE_STYLES) return MAX_OUTLINE_STYLES - 1
+  // Styles are reused from frame to frame: `styles` only shrinks its length.
+  const i = styles.length
+  pool[i] ??= { color: [0, 0, 0, 0], width: 0, occluded: 0 }
+  const s = pool[i]
+  for (let k = 0; k < 4; k++) s.color[k] = color[c + k]!
+  s.width = width
+  s.occluded = occluded
+  styles.push(s)
+  return i
+}
+
+const ascending = (a: number, b: number) => a - b
+
+/**
+ * Settles which Outline each renderable takes, then gathers each camera view's outlined
+ * renderables into its mask draws, after the forward queue (so this frame's visible lists are
+ * open) and before the upload.
  */
 export const queueOutlines = defineSystem({
   name: 'render/queue-outlines',
@@ -231,9 +415,16 @@ export const queueOutlines = defineSystem({
     q: world.query({ with: [Outline] }),
     seen: new Set<Entity>(),
     live: new Set<string>(),
+    styles: [] as Style[],
+    pool: [] as Style[],
+    priorities: [] as number[],
   }),
-  run: ({ q, seen, live }, world) => {
+  run: ({ q, seen, live, styles, pool, priorities }, world) => {
     const views = world.resource(OutlineViews)
+    const out = world.resource(OutlineSlots)
+    out.count = 0
+    out.lo = Number.POSITIVE_INFINITY
+    out.hi = -1
     let any = 0
     for (const t of q.tables) any += t.count
     if (any === 0) {
@@ -242,6 +433,40 @@ export const queueOutlines = defineSystem({
         views.clear()
       }
       return
+    }
+    // Priority levels: the distinct priorities in order, the highest past the cap sharing the top.
+    priorities.length = 0
+    for (const table of q.tables) {
+      const p = table.column(Outline, 'priority')
+      for (let row = 0; row < table.count; row++) {
+        if (!priorities.includes(p[row]!)) priorities.push(p[row]!)
+      }
+    }
+    priorities.sort(ascending)
+    styles.length = 0
+    stamp = (stamp + 1) >>> 0
+    let owner = 0
+    for (const table of q.tables) {
+      const color = table.column(Outline, 'color')
+      const width = table.column(Outline, 'width')
+      const occluded = table.column(Outline, 'occluded')
+      const priority = table.column(Outline, 'priority')
+      for (let row = 0; row < table.count; row++) {
+        const style = styleOf(styles, pool, color, row * 4, width[row]!, occluded[row]!)
+        const p = priority[row]!
+        const level = Math.min(priorities.indexOf(p), MAX_OUTLINE_PRIORITIES - 1)
+        owner = owner >= MAX_OWNERS ? 1 : owner + 1
+        seen.clear()
+        gather(
+          world,
+          out,
+          table.entities[row]! as Entity,
+          style | (level << 4) | (owner << 8),
+          p,
+          0,
+          seen,
+        )
+      }
     }
     const store = world.resource(Instances)
     live.clear()
@@ -254,7 +479,7 @@ export const queueOutlines = defineSystem({
           view: view.name,
           camera: cam.entity,
           draws: createDrawList(),
-          styles: [],
+          styles,
           count: 0,
           data: new Float32Array(STYLE_FLOATS),
           textures: undefined,
@@ -262,32 +487,12 @@ export const queueOutlines = defineSystem({
         views.set(view.name, ov)
       }
       live.add(view.name)
-      ov.styles.length = 0
       entryCount = 0
-      seen.clear()
-      for (const table of q.tables) {
-        for (let row = 0; row < table.count; row++) {
-          const e = table.entities[row]! as Entity
-          const o = world.get(e, Outline)
-          let style = ov.styles.findIndex(
-            (s) =>
-              s.width === o.width &&
-              s.occluded === OUTLINE_OCCLUSION.indexOf(o.occluded) &&
-              s.color.every((c, i) => c === o.color[i]),
-          )
-          if (style < 0) {
-            if (ov.styles.length >= MAX_OUTLINE_STYLES) style = MAX_OUTLINE_STYLES - 1
-            else {
-              style = ov.styles.length
-              ov.styles.push({
-                color: o.color as [number, number, number, number],
-                width: o.width,
-                occluded: OUTLINE_OCCLUSION.indexOf(o.occluded),
-              })
-            }
-          }
-          gather(world, e, style, cam.layers, seen)
-        }
+      for (let i = 0; i < out.count; i++) {
+        const slot = out.slots[i]!
+        const flags = store.u32[slot * INSTANCE_FLOATS + 13]!
+        if ((flags & InstanceFlags.Visible) !== 0 && (store.layers[slot]! & cam.layers) !== 0)
+          push(slot, out.batches[i]!)
       }
       ov.count = entryCount
       store.packEntries(ov.draws, entries, entryBatches, entryCount)
@@ -296,8 +501,8 @@ export const queueOutlines = defineSystem({
       const d = ov.data
       d.fill(0)
       const ratio = outlinePixelRatio(cam)
-      for (let i = 0; i < ov.styles.length; i++) {
-        const s = ov.styles[i]!
+      for (let i = 0; i < styles.length; i++) {
+        const s = styles[i]!
         d.set(s.color, i * 4)
         d[MAX_OUTLINE_STYLES * 4 + i * 4] = s.width * ratio
         d[MAX_OUTLINE_STYLES * 4 + i * 4 + 1] = s.occluded
@@ -346,7 +551,7 @@ function textures(
     generation: gpu.generation,
     width,
     height,
-    mask: make('mask', 'rg32float'),
+    mask: make('mask', 'rgba32float'),
     depth: make('depth', 'depth32float'),
     a: make('flood-a', 'rgba32float'),
     b: make('flood-b', 'rgba32float'),
@@ -354,7 +559,18 @@ function textures(
   return ov.textures
 }
 
-/** The mask's pipeline: every outlined slot's style and depth, through the mesh vertex stage. */
+/** The mask's group 1: the per-slot words (a data texture on baseline). */
+function slotsLayout(gpu: GpuContext): GPUBindGroupLayout {
+  return gpu.layouts.bindGroupLayout({
+    label: 'outline/slots',
+    entries: [dataEntry(gpu, 0, GPUShaderStage.VERTEX)],
+  })
+}
+
+/**
+ * The mask's pipeline: every outlined slot's style, depth, owner and priority level, through the
+ * mesh vertex stage.
+ */
 function maskPipeline(world: World, gpu: GpuContext, cache: Map<number, GPURenderPipeline>) {
   const state = world.resource(ForwardStateResource)
   // Group 0 grows while interior lighting is on (0069): a pipeline per view layout.
@@ -367,15 +583,14 @@ function maskPipeline(world: World, gpu: GpuContext, cache: Map<number, GPURende
     return undefined
   }
   const store = world.resource(Instances)
-  const empty = gpu.layouts.bindGroupLayout({ label: 'outline/empty', entries: [] })
   const pipeline = gpu.pipelines.render({
     label: 'outline/mask',
     layout: gpu.layouts.pipelineLayout({
       label: 'outline/mask',
-      bindGroupLayouts: [state.layouts.view, empty, store.layout],
+      bindGroupLayouts: [state.layouts.view, slotsLayout(gpu), store.layout],
     }),
     vertex: { module, entryPoint: 'vs', buffers: VERTEX_BUFFERS },
-    fragment: { module, entryPoint: 'fs', targets: [{ format: 'rg32float' }] },
+    fragment: { module, entryPoint: 'fs', targets: [{ format: 'rgba32float' }] },
     primitive: { topology: 'triangle-list', cullMode: 'none' },
     depthStencil: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'greater' },
   })
@@ -404,7 +619,11 @@ function outlineNode(world: World): NodeDescriptor {
   const masks = new Map<number, GPURenderPipeline>()
   let layout: GPUBindGroupLayout | undefined
   let layoutGen = -1
-  const empty = new Map<number, GPUBindGroup>()
+  // The per-slot words the mask reads (group 1), and their bind group.
+  let slots: DataStore | undefined
+  let slotsGen = -1
+  let slotsGroup: GPUBindGroup | undefined
+  let slotsBound = -1
   return {
     kind: 'raw',
     phase: RenderPhase.Display + 30,
@@ -485,17 +704,25 @@ function outlineNode(world: World): NodeDescriptor {
       })
       pass.setPipeline(mask)
       pass.setBindGroup(0, viewBindGroup(gpu, ctx.world, pv, cam))
-      let group1 = empty.get(gpu.generation)
-      if (!group1) {
-        group1 = gpu.device.createBindGroup({
-          label: 'outline/empty',
-          layout: gpu.layouts.bindGroupLayout({ label: 'outline/empty', entries: [] }),
-          entries: [],
-        })
-        empty.clear()
-        empty.set(gpu.generation, group1)
+      const words = ctx.world.resource(OutlineSlots)
+      if (!slots || slotsGen !== gpu.generation) {
+        slots = new DataStore(gpu, { label: 'outline/slots', size: words.words.byteLength })
+        slotsGen = gpu.generation
+        slotsBound = -1
       }
-      pass.setBindGroup(1, group1)
+      slots.ensureCapacity(words.words.byteLength)
+      if (words.hi >= words.lo) {
+        slots.write(words.words, words.lo * 4, words.lo, words.hi - words.lo + 1)
+      }
+      if (!slotsGroup || slotsBound !== slots.version) {
+        slotsGroup = gpu.device.createBindGroup({
+          label: 'outline/slots',
+          layout: slotsLayout(gpu),
+          entries: [{ binding: 0, resource: slots.resource() }],
+        })
+        slotsBound = slots.version
+      }
+      pass.setBindGroup(1, slotsGroup)
       pass.setBindGroup(2, store.bindGroup)
       const draws = ov.draws
       for (let d = 0; d < draws.length; d++) {
@@ -596,10 +823,11 @@ export function describeOutlines(world: World) {
 export const outlinePlugin = definePlugin({
   name: 'render/outline',
   dependencies: ['render/forward'],
-  provides: [OutlineViews],
+  provides: [OutlineViews, OutlineSlots],
   build(app) {
     app.insertResource(OutlinePath, { installed: true })
     app.world.initResource(OutlineViews)
+    app.world.initResource(OutlineSlots)
     app.addSystems(Last, queueOutlines.inSet(RenderSet.Queue).after(forwardQueue))
   },
   ready(app) {

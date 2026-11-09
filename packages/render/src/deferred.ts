@@ -4,10 +4,10 @@ import { Culler } from './culling'
 import { addRenderFeatures } from './features'
 import { FoliagePath } from './foliage-path'
 import {
+  DEFERRED_LIGHTING_DEFINES,
   drawMaterials,
   ForwardStateResource,
   gbufferEmissiveFormat,
-  INTERIOR_DEFINES,
   PASS_GBUFFER,
   PASS_OPAQUE,
   sceneColor,
@@ -101,14 +101,16 @@ function lightingNode() {
       const pv = state.views.get(ctx.view.name)
       if (!pv) return
       const mode = state.interiorMode
-      const module = ctx.world
-        .resource(Shaders)
-        .module(
-          gpu,
-          mode !== 0
-            ? { root: 'shard::pbr::deferred_lighting', defines: INTERIOR_DEFINES[mode] }
-            : { root: 'shard::pbr::deferred_lighting' },
-        )
+      const toon = cam.toon.tones > 0
+      const module = ctx.world.resource(Shaders).module(
+        gpu,
+        mode !== 0 || toon
+          ? {
+              root: 'shard::pbr::deferred_lighting',
+              defines: DEFERRED_LIGHTING_DEFINES[mode]![toon ? 1 : 0],
+            }
+          : { root: 'shard::pbr::deferred_lighting' },
+      )
       if (!module) {
         gpu.pipelines.skipped++
         return
