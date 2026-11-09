@@ -134,6 +134,7 @@ import {
 import { SkinAssetType, Skins } from './skin-asset'
 import { GpuMemory, RenderCounters, RenderStats } from './stats'
 import { bindingDimension } from './tier'
+import { Ink, observeToonWithoutPlugin, Toon, ToonPath } from './toon'
 import { addShaderVariantSource, materialVariants, ShaderVariantSources } from './variants'
 import {
   Beam,
@@ -536,6 +537,7 @@ const jitterScratch = new Float32Array(4)
 const noTransmittance = new Float32Array(16).fill(1)
 
 const pixelScaleScratch = new Float32Array(4)
+const toonScratch = new Float32Array(4)
 
 /**
  * `ViewUniform.pixelScale` for a camera: see the field. On a PixelPerfect camera a pixel of a scene
@@ -548,6 +550,13 @@ export function viewPixelScale(cam: CameraData, out: Float32Array): Float32Array
     : (2 * Math.tan(cam.fovY / 2)) / Math.max(1, cam.height)
   out[2] = cam.orthographic ? 1 : 0
   out[3] = 0
+  return out
+}
+
+/** `ViewUniform.toon` for a camera (0108): tones (0 without Toon) and edge softness. */
+function toonParams(cam: CameraData, out: Float32Array): Float32Array {
+  out[0] = cam.toon.tones
+  out[1] = cam.toon.softness
   return out
 }
 
@@ -591,6 +600,9 @@ function writeViewUniform(
     sunTransmittance: (world.tryResource(Atmospheres)?.cameras.get(cam.entity)?.sunTransmittance ??
       noTransmittance) as never,
     pixelScale: viewPixelScale(cam, pixelScaleScratch) as never,
+    toon: toonParams(cam, toonScratch) as never,
+    toonRamp: cam.toon.rampLow as never,
+    toonRampHigh: cam.toon.rampHigh as never,
   })
   pv.uniform.write(new Float32Array(state.viewBytes.buffer, 0, viewLayout.size / 4))
 }
@@ -641,9 +653,14 @@ const FORWARD_DEFINES = [
 const CUT_KEY = 2 ** 40
 /** Times the interior mode (0069), added to pipeline keys: each mode keeps its own pipelines. */
 const INTERIOR_KEY = 2 ** 41
+/** Added to a pipeline key for a toon view's lit variant (0108). */
+const TOON_KEY = 2 ** 43
 
 /** FORWARD_DEFINES with the cutaway test linked in (0070). */
 const CUTAWAY_DEFINES = FORWARD_DEFINES.map((d) => ({ ...d, CUTAWAY: true }))
+/** Toon shading's (0108), with and without the cutaway test. */
+const TOON_DEFINES = FORWARD_DEFINES.map((d) => ({ ...d, TOON: true }))
+const CUTAWAY_TOON_DEFINES = CUTAWAY_DEFINES.map((d) => ({ ...d, TOON: true }))
 
 /** Interior lighting's defines (0069) by mode: sky visibility (1), wall-blocked lights (2). */
 export const INTERIOR_DEFINES = [
@@ -653,12 +670,20 @@ export const INTERIOR_DEFINES = [
   { SKY_VISIBILITY: true, BLOCKED_LIGHTS: true },
 ] as const
 
-/** Lit slots' defines by interior mode, then cutaway (0 or 1); mode 0 is the plain sets. */
+/**
+ * Lit slots' defines by interior mode, then cutaway (1) plus toon (2); mode 0 is the plain sets.
+ */
 const LIT_DEFINES = INTERIOR_DEFINES.map((extra) =>
-  [FORWARD_DEFINES, CUTAWAY_DEFINES].map((set) =>
+  [FORWARD_DEFINES, CUTAWAY_DEFINES, TOON_DEFINES, CUTAWAY_TOON_DEFINES].map((set) =>
     extra ? set.map((d) => ({ ...d, ...extra })) : set,
   ),
 )
+
+/** Deferred lighting's defines (0021) by interior mode, then toon (0108). */
+export const DEFERRED_LIGHTING_DEFINES = INTERIOR_DEFINES.map((extra) => [
+  extra,
+  { ...extra, TOON: true },
+])
 
 /**
  * The pipeline layout of a pass drawing a material type: view, material, instances, and for the
@@ -839,21 +864,25 @@ function materialPipeline(
   const msaa = gbuffer || prepass || pick ? 1 : cam.msaa
   // Only lit slots link interior lighting (0069): the G-buffer, prepass and picking don't light.
   const mode = gbuffer || prepass || pick ? 0 : state.interiorMode
+  // Nor toon shading (0108), which a view's camera turns on.
+  const toon = !gbuffer && !prepass && !pick && cam.toon.tones > 0
   // Cutaway variants (0070) key above every other pass's pipelines (shadows' included).
   const key =
     ((pass * 1024 + typeOrdinal(type)) * 16 + variant) * 8 +
     msaa +
     (cut ? CUT_KEY : 0) +
-    mode * INTERIOR_KEY
+    mode * INTERIOR_KEY +
+    (toon ? TOON_KEY : 0)
   let pipeline = state.pipelines.cached(key)
   if (!pipeline) {
     const premultiply = blend === 'premultiplied'
     const mask = blend === 'mask'
     // Module slots: forward 0–7 (opaque 48–55), shadows 8, G-buffer 16–23, prepass 32–38, pick 40;
-    // the cutaway variant of each is 64 more (0070).
+    // the cutaway variant of each is 64 more (0070), the toon variant 128 more (0108).
     const opaque = !gbuffer && !prepass && !pick && !isTransparent(blend)
     const slot =
       (cut ? 64 : 0) +
+      (toon ? 128 : 0) +
       (pick
         ? 40
         : prepass
@@ -879,7 +908,7 @@ function materialPipeline(
               ? 'shard::pbr::forward'
               : 'shard::unlit::forward',
       // Only what the slot tells apart: the prepass and picking don't premultiply.
-      LIT_DEFINES[mode]![cut ? 1 : 0]![
+      LIT_DEFINES[mode]![(cut ? 1 : 0) + (toon ? 2 : 0)]![
         pick
           ? 0
           : prepass
@@ -957,7 +986,12 @@ function warmPipelines(
   pass: number,
   cut: CutawaySupport | undefined,
 ): void {
-  const slot = pass * 8 + cam.msaa + (cut ? CUT_KEY : 0) + state.interiorMode * INTERIOR_KEY
+  const slot =
+    pass * 8 +
+    cam.msaa +
+    (cut ? CUT_KEY : 0) +
+    state.interiorMode * INTERIOR_KEY +
+    (cam.toon.tones > 0 ? TOON_KEY : 0)
   if (state.pipelines.warmed(slot, store.structureVersion, ctx.gpu.generation)) return
   const ground = pass === PASS_GROUND || pass === PASS_PICK_GROUND
   const batches = store.batches
@@ -1785,6 +1819,10 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       RenderLayers,
       Outline,
       OutlinePath,
+      // toon shading and ink (0108)
+      Toon,
+      Ink,
+      ToonPath,
       Trail,
       Beam,
       Decal,
@@ -1841,6 +1879,7 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       w.initResource(RenderDescribers).set('screenEffects', describeScreenEffects)
       observeInstanceRemovals(w)
       observeOutlinesWithoutPass(w)
+      observeToonWithoutPlugin(w)
       observeVfxWithoutPlugin(w)
       observeViewVisibilityWithoutPlugin(w)
       observeLightRemovals(w)

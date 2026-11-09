@@ -24,10 +24,14 @@ export const Outline = defineComponent(
       description:
         'Where something hides the outlined object: hide the outline there, show it anyway, or dim it.',
     }),
+    priority: t.i32({
+      description:
+        'When Outlines on an entity and its descendants cover one renderable, the highest priority draws (on a tie, the nearest). Its ring also draws over the silhouettes of lower ones: hover at 1 over meshes outlined at 0.',
+    }),
   },
   {
     description:
-      'Outlines a renderable, or every renderable under this entity. Selection and hover are two Outlines with different colors; the host sets and clears them.',
+      'Outlines a renderable, or every renderable under this entity, with a ring outside its silhouette that draws over other outlined objects behind it. Selection and hover are two Outlines with different colors; the host sets and clears them.',
   },
 )
 
@@ -36,8 +40,10 @@ export const OutlinePath = defineResource<{ installed: true }>('render/OutlinePa
   description: 'Present when the outline pass is installed.',
 })
 
-/** Outline styles a view can draw at once (they ride in the visible entries' top 4 bits). */
+/** Outline styles a view can draw at once. */
 export const MAX_OUTLINE_STYLES = 16
+/** Distinct Outline priorities told apart; higher ones share the top level. */
+export const MAX_OUTLINE_PRIORITIES = 16
 
 /** Warns once per world about an Outline without the outline pass (render/feature-missing). */
 export function observeOutlinesWithoutPass(world: World): void {

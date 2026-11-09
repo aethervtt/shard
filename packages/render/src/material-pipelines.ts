@@ -160,7 +160,7 @@ export class MaterialPipelines {
     root: string,
     defines: Readonly<Record<string, boolean>> | undefined,
   ): GPUShaderModule | undefined {
-    const key = typeOrdinal(type) * 128 + slot
+    const key = typeOrdinal(type) * 256 + slot
     if (this.modules.has(key)) return this.modules.get(key)
     const library = world.resource(Shaders)
     let noise: { source: string; key: string } | undefined

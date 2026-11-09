@@ -39,6 +39,7 @@ import {
 } from './post'
 import { RenderScale, scaledSize } from './render-scale'
 import type { RenderTarget } from './target'
+import { createToonSettings, extractToon, ToonPath, type ToonSettings } from './toon'
 import type { HiddenSet } from './view-visibility'
 
 export const TONEMAP_CURVES = ['aces', 'agx', 'pbr-neutral', 'reinhard', 'none'] as const
@@ -172,6 +173,8 @@ export interface CameraData {
   debug: number
   /** Post-processing effects and their settings, from the camera's components. */
   post: PostSettings
+  /** Toon shading (0108), from the camera's Toon: `tones` 0 without one. */
+  toon: ToonSettings
   /** Set for PixelPerfect cameras: the low-resolution target and how it scales up. */
   pixelPerfect: PixelPerfectLayout | undefined
   /** The display size and pixel ratio the last CameraMoved was sent for. */
@@ -264,7 +267,12 @@ function warnMissingEffects(world: World, missing: number): void {
   const names = Object.entries(PostEffect)
     .filter(([, bit]) => (fresh & bit) !== 0)
     .map(([name]) => name)
-  const plugin = fresh & PostEffect.Fxaa && fresh === PostEffect.Fxaa ? 'fxaaPlugin' : 'postPlugin'
+  const plugin =
+    fresh === PostEffect.Fxaa
+      ? 'fxaaPlugin'
+      : fresh === PostEffect.Ink
+        ? 'toonPlugin'
+        : 'postPlugin'
   world
     .tryResource(LogResource)
     ?.log(
@@ -294,6 +302,7 @@ export const extractCameras = defineSystem({
     const deferredInstalled = world.hasResource(DeferredPath)
     const pixelInstalled = world.hasResource(PixelPerfectPath)
     const lensInstalled = world.hasResource(LensPath)
+    const toonInstalled = world.hasResource(ToonPath)
     const maxSamples = world.resource(Gpu).capabilities.hdrSampleCount
     for (const table of q.tables) {
       const projection = table.column(Camera3d, 'projection')
@@ -384,6 +393,7 @@ export const extractCameras = defineSystem({
             frames: 0,
             debug: 0,
             post: createPostSettings(),
+            toon: createToonSettings(),
             pixelPerfect: undefined,
             movedWidth: 0,
             movedHeight: 0,
@@ -449,6 +459,7 @@ export const extractCameras = defineSystem({
             'it renders forward',
           )
         const missing = extractPost(table, i, cam, delta, true, installed)
+        if (toonInstalled) extractToon(table, i, cam.toon)
         if (missing !== 0) warnMissingEffects(world, missing)
         const world_ = g.subarray(i * 12, i * 12 + 12)
         if (cam.pixelPerfect?.snap) {

@@ -36,6 +36,14 @@ export const ViewUniform = defineComponent('render/ViewUniform', {
    * width w at view depth d is w · x · y · d world units (w · x · y orthographic).
    */
   pixelScale: t.vec4,
+  /**
+   * Toon shading (0108), from the camera's Toon: tones in its ramp (x; 0 without Toon) and the
+   * width of a band's edge (y).
+   */
+  toon: t.vec4,
+  /** The Toon ramp's first four tones, darkest first (columns), then the next four (0108). */
+  toonRamp: t.mat4,
+  toonRampHigh: t.mat4,
 })
 
 export const viewLayout = wgslLayout(ViewUniform)
@@ -669,6 +677,7 @@ import shard::pbr::shadows::{ directional_shadow, spot_shadow, point_shadow, cas
 import shard::pbr::environment::environment_light;
 @if(SKY_VISIBILITY) import shard::interior::interior_ambient;
 @if(BLOCKED_LIGHTS) import shard::interior::{ wall_visibility, interior_receiver };
+@if(TOON) import shard::toon::{ toon_light, toon_environment };
 
 const FLAG_RECEIVER: u32 = 4u;
 
@@ -732,7 +741,9 @@ fn apply_lighting(p: PbrInput, world_position: vec3f, frag_coord: vec4f, flags: 
   let n = p.normal;
   let v = normalize(view.cameraPosition - world_position);
   let a = p.roughness * p.roughness;
-  let diffuse_color = p.base_color * (1.0 - p.metallic);
+  @if(!TOON) let diffuse_color = p.base_color * (1.0 - p.metallic);
+  // Toon (0108): matte, metals included.
+  @if(TOON) let diffuse_color = p.base_color;
   let f0 = mix(vec3f(0.04), p.base_color, p.metallic);
   let receives = (flags & FLAG_RECEIVER) != 0u;
   let view_depth = -(view.view * vec4f(world_position, 1.0)).z;
@@ -746,7 +757,8 @@ fn apply_lighting(p: PbrInput, world_position: vec3f, frag_coord: vec4f, flags: 
     if (receives && light.shadowed != 0u) {
       shadow = directional_shadow(world_position, n, view_depth, frag_coord.xy);
     }
-    color += brdf(n, v, l, a, diffuse_color, f0, 1.0) * light.color * view.sunTransmittance[i].rgb * shadow;
+    @if(!TOON) color += brdf(n, v, l, a, diffuse_color, f0, 1.0) * light.color * view.sunTransmittance[i].rgb * shadow;
+    @if(TOON) color += toon_light(n, l, shadow, diffuse_color) * light.color * view.sunTransmittance[i].rgb;
   }
 
   // Point and spot lights from this fragment's cluster: intensity (cd) / d² × window.
@@ -781,7 +793,10 @@ fn apply_lighting(p: PbrInput, world_position: vec3f, frag_coord: vec4f, flags: 
       }
       let a_light = clamp(a + light.radius / (2.0 * d), 0.0, 1.0);
       let norm = (a / a_light) * (a / a_light);
-      color += brdf(n, v, l, a_light, diffuse_color, f0, norm) * light.color * attenuation;
+      @if(!TOON) color += brdf(n, v, l, a_light, diffuse_color, f0, norm) * light.color * attenuation;
+      // Toon (0108): the cone, walls and shadow band with the facing term; distance stays smooth.
+      @if(TOON) let falloff = light_falloff(light, d, d2);
+      @if(TOON) color += toon_light(n, l, attenuation / falloff, diffuse_color) * light.color * falloff;
     }
   }
   @if(!BASELINE) if (cluster >= 0) {
@@ -811,7 +826,10 @@ fn apply_lighting(p: PbrInput, world_position: vec3f, frag_coord: vec4f, flags: 
       // A spherical emitter widens the highlight (Karis' roughness modification, energy-normalized).
       let a_light = clamp(a + light.radius / (2.0 * d), 0.0, 1.0);
       let norm = (a / a_light) * (a / a_light);
-      color += brdf(n, v, l, a_light, diffuse_color, f0, norm) * light.color * attenuation;
+      @if(!TOON) color += brdf(n, v, l, a_light, diffuse_color, f0, norm) * light.color * attenuation;
+      // Toon (0108): the cone, walls and shadow band with the facing term; distance stays smooth.
+      @if(TOON) let falloff = light_falloff(light, d, d2);
+      @if(TOON) color += toon_light(n, l, attenuation / falloff, diffuse_color) * light.color * falloff;
     }
   }
 
@@ -820,8 +838,11 @@ fn apply_lighting(p: PbrInput, world_position: vec3f, frag_coord: vec4f, flags: 
   var surface = p;
   if (p.alpha >= 0.999) { surface.occlusion *= ssao_at(frag_coord.xy, view_depth); }
   if (view.envParams.w > 0.5) {
-    @if(!SKY_VISIBILITY) color += environment_light(surface, n, v);
-    @if(SKY_VISIBILITY) color += interior_ambient(environment_light(surface, n, v), diffuse_color * surface.occlusion, world_position, n);
+    @if(!SKY_VISIBILITY && !TOON) color += environment_light(surface, n, v);
+    @if(SKY_VISIBILITY && !TOON) color += interior_ambient(environment_light(surface, n, v), diffuse_color * surface.occlusion, world_position, n);
+    // Toon (0108): the environment's diffuse light alone.
+    @if(!SKY_VISIBILITY && TOON) color += toon_environment(surface, n);
+    @if(SKY_VISIBILITY && TOON) color += interior_ambient(toon_environment(surface, n), diffuse_color * surface.occlusion, world_position, n);
   } else {
     @if(!SKY_VISIBILITY) color += diffuse_color * view.ambient * surface.occlusion;
     @if(SKY_VISIBILITY) color += interior_ambient(diffuse_color * view.ambient * surface.occlusion, diffuse_color * surface.occlusion, world_position, n);

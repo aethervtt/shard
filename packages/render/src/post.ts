@@ -1,6 +1,7 @@
 import { defineComponent, defineResource, type Table, t } from '@aethervtt/shard-core'
 import { Camera3d, PhysicalCamera } from './camera'
 import type { RenderView } from './graph'
+import { Ink } from './toon'
 import { type CameraData, cameraOf, isScaled } from './view'
 
 // --- components ------------------------------------------------------------------------------
@@ -273,6 +274,8 @@ export const PostEffect = {
   Vignette: 512,
   /** Aerial perspective of the camera's atmospheres (spec 0044). */
   Atmosphere: 1024,
+  /** Comic ink lines (spec 0108), first in the HDR chain. */
+  Ink: 2048,
 } as const
 
 /** Effects that are part of the tonemap pass, so every 3D view has them. */
@@ -289,6 +292,7 @@ export const PostFeatures = defineResource<{ effects: number }>('render/PostFeat
 
 /** The HDR effects that each read the previous one's output, in the fixed order. */
 export const HDR_CHAIN = [
+  ['ink', PostEffect.Ink],
   ['atmosphere', PostEffect.Atmosphere],
   ['fog', PostEffect.Fog],
   ['taa', PostEffect.Taa],
@@ -342,6 +346,15 @@ export interface PostSettings {
     lut: unknown
   }
   vignette: { intensity: number; smoothness: number }
+  ink: {
+    /** CSS px. */
+    width: number
+    color: Float32Array
+    /** m. */
+    depthThreshold: number
+    /** Degrees. */
+    normalThreshold: number
+  }
   /** TAA: this frame's sub-pixel jitter in pixels, and the frame index it came from. */
   jitter: Float32Array
 }
@@ -373,6 +386,7 @@ export function createPostSettings(): PostSettings {
       lut: null,
     },
     vignette: { intensity: 0, smoothness: 0.5 },
+    ink: { width: 1.5, color: new Float32Array(4), depthThreshold: 0.1, normalThreshold: 35 },
     jitter: new Float32Array(2),
   }
 }
@@ -473,6 +487,14 @@ export function extractPost(
     post.vignette.intensity = table.column(Vignette, 'intensity')[row]!
     post.vignette.smoothness = table.column(Vignette, 'smoothness')[row]!
   }
+  if (table.has(Ink)) {
+    effects |= PostEffect.Ink
+    const k = post.ink
+    k.width = table.column(Ink, 'width')[row]!
+    vec(k.color, table.column(Ink, 'color'), row, 4)
+    k.depthThreshold = table.column(Ink, 'depthThreshold')[row]!
+    k.normalThreshold = table.column(Ink, 'normalThreshold')[row]!
+  }
   const aa = antialiasingOf(table, row)
   if (aa === 1) effects |= PostEffect.Fxaa
   if (aa === 2 && taaAllowed) effects |= PostEffect.Taa
@@ -525,7 +547,10 @@ export function postAliases(
   base: Readonly<Record<string, string>>,
 ): Readonly<Record<string, string>> {
   const effects = cam.post.effects
-  const chain = (effects & 0xff) | (effects & PostEffect.Atmosphere ? 0x100 : 0)
+  const chain =
+    (effects & 0xff) |
+    (effects & PostEffect.Atmosphere ? 0x100 : 0) |
+    (effects & PostEffect.Ink ? 0x200 : 0)
   const key = chain * 8 + (cam.msaa > 1 ? 1 : 0) + (cam.deferred ? 2 : 0) + (isScaled(cam) ? 4 : 0)
   let aliases = aliasCache.get(key)
   if (!aliases) {
@@ -558,6 +583,9 @@ export function postAliases(
     // SSAO's inputs: the G-buffer in deferred views, the prepass in forward ones.
     out['ssao-normal'] = cam.deferred ? 'gbuffer1' : 'prepass-normal'
     out['ssao-depth'] = cam.deferred ? 'scene-depth' : 'prepass-depth'
+    // Ink's (0108): the same normals and the depth they were drawn with.
+    out['ink-normal'] = out['ssao-normal']
+    out['ink-depth'] = out['ssao-depth']
     aliases = Object.freeze(out)
     aliasCache.set(key, aliases)
   }
@@ -568,13 +596,16 @@ export function postAliases(
 export const hasEffect = (bit: number) => (view: RenderView) =>
   ((cameraOf(view)?.post.effects ?? 0) & bit) !== 0
 
-/** Views that need the velocity prepass: TAA and motion blur read it, forward SSAO its normals. */
+/**
+ * Views that need the velocity prepass: TAA and motion blur read it, forward SSAO and ink (0108)
+ * its normals.
+ */
 export function needsPrepass(view: RenderView): boolean {
   const cam = cameraOf(view)
   if (!cam) return false
   const e = cam.post.effects
   return (
     (e & (PostEffect.Taa | PostEffect.MotionBlur)) !== 0 ||
-    (!cam.deferred && (e & PostEffect.Ssao) !== 0)
+    (!cam.deferred && (e & (PostEffect.Ssao | PostEffect.Ink)) !== 0)
   )
 }

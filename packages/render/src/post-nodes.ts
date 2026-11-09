@@ -1057,6 +1057,7 @@ export function addPostNodes(world: World, baseline?: typeof import('./baseline/
 /** Effects in the order they run: node name prefix (for GPU time), effect bit. */
 const DESCRIBED = [
   ['ssao', 'ssao', PostEffect.Ssao],
+  ['ink', 'post/ink', PostEffect.Ink],
   ['fog', 'post/fog', PostEffect.Fog],
   ['taa', 'post/taa', PostEffect.Taa],
   ['motion-blur', 'post/motion-blur', PostEffect.MotionBlur],
