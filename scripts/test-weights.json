@@ -19,7 +19,7 @@
     "packages/terrain/src/morph.test.ts": 413,
     "packages/animation/src/perf.test.ts": 322,
     "packages/sprite/src/lighting.test.ts": 304,
-    "apps/cli/src/cli.test.ts": 223,
+    "apps/cli/src/cli.test.ts": 830,
     "apps/cli/src/export.test.ts": 260,
     "packages/terrain/src/nav.test.ts": 177,
     "packages/terrain/src/lod.test.ts": 66,

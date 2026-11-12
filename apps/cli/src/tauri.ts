@@ -44,12 +44,29 @@ function pluginDependency(appDir: string): string {
   return `{ git = "https://github.com/aethervtt/shard", tag = "v${engineVersion()}" }`
 }
 
-/** A plain square icon, so the app builds before it has its own. */
+/** A plain square icon, so the app builds before it has its own (`tauri icon` makes real ones). */
 function placeholderIcon(): Uint8Array {
   const size = 256
   const rgba = new Uint8Array(size * size * 4)
   for (let i = 0; i < size * size; i++) rgba.set([38, 52, 82, 255], i * 4)
   return encodePng(rgba, size, size)
+}
+
+/**
+ * The same icon as a one-image `.ico` holding the PNG: what tauri-build needs on Windows for the
+ * executable's resources (256 × 256 is written as 0 in the directory entry).
+ */
+function icoOf(png: Uint8Array): Uint8Array {
+  const out = new Uint8Array(6 + 16 + png.length)
+  const view = new DataView(out.buffer)
+  view.setUint16(2, 1, true) // an icon
+  view.setUint16(4, 1, true) // one image
+  view.setUint16(6 + 4, 1, true) // color planes
+  view.setUint16(6 + 6, 32, true) // bits per pixel
+  view.setUint32(6 + 8, png.length, true)
+  view.setUint32(6 + 12, 6 + 16, true)
+  out.set(png, 6 + 16)
+  return out
 }
 
 /**
@@ -127,7 +144,7 @@ pub fn run() {
         bundle: {
           active: true,
           targets: 'all',
-          icon: ['icons/icon.png'],
+          icon: ['icons/icon.png', 'icons/icon.ico'],
           resources: { [`${data}/`]: 'game/' },
           ...(app.server ? { externalBin: [`binaries/${app.server}`] } : {}),
         },
@@ -148,6 +165,7 @@ pub fn run() {
       2,
     )}\n`,
     'icons/icon.png': placeholderIcon(),
+    'icons/icon.ico': icoOf(placeholderIcon()),
     '.gitignore': '/target\n/gen/schemas\n/binaries\n',
   }
   for (const [path, content] of Object.entries(files)) {

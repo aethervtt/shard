@@ -132,8 +132,9 @@ export async function bakeBuildShaders(
     try {
       opened = await openBuild(dir, { build, startScene: false, tier, codeDir })
     } catch (err) {
-      // The export's own ShardError, not this one: match the code.
-      if ((err as { code?: string }).code === 'gpu/no-adapter') return undefined
+      // The export's own ShardError, not this one: match the code. No adapter, or no API at all.
+      const code = (err as { code?: string }).code
+      if (code === 'gpu/no-adapter' || code === 'gpu/unsupported') return undefined
       throw err
     }
     try {
