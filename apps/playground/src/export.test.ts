@@ -162,10 +162,16 @@ describe('web export (0110)', () => {
       onTestFinished(() => {
         if (child.exitCode === null) child.kill('SIGKILL')
       })
+      // Everything the server says, for a failure to show.
+      let serverOut = ''
+      child.stderr.on('data', (d) => {
+        serverOut += d
+      })
       const info = await new Promise<{ http: string }>((done, fail) => {
         let text = ''
         child.stdout.on('data', (d) => {
           text += d
+          serverOut += d
           try {
             done(JSON.parse(text))
           } catch {}
@@ -174,16 +180,30 @@ describe('web export (0110)', () => {
       })
       const page = await browser.newPage({ viewport: { width: 960, height: 540 } })
       const errors: string[] = []
+      const log: string[] = []
       page.on('pageerror', (error) => errors.push(error.message))
       page.on('console', (m) => {
+        log.push(`${m.type()}: ${m.text()}`)
         if (m.type() === 'error') errors.push(m.text())
       })
       await page.goto(`${info.http}/`)
-      await page.waitForFunction(
-        () => document.getElementById('status')?.textContent === '',
-        undefined,
-        { timeout: timeout(60_000) },
-      )
+      // Started (an empty status), or failed (an error in it): either way, stop waiting.
+      const started = await page
+        .waitForFunction(
+          () => {
+            const status = document.getElementById('status')
+            return status?.textContent === '' || status?.classList.contains('error')
+          },
+          undefined,
+          { timeout: timeout(60_000) },
+        )
+        .then(() => true)
+        .catch(() => false)
+      const status = await page.locator('#status').textContent()
+      expect(
+        started && status === '',
+        `status: ${JSON.stringify(status)}\npage:\n${log.join('\n')}\nserver:\n${serverOut}`,
+      ).toBe(true)
       // No ?connect and no config: the page found its server through /healthz and joined /net.
       const players = async () => (await (await fetch(`${info.http}/healthz`)).json()).players
       for (let i = 0; i < 100 && (await players()) < 1; i++) await page.waitForTimeout(100)
