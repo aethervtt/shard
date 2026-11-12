@@ -57,6 +57,8 @@ const skipGl = await webgl2Unavailable(`${base}/probe.html`)
 checkRequired('Web export (WebGL2)', skipGl)
 
 let chunks: Chunk[] = []
+// What the export could bake: without a GPU in Node (some runners), it ships without them.
+let baked = { shaders: true, webgl2: true }
 if (!skipGpu || !skipGl) {
   const exported = spawnSync(
     process.execPath,
@@ -64,7 +66,12 @@ if (!skipGpu || !skipGl) {
     { cwd: join(repo, 'examples/maze-chase'), encoding: 'utf8', timeout: timeout(600_000) },
   )
   if (exported.status !== 0) throw new Error(`shard export failed:\n${exported.stderr}`)
-  chunks = JSON.parse(exported.stdout).chunks
+  const report = JSON.parse(exported.stdout) as { chunks: Chunk[]; warnings: string[] }
+  chunks = report.chunks
+  baked = {
+    shaders: !report.warnings.some((w) => w.startsWith('export/no-shader-bake')),
+    webgl2: !report.warnings.some((w) => w.startsWith('export/no-webgl2-bake')),
+  }
 }
 
 /** Files of the chunks holding `pkg`, and of WASM whose name starts with `name`. */
@@ -110,7 +117,11 @@ describe('web export (0110)', () => {
         }
         expect(lit / (shot.width * shot.height)).toBeGreaterThan(0.1)
 
-        for (const file of [...filesOf('wesl'), ...wasm('shard_naga')]) {
+        const unloaded = [
+          ...(baked.shaders ? filesOf('wesl') : []),
+          ...(baked.webgl2 ? wasm('shard_naga') : []),
+        ]
+        for (const file of unloaded) {
           expect(fetched, `${file} should stay unloaded`).not.toContain(file)
         }
         const webgl2 = filesOf('@aethervtt/shard-gpu-webgl2')

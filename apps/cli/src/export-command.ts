@@ -168,8 +168,14 @@ export async function exportProject(
       say,
       async prepareShaders(scenes) {
         say('Translating shaders for WebGL2…')
-        const baked = await bakeShaders(root, scenes)
-        return baked.failed.map((f) => `export/webgl2-bake: ${JSON.stringify(f)}`)
+        try {
+          const baked = await bakeShaders(root, scenes)
+          return baked.failed.map((f) => `export/webgl2-bake: ${JSON.stringify(f)}`)
+        } catch (err) {
+          // Like the shader bake: without a GPU the export still ships, and WebGL2 loads naga.
+          if ((err as { code?: string }).code !== 'cli/no-gpu') throw err
+          return ['export/no-webgl2-bake: no GPU adapter; WebGL2 translates shaders with naga']
+        }
       },
       bake: (dir, build, scenes, codeDir) =>
         bakeBuildShaders(dir, build, scenes, manifest.export?.bakeFrames ?? 60, codeDir),

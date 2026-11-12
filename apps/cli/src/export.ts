@@ -609,7 +609,10 @@ function engineResolver(generated: string) {
       id: string,
       importer: string | undefined,
     ) {
-      if (!importer?.startsWith(generated) || !id.startsWith('@aethervtt/')) return undefined
+      if (!importer || !id.startsWith('@aethervtt/')) return undefined
+      // Vite passes importers with forward slashes, even on Windows: compare with relative.
+      const inside = relative(generated, importer.split('?')[0]!)
+      if (inside.startsWith('..') || isAbsolute(inside)) return undefined
       return this.resolve(id, from, { skipSelf: true })
     },
   }
@@ -1100,7 +1103,7 @@ export async function exportBuild(options: ExportOptions): Promise<ExportReport>
     if (existsSync(join(root, webgl2))) {
       await ship(webgl2, await readFile(join(root, webgl2)))
       shaders.webgl2 = webgl2
-    } else if (draws) {
+    } else if (draws && !warnings.some((w) => w.startsWith('export/no-webgl2-bake'))) {
       warnings.push('export/no-webgl2-bake: run `shard shaders bake` so WebGL2 needs no naga')
     }
     const projectShaders = (await projectFiles(root, 'shaders')).filter((f) =>

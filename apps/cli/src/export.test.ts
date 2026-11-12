@@ -27,7 +27,11 @@ const starExplorer = resolve(here, '../../../examples/star-explorer')
 const coinRush = resolve(here, '../../../examples/coin-rush')
 
 function shard(args: string[], cwd: string) {
-  const r = spawnSync(process.execPath, [bin, ...args], { cwd, encoding: 'utf8', timeout: 300_000 })
+  const r = spawnSync(process.execPath, [bin, ...args], {
+    cwd,
+    encoding: 'utf8',
+    timeout: timeout(300_000),
+  })
   return { code: r.status, stdout: r.stdout, stderr: r.stderr, json: () => JSON.parse(r.stdout) }
 }
 
