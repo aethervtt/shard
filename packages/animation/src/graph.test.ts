@@ -426,6 +426,122 @@ describe('blend spaces', () => {
   })
 })
 
+/** A clip that slides the hips from (0, 1, 0) to `to` over `duration`. */
+function slide(world: World, name: string, to: number[], duration = 1): AssetRef {
+  return world.resource(AnimationClips).add(
+    {
+      name,
+      duration,
+      events: [],
+      channels: [
+        {
+          target: 'Hips',
+          component: 'core/Transform',
+          field: 'translation',
+          interpolation: 'linear',
+          times: Float32Array.from([0, duration]),
+          values: Float32Array.from([0, 1, 0, ...to]),
+          width: 3,
+        },
+      ],
+    },
+    name,
+  )
+}
+
+describe('parameter time and speed (0109)', () => {
+  const graph = (state: Record<string, unknown>) => ({
+    parameters: { t: { type: 'float' }, rate: { type: 'float', default: 1 } },
+    layers: [{ states: { s: { clip: '#step', ...state } } }],
+  })
+
+  it('places a state at its time parameter and never advances it', async () => {
+    const a = await app()
+    const w = a.world
+    const e = rig(w)
+    animate(w, e, {
+      ...graph({ loop: 'once', time: 't' }),
+      clips: { step: slide(w, 'step', [0, 1, 2]) },
+    })
+    frames(a, 30)
+    // Half a second passed, but the time parameter says the start.
+    expect(hips(w)[2]).toBeCloseTo(0, 5)
+    setAnimParam(w, e, 't', 0.25)
+    frames(a, 1)
+    expect(hips(w)[2]).toBeCloseTo(0.5, 5)
+    frames(a, 30)
+    expect(hips(w)[2]).toBeCloseTo(0.5, 5)
+    expect(layer0(w, e).active[0]!.normalizedTime).toBeCloseTo(0.25, 5)
+    // Past the end, a once state holds its last pose; a loop wraps.
+    setAnimParam(w, e, 't', 1.5)
+    frames(a, 1)
+    expect(hips(w)[2]).toBeCloseTo(2, 5)
+  })
+
+  it('wraps a looping state placed past its end', async () => {
+    const a = await app()
+    const w = a.world
+    const e = rig(w)
+    animate(w, e, { ...graph({ time: 't' }), clips: { step: slide(w, 'step', [0, 1, 2]) } })
+    setAnimParam(w, e, 't', 2.75)
+    frames(a, 2)
+    expect(hips(w)[2]).toBeCloseTo(1.5, 5)
+  })
+
+  it('plays at the rate a speed parameter gives', async () => {
+    const a = await app()
+    const w = a.world
+    const e = rig(w)
+    animate(w, e, {
+      ...graph({ loop: 'once', speed: 'rate' }),
+      clips: { step: slide(w, 'step', [0, 1, 2], 2) },
+    })
+    setAnimParam(w, e, 'rate', 0.5)
+    frames(a, 61)
+    // One second at half speed is a quarter of a two-second clip.
+    expect(hips(w)[2]).toBeCloseTo(0.5, 1)
+    setAnimParam(w, e, 'rate', 0)
+    const held = hips(w)[2]
+    frames(a, 30)
+    expect(hips(w)[2]).toBeCloseTo(held!, 5)
+  })
+
+  it('takes exit times from the placed time', async () => {
+    const a = await app()
+    const w = a.world
+    const e = rig(w)
+    const clips = { step: slide(w, 'step', [0, 1, 2]), rest: at(w, 'rest', [0, 1, 9]) }
+    animate(w, e, {
+      parameters: { t: { type: 'float' } },
+      layers: [
+        {
+          states: { s: { clip: '#step', loop: 'once', time: 't' }, rest: { clip: '#rest' } },
+          transitions: [{ from: 's', to: 'rest', exitTime: 1 }],
+        },
+      ],
+      clips,
+    })
+    frames(a, 120)
+    expect(layer0(w, e).state).toBe('s')
+    setAnimParam(w, e, 't', 1)
+    frames(a, 3)
+    expect(layer0(w, e).state).toBe('rest')
+  })
+
+  it('needs float parameters for time and speed', () => {
+    const { errors } = parseAnimationGraph({
+      parameters: { on: { type: 'bool' } },
+      layers: [
+        { states: { s: { clip: { path: 'a.glb#Animation/A' }, time: 'on', speed: 'nope' } } },
+      ],
+    })
+    expect(errors.map((e) => [e.code, e.path])).toEqual([
+      ['animgraph/unknown-parameter', '/layers/0/states/s/speed'],
+      ['schema/type-mismatch', '/layers/0/states/s/time'],
+    ])
+  })
+})
+
 describe('conditions', () => {
   const params = [
     { name: 'speed', type: 'float' as const },

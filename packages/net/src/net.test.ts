@@ -370,6 +370,50 @@ describe('replication', () => {
       last = x
     }
   })
+  it('sets off from a rest without a pause', async () => {
+    net = await netHarness({
+      clients: 1,
+      net: {
+        replicate: [
+          replicate(Transform, { mode: 'interpolate', quantize: { translation: { step: 0.001 } } }),
+        ],
+      },
+      conditions: { latency: 0.05, jitter: 0.01, seed: 4 },
+    })
+    await net.connect()
+    const world = net.server.world
+    const mover = world.spawn(Replicated, Transform)
+    let moving = false
+    const speed = 1.5 // m/s
+    net.server.addSystems(
+      FixedUpdate,
+      defineSystem({
+        name: 'nettest/walk-off',
+        run: (_, w) => {
+          if (!moving) return
+          const tr = w.get(mover, Transform).translation
+          w.set(mover, Transform, { translation: [tr[0] + speed / 60, 0, 0] })
+        },
+      }),
+    )
+    // Standing still for two seconds: nothing changes, so nothing is sent.
+    net.step(120)
+    moving = true
+    const client = net.clients[0]!.world
+    const local = net.clientEntity(0, mover)!
+    const xs: number[] = []
+    for (let i = 0; i < 90; i++) {
+      net.step(1)
+      xs.push(client.get(local, Transform).translation[0])
+    }
+    // From the frame it first moves, every frame moves on by about speed / 60: the first step isn't
+    // spread over the rest before it, then held while the next update comes.
+    const first = xs.findIndex((x) => x > 0)
+    expect(first).toBeGreaterThan(0)
+    for (let i = first + 1; i < xs.length; i++) {
+      expect(xs[i]! - xs[i - 1]!).toBeGreaterThan(speed / 60 / 3)
+    }
+  })
 })
 
 describe('commands and events', () => {

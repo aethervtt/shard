@@ -55,6 +55,10 @@ export interface GraphState {
   y: number
   loop: (typeof LOOP_MODES)[number]
   speed: number
+  /** A float parameter that is the playback rate instead of `speed` (index), or -1. */
+  speedParam: number
+  /** A float parameter that is the state's normalized time (index), or -1: then nothing advances it. */
+  timeParam: number
   /** blend2d: Delaunay triangles, three motion indices each. */
   triangles: Int32Array
   /** blend2d: the hull (or the line, when the samples are collinear), two motion indices each. */
@@ -495,6 +499,8 @@ export interface GraphArtifact {
       y: number
       loop: (typeof LOOP_MODES)[number]
       speed: number
+      speedParam: number
+      timeParam: number
       triangles: number[]
       edges: number[]
     }[]
@@ -691,7 +697,7 @@ export function parseAnimationGraph(json: unknown): ParsedGraph {
     if (wantFloat && params[i]!.type !== 'float')
       err(
         'schema/type-mismatch',
-        `Blend spaces need a float parameter; "${value}" is a ${params[i]!.type}`,
+        `This needs a float parameter; "${value}" is a ${params[i]!.type}`,
         at,
       )
     return i
@@ -758,14 +764,16 @@ export function parseAnimationGraph(json: unknown): ParsedGraph {
             ),
           )
         for (const key of Object.keys(s)) {
-          if (!['clip', 'blend1d', 'blend2d', 'loop', 'speed'].includes(key))
+          if (!['clip', 'blend1d', 'blend2d', 'loop', 'speed', 'time'].includes(key))
             err('schema/unknown-field', `Unknown field "${key}"`, pointer(sat, key))
         }
         const loop = s.loop ?? 'loop'
         if (!LOOP_MODES.includes(loop as never))
           typeErr(`${sat}/loop`, `one of ${LOOP_MODES.join(', ')}`, loop)
+        // A rate, or a float parameter that is the rate (0108's sibling: 0109).
         const speed = s.speed ?? 1
-        if (typeof speed !== 'number') typeErr(`${sat}/speed`, 'a number', speed)
+        if (typeof speed !== 'number' && typeof speed !== 'string')
+          typeErr(`${sat}/speed`, 'a number or a float parameter', speed)
         const state: (typeof states)[number] = {
           name: stateName,
           kind: 'empty',
@@ -773,7 +781,9 @@ export function parseAnimationGraph(json: unknown): ParsedGraph {
           x: -1,
           y: -1,
           loop: loop as (typeof LOOP_MODES)[number],
-          speed: speed as number,
+          speed: typeof speed === 'number' ? speed : 1,
+          speedParam: typeof speed === 'string' ? paramIndex(speed, `${sat}/speed`, true) : -1,
+          timeParam: has(s, 'time') ? paramIndex(s.time, `${sat}/time`, true) : -1,
           triangles: [],
           edges: [],
         }
@@ -1057,6 +1067,8 @@ function toAsset(
         y: s.y,
         loop: s.loop,
         speed: s.speed,
+        speedParam: s.speedParam ?? -1,
+        timeParam: s.timeParam ?? -1,
         triangles: Int32Array.from(s.triangles),
         edges: Int32Array.from(s.edges),
       })),
@@ -1209,7 +1221,15 @@ const clipSchema = {
   ],
 }
 const loopSchema = { enum: [...LOOP_MODES], description: 'loop (default), once, or ping-pong.' }
-const speedSchema = { type: 'number', description: 'Playback rate. Default 1.' }
+const speedSchema = {
+  description: 'Playback rate (default 1), or a float parameter whose value is the rate.',
+  oneOf: [{ type: 'number' }, { type: 'string' }],
+}
+const timeSchema = {
+  type: 'string',
+  description:
+    'A float parameter that is the normalized time (0 start, 1 end; loops wrap): the state plays where it says, never by itself. Distance-matched locomotion sets it from distance travelled.',
+}
 
 export const animGraphSchema = defineAssetSchema('animgraph.schema.json', () => ({
   $schema: 'http://json-schema.org/draft-07/schema#',
@@ -1303,6 +1323,7 @@ export const animGraphSchema = defineAssetSchema('animgraph.schema.json', () => 
                 },
                 loop: loopSchema,
                 speed: speedSchema,
+                time: timeSchema,
               },
             },
           },

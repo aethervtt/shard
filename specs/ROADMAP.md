@@ -71,6 +71,7 @@ agent needs to see what's on screen.
 | [0101](0101-screen-space-reflections.md) | Screen-space reflections (Hi-Z trace, stochastic GGX, fed into lighting; shared Hi-Z; water uses it) | draft |
 | [0102](0102-reflection-probes-planar.md) | Reflection probes (baked and realtime, box-projected, local ambient) and planar reflections | draft |
 | [0108](0108-toon-ink.md) | Toon shading and ink (banded lighting and comic lines per camera; skinned and nested outlines) | draft (built) |
+| [0109](0109-parameter-time-and-speed.md) | Graph states placed by a parameter (distance-matched locomotion; parameter playback rate) | draft (built) |
 
 ## M6 — Gameplay systems
 

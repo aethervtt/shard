@@ -423,8 +423,20 @@ export class NetClient {
     }
     const width = this.widths[comp]!
     // Keep ticks ascending: drop a sample older than the newest (it arrived late).
-    const newest = buffer.count > 0 ? buffer.ticks[(buffer.head + SIZE - 1) % SIZE]! : -1
+    const newestSlot = (buffer.head + SIZE - 1) % SIZE
+    const newest = buffer.count > 0 ? buffer.ticks[newestSlot]! : -1
     if (tick <= newest) return
+    // Updates are deltas: a gap longer than one send means the value held still until just before
+    // this one. Say so with a sample one send back, or the first change after a rest is spread over
+    // the whole rest (a crawl) and then waits for the next update (a stop).
+    const interval = this.config.ticksPerNet
+    if (buffer.count > 0 && tick - newest > interval) {
+      const held = buffer.head
+      buffer.ticks[held] = tick - interval
+      buffer.values.copyWithin(held * width, newestSlot * width, newestSlot * width + width)
+      buffer.head = (held + 1) % SIZE
+      if (buffer.count < SIZE) buffer.count++
+    }
     const slot = buffer.head
     buffer.ticks[slot] = tick
     const world = this.world
