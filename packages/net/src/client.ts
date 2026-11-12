@@ -146,6 +146,8 @@ export class NetClient {
     this.connection = connection
     connection.onMessage((channel, bytes) => this.inbox.push({ channel, bytes }))
     connection.onClose((reason) => {
+      // Already reported (a goodbye message came first): one Disconnected per connection.
+      if (this.connection !== connection) return
       this.closedReason = reason?.message ?? 'disconnected'
       if (reason && !this.lastError) this.lastError = reason
     })

@@ -53,7 +53,9 @@ jobs:
 
   test:
     name: Test ${{ matrix.shard }}/4
-    runs-on: ubuntu-latest
+    # Not ubuntu-latest: on 26.04, Mesa 26's lavapipe renders 4x MSAA about 50 times slower (scatter's
+    # ablation test takes over 20 minutes, from 30 seconds), which pushes runners past their limit.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -109,7 +111,8 @@ jobs:
 
   examples:
     name: Gameplay examples
-    runs-on: ubuntu-latest
+    # Same software GPU as the test runners (see there).
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
