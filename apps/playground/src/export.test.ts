@@ -103,19 +103,26 @@ describe('web export (0110)', () => {
         })
         page.on('request', (r) => fetched.push(new URL(r.url()).pathname.replace(/^\/web\//, '')))
         await page.goto(`${base}/web/?backend=${backend}`)
-        await page.waitForFunction(() => document.getElementById('status')?.textContent === '', {
-          timeout: timeout(60_000),
-        })
-        await page.waitForTimeout(500)
-        expect(errors).toEqual([])
+        await page.waitForFunction(
+          () => document.getElementById('status')?.textContent === '',
+          undefined,
+          { timeout: timeout(60_000) },
+        )
 
-        // Drawn: the maze's walls light a good share of the canvas.
-        const shot = await decodePng(new Uint8Array(await page.locator('canvas').screenshot()))
-        let lit = 0
-        for (let i = 0; i < shot.data.length; i += 4) {
-          if (Math.max(shot.data[i]!, shot.data[i + 1]!, shot.data[i + 2]!) > 40) lit++
+        // Drawn: the maze's walls light a good share of the canvas. The first frames come after
+        // the scene loads, once its pipelines compile: slow without a bake on a software GPU.
+        const lit = async () => {
+          const shot = await decodePng(new Uint8Array(await page.locator('canvas').screenshot()))
+          let count = 0
+          for (let i = 0; i < shot.data.length; i += 4) {
+            if (Math.max(shot.data[i]!, shot.data[i + 1]!, shot.data[i + 2]!) > 40) count++
+          }
+          return count / (shot.width * shot.height)
         }
-        expect(lit / (shot.width * shot.height)).toBeGreaterThan(0.1)
+        const deadline = Date.now() + timeout(30_000)
+        while ((await lit()) <= 0.1 && Date.now() < deadline) await page.waitForTimeout(250)
+        expect(await lit()).toBeGreaterThan(0.1)
+        expect(errors).toEqual([])
 
         const unloaded = [
           ...(baked.shaders ? filesOf('wesl') : []),
@@ -172,9 +179,11 @@ describe('web export (0110)', () => {
         if (m.type() === 'error') errors.push(m.text())
       })
       await page.goto(`${info.http}/`)
-      await page.waitForFunction(() => document.getElementById('status')?.textContent === '', {
-        timeout: timeout(60_000),
-      })
+      await page.waitForFunction(
+        () => document.getElementById('status')?.textContent === '',
+        undefined,
+        { timeout: timeout(60_000) },
+      )
       // No ?connect and no config: the page found its server through /healthz and joined /net.
       const players = async () => (await (await fetch(`${info.http}/healthz`)).json()).players
       for (let i = 0; i < 100 && (await players()) < 1; i++) await page.waitForTimeout(100)
