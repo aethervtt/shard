@@ -20,6 +20,7 @@
     "packages/animation/src/perf.test.ts": 322,
     "packages/sprite/src/lighting.test.ts": 304,
     "apps/cli/src/cli.test.ts": 223,
+    "apps/cli/src/export.test.ts": 260,
     "packages/terrain/src/nav.test.ts": 177,
     "packages/terrain/src/lod.test.ts": 66,
     "packages/scatter/src/planet-render.test.ts": 90,
@@ -110,6 +111,7 @@
     "packages/terrain/src/budget.test.ts": 800,
     "packages/render/src/atmosphere.test.ts": 680,
     "apps/cli/src/cli.test.ts": 611,
+    "apps/cli/src/export.test.ts": 700,
     "packages/structure/src/structure.test.ts": 589,
     "packages/sprite/src/lighting.test.ts": 515,
     "packages/structure/src/cutaway.test.ts": 400,
@@ -222,6 +224,7 @@
     "apps/playground/src/webgl2.test.ts": 198,
     "apps/playground/src/perf.test.ts": 109,
     "apps/playground/src/cards.test.ts": 120,
+    "apps/playground/src/export.test.ts": 150,
     "apps/playground/src/vfx.test.ts": 180
   }
 }

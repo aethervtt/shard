@@ -11,6 +11,7 @@
       "!**/dist",
       "!**/target",
       "!**/gen",
+      "!crates/*/permissions/schemas",
       "!**/.turbo",
       "!**/vendor",
       "!**/fixtures"

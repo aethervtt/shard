@@ -7,7 +7,9 @@
   "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
-    "./manifest": "./src/manifest.ts"
+    "./export": "./src/export.ts",
+    "./manifest": "./src/manifest.ts",
+    "./plugins": "./src/plugins.ts"
   },
   "scripts": {
     "typecheck": "tsc -p .",

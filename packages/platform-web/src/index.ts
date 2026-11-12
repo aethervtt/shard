@@ -1,5 +1,14 @@
 import { ShardError } from '@aethervtt/shard-core'
-import type { AudioBackend, Platform, PlatformFileSystem, Workers } from '@aethervtt/shard-platform'
+import {
+  type AudioBackend,
+  type BuildFiles,
+  buildFs,
+  type KeyValueStorage,
+  type LocalServer,
+  type Platform,
+  type PlatformFileSystem,
+  type Workers,
+} from '@aethervtt/shard-platform'
 import { createWebAudioBackend } from './audio'
 import { createWebPerformance } from './performance'
 import { createIndexedDbStorage } from './storage'
@@ -12,6 +21,14 @@ export interface WebPlatformOptions {
   storageName?: string
   /** Web workers for `workers` (made on first use). 0 runs jobs inline. Default: cores − 1, 1 to 8. */
   workers?: number
+  /** An export's files (0110): project paths read through `buildFs` from their hashed URLs. */
+  files?: BuildFiles
+  /** The export's `.shardpak` files, read by range, that packed `files` are in. */
+  packs?: readonly string[]
+  /** A shell's own storage for saves and settings (0111), in place of IndexedDB. */
+  storage?: KeyValueStorage
+  /** A shell's game server (0111). */
+  localServer?: LocalServer
 }
 
 export function createWebPlatform(options: WebPlatformOptions = {}): Platform {
@@ -34,23 +51,55 @@ export function createWebPlatform(options: WebPlatformOptions = {}): Platform {
     return res
   }
 
+  /**
+   * Per file read by range: undefined once the host answered a range (206), or the whole file when
+   * it ignored one (200), kept so later ranges of it (an export's pack, 0110) are slices instead
+   * of whole downloads. The first ranged read of a file finds out; others of it wait for that.
+   * Only hosts that ignore Range pay the memory, and they'd pay a download per read otherwise.
+   */
+  const whole = new Map<string, Promise<Uint8Array | undefined>>()
+
   const fs: PlatformFileSystem = {
     resolveUrl: (path) => new URL(path, baseUrl).href,
     writable: false,
     readText: async (path) => (await fetchOk(path)).text(),
     readBytes: async (path) => new Uint8Array(await (await fetchOk(path)).arrayBuffer()),
     readRange: async (path, offset, length) => {
-      const res = await fetch(new URL(path, baseUrl), {
-        headers: { Range: `bytes=${offset}-${offset + length - 1}` },
-      })
-      if (!res.ok) {
-        throw new ShardError('platform/fs-not-found', `Failed to fetch "${path}" (${res.status})`, {
-          path,
-        })
+      const url = new URL(path, baseUrl).href
+      const known = whole.get(url)
+      if (known) {
+        const bytes = await known
+        if (bytes) return bytes.subarray(offset, offset + length)
       }
-      const bytes = new Uint8Array(await res.arrayBuffer())
-      // A server that ignores Range sends the whole file (200, not 206).
-      return res.status === 206 ? bytes : bytes.subarray(offset, offset + length)
+      const fetching = fetch(url, {
+        headers: { Range: `bytes=${offset}-${offset + length - 1}` },
+      }).then(async (res) => {
+        if (!res.ok) {
+          throw new ShardError(
+            'platform/fs-not-found',
+            `Failed to fetch "${path}" (${res.status})`,
+            {
+              path,
+            },
+          )
+        }
+        return { ranged: res.status === 206, bytes: new Uint8Array(await res.arrayBuffer()) }
+      })
+      if (!known) {
+        whole.set(
+          url,
+          fetching.then(
+            (r) => (r.ranged ? undefined : r.bytes),
+            () => {
+              // A failed read says nothing about the host: the next one asks again.
+              whole.delete(url)
+              return undefined
+            },
+          ),
+        )
+      }
+      const { ranged, bytes } = await fetching
+      return ranged ? bytes : bytes.subarray(offset, offset + length)
     },
     writeText: async (path) => readOnly(path),
     writeBytes: async (path) => readOnly(path),
@@ -70,8 +119,9 @@ export function createWebPlatform(options: WebPlatformOptions = {}): Platform {
       audio ??= createWebAudioBackend()
       return audio
     },
-    fs,
-    storage: createIndexedDbStorage(options.storageName),
+    fs: options.files ? buildFs(fs, options.files, options.packs) : fs,
+    storage: options.storage ?? createIndexedDbStorage(options.storageName),
+    ...(options.localServer ? { localServer: options.localServer } : {}),
     performance: createWebPerformance(),
     clock: { now: () => performance.now() },
     log: {

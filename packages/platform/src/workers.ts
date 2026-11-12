@@ -334,6 +334,16 @@ const handle = async (msg, post) => {
 `
   return host === 'node'
     ? `${body}
+// Browser-built job modules (an export's procgen worker, 0110) fetch their WASM by file: URL.
+const { readFile } = require('node:fs/promises')
+const { fileURLToPath } = require('node:url')
+const fetchUrl = globalThis.fetch
+globalThis.fetch = async (input, init) => {
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+  if (!url.startsWith('file:')) return fetchUrl(input, init)
+  const type = url.endsWith('.wasm') ? 'application/wasm' : 'application/octet-stream'
+  return new Response(await readFile(fileURLToPath(url)), { headers: { 'content-type': type } })
+}
 const { parentPort } = require('node:worker_threads')
 parentPort.on('message', (m) => handle(m, (r, t) => parentPort.postMessage(r, t)))
 `

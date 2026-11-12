@@ -4,7 +4,7 @@
 //
 //   pnpm release                 build and pack every package into dist-release/
 //   pnpm release --check         then prove it: bench/consumer installs the tarballs outside the repo,
-//                                and coin-rush runs with the published CLI
+//                                and coin-rush runs with the published CLI (npm, then pnpm)
 //   pnpm release --cli-check     only the published-CLI part of --check
 //   pnpm release --version 0.0.2 (default: the root package.json version)
 
@@ -160,9 +160,9 @@ function buildPackage(name, { app = false } = {}) {
 
   // Files loaded at runtime by URL, or copied into projects (nature's textures), next to dist as
   // they are next to src. An app also ships its entry point (bin/) and the pages it serves (the
-  // CLI's runner/, compiled by Vite at run time).
+  // CLI's runner/, compiled by Vite at run time, and bun/, the script Bun compiles servers with).
   const extra = []
-  for (const sub of app ? ['bin', 'runner'] : ['wasm', 'vendor', 'assets']) {
+  for (const sub of app ? ['bin', 'runner', 'bun'] : ['wasm', 'vendor', 'assets']) {
     if (existsSync(join(dir, sub))) {
       cpSync(join(dir, sub), join(target, sub), {
         recursive: true,
@@ -405,14 +405,54 @@ async function cliCheck(built) {
     throw new Error('shard docs wrote an error catalog without the engine codes')
   }
   shard(['test'])
+  // shard export (0110): the published engine bundled from node_modules, and the export runs to
+  // the project's hash.
+  shard(['export', '--out', 'dist/web'])
+  const run = (more) =>
+    JSON.parse(shard(['run', '--frames', '120', '--seed', '3', ...more, '--json']))
+  const projectHash = run([]).hash
+  const exportHash = run(['--build', 'dist/web']).hash
+  if (exportHash !== projectHash) {
+    throw new Error(`the export hashes ${exportHash}, the project ${projectHash}`)
+  }
   shard(['init', 'fresh', '--template', 'empty'], work)
   const fresh = JSON.parse(readFileSync(join(work, 'fresh/package.json'), 'utf8'))
   if (fresh.dependencies['@aethervtt/shard-core'] !== `^${version}`) {
     throw new Error(`shard init pinned ${fresh.dependencies['@aethervtt/shard-core']}`)
   }
 
-  // shard dev: the page's import map points into node_modules, at dist entries.
   const { spawn } = await import('node:child_process')
+  // The server export (0110), bundled from the published engine. Copied beside the game, so
+  // node_modules isn't above it: server.mjs runs on what it ships.
+  shard(['export', '--target', 'server', '--out', 'dist/server'])
+  const served = join(work, 'server')
+  cpSync(join(game, 'dist/server'), served, { recursive: true })
+  console.log('  $ node server.mjs --port 0 --json (beside the game, nothing installed)')
+  const server = spawn(process.execPath, ['server.mjs', '--port', '0', '--json'], { cwd: served })
+  try {
+    const info = await new Promise((resolveInfo, reject) => {
+      let text = ''
+      let err = ''
+      server.stdout.on('data', (d) => {
+        text += d
+        try {
+          resolveInfo(JSON.parse(text))
+        } catch {}
+      })
+      server.stderr.on('data', (d) => {
+        err += d
+      })
+      server.on('exit', (code) => reject(new Error(`server.mjs exited ${code}: ${err}`)))
+    })
+    const health = await (await fetch(`${info.http}/healthz`)).json()
+    if (health.build !== info.build) throw new Error(`/healthz says ${JSON.stringify(health)}`)
+  } finally {
+    const exited = new Promise((r) => server.once('exit', r))
+    server.kill('SIGTERM')
+    await Promise.race([exited, new Promise((r) => setTimeout(r, 5000))])
+  }
+
+  // shard dev: the page's import map points into node_modules, at dist entries.
   console.log('  $ shard dev --port 5293')
   const child = spawn(join(game, 'node_modules/.bin/shard'), ['dev', '--port', '5293', '--json'], {
     cwd: game,
@@ -446,6 +486,62 @@ async function cliCheck(built) {
   rmSync(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
 }
 
+/**
+ * The same game installed with pnpm: its isolated layout links every package from its own store
+ * folder, where npm hoists. Overrides point every engine package at its tarball, so a tarball's
+ * dependency on another resolves to that tarball, never to a version on the registry. Exports it
+ * and checks the export plays like the project (0110).
+ */
+function pnpmCheck(built) {
+  const work = mkdtempSync(join(tmpdir(), 'shard-pnpm-'))
+  try {
+    const game = join(work, 'game')
+    cpSync(join(repo, 'examples/coin-rush'), game, {
+      recursive: true,
+      filter: (src) => !/[\\/](node_modules|\.shard|dist)([\\/]|$)/.test(src),
+    })
+    const tarballs = Object.fromEntries(built.map(({ name, tarball }) => [name, `file:${tarball}`]))
+    const manifest = JSON.parse(readFileSync(join(game, 'package.json'), 'utf8'))
+    manifest.dependencies = tarballs
+    manifest.devDependencies = { '@types/node': '^26.6.2', '@webgpu/types': '^0.1.74' }
+    writeFileSync(join(game, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`)
+    // pnpm 10 reads onlyBuiltDependencies, later versions allowBuilds.
+    const yaml = [
+      'packages: []',
+      'overrides:',
+      ...Object.entries(tarballs).map(([name, spec]) => `  "${name}": "${spec}"`),
+      'onlyBuiltDependencies: [esbuild, webgpu]',
+      'allowBuilds:',
+      '  esbuild: true',
+      '  webgpu: true',
+      '',
+    ].join('\n')
+    writeFileSync(join(game, 'pnpm-workspace.yaml'), yaml)
+    const env = { ...process.env, npm_config_loglevel: 'error' }
+    console.log('  $ pnpm install (coin-rush, from the tarballs)')
+    execFileSync('pnpm', ['install', '--reporter=silent'], { cwd: game, env, stdio: 'inherit' })
+    const shard = (cmdArgs) => {
+      console.log(`  $ shard ${cmdArgs.join(' ')}`)
+      return execFileSync(join(game, 'node_modules/.bin/shard'), cmdArgs, {
+        cwd: game,
+        env,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'inherit'],
+      })
+    }
+    shard(['export', '--out', 'dist/web'])
+    const run = (more) =>
+      JSON.parse(shard(['run', '--frames', '120', '--seed', '3', ...more, '--json']))
+    const projectHash = run([]).hash
+    const exportHash = run(['--build', 'dist/web']).hash
+    if (exportHash !== projectHash) {
+      throw new Error(`with pnpm, the export hashes ${exportHash}, the project ${projectHash}`)
+    }
+  } finally {
+    rmSync(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
+  }
+}
+
 // --- main --------------------------------------------------------------------------------------
 
 rmSync(join(out, 'tarballs'), { recursive: true, force: true })
@@ -470,13 +566,17 @@ if (problems.length > 0) {
 if (flag('--cli-check') && !flag('--check')) {
   console.log('\nCLI check (coin-rush with the published CLI, installed from the tarballs):')
   await cliCheck(built)
-  console.log('\nThe published CLI installs and runs outside the repository.')
+  console.log('\nThe same with pnpm:')
+  pnpmCheck(built)
+  console.log('\nThe published CLI installs and runs outside the repository, with npm and pnpm.')
 }
 if (flag('--check')) {
   console.log('\nConsumer check (bench/consumer, installed from the tarballs):')
   consumerCheck(built)
   console.log('\nCLI check (coin-rush with the published CLI, installed from the tarballs):')
   await cliCheck(built)
+  console.log('\nThe same with pnpm:')
+  pnpmCheck(built)
   console.log(
     '\nPacked packages pass types, Node/Bun codecs, Vite/webpack/Next builds, and Chromium presentation/worker checks.',
   )

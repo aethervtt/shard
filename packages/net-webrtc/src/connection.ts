@@ -58,7 +58,13 @@ export class WebRtcConnection implements NetConnection {
         this.counters.receivedBytes += bytes.length
         for (const fn of this.messageFns) fn(names[i]!, bytes)
       }
-      dc.onclose = () => this.fail('A data channel closed')
+      dc.onclose = () => {
+        // The unreliable channel can close before the reliable one delivers what it still
+        // carries (a goodbye). The reliable close comes after its data: wait for it, briefly.
+        if (i === 1 && this.channels[0].readyState !== 'closed') {
+          setTimeout(() => this.fail('A data channel closed'), LINGER_MS)
+        } else this.fail('A data channel closed')
+      }
     })
     pc.onconnectionstatechange = () => {
       const state = pc.connectionState

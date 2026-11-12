@@ -18,10 +18,10 @@ import {
   type ManifestValue,
   ProjectSession,
   projectNet,
+  registerProjectShaders,
   type SourceMap,
 } from '@aethervtt/shard-project'
 import { connectToHub, createProtocolServer } from '@aethervtt/shard-protocol'
-import { Shaders } from '@aethervtt/shard-render'
 import {
   animationFrameRunner,
   LogResource,
@@ -166,24 +166,15 @@ async function start() {
   await loadProjectNavCache(app, platform)
 
   // Project shaders: shaders/water/foam.wesl is project::water::foam.
-  const shaders = app.world.tryResource(Shaders)
-  const registerShader = ({ file, source }: { file: string; source: string }) => {
-    const module = `project::${file
-      .replace(/^shaders\//, '')
-      .replace(/\.(wesl|wgsl)$/, '')
-      .split('/')
-      .join('::')}`
-    try {
-      shaders?.register(module, source, file)
-    } catch (err) {
-      app.world.resource(LogResource).error(err)
-    }
-  }
-  for (const shader of (await (await fetch('/@aethervtt/shard-shaders.json')).json()) as {
-    file: string
-    source: string
-  }[])
-    registerShader(shader)
+  registerProjectShaders(
+    app,
+    (await (await fetch('/@aethervtt/shard-shaders.json')).json()) as {
+      file: string
+      source: string
+    }[],
+  )
+  const registerShader = (shader: { file: string; source: string }) =>
+    registerProjectShaders(app, [shader])
   import.meta.hot?.on('shard:shader', registerShader)
 
   const log = app.world.resource(LogResource)

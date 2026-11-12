@@ -77,9 +77,15 @@ importers:
       '@aethervtt/shard-physics':
         specifier: workspace:*
         version: link:../../packages/physics
+      '@aethervtt/shard-platform':
+        specifier: workspace:*
+        version: link:../../packages/platform
       '@aethervtt/shard-platform-node':
         specifier: workspace:*
         version: link:../../packages/platform-node
+      '@aethervtt/shard-platform-tauri':
+        specifier: workspace:*
+        version: link:../../packages/platform-tauri
       '@aethervtt/shard-platform-web':
         specifier: workspace:*
         version: link:../../packages/platform-web
@@ -1281,6 +1287,12 @@ importers:
       '@aethervtt/shard-gpu':
         specifier: workspace:*
         version: link:../gpu
+      '@aethervtt/shard-net':
+        specifier: workspace:*
+        version: link:../net
+      '@aethervtt/shard-net-websocket':
+        specifier: workspace:*
+        version: link:../net-websocket
       '@aethervtt/shard-platform':
         specifier: workspace:*
         version: link:../platform

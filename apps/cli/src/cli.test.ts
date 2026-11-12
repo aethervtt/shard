@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { hottestFromCpuProfile } from '@aethervtt/shard-core/capture'
+import { timeout } from '@aethervtt/shard-core/test-env'
 import { parseGltf } from '@aethervtt/shard-gltf'
 import { openProject } from '@aethervtt/shard-node'
 import { connectToHub, createProtocolServer, decodePng } from '@aethervtt/shard-protocol'
@@ -28,7 +29,12 @@ const example = resolve(here, '../../../examples/star-explorer')
 const mazeChase = resolve(here, '../../../examples/maze-chase')
 
 function shard(args: string[], cwd = example) {
-  const r = spawnSync(process.execPath, [bin, ...args], { cwd, encoding: 'utf8', timeout: 180_000 })
+  // timeout(): 5× on CI, whose loaded runners can take minutes over `shard test` alone.
+  const r = spawnSync(process.execPath, [bin, ...args], {
+    cwd,
+    encoding: 'utf8',
+    timeout: timeout(180_000),
+  })
   return { code: r.status, stdout: r.stdout, stderr: r.stderr, json: () => JSON.parse(r.stdout) }
 }
 
@@ -672,6 +678,7 @@ describe('MCP server', () => {
         'project_status',
         'reload_project',
         'typecheck',
+        'export',
         'ablate_passes',
         'describe_budgets',
         'tilemap_read',

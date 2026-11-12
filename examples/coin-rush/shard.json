@@ -11,5 +11,9 @@
     "height": 720,
     "msaa": 4
   },
-  "plugins": ["sprite", "input"]
+  "plugins": ["sprite", "input"],
+  "export": {
+    "app": { "title": "Coin Rush", "id": "dev.shard.coinrush" },
+    "net": { "url": "local" }
+  }
 }

@@ -23,6 +23,7 @@ import {
   MaterialAsset,
   Materials,
   Meshes,
+  MorphWeights,
   OffscreenTarget,
   renderPlugin,
   Shaders,
@@ -771,5 +772,72 @@ describe('textures at runtime', () => {
       image[0]! + image[1]! + image[2]! + 30,
     )
     expect(world.resource(LogResource).errors()).toEqual([])
+  })
+})
+
+describe('generated LODs of a morphed model (0103)', () => {
+  const CESIUM = 'CesiumMan/glTF-Binary/CesiumMan.glb'
+
+  /** CesiumMan with one morph target that moves every vertex 0.2 m along each axis, at `weight`. */
+  const morphed = (weight: number) =>
+    editGlb(CESIUM, (raw, bin) => {
+      type Doc = {
+        meshes: { primitives: { attributes: { POSITION: number }; targets?: unknown[] }[] }[]
+        accessors: Record<string, unknown>[]
+        bufferViews: { buffer: number; byteOffset?: number; byteLength: number }[]
+        buffers: { byteLength: number }[]
+      }
+      const doc = raw as unknown as Doc
+      const mesh = doc.meshes[0]! as Doc['meshes'][number] & { weights?: number[] }
+      const prim = mesh.primitives[0]!
+      const count = doc.accessors[prim.attributes.POSITION]!.count as number
+      const delta = new Float32Array(count * 3).fill(0.2)
+      const offset = Math.ceil(bin.length / 4) * 4
+      const out = new Uint8Array(offset + delta.byteLength)
+      out.set(bin)
+      out.set(new Uint8Array(delta.buffer), offset)
+      doc.bufferViews.push({ buffer: 0, byteOffset: offset, byteLength: delta.byteLength })
+      doc.buffers[0]!.byteLength = out.length
+      doc.accessors.push({
+        bufferView: doc.bufferViews.length - 1,
+        componentType: 5126,
+        count,
+        type: 'VEC3',
+        min: [0.2, 0.2, 0.2],
+        max: [0.2, 0.2, 0.2],
+      })
+      prim.targets = [{ POSITION: doc.accessors.length - 1 }]
+      mesh.weights = [weight]
+      return out
+    })
+
+  it("draws a morph on the lowest generated level, with the scene's Lod and MorphWeights", {
+    timeout: timeout(120_000),
+  }, async () => {
+    const meta = new TextEncoder().encode(
+      JSON.stringify({ guid: 'd'.repeat(32), importer: 'gltf', settings: { lods: 'auto' } }),
+    )
+    const shot = async (weight: number) => {
+      const { app, assets, camera } = await render(
+        { 'assets/man.glb': morphed(weight), 'assets/man.glb.meta': meta },
+        modelScene('assets/man.glb#Scene', [0, 0.75, 2.4]),
+        96,
+      )
+      const world = app.world
+      const info = assets.info('assets/man.glb')
+      expect(info.subAssets!.filter((a) => /\/LOD\d+$/.test(a.path)).length).toBeGreaterThan(1)
+      // One entity, imported with its generated levels and the file's weight.
+      const [entity] = world.query({ with: [Lod, MorphWeights] }).entities()
+      expect(world.get(entity!, MorphWeights).weights).toEqual([weight])
+      // Drop to the lowest level: every size but the last one's (0) is out of reach.
+      world.set(entity!, Lod, { ...world.get(entity!, Lod), bias: -30 })
+      await frames(app, 4)
+      return capture(app, camera)
+    }
+    const still = await shot(0)
+    const moved = await shot(1)
+    let sum = 0
+    for (let i = 0; i < still.length; i++) sum += Math.abs(still[i]! - moved[i]!)
+    expect(sum / still.length).toBeGreaterThan(1)
   })
 })

@@ -1,66 +1,15 @@
-import { animationPlugin } from '@aethervtt/shard-animation'
-// Also registers the audio importer and the AudioClip asset type for every project host.
-import {
-  audioAcousticsPlugin,
-  audioEventsPlugin,
-  audioMixerPlugin,
-  audioMusicPlugin,
-  audioPlugin,
-} from '@aethervtt/shard-audio'
-import { controlsPlugin } from '@aethervtt/shard-controls'
-// Also registers the dice data types (skins, layouts, recipes, definitions) for every project host.
-import { dicePlugin } from '@aethervtt/shard-dice'
-import { effectsPlugin } from '@aethervtt/shard-effects'
-import { gltfPlugin } from '@aethervtt/shard-gltf'
-import type { BakedTranslations, GpuContext } from '@aethervtt/shard-gpu'
-import { gesturesPlugin, inputPlugin } from '@aethervtt/shard-input'
-// Also registers the navgrid importer and the NavGridData asset type for every project host.
-import { naturePlugin } from '@aethervtt/shard-nature'
-import { loadNavCache, Nav, navGridPlugin, navPlugin } from '@aethervtt/shard-nav'
-// Also registers the noise importer and the NoiseGraph asset type for every project host.
-import { noisePlugin } from '@aethervtt/shard-noise'
-import { particlesPlugin } from '@aethervtt/shard-particles'
-import { physics2dPlugin, physics3dPlugin } from '@aethervtt/shard-physics'
-import type { AudioBackend, InputSource, Platform } from '@aethervtt/shard-platform'
-import { procgenPlugin } from '@aethervtt/shard-procgen'
-import { forwardPlugin, type RenderTarget, renderPlugin, Shaders } from '@aethervtt/shard-render'
-import { materialNoisePlugin } from '@aethervtt/shard-render/noise'
+import { loadNavCache, Nav } from '@aethervtt/shard-nav'
+import type { Platform } from '@aethervtt/shard-platform'
+import { Shaders } from '@aethervtt/shard-render'
 import { App, LogResource, type Plugin } from '@aethervtt/shard-runtime'
-import { savePlugin } from '@aethervtt/shard-save'
-import { scatterPlugin } from '@aethervtt/shard-scatter'
-import { type LoadedSceneHandle, loadScene, ScenePlugin } from '@aethervtt/shard-scene'
-import { spritePlugin } from '@aethervtt/shard-sprite'
-import { terrainPlugin } from '@aethervtt/shard-terrain'
-// Also registers the string table importer and the StringTable asset type for every project host.
-import { LocaleState, loadStringTables, textPlugin } from '@aethervtt/shard-text'
-import { TransformPlugin } from '@aethervtt/shard-transform'
-// Also registers the theme importer and the UiTheme asset type for every project host.
-import { uiPlugin } from '@aethervtt/shard-ui'
-import { oceanWavesPlugin, waterPlugin } from '@aethervtt/shard-water'
-import { windPlugin } from '@aethervtt/shard-wind'
+import { type LoadedSceneHandle, loadScene } from '@aethervtt/shard-scene'
+import { LocaleState, loadStringTables } from '@aethervtt/shard-text'
 import type { ManifestValue } from './manifest'
+import { addEnginePlugins, enginePlugins, type PluginContext, resolvePlugins } from './plugins'
 
-export interface BuildAppOptions {
-  manifest: ManifestValue
+export interface BuildAppOptions extends PluginContext {
   /** The project plugin (default export of `entry`), once loaded by the host. */
   project?: Plugin
-  gpu?: GpuContext
-  canvas?: HTMLCanvasElement | OffscreenCanvas
-  /** Headless stand-in for the window (CLI screenshots). */
-  target?: RenderTarget
-  /**
-   * The project's baked WebGL2 translations (`shard shaders bake`), or their URL: on WebGL2, the
-   * shaders they cover load without naga (0064). WebGPU never reads them.
-   */
-  webgl2Shaders?: string | URL | BakedTranslations
-  inputSource?: InputSource
-  /** Where sound goes (`platform.audio`). Without one, audio records voices (headless). */
-  audio?: AudioBackend
-  /**
-   * The host: saves and settings go to its `storage`, and saved scenes reload from its files.
-   * Without one, saves live in memory.
-   */
-  platform?: Platform
   /**
    * False builds without anything that draws, plays or reads devices: no render, input, audio
    * or UI plugins, and no GPU. Servers and headless clients use it (0092). Default true.
@@ -68,131 +17,15 @@ export interface BuildAppOptions {
   display?: boolean
 }
 
-/** Plugins `display: false` leaves out. Their components still load as data. */
-const DISPLAY_PLUGINS = [
-  'render',
-  'render/forward',
-  'sprite',
-  'text',
-  'particles',
-  'animation',
-  'dice',
-  'input',
-  'gestures',
-  'controls',
-  'audio',
-  'audio/events',
-  'audio/mixer',
-  'audio/acoustics',
-  'audio/music',
-  'ui',
-  'scatter',
-  'effects',
-]
-
 /** An app with the manifest's engine plugins and the project plugin, not yet initialized. */
 export function buildApp(options: BuildAppOptions): App {
   const { manifest } = options
-  const names = new Set(manifest.plugins)
-  if (
-    names.has('sprite') ||
-    names.has('text') ||
-    names.has('particles') ||
-    names.has('animation') ||
-    names.has('dice')
-  )
-    names.add('render/forward')
-  if (names.has('controls')) {
-    names.add('gestures')
-    names.add('render/forward')
-  }
-  if (names.has('audio/acoustics')) names.add('audio/mixer')
-  if (names.has('audio/music') || names.has('audio/mixer')) names.add('audio/events')
-  if (names.has('audio/events')) names.add('audio')
-  if (names.has('gestures')) names.add('input')
-  if (names.has('render/forward')) {
-    names.add('render')
-    names.add('core/transform')
-  }
-  // Foliage and trees sway with the shared wind; servers keep it (it isn't display-only).
-  if (names.has('water/waves')) names.add('water')
-  if (names.has('scatter') || names.has('nature') || names.has('water')) names.add('wind')
-  if (
-    names.has('physics3d') ||
-    names.has('physics2d') ||
-    names.has('audio') ||
-    names.has('ui') ||
-    names.has('nav') ||
-    names.has('nav/grid') ||
-    names.has('terrain') ||
-    names.has('scatter') ||
-    names.has('wind')
-  )
-    names.add('core/transform')
-  if (options.display === false) for (const name of DISPLAY_PLUGINS) names.delete(name)
   const app = new App({ seed: manifest.seed })
-  // A project host imports sources (glTF among them) whatever the manifest installs.
-  app.addPlugin(gltfPlugin)
-  if (names.has('core/transform')) app.addPlugin(TransformPlugin)
-  if (names.has('render')) {
-    app.addPlugin(
-      renderPlugin({
-        gpu: options.gpu,
-        canvas: options.canvas,
-        target: options.target,
-        webgl2: options.webgl2Shaders ? { shaders: options.webgl2Shaders } : undefined,
-      }),
-    )
-  }
-  if (names.has('render/forward')) {
-    app.addPlugin(forwardPlugin({ msaa: manifest.window.msaa === 1 ? 1 : 4 }))
-    // Project materials may declare noise slots (project.material({ noise })).
-    app.addPlugin(materialNoisePlugin)
-  }
-  if (names.has('sprite')) app.addPlugin(spritePlugin)
-  if (names.has('text')) app.addPlugin(textPlugin)
-  if (names.has('particles')) app.addPlugin(particlesPlugin)
-  if (names.has('animation')) app.addPlugin(animationPlugin)
-  if (names.has('dice')) app.addPlugin(dicePlugin())
-  if (names.has('physics3d')) app.addPlugin(physics3dPlugin())
-  if (names.has('physics2d')) app.addPlugin(physics2dPlugin())
-  if (names.has('input')) app.addPlugin(inputPlugin({ source: options.inputSource }))
-  if (names.has('gestures')) app.addPlugin(gesturesPlugin)
-  if (names.has('controls')) app.addPlugin(controlsPlugin)
-  if (names.has('audio')) app.addPlugin(audioPlugin({ backend: options.audio }))
-  if (names.has('audio/events')) app.addPlugin(audioEventsPlugin())
-  if (names.has('audio/mixer')) app.addPlugin(audioMixerPlugin())
-  if (names.has('audio/acoustics')) app.addPlugin(audioAcousticsPlugin())
-  if (names.has('audio/music')) app.addPlugin(audioMusicPlugin())
-  if (names.has('ui')) app.addPlugin(uiPlugin)
-  if (names.has('nav')) app.addPlugin(navPlugin)
-  else if (names.has('nav/grid')) app.addPlugin(navGridPlugin)
-  if (names.has('terrain'))
-    app.addPlugin(terrainPlugin({ workers: options.platform?.workers, fs: options.platform?.fs }))
-  if (names.has('scatter')) app.addPlugin(scatterPlugin({ workers: options.platform?.workers }))
-  if (names.has('nature')) app.addPlugin(naturePlugin)
-  if (names.has('wind') && !app.hasPlugin('wind')) app.addPlugin(windPlugin)
-  // Water works headless (waterAt), so servers keep it too.
-  if (names.has('water')) app.addPlugin(waterPlugin())
-  if (names.has('water/waves')) app.addPlugin(oceanWavesPlugin())
-  // noise.sample and noise.stats, whatever the manifest says: graphs are data every project can use.
-  app.addPlugin(noisePlugin)
-  app.addPlugin(ScenePlugin)
-  if (names.has('effects')) app.addPlugin(effectsPlugin)
-  // Generators are code every project can define: outputs, GeneratorInstance, procgen.* methods.
-  app.addPlugin(
-    procgenPlugin({
-      fs: options.platform?.fs,
-      storage: options.platform?.storage,
-      cacheSize: (manifest.procgen?.cacheSize ?? 256) * 1024 * 1024,
-    }),
-  )
-  app.addPlugin(
-    savePlugin({
-      storage: options.platform?.storage,
-      fs: options.platform?.fs,
-      engine: manifest.engine,
-    }),
+  addEnginePlugins(
+    app,
+    enginePlugins,
+    resolvePlugins(manifest, { display: options.display }),
+    options,
   )
   if (options.project) app.addPlugin(options.project)
   return app
@@ -245,6 +78,31 @@ export async function loadProjectShaders(
     return shaders.watch(platform, dir, 'project')
   }
   return () => {}
+}
+
+/**
+ * Registers project shaders from a list, as `project::…` (`shaders/water/foam.wesl` is
+ * `project::water::foam`): how hosts that can't list files load them (the dev page, exports). A
+ * module that fails to register is logged, and the rest still register.
+ */
+export function registerProjectShaders(
+  app: App,
+  shaders: readonly { file: string; source: string }[],
+): void {
+  const library = app.world.tryResource(Shaders)
+  if (!library) return
+  for (const { file, source } of shaders) {
+    const module = `project::${file
+      .replace(/^shaders\//, '')
+      .replace(/\.(wesl|wgsl)$/, '')
+      .split('/')
+      .join('::')}`
+    try {
+      library.register(module, source, file)
+    } catch (err) {
+      app.world.resource(LogResource).error(err)
+    }
+  }
 }
 
 /**

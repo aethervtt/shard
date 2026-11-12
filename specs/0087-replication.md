@@ -169,7 +169,10 @@ server ticks. In PreUpdate (before game systems read them), the client renders a
 `serverTick − rtt/2 − delay`, where `delay` is `max(2 network ticks, jitter × 2)`, and writes the
 float fields from the two samples around it (lerp; nlerp on the short arc for quaternions). Past
 the newest sample it holds it: updates are deltas, so no newer sample usually means the value
-stopped changing, and extrapolating would overshoot and stay there. (Snapping on a teleport is not
+stopped changing, and extrapolating would overshoot and stay there. For the same reason, a sample
+arriving more than one send after the previous one is preceded by the previous value one send
+earlier: the value held still until then, so a body setting off from a rest moves from its first
+frame instead of crawling across the whole rest and then waiting for the next update. (Snapping on a teleport is not
 built yet.)
 
 ### Animation

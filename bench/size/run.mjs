@@ -11,7 +11,9 @@
 // Chunks are `entry`, `lazy`, or `fallback`: lazy chunks holding only the baseline tier's code
 // (0064), which a WebGPU session never loads. `js` counts entry and lazy chunks; `fallback` apart.
 
-import { readFileSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { brotliCompressSync, constants, gzipSync } from 'node:zlib'
@@ -30,6 +32,11 @@ const FIXTURES = {
   'physics-track': join(here, 'fixtures/physics-track'),
   'dice-worker': join(here, 'fixtures/dice-worker'),
   full: join(repo, 'apps/playground'),
+}
+
+/** Example projects measured as `shard export --target web` writes them (0110). */
+const EXPORTS = {
+  'export-maze-chase': join(repo, 'examples/maze-chase'),
 }
 
 /** The package a module belongs to: a workspace package by its directory, or an npm package. */
@@ -129,10 +136,43 @@ async function measure(name, root) {
   }
 }
 
+/**
+ * A project's web export, from the report `shard export --json` prints: what its page loads at
+ * startup (`entry`) and later (`lazy`), its procgen worker and WASM.
+ */
+function measureExport(name, project) {
+  const out = mkdtempSync(join(tmpdir(), 'shard-size-'))
+  try {
+    const cli = join(repo, 'apps/cli/bin/shard.mjs')
+    const r = spawnSync(process.execPath, [cli, 'export', '--out', out, '--json'], {
+      cwd: project,
+      encoding: 'utf8',
+    })
+    if (r.status !== 0) throw new Error(`shard export failed in ${project}:\n${r.stderr}`)
+    const chunks = JSON.parse(r.stdout).chunks.map((c) => ({ ...c, baseline: [] }))
+    const total = (kinds) =>
+      chunks.filter((c) => kinds.includes(c.kind)).reduce((sum, c) => sum + c.brotli, 0)
+    return {
+      name,
+      chunks,
+      brotli: {
+        entry: total(['entry']),
+        js: total(['entry', 'lazy']),
+        fallback: 0,
+        all: total(['entry', 'lazy', 'worker', 'wasm']),
+      },
+    }
+  } finally {
+    rmSync(out, { recursive: true, force: true })
+  }
+}
+
 const kb = (n) => `${(n / 1024).toFixed(1)} KB`
 const report = { version: 1, fixtures: {} }
 for (const [name, root] of Object.entries(FIXTURES))
   report.fixtures[name] = await measure(name, root)
+for (const [name, project] of Object.entries(EXPORTS))
+  report.fixtures[name] = measureExport(name, project)
 writeFileSync(join(here, 'report.json'), `${JSON.stringify(report, null, 2)}\n`)
 
 if (args.has('--json')) {

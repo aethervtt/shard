@@ -158,6 +158,18 @@ Every engine error is a `ShardError` with one of these codes.
 | `ecs/missing-resource` | @aethervtt/shard-core | Insert it with insertResource, or add the plugin that provides it. |
 | `ecs/no-resource-init` | @aethervtt/shard-core | Use insertResource with a value instead. |
 | `effects/invalid-sequence` | @aethervtt/shard-effects |  |
+| `export/bad-out` | @aethervtt/shard-cli | Export to a folder of its own, such as dist/web. |
+| `export/bundle-failed` | @aethervtt/shard-cli |  |
+| `export/compile-failed` | @aethervtt/shard-cli |  |
+| `export/missing-tool` | @aethervtt/shard-cli | Install Bun (https://bun.sh), or export without --compile/--sidecar. |
+| `export/net-url-missing` | @aethervtt/shard-cli | Set export.net.url in shard.json: "local" with --sidecar, a wss:// server, or a lobby. |
+| `export/no-tauri-app` | @aethervtt/shard-cli | Add --init to scaffold one, or set export.tauri.app to yours. |
+| `export/not-a-build` | @aethervtt/shard-node | Pass the folder `shard export` wrote (dist/web by default). |
+| `export/not-imported` | @aethervtt/shard-cli | Run `shard import` first. |
+| `export/plugin-missing` | @aethervtt/shard-cli |  |
+| `export/two-engines` | @aethervtt/shard-cli | Install the same engine version as @aethervtt/shard-cli (one version of every @aethervtt/shard-* package). |
+| `export/unknown-target` | @aethervtt/shard-cli | Targets: web, server, tauri. Electron follows (spec 0111). |
+| `export/validate-failed` | @aethervtt/shard-cli | Run `shard import` to see which, and fix them. |
 | `fog/invalid-regions` | @aethervtt/shard-fog | { rev, regions: [{ op: "hide" \| "reveal", strength?, feather?, shape }] } with shapes rect, polygon, multipolygon or brush. |
 | `gltf/accessor-out-of-range` | @aethervtt/shard-gltf | The file is truncated or its byteOffset/count are wrong. |
 | `gltf/buffer-missing` | @aethervtt/shard-gltf | Keep .bin files next to the .gltf, under the same name the file references. |
@@ -214,9 +226,10 @@ Every engine error is a `ShardError` with one of these codes.
 | `net/lobby-closed` | @aethervtt/shard-net-webrtc |  |
 | `net/message-too-large` | @aethervtt/shard-net | Reliable messages are split automatically; keep unreliable ones under maxMessage. |
 | `net/no-conditions` | @aethervtt/shard-net | Wrap the transport with simulateConditions(). |
+| `net/no-lobby` | @aethervtt/shard-cli | Add ?lobby=<url>, or set export.net.lobby in shard.json (written to config.json). |
 | `net/no-session` | @aethervtt/shard-net | Add netPlugin({ role }) to the app. |
 | `net/no-webrtc` | @aethervtt/shard-net-webrtc | In Node, pass one: webRtcLobby({ RTCPeerConnection }) from node-datachannel/polyfill. |
-| `net/no-websocket` | @aethervtt/shard-net-webrtc | Pass one: webRtcLobby({ WebSocket }). |
+| `net/no-websocket` | @aethervtt/shard-net-websocket | Pass one: webSocketTransport({ WebSocket }). |
 | `net/not-authority` | @aethervtt/shard-net | Run this in a system gated with onServer. |
 | `net/not-connected` | @aethervtt/shard-net |  |
 | `net/not-replicable` | @aethervtt/shard-net | Replicate the components it is computed from. |
@@ -271,7 +284,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `physics/worker-crashed` | @aethervtt/shard-physics | The next recording starts a new worker. |
 | `platform/bad-storage-key` | @aethervtt/shard-platform-node | Keys are relative paths like "saves/slot1.json". |
 | `platform/codec-fetch` | @aethervtt/shard-platform-node |  |
-| `platform/fs-not-found` | @aethervtt/shard-platform-node |  |
+| `platform/fs-not-found` | @aethervtt/shard-platform | Add it to export.include in shard.json if the game loads it by a computed path. |
 | `platform/fs-read-only` | @aethervtt/shard-platform-web | Writes need a writable host such as Studio or the CLI. |
 | `platform/no-storage` | @aethervtt/shard-platform-web | Private browsing modes and some embedded webviews disable it. |
 | `platform/node-codec` | @aethervtt/shard-platform-node |  |
@@ -314,7 +327,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `project/namespace` | @aethervtt/shard-project |  |
 | `project/no-bundler` | @aethervtt/shard-project | Pass "url" with a built bundle. |
 | `project/not-found` | @aethervtt/shard-project | Run `shard init <dir>` to create a project, or run from a project folder. |
-| `project/not-multiplayer` | @aethervtt/shard-cli | Call project.net({ replicate, commands, … }) in the entry to make it multiplayer. |
+| `project/not-multiplayer` | @aethervtt/shard-node | Call project.net({ replicate, commands, … }) in the entry to make it multiplayer. |
 | `project/reload-failed` | @aethervtt/shard-project |  |
 | `project/unknown-plugin` | @aethervtt/shard-project |  |
 | `protocol/internal` | @aethervtt/shard-protocol |  |

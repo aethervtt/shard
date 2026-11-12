@@ -68,7 +68,9 @@ describe('terrain.* on a heightfield (0071)', () => {
       asset.deps = next.deps
       asset.version++
       let rebaked: { rebaked: number } | null = null
-      for (let i = 0; i < 2000 && !rebaked; i++) {
+      // Until a deadline, not a number of frames: a loaded runner bakes slower per frame.
+      const deadline = performance.now() + timeout(60_000)
+      while (!rebaked && performance.now() < deadline) {
         p.app.update(1 / 60)
         await new Promise((r) => setTimeout(r, 5))
         const t = (

@@ -4,6 +4,7 @@ import type { Workers } from './workers'
 
 export type * from './audio-runtime'
 export { validateAudioAutomation } from './audio-runtime'
+export { type BuildFile, type BuildFiles, buildFs } from './build-fs'
 
 /**
  * Everything the engine needs from its host. The engine only talks to this interface;
@@ -24,6 +25,19 @@ export interface Platform {
   readonly workers?: Workers
   /** The host's own performance instruments (long tasks, downloads), for 0062's metrics. */
   readonly performance?: HostPerformance
+  /**
+   * The game's server on this machine (0111): a desktop app's sidecar, for hosting a match or
+   * playing offline against the server's logic. Absent where there's none (a browser).
+   */
+  readonly localServer?: LocalServer
+}
+
+/** A game server the host can start beside the game (0111). */
+export interface LocalServer {
+  /** Starts it (once; later calls get the running one) and resolves when it accepts players. */
+  start(): Promise<{ url: string; http?: string }>
+  /** Stops it, after it stores every connected player. */
+  stop(): Promise<void>
 }
 
 /**

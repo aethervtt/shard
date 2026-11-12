@@ -16,12 +16,14 @@ export {
   renderErrorCatalog,
   renderGeneratorCatalog,
 } from './docs'
+export { type BuildJson, type StartExportOptions, startExport } from './export'
 export {
   type BuildAppOptions,
   buildApp,
   loadProjectNavCache,
   loadProjectShaders,
   loadProjectStrings,
+  registerProjectShaders,
   startProject,
 } from './host'
 export {
@@ -33,6 +35,14 @@ export {
   type ProjectInfo,
   validateManifest,
 } from './manifest'
+export {
+  addEnginePlugins,
+  type EnginePlugin,
+  enginePluginExport,
+  enginePlugins,
+  type PluginContext,
+  resolvePlugins,
+} from './plugins'
 export {
   createProjectReloader,
   ProjectReloaded,

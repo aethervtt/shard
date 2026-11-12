@@ -278,7 +278,7 @@ export function projectTemplate(options: TemplateOptions): Record<string, string
     'tests/main.test.ts': template === 'explorer' ? explorerTest(name) : emptyTest,
     'shaders/.gitkeep': '',
     'assets/.gitkeep': '',
-    '.gitignore': '.shard/\nnode_modules/\n',
+    '.gitignore': '.shard/\nnode_modules/\ndist/\n',
     '.mcp.json': json({
       mcpServers: { shard: { command: 'pnpm', args: ['exec', 'shard', 'mcp'] } },
     }),

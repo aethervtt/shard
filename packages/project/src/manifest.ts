@@ -54,6 +54,74 @@ export const Manifest = defineSchema(
       },
       { description: 'Graphics tiers (0064).' },
     ),
+    export: t.struct(
+      {
+        include: t.list(t.string, {
+          default: [],
+          description:
+            'Globs of project files to ship that nothing reaches by reference (a scene or asset the code loads by a computed path).',
+        }),
+        exclude: t.list(t.string, {
+          default: [],
+          description: 'Globs of project files never to ship, even when referenced.',
+        }),
+        pack: t.enum(['auto', 'always', 'never'], {
+          default: 'auto',
+          description:
+            'Data in .shardpak files read by range, or one file each. auto: packed for --target server, loose for the web (hashed files suit a CDN).',
+        }),
+        bakeFrames: t.u32({
+          default: 60,
+          description:
+            'Frames each shipped scene runs for the shader bake (0056); 0 skips the bake, so WESL loads at run time.',
+        }),
+        app: t.struct(
+          {
+            title: t.string({ description: 'Page and window title. Default: the project name.' }),
+            id: t.string({
+              description:
+                "A desktop app's identifier (reverse domain), for --init: com.example.game.",
+            }),
+          },
+          { description: 'How the game presents itself.' },
+        ),
+        tauri: t.struct(
+          {
+            app: t.string({
+              default: 'src-tauri',
+              description:
+                "The Tauri app's folder, from the project: src-tauri, or ../desktop/src-tauri in a monorepo. --init scaffolds it when missing; exports only check it.",
+            }),
+          },
+          { description: '--target tauri (0111): the developer-owned app around the export.' },
+        ),
+        server: t.struct(
+          {
+            entry: t.string({
+              description:
+                "The project's own game server, compiled as the desktop sidecar instead of the generated one (0111): ../server/src/main.ts. It opens the game with openExportGame and meets the launch contract.",
+            }),
+          },
+          { description: 'The game server a desktop app bundles.' },
+        ),
+        net: t.struct(
+          {
+            url: t.string({
+              description:
+                'The game server a page joins: wss://play.example.com/net, or "local" for the server a desktop app bundles (--sidecar).',
+            }),
+            lobby: t.string({
+              description: 'The lobby ?host and ?join use (0091): wss://lobby.example.com.',
+            }),
+          },
+          {
+            description:
+              'Where a multiplayer page plays, written to config.json (editable after export). Without it, a page served by its game server (--target server --static) joins it.',
+          },
+        ),
+      },
+      { description: '`shard export` (0110): what ships and how.' },
+    ),
     plugins: t.list(t.string, {
       default: ['render/forward', 'input'],
       description:

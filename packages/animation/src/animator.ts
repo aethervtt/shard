@@ -497,8 +497,11 @@ function step(
         const clip = clips.get(motions[m]!.clip)
         if (clip) d += lr.weights[wo + m]! * clip.duration
       }
-      const rate = d > 0 ? state.speed / d : 1
-      const phase = lr.phase[k]!
+      const speed = state.speedParam >= 0 ? values[state.speedParam]! : state.speed
+      // A time parameter places the state; nothing advances it (0109).
+      const placed = state.timeParam >= 0
+      const rate = placed ? 0 : d > 0 ? speed / d : 1
+      const phase = placed ? values[state.timeParam]! : lr.phase[k]!
       const share = lr.share[k]! * gl.weight
       for (let m = 0; m < motions.length; m++) {
         const w = lr.weights[wo + m]!

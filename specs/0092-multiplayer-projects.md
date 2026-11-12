@@ -26,7 +26,7 @@ needs the same loop it has for single player: edit, run headless, check a hash, 
 
 ## Non-goals
 
-- Exporting a server build (bundles, Docker). The export spec covers it.
+- Exporting a server build (bundles, Docker). The export spec (0110) covers it.
 - GPU-less single-player runs and screenshots: `shard run` without `--net` is unchanged.
 
 ## Design

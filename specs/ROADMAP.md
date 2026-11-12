@@ -71,6 +71,7 @@ agent needs to see what's on screen.
 | [0101](0101-screen-space-reflections.md) | Screen-space reflections (Hi-Z trace, stochastic GGX, fed into lighting; shared Hi-Z; water uses it) | draft |
 | [0102](0102-reflection-probes-planar.md) | Reflection probes (baked and realtime, box-projected, local ambient) and planar reflections | draft |
 | [0108](0108-toon-ink.md) | Toon shading and ink (banded lighting and comic lines per camera; skinned and nested outlines) | draft (built) |
+| [0109](0109-parameter-time-and-speed.md) | Graph states placed by a parameter (distance-matched locomotion; parameter playback rate) | draft (built) |
 
 ## M6 — Gameplay systems
 
@@ -162,22 +163,26 @@ them: budget keys are span names.
 |---|---|---|
 | [0074](0074-profiler.md) | Profiler (spans, captures with attributed worst frames, Chrome traces, borrowed sampling) | implemented |
 | [0075](0075-performance-budgets.md) | Performance budgets (named machines, scenario frame slices, unit costs, ablation on tile GPUs) | accepted |
+| [0110](0110-export.md) | Export (static web builds, asset packs, server builds) | accepted |
+| [0111](0111-desktop-shells.md) | Desktop shells (developer-owned Tauri and Electron apps, tauri-plugin-shard, the game server as a Bun sidecar) | accepted |
 
-Notes for the web export spec, not yet written:
+0110 is the export: a static web build first, then the game server and asset packs. 0111 wraps
+that web build in Tauri and Electron shells.
 
-- **Static by default.** An export is plain files any static host serves (itch.io, GitHub Pages,
-  a CDN). The build does the heavy work up front: a manifest with content hashes, brotli
-  pre-compressed files, and streamed data packed for few requests. That covers 0072's cells
-  packed into region bundles with the cell index, 0071's terrain packs read by HTTP `Range`, and
-  0073's proxies.
-- **An optional server.** `shard serve --prod` (or `shard export --server`) serves the same build
-  on Node, so Bun works too. It adds what static files can't: one response for everything
-  entering range (cells, the assets they need, proxies), terrain pages by key, cache and
-  compression headers per build, and game services such as server-side saves (0038's diffs),
-  accounts, and later multiplayer.
-- **The client never requires the server.** The web Platform fetches URLs. It uses the server's
-  extras when the server advertises them and falls back to plain files otherwise, so one build
-  runs in both places.
+Not yet specced: **desktop-only game code**. A game that calls its own desktop commands (the
+developer's Rust commands, their sidecars) has nowhere to put that code without breaking its web
+export, since game scripts are one bundle for every target. It needs entries per target (web,
+server, desktop) that the export picks between, designed across all three; until then it stays
+out of 0111's scope.
+
+Not yet specced: **desktop and multiplayer project setup**, after 0111. `shard init` makes one
+game project; a desktop app comes later, from `shard export --target tauri --init`. Three parts:
+`shard init --desktop` (0111's scaffold at init, plus scripts and the Tauri CLI); a workspace
+layout for the shape real multiplayer games take (`apps/game`, `apps/server` on Bun switching
+between `openExportGame` from an export and `loadHeadlessCode` from source, `apps/desktop` bundling
+that server as its sidecar); and a desktop dev loop, `tauri dev` on `shard dev`'s hot-reloading
+page, which needs the dev page to use the plugin's storage and local server inside the window,
+with `shard server` standing in for the sidecar.
 
 ## E1 — Embedding: Aether
 
