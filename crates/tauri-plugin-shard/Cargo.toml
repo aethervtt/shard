@@ -1,0 +1,18 @@
+[package]
+name = "tauri-plugin-shard"
+version = "0.5.1"
+edition = "2024"
+license = "MIT"
+description = "Shard games in Tauri apps (0111): the shard:// protocol over the game's data, saves in the app data folder, and the game server as a sidecar."
+links = "tauri-plugin-shard"
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }

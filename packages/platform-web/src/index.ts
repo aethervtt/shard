@@ -3,6 +3,8 @@ import {
   type AudioBackend,
   type BuildFiles,
   buildFs,
+  type KeyValueStorage,
+  type LocalServer,
   type Platform,
   type PlatformFileSystem,
   type Workers,
@@ -23,6 +25,10 @@ export interface WebPlatformOptions {
   files?: BuildFiles
   /** The export's `.shardpak` files, read by range, that packed `files` are in. */
   packs?: readonly string[]
+  /** A shell's own storage for saves and settings (0111), in place of IndexedDB. */
+  storage?: KeyValueStorage
+  /** A shell's game server (0111). */
+  localServer?: LocalServer
 }
 
 export function createWebPlatform(options: WebPlatformOptions = {}): Platform {
@@ -114,7 +120,8 @@ export function createWebPlatform(options: WebPlatformOptions = {}): Platform {
       return audio
     },
     fs: options.files ? buildFs(fs, options.files, options.packs) : fs,
-    storage: createIndexedDbStorage(options.storageName),
+    storage: options.storage ?? createIndexedDbStorage(options.storageName),
+    ...(options.localServer ? { localServer: options.localServer } : {}),
     performance: createWebPerformance(),
     clock: { now: () => performance.now() },
     log: {

@@ -83,6 +83,9 @@ importers:
       '@aethervtt/shard-platform-node':
         specifier: workspace:*
         version: link:../../packages/platform-node
+      '@aethervtt/shard-platform-tauri':
+        specifier: workspace:*
+        version: link:../../packages/platform-tauri
       '@aethervtt/shard-platform-web':
         specifier: workspace:*
         version: link:../../packages/platform-web

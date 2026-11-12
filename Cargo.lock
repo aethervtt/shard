@@ -3431,6 +3431,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-shard"
+version = "0.5.1"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+]
+
+[[package]]
 name = "tauri-runtime"
 version = "2.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

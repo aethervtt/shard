@@ -164,10 +164,16 @@ them: budget keys are span names.
 | [0074](0074-profiler.md) | Profiler (spans, captures with attributed worst frames, Chrome traces, borrowed sampling) | implemented |
 | [0075](0075-performance-budgets.md) | Performance budgets (named machines, scenario frame slices, unit costs, ablation on tile GPUs) | accepted |
 | [0110](0110-export.md) | Export (static web builds, asset packs, server builds) | accepted |
-| [0111](0111-desktop-shells.md) | Desktop shells (Tauri and Electron exports around the web build) | accepted |
+| [0111](0111-desktop-shells.md) | Desktop shells (developer-owned Tauri and Electron apps, tauri-plugin-shard, the game server as a Bun sidecar) | accepted |
 
 0110 is the export: a static web build first, then the game server and asset packs. 0111 wraps
 that web build in Tauri and Electron shells.
+
+Not yet specced: **desktop-only game code**. A game that calls its own desktop commands (the
+developer's Rust commands, their sidecars) has nowhere to put that code without breaking its web
+export, since game scripts are one bundle for every target. It needs entries per target (web,
+server, desktop) that the export picks between, designed across all three; until then it stays
+out of 0111's scope.
 
 ## E1 — Embedding: Aether
 

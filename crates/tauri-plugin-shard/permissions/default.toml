@@ -1,0 +1,13 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = "What a Shard game needs: its data's base URL, its saves, and its server sidecar."
+permissions = [
+  "allow-base",
+  "allow-storage-read",
+  "allow-storage-write",
+  "allow-storage-list",
+  "allow-storage-delete",
+  "allow-server-start",
+  "allow-server-stop",
+]

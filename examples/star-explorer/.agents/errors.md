@@ -160,11 +160,15 @@ Every engine error is a `ShardError` with one of these codes.
 | `effects/invalid-sequence` | @aethervtt/shard-effects |  |
 | `export/bad-out` | @aethervtt/shard-cli | Export to a folder of its own, such as dist/web. |
 | `export/bundle-failed` | @aethervtt/shard-cli |  |
+| `export/compile-failed` | @aethervtt/shard-cli |  |
+| `export/missing-tool` | @aethervtt/shard-cli | Install Bun (https://bun.sh), or export without --compile/--sidecar. |
+| `export/net-url-missing` | @aethervtt/shard-cli | Set export.net.url in shard.json: "local" with --sidecar, a wss:// server, or a lobby. |
+| `export/no-tauri-app` | @aethervtt/shard-cli | Add --init to scaffold one, or set export.tauri.app to yours. |
 | `export/not-a-build` | @aethervtt/shard-node | Pass the folder `shard export` wrote (dist/web by default). |
 | `export/not-imported` | @aethervtt/shard-cli | Run `shard import` first. |
 | `export/plugin-missing` | @aethervtt/shard-cli |  |
 | `export/two-engines` | @aethervtt/shard-cli | Install the same engine version as @aethervtt/shard-cli (one version of every @aethervtt/shard-* package). |
-| `export/unknown-target` | @aethervtt/shard-cli | Targets: web, server. Desktop shells follow (spec 0111). |
+| `export/unknown-target` | @aethervtt/shard-cli | Targets: web, server, tauri. Electron follows (spec 0111). |
 | `export/validate-failed` | @aethervtt/shard-cli | Run `shard import` to see which, and fix them. |
 | `fog/invalid-regions` | @aethervtt/shard-fog | { rev, regions: [{ op: "hide" \| "reveal", strength?, feather?, shape }] } with shapes rect, polygon, multipolygon or brush. |
 | `gltf/accessor-out-of-range` | @aethervtt/shard-gltf | The file is truncated or its byteOffset/count are wrong. |

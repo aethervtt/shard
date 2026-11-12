@@ -68,7 +68,7 @@ const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; 
   },
   export: {
     run: exportCommand,
-    help: 'export [--target web|server] [--static] [--pack] [--out dist/<target>] [--dry-run] [--sourcemap]   static files, or a node server.mjs (--static: with the page) (0110)',
+    help: 'export [--target web|server|tauri] [--static] [--pack] [--compile] [--init] [--sidecar] [--app src-tauri] [--out dist/<target>] [--dry-run] [--sourcemap]   static files, or a node server.mjs (--static: with the page) (0110)',
   },
   profile: {
     run: profile,
@@ -209,6 +209,10 @@ export async function main(argv: string[]): Promise<number> {
         'dry-run': { type: 'boolean' },
         static: { type: 'boolean' },
         pack: { type: 'boolean' },
+        compile: { type: 'boolean' },
+        init: { type: 'boolean' },
+        sidecar: { type: 'boolean' },
+        app: { type: 'string' },
         sourcemap: { type: 'boolean' },
         help: { type: 'boolean', short: 'h' },
       },

@@ -6,7 +6,7 @@
 import { createReadStream, existsSync } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
-import { extname, join, resolve, sep } from 'node:path'
+import { dirname, extname, join, resolve, sep } from 'node:path'
 import { parseArgs } from 'node:util'
 import { ShardError } from '@aethervtt/shard-core'
 import { netPlugin, netSession } from '@aethervtt/shard-net'
@@ -16,6 +16,15 @@ import { createNodePlatform } from '@aethervtt/shard-platform-node'
 import { type BuildJson, projectNet, startExport } from '@aethervtt/shard-project/export'
 import type { EnginePlugin } from '@aethervtt/shard-project/plugins'
 import { type App, intervalRunner, type Plugin } from '@aethervtt/shard-runtime'
+
+/**
+ * A server's manifest in an export folder: `server.json` where a page shares the data (a desktop
+ * app's, 0111), `build.json` in a server export.
+ */
+async function readServerBuild(dir: string): Promise<BuildJson> {
+  const file = existsSync(join(dir, 'server.json')) ? 'server.json' : 'build.json'
+  return JSON.parse(await readFile(join(dir, file), 'utf8')) as BuildJson
+}
 
 const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -136,10 +145,68 @@ export interface ServedExport {
   close(): Promise<void>
 }
 
+export interface OpenExportGameOptions {
+  /** The server export's folder, with its `build.json` (`SHARD_DIR` in a sidecar). */
+  dir: string
+  project: Plugin
+  /**
+   * Engine plugin rows, in `enginePlugins` order. A project's own server passes `enginePlugins`
+   * (every definition exists); a generated `server.mjs` passes the rows its page imports, so the
+   * bundle carries no others.
+   */
+  plugins: readonly EnginePlugin[]
+  /** Where player saves and settings go. Default `data/` in the export. */
+  dataDir?: string
+  seed?: number
+  /** Adds plugins before init: the net plugin, with the server's own transport. */
+  configure?(app: App): void | Promise<void>
+}
+
+export interface ExportGame {
+  /** Initialized and running on `intervalRunner`. */
+  app: App
+  build: BuildJson
+  /** Disposes the game (storing every connected player, 0090) and waits for it to stop. */
+  close(): Promise<void>
+}
+
+/**
+ * The game's authority from an export (0110, 0111): what `loadHeadlessCode` is from source. No
+ * display plugins, no start scene (the game's server spawns its world), running until `close`.
+ * A project's own server opens the game with this when it runs from an export (`SHARD_DIR`).
+ */
+export async function openExportGame(options: OpenExportGameOptions): Promise<ExportGame> {
+  const dir = resolve(options.dir)
+  const build = await readServerBuild(dir)
+  const files = createNodePlatform({ root: dir, dataDir: options.dataDir ?? join(dir, 'data') })
+  const platform: Platform = { ...files, fs: buildFs(files.fs, build.files, build.packs) }
+  const { app } = await startExport({
+    build,
+    platform,
+    plugins: options.plugins,
+    project: options.project,
+    seed: options.seed,
+    display: false,
+    startScene: false,
+    configure: options.configure,
+  })
+  app.setRunner(intervalRunner())
+  const running = app.run()
+  return {
+    app,
+    build,
+    async close() {
+      await app.dispose()
+      await running
+      platform.workers?.dispose()
+    },
+  }
+}
+
 /** Runs an exported server until `close` (0110). */
 export async function serveExport(options: ServeExportOptions): Promise<ServedExport> {
   const dir = resolve(options.dir)
-  const build = JSON.parse(await readFile(join(dir, 'build.json'), 'utf8')) as BuildJson
+  const build = await readServerBuild(dir)
   const net = projectNet(options.project)
   if (!net) {
     throw new ShardError(
@@ -178,31 +245,27 @@ export async function serveExport(options: ServeExportOptions): Promise<ServedEx
     http.once('error', fail)
     http.listen(options.port ?? 7000, options.host ?? '127.0.0.1', done)
   })
-  const files = createNodePlatform({ root: dir, dataDir: options.dataDir ?? join(dir, 'data') })
-  const platform: Platform = { ...files, fs: buildFs(files.fs, build.files, build.packs) }
+  let opened: ExportGame
   try {
-    ;({ app } = await startExport({
-      build,
-      platform,
-      plugins: options.plugins,
+    opened = await openExportGame({
+      dir,
       project: options.project,
+      plugins: options.plugins,
+      dataDir: options.dataDir,
       seed: options.seed,
-      display: false,
-      startScene: false,
       configure(a) {
         a.addPlugin(
           netPlugin({ ...net, role: 'server', transport: webSocketServer({ server: http }) }),
         )
       },
-    }))
+    })
+    app = opened.app
     await netSession(app.world).ready
   } catch (err) {
     http.close()
     throw err
   }
-  const game = app
-  game.setRunner(intervalRunner())
-  const running = game.run()
+  const game = opened.app
   const { port } = http.address() as { port: number }
   const host = options.host ?? '127.0.0.1'
   const shown = host === '0.0.0.0' ? '127.0.0.1' : host
@@ -213,9 +276,7 @@ export async function serveExport(options: ServeExportOptions): Promise<ServedEx
     build,
     app: game,
     async close() {
-      await game.dispose()
-      await running
-      platform.workers?.dispose()
+      await opened.close()
       http.closeAllConnections()
       await new Promise((done) => http.close(done))
     },
@@ -223,9 +284,11 @@ export async function serveExport(options: ServeExportOptions): Promise<ServedEx
 }
 
 /**
- * `node server.mjs [--port 7000] [--host 0.0.0.0] [--data ./data] [--static ./public] [--json]`:
- * flags, or PORT, HOST, SHARD_DATA and SHARD_STATIC. Serves until SIGINT or SIGTERM, then stores
- * every player and exits 0.
+ * `node server.mjs [--port 7000] [--host 0.0.0.0] [--dir .] [--data ./data] [--static ./public]
+ * [--json]`: flags, or PORT, HOST, SHARD_DIR, SHARD_DATA and SHARD_STATIC. With `--json` it prints
+ * one line when it accepts players, `{ url, http, … }`: the launch contract a sidecar host waits
+ * for (0111). Serves until SIGINT or SIGTERM (or, as a sidecar with SHARD_SIDECAR set, until its
+ * stdin closes), then stores every player and exits 0.
  */
 export async function serverMain(
   entry: Omit<ServeExportOptions, 'port' | 'host' | 'dataDir' | 'staticDir' | 'seed'>,
@@ -239,6 +302,7 @@ export async function serverMain(
       host: { type: 'string' },
       data: { type: 'string' },
       static: { type: 'string' },
+      dir: { type: 'string' },
       seed: { type: 'string' },
       json: { type: 'boolean' },
     },
@@ -248,7 +312,12 @@ export async function serverMain(
     process.stderr.write(`--port ${values.port ?? env.PORT} isn't a port\n`)
     process.exit(3)
   }
-  const dir = resolve(entry.dir)
+  // Inside a compiled executable (0111) the entry's own folder is virtual: the data is beside the
+  // executable, or wherever SHARD_DIR (a sidecar host) says.
+  const virtual = /\$bunfs|~BUN/.test(entry.dir)
+  const dir = resolve(
+    values.dir ?? env.SHARD_DIR ?? (virtual ? dirname(process.execPath) : entry.dir),
+  )
   const staticDir =
     values.static ??
     env.SHARD_STATIC ??
@@ -257,6 +326,7 @@ export async function serverMain(
   try {
     served = await serveExport({
       ...entry,
+      dir,
       port,
       host: values.host ?? env.HOST,
       dataDir: values.data ?? env.SHARD_DATA,
@@ -288,6 +358,13 @@ export async function serverMain(
   await new Promise<void>((done) => {
     process.once('SIGINT', done)
     process.once('SIGTERM', done)
+    // A sidecar (0111) stops with the app that started it: when the app dies, however it dies,
+    // the OS closes the app's end of this pipe.
+    if (env.SHARD_SIDECAR) {
+      process.stdin.once('end', done)
+      process.stdin.once('close', done)
+      process.stdin.resume()
+    }
   })
   process.stderr.write('Stopping: saving players…\n')
   await served.close()

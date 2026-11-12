@@ -345,3 +345,169 @@ describe('shard export --target server (0110)', () => {
     timeout(600_000),
   )
 })
+
+/** A server process's ready line (the launch contract, 0111): `{ url, http }` on stdout. */
+function readyLine(child: ReturnType<typeof spawn>): Promise<{ url: string; http: string }> {
+  return new Promise((done, fail) => {
+    let text = ''
+    let err = ''
+    child.stdout!.on('data', (d) => {
+      text += d
+      const line = text.split('\n').find((l) => l.startsWith('{'))
+      if (line) {
+        try {
+          done(JSON.parse(line))
+        } catch {}
+      }
+    })
+    child.stderr!.on('data', (d) => {
+      err += d
+    })
+    child.on('exit', (code) => fail(new Error(`exited ${code}: ${err}`)))
+  })
+}
+
+/** A coin-rush client from source joins `url` and sees the player and the ten coins. */
+async function joins(url: string): Promise<number> {
+  const code = await loadHeadlessCode({ root: coinRush, code: 'source' })
+  const net = projectNet(code.project)!
+  const app = code.build([
+    netPlugin({ ...net, role: 'client', transport: webSocketTransport(), address: url }),
+  ])
+  await app.init()
+  const seen = () => netSession(app.world).client!.byNetId.size
+  for (let i = 0; i < 600 && seen() < 11; i++) {
+    app.update(1 / 60)
+    await new Promise((r) => setTimeout(r, 5))
+  }
+  const n = seen()
+  await app.dispose()
+  await code.close()
+  return n
+}
+
+// Compiling needs Bun; CI installs it, so there a missing Bun fails instead of skipping.
+const noBun = spawnSync('bun', ['--version']).error !== undefined && !process.env.SHARD_CI
+
+describe('servers compiled with Bun (0111)', () => {
+  it.skipIf(noBun)(
+    'the generated server and a custom one (risen-shaped) meet the launch contract as executables',
+    async () => {
+      const out = tempDir()
+      const exported = shard(
+        ['export', '--target', 'server', '--compile', '--out', out, '--json'],
+        coinRush,
+      )
+      expect(exported.code, exported.stderr).toBe(0)
+      const binary = exported.json().binary.file as string
+
+      // From another folder: the executable finds its data beside itself. Started as a sidecar,
+      // it also stops when its stdin closes, as when the app that started it dies.
+      const generated = spawn(binary, ['--port', '0', '--json'], {
+        cwd: tempDir(),
+        env: { ...process.env, SHARD_SIDECAR: '1' },
+      })
+      onTestFinished(() => {
+        if (generated.exitCode === null) generated.kill('SIGKILL')
+      })
+      const g = await readyLine(generated)
+      expect(await joins(g.url)).toBe(11)
+      const gExit = new Promise<number | null>((r) => generated.on('exit', r))
+      generated.stdin!.end()
+      expect(await gExit).toBe(0)
+
+      // A project's own server, compiled from its source, opening the export via SHARD_DIR.
+      const { compileServer } = await import('./sidecar')
+      const custom = compileServer({
+        entry: join(here, '../fixtures/custom-server/main.ts'),
+        outfile: join(tempDir(), 'custom-server'),
+      })
+      const child = spawn(custom.file, ['--json'], {
+        cwd: tempDir(),
+        env: { ...process.env, SHARD_DIR: out, PORT: '0', SHARD_DATA: tempDir() },
+      })
+      onTestFinished(() => {
+        if (child.exitCode === null) child.kill('SIGKILL')
+      })
+      const c = await readyLine(child)
+      expect(await (await fetch(`${c.http}/health`)).json()).toMatchObject({ custom: true })
+      expect(await joins(c.url)).toBe(11)
+      const cExit = new Promise<number | null>((r) => child.on('exit', r))
+      child.kill('SIGTERM')
+      if (process.platform !== 'win32') expect(await cExit).toBe(0)
+    },
+    timeout(900_000),
+  )
+})
+
+describe('shard export --target tauri (0111)', () => {
+  it(
+    '--init scaffolds the app once; later exports rewrite the export, check the app, and never edit it',
+    () => {
+      const dir = tempDir()
+      const app = join(dir, 'src-tauri')
+      const out = join(dir, 'tauri')
+      const args = ['export', '--target', 'tauri', '--init', '--app', app, '--out', out, '--json']
+      const first = shard(args, mazeChase)
+      expect(first.code, first.stderr).toBe(0)
+      const report = first.json()
+      expect(report.app.scaffolded).toEqual(
+        expect.arrayContaining(['Cargo.toml', 'src/lib.rs', 'tauri.conf.json', 'icons/icon.png']),
+      )
+      expect(report.warnings.filter((w: string) => w.startsWith('export/tauri-mismatch'))).toEqual(
+        [],
+      )
+      // The page and its data apart; the data packed (desktop exports pack by default).
+      expect(existsSync(join(out, 'page/index.html'))).toBe(true)
+      const build = JSON.parse(readFileSync(join(out, 'data/build.json'), 'utf8'))
+      expect(build.packs).toHaveLength(1)
+      const conf = JSON.parse(readFileSync(join(app, 'tauri.conf.json'), 'utf8'))
+      expect(conf.build.frontendDist).toBe('../tauri/page')
+      expect(conf.bundle.resources).toEqual({ '../tauri/data/': 'game/' })
+      expect(readFileSync(join(app, 'src/lib.rs'), 'utf8')).toContain('tauri_plugin_shard::init()')
+
+      const files = ['Cargo.toml', 'src/lib.rs', 'tauri.conf.json', 'capabilities/default.json']
+      const before = files.map((f) => readFileSync(join(app, f), 'utf8'))
+      const second = shard(args, mazeChase)
+      expect(second.code, second.stderr).toBe(0)
+      expect(second.json().app.scaffolded).toEqual([])
+      expect(files.map((f) => readFileSync(join(app, f), 'utf8'))).toEqual(before)
+
+      // The developer's app drifts: the export says so and leaves it alone.
+      const drifted = before[2]!.replace('"../tauri/page"', '"../elsewhere"')
+      writeFileSync(join(app, 'tauri.conf.json'), drifted)
+      const third = shard(args, mazeChase)
+      expect(third.code, third.stderr).toBe(0)
+      expect(third.json().warnings).toEqual(
+        expect.arrayContaining([expect.stringContaining('build.frontendDist')]),
+      )
+      expect(readFileSync(join(app, 'tauri.conf.json'), 'utf8')).toBe(drifted)
+
+      // The split layout runs headless like the project.
+      const run = ['--frames', '120', '--seed', '2', '--json']
+      expect(shard(['run', '--build', out, ...run], mazeChase).json().hash).toBe(
+        shard(['run', ...run], mazeChase).json().hash,
+      )
+    },
+    timeout(900_000),
+  )
+
+  it('a multiplayer app set to play "local" needs its server bundled (--sidecar)', () => {
+    const dir = tempDir()
+    const r = shard(
+      [
+        'export',
+        '--target',
+        'tauri',
+        '--app',
+        join(dir, 'app'),
+        '--out',
+        join(dir, 'out'),
+        '--json',
+      ],
+      coinRush,
+    )
+    expect(r.code).not.toBe(0)
+    expect(JSON.parse(r.stdout).error.code).toBe('export/net-url-missing')
+  })
+})

@@ -69,6 +69,9 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
+      # Compiled game servers (0111): the CLI's export tests compile them with Bun.
+      - uses: oven-sh/setup-bun@v2
+
       # GPU tests run on Dawn in Node, which needs a Vulkan driver: Mesa's software one (lavapipe).
       - name: Install a software Vulkan driver
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
@@ -160,6 +163,8 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
+      - uses: oven-sh/setup-bun@v2
+
       - run: pnpm install --frozen-lockfile
 
       - uses: actions/cache/restore@v4
@@ -203,6 +208,45 @@ jobs:
         with:
           path: .turbo/cache
           key: turbo-test-windows-${{ matrix.shard }}-${{ github.sha }}
+
+  # Desktop apps (0111): tauri-plugin-shard's tests, and an app scaffolded by `shard export --target
+  # tauri --init --sidecar` compiling against it, on the OSes whose webviews run WebGPU.
+  desktop:
+    name: Desktop shell (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: cargo test -p tauri-plugin-shard
+
+      - name: Export coin-rush as a Tauri app with its server, and compile the app
+        run: |
+          cd examples/coin-rush
+          pnpm exec shard export --target tauri --init --sidecar
+          cargo check --manifest-path src-tauri/Cargo.toml
+        env:
+          # Windows runners render on WARP (the shader bake runs the export).
+          SHARD_DAWN_OPTIONS: ${{ matrix.os == 'windows-latest' && 'adapter=Microsoft Basic Render Driver' || '' }}
 
   # The playground's browser tests (browser.yml), with a curated set of demos on both backends; its
   # nightly run covers every demo.

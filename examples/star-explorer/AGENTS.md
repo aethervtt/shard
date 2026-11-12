@@ -24,6 +24,7 @@ shard capture plan.json   # real-browser shots and perf records; then compare, a
 shard export --json       # the game as static files in dist/web; --dry-run lists what ships, --pack packs the data
 shard run --build dist/web  # run the export headless: same hash as `shard run`
 shard export --target server --static  # multiplayer: node dist/server/server.mjs serves game and page
+shard export --target tauri --init      # desktop app: src-tauri is yours after --init; --sidecar bundles the server
 shard docs              # regenerate this block, .agents/, and .shard/schemas/
 shard mcp                 # MCP server for this project (see .mcp.json)
 ```

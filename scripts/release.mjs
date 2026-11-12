@@ -160,9 +160,9 @@ function buildPackage(name, { app = false } = {}) {
 
   // Files loaded at runtime by URL, or copied into projects (nature's textures), next to dist as
   // they are next to src. An app also ships its entry point (bin/) and the pages it serves (the
-  // CLI's runner/, compiled by Vite at run time).
+  // CLI's runner/, compiled by Vite at run time, and bun/, the script Bun compiles servers with).
   const extra = []
-  for (const sub of app ? ['bin', 'runner'] : ['wasm', 'vendor', 'assets']) {
+  for (const sub of app ? ['bin', 'runner', 'bun'] : ['wasm', 'vendor', 'assets']) {
     if (existsSync(join(dir, sub))) {
       cpSync(join(dir, sub), join(target, sub), {
         recursive: true,

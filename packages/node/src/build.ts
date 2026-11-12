@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -30,6 +31,8 @@ export interface OpenBuildOptions {
   build?: BuildJson
   /** 'baseline': a compatibility-mode device (0064). */
   tier?: 'baseline'
+  /** Where the code is, when it isn't beside the data (a desktop export's `page/`, 0111). */
+  codeDir?: string
 }
 
 export interface OpenedBuild {
@@ -64,7 +67,10 @@ export function installFileFetch(): void {
  * What `shard run --build` and the export's shader bake use.
  */
 export async function openBuild(dir: string, options: OpenBuildOptions = {}): Promise<OpenedBuild> {
-  const root = resolve(dir)
+  // A desktop export (0111) keeps its page and its data apart: dist/tauri/page and /data.
+  const split = !existsSync(join(dir, 'build.json')) && existsSync(join(dir, 'data/build.json'))
+  const root = resolve(split ? join(dir, 'data') : dir)
+  const code = resolve(options.codeDir ?? (split ? join(dir, 'page') : root))
   let build = options.build
   if (!build) {
     try {
@@ -83,7 +89,7 @@ export async function openBuild(dir: string, options: OpenBuildOptions = {}): Pr
     storage: createMemoryStorage(),
     fs: buildFs(files.fs, build.files, build.packs),
   }
-  const mod = (await import(pathToFileURL(join(root, build.headless)).href)) as {
+  const mod = (await import(pathToFileURL(join(code, build.headless)).href)) as {
     boot(o: object): Promise<BuildHandle>
   }
   const handle = await mod.boot({
@@ -94,7 +100,7 @@ export async function openBuild(dir: string, options: OpenBuildOptions = {}): Pr
     startScene: options.startScene,
     tier: options.tier,
     // Generator jobs on worker threads, as `shard run` runs them.
-    procgenWorker: build.workers.procgen && pathToFileURL(join(root, build.workers.procgen)).href,
+    procgenWorker: build.workers.procgen && pathToFileURL(join(code, build.workers.procgen)).href,
   })
   return {
     dir: root,
@@ -118,12 +124,13 @@ export async function bakeBuildShaders(
   build: BuildJson,
   scenes: readonly string[],
   frames: number,
+  codeDir?: string,
 ): Promise<{ version: 1; shaders: { key: string }[] } | undefined> {
   const shaders = new Map<string, { key: string }>()
   for (const tier of [undefined, 'baseline'] as const) {
     let opened: OpenedBuild
     try {
-      opened = await openBuild(dir, { build, startScene: false, tier })
+      opened = await openBuild(dir, { build, startScene: false, tier, codeDir })
     } catch (err) {
       // The export's own ShardError, not this one: match the code.
       if ((err as { code?: string }).code === 'gpu/no-adapter') return undefined
