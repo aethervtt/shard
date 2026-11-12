@@ -163,22 +163,11 @@ them: budget keys are span names.
 |---|---|---|
 | [0074](0074-profiler.md) | Profiler (spans, captures with attributed worst frames, Chrome traces, borrowed sampling) | implemented |
 | [0075](0075-performance-budgets.md) | Performance budgets (named machines, scenario frame slices, unit costs, ablation on tile GPUs) | accepted |
+| [0110](0110-export.md) | Export (static web builds, asset packs, server builds) | accepted |
+| [0111](0111-desktop-shells.md) | Desktop shells (Tauri and Electron exports around the web build) | accepted |
 
-Notes for the web export spec, not yet written:
-
-- **Static by default.** An export is plain files any static host serves (itch.io, GitHub Pages,
-  a CDN). The build does the heavy work up front: a manifest with content hashes, brotli
-  pre-compressed files, and streamed data packed for few requests. That covers 0072's cells
-  packed into region bundles with the cell index, 0071's terrain packs read by HTTP `Range`, and
-  0073's proxies.
-- **An optional server.** `shard serve --prod` (or `shard export --server`) serves the same build
-  on Node, so Bun works too. It adds what static files can't: one response for everything
-  entering range (cells, the assets they need, proxies), terrain pages by key, cache and
-  compression headers per build, and game services such as server-side saves (0038's diffs),
-  accounts, and later multiplayer.
-- **The client never requires the server.** The web Platform fetches URLs. It uses the server's
-  extras when the server advertises them and falls back to plain files otherwise, so one build
-  runs in both places.
+0110 is the export: a static web build first, then the game server and asset packs. 0111 wraps
+that web build in Tauri and Electron shells.
 
 ## E1 — Embedding: Aether
 

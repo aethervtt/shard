@@ -46,6 +46,7 @@ shard test                            # gameplay tests in tests/*.test.ts
 shard track scene.json --out t.bin    # record a physics track (0053) headless; prints its hash
 shard bench structure                 # the structure fixtures (0055) against their budgets
 shard shaders bake                    # WebGL2 translations of every scene's shaders (0064)
+shard export [--dry-run]              # static web build in dist/web (0110); run --build dist/web hashes it
 shard capture plan.json               # real-browser shots, checked steps, perf records (0062)
 shard compare / shard approve <shot> --reason "…" / shard perf-check <records> --plan plan.json
 shard docs                            # regenerate AGENTS.md block, .agents/, .shard/schemas

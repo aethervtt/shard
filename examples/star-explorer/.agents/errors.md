@@ -158,6 +158,12 @@ Every engine error is a `ShardError` with one of these codes.
 | `ecs/missing-resource` | @aethervtt/shard-core | Insert it with insertResource, or add the plugin that provides it. |
 | `ecs/no-resource-init` | @aethervtt/shard-core | Use insertResource with a value instead. |
 | `effects/invalid-sequence` | @aethervtt/shard-effects |  |
+| `export/bundle-failed` | @aethervtt/shard-cli |  |
+| `export/not-a-build` | @aethervtt/shard-node | Pass the folder `shard export` wrote (dist/web by default). |
+| `export/not-imported` | @aethervtt/shard-cli | Run `shard import` first. |
+| `export/plugin-missing` | @aethervtt/shard-cli |  |
+| `export/unknown-target` | @aethervtt/shard-cli | Targets: web. Server and desktop builds follow (specs 0110, 0111). |
+| `export/validate-failed` | @aethervtt/shard-cli | Run `shard import` to see which, and fix them. |
 | `fog/invalid-regions` | @aethervtt/shard-fog | { rev, regions: [{ op: "hide" \| "reveal", strength?, feather?, shape }] } with shapes rect, polygon, multipolygon or brush. |
 | `gltf/accessor-out-of-range` | @aethervtt/shard-gltf | The file is truncated or its byteOffset/count are wrong. |
 | `gltf/buffer-missing` | @aethervtt/shard-gltf | Keep .bin files next to the .gltf, under the same name the file references. |
@@ -271,7 +277,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `physics/worker-crashed` | @aethervtt/shard-physics | The next recording starts a new worker. |
 | `platform/bad-storage-key` | @aethervtt/shard-platform-node | Keys are relative paths like "saves/slot1.json". |
 | `platform/codec-fetch` | @aethervtt/shard-platform-node |  |
-| `platform/fs-not-found` | @aethervtt/shard-platform-node |  |
+| `platform/fs-not-found` | @aethervtt/shard-platform | Add it to export.include in shard.json if the game loads it by a computed path. |
 | `platform/fs-read-only` | @aethervtt/shard-platform-web | Writes need a writable host such as Studio or the CLI. |
 | `platform/no-storage` | @aethervtt/shard-platform-web | Private browsing modes and some embedded webviews disable it. |
 | `platform/node-codec` | @aethervtt/shard-platform-node |  |

@@ -55,6 +55,7 @@ import {
 import { localizationKeysIn, validateLocalization } from '@aethervtt/shard-text'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { type BaselineReport, validateBaseline } from './baseline'
+import { runBuild } from './export-command'
 import { Hub, localTarget, type ProtocolTarget } from './hub'
 import { createMcpServer } from './mcp'
 import { generatedGlb } from './nature-command'
@@ -639,11 +640,15 @@ async function withProject<T>(
 export async function run(ctx: CommandContext): Promise<number> {
   const frames = flagNumber(ctx.flags.frames, 600)
   if (ctx.flags.net !== undefined) return runNet(ctx, frames)
+  if (ctx.flags.build !== undefined) return runBuild(ctx, frames)
   const scene = ctx.flags.scene as string | undefined
   const seed = ctx.flags.seed === undefined ? undefined : flagNumber(ctx.flags.seed, 0)
   return withProject(ctx, { loadStartScene: !scene, seed }, async (p) => {
-    if (scene)
+    if (scene) {
       loadScene(p.app.world, JSON.parse(await p.platform.fs.readText(scene)), { id: scene })
+      // Ready like the start scene: frames step synchronously, so loads must land first.
+      await whenSceneReady(p.app.world, scene)
+    }
     const start = performance.now()
     const loop = () => {
       for (let i = 0; i < frames; i++) p.app.update(1 / p.app.fixedHz)

@@ -36,6 +36,7 @@ import {
   ListToolsRequestSchema,
   ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
+import { exportProject } from './export-command'
 import type { ProtocolTarget } from './hub'
 import { BUDGET_TOOLS } from './mcp-budgets'
 
@@ -534,6 +535,28 @@ export const TOOLS: Tool[] = [
     'project.reload',
     'Rebuilds the project scripts and hot reloads them now, keeping the world. Saving a file does this automatically; call it to force a reload or to see the report.',
   ),
+  {
+    name: 'export',
+    description:
+      'Exports the game as static web files (shard export, spec 0110): imports, validates, bundles, bakes shaders, and writes dist/web. Returns the report: build id, sizes (code loaded at startup, lazily, by the worker; WASM), each chunk with its packages, every shipped file and why it ships (a scene, a reference, export.include), the asset sources left out, and warnings. "dryRun": true only lists what would ship. Run `shard run --build dist/web` to check the export plays like the project.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        dryRun: { type: 'boolean', default: false },
+        out: {
+          type: 'string',
+          description: 'Output folder, relative to the project. Default dist/web.',
+        },
+      },
+    },
+    run: async (ctx, args) =>
+      text(
+        await exportProject(ctx.root, {
+          dryRun: args.dryRun === true,
+          out: typeof args.out === 'string' ? args.out : undefined,
+        }),
+      ),
+  },
   {
     name: 'typecheck',
     description:

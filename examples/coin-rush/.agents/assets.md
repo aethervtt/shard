@@ -116,6 +116,36 @@ Files: `*.strings.json`
 
 No import settings.
 
+## `data/navgrid`
+
+Files: `*.navgrid.json`
+
+No import settings.
+
+## `data/atlas`
+
+Files: `*.atlas.json`
+
+No import settings.
+
+## `atlas-pack`
+
+Files: `*.atlas-pack.json`
+
+No import settings.
+
+## `data/clip`
+
+Files: `*.clip.json`
+
+No import settings.
+
+## `data/tilemap`
+
+Files: `*.tilemap.json`
+
+No import settings.
+
 ## `data/mask`
 
 Files: `*.mask.json`
@@ -198,36 +228,6 @@ Files: `*.gltf`, `*.glb`
 ## `data/tree`
 
 Files: `*.tree.json`
-
-No import settings.
-
-## `data/navgrid`
-
-Files: `*.navgrid.json`
-
-No import settings.
-
-## `data/atlas`
-
-Files: `*.atlas.json`
-
-No import settings.
-
-## `atlas-pack`
-
-Files: `*.atlas-pack.json`
-
-No import settings.
-
-## `data/clip`
-
-Files: `*.clip.json`
-
-No import settings.
-
-## `data/tilemap`
-
-Files: `*.tilemap.json`
 
 No import settings.
 

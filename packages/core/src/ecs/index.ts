@@ -8,6 +8,7 @@ export {
   makeEntity,
 } from './entity'
 export { EventQueue, EventReader } from './events'
+export { worldHashRows } from './hash'
 export { ChildOf, Children, Derived } from './hierarchy'
 export {
   type LifecycleEvent,

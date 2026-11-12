@@ -23,6 +23,7 @@ import {
   validate,
 } from './commands'
 import { dev } from './dev'
+import { exportCommand } from './export-command'
 import { nature } from './nature-command'
 import { lobby, server } from './net-command'
 import { createOutput, EXIT, errorJson, formatError } from './output'
@@ -63,7 +64,11 @@ const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; 
   },
   run: {
     run,
-    help: 'run [--frames 600] [--scene p] [--cpu-prof] [--net clients=2,latency=0.08,loss=0.05]   headless run; prints a world hash (--net: a server and N clients, no GPU)',
+    help: 'run [--frames 600] [--scene p] [--cpu-prof] [--net clients=2,latency=0.08,loss=0.05] [--build dist/web]   headless run; prints a world hash (--net: a server and N clients, no GPU; --build: an export)',
+  },
+  export: {
+    run: exportCommand,
+    help: 'export [--target web] [--out dist/web] [--dry-run] [--sourcemap]   the project as static files (0110)',
   },
   profile: {
     run: profile,
@@ -199,6 +204,10 @@ export async function main(argv: string[]): Promise<number> {
         lobby: { type: 'string' },
         material: { type: 'string' },
         dir: { type: 'string' },
+        target: { type: 'string' },
+        build: { type: 'string' },
+        'dry-run': { type: 'boolean' },
+        sourcemap: { type: 'boolean' },
         help: { type: 'boolean', short: 'h' },
       },
     })

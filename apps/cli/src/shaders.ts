@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { type ShardError, ShardError as ShardErrorClass } from '@aethervtt/shard-core'
 import { GpuContext } from '@aethervtt/shard-gpu'
@@ -216,6 +216,8 @@ export async function bakeShaders(
   // resolve, not join: an absolute --out stays absolute rather than landing under the project.
   const file = resolve(root, out)
   await mkdir(dirname(file), { recursive: true })
-  await writeFile(file, json)
+  // Written whole or not at all: an export may read it while another bake runs (0110).
+  await writeFile(`${file}.${process.pid}.tmp`, json)
+  await rename(`${file}.${process.pid}.tmp`, file)
   return report
 }

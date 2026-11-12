@@ -54,6 +54,29 @@ export const Manifest = defineSchema(
       },
       { description: 'Graphics tiers (0064).' },
     ),
+    export: t.struct(
+      {
+        include: t.list(t.string, {
+          default: [],
+          description:
+            'Globs of project files to ship that nothing reaches by reference (a scene or asset the code loads by a computed path).',
+        }),
+        exclude: t.list(t.string, {
+          default: [],
+          description: 'Globs of project files never to ship, even when referenced.',
+        }),
+        bakeFrames: t.u32({
+          default: 60,
+          description:
+            'Frames each shipped scene runs for the shader bake (0056); 0 skips the bake, so WESL loads at run time.',
+        }),
+        app: t.struct(
+          { title: t.string({ description: 'Page title. Default: the project name.' }) },
+          { description: 'How the game presents itself.' },
+        ),
+      },
+      { description: '`shard export` (0110): what ships and how.' },
+    ),
     plugins: t.list(t.string, {
       default: ['render/forward', 'input'],
       description:

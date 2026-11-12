@@ -1,5 +1,12 @@
 import { ShardError } from '@aethervtt/shard-core'
-import type { AudioBackend, Platform, PlatformFileSystem, Workers } from '@aethervtt/shard-platform'
+import {
+  type AudioBackend,
+  type BuildFiles,
+  buildFs,
+  type Platform,
+  type PlatformFileSystem,
+  type Workers,
+} from '@aethervtt/shard-platform'
 import { createWebAudioBackend } from './audio'
 import { createWebPerformance } from './performance'
 import { createIndexedDbStorage } from './storage'
@@ -12,6 +19,8 @@ export interface WebPlatformOptions {
   storageName?: string
   /** Web workers for `workers` (made on first use). 0 runs jobs inline. Default: cores − 1, 1 to 8. */
   workers?: number
+  /** An export's files (0110): project paths read through `buildFs` from their hashed URLs. */
+  files?: BuildFiles
 }
 
 export function createWebPlatform(options: WebPlatformOptions = {}): Platform {
@@ -70,7 +79,7 @@ export function createWebPlatform(options: WebPlatformOptions = {}): Platform {
       audio ??= createWebAudioBackend()
       return audio
     },
-    fs,
+    fs: options.files ? buildFs(fs, options.files) : fs,
     storage: createIndexedDbStorage(options.storageName),
     performance: createWebPerformance(),
     clock: { now: () => performance.now() },

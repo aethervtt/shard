@@ -4,6 +4,7 @@ import type { Workers } from './workers'
 
 export type * from './audio-runtime'
 export { validateAudioAutomation } from './audio-runtime'
+export { type BuildFile, type BuildFiles, buildFs } from './build-fs'
 
 /**
  * Everything the engine needs from its host. The engine only talks to this interface;

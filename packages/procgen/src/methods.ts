@@ -7,13 +7,9 @@ import {
   t,
   type World,
 } from '@aethervtt/shard-core'
-import {
-  encodePng,
-  type PreviewImage,
-  previewAsset,
-  previewKtx2,
-  toBase64,
-} from '@aethervtt/shard-protocol'
+// Previews load the protocol's image helpers when an agent asks for one, so a game that never
+// previews (an export, 0110) doesn't ship them.
+import type { PreviewImage } from '@aethervtt/shard-protocol'
 import type { AppMethod } from '@aethervtt/shard-runtime'
 import {
   allGenerators,
@@ -154,6 +150,7 @@ export async function previewOutput(
   request: GenRequest,
   size: number,
 ): Promise<PreviewImage> {
+  const { previewAsset, previewKtx2 } = await import('@aethervtt/shard-protocol')
   const runtime = procgen(world)
   const gen = findGenerator(request.generator)!
   const entry = runtime.entryFor(request)
@@ -210,6 +207,7 @@ export const procgenMethods: AppMethod[] = [
       const asset = assetServer(world).entry(p.generator as string)
       if (asset && !(p.generator as string).includes('.gen.json') && findAssetPreview(asset.type)) {
         const image = await findAssetPreview(asset.type)!(world, asset.path, size * 2, size, {})
+        const { encodePng, toBase64 } = await import('@aethervtt/shard-protocol')
         const png = await encodePng(image.data, image.width, image.height)
         return {
           width: image.width,
@@ -245,6 +243,7 @@ export const procgenMethods: AppMethod[] = [
         image = await previewOutput(world, request, size)
         keys.push(procgen(world).lastResult(procgen(world).entryFor(request).guid)?.key ?? '')
       }
+      const { encodePng, toBase64 } = await import('@aethervtt/shard-protocol')
       const png = await encodePng(image.data, image.width, image.height)
       return {
         width: image.width,
