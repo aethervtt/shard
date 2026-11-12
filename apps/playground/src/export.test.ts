@@ -2,7 +2,7 @@
 // static files, starts on both backends without errors, draws, and loads neither the shader linker
 // nor naga (both are baked). Needs Playwright's Chromium with WebGPU and WebGL2 (see browser-tests.ts).
 
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -10,7 +10,7 @@ import { extname, join, normalize, resolve } from 'node:path'
 import { timeout } from '@aethervtt/shard-core/test-env'
 import { browserLaunch, decodePng } from '@aethervtt/shard-verify/node'
 import { type Browser, chromium } from 'playwright'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, onTestFinished } from 'vitest'
 import { checkRequired, webGpuUnavailable, webgl2Unavailable } from './browser-tests'
 
 const repo = resolve(import.meta.dirname, '../../..')
@@ -121,4 +121,57 @@ describe('web export (0110)', () => {
       timeout(180_000),
     )
   }
+
+  it.skipIf(skipGpu && skipGl)(
+    'a multiplayer page served by its game server joins it (coin-rush, --target server --static)',
+    async () => {
+      const dir = join(out, 'server')
+      const exported = spawnSync(
+        process.execPath,
+        [
+          join(repo, 'apps/cli/bin/shard.mjs'),
+          'export',
+          '--target',
+          'server',
+          '--static',
+          '--out',
+          dir,
+        ],
+        { cwd: join(repo, 'examples/coin-rush'), encoding: 'utf8', timeout: timeout(600_000) },
+      )
+      expect(exported.status, exported.stderr).toBe(0)
+      const child = spawn(process.execPath, ['server.mjs', '--port', '0', '--json'], { cwd: dir })
+      onTestFinished(() => {
+        if (child.exitCode === null) child.kill('SIGKILL')
+      })
+      const info = await new Promise<{ http: string }>((done, fail) => {
+        let text = ''
+        child.stdout.on('data', (d) => {
+          text += d
+          try {
+            done(JSON.parse(text))
+          } catch {}
+        })
+        child.on('exit', (code) => fail(new Error(`server exited ${code}`)))
+      })
+      const page = await browser.newPage({ viewport: { width: 960, height: 540 } })
+      const errors: string[] = []
+      page.on('pageerror', (error) => errors.push(error.message))
+      page.on('console', (m) => {
+        if (m.type() === 'error') errors.push(m.text())
+      })
+      await page.goto(`${info.http}/`)
+      await page.waitForFunction(() => document.getElementById('status')?.textContent === '', {
+        timeout: timeout(60_000),
+      })
+      // No ?connect and no config: the page found its server through /healthz and joined /net.
+      const players = async () => (await (await fetch(`${info.http}/healthz`)).json()).players
+      for (let i = 0; i < 100 && (await players()) < 1; i++) await page.waitForTimeout(100)
+      expect(await players()).toBe(1)
+      expect(errors).toEqual([])
+      await page.close()
+      child.kill('SIGTERM')
+    },
+    timeout(600_000),
+  )
 })

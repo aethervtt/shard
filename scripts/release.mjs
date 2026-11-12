@@ -421,8 +421,38 @@ async function cliCheck(built) {
     throw new Error(`shard init pinned ${fresh.dependencies['@aethervtt/shard-core']}`)
   }
 
-  // shard dev: the page's import map points into node_modules, at dist entries.
   const { spawn } = await import('node:child_process')
+  // The server export (0110), bundled from the published engine. Copied beside the game, so
+  // node_modules isn't above it: server.mjs runs on what it ships.
+  shard(['export', '--target', 'server', '--out', 'dist/server'])
+  const served = join(work, 'server')
+  cpSync(join(game, 'dist/server'), served, { recursive: true })
+  console.log('  $ node server.mjs --port 0 --json (beside the game, nothing installed)')
+  const server = spawn(process.execPath, ['server.mjs', '--port', '0', '--json'], { cwd: served })
+  try {
+    const info = await new Promise((resolveInfo, reject) => {
+      let text = ''
+      let err = ''
+      server.stdout.on('data', (d) => {
+        text += d
+        try {
+          resolveInfo(JSON.parse(text))
+        } catch {}
+      })
+      server.stderr.on('data', (d) => {
+        err += d
+      })
+      server.on('exit', (code) => reject(new Error(`server.mjs exited ${code}: ${err}`)))
+    })
+    const health = await (await fetch(`${info.http}/healthz`)).json()
+    if (health.build !== info.build) throw new Error(`/healthz says ${JSON.stringify(health)}`)
+  } finally {
+    const exited = new Promise((r) => server.once('exit', r))
+    server.kill('SIGTERM')
+    await Promise.race([exited, new Promise((r) => setTimeout(r, 5000))])
+  }
+
+  // shard dev: the page's import map points into node_modules, at dist entries.
   console.log('  $ shard dev --port 5293')
   const child = spawn(join(game, 'node_modules/.bin/shard'), ['dev', '--port', '5293', '--json'], {
     cwd: game,

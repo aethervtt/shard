@@ -65,6 +65,11 @@ export const Manifest = defineSchema(
           default: [],
           description: 'Globs of project files never to ship, even when referenced.',
         }),
+        pack: t.enum(['auto', 'always', 'never'], {
+          default: 'auto',
+          description:
+            'Data in .shardpak files read by range, or one file each. auto: packed for --target server, loose for the web (hashed files suit a CDN).',
+        }),
         bakeFrames: t.u32({
           default: 60,
           description:
@@ -73,6 +78,20 @@ export const Manifest = defineSchema(
         app: t.struct(
           { title: t.string({ description: 'Page title. Default: the project name.' }) },
           { description: 'How the game presents itself.' },
+        ),
+        net: t.struct(
+          {
+            url: t.string({
+              description: 'The game server a page joins: wss://play.example.com/net.',
+            }),
+            lobby: t.string({
+              description: 'The lobby ?host and ?join use (0091): wss://lobby.example.com.',
+            }),
+          },
+          {
+            description:
+              'Where a multiplayer page plays, written to config.json (editable after export). Without it, a page served by its game server (--target server --static) joins it.',
+          },
         ),
       },
       { description: '`shard export` (0110): what ships and how.' },

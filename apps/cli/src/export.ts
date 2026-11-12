@@ -6,11 +6,13 @@
 import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { builtinModules } from 'node:module'
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { brotliCompressSync, constants, gzipSync } from 'node:zlib'
 import { ShardError } from '@aethervtt/shard-core'
 import { generatorCodeHashes, projectModuleGraph } from '@aethervtt/shard-node'
+import type { BuildFile } from '@aethervtt/shard-platform'
 import { createNodePlatform } from '@aethervtt/shard-platform-node'
 import {
   type BuildJson,
@@ -20,7 +22,8 @@ import {
   type ManifestValue,
   resolvePlugins,
 } from '@aethervtt/shard-project'
-import { build as viteBuild } from 'vite'
+import { type InlineConfig, build as viteBuild } from 'vite'
+import { packFiles } from './pack'
 
 const here = dirname(fileURLToPath(import.meta.url))
 
@@ -44,10 +47,12 @@ export interface Catalog {
 }
 
 export interface ExportReport {
-  target: 'web'
+  target: 'web' | 'server'
   out: string
   build: string
   files: number
+  /** `.shardpak` files the data went into; 0 when it shipped loose. */
+  packs: number
   bytes: { raw: number; gzip: number; brotli: number }
   /** The page's code: the entry chunk and what loads later, brotli bytes. */
   code: { entry: number; lazy: number; worker: number; wasm: number }
@@ -69,7 +74,13 @@ export interface ExportReport {
 export interface ExportOptions {
   /** Project folder. */
   root: string
-  /** Output folder, relative to the project. Default `dist/web`. */
+  /** What to build (0110). Default 'web'. */
+  target?: 'web' | 'server'
+  /** The project calls `project.net`: the page joins a server or a room (0092). */
+  multiplayer?: boolean
+  /** Data in `.shardpak` files. Default `export.pack`, else true for a server, false for the web. */
+  pack?: boolean
+  /** Output folder, relative to the project. Default `dist/<target>`. */
   out?: string
   /** Stop after reachability and the plugin check; write nothing. */
   dryRun?: boolean
@@ -302,6 +313,9 @@ function indexHtml(title: string): string {
       #status { position: fixed; left: 12px; bottom: 10px; padding: 6px 10px; border-radius: 6px; background: rgba(8, 10, 16, 0.72); white-space: pre-wrap; max-width: 70vw; }
       #status:empty { display: none; }
       #status.error { background: rgba(90, 16, 20, 0.9); }
+      #room { position: fixed; left: 12px; top: 10px; padding: 6px 10px; border-radius: 6px; background: rgba(8, 10, 16, 0.72); }
+      #room b { color: #ffd34d; letter-spacing: 0.08em; }
+      #room a { color: #8fb4ff; }
     </style>
   </head>
   <body>
@@ -313,12 +327,97 @@ function indexHtml(title: string): string {
 `
 }
 
-function webEntry(entry: string, rows: string[], audio: boolean): string {
+function webEntry(entry: string, rows: string[], audio: boolean, multiplayer: boolean): string {
+  const plugins = `[${rows.join(', ')}]`
+  // Multiplayer pages (0110): where to play, and the peer-to-peer host and join of `shard dev`.
+  const net = multiplayer
+    ? `
+/** Where to play: ?connect or ?lobby, then config.json, then this page's own server if it has one. */
+async function netTarget(): Promise<{ url?: string; lobby?: string }> {
+  const json = async (path: string) => {
+    try {
+      const res = await fetch(new URL(path, document.baseURI))
+      return res.ok ? await res.json() : undefined
+    } catch {
+      return undefined
+    }
+  }
+  const config = (await json('config.json'))?.net ?? {}
+  const url = params.get('connect') ?? config.url
+  const lobby = params.get('lobby') ?? config.lobby
+  if (url || lobby) return { url, lobby }
+  // Served by its game server (shard export --target server --static): play there.
+  if (!(await json('healthz'))?.build) return {}
+  const own = new URL('net', document.baseURI)
+  own.protocol = own.protocol === 'https:' ? 'wss:' : 'ws:'
+  return { url: own.href }
+}
+
+function showRoom(code: string, mode: 'hosting' | 'joined') {
+  const badge = document.createElement('div')
+  badge.id = 'room'
+  const link = new URL(location.href)
+  link.searchParams.delete('host')
+  link.searchParams.set('join', code)
+  badge.innerHTML =
+    mode === 'hosting'
+      ? \`Hosting room <b>\${code}</b> · <a href="\${link.href}" target="_blank">join link</a>\`
+      : \`Room <b>\${code}</b>\`
+  document.body.append(badge)
+  ;(globalThis as { shardRoom?: object }).shardRoom = { code, mode }
+}
+
+async function joinGame(app: App, build: BuildJson, platform: Platform) {
+  const net = projectNet(project)!
+  const target = await netTarget()
+  const join = params.get('join')
+  if (params.has('host') || join) {
+    if (!target.lobby) {
+      throw new ShardError('net/no-lobby', '?host and ?join need a lobby', {
+        hint: 'Add ?lobby=<url>, or set export.net.lobby in shard.json (written to config.json).',
+      })
+    }
+    const session = webRtcLobby({ url: target.lobby })
+    if (join) {
+      app.addPlugin(netPlugin({ ...net, role: 'client', session, code: join }))
+      showRoom(join, 'joined')
+      return
+    }
+    // The game's server runs in this page next to the player's own client (0091).
+    const host = await startHost({
+      net: { ...net, meta: { project: build.project.name } },
+      session,
+      createApp: () => exportServerApp(build, ${plugins}, project, platform),
+      afterInit: (server) => prepareExportApp(server, platform, build),
+    })
+    addEventListener('pagehide', () => void host.stop())
+    app.addPlugin(netPlugin({ ...net, role: 'client', ...host.local }))
+    showRoom(host.code, 'hosting')
+  } else if (target.url) {
+    app.addPlugin(
+      netPlugin({ ...net, role: 'client', transport: webSocketTransport(), address: target.url }),
+    )
+  }
+}
+`
+    : ''
   return `// Generated by shard export (0110).
-import { createDomInputSource, createWebPlatform } from '@aethervtt/shard-platform-web'
-import { type BuildJson, startExport } from '@aethervtt/shard-project/export'
+${
+  multiplayer
+    ? `import { ShardError } from '@aethervtt/shard-core'
+import { netPlugin, startHost } from '@aethervtt/shard-net'
+import { webRtcLobby } from '@aethervtt/shard-net-webrtc'
+import { webSocketTransport } from '@aethervtt/shard-net-websocket'
+import type { Platform } from '@aethervtt/shard-platform'
+`
+    : ''
+}import { createDomInputSource, createWebPlatform } from '@aethervtt/shard-platform-web'
+import {
+  type BuildJson,
+  ${multiplayer ? 'exportServerApp,\n  prepareExportApp,\n  projectNet,\n  ' : ''}startExport,
+} from '@aethervtt/shard-project/export'
 import { ${rows.join(', ')} } from '@aethervtt/shard-project/plugins'
-import { animationFrameRunner } from '@aethervtt/shard-runtime'
+import { ${multiplayer ? 'type App, ' : ''}animationFrameRunner } from '@aethervtt/shard-runtime'
 import project from ${JSON.stringify(entry)}
 
 const canvas = document.getElementById('viewport') as HTMLCanvasElement
@@ -326,21 +425,25 @@ const status = document.getElementById('status') as HTMLElement
 // ?backend=webgpu|webgl2 insists on a graphics API, ?tier=baseline runs the baseline tier (0064).
 const params = new URLSearchParams(location.search)
 const backend = params.get('backend')
-
+${net}
 async function main() {
   const build = (await (await fetch(new URL('build.json', document.baseURI))).json()) as BuildJson
-  const platform = createWebPlatform({ files: build.files, storageName: \`shard:\${build.project.name}\` })
+  const platform = createWebPlatform({
+    files: build.files,
+    packs: build.packs,
+    storageName: \`shard:\${build.project.name}\`,
+  })
   const { app } = await startExport({
     build,
     platform,
-    plugins: [${rows.join(', ')}],
+    plugins: ${plugins},
     project,
     canvas,
     backend: backend === 'webgpu' || backend === 'webgl2' ? backend : 'auto',
     tier: params.get('tier') === 'baseline' ? 'baseline' : undefined,
     inputSource: createDomInputSource(canvas),
     audio: ${audio ? 'platform.audio' : 'undefined'},
-    procgenWorker: build.workers.procgen && new URL(build.workers.procgen, document.baseURI).href,
+    procgenWorker: build.workers.procgen && new URL(build.workers.procgen, document.baseURI).href,${multiplayer ? '\n    configure: (a) => joinGame(a, build, platform),' : ''}
   })
   status.textContent = ''
   canvas.focus()
@@ -364,6 +467,33 @@ import ${JSON.stringify(entry)}
 export { runGeneratorJob, warmUp } from '@aethervtt/shard-procgen/worker'
 `
 }
+
+function serverEntry(entry: string, rows: string[]): string {
+  // Every row the page imports, so components of display plugins still exist as data (a prefab
+  // naming sprite/Sprite loads); serveExport adds only the ones a server runs.
+  return `// Generated by shard export (0110): the game's dedicated server. Flags: --port, --host, --data,
+// --static, --json (or PORT, HOST, SHARD_DATA, SHARD_STATIC).
+import { fileURLToPath } from 'node:url'
+import { serverMain } from '@aethervtt/shard-node/serve'
+import { ${rows.join(', ')} } from '@aethervtt/shard-project/plugins'
+import project from ${JSON.stringify(entry)}
+
+await serverMain({
+  dir: fileURLToPath(new URL('.', import.meta.url)),
+  plugins: [${rows.join(', ')}],
+  project,
+})
+`
+}
+
+const DOCKERFILE = `# Generated by shard export (0110). docker build -t game . && docker run -p 7000:7000 game
+FROM node:22-slim
+WORKDIR /game
+COPY . .
+ENV HOST=0.0.0.0 PORT=7000 SHARD_DATA=/game/data
+EXPOSE 7000
+CMD ["node", "server.mjs"]
+`
 
 function headlessEntry(entry: string, rows: string[]): string {
   return `// Generated by shard export (0110): what \`shard run --build\` and the shader bake run.
@@ -552,6 +682,59 @@ function chunkPackages(o: BundleOutput): Record<string, number> {
   return Object.fromEntries([...sizes].sort((a, b) => b[1] - a[1]))
 }
 
+/**
+ * Server builds: Vite leaves `new URL('./x', import.meta.url)` alone in SSR, so the WASM and worker
+ * modules engine packages name that way would point nowhere. Emits each one (a module as its own
+ * chunk, anything else as an asset) and points the URL at it, as the page build does.
+ */
+function serverFileUrls() {
+  const pattern = /new URL\(\s*(['"])(\.{1,2}\/[^'"]+)\1\s*,\s*import\.meta\.url\s*\)/g
+  return {
+    name: 'shard-export-file-urls',
+    async transform(
+      this: {
+        resolve(id: string, importer: string): Promise<{ id: string } | null>
+        emitFile(
+          file: { type: 'chunk'; id: string } | { type: 'asset'; name: string; source: Uint8Array },
+        ): string
+      },
+      code: string,
+      id: string,
+    ) {
+      if (!code.includes('import.meta.url') || id.startsWith('\0')) return undefined
+      let out = code
+      for (const m of code.matchAll(pattern)) {
+        const spec = m[2]!
+        let ref: string
+        if (/\.[mc]?[jt]s$/.test(spec)) {
+          const resolved = await this.resolve(spec, id)
+          if (!resolved) continue
+          ref = this.emitFile({ type: 'chunk', id: resolved.id })
+        } else {
+          const file = resolve(dirname(id.split('?')[0]!), spec)
+          if (!existsSync(file)) continue
+          ref = this.emitFile({ type: 'asset', name: basename(file), source: await readFile(file) })
+        }
+        out = out.replace(m[0], `new URL("__shard_file_${ref}__", import.meta.url)`)
+      }
+      return out === code ? undefined : { code: out, map: null }
+    },
+    // Each placeholder becomes the emitted file's path relative to the chunk that names it.
+    renderChunk(
+      this: { getFileName(ref: string): string },
+      code: string,
+      chunk: { fileName: string },
+    ) {
+      if (!code.includes('__shard_file_')) return undefined
+      const from = dirname(chunk.fileName)
+      return code.replace(/__shard_file_([\w$-]+)__/g, (_, ref: string) => {
+        const path = relative(from, this.getFileName(ref)).split(sep).join('/')
+        return path.startsWith('.') ? path : `./${path}`
+      })
+    },
+  }
+}
+
 const sha256 = (bytes: Uint8Array | string) => createHash('sha256').update(bytes).digest('hex')
 
 function compress(bytes: Uint8Array) {
@@ -566,12 +749,16 @@ function compress(bytes: Uint8Array) {
   }
 }
 
-/** Writes `bytes` to `out/path`, with `.br` and `.gz` copies when they're smaller. */
+/**
+ * Writes `bytes` to `out/path`, with `.br` and `.gz` copies when they're smaller and `served` (a
+ * server reads its own files from disk and needs none).
+ */
 async function writeShipped(
   out: string,
   path: string,
   bytes: Uint8Array,
   totals: ExportReport['bytes'],
+  served = true,
 ): Promise<{ brotli: number }> {
   const file = join(out, path)
   await mkdir(dirname(file), { recursive: true })
@@ -583,7 +770,7 @@ async function writeShipped(
     return { brotli: bytes.length }
   }
   const { gzip, brotli } = compress(bytes)
-  const keep = (c: Uint8Array) => c.length < bytes.length * 0.9
+  const keep = (c: Uint8Array) => served && c.length < bytes.length * 0.9
   if (keep(gzip)) await writeFile(`${file}.gz`, gzip)
   if (keep(brotli)) await writeFile(`${file}.br`, brotli)
   totals.gzip += Math.min(gzip.length, bytes.length)
@@ -591,13 +778,14 @@ async function writeShipped(
   return { brotli: Math.min(brotli.length, bytes.length) }
 }
 
-/** `shard export --target web`. */
-export async function exportWeb(options: ExportOptions): Promise<ExportReport> {
+/** `shard export --target web|server`. */
+export async function exportBuild(options: ExportOptions): Promise<ExportReport> {
   const root = resolve(options.root)
+  const target = options.target ?? 'web'
   const say = options.say ?? (() => {})
   const platform = createNodePlatform({ root })
   const { manifest } = await loadProject(platform)
-  const outRel = options.out ?? 'dist/web'
+  const outRel = options.out ?? `dist/${target}`
   const out = resolve(root, outRel)
   const warnings: string[] = []
   // The export replaces `out`: never the project or a folder holding it, never someone's files.
@@ -635,10 +823,11 @@ export async function exportWeb(options: ExportOptions): Promise<ExportReport> {
   included.sort((a, b) => a.path.localeCompare(b.path))
   if (options.dryRun) {
     return {
-      target: 'web',
+      target,
       out: outRel,
       build: '',
       files: 0,
+      packs: 0,
       bytes: { raw: 0, gzip: 0, brotli: 0 },
       code: { entry: 0, lazy: 0, worker: 0, wasm: 0 },
       chunks: [],
@@ -648,13 +837,14 @@ export async function exportWeb(options: ExportOptions): Promise<ExportReport> {
     }
   }
 
-  // Nothing to translate or bake in a project that doesn't draw (an audio tool, a server).
-  const draws = resolvePlugins(manifest).has('render')
+  // Nothing to translate or bake in a project that doesn't draw (an audio tool), or for a server.
+  const draws = target === 'web' && resolvePlugins(manifest).has('render')
   if (draws && options.prepareShaders) {
     warnings.push(...(await options.prepareShaders(reached.scenes)))
   }
 
-  // Code: the page and the headless entry, from generated sources.
+  // Code: the page, the headless entry and the procgen worker, or the server, from generated
+  // sources.
   say('Bundling…')
   // Its own folder, so two exports of one project (parallel test runs) don't share sources.
   await mkdir(join(root, '.shard/export'), { recursive: true })
@@ -663,34 +853,38 @@ export async function exportWeb(options: ExportOptions): Promise<ExportReport> {
     const entry = resolve(root, manifest.entry)
     const rows = pluginImports(manifest)
     const audio = [...resolvePlugins(manifest)].some((n) => n === 'audio' || n.startsWith('audio/'))
-    await writeFile(
-      join(generated, 'index.html'),
-      indexHtml(manifest.export?.app?.title ?? manifest.name),
-    )
-    await writeFile(join(generated, 'web.ts'), webEntry(toPosix(entry), rows, audio))
-    await writeFile(join(generated, 'headless.ts'), headlessEntry(toPosix(entry), rows))
-    await writeFile(join(generated, 'procgen-worker.ts'), procgenWorkerEntry(toPosix(entry)))
+    if (target === 'web') {
+      await writeFile(
+        join(generated, 'index.html'),
+        // An unset title deserializes as ''.
+        indexHtml(manifest.export?.app?.title || manifest.name),
+      )
+      await writeFile(
+        join(generated, 'web.ts'),
+        webEntry(toPosix(entry), rows, audio, options.multiplayer ?? false),
+      )
+      await writeFile(join(generated, 'headless.ts'), headlessEntry(toPosix(entry), rows))
+      await writeFile(join(generated, 'procgen-worker.ts'), procgenWorkerEntry(toPosix(entry)))
+    } else {
+      await writeFile(join(generated, 'server.ts'), serverEntry(toPosix(entry), rows))
+    }
     await rm(out, { recursive: true, force: true })
-    const bundle = async (input: Record<string, string>, treeshake?: object) => {
+    const vite = async (config: InlineConfig) => {
       const result = await viteBuild({
         root: generated,
         configFile: false,
         logLevel: 'silent',
         base: './',
         plugins: [engineResolver(generated)],
-        worker: { format: 'es' },
+        ...config,
         build: {
           outDir: out,
           write: false,
           minify: true,
-          target: 'es2023',
           sourcemap: options.sourcemap ?? false,
           reportCompressedSize: false,
           chunkSizeWarningLimit: Number.POSITIVE_INFINITY,
-          // Vite's preload helper reads `document`, which the headless entry (the shader bake,
-          // `shard run --build`) doesn't have when a lazy chunk loads.
-          modulePreload: false,
-          rolldownOptions: { input, preserveEntrySignatures: 'exports-only', treeshake },
+          ...config.build,
         },
       }).catch((cause: unknown) => {
         throw new ShardError(
@@ -703,17 +897,53 @@ export async function exportWeb(options: ExportOptions): Promise<ExportReport> {
         (r) => (r as { output: BundleOutput[] }).output,
       )
     }
-    const outputs = await bundle({
-      index: join(generated, 'index.html'),
-      headless: join(generated, 'headless.ts'),
-    })
+    const page = (input: Record<string, string>, treeshake?: object) =>
+      vite({
+        worker: { format: 'es' },
+        build: {
+          target: 'es2023',
+          // Vite's preload helper reads `document`, which the headless entry (the shader bake,
+          // `shard run --build`) doesn't have when a lazy chunk loads.
+          modulePreload: false,
+          rolldownOptions: { input, preserveEntrySignatures: 'exports-only', treeshake },
+        },
+      })
+    const outputs =
+      target === 'web'
+        ? await page({
+            index: join(generated, 'index.html'),
+            headless: join(generated, 'headless.ts'),
+          })
+        : // Everything inlined, so `node server.mjs` runs with nothing installed.
+          await vite({
+            plugins: [engineResolver(generated), serverFileUrls()],
+            ssr: { noExternal: true, target: 'node' },
+            build: {
+              ssr: join(generated, 'server.ts'),
+              // The WASM serverFileUrls emits: SSR builds drop assets otherwise.
+              ssrEmitAssets: true,
+              target: 'node22',
+              rolldownOptions: {
+                // ws's optional native speedups: it runs without them.
+                external: [/^node:/, ...builtinModules, 'bufferutil', 'utf-8-validate'],
+                output: {
+                  entryFileNames: 'server.mjs',
+                  chunkFileNames: 'server/[name]-[hash].mjs',
+                  assetFileNames: 'server/[name]-[hash][extname]',
+                },
+              },
+            },
+          })
     checkOneEngine(outputs)
     // Its own build: a worker runs no plugins, so their `provides` can't keep the definitions a job
     // loads alive; every module the worker imports is kept, as `shard dev`'s worker bundle does.
-    const workerOutputs = await bundle(
-      { 'procgen-worker': join(generated, 'procgen-worker.ts') },
-      { moduleSideEffects: true },
-    )
+    const workerOutputs =
+      target === 'web'
+        ? await page(
+            { 'procgen-worker': join(generated, 'procgen-worker.ts') },
+            { moduleSideEffects: true },
+          )
+        : []
 
     // Code: chunks, workers and WASM as Vite named them; their sizes; their hashes for the build id.
     say('Writing files…')
@@ -724,7 +954,10 @@ export async function exportWeb(options: ExportOptions): Promise<ExportReport> {
     let entryFile = ''
     let headlessFile = ''
     let workerFile = ''
-    const kinds: Map<string, ExportReport['chunks'][number]['kind']> = pageKinds(outputs)
+    const kinds: Map<string, ExportReport['chunks'][number]['kind']> =
+      target === 'web'
+        ? pageKinds(outputs)
+        : new Map(outputs.map((o) => [o.fileName, o.fileName.endsWith('.wasm') ? 'wasm' : 'entry']))
     for (const o of workerOutputs) {
       if (o.type === 'chunk' && o.isEntry) workerFile = o.fileName
       kinds.set(o.fileName, o.fileName.endsWith('.wasm') ? 'wasm' : 'worker')
@@ -739,7 +972,7 @@ export async function exportWeb(options: ExportOptions): Promise<ExportReport> {
           ? new TextEncoder().encode(o.type === 'chunk' ? o.code : (o.source as string))
           : o.source!
       buildHash.update(`${o.fileName}\n${sha256(bytes)}\n`)
-      const { brotli } = await writeShipped(out, o.fileName, bytes, totals)
+      const { brotli } = await writeShipped(out, o.fileName, bytes, totals, target === 'web')
       if (o.type === 'chunk' && o.isEntry) {
         if (o.name === 'headless') headlessFile = o.fileName
         else entryFile = o.fileName
@@ -755,19 +988,49 @@ export async function exportWeb(options: ExportOptions): Promise<ExportReport> {
       })
     }
     chunks.sort((a, b) => b.brotli - a.brotli)
-    // Node reads the chunks as ES modules (`shard run --build`, the shader bake).
-    await writeFile(join(out, 'package.json'), '{ "type": "module", "private": true }\n')
+    if (target === 'web') {
+      // Node reads the chunks as ES modules (`shard run --build`, the shader bake).
+      await writeFile(join(out, 'package.json'), '{ "type": "module", "private": true }\n')
+      // Where the page plays, editable after export: one build, many deployments. Written even
+      // empty, so a page without one doesn't log a 404 asking for it.
+      if (options.multiplayer) {
+        const { url, lobby } = manifest.export?.net ?? {}
+        const net = { ...(url ? { url } : {}), ...(lobby ? { lobby } : {}) }
+        await writeFile(join(out, 'config.json'), `${JSON.stringify({ net }, null, 2)}\n`)
+      }
+    } else {
+      const pkg = {
+        name: `${manifest.name}-server`,
+        version: manifest.version,
+        private: true,
+        type: 'module',
+        engines: { node: '>=22' },
+        scripts: { start: 'node server.mjs' },
+      }
+      await writeFile(join(out, 'package.json'), `${JSON.stringify(pkg, null, 2)}\n`)
+      await writeFile(join(out, 'Dockerfile'), DOCKERFILE)
+    }
 
     // Data: the trimmed catalog, scenes, artifacts, caches, project shaders.
-    const files: Record<string, { url: string; size: number; hash: string }> = {}
+    const files: Record<string, BuildFile> = {}
     const written = new Set<string>()
-    const ship = async (path: string, bytes: Uint8Array) => {
+    // Packed (--pack, export.pack; servers by default): collected here, written before the bake.
+    const setting = manifest.export?.pack ?? 'auto'
+    const pack = options.pack ?? (setting === 'auto' ? target === 'server' : setting === 'always')
+    const toPack = new Map<string, Uint8Array>()
+    const loose = async (path: string, bytes: Uint8Array) => {
       const hash = sha256(bytes)
       const url = `f/${hash.slice(0, 20)}${extname(path) || '.bin'}`
-      if (!written.has(url)) await writeShipped(out, url, bytes, totals)
+      if (!written.has(url)) await writeShipped(out, url, bytes, totals, target === 'web')
       written.add(url)
       files[path] = { url, size: bytes.length, hash }
     }
+    // The WebGL2 translations stay loose: the page hands the renderer their URL, so a WebGPU
+    // session never downloads them, and a packed file has no URL.
+    const ship = async (path: string, bytes: Uint8Array) =>
+      pack && path !== '.shard/shaders/webgl2.json'
+        ? void toPack.set(path, bytes)
+        : loose(path, bytes)
     const cacheDir = catalog.cacheDir ?? '.shard/cache'
     const shippedSources = catalog.sources.filter((s) => reached.sources.has(s.path))
     const trimmed = { version: catalog.version, cacheDir, sources: shippedSources }
@@ -813,6 +1076,18 @@ export async function exportWeb(options: ExportOptions): Promise<ExportReport> {
       await ship(shaders.project, new TextEncoder().encode(JSON.stringify(list)))
     }
 
+    const packs: string[] = []
+    if (toPack.size > 0) {
+      const packed = packFiles(toPack)
+      for (const bytes of packed.packs) {
+        const url = `f/${sha256(bytes).slice(0, 20)}.shardpak`
+        // Read by range: no .br/.gz copies (a compressed response has no byte ranges).
+        await writeShipped(out, url, bytes, totals, false)
+        packs.push(url)
+      }
+      Object.assign(files, packed.entries)
+    }
+
     const graph = await projectModuleGraph(root, manifest.entry)
     const { export: _export, ...shippedManifest } = manifest
     const build: BuildJson = {
@@ -821,11 +1096,12 @@ export async function exportWeb(options: ExportOptions): Promise<ExportReport> {
       engine: manifest.engine,
       project: { name: manifest.name, version: manifest.version },
       manifest: shippedManifest as ManifestValue,
-      entry: entryFile,
+      entry: target === 'web' ? entryFile : 'server.mjs',
       headless: headlessFile,
       generators: await generatorCodeHashes(root, manifest.name, manifest.entry, graph),
       workers: { procgen: workerFile },
       shaders,
+      ...(packs.length > 0 ? { packs } : {}),
       files,
     }
 
@@ -836,7 +1112,8 @@ export async function exportWeb(options: ExportOptions): Promise<ExportReport> {
       const bake = await options.bake(out, build, reached.scenes)
       if (bake) {
         shaders.bake = '.shard/export/shaders.bake.json'
-        await ship(shaders.bake, new TextEncoder().encode(JSON.stringify(bake)))
+        // Made after the packs were written: it ships loose.
+        await loose(shaders.bake, new TextEncoder().encode(JSON.stringify(bake)))
       } else warnings.push('export/no-shader-bake: no GPU adapter; WESL loads at run time')
     }
 
@@ -846,10 +1123,11 @@ export async function exportWeb(options: ExportOptions): Promise<ExportReport> {
     await writeFile(join(out, 'build.json'), `${JSON.stringify(build)}\n`)
 
     return {
-      target: 'web',
+      target,
       out: outRel,
       build: build.build,
       files: Object.keys(files).length,
+      packs: packs.length,
       bytes: totals,
       code,
       chunks,

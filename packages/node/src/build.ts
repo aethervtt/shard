@@ -81,7 +81,7 @@ export async function openBuild(dir: string, options: OpenBuildOptions = {}): Pr
   const platform: Platform = {
     ...files,
     storage: createMemoryStorage(),
-    fs: buildFs(files.fs, build.files),
+    fs: buildFs(files.fs, build.files, build.packs),
   }
   const mod = (await import(pathToFileURL(join(root, build.headless)).href)) as {
     boot(o: object): Promise<BuildHandle>

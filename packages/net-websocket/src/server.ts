@@ -1,13 +1,22 @@
+import type { Server } from 'node:http'
 import type { NetConnection, NetListener, NetTransport } from '@aethervtt/shard-net'
 import { WebSocketServer } from 'ws'
 import { webSocketTransport } from './index'
 import { SocketConnection, type SocketLike } from './socket'
 
 export interface WebSocketServerOptions {
-  /** 0 picks a free port: read it from the listener's `port`. */
+  /** 0 picks a free port: read it from the listener's `port`. Ignored with `server`. */
   port?: number
   host?: string
   maxMessage?: number
+  /**
+   * An HTTP server already listening (or about to) to take upgrades from, at `path`, instead of
+   * opening a port: one port for the game and its web page (0110). Closing the listener leaves
+   * the HTTP server open.
+   */
+  server?: Server
+  /** With `server`: the path WebSocket upgrades come in on. Default `/net`. */
+  path?: string
 }
 
 export interface WebSocketListener extends NetListener {
@@ -28,15 +37,25 @@ export function webSocketServer(options: WebSocketServerOptions = {}): NetTransp
     caps: client.caps,
     connect: client.connect,
     async listen() {
-      const server = new WebSocketServer({
-        port: options.port ?? 0,
-        host: options.host ?? '127.0.0.1',
-        maxPayload: maxMessage + 1,
-      })
-      await new Promise<void>((resolve, reject) => {
-        server.once('listening', resolve)
-        server.once('error', reject)
-      })
+      const http = options.server
+      const server = http
+        ? new WebSocketServer({
+            server: http,
+            path: options.path ?? '/net',
+            maxPayload: maxMessage + 1,
+          })
+        : new WebSocketServer({
+            port: options.port ?? 0,
+            host: options.host ?? '127.0.0.1',
+            maxPayload: maxMessage + 1,
+          })
+      const listening = http ?? server
+      if (!http?.listening) {
+        await new Promise<void>((resolve, reject) => {
+          listening.once('listening', resolve)
+          listening.once('error', reject)
+        })
+      }
       const fns: ((connection: NetConnection) => void)[] = []
       let nextPeer = 1
       server.on('connection', (socket) => {
@@ -47,7 +66,7 @@ export function webSocketServer(options: WebSocketServerOptions = {}): NetTransp
         )
         for (const fn of fns) fn(connection)
       })
-      const address = server.address()
+      const address = (http ?? server).address()
       return {
         port: typeof address === 'object' && address ? address.port : 0,
         onConnection(fn) {

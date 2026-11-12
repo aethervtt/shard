@@ -1,12 +1,15 @@
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { ShardError } from '@aethervtt/shard-core'
+import { defineComponent, type ShardError, t } from '@aethervtt/shard-core'
 import { timeout } from '@aethervtt/shard-core/test-env'
-import { Manifest } from '@aethervtt/shard-project'
-import { afterAll, describe, expect, it } from 'vitest'
+import { netPlugin, netSession, replicate } from '@aethervtt/shard-net'
+import { webSocketTransport } from '@aethervtt/shard-net-websocket'
+import { loadHeadlessCode } from '@aethervtt/shard-node'
+import { Manifest, projectNet } from '@aethervtt/shard-project'
+import { afterAll, describe, expect, it, onTestFinished } from 'vitest'
 import {
   type BundleOutput,
   type Catalog,
@@ -21,6 +24,7 @@ const here = dirname(fileURLToPath(import.meta.url))
 const bin = resolve(here, '../bin/shard.mjs')
 const mazeChase = resolve(here, '../../../examples/maze-chase')
 const starExplorer = resolve(here, '../../../examples/star-explorer')
+const coinRush = resolve(here, '../../../examples/coin-rush')
 
 function shard(args: string[], cwd: string) {
   const r = spawnSync(process.execPath, [bin, ...args], { cwd, encoding: 'utf8', timeout: 300_000 })
@@ -217,6 +221,30 @@ describe('shard export --target web (0110)', () => {
   )
 
   it(
+    'with --pack, the data is one .shardpak (the WebGL2 translations and bake loose) and hashes the same',
+    () => {
+      const out = tempDir()
+      const exported = shard(['export', '--pack', '--out', out, '--json'], mazeChase)
+      expect(exported.code, exported.stderr).toBe(0)
+      expect((exported.json() as ExportReport).packs).toBe(1)
+      const build = JSON.parse(readFileSync(join(out, 'build.json'), 'utf8'))
+      expect(build.packs).toHaveLength(1)
+      expect(existsSync(join(out, build.packs[0]))).toBe(true)
+      const loose = Object.entries(build.files)
+        .filter(([, f]) => (f as { pack?: number }).pack === undefined)
+        .map(([path]) => path)
+        .sort()
+      expect(loose).toEqual(['.shard/export/shaders.bake.json', '.shard/shaders/webgl2.json'])
+      const args = ['--frames', '300', '--seed', '5', '--json']
+      const project = shard(['run', ...args], mazeChase).json()
+      const built = shard(['run', '--build', out, ...args], mazeChase)
+      expect(built.code, built.stderr).toBe(0)
+      expect(built.json().hash).toBe(project.hash)
+    },
+    timeout(600_000),
+  )
+
+  it(
     '--dry-run lists what would ship and writes nothing',
     () => {
       const out = join(tempDir(), 'web')
@@ -227,5 +255,93 @@ describe('shard export --target web (0110)', () => {
       expect(existsSync(out)).toBe(false)
     },
     timeout(300_000),
+  )
+})
+
+// A component only a mismatched client replicates.
+const Extra = defineComponent('exporttest/Extra', { n: t.u32() })
+
+describe('shard export --target server (0110)', () => {
+  it(
+    'coin-rush runs from its server export outside the repository: page, health, players, refusal, SIGTERM',
+    async () => {
+      // A temporary folder: no node_modules above it, so server.mjs can only use what it ships.
+      const out = tempDir()
+      const exported = shard(
+        ['export', '--target', 'server', '--static', '--out', out, '--json'],
+        coinRush,
+      )
+      expect(exported.code, exported.stderr).toBe(0)
+      expect(existsSync(join(out, 'node_modules'))).toBe(false)
+      expect(existsSync(join(out, 'Dockerfile'))).toBe(true)
+
+      const child = spawn(process.execPath, ['server.mjs', '--port', '0', '--json'], { cwd: out })
+      onTestFinished(() => {
+        if (child.exitCode === null) child.kill('SIGKILL')
+      })
+      const info = await new Promise<{ url: string; http: string; build: string }>((done, fail) => {
+        let text = ''
+        child.stdout.on('data', (d) => {
+          text += d
+          try {
+            done(JSON.parse(text))
+          } catch {}
+        })
+        let err = ''
+        child.stderr.on('data', (d) => {
+          err += d
+        })
+        child.on('exit', (code) => fail(new Error(`server exited ${code}: ${err}`)))
+      })
+      expect(info.url).toMatch(/^ws:\/\/127\.0\.0\.1:\d+\/net$/)
+      expect(await (await fetch(`${info.http}/`)).text()).toContain('<canvas')
+
+      // Two clients of the same game join and see both players and the ten coins.
+      const code = await loadHeadlessCode({ root: coinRush, code: 'source' })
+      const net = projectNet(code.project)!
+      const player = (replicated = net.replicate) =>
+        code.build([
+          netPlugin({
+            ...net,
+            replicate: replicated,
+            role: 'client',
+            transport: webSocketTransport(),
+            address: info.url,
+          }),
+        ])
+      const players = [player(), player()]
+      for (const app of players) await app.init()
+      const seen = (app: (typeof players)[number]) => netSession(app.world).client!.byNetId.size
+      for (let i = 0; i < 600 && players.some((p) => seen(p) < 12); i++) {
+        for (const p of players) p.update(1 / 60)
+        await new Promise((r) => setTimeout(r, 5))
+      }
+      expect(players.map(seen)).toEqual([12, 12])
+      const health = await (await fetch(`${info.http}/healthz`)).json()
+      expect(health).toMatchObject({ build: info.build, players: 2 })
+
+      // A client whose replicated components differ is refused, naming the component.
+      const other = player([...net.replicate!, replicate(Extra)])
+      await other.init()
+      // The socket's close can arrive before the refusal it follows is read: wait for the refusal.
+      const refused = () => netSession(other.world).client!.lastError
+      for (let i = 0; i < 400 && refused()?.code !== 'net/schema-mismatch'; i++) {
+        other.update(1 / 60)
+        await new Promise((r) => setTimeout(r, 5))
+      }
+      expect(refused()).toMatchObject({
+        code: 'net/schema-mismatch',
+        message: expect.stringContaining('exporttest/Extra'),
+      })
+      for (const app of [...players, other]) await app.dispose()
+      await code.close()
+
+      const exited = new Promise<number | null>((r) => child.on('exit', r))
+      child.kill('SIGTERM')
+      const exitCode = await exited
+      // Windows can't deliver SIGTERM to a child: kill() terminates it.
+      if (process.platform !== 'win32') expect(exitCode).toBe(0)
+    },
+    timeout(600_000),
   )
 })

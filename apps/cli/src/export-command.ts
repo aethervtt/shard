@@ -1,10 +1,10 @@
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { ShardError } from '@aethervtt/shard-core'
-import { bakeBuildShaders, openBuild } from '@aethervtt/shard-node'
+import { bakeBuildShaders, importProjectPlugin, openBuild } from '@aethervtt/shard-node'
 import { createNodePlatform } from '@aethervtt/shard-platform-node'
-import { loadProject } from '@aethervtt/shard-project'
+import { loadProject, projectNet } from '@aethervtt/shard-project'
 import { type CommandContext, importCommand, validate } from './commands'
-import { type ExportReport, exportWeb } from './export'
+import { type ExportReport, exportBuild } from './export'
 import { EXIT, type Output } from './output'
 import { bakeShaders } from './shaders'
 
@@ -29,8 +29,18 @@ const kb = (n: number) => `${(n / 1024).toFixed(1)} KB`
  */
 export async function exportProject(
   root: string,
-  options: { out?: string; dryRun?: boolean; sourcemap?: boolean; say?(message: string): void },
-): Promise<ExportReport> {
+  options: {
+    target?: 'web' | 'server'
+    out?: string
+    /** Data in `.shardpak` files; default `export.pack`, else true for servers. */
+    pack?: boolean
+    /** Server: also export the web page into `public/`, which the server serves. */
+    static?: boolean
+    dryRun?: boolean
+    sourcemap?: boolean
+    say?(message: string): void
+  },
+): Promise<ExportReport & { page?: ExportReport }> {
   const say = options.say ?? (() => {})
   const ctx: CommandContext = { out: captured(), project: root, args: [], flags: {} }
   say('Importing…')
@@ -50,31 +60,49 @@ export async function exportProject(
     })
   }
   const { manifest } = await loadProject(createNodePlatform({ root }))
-  return exportWeb({
-    root,
-    out: options.out,
-    dryRun: options.dryRun,
-    sourcemap: options.sourcemap,
-    say,
-    async prepareShaders(scenes) {
-      say('Translating shaders for WebGL2…')
-      const baked = await bakeShaders(root, scenes)
-      return baked.failed.map((f) => `export/webgl2-bake: ${JSON.stringify(f)}`)
-    },
-    bake: (dir, build, scenes) =>
-      bakeBuildShaders(dir, build, scenes, manifest.export?.bakeFrames ?? 60),
-  })
+  const target = options.target ?? 'web'
+  const multiplayer = projectNet(await importProjectPlugin(resolve(root), manifest)) !== undefined
+  if (target === 'server' && !multiplayer) {
+    throw new ShardError('project/not-multiplayer', `${manifest.name} has no project.net(...)`, {
+      hint: 'Call project.net({ replicate, commands, … }) in the entry to make it multiplayer.',
+    })
+  }
+  const exported = (t: 'web' | 'server', out: string | undefined) =>
+    exportBuild({
+      root,
+      target: t,
+      multiplayer,
+      pack: options.pack,
+      out,
+      dryRun: options.dryRun,
+      sourcemap: options.sourcemap,
+      say,
+      async prepareShaders(scenes) {
+        say('Translating shaders for WebGL2…')
+        const baked = await bakeShaders(root, scenes)
+        return baked.failed.map((f) => `export/webgl2-bake: ${JSON.stringify(f)}`)
+      },
+      bake: (dir, build, scenes) =>
+        bakeBuildShaders(dir, build, scenes, manifest.export?.bakeFrames ?? 60),
+    })
+  const report = await exported(target, options.out)
+  if (target !== 'server' || !options.static || options.dryRun) return report
+  say('Exporting the page into public/…')
+  return { ...report, page: await exported('web', join(report.out, 'public')) }
 }
 
 /** `shard export --target web [--out dist/web] [--dry-run] [--sourcemap]` (0110). */
 export async function exportCommand(ctx: CommandContext): Promise<number> {
   const target = (ctx.flags.target as string | undefined) ?? 'web'
-  if (target !== 'web') {
+  if (target !== 'web' && target !== 'server') {
     throw new ShardError('export/unknown-target', `Unknown export target "${target}"`, {
-      hint: 'Targets: web. Server and desktop builds follow (specs 0110, 0111).',
+      hint: 'Targets: web, server. Desktop shells follow (spec 0111).',
     })
   }
   const report = await exportProject(ctx.project, {
+    target,
+    static: ctx.flags.static === true,
+    pack: ctx.flags.pack === true ? true : undefined,
     out: ctx.flags.out as string | undefined,
     dryRun: ctx.flags['dry-run'] === true,
     sourcemap: ctx.flags.sourcemap === true,
@@ -90,6 +118,10 @@ export async function exportCommand(ctx: CommandContext): Promise<number> {
         `  code: entry ${kb(report.code.entry)}, lazy ${kb(report.code.lazy)}, worker ${kb(report.code.worker)}, wasm ${kb(report.code.wasm)} (brotli)`,
         ...report.excluded.map((p) => `  excluded ${p}`),
       ]
+  if (report.page) lines.push(`  page: ${report.page.out} (build ${report.page.build})`)
+  if (target === 'server' && !ctx.flags['dry-run']) {
+    lines.push(`Run it: node ${report.out}/server.mjs --port 7000 (or docker build ${report.out})`)
+  }
   for (const w of report.warnings) lines.push(`  warning: ${w}`)
   ctx.out.result(report, lines.join('\n'))
   return EXIT.ok

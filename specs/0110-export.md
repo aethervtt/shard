@@ -51,6 +51,7 @@ behind the game's own server.
 
 ```sh
 shard export --target web [--out dist/web] [--pack] [--sourcemap] [--dry-run] [--json]
+shard export --target server [--static] [--pack] [--out dist/server]
 shard export --target server [--static]       # --static: also export web into public/
 ```
 
@@ -61,7 +62,7 @@ shard export --target server [--static]       # --static: also export web into p
   "exclude": ["assets/dev/**"],
   "bakeFrames": 60,                      // frames each scene settles for the shader bake; 0 skips it
   "app": { "title": "Star Explorer" },   // the page title; 0111 adds id and icon
-  "pack": false,                         // stage 3. Default per target: web false, server true
+  "pack": "auto",                        // auto: servers packed, the web loose; always; never
   "net": { "url": "wss://play.example.com/net", "lobby": "wss://lobby.example.com" }  // stage 2
 }
 ```
@@ -175,7 +176,9 @@ component like `sprite/Sprite` to the plugin that brings it.
 }
 ```
 
-Stage 3 adds `packs`, and `pack`, `offset`, `length` and `encoding` on packed files.
+A packed export adds `"packs": ["f/309368ebc2b2b1621a25.shardpak"]`, and its packed files are
+`{ "pack": 0, "offset": 4096, "length": 3120, "encoding": "deflate", "size": 18342, "hash": … }`
+instead of a `url`.
 
 The keys of `files` are the project paths the runtime already asks for. The project path doesn't
 change, so the asset server, the scene loader, terrain and nav read the export without knowing
@@ -186,8 +189,12 @@ it's one.
 ```ts
 // @aethervtt/shard-platform
 /** A read-only file system over an export: project paths to hashed URLs or pack ranges. */
-export function buildFs(base: PlatformFileSystem, files: BuildFiles): PlatformFileSystem
-// @aethervtt/shard-platform-web: createWebPlatform({ files }) reads through it.
+export function buildFs(
+  base: PlatformFileSystem,
+  files: BuildFiles,
+  packs?: readonly string[],
+): PlatformFileSystem
+// @aethervtt/shard-platform-web: createWebPlatform({ files, packs }) reads through it.
 ```
 
 - A loose file reads `base.readBytes(entry.url)`. A path the export lacks fails with
@@ -196,16 +203,32 @@ export function buildFs(base: PlatformFileSystem, files: BuildFiles): PlatformFi
   `DecompressionStream('deflate-raw')`, which browsers, webviews and Node all have.
 - `readRange` on a packed raw entry maps to a sub-range of the pack. Terrain reads by range keep
   working.
-- `exists` answers from `files` with no request. `resolveUrl` returns the loose URL, and (stage 3)
-  for a packed file a `blob:` URL made on first use (audio and image decoders that want a URL).
+- `exists` answers from `files` with no request. `resolveUrl` returns a loose file's URL, and
+  nothing for a packed one: it's synchronous and a pack read isn't. The two engine callers cope:
+  an artifact the asset server would stream by URL (audio) reads its bytes instead, and the
+  WebGL2 translations, which the page hands the renderer by URL so WebGPU never downloads them,
+  are never packed.
+- On the web, packs are read with HTTP `Range` (GitHub Pages, CDNs and the exported server answer
+  it). A host that ignores it sends the whole file; the web platform then keeps that file and
+  slices every later range of it from memory, so such a host costs one download per pack, not one
+  per read. The first ranged read of a file finds out which kind of host it is; reads of the same
+  file that start meanwhile wait for it.
 
 ### Pack format (`.shardpak`)
 
-Magic `SHPK`, a `u32` version, a `u32` index length, the index (the `files` entries of that pack
-as JSON), then blobs aligned to 16 bytes. The index is repeated in `build.json`, so a reader never
-fetches the header. Already-compressed formats (KTX2, PNG, JPEG, OGG, MP3, GLB) are stored raw,
-everything else as `deflate`. A pack is never larger than 1 GiB; past that the export starts the
-next one.
+Magic `SHPK`, a `u32` version (1), a `u32` index length, the index (the `files` entries of that
+pack as JSON, offsets from the start of the pack), then each blob at a 16-byte boundary
+(`apps/cli/src/pack.ts`). The index is repeated in `build.json`, so a reader never fetches the
+header; it's there for tools that only have the pack. A file is stored raw when it's already
+compressed (KTX2, PNG, JPEG, WebP, AVIF, OGG, MP3, M4A, Opus, GLB, Basis, zstd), when it's read by
+range (heightfield pages under `.shard/cache/terrain/`: a range of a deflated entry would inflate
+all of it), when it's under 256 bytes, or when `deflate-raw` (level 9) saves under 10%; otherwise
+deflated. A pack is never larger than 1 GiB; past that the export starts the next one. Packs are
+named by their content hash under `f/` and get no `.br`/`.gz` copies (a compressed response has
+no byte ranges).
+
+The shader bake runs the built export, so the packs are written before it; the bake's output is
+written after, and ships loose, as do the WebGL2 translations.
 
 ### Targets
 
@@ -233,27 +256,41 @@ with it. Without `?backend` the page probes WebGPU and falls back to WebGL2 (006
 COOP/COEP headers: cross-origin isolation is only for the profiler (0074), which an export doesn't
 include. Stage 2 adds the net plugin from configuration (below).
 
-**server.** `server.mjs` (one ESM bundle for `platform: 'node'`, with `ws` bundled in), `build.json`
-and packs, a `package.json` with `"type": "module"` and `engines.node`, and a `Dockerfile`
-(`node:22-slim`, copy, `CMD ["node", "server.mjs"]`). It has no dependencies to install.
+**server.** `server.mjs` and its chunks under `server/` (WASM included), `build.json` and `f/`,
+a `package.json` (`"type": "module"`, `engines.node >= 22`, `npm start`), and a `Dockerfile`
+(`node:22-slim`, `HOST=0.0.0.0`, `PORT=7000`, `SHARD_DATA=/game/data`). It has no dependencies to
+install. A server reads its files from disk, so nothing gets `.br`/`.gz` copies.
 
 ```sh
 node server.mjs [--port 7000] [--host 0.0.0.0] [--data ./data] [--static ./public] [--json]
-# env: PORT, HOST, SHARD_DATA, SHARD_STATIC; flags win
+# env: PORT, HOST, SHARD_DATA, SHARD_STATIC; flags win. --json prints
+# { url: "ws://…/net", http, port, build, project, static } on stdout.
 ```
 
-- It opens the project as `shard server` does (0092): `buildApp({ display: false })`, the net
-  plugin as server, `intervalRunner`, no start scene. On SIGINT/SIGTERM it disposes the app,
-  which saves every player (0090), then exits 0. `--data` is the node platform's `dataDir`.
+- The generated entry is a few lines: the plugin rows, the project, and
+  `serverMain({ dir, plugins, project })` from `@aethervtt/shard-node/serve`, which holds the
+  runtime (`serveExport`, `serveStatic`) as typed, tested code. It imports the same rows as the
+  page, so the definitions of display plugins exist (a prefab naming `sprite/Sprite` loads as
+  data, as in 0092), and adds only the display-free ones: `startExport({ display: false,
+  startScene: false })`, the net plugin as server, `intervalRunner`. On SIGINT or SIGTERM it
+  disposes the app, which stores every connected player (0090), and exits 0.
+- Vite bundles it as an SSR build for Node with everything inlined (`ssr.noExternal`); Node's
+  built-ins and `ws`'s optional native speedups stay external. SSR builds leave
+  `new URL('./x', import.meta.url)` alone, so a small plugin emits each file named that way (WASM
+  as an asset, a module as a chunk) and points the URL at the emitted copy, relative to the
+  chunk (with `ssrEmitAssets`).
 - It reads assets through `buildFs` over the node file system: the same set as the client, read
   lazily. A display-free server never loads textures or audio, so they cost disk, not memory.
-- One HTTP server per process. `GET /healthz` returns `{ build, players, uptime }`. The game
-  WebSocket upgrades at `/net`. This needs `webSocketServer({ server })` in `net-websocket`,
-  which attaches to an existing `http.Server` instead of opening its own port.
-- `--static <dir>` serves a web export from the same port: `.br`/`.gz` by `Accept-Encoding`,
-  `Cache-Control: immutable` on hashed files, `no-cache` on `index.html`, `build.json` and
-  `config.json`, and `Range` support. `shard export --target server --static` writes the web
-  export to `public/` and defaults `--static` to it.
+  Saves and settings go to `--data` (default `data/` in the export).
+- One HTTP server per process. `GET /healthz` returns `{ build, project, players, uptime }`. The
+  game WebSocket upgrades at `/net`: `webSocketServer({ server, path })` in `net-websocket`
+  attaches to an existing `http.Server` instead of opening its own port, and closing the game
+  leaves the HTTP server to its owner.
+- `--static <dir>` serves a web export from the same port (`serveStatic`): `.br`/`.gz` by
+  `Accept-Encoding`, `immutable` on `assets/` and `f/`, `no-cache` on the rest (`index.html`,
+  `build.json`, `config.json`), `Range` (206, 416), and nothing outside the folder, encoded `..`
+  included. `shard export --target server --static` also exports the page into `public/`, and
+  the server serves `public/` when it's there.
 - A project without `project.net` fails `--target server` with `project/not-multiplayer`, as
   `shard server` does.
 - The lobby (0091) has no project, so it doesn't need an export: `npx @aethervtt/shard-cli lobby`
@@ -262,15 +299,19 @@ node server.mjs [--port 7000] [--host 0.0.0.0] [--data ./data] [--static ./publi
 ### Multiplayer clients
 
 Where a client connects is configuration, not code, so one build works against staging and
-production. The page reads, in order: query parameters (`?connect`, `?lobby`, `?host`, `?join`,
-the same as `shard dev`), then `config.json` next to `index.html` (`{ "net": { "url", "lobby" } }`,
-written from `export.net` and editable after export), then a default. For a web export, the
-default is the page's own origin at `/net` (`wss:` on `https:`), which is the `--static` server's
-endpoint. Desktop shells have no origin and need `export.net.url` (0111).
+production. A multiplayer project's page (the export imports the project to check `project.net`;
+single-player pages carry none of this) reads, in order: query parameters (`?connect`, `?lobby`,
+`?host`, `?join`, the same as `shard dev`), then `config.json` next to `index.html`
+(`{ "net": { "url", "lobby" } }`, written from `export.net` and editable after export; written
+even empty, so a page doesn't log a 404 asking for it). Without either, it asks its own origin
+for `healthz`: a page its game server serves joins that server's `/net` (`wss:` on `https:`), and a
+page on a plain static host plays alone. `?host` runs the game's server in the page, built by
+`exportServerApp` and prepared by `prepareExportApp` from the same rows. Desktop shells have no
+origin and need `export.net.url` (0111).
 
-The client and server of one export share `build`. A client from another build is already
-refused with `net/schema-mismatch` (0086) when their schemas differ. When they agree, the server
-admits it, which is correct: replication is the same.
+The client and server of one export share `build`. A client whose replicated components differ is
+refused with `net/schema-mismatch` (0086), naming the component. Over a real socket the close can
+reach the client before the refusal it follows is read; `lastError` ends as the refusal.
 
 ### Running an export headless
 
@@ -288,8 +329,8 @@ comparison in `pnpm test`, with no browser.
 1. **web**: `resolvePlugins`/`enginePlugins`, `startExport`, reachability, `build.json`, `buildFs`
    (loose files), shader bake, `shard run --build`.
 2. **server**: `server.mjs`, `webSocketServer({ server })`, `/healthz`, `--static`,
-   `config.json`.
-3. **packs**: `.shardpak`, `--pack`, and `buildFs` over packs.
+   `config.json`, multiplayer pages.
+3. **packs**: `.shardpak`, `--pack` and `export.pack`, and `buildFs` over packs.
 
 ### Agent surface
 
@@ -315,6 +356,10 @@ comparison in `pnpm test`, with no browser.
 - **Every scene is a root.** Code loads scenes by path, so tracing from `startScene` alone would
   drop levels silently. `export.exclude` trims.
 - **Net endpoints in `config.json`, not the bundle.** One build, many deployments.
+- **A page joins its own server only when one answers.** Probing `/healthz` instead of always
+  dialing `/net` lets the same page run on a plain static host (alone) and behind its server.
+- **The server's runtime is engine code, not generated code.** `server.mjs` only names the rows
+  and the project; `@aethervtt/shard-node/serve` is typed and tested like the rest.
 - **One port for the static site and the game server.** The client gets a same-origin default
   and needs no CORS, and the build is one process to deploy.
 - **Vite, not esbuild, bundles exports.** esbuild leaves `new URL('x.wasm', import.meta.url)`
@@ -367,21 +412,32 @@ generator outputs), coin-rush and audio-lab were also compared by hand: equal ha
 - [x] maze-chase runs from its web export in `browser.yml`, served as plain static files, on both
       backends: no console errors, the maze drawn, and neither WESL nor naga fetched.
 
-Stage 2:
-- [ ] In coin-rush, `shard export --target server`, then the exported folder copied outside the
-      repository and run with `node server.mjs --port 0 --json`, prints its URL with no
-      `node_modules` present.
-- [ ] Two headless clients from the same export join over `/net` and converge as in 0092's
-      criterion. A client from a build with a changed replicated component is refused with
-      `net/schema-mismatch`.
-- [ ] With `--static`: `GET /` with `Accept-Encoding: br` returns the brotli copy, hashed files
-      carry `immutable`, a `Range` request returns 206, and `/healthz` returns the build hash.
-- [ ] SIGTERM stores every connected player (0090) and exits 0.
+Stage 2, checked by `apps/cli/src/export.test.ts`, `apps/playground/src/export.test.ts`,
+`packages/node/src/serve.test.ts`, `packages/net-websocket/src/websocket.test.ts`, and
+`pnpm release --cli-check` (the server bundled from the published packages). Two browser tabs
+on coin-rush's `--static` server were also played by hand: both players and the coins in both.
 
-Stage 3:
-- [ ] `buildFs` over a pack returns every file byte-identical to its source, with `deflate` and
-      raw entries, through `readBytes` and `readRange`.
-- [ ] The stage 1 hash criterion passes with `--pack`.
+- [x] In coin-rush, `shard export --target server --static` into a folder outside the repository,
+      run with `node server.mjs --port 0 --json`, prints its URL with no `node_modules` present.
+- [x] Two headless clients of the same game join over `/net` and both see both players and the ten
+      coins. A client with an extra replicated component is refused with `net/schema-mismatch`,
+      naming it.
+- [x] `serveStatic`: `Accept-Encoding: br` returns the brotli copy, hashed files carry
+      `immutable` and the page `no-cache`, a `Range` request returns 206 (an impossible one 416),
+      and nothing outside the folder is served. `/healthz` returns the build hash and the players.
+- [x] A page served by its game server, with no `?connect` and no configuration, joins it.
+- [x] SIGTERM exits 0 after disposing the app, the path that stores every connected player
+      (0090). coin-rush has no `store` hook, so the storing itself is 0090's test.
+
+Stage 3, checked by `apps/cli/src/pack.test.ts` and `apps/cli/src/export.test.ts` (the server
+test reads its data from a pack, servers' default). star-explorer's three scenes hashed the same
+packed, and its packed page ran in Chromium from 13 ranged reads of one pack (by hand).
+
+- [x] `buildFs` over a pack returns every file byte-identical to its source, with `deflate` and
+      raw entries, through `readBytes` and `readRange`, without ever reading a pack whole; a small
+      limit splits the files across packs, and the header's index matches `build.json`'s.
+- [x] The stage 1 hash criterion passes with `--pack` (maze-chase in the tests, star-explorer by
+      hand).
 
 ## Open questions
 

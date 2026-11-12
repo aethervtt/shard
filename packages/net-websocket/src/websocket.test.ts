@@ -1,3 +1,5 @@
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { defineComponent, t } from '@aethervtt/shard-core'
 import { NetRole, netPlugin, netSession, Replicated, replicate } from '@aethervtt/shard-net'
 import { App } from '@aethervtt/shard-runtime'
@@ -67,4 +69,42 @@ it('reports a refused connection', async () => {
   await expect(transport.connect('ws://127.0.0.1:1')).rejects.toMatchObject({
     code: 'net/connect-failed',
   })
+})
+
+it('shares an HTTP server: the game at /net, the page on the same port (0110)', async () => {
+  const http = createServer((_req, res) => res.end('page'))
+  await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve))
+  const { port } = http.address() as AddressInfo
+  const server = new App()
+  server.addPlugin(
+    netPlugin({
+      role: 'server',
+      transport: webSocketServer({ server: http }),
+      replicate: [replicate(Note)],
+    }),
+  )
+  await server.init()
+  await netSession(server.world).ready
+  apps.push(server)
+  expect((netSession(server.world).server!.listener as WebSocketListener).port).toBe(port)
+  const client = new App()
+  client.addPlugin(
+    netPlugin({
+      role: 'client',
+      transport: webSocketTransport(),
+      address: `ws://127.0.0.1:${port}/net`,
+      replicate: [replicate(Note)],
+    }),
+  )
+  await client.init()
+  apps.push(client)
+  await until([server, client], () => client.world.resource(NetRole).connected)
+  server.world.spawn([Replicated, {}], [Note, { text: 'hi', n: 1 }])
+  const ids = netSession(client.world).client!.byNetId
+  await until([server, client], () => ids.size === 1)
+  expect(await (await fetch(`http://127.0.0.1:${port}/`)).text()).toBe('page')
+  // Disposing the game closes its sockets, not the page's server.
+  for (const app of apps.splice(0)) await app.dispose()
+  expect(http.listening).toBe(true)
+  await new Promise((resolve) => http.close(resolve))
 })

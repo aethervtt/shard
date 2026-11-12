@@ -68,7 +68,7 @@ const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; 
   },
   export: {
     run: exportCommand,
-    help: 'export [--target web] [--out dist/web] [--dry-run] [--sourcemap]   the project as static files (0110)',
+    help: 'export [--target web|server] [--static] [--pack] [--out dist/<target>] [--dry-run] [--sourcemap]   static files, or a node server.mjs (--static: with the page) (0110)',
   },
   profile: {
     run: profile,
@@ -207,6 +207,8 @@ export async function main(argv: string[]): Promise<number> {
         target: { type: 'string' },
         build: { type: 'string' },
         'dry-run': { type: 'boolean' },
+        static: { type: 'boolean' },
+        pack: { type: 'boolean' },
         sourcemap: { type: 'boolean' },
         help: { type: 'boolean', short: 'h' },
       },
