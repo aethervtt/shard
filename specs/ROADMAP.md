@@ -175,6 +175,15 @@ export, since game scripts are one bundle for every target. It needs entries per
 server, desktop) that the export picks between, designed across all three; until then it stays
 out of 0111's scope.
 
+Not yet specced: **desktop and multiplayer project setup**, after 0111. `shard init` makes one
+game project; a desktop app comes later, from `shard export --target tauri --init`. Three parts:
+`shard init --desktop` (0111's scaffold at init, plus scripts and the Tauri CLI); a workspace
+layout for the shape real multiplayer games take (`apps/game`, `apps/server` on Bun switching
+between `openExportGame` from an export and `loadHeadlessCode` from source, `apps/desktop` bundling
+that server as its sidecar); and a desktop dev loop, `tauri dev` on `shard dev`'s hot-reloading
+page, which needs the dev page to use the plugin's storage and local server inside the window,
+with `shard server` standing in for the sidecar.
+
 ## E1 — Embedding: Aether
 
 Shard as a guest inside a host application: Aether (a VTT) moves its dice, and then its table,
