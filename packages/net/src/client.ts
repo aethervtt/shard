@@ -31,6 +31,8 @@ export interface ClientConfig {
   readonly maxMessage: number
   readonly token: string
   readonly spawnPrefab: ((world: World, prefab: string) => Entity) | undefined
+  /** Resolves a bound entity's ref to an entity this client already has (0112). */
+  readonly bind?: ((world: World, ref: string) => Entity | undefined) | undefined
   readonly now: () => number
 }
 
@@ -82,6 +84,12 @@ export class NetClient {
   private readonly fragmenter = new Fragmenter()
   private readonly inbox: { channel: Channel; bytes: Uint8Array }[] = []
   private readonly applied = new Map<number, Float64Array>()
+  /** Send intervals in network ticks, by net id: absent means 1 (0112). */
+  private readonly rates = new Map<number, number>()
+  /** Net ids of bound entities, resolved or not (0112): updates for them are never an error. */
+  private readonly bound = new Set<number>()
+  /** Resolved bound entities, which have no NetId component, to their net ids. */
+  private readonly boundIds = new Map<Entity, number>()
   private readonly interp = new Map<number, (InterpBuffer | undefined)[]>()
   private readonly codecs: RowCodec[]
   private readonly commandCodecs: RowCodec[]
@@ -171,7 +179,8 @@ export class NetClient {
 
   private toWire(entity: Entity): number {
     const world = this.world
-    if (!world.isAlive(entity) || !world.has(entity, NetId)) return 0
+    if (!world.isAlive(entity)) return 0
+    if (!world.has(entity, NetId)) return this.boundIds.get(entity) ?? 0
     return world.entityTable(entity).column(NetId, 'id')[world.entityRow(entity)]!
   }
 
@@ -179,6 +188,41 @@ export class NetClient {
     this.byNetId.delete(id)
     this.applied.delete(id)
     this.interp.delete(id)
+    this.rates.delete(id)
+  }
+
+  /** The send interval of a net id, in network ticks (1 unless the server said otherwise). */
+  everyOf(netId: number): number {
+    return this.rates.get(netId) ?? 1
+  }
+
+  /** Whether `netId` is a bound entity (0112), resolved or not. */
+  isBound(netId: number): boolean {
+    return this.bound.has(netId)
+  }
+
+  /**
+   * Lets go of what a net id names: a spawned entity despawns; a bound one loses the components
+   * it received and stays.
+   */
+  private release(netId: number): void {
+    const world = this.world
+    const entity = this.byNetId.get(netId)
+    if (!this.bound.has(netId)) {
+      this.forget(netId)
+      if (entity !== undefined && world.isAlive(entity)) world.despawn(entity)
+      return
+    }
+    const applied = this.applied.get(netId)
+    if (entity !== undefined && world.isAlive(entity) && applied) {
+      for (let c = 0; c < this.codecs.length; c++) {
+        const def = this.codecs[c]!.def
+        if (applied[c]! >= 0 && world.has(entity, def)) world.remove(entity, def)
+      }
+    }
+    if (entity !== undefined && this.boundIds.get(entity) === netId) this.boundIds.delete(entity)
+    this.bound.delete(netId)
+    this.forget(netId)
   }
 
   // --- receiving -----------------------------------------------------------
@@ -303,7 +347,9 @@ export class NetClient {
     const entity = this.byNetId.get(netId)
     if (entity === undefined || !this.world.isAlive(entity)) {
       codec.decode(r)
-      return false
+      // A bound entity this client doesn't have (an unloaded cell): nothing to apply, nothing to
+      // wait for.
+      return this.bound.has(netId)
     }
     if (this.stale(netId, comp, tick)) {
       codec.decode(r)
@@ -327,12 +373,30 @@ export class NetClient {
           case Section.spawn: {
             const netId = r.varuint()
             const prefab = r.string()
-            const old = this.byNetId.get(netId)
-            if (old !== undefined && world.isAlive(old)) world.despawn(old)
+            if (this.byNetId.has(netId) || this.bound.has(netId)) this.release(netId)
             const spawn = this.config.spawnPrefab
             const entity = prefab && spawn ? spawn(world, prefab) : world.spawn()
             world.add(entity, NetId, { id: netId })
             this.byNetId.set(netId, entity)
+            break
+          }
+          case Section.bind: {
+            const netId = r.varuint()
+            const ref = r.string()
+            if (this.byNetId.has(netId) || this.bound.has(netId)) this.release(netId)
+            this.bound.add(netId)
+            const entity = this.config.bind?.(world, ref)
+            if (entity !== undefined && world.isAlive(entity)) {
+              this.byNetId.set(netId, entity)
+              this.boundIds.set(entity, netId)
+            }
+            break
+          }
+          case Section.rate: {
+            const netId = r.varuint()
+            const every = r.varuint()
+            if (every > 1) this.rates.set(netId, every)
+            else this.rates.delete(netId)
             break
           }
           case Section.set:
@@ -344,13 +408,9 @@ export class NetClient {
             if (entity !== undefined && def && world.isAlive(entity)) world.remove(entity, def)
             break
           }
-          case Section.despawn: {
-            const netId = r.varuint()
-            const entity = this.byNetId.get(netId)
-            this.forget(netId)
-            if (entity !== undefined && world.isAlive(entity)) world.despawn(entity)
+          case Section.despawn:
+            this.release(r.varuint())
             break
-          }
           case Section.answer: {
             const seq = r.varuint()
             const code = r.string()
@@ -431,7 +491,8 @@ export class NetClient {
     // Updates are deltas: a gap longer than one send means the value held still until just before
     // this one. Say so with a sample one send back, or the first change after a rest is spread over
     // the whole rest (a crawl) and then waits for the next update (a stop).
-    const interval = this.config.ticksPerNet
+    const every = this.rates.get(netId)
+    const interval = this.config.ticksPerNet * (every === undefined ? 1 : every)
     if (buffer.count > 0 && tick - newest > interval) {
       const held = buffer.head
       buffer.ticks[held] = tick - interval
@@ -461,21 +522,34 @@ export class NetClient {
     const fixed = world.resource(FixedTime)
     const clock = world.resource(NetClock)
     const step = fixed.step
-    const delay = Math.max(2 * this.config.ticksPerNet, (2 * clock.jitter) / 1000 / step)
-    this.renderTick = clock.serverTick - clock.rtt / 2 / 1000 / step - delay
+    const jitterTicks = (2 * clock.jitter) / 1000 / step
+    this.delay = Math.max(2 * this.config.ticksPerNet, jitterTicks)
+    this.jitterTicks = jitterTicks
+    this.latestTick = clock.serverTick - clock.rtt / 2 / 1000 / step
     this.interp.forEach(this.interpolateEntity)
   }
 
-  private renderTick = 0
+  /** The newest server tick a sample can have arrived from, and the delays behind it. */
+  private latestTick = 0
+  private delay = 0
+  private jitterTicks = 0
   private readonly interpolateEntity = (buffers: (InterpBuffer | undefined)[], netId: number) => {
     const world = this.world
     const entity = this.byNetId.get(netId)
     if (entity === undefined || !world.isAlive(entity)) return
+    // An entity sent every `every` network ticks renders that far behind, so it moves between its
+    // sparse samples instead of holding the newest one and jumping (0112).
+    const every = this.rates.get(netId)
+    const delay =
+      every === undefined
+        ? this.delay
+        : Math.max(this.delay, every * this.config.ticksPerNet + this.jitterTicks)
+    const renderTick = this.latestTick - delay
     for (let c = 0; c < buffers.length; c++) {
       const buffer = buffers[c]
       if (!buffer || buffer.count === 0) continue
       if (!world.has(entity, this.codecs[c]!.def)) continue
-      this.write(buffer, c, entity, this.renderTick)
+      this.write(buffer, c, entity, renderTick)
     }
   }
 

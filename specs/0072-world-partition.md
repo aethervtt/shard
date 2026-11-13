@@ -42,7 +42,8 @@ beyond the load range with baked stand-ins.
   folder layout leaves room for it.
 - Level instances (a building's cells reused in several places). Prefabs (0030) cover most of
   this.
-- Server-driven streaming for multiplayer.
+- Server-driven streaming for multiplayer, and cells made by generators. 0112 builds both on this
+  spec's runtime.
 - Streaming terrain. 0071 does that itself.
 - Splitting a cell's spawn across frames. Cells are kept small enough to spawn in one (see
   *Loading*).
@@ -99,7 +100,7 @@ worlds/island/
 ```ts
 PartitionInstance { partition: handle('partition/Partition'), enabled: bool = true }
 StreamingSource { enabled: bool = true, rangeScale: f32 = 1, priority: u8 = 0 }
-CellBound {}                    // a runtime-spawned entity that belongs to the cell it's in
+CellBound { x: i32, z: i32, grid: u8, key: u32 }  // a runtime entity and its current cell (0112)
 StreamingBudget {               // resource
   entitiesPerFrame: 2000, readsInFlight: 8, unloadDelay: 2,   // seconds
   blocking: 'auto',             // 'auto' | true | false
@@ -150,8 +151,9 @@ which mode produced it.
   its cell unloads when its home cell does. Things that roam (player, vehicles, companions) belong
   in the always scene or are spawned at runtime.
 - Runtime-spawned entities belong to no cell and stay loaded, unless they have `CellBound`. A
-  `CellBound` entity joins the cell containing its position when it's spawned and unloads with
-  that cell (dropped loot, a corpse).
+  `CellBound` entity joins the cell containing its position when it's spawned, moves to the cell
+  it walks into once it's 1 m past the border (0112), and unloads with its current cell (dropped
+  loot, a corpse, a zombie).
 - **Unloaded state.** When a cell unloads, its changes are captured with 0038's rules: field diffs
   against the cell file, despawned paths, and its `CellBound` entities in full. They're kept in
   the `PartitionState` resource and applied when the cell loads again. Untouched cells produce an
@@ -230,9 +232,10 @@ which mode produced it.
 
 ## Open questions
 
-- Answered: a dynamic body that leaves its cell stays a member of its home cell, as in Unreal.
-  `CellBound` on a runtime entity covers loot, and moving authored entities between cell files at
-  runtime would make diffs hard to read.
+- Answered: an authored entity that leaves its cell stays a member of its home cell, as in Unreal.
+  Moving authored entities between cell files at runtime would make diffs hard to read. A
+  `CellBound` runtime entity follows its position instead (amended by 0112): a zombie that walks
+  out of a cell mustn't vanish when that cell unloads.
 - Deferred, wanted: 2D streaming, for a metroidvania or any large 2D map. The same model on X and
   Y (`plane: 'xy'`, cells `<x>_<y>.scene.json`), with sources from `Camera2d` and 2D physics
   bodies. Probably also cells shaped by rooms rather than a square grid, so a room loads whole

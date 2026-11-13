@@ -32,6 +32,7 @@
     "@aethervtt/shard-net-websocket": "workspace:*",
     "@aethervtt/shard-node": "workspace:*",
     "@aethervtt/shard-noise": "workspace:*",
+    "@aethervtt/shard-partition": "workspace:*",
     "@aethervtt/shard-physics": "workspace:*",
     "@aethervtt/shard-platform": "workspace:*",
     "@aethervtt/shard-platform-node": "workspace:*",

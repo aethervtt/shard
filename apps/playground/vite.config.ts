@@ -27,6 +27,7 @@ export default defineConfig({
         'audio-editor.html',
         'effects.html',
         'vfx.html',
+        'partition-hash.html',
       ],
     },
   },

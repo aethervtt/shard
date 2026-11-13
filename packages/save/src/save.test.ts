@@ -5,7 +5,9 @@ import {
   defineResource,
   defineSchema,
   defineSystem,
+  defineTag,
   type Entity,
+  ShardError,
   t,
   Update,
   type World,
@@ -40,6 +42,7 @@ import { SAVE_VERSION, type SaveFile, saveJsonSchema } from './format'
 import { savePlugin } from './plugin'
 import {
   captureGame,
+  defineSaveSection,
   describeSave,
   listSaves,
   loadGame,
@@ -408,6 +411,109 @@ describe('save and load', () => {
     expect(w.isAlive(keep)).toBe(true)
   })
 
+  it("keeps a NoSave entity's whole subtree out of spawned and through a load", async () => {
+    const s = await game()
+    await start(s)
+    const w = s.world
+    await loadPrefab(w, DRONE)
+    // A runtime cell root: NoSave, with a generated instance under it and runtime children below.
+    const cell = w.spawn(Transform, NoSave)
+    const generated = spawnPrefab(w, DRONE, { parent: cell })
+    const rotor = instanceEntities(w, generated).get('rotor')!
+    const crate = w.spawn(Transform, [Health, { current: 5 }], [ChildOf, { parent: rotor }])
+    const pebble = w.spawn(Transform, [ChildOf, { parent: crate }])
+    const loose = w.spawn([Transform, { translation: [1, 0, 0] }])
+    const file = captureGame(w)
+    expect(file.spawned).toHaveLength(1)
+    expect(file.spawned[0]!.components['core/Transform']).toEqual({
+      translation: [1, 0, 0],
+      rotation: [0, 0, 0, 1],
+      scale: [1, 1, 1],
+    })
+    await loadGame(w, file)
+    for (const e of [cell, generated, rotor, crate, pebble]) expect(w.isAlive(e)).toBe(true)
+    expect(w.isAlive(loose)).toBe(false)
+  })
+
+  it('writes and restores save sections, and warns about unknown ones', async () => {
+    const restored: unknown[] = []
+    let state = { opened: ['door-1'] as string[] }
+    defineSaveSection('save-test/doors', {
+      capture: () => ({ opened: [...state.opened] }),
+      restore: async (_world, data, report) => {
+        await Promise.resolve()
+        restored.push(data)
+        state = structuredClone(data) as typeof state
+        report.warnings.push(new ShardError('save-test/note', 'restored'))
+      },
+    })
+    defineSaveSection('save-test/empty', {
+      capture: () => undefined,
+      restore: () => {
+        throw new Error('not called: nothing was saved')
+      },
+    })
+    const s = await game()
+    await start(s)
+    const file = JSON.parse(JSON.stringify(captureGame(s.world))) as SaveFile
+    expect(file.sections).toEqual({ 'save-test/doors': { opened: ['door-1'] } })
+    state = { opened: [] }
+    file.sections!['save-test/gone'] = { x: 1 }
+    const report = await loadGame(s.world, file)
+    expect(restored).toEqual([{ opened: ['door-1'] }])
+    expect(state).toEqual({ opened: ['door-1'] })
+    expect(report.warnings.map((w) => [w.code, w.path])).toEqual([
+      ['save/unknown-section', '/sections/save-test~1gone'],
+      ['save-test/note', undefined],
+    ])
+    // Redefining a section replaces it; one that captures nothing leaves the field out.
+    defineSaveSection('save-test/doors', { capture: () => undefined, restore: () => {} })
+    expect(captureGame(s.world).sections).toBeUndefined()
+    expect('sections' in captureGame(s.world)).toBe(false)
+  })
+
+  it('leaves entities a section owns, and their subtrees, out of spawned and scene diffs', async () => {
+    const Streamed = defineTag('save-test/Streamed')
+    let restoredWith: string[] | undefined
+    let aliveAtRestore: boolean[] = []
+    const roots: Entity[] = []
+    defineSaveSection('save-test/streamed', {
+      owns: (world, e) => world.has(e, Streamed),
+      capture: (world) => roots.map((e) => world.get(e, Transform).translation[0]!.toString()),
+      restore: (world, data) => {
+        restoredWith = data as string[]
+        aliveAtRestore = roots.map((e) => world.isAlive(e))
+      },
+    })
+    try {
+      const s = await game()
+      await start(s)
+      const w = s.world
+      await loadPrefab(w, DRONE)
+      roots.push(w.spawn([Transform, { translation: [7, 0, 0] }], Streamed))
+      const instance = spawnPrefab(w, DRONE, { parent: roots[0]! })
+      const crate = w.spawn(Transform, [ChildOf, { parent: instance }])
+      w.add(at(w, 'rock'), Streamed)
+      w.set(at(w, 'rock'), Transform, { translation: [1, 1, 1] })
+      w.set(at(w, 'base'), Transform, { translation: [2, 2, 2] })
+      const loose = w.spawn([Transform, { translation: [3, 0, 0] }])
+      const file = captureGame(w)
+      expect(file.spawned).toHaveLength(1)
+      expect(file.spawned[0]!.components['core/Transform']).toMatchObject({
+        translation: [3, 0, 0],
+      })
+      expect(Object.keys(file.scenes[MAIN]!.changed)).toEqual(['base'])
+      expect(file.sections!['save-test/streamed']).toEqual(['7'])
+      // Loading despawns owned runtime entities as it does the rest, before restore runs.
+      await loadGame(w, file)
+      expect(restoredWith).toEqual(['7'])
+      expect(aliveAtRestore).toEqual([false])
+      for (const e of [instance, crate, loose]) expect(w.isAlive(e)).toBe(false)
+    } finally {
+      defineSaveSection('save-test/streamed', { capture: () => undefined, restore: () => {} })
+    }
+  })
+
   it('publishes a JSON Schema that saves validate against', async () => {
     const { default: Ajv } = await import('ajv/dist/2020')
     const ajv = new Ajv({ strict: false })
@@ -418,6 +524,8 @@ describe('save and load', () => {
     spawnPrefab(s.world, DRONE, { parent: at(s.world, 'base') })
     s.world.set(at(s.world, 'ship'), Health, { current: 1 })
     const file = captureGame(s.world)
+    expect(validate(JSON.parse(JSON.stringify(file))), JSON.stringify(validate.errors)).toBe(true)
+    file.sections = { 'save-test/any': { cells: [1, 2] } }
     expect(validate(JSON.parse(JSON.stringify(file))), JSON.stringify(validate.errors)).toBe(true)
   })
 })

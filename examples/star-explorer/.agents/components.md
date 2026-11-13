@@ -649,6 +649,7 @@ _Computed by the engine; never written in scene files._
 |---|---|---|---|---|
 | `prefab` | string | `""` |  | Prefab clients spawn this entity from (path or guid); empty for a bare entity. |
 | `owner` | integer | `0` | ≥ 0, ≤ 4294967295 | Peer that owns it; 0 for the server. |
+| `bound` | boolean | `false` |  | Clients already have it (0112): `prefab` is a ref their `bind` resolves, and only components replicated with `visibleTo` are sent. |
 
 ## `particles/ParticleEmitterOverrides`
 
@@ -676,6 +677,64 @@ Brings along: `core/Transform`, `render/Visibility`.
 | `timeScale` | number | `1` | ≥ 0 | Simulation speed. |
 | `space` | `"world"` \| `"local"` | `"world"` |  | world: particles stay where they were emitted (a moving ship leaves its exhaust behind). local: they move with the entity (an engine's glow). |
 | `backend` | `"gpu"` \| `"cpu"` | `"gpu"` |  | gpu: compute shaders, for any count. cpu: the same effect simulated in TypeScript, for small counts that gameplay reads. |
+
+## `partition/CellBound`
+
+Belongs to the partition cell it stands in, and unloads with it.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `x` | integer | `0` | ≥ -2147483648, ≤ 2147483647 |  |
+| `z` | integer | `0` | ≥ -2147483648, ≤ 2147483647 |  |
+| `grid` | integer | `0` | ≥ 0, ≤ 255 |  |
+| `key` | integer | `0` | ≥ 0, ≤ 4294967295 | Its name in the cell (+key); 0 until it joins one. |
+
+## `partition/Dynamic`
+
+A CellBound entity that is simulated: dormant while its cell is unloaded.
+
+Tag (no fields).
+
+## `partition/FarVisible`
+
+A cell's added entity that also shows at coarser levels than the first.
+
+Tag (no fields).
+
+## `partition/PartitionInstance`
+
+Streams a partition of generated cells around StreamingSources (0112).
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `partition` | string | `""` |  | The partition, by the name definePartition gave it. |
+| `seed` | integer | `0` | ≥ 0, ≤ 4294967295 | The world seed every machine generates cells from. |
+| `secretSeed` | integer | `0` | ≥ 0, ≤ 4294967295 | Server only: the seed of the secrets generator (loot). Never sent; clients have 0. |
+| `enabled` | boolean | `true` |  |  |
+
+## `partition/StreamedCell`
+
+A partition cell's root; its children are the generator's output.
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `x` | integer | `0` | ≥ -2147483648, ≤ 2147483647 |  |
+| `z` | integer | `0` | ≥ -2147483648, ≤ 2147483647 |  |
+| `grid` | integer | `0` | ≥ 0, ≤ 255 |  |
+| `level` | integer | `0` | ≥ 0, ≤ 255 | Index into the grid levels. |
+
+## `partition/StreamingSource`
+
+Cells load around it (0072, 0112).
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `enabled` | boolean | `true` |  |  |
+| `rangeScale` | number | `1` | ≥ 0 | Multiplies every ring around it. |
+| `priority` | integer | `0` | ≥ 0, ≤ 255 | Its cells load first when several wait. |
+| `peer` | integer | `0` | ≥ 0, ≤ 4294967295 | The peer it belongs to (0 for the server). partitionNet copies net/Replicated.owner here, so a client streams around its own player. |
 
 ## `physics/CharacterController`
 

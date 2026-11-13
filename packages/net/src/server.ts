@@ -104,6 +104,12 @@ interface Known {
   readonly sentAt: Float64Array
   /** The fixed tick anything of it was last sent: older entities go first under a budget. */
   lastSent: number
+  /** A bound entity (0112): the client resolved it; only `visibleTo` components are sent. */
+  readonly bound: boolean
+  /** The send interval the client was last told, in network ticks. */
+  every: number
+  /** The network tick its unreliable state was last sent (or it spawned), for `every`. */
+  stateNet: number
 }
 
 interface PacketRecord {
@@ -265,6 +271,8 @@ export class NetServer {
   private readonly spawns = new ByteWriter(1024)
   private readonly sets = new ByteWriter(4096)
   private readonly removes = new ByteWriter(256)
+  private readonly binds = new ByteWriter(256)
+  private readonly rates = new ByteWriter(256)
   private readonly despawns = new ByteWriter(256)
   private readonly tail = new ByteWriter(1024)
   private current: PeerState | undefined
@@ -905,7 +913,9 @@ export class NetServer {
     for (const table of this.relevanceQuery.tables) {
       const always = table.column(Relevance, 'always')
       for (let row = 0; row < table.count; row++) {
-        if (always[row] === 1) set.add(table.entities[row]!)
+        // Pinned in, at the policy's interval when it gave one.
+        const e = table.entities[row]!
+        if (always[row] === 1 && !set.has(e)) set.add(e)
       }
     }
     // A child is relevant only with its parent, so it never arrives without one.
@@ -923,12 +933,17 @@ export class NetServer {
     this.relevance(peer)
 
     this.spawns.reset()
+    this.binds.reset()
+    this.rates.reset()
     this.sets.reset()
     this.removes.reset()
     this.despawns.reset()
     let spawnCount = 0
+    let bindCount = 0
+    let rateCount = 0
     let setCount = 0
     let removeCount = 0
+    const netTick = this.lastNetTick
 
     // Despawn what left the peer's interest or the world.
     this.despawnCount = 0
@@ -957,9 +972,19 @@ export class NetServer {
         scores.push(priority * 1e6)
         continue
       }
+      // A changed interval goes out at once, reliably; unreliable state waits `every` net ticks.
+      const every = relevant.everyOf(e)
+      if (every !== known.every) {
+        this.rates.varuint(netId)
+        this.rates.varuint(every)
+        rateCount++
+        known.every = every
+      }
+      const waiting = every > 1 && netTick - known.stateNet < every
       let due = false
       for (let c = 0; c < comps.length; c++) {
         const entry = comps[c]!
+        if (known.bound && !entry.visibleTo) continue
         const has = table.has(entry.def)
         const visible = has && (!entry.visibleTo || entry.visibleTo(world, peer.id, e))
         if (!visible) {
@@ -975,6 +1000,7 @@ export class NetServer {
         }
         const changed = table.changedTicks(entry.def)[row]!
         if (changed <= known.acked[c]! && known.present[c]) continue
+        if (waiting && known.present[c] && entry.channel === 'unreliable') continue
         if (
           changed > known.sent[c]! ||
           !known.present[c] ||
@@ -1024,22 +1050,37 @@ export class NetServer {
       const row = world.entityRow(e)
       const netId = table.column(NetId, 'id')[row]!
       let known = peer.known.get(netId)
-      const startBytes = this.spawns.length + this.sets.length + state.length
+      const startBytes =
+        this.spawns.length + this.binds.length + this.rates.length + this.sets.length + state.length
+      const every = relevant.everyOf(e)
       if (!known) {
-        known = makeKnown(netId, e, comps.length)
+        const bound = table.column(Replicated, 'bound')[row] === 1
+        known = makeKnown(netId, e, comps.length, bound, netTick)
         peer.known.set(netId, known)
-        this.spawns.varuint(netId)
         const prefab = table.column(Replicated, 'prefab')[row]
-        this.spawns.string(prefab ?? '')
-        spawnCount++
+        const w = bound ? this.binds : this.spawns
+        w.varuint(netId)
+        w.string(prefab ?? '')
+        if (bound) bindCount++
+        else spawnCount++
+        if (every !== 1) {
+          this.rates.varuint(netId)
+          this.rates.varuint(every)
+          rateCount++
+          known.every = every
+        }
       }
+      const waiting = every > 1 && netTick - known.stateNet < every
+      let stateSent = false
       for (let c = 0; c < comps.length; c++) {
         const entry = comps[c]!
+        if (known.bound && !entry.visibleTo) continue
         if (!table.has(entry.def)) continue
         if (entry.visibleTo && !entry.visibleTo(world, peer.id, e)) continue
         const changed = table.changedTicks(entry.def)[row]!
         const present = known.present[c] === 1
         if (present && changed <= known.acked[c]!) continue
+        if (waiting && present && entry.channel === 'unreliable') continue
         const resend = present && changed <= known.sent[c]!
         if (resend && tick - known.sentAt[c]! < resendAfter) continue
         let toReliable = !present || entry.channel === 'reliable'
@@ -1072,6 +1113,7 @@ export class NetServer {
           known.acked[c] = this.pendingRef ? 0 : changed
         } else {
           stateEntries++
+          stateSent = true
           known.sent[c] = changed
           if (this.pendingRef) known.acked[c] = 0
           record.netIds.push(netId)
@@ -1080,7 +1122,14 @@ export class NetServer {
         }
       }
       known.lastSent = tick
-      bytes += this.spawns.length + this.sets.length + state.length - startBytes
+      if (stateSent) known.stateNet = netTick
+      bytes +=
+        this.spawns.length +
+        this.binds.length +
+        this.rates.length +
+        this.sets.length +
+        state.length -
+        startBytes
     }
     peer.stats.deferred = deferred
 
@@ -1113,10 +1162,14 @@ export class NetServer {
       tailSections++
     }
 
-    if (spawnCount + setCount + removeCount + despawnCount + tailSections > 0) {
+    const reliableCount =
+      spawnCount + bindCount + rateCount + setCount + removeCount + despawnCount + tailSections
+    if (reliableCount > 0) {
       const out = this.out
       header(out, Msg.reliable, tick)
       if (spawnCount > 0) section(out, Section.spawn, spawnCount, this.spawns)
+      if (bindCount > 0) section(out, Section.bind, bindCount, this.binds)
+      if (rateCount > 0) section(out, Section.rate, rateCount, this.rates)
       if (setCount > 0) section(out, Section.set, setCount, this.sets)
       if (removeCount > 0) section(out, Section.remove, removeCount, this.removes)
       if (despawnCount > 0) section(out, Section.despawn, despawnCount, this.despawns)
@@ -1155,6 +1208,7 @@ export class NetServer {
       }
       peers[String(peer.id)] = {
         relevant: peer.relevant.has(entity),
+        every: peer.relevant.everyOf(entity),
         known: known !== undefined,
         redacted,
         lastSentTick: known?.lastSent ?? null,
@@ -1164,6 +1218,7 @@ export class NetServer {
       netId: netId ?? null,
       owner: replicated?.owner ?? null,
       prefab: replicated?.prefab ?? null,
+      bound: replicated?.bound ?? false,
       peers,
     }
   }
@@ -1201,7 +1256,13 @@ function readNetId(world: World, entity: Entity): number | undefined {
   return world.entityTable(entity).column(NetId, 'id')[world.entityRow(entity)]
 }
 
-function makeKnown(netId: number, entity: Entity, count: number): Known {
+function makeKnown(
+  netId: number,
+  entity: Entity,
+  count: number,
+  bound: boolean,
+  netTick: number,
+): Known {
   return {
     netId,
     entity,
@@ -1210,6 +1271,9 @@ function makeKnown(netId: number, entity: Entity, count: number): Known {
     acked: new Uint32Array(count),
     sentAt: new Float64Array(count),
     lastSent: 0,
+    bound,
+    every: 1,
+    stateNet: netTick,
   }
 }
 

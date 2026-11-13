@@ -33,6 +33,7 @@ export {
   gridInterest,
   type InterestPeer,
   type InterestPolicy,
+  MAX_SEND_INTERVAL,
   ownerInterest,
   RelevanceSet,
   teamInterest,

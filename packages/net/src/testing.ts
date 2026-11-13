@@ -1,6 +1,6 @@
 import { type ComponentDef, type Entity, ShardError } from '@aethervtt/shard-core'
-import { App, type Plugin } from '@aethervtt/shard-runtime'
-import { NetId, NetRole } from './components'
+import { App, type Plugin, StepMode, settleBeforeStep } from '@aethervtt/shard-runtime'
+import { NetId, NetRole, Replicated } from './components'
 import {
   type ConditionedTransport,
   type ConditionsOptions,
@@ -75,8 +75,16 @@ export async function netHarness(options: NetHarnessOptions = {}): Promise<NetHa
   const network = loopback({ maxMessage: options.maxMessage ?? 1 << 20 })
   const address = 'harness'
 
-  const make = (side: 'server' | 'client', index: number, appSeed: number) =>
-    options.createApp?.(side, index) ?? new App({ fixedHz, seed: appSeed, now })
+  const make = (side: 'server' | 'client', index: number, appSeed: number) => {
+    const app = options.createApp?.(side, index) ?? new App({ fixedHz, seed: appSeed, now })
+    // One fake clock, results from input and seed alone (0112: streaming commits on fixed frames).
+    app.world.initResource(StepMode).deterministic = true
+    return app
+  }
+  const settle = async () => {
+    await settleBeforeStep(server.world)
+    for (const c of clients) await settleBeforeStep(c.world)
+  }
   const server = make('server', 0, seed)
   for (const p of options.plugins?.() ?? []) server.addPlugin(p)
   for (const p of options.server?.() ?? []) server.addPlugin(p)
@@ -157,12 +165,16 @@ export async function netHarness(options: NetHarnessOptions = {}): Promise<NetHa
       for (const e of peer.relevant.entities) {
         const id = server.world.get(e, NetId).id
         const local = client.byNetId.get(id)
+        // A bound entity (0112) the client couldn't resolve is one it doesn't have: nothing to
+        // compare. One it resolved receives only redacted components.
+        const bound = server.world.get(e, Replicated).bound
         if (local === undefined) {
-          out.push(`client ${index}: missing net id ${id}`)
+          if (!bound || !client.isBound(id)) out.push(`client ${index}: missing net id ${id}`)
           continue
         }
         for (const def of defs) {
           const entry = entries.find((c) => c.def === def)
+          if (bound && !entry?.visibleTo) continue
           const visible =
             server.world.has(e, def) &&
             (!entry?.visibleTo || entry.visibleTo(server.world, peerId, e))
@@ -206,6 +218,7 @@ export async function netHarness(options: NetHarnessOptions = {}): Promise<NetHa
     async connect(maxTicks = 600) {
       for (let i = 0; i < maxTicks; i++) {
         if (clients.every((c) => c.world.resource(NetRole).connected)) return
+        await settle()
         step(1)
         await yieldToPromises()
       }
@@ -217,6 +230,7 @@ export async function netHarness(options: NetHarnessOptions = {}): Promise<NetHa
     },
     async run(ticks) {
       for (let i = 0; i < ticks; i++) {
+        await settle()
         step(1)
         await yieldToPromises()
       }

@@ -37,7 +37,7 @@ import {
 } from './generator'
 import { executeJob, type GenJob, type GenResult, type JobDependency } from './job'
 import { checkFragment, type GenOutputAsset } from './outputs'
-import { decodeRecord, encodeRecord, type OutputRecord, recordBytes } from './record'
+import { decodeRecord, encodeRecord, type OutputRecord, recordBytes, recordHash } from './record'
 
 const encoder = new TextEncoder()
 
@@ -402,6 +402,25 @@ export class ProcgenRuntime {
     return key ? this.memory.get(key) : undefined
   }
 
+  /**
+   * The record behind a generated output (its `gen:` guid or `procedural:` path; a sub-asset like
+   * `#LOD1` names its whole record), from the caches or generated now. Throws
+   * `procgen/not-generated` for anything else.
+   */
+  async outputRecord(ref: AssetRef | string): Promise<OutputRecord> {
+    const entry = this.server.entry(ref)
+    if (!entry?.guid.startsWith('gen:')) {
+      const label = typeof ref === 'string' ? ref : (ref.path ?? ref.guid)
+      throw new ShardError('procgen/not-generated', `"${label}" isn't a generator output`, {
+        hint: 'Pass the ref generate() returned, a gen: guid, or a procedural: path.',
+      })
+    }
+    const slash = entry.guid.indexOf('/')
+    const base = slash === -1 ? entry.guid : entry.guid.slice(0, slash)
+    const request = this.requests.get(base) ?? this.requestOfPath(entry.path)
+    return (await this.recordFor(request)).record
+  }
+
   /** `produce`, with failures logged (a GeneratorInstance or scene waiting on it shows why). */
   private async produceLogged(guid: string): Promise<unknown> {
     try {
@@ -746,6 +765,15 @@ export function generate<const P extends Fields, const O extends OutputSpec>(
   seed = 0,
 ): Promise<AssetRef<OutputAsset<O>>> {
   return procgen(world).generate(gen, params, seed)
+}
+
+/**
+ * The SHA-256 (hex) of a generated output's canonical bytes (`recordHash`): the same for the same
+ * output on every machine and JavaScript engine, so peers can compare what they generated. Makes
+ * the output first if no cache has it. Throws `procgen/not-generated` when `ref` isn't an output.
+ */
+export async function outputHash(world: World, ref: AssetRef | string): Promise<string> {
+  return recordHash(await procgen(world).outputRecord(ref))
 }
 
 export { identityOf }

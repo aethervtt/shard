@@ -74,6 +74,9 @@ importers:
       '@aethervtt/shard-noise':
         specifier: workspace:*
         version: link:../../packages/noise
+      '@aethervtt/shard-partition':
+        specifier: workspace:*
+        version: link:../../packages/partition
       '@aethervtt/shard-physics':
         specifier: workspace:*
         version: link:../../packages/physics
@@ -237,6 +240,9 @@ importers:
       '@aethervtt/shard-particles':
         specifier: workspace:*
         version: link:../../packages/particles
+      '@aethervtt/shard-partition':
+        specifier: workspace:*
+        version: link:../../packages/partition
       '@aethervtt/shard-physics':
         specifier: workspace:*
         version: link:../../packages/physics
@@ -1413,6 +1419,58 @@ importers:
       webgpu:
         specifier: 0.6.1
         version: 0.6.1
+
+  packages/partition:
+    dependencies:
+      '@aethervtt/shard-assets':
+        specifier: workspace:*
+        version: link:../assets
+      '@aethervtt/shard-core':
+        specifier: workspace:*
+        version: link:../core
+      '@aethervtt/shard-net':
+        specifier: workspace:*
+        version: link:../net
+      '@aethervtt/shard-procgen':
+        specifier: workspace:*
+        version: link:../procgen
+      '@aethervtt/shard-runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@aethervtt/shard-save':
+        specifier: workspace:*
+        version: link:../save
+      '@aethervtt/shard-scene':
+        specifier: workspace:*
+        version: link:../scene
+      '@aethervtt/shard-transform':
+        specifier: workspace:*
+        version: link:../transform
+    devDependencies:
+      '@aethervtt/shard-nav':
+        specifier: workspace:*
+        version: link:../nav
+      '@aethervtt/shard-node':
+        specifier: workspace:*
+        version: link:../node
+      '@aethervtt/shard-physics':
+        specifier: workspace:*
+        version: link:../physics
+      '@aethervtt/shard-platform-node':
+        specifier: workspace:*
+        version: link:../platform-node
+      '@aethervtt/shard-project':
+        specifier: workspace:*
+        version: link:../project
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+      '@webgpu/types':
+        specifier: ^0.1.74
+        version: 0.1.74
+      tsx:
+        specifier: ^4.23.15
+        version: 4.23.15
 
   packages/physics:
     dependencies:

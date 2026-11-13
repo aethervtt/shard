@@ -1,0 +1,38 @@
+{
+  "name": "@aethervtt/shard-partition",
+  "version": "0.0.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "description": "Streamed generated worlds (spec 0112, on 0072's runtime): cells from generators keyed by seed, cell and detail level, per-cell deltas, server-driven loading around streaming sources, and replication by cell.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./net": "./src/net.ts",
+    "./testing": "./src/testing.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@aethervtt/shard-assets": "workspace:*",
+    "@aethervtt/shard-core": "workspace:*",
+    "@aethervtt/shard-net": "workspace:*",
+    "@aethervtt/shard-procgen": "workspace:*",
+    "@aethervtt/shard-runtime": "workspace:*",
+    "@aethervtt/shard-save": "workspace:*",
+    "@aethervtt/shard-scene": "workspace:*",
+    "@aethervtt/shard-transform": "workspace:*"
+  },
+  "devDependencies": {
+    "@aethervtt/shard-nav": "workspace:*",
+    "@aethervtt/shard-node": "workspace:*",
+    "@aethervtt/shard-physics": "workspace:*",
+    "@aethervtt/shard-platform-node": "workspace:*",
+    "@aethervtt/shard-project": "workspace:*",
+    "@types/node": "^26.6.2",
+    "@webgpu/types": "^0.1.74",
+    "tsx": "^4.23.15"
+  }
+}

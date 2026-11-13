@@ -36,7 +36,10 @@ export const Rock = project.generator('Rock', {
 2. Keep it pure. Randomness is `ctx.rng` (seeded from the seed and the generator's name), per-part
    seeds `ctx.childSeed(label)`. `Math.random`, `Date.now`, and `performance.now` throw
    `procgen/nondeterministic` (and `shard check` flags them). Prefer `+ * sqrt` over trig for
-   geometry that must match across browsers.
+   geometry that must match across browsers. A generator every machine runs (a streamed cell, 0112)
+   sets `deterministicMath: true`: then `Math.sin`, `Math.exp` and the other functions engines
+   round differently throw too, and `dsin`, `dcos`, `datan2`, `dexp`, `dlog` and `dpow` from
+   `@aethervtt/shard-mesh` replace them.
 3. Look at it: MCP `preview_generator { "generator": "coin-rush/Rock", "seeds": "1-9", "params": { "roughness": 0.6 } }`
    (or `shard gen scripts:Rock --seeds 1-9 --out sheet.png`) renders a labelled contact sheet. Change
    one param, preview again, compare. `run_generator` reports vertex and triangle counts, bounds,

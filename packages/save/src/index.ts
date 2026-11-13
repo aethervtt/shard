@@ -10,6 +10,7 @@ export { type SavePluginOptions, savePlugin } from './plugin'
 export {
   type CaptureOptions,
   captureGame,
+  defineSaveSection,
   deleteSave,
   describeSave,
   type LoadReport,
@@ -19,6 +20,7 @@ export {
   readSave,
   SaveConfig,
   type SaveConfigValue,
+  type SaveSection,
   type SaveSlotInfo,
   saveGame,
   slotKey,

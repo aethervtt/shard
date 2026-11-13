@@ -21,6 +21,7 @@ export {
 export {
   currentOverrides,
   defineInstanceKind,
+  entityOverrides,
   hookInstances,
   type InstanceKind,
   instanceEntities,

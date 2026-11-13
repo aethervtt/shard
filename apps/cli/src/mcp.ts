@@ -15,6 +15,7 @@ import { effectMethods } from '@aethervtt/shard-effects'
 import { navMethods } from '@aethervtt/shard-nav'
 import { listScenes } from '@aethervtt/shard-node'
 import { noiseMethods } from '@aethervtt/shard-noise'
+import { partitionMethods } from '@aethervtt/shard-partition'
 import { physicsMethods } from '@aethervtt/shard-physics'
 import { procgenMethods } from '@aethervtt/shard-procgen'
 import { ProjectMethodParams } from '@aethervtt/shard-project'
@@ -87,6 +88,7 @@ const PLUGIN_METHODS = [
   ...procgenMethods,
   ...terrainMethods,
   ...scatterMethods,
+  ...partitionMethods,
   ...atmosphereMethods,
   ...metricsMethods,
   ...tilemapMethods,
@@ -405,6 +407,16 @@ export const TOOLS: Tool[] = [
     'sample_terrain',
     'terrain.sample',
     'The ground at up to 4096 points, exactly what colliders use. A planet: height above the radius, underwater and water depth, slope, climate and biome weights; points are directions from the center or [lat, lon] in degrees, e.g. { "latlon": [[0, 0], [80, 20]] }. A heightfield terrain: height, normal, slope, and the two heaviest paint layers; points are [x, z] metres from its corner, e.g. { "points": [[120, 300], [124, 300]] } to check a road is flat across.',
+  ),
+  forward(
+    'describe_partition',
+    'partition.describe',
+    'Streamed generated worlds (spec 0112) as data: this app’s role (server, client or local), the streaming budget, and per partition its cells loaded by level, cells generating, deltas (count and bytes), dormant entities, and last frame’s streaming ms. Use it to check what loads around a player.',
+  ),
+  forward(
+    'partition_cell',
+    'partition.cell',
+    'One partition cell: unloaded, generating or loaded and at which level, entity and added-entity counts, the hash of every level’s generated fragment (what every machine must produce), and its delta (changes against the generated baseline). Example: { "x": 3, "z": -2 } (grid defaults to the first).',
   ),
   forward(
     'describe_scatter',

@@ -42,7 +42,10 @@ export function sampleCatmullRom(
     const i1 = index(s)
     const i2 = index(s + 1)
     const i3 = index(s + 2)
-    const len = Math.hypot(points[i2]! - points[i1]!, points[i2 + 2]! - points[i1 + 2]!)
+    const dx = points[i2]! - points[i1]!
+    const dz = points[i2 + 2]! - points[i1 + 2]!
+    // Not Math.hypot: engines differ in its last place, and deterministic generators can't call it.
+    const len = Math.sqrt(dx * dx + dz * dz)
     const pieces = Math.max(1, Math.ceil(len / step))
     const last = closed && s === segments - 1 ? pieces - 1 : pieces
     for (let k = s === 0 ? 0 : 1; k <= last; k++) {
