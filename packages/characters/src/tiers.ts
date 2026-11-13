@@ -23,8 +23,10 @@ import {
 import {
   Camera3d,
   Cameras,
+  casterRelevant,
   type DeformStore,
   Instances,
+  NotShadowCaster,
   SkinPose,
   Visibility,
 } from '@aethervtt/shard-render'
@@ -98,6 +100,8 @@ function viewerScratch() {
     /** Screen size per metre of diameter at 1 m (perspective), or per metre (orthographic). */
     k: new Float32Array(MAX_VIEWERS),
     ortho: new Uint8Array(MAX_VIEWERS),
+    /** The camera entities, for 0116's casterRelevant. */
+    cameras: new Array<Entity>(MAX_VIEWERS).fill(-1 as Entity),
     count: 0,
   }
 }
@@ -164,6 +168,7 @@ function gatherViewers(
       v.pos[c * 3 + 1] = g[o + 7]!
       v.pos[c * 3 + 2] = g[o + 11]!
       v.ortho[c] = isOrtho ? 1 : 0
+      v.cameras[c] = table.entities[i]!
       v.count++
     }
   }
@@ -182,7 +187,9 @@ function inFrustum(planes: Float32Array, o: number, s: Float32Array, pad: number
 
 /** The character's sphere in world space, into `sphere`. */
 function worldSphere(s: CharacterState, g: Float32Array, o: number): void {
-  const m = s.sphere[3]! > 0 ? s.sphere : s.rig.restSphere
+  // The sphere its slots draw with: the bake's at far, the last sample's at mid and near.
+  const bake = s.tier === FAR ? s.rig.builds[s.build]!.bake : undefined
+  const m = bake ? bake.sphere : s.sphere[3]! > 0 ? s.sphere : s.rig.restSphere
   const x = m[0]!
   const y = m[1]!
   const z = m[2]!
@@ -304,6 +311,12 @@ export const selectTiers = defineSystem({
             : (2 * sphere[3]! * v.k[c]!) / Math.max(d, 1e-3)
           if (sz > size) size = sz
           if (!visible && inFrustum(v.planes, c * 24, sphere, 0)) visible = true
+        }
+        // Out of every view, but its shadow may still fall in one (0116): then at least far.
+        if (!visible) {
+          for (let c = 0; c < v.count && !visible; c++) {
+            if (casterRelevant(world, v.cameras[c]!, sphere, sphere[3]!)) visible = true
+          }
         }
         s.screen[n] = size
         let want: number
@@ -680,6 +693,8 @@ function changeTier(world: World, st: CharacterState, to: number, now: number): 
       setSphere(world, st.merged, bake.sphere)
     }
   }
+  // A rig without far shadows (0116 leaves far tiers' shadows to 0115): far parts cast none.
+  if (!st.rig.farShadows) setFarShadows(world, st, to === FAR)
   // What's drawn: parts by their minTier, the merged body only at far.
   for (let p = 0; p < st.parts.length; p++) {
     const drawn =
@@ -700,6 +715,16 @@ function finishJoin(world: World, st: CharacterState): void {
     store.freePersistent(st.poseBase, st.rig.skeleton.paths.length * ROWS)
     st.poseBase = -1
   }
+}
+
+/** NotShadowCaster on the parts drawn at far (and the merged body) while far. */
+function setFarShadows(world: World, st: CharacterState, far: boolean): void {
+  const set = (e: Entity) => {
+    if (far && !world.has(e, NotShadowCaster)) world.add(e, NotShadowCaster)
+    else if (!far && world.has(e, NotShadowCaster)) world.remove(e, NotShadowCaster)
+  }
+  for (const part of st.parts) set(part)
+  if (st.merged !== null) set(st.merged)
 }
 
 function farReady(world: World, st: CharacterState): boolean {

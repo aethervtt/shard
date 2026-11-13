@@ -8,9 +8,17 @@ import { ChildOf, type Entity } from '@aethervtt/shard-core'
 import { timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
-import { ComputedVisibility, Mesh3d, Meshes, SkinPose, Visibility } from '@aethervtt/shard-render'
+import {
+  ComputedVisibility,
+  DirectionalLight,
+  Mesh3d,
+  Meshes,
+  NotShadowCaster,
+  SkinPose,
+  Visibility,
+} from '@aethervtt/shard-render'
 import { deformedPositions } from '@aethervtt/shard-render/testing'
-import { Transform } from '@aethervtt/shard-transform'
+import { lookAt, Transform } from '@aethervtt/shard-transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { CharacterPart, CharacterTier, FAR, MID, NEAR, OFF } from './components'
 import type { charactersPlugin } from './plugin'
@@ -312,6 +320,47 @@ describe('composed characters, sampling and sim ticks (0115)', () => {
       if (st.tier !== FAR) expect(c.world.get(torso, ComputedVisibility).visible).toBe(true)
     }
     for (const e of ahead) expect(states.get(e)!.tier).toBe(OFF)
+  })
+
+  it('keeps a character behind the camera at least far while its shadow is in view (0116)', {
+    timeout: timeout(120_000),
+  }, async () => {
+    if (!gpu) return
+    const c = await start()
+    // The camera looks down -Z from the origin; the character stands 4 m behind it.
+    const e = zombie(c, -4)
+    const sun = c.world.spawn(
+      [DirectionalLight, { illuminance: 2000, shadows: true }],
+      // Low, travelling toward -Z: the shadow reaches far forward, into the view.
+      [Transform, { rotation: lookAt([0, 0, 0], [0, -0.17, -1]) }],
+    )
+    for (let f = 0; f < 4; f++) c.app.update(1 / 60)
+    expect(c.world.get(e, CharacterTier).tier).not.toBe('off')
+    // Overhead: the shadow stays at its feet, behind the camera.
+    c.world.set(sun, Transform, { rotation: lookAt([0, 0, 0], [0, -1, 0.05]) })
+    for (let f = 0; f < 4; f++) c.app.update(1 / 60)
+    expect(c.world.get(e, CharacterTier).tier).toBe('off')
+  })
+
+  it('drops far shadows on a rig without them, and only at far', {
+    timeout: timeout(120_000),
+  }, async () => {
+    if (!gpu) return
+    const c = await start()
+    c.rig.farShadows = false
+    const e = zombie(c, 25)
+    c.app.update(1 / 60)
+    const st = c.world.resource(CharacterStates).get(e)!
+    expect(st.tier).toBe(MID)
+    expect(c.world.has(st.merged!, NotShadowCaster)).toBe(false)
+    c.world.set(c.camera, Transform, { translation: [0, 1.5, 230] })
+    c.app.update(1 / 60)
+    expect(st.tier).toBe(FAR)
+    expect(c.world.has(st.merged!, NotShadowCaster)).toBe(true)
+    c.world.set(c.camera, Transform, { translation: [0, 1.5, 0] })
+    c.app.update(1 / 60)
+    expect(st.tier).not.toBe(FAR)
+    expect(c.world.has(st.merged!, NotShadowCaster)).toBe(false)
   })
 
   it('ticks game AI on a stagger by sim tier', { timeout: timeout(120_000) }, async () => {

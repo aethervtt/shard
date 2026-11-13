@@ -1,6 +1,6 @@
 # 0115 — Representation tiers: hordes of animated characters
 
-- **Status:** accepted (2026-11-13). Rebased on 0114; lands after 0116, rebased on it.
+- **Status:** accepted (2026-11-13). Built on 0114 and 0116; implemented once its criteria pass in CI.
 - **Packages:** `@aethervtt/shard-characters` (new; `./net` for hordes), `@aethervtt/shard-animation`,
   `@aethervtt/shard-render`, `@aethervtt/shard-nav`, `@aethervtt/shard-physics`,
   `@aethervtt/shard-partition`
@@ -480,9 +480,12 @@ on an Apple M5 Max (not a named machine, 2026-11-13, other jobs running):
   `findPath` lengths within 0.97–1.04. Across tier switches the slowest step is 52% of speed. The
   town tests are in `structure/src/tiers.test.ts` (nav can't import structure).
 - **Scenarios** (`pnpm bench --scenario horde-walk|horde-far`, laptop budgets applied on this
-  machine; GPU passes untimed, the adapter has no timestamps). horde-walk (16 near, 145 mid, 245
-  far): CPU frame p95 5.0–6.9 ms, within its 8 ms. horde-far (16 near, 160 mid, 1,730 far): CPU
-  frame p95 10–12 ms, **over its 8 ms**. Per frame at p50 there: prepare-deforms 1.4–1.6 ms (most of
+  machine; GPU passes untimed, the adapter has no timestamps). On 0116 (a57f53f), horde-walk (16
+  near, 160 mid, 230 far) runs at a CPU frame p95 of 5.05 ms and horde-far (16 near, 160 mid,
+  1,730 far) at 7.53 ms, both within their 8 ms. Before 0116, horde-far took 10–12 ms. Five
+  slices are over their proposed shares in each, and the shares were guesses: at p95 in
+  horde-far, select takes 1.5 ms (0.16 proposed), characters/sample 1.18 ms (0.64), render
+  3.4 ms (3.2), animation/sample 0.57 ms (0.32). Per frame at p50, before 0116: prepare-deforms 1.4–1.6 ms (most of
   it the 16 near characters' joints, recomputed per part), characters/sample 1.3–1.5 ms (mid
   resampling plus parts following roots), select 0.7–0.8 ms (with swaps as the view pans), nav
   1.2 ms, prepare-instances 0.6–0.7 ms. Several slices are over their proposed shares in both.
@@ -491,9 +494,14 @@ on an Apple M5 Max (not a named machine, 2026-11-13, other jobs running):
   instance uploads bridge gaps of up to 8 clean slots (scattered moving parts had made thousands
   of writes, 6 ms a frame).
 
-Not built yet: `casterRelevant`, which waits for 0116; horde cells in `net.describe`; and getting horde-far
-under its budget (next: share one joint-matrix pass among a near character's parts, and make
-selection cheaper per character).
+- **Shadows (0116).** Selection asks `casterRelevant` for every viewer before putting a character
+  off, with the sphere its slots draw with (the bake's at far). Under a low sun, a character 4 m
+  behind the camera stays drawn; with the sun overhead it goes off. `far.shadows: false` puts
+  `NotShadowCaster` on a character's far parts while it's far. Far slots are skinned, so 0116
+  counts them as dynamic casters with no tag.
+
+Not built yet: horde cells in `net.describe`. Next for the slices: share one joint-matrix pass
+among a near character's parts, and make selection cheaper per character.
 
 ## Open questions
 
