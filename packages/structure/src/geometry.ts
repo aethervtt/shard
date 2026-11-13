@@ -99,10 +99,20 @@ function piece(
 /**
  * Splits a wall around its openings (sorted by offset) into pieces: solid spans at full height,
  * the wall below a window's sill and above an opening's head, and frame boxes. Returns the count
- * written to `out` (entries are reused).
+ * written to `out` (entries are reused). With `gaps`, writes each opening's hole as
+ * `[s0, s1, sill, head]` at `i * 4` (NaN for one that has no hole), as the pieces were cut.
  */
-export function wallPieces(w: WallShape, openings: readonly OpeningShape[], out: Piece[]): number {
+export function wallPieces(
+  w: WallShape,
+  openings: readonly OpeningShape[],
+  out: Piece[],
+  gaps?: number[],
+): number {
   const length = wallLength(w)
+  if (gaps) {
+    gaps.length = openings.length * 4
+    gaps.fill(Number.NaN)
+  }
   if (length < 1e-6 || w.height <= 0) return 0
   const half = w.thickness / 2
   const base = w.elevation
@@ -117,6 +127,12 @@ export function wallPieces(w: WallShape, openings: readonly OpeningShape[], out:
     n = piece(out, n, cursor, o0, base, top, half, false, false)
     const sill = base + Math.max(0, o.sill)
     const head = Math.min(top, sill + o.height)
+    if (gaps) {
+      gaps[i * 4] = o0
+      gaps[i * 4 + 1] = o1
+      gaps[i * 4 + 2] = sill
+      gaps[i * 4 + 3] = head
+    }
     const below = n
     n = piece(out, n, o0, o1, base, sill, half, false, false)
     if (n > below) {

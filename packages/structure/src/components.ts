@@ -333,6 +333,21 @@ export function defaultInterior(): InteriorSettings {
   return { sky: true, blockLights: true, quality: 'medium', spillReach: 3, maxBlockedLights: 256 }
 }
 
+/** Colliders (0112), with structurePhysicsPlugin. */
+export interface ColliderSettings {
+  /** false removes every structure collider. */
+  enabled: boolean
+  /** Collision layers and mask, as on Collider. */
+  layers: number
+  mask: number
+  friction: number
+}
+
+/** Colliders' defaults. */
+export function defaultColliders(): ColliderSettings {
+  return { enabled: true, layers: 1, mask: 0xffff, friction: 0.5 }
+}
+
 export interface StructureSettingsValue {
   /** Chunk edge, world units. Changing it rebuilds every chunk. */
   chunkSize: number
@@ -363,11 +378,16 @@ export interface StructureSettingsValue {
    * rebuilds every row once.
    */
   interior: InteriorSettings
+  /**
+   * Colliders (0112), with structurePhysicsPlugin. A patch may hold only the fields it changes. A
+   * change rebuilds every structure collider.
+   */
+  colliders: ColliderSettings
 }
 
 export const StructureSettings = defineResource<StructureSettingsValue>('structure/Settings', {
   description:
-    'Chunk size, door swing time, reduced motion, curve tolerance, contact shade, cutaway walls and interior lighting. Write with patchResource.',
+    'Chunk size, door swing time, reduced motion, curve tolerance, contact shade, cutaway walls, interior lighting and colliders. Write with patchResource.',
   init: () => ({
     chunkSize: 8,
     doorSwingMs: 250,
@@ -376,6 +396,7 @@ export const StructureSettings = defineResource<StructureSettingsValue>('structu
     contact: defaultContact(),
     cutawayWalls: false,
     interior: defaultInterior(),
+    colliders: defaultColliders(),
   }),
   hostWritable: true,
 })

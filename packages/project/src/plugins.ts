@@ -35,6 +35,8 @@ import { savePlugin } from '@aethervtt/shard-save'
 import { scatterPlugin } from '@aethervtt/shard-scatter'
 import { ScenePlugin } from '@aethervtt/shard-scene'
 import { spritePlugin } from '@aethervtt/shard-sprite'
+import { structureModelPlugin, structurePlugin } from '@aethervtt/shard-structure'
+import { structurePhysicsPlugin } from '@aethervtt/shard-structure/physics'
 import { terrainPlugin } from '@aethervtt/shard-terrain'
 // Also registers the string table importer and the StringTable asset type for every project host.
 import { textPlugin } from '@aethervtt/shard-text'
@@ -206,6 +208,15 @@ export const engineNavGrid: EnginePlugin = {
     if (!names.has('nav')) app.addPlugin(navGridPlugin)
   },
 }
+export const engineStructure: EnginePlugin = {
+  name: 'structure',
+  namespaces: ['structure'],
+  add(app, _ctx, names) {
+    // The model always; meshes with a display; colliders with physics3d (0112).
+    app.addPlugin(names.has('render/forward') ? structurePlugin : structureModelPlugin)
+    if (names.has('physics3d')) app.addPlugin(structurePhysicsPlugin)
+  },
+}
 export const engineTerrain: EnginePlugin = {
   name: 'terrain',
   namespaces: ['terrain'],
@@ -305,6 +316,7 @@ export const enginePlugins: readonly EnginePlugin[] = [
   engineUi,
   engineNav,
   engineNavGrid,
+  engineStructure,
   engineTerrain,
   engineScatter,
   engineNature,
@@ -387,6 +399,7 @@ export function resolvePlugins(
     names.has('ui') ||
     names.has('nav') ||
     names.has('nav/grid') ||
+    names.has('structure') ||
     names.has('terrain') ||
     names.has('scatter') ||
     names.has('wind')

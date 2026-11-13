@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./planar": "./src/planar.ts",
+    "./physics": "./src/physics.ts",
     "./fixtures": "./src/fixtures.ts",
     "./bench": "./src/bench.ts"
   },
@@ -19,6 +20,7 @@
     "@aethervtt/shard-core": "workspace:*",
     "@aethervtt/shard-mesh": "workspace:*",
     "@aethervtt/shard-mirror": "workspace:*",
+    "@aethervtt/shard-physics": "workspace:*",
     "@aethervtt/shard-render": "workspace:*",
     "@aethervtt/shard-runtime": "workspace:*",
     "@aethervtt/shard-texture": "workspace:*",
