@@ -16,7 +16,7 @@ import type { BakedTranslations, GpuContext } from '@aethervtt/shard-gpu'
 import { gesturesPlugin, inputPlugin } from '@aethervtt/shard-input'
 import { naturePlugin } from '@aethervtt/shard-nature'
 // Also registers the navgrid importer and the NavGridData asset type for every project host.
-import { navGridPlugin, navPlugin } from '@aethervtt/shard-nav'
+import { NavWorkers, navGridPlugin, navPlugin } from '@aethervtt/shard-nav'
 // Also registers the noise importer and the NoiseGraph asset type for every project host.
 import { noisePlugin } from '@aethervtt/shard-noise'
 import { particlesPlugin } from '@aethervtt/shard-particles'
@@ -200,7 +200,12 @@ export const engineUi: EnginePlugin = {
 export const engineNav: EnginePlugin = {
   name: 'nav',
   namespaces: ['nav'],
-  add: (app) => app.addPlugin(navPlugin),
+  add(app, ctx) {
+    app.addPlugin(navPlugin)
+    // Tiles build on Node's worker threads (0112); browsers don't walk agents, and build inline.
+    const workers = ctx.platform?.name === 'node' ? ctx.platform.workers : undefined
+    if (workers) app.world.insertResource(NavWorkers, workers)
+  },
 }
 export const engineNavGrid: EnginePlugin = {
   name: 'nav/grid',

@@ -219,6 +219,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `nav/out-of-bounds` | @aethervtt/shard-nav | nav.describe lists each grid and navmesh with its bounds. |
 | `nav/too-many-filters` | @aethervtt/shard-nav | Detour's crowd has 16 filter slots, and the default filter takes one. |
 | `nav/unknown-filter` | @aethervtt/shard-nav | Add it to nav/Filters, or clear NavAgent.filter. It paths with the default. |
+| `nav/workers-unavailable` | @aethervtt/shard-nav | They build on the main thread instead. A bundled server needs recast-navigation where nav-worker.js can import it. |
 | `net/address-in-use` | @aethervtt/shard-net |  |
 | `net/bad-interval` | @aethervtt/shard-net |  |
 | `net/bad-message` | @aethervtt/shard-net | Both sides must run the same build; the connection is closed. |

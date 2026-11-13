@@ -8,6 +8,7 @@ import {
   ShardError,
   t,
 } from '@aethervtt/shard-core'
+import type { Workers } from '@aethervtt/shard-platform'
 import { Transform } from '@aethervtt/shard-transform'
 import { DIAGONAL_MODES, NavGridData } from './grid'
 
@@ -241,6 +242,19 @@ export const NavUnreachable = defineEvent<NavAgentEventData>('nav/NavUnreachable
   description: 'A NavAgent’s destination has no path; it heads for the closest reachable point.',
 })
 
+export interface NavGateAheadData {
+  entity: Entity
+  /** The gate's owner (a door). */
+  gate: Entity
+  /** Its state bits (GATE_CLOSED, GATE_LOCKED, GATE_CUSTOM). */
+  flags: number
+}
+
+export const NavGateAhead = defineEvent<NavGateAheadData>('nav/NavGateAhead', {
+  description:
+    "A NavAgent came within its radius + 1 m of a closed gate on its path that its filter passes (0112): a survivor at a shut door. Game code opens it; until then the door's collider blocks.",
+})
+
 /** Cost multiplier per area code: `{ 0: 1, 1: 3 }` makes area 1 three times as slow to cross. */
 export type NavAreasValue = Record<number, number>
 
@@ -268,6 +282,33 @@ export const NavFilters = defineResource<NavFiltersValue>('nav/Filters', {
   description:
     'Named navmesh query filters (0112), up to 15: { "zombie": { "exclude": ["closed", "locked"] } }. NavAgent.filter, findPath and nav.path pick one by name. Each takes nav/Areas costs, overridden by its own `areas` (0 excludes an area 0–11), and passes no gate polygon flagged with a state in `exclude`. Write it with insertResource or patchResource.',
   init: () => ({}),
+})
+
+/**
+ * How much navmesh building a frame may do (0112). With a worker pool (NavWorkers), tiles build
+ * on it and the main thread's part (keying, packing, applying) stops at `ms`; without one, at most
+ * `tiles` tiles build a frame, with no time check, so runs are frame-exact. A navmesh's first bake
+ * ignores both. At most `replans` agents replan a frame.
+ */
+export interface NavBudgetValue {
+  ms: number
+  tiles: number
+  /** false builds on the main thread even with a pool. */
+  workers: boolean
+  replans: number
+}
+
+export const NavBudget = defineResource<NavBudgetValue>('nav/Budget', {
+  description:
+    "How much navmesh work a frame may do (0112): ms of main-thread bake work with a worker pool, tiles built a frame without one (frame-exact), and agents replanned a frame. A navmesh's first bake ignores the bake limits.",
+  init: () => ({ ms: 1.5, tiles: 4, workers: true, replans: 6 }),
+  hostWritable: true,
+})
+
+/** The worker pool navmesh tiles build on (0112): the platform's, set by the host. */
+export const NavWorkers = defineResource<Workers>('nav/Workers', {
+  description:
+    "The worker pool navmesh tiles build on (0112), the platform's. Unset: tiles build inline.",
 })
 
 // --- grid data asset ---------------------------------------------------------------

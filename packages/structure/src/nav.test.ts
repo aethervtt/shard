@@ -1,5 +1,5 @@
-import type { Entity, World } from '@aethervtt/shard-core'
-import { allocationChecks, gcWindow } from '@aethervtt/shard-core/test-env'
+import type { World } from '@aethervtt/shard-core'
+import { allocationChecks, budget, gcWindow } from '@aethervtt/shard-core/test-env'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import {
   findPath,
@@ -11,6 +11,7 @@ import {
   type NavMeshRuntime,
   navBake,
   navPlugin,
+  navReady,
 } from '@aethervtt/shard-nav'
 import { physics3dPlugin } from '@aethervtt/shard-physics'
 import { forwardPlugin, renderPlugin } from '@aethervtt/shard-render'
@@ -18,7 +19,7 @@ import { App, LogResource } from '@aethervtt/shard-runtime'
 import { Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { describe, expect, it } from 'vitest'
 import { Cutout, Floor, Opening, Wall } from './components'
-import { syncStructure, syncStructureFixed } from './model'
+import { StructureModel, syncStructure, syncStructureFixed } from './model'
 import {
   StructureNav,
   structureNavFixed,
@@ -27,6 +28,7 @@ import {
 } from './nav'
 import { structureColliders, structurePhysicsPlugin } from './physics'
 import { structurePlugin } from './plugin'
+import { BACK_ROOM, building, ground, OUTSIDE } from './test-building'
 import { town } from './town'
 
 // Structure as a nav source (0112), headless: no render plugin, no GPU (except render parity).
@@ -55,43 +57,6 @@ const runtime = (world: World): NavMeshRuntime => [...world.resource(Nav).meshes
 /** Tile keys by tile. */
 const keys = (rt: NavMeshRuntime) =>
   new Map([...rt.tiles.values()].map((t) => [`${t.tx},${t.ty}`, t.key]))
-
-function ground(world: World, x0 = -6, z0 = -6, x1 = 14, z1 = 12): Entity {
-  return world.spawn([
-    Floor,
-    {
-      points: [
-        [x0, z0],
-        [x1, z0],
-        [x1, z1],
-        [x0, z1],
-      ],
-    },
-  ])
-}
-
-/**
- * An 8 × 6 m building at the origin, two rooms split at x = 4: a front door into the front room
- * (x ∈ [1, 2] on z = 0), an open door between the rooms, and optionally a side door straight into
- * the back room.
- */
-function building(world: World, side = false) {
-  const wall = (a: [number, number], b: [number, number]) => world.spawn([Wall, { a, b }])
-  const front = wall([0, 0], [8, 0])
-  wall([8, 6], [0, 6])
-  wall([0, 6], [0, 0])
-  const right = wall([8, 0], [8, 6])
-  const inner = wall([4, 0], [4, 6])
-  const door = world.spawn([Opening, { wall: front, kind: 'door', offset: 1, width: 1 }])
-  world.spawn([Opening, { wall: inner, kind: 'door', offset: 2.5, width: 1, state: 'open' }])
-  const sideDoor = side
-    ? world.spawn([Opening, { wall: right, kind: 'door', offset: 2.5, width: 1 }])
-    : null
-  return { door, sideDoor, right }
-}
-
-const OUTSIDE: [number, number, number] = [1.5, 0, -3]
-const BACK_ROOM: [number, number, number] = [6, 0, 3]
 
 function status(world: World, filter?: string) {
   return findPath(world, OUTSIDE, BACK_ROOM, { filter }).status
@@ -237,15 +202,31 @@ describe('structure nav sources', () => {
     const rt = runtime(world)
     const check = (edit: () => void, walls: number) => {
       const before = keys(rt)
+      const s0 = { ...rt.stats }
       edit()
+      // NavBudget paces the rebuild: frames until every touched tile is in.
       frames(app)
+      const gathered = rt.stats.gathered
+      const editMs = world.resource(StructureModel).last.ms + world.resource(StructureNav).last.ms
+      let n = 1
+      for (; n < 20 && !navReady(world); n++) frames(app)
+      expect(navReady(world)).toBe(true)
+      expect(n).toBeLessThanOrEqual(budget('nav/edit-frames'))
+      expect(editMs).toBeLessThan(budget('structure/edit'))
       const after = keys(rt)
       let differ = 0
       for (const [tile, key] of after) if (before.get(tile) !== key) differ++
       for (const tile of before.keys()) if (!after.has(tile)) differ++
-      expect(rt.stats.gathered).toBe(walls)
-      expect(rt.stats.built + rt.stats.cached + rt.stats.removed).toBe(differ)
-      expect(rt.stats.examined).toBeLessThan(after.size / 4)
+      const landed =
+        rt.stats.totalBuilt -
+        s0.totalBuilt +
+        rt.stats.totalCached -
+        s0.totalCached +
+        rt.stats.totalRemoved -
+        s0.totalRemoved
+      expect(gathered).toBe(walls)
+      expect(landed).toBe(differ)
+      expect(rt.stats.totalExamined - s0.totalExamined).toBeLessThan(after.size / 4)
       return after
     }
     // Add a wall, remove one, split one (with its door) into two.

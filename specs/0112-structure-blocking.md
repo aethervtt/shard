@@ -1,7 +1,7 @@
 # 0112 — Structure that blocks: colliders, navigation and doors
 
-- **Status:** accepted (parts 1 and 2 built: the model, colliders and nav sources, gates and
-  filters; part 3, budgeted rebuilds and replans, to come)
+- **Status:** implemented (in three parts: the model and colliders; nav sources, gates and
+  filters; budgeted rebuilds and replans)
 - **Packages:** `@aethervtt/shard-structure`, `@aethervtt/shard-physics`, `@aethervtt/shard-nav`,
   `@aethervtt/shard-project`
 - **Depends on:** 0028, 0029, 0037, 0055, 0066, 0067, 0092
@@ -196,32 +196,44 @@ Each holds its world triangles and their hashes (0037's per-triangle hash).
 ### Budgeted rebuilds
 
 ```ts
-NavBudget { ms: 2, tiles: 4, workers: 'auto' | number, replans: 32 }   // resource
+NavBudget { ms: 1.5, tiles: 4, workers: true, replans: 6 }   // resource
+NavWorkers                                                   // resource: the host's pool
 ```
 
-- **Workers.** A queued tile packs its triangles, areas, gates and links into transferable arrays
-  and runs `buildTile` on the platform pool (kind `nav/tile`). Each worker loads Recast once.
-  `nav/bake` submits in tile-key order and applies finished jobs in submission order. Main-thread
-  work stops at `ms` a frame. A tile re-dirtied while its job ran is resubmitted, and the stale
-  result is dropped.
-- **Inline.** With `workers: 0` or no pool, up to `tiles` tiles build each frame (at least one), in
-  order and without a time check. Results are frame-exact, and `shard run`, replays and hash tests
-  use this mode. With workers, the frame a tile lands in depends on the machine, so agent behaviour
-  can differ between runs. The tile bytes never do.
-- **Cold bake.** A navmesh's first bake uses the whole pool and ignores `ms` and `tiles`.
-  `whenNavReady(world)` resolves when it's complete. A server awaits it before it accepts players.
-  The server writes `NavCache` when it stops, so a restart loads warm.
+- **Workers.** With a pool in `NavWorkers`, a dirty tile's triangles, areas, gates and links go to
+  it as transferable arrays (job kind `nav/tile`), and `nav-worker.js` builds them with
+  `tile-build.js`, the same plain-JavaScript builder the main thread runs. Each worker loads Recast
+  once. Finished jobs apply in the order they were sent. The frame's main-thread nav work (reading
+  and placing what changed, applying jobs, keying and packing tiles) stops at `ms`, after at least
+  one tile. A tile dirtied again to a different key while its job runs is sent again, and the old
+  result is dropped; one dirtied to the same key keeps its job.
+- **Hosts.** The project's `nav` engine plugin sets `NavWorkers` to the platform's pool on Node.
+  Browsers don't walk agents, so they build inline. A pool that can't load Recast (a bundle without
+  it) warns `nav/workers-unavailable` once, and tiles build inline from then on.
+- **Inline.** With no pool or `workers: false`, up to `tiles` tiles build each frame (at least
+  one), in order and without a time check. Results are frame-exact, and `shard run`, replays and
+  hash tests use this mode. With a pool, the frame a tile lands in depends on the machine, so agent
+  behaviour can differ between runs. The tile bytes never do.
+- **Cold bake.** A navmesh's first bake ignores `ms` and `tiles` and uses the whole pool.
+  `navReady(world)` says whether every navmesh is baked, and `whenNavReady(world)` resolves when the
+  bake system finds them so. `bakeNavigation(world)` bakes to completion now, without frames, for
+  startup and `nav.bake`. Server game code spawns its world in systems, after `shard server`
+  starts, so the server doesn't wait itself: game code awaits `whenNavReady` before letting players
+  in if it needs to. `shard server` writes `NavCache` when it stops, so a restart loads warm.
 
 ### Replanning
 
-- An agent's path records the tiles (`decodePolyId`) and gates it crosses. A tile landing marks
-  only the agents that recorded it, which replaces 0037's "any version bump repaths every agent".
-  A gate's flags changing marks only those whose filter the change affects.
-- Marked agents replan, at most `NavBudget.replans` a frame, oldest first. Until then, Detour's
+- An agent's path records the Detour tile indexes (read from the polygon refs' bits) and gates it
+  crosses, and its filter's excluded gate states. When tiles land, only agents that recorded one of
+  their old slots are marked. A gate's flags changing marks only agents whose path crosses it and
+  whose filter excludes a bit that changed. Agents with no full path are marked on any change,
+  since it may open one. This replaces 0037's "any version bump repaths every agent"; a navmesh
+  that grew (every ref changed) still replans everyone.
+- Marked agents replan, at most `NavBudget.replans` a frame, in table order. Until then, Detour's
   corridor check stops an agent before a polygon its filter no longer passes.
-- `NavGateAhead { entity, gate, flags }` fires once when an agent's next corner is on a `closed`
-  gate its filter passes, within `radius + 1 m`. The survivor's game code opens the door; until then
-  its collider blocks.
+- `NavGateAhead { entity, gate, flags }` fires once when an agent comes within its radius + 1 m of
+  a `closed` gate on its path that its filter passes. The survivor's game code opens the door;
+  until then its collider blocks.
 
 ### API sketch
 
@@ -298,6 +310,10 @@ with survivor and zombie filters.
   pointless if finding them means walking the world.
 - **Workers by default, inline when determinism matters.** A 0.1 m-cell tile is about a frame's
   whole budget on one thread. Counting tiles, not milliseconds, keeps inline runs frame-exact.
+- **The host hands nav its pool; nav doesn't detect the platform.** Engine packages get host
+  services through the platform, and only Node hosts walk agents.
+- **One tile builder for both threads, in plain JavaScript.** A worker imports it with no loader,
+  and a tile built on either thread is the same bytes.
 - **Replan by membership, not a global version.** A broken wall across town shouldn't send 300
   agents through `findPath` at once.
 - **`Opening.movement` marks passable windows.** It's the existing planar channel with the same
@@ -319,7 +335,7 @@ On the town fixture, in headless tests (`structureModelPlugin`, `structurePhysic
 - [x] **Headless.** The town gets every collider and a complete navmesh. No `Mesh3d` entity,
       `GpuContext` or render resource exists, and the manifest plugin `structure` under
       `display: false` gives the same result.
-- [ ] **Cold and warm.** From no cache, model, colliders and the complete navmesh are in within
+- [x] **Cold and warm.** From no cache, model, colliders and the complete navmesh are in within
       `structure/town-cold`. With the cache written, a fresh app gets there within
       `structure/town-warm` and Recast builds 0 tiles.
 - [x] **Collider shapes.** For a straight, an arc and a Bézier wall, each with a door and a window,
@@ -327,15 +343,15 @@ On the town fixture, in headless tests (`structureModelPlugin`, `structurePhysic
       openings. A ray through a door gap hits the door's collider when it's closed or locked, and
       passes when it's open. A ray through a window gap hits the window unless `movement: 'none'`.
       Downward rays hit a floor except over a hole cutout, and hit a pitched roof at its slope.
-- [ ] **Collider edits.** Adding, removing or splitting one wall (despawn one, spawn two) creates
+- [x] **Collider edits.** Adding, removing or splitting one wall (despawn one, spawn two) creates
       and removes only that wall's and its openings' sets, with the counts in `physics.describe`.
       `structure/sync` plus `structure/physics` and `structure/nav` take at most `structure/edit`
       on the main thread. A door toggle creates and removes no collider.
-- [ ] **Nav edits.** For the same three edits, with workers and inline: the set of rebuilt tiles
+- [x] **Nav edits.** For the same three edits, with workers and inline: the set of rebuilt tiles
       equals the tiles whose 0037 key differs on a from-scratch bake of the result (reference),
       and no contribution outside them is re-gathered (a gather counter). Every rebuilt tile lands
       within `nav/edit-frames` frames.
-- [ ] **No hitches.** 50 wall edits in one tick, with 300 agents walking: no frame's main-thread
+- [x] **No hitches.** 50 wall edits in one tick, with 300 agents walking: no frame's main-thread
       `structure/*`, `physics/sync-in` and `nav/bake` together exceed `structure/edit-burst`. Every
       tile lands within `nav/burst-frames` frames, and no single tile build exceeds `nav/tile`.
       300 agents' `nav/agents`, replans included, stay within `nav/town-agents` (p95).
@@ -350,13 +366,13 @@ On the town fixture, in headless tests (`structureModelPlugin`, `structurePhysic
 - [x] **Walls stop agents.** A character controller (0029) walking at 4 m/s into a wall, a closed
       door, and a window stops within 2 cm of the face plus the controller's offset, and stays out
       for 600 steps. Once the door opens, it walks through.
-- [ ] **Replans.** A zombie routed through a door that shuts replans within 2 frames and arrives by
+- [x] **Replans.** A zombie routed through a door that shuts replans within 2 frames and arrives by
       the other door, or ends `unreachable` at the closed one when there is none. A wall built
       across one agent's path replans that agent. Agents whose paths cross neither replan 0 times
       (`nav.describe` counts). A survivor reaching a closed door gets one `NavGateAhead`.
 - [x] **Narrow doors.** A 1 m door on a navmesh with 0.2 m cells and a 0.3 m radius warns
       `structure/door-too-narrow` once. At 0.1 m cells it doesn't, and the door passes.
-- [ ] **Determinism.** Two inline runs with the same edits and door toggles at fixed frames give the
+- [x] **Determinism.** Two inline runs with the same edits and door toggles at fixed frames give the
       same world hash. A worker run ends with the same tile keys and bytes.
 - [x] **Render parity.** With `structurePlugin` added (GPU tier), colliders and tile keys are
       identical to the headless run, and 0055/0066/0067/0070's structure tests pass unchanged.
@@ -416,6 +432,32 @@ tiles, 12,914 polygons), inline: the cold bake takes 1.13–1.17 s on one thread
 a wall edit rebuilds 3 tiles in a 3.4–3.6 ms frame (median; worst 5.9–15.4 ms), which part 3's
 workers and frame budget take off the main thread; a door toggle's frame takes 0.01 ms; the model
 sync and nav bridge, 0.03–0.06 ms an edit.
+
+### Part 3: budgeted rebuilds and replans
+
+Checked in `nav/src/pool.test.ts` and `structure/src/pacing.test.ts`. The burst and the cold and
+warm bakes run at the spec's size (200 buildings, 300 agents) under `pnpm bench`, and at 30
+buildings and 60 agents under `pnpm test`, where only correctness is held.
+
+- **As built, against the design:** `NavBudget` is `{ ms: 1.5, tiles: 4, workers: true,
+  replans: 6 }`. `workers` is a switch, since the pool is the host's. `ms` and `replans` came down
+  from 2 and 32: a burst's first frame also pays structure's own sync (about 1.6 ms for 50 walls),
+  and a replan across the town costs about 0.4 ms. The frame's budget counts from the start of
+  nav's work, so reading and placing edited sources and applying finished jobs are inside it.
+- Navmesh bounds grow as tiles come in and are recomputed only after a tile goes, once the bake
+  settles: recomputing them every frame walked all 2,160 tiles through Detour (about 1 ms).
+- A navmesh is placed again only when its bounds change, and a re-index finds gates' polygons
+  again on tiles kept as they are. Without that, a door shutting after a re-index didn't reach
+  agents.
+- Structure pushes its shapes and gates in its systems, so `bakeNavigation` before a world's
+  first frame bakes nothing of it: tests run a frame first.
+
+Measured on an Apple M5 Max (not a named machine), 2026-11-13, against the laptop's budgets, on the
+200-building town (2,160 tiles) with 300 agents and a 3-worker pool: the cold bake takes 459–483 ms
+and the warm load 60–77 ms; 50 wall edits in one tick dirty about 500 tiles, which land within 9 frames,
+the worst frame's structure, physics sync-in and nav bake take 3.41 ms (median 1.58 ms), the
+slowest tile build on a worker 0.88 ms (mean 0.57 ms), and `nav/agents` stays within 4.04 ms
+(p95) while 128 agents replan.
 
 ## Open questions
 

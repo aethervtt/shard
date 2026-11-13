@@ -70,6 +70,15 @@ export interface AgentRecord {
   framed: boolean
   /** The nav/Filters entry it paths with (0112); '' is the default. */
   filter: string
+  /** Detour tile indexes and gates its path crosses, and its filter's excluded gate states. */
+  pathTiles: number[]
+  pathGates: Entity[]
+  exclude: number
+  /** A tile or gate on its path changed: it replans when the frame's budget allows. */
+  replan: boolean
+  replans: number
+  /** The closed gate it was last told it's at (NavGateAhead), or -1. */
+  gateAhead: number
   lpos: Float64Array
   /**
    * Crossing an off-mesh link: where it started (x, z), the link's near and far surface
@@ -127,6 +136,14 @@ export class NavState {
   /** Colliders: count and tick of the last change seen (grids rasterized from them rebuild). */
   colliderCount = -1
   colliderTick = 0
+  /** The worker pool couldn't build a tile (no Recast in its threads): tiles build inline. */
+  poolFailed = false
+  /** Promises waiting for every navmesh to be baked (whenNavReady). */
+  readyWaiters: (() => void)[] = []
+  /** When this frame's navmesh work began (0 when it had none before baking tiles). */
+  workStart = 0
+  /** Replans since start (0112). */
+  replans = 0
   /** Agents whose filter was reported missing (once each). */
   readonly badFilters = new Set<Entity>()
   /** Source entities skipped, with why, by root (`LINKS` for links), and all of them. */

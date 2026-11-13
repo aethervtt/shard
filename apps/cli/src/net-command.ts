@@ -1,4 +1,5 @@
 import { ShardError } from '@aethervtt/shard-core'
+import { liveTileKeys, Nav, saveNavCache } from '@aethervtt/shard-nav'
 import { NetRole, netPlugin, netSession } from '@aethervtt/shard-net'
 import { netHarness } from '@aethervtt/shard-net/testing'
 import { lobbyServer } from '@aethervtt/shard-net-webrtc/server'
@@ -194,6 +195,15 @@ export async function server(ctx: CommandContext): Promise<number> {
     )
     await untilStopped()
     ctx.out.say('Stopping: saving players…')
+    // The navmesh tiles baked while it ran (0112), so the next start loads them warm.
+    const nav = app.world.tryResource(Nav)
+    if (nav && nav.meshes.size > 0) {
+      try {
+        await saveNavCache(app.world, liveTileKeys(nav))
+      } catch (err) {
+        ctx.out.say(`Couldn't save the navmesh cache: ${err instanceof Error ? err.message : err}`)
+      }
+    }
     await app.dispose()
     await running
     return EXIT.ok
