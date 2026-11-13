@@ -212,11 +212,13 @@ Every engine error is a `ShardError` with one of these codes.
 | `nav/bad-cache` | @aethervtt/shard-nav |  |
 | `nav/bake-failed` | @aethervtt/shard-nav | Check the NavSource geometry has upward faces flatter than maxSlope, wide enough for agentRadius. |
 | `nav/gate-unmatched` | @aethervtt/shard-nav | The opening may be too narrow for the agent radius and cell size, or off the walkable surface. |
-| `nav/invalid-gate` | @aethervtt/shard-nav | Area 0 is the ground every source bakes with: a gate's polygons need an area of their own. |
+| `nav/invalid-filter` | @aethervtt/shard-nav | Fix it in nav/Filters: until then navmeshes leave it out, and agents naming it path with the default. |
+| `nav/invalid-gate` | @aethervtt/shard-nav | Area 0 is the ground every source bakes with: a gate's polygons need an area of their own. Areas 32 to 62 are shut gates' (0114). |
 | `nav/invalid-grid` | @aethervtt/shard-nav |  |
 | `nav/no-navmesh` | @aethervtt/shard-nav | Check nav.describe: the grid may be waiting for data, or the navmesh for sources. |
 | `nav/not-ready` | @aethervtt/shard-nav | Add the nav plugin (or nav/grid for grids only) and await app.init(). |
 | `nav/out-of-bounds` | @aethervtt/shard-nav | nav.describe lists each grid and navmesh with its bounds. |
+| `nav/reserved-area` | @aethervtt/shard-nav | Give NavSource and OffMeshLink areas 0 to 31. |
 | `nav/too-many-filters` | @aethervtt/shard-nav | Detour's crowd has 16 filter slots, and the default filter takes one. |
 | `nav/unknown-filter` | @aethervtt/shard-nav | Add it to nav/Filters, or clear NavAgent.filter. It paths with the default. |
 | `nav/workers-unavailable` | @aethervtt/shard-nav | They build on the main thread instead. A bundled server needs recast-navigation where nav-worker.js can import it. |
@@ -492,6 +494,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `sprite/unknown-tile` | @aethervtt/shard-sprite | Rename it to a region the atlas has, or add the region to the atlas. |
 | `sprite/unknown-tilemap` | @aethervtt/shard-sprite | Name a *.tilemap.json asset by path or guid that a Tilemap in the world uses. |
 | `sprite/unsupported-image` | @aethervtt/shard-sprite |  |
+| `structure/breach-overlaps-opening` | @aethervtt/shard-structure | Move or narrow the Breach: an opening is already a way through (a door or window gate). |
 | `structure/door-too-narrow` | @aethervtt/shard-structure | Widen the door, or give the NavMesh a smaller agentRadius or cellSize: an opening needs 2·⌈r/cs⌉·cs + 4·cs to pass at any alignment. |
 | `structure/too-many-blocked-lights` | @aethervtt/shard-structure | Raise StructureSettings.interior.maxBlockedLights, or block fewer lights (each row costs one texture row). |
 | `terrain/bad-direction` | @aethervtt/shard-terrain | Pass a direction from the planet’s center in its frame, e.g. the position of a point on it. |

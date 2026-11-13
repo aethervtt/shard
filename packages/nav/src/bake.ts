@@ -41,11 +41,13 @@ import {
 } from './geometry'
 import { DIAGONAL_MODES, NavGridData } from './grid'
 import { Hash64 } from './hash'
-import { NavMeshRuntime, packTile } from './navmesh'
+import { filterProblem, NavMeshRuntime, packTile } from './navmesh'
 import {
   type BakeSettings,
   buildTile,
+  EXACT_AREAS,
   type OffMeshLinkParams,
+  SHUT_AREA,
   toShardError,
   voxelSettings,
 } from './recast'
@@ -589,8 +591,22 @@ function updateMeshes(
   const areas = world.tryResource(NavAreas)
   const signature = areasSignature(areas)
   const filters = world.tryResource(NavFilters)
-  if (nav.areas !== signature || world.resourceChanged(NavFilters, since)) {
+  // Breach costs convert by each gate area's depth (0114): a gate coming or going may change it.
+  const depths = nav.gates.depthsDirty && nav.gates.updateDepths()
+  if (nav.areas !== signature || world.resourceChanged(NavFilters, since) || depths) {
     nav.areas = signature
+    for (const name of Object.keys(filters ?? {})) {
+      const problem = filterProblem(name, filters![name]!)
+      if (problem && !nav.badFilterNames.has(problem)) {
+        nav.badFilterNames.add(problem)
+        navWarn(
+          world,
+          new ShardError('nav/invalid-filter', problem, {
+            hint: 'Fix it in nav/Filters: until then navmeshes leave it out, and agents naming it path with the default.',
+          }),
+        )
+      }
+    }
     if (filters && Object.keys(filters).length > MAX_NAV_FILTERS) {
       navWarn(
         world,
@@ -602,7 +618,7 @@ function updateMeshes(
       )
     }
     for (let i = 0; i < nav.meshList.length; i++)
-      nav.meshList[i]!.applyFilters(areas ?? {}, filters ?? {})
+      nav.meshList[i]!.applyFilters(areas ?? {}, filters ?? {}, nav.gates.depths)
   }
   // What changed: entity sources (by root), shapes, gates and links.
   findChanges(world, nav, since)
@@ -654,6 +670,26 @@ function updateMeshes(
       world.tryResource(LogResource)?.error(err)
     }
   }
+}
+
+/**
+ * The area a source or link bakes with: areas 32 to 62 are shut gates' (0114), so one there bakes
+ * as 12 (priced, not excluded exactly, like the rest of 12–62), warned once per entity.
+ */
+function bakeArea(world: World, nav: NavState, area: number, owner: Entity): number {
+  if (area <= SHUT_AREA || area > SHUT_AREA * 2) return area
+  if (!nav.reservedWarned.has(owner)) {
+    nav.reservedWarned.add(owner)
+    navWarn(
+      world,
+      new ShardError(
+        'nav/reserved-area',
+        `Entity ${owner} bakes with area ${area}; areas ${SHUT_AREA + 1} to ${SHUT_AREA * 2} are shut gates' (0114), so it bakes as area ${EXACT_AREAS}`,
+        { hint: 'Give NavSource and OffMeshLink areas 0 to 31.' },
+      ),
+    )
+  }
+  return EXACT_AREAS
 }
 
 /** Gathers what changed, and places it in every navmesh's tile index. Returns sources re-read. */
@@ -821,7 +857,7 @@ function gatherRoot(world: World, nav: NavState, root: Entity): NavContribution 
   const skipped: { entity: Entity; reason: string }[] = []
   let pending = 0
   const meshes = world.tryResource(Meshes)
-  const area = world.get(root, NavSource).area
+  const area = bakeArea(world, nav, world.get(root, NavSource).area, root)
   const visit = (e: Entity) => {
     members.push(e)
     const m = world.get(e, GlobalTransform).matrix
@@ -949,7 +985,7 @@ function gatherLinks(world: World, nav: NavState): void {
         end: [b[3]!, b[7]!, b[11]!],
         radius: link.radius,
         bidirectional: link.bidirectional,
-        area: link.area,
+        area: bakeArea(world, nav, link.area, e),
       })
     }
   }
@@ -1116,6 +1152,8 @@ function unbinGate(rt: NavMeshRuntime, gate: NavGate): void {
   }
   rt.gateTiles.delete(gate.owner)
   rt.gateRefs.delete(gate.owner)
+  rt.gateOf.delete(gate.owner)
+  if (rt.slots.size > 0) rt.staleGates.add(gate.owner)
 }
 
 /** Links changed: the tiles they started in, and start in now, are keyed again. */

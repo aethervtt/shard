@@ -160,7 +160,7 @@ export const OffMeshLink = defineComponent(
   },
 )
 
-export const AGENT_STATUSES = ['idle', 'moving', 'arrived', 'unreachable'] as const
+export const AGENT_STATUSES = ['idle', 'moving', 'arrived', 'unreachable', 'blocked'] as const
 export type AgentStatus = (typeof AGENT_STATUSES)[number]
 
 export const NavAgentState = defineComponent(
@@ -169,7 +169,7 @@ export const NavAgentState = defineComponent(
     status: t.enum(AGENT_STATUSES, {
       readonly: true,
       description:
-        'idle: stopped or no navigation here. moving. arrived: within stoppingDistance. unreachable: no path; it walks to the closest point it can reach.',
+        'idle: stopped or no navigation here. moving. arrived: within stoppingDistance. unreachable: no path; it walks to the closest point it can reach. blocked: waiting at a shut gate its filter breaches (0114), in a slot or for one.',
     }),
     remaining: t.f32({
       unit: 'm',
@@ -178,6 +178,15 @@ export const NavAgentState = defineComponent(
     }),
     corners: t.u16({ readonly: true, description: 'Corners left on the path.' }),
     velocity: t.vec3({ unit: 'm/s', readonly: true, description: 'Steering velocity.' }),
+    gate: t.entity({
+      readonly: true,
+      description: 'The gate it waits at while blocked (0114): a door, window or Breach.',
+    }),
+    row: t.u8({
+      readonly: true,
+      description:
+        'While blocked: its slot row at the gate, 0 against it, more behind; 255 while it waits for a slot (0114).',
+    }),
   },
   { description: 'What a NavAgent is doing. Written by navigation; read-only.' },
 )
@@ -262,6 +271,23 @@ export const NavGateAhead = defineEvent<NavGateAheadData>('nav/NavGateAhead', {
     "A NavAgent came within its radius + 1 m of a closed gate on its path that its filter passes (0112): a survivor at a shut door. Game code opens it; until then the door's collider blocks.",
 })
 
+export interface NavGateBlockedData {
+  entity: Entity
+  /** The gate's owner: a door, a window, or a Breach. */
+  gate: Entity
+  /** Its state bits (GATE_CLOSED, GATE_LOCKED, GATE_CUSTOM). */
+  flags: number
+  /** Its slot row: 0 against the gate, more queued behind. */
+  row: number
+  /** The point on the gate's centre plane, in the gap, nearest the agent: what to face (world). */
+  point: [number, number, number]
+}
+
+export const NavGateBlocked = defineEvent<NavGateBlockedData>('nav/NavGateBlocked', {
+  description:
+    'A NavAgent reached its slot at a shut gate its filter breaches (0114) and waits there (status blocked). Game code decides what happens: attack the gate, give up. Once the gate passes its filter (opened, broken), it walks on without a replan. Fires again when it moves up a row.',
+})
+
 /** Cost multiplier per area code: `{ 0: 1, 1: 3 }` makes area 1 three times as slow to cross. */
 export type NavAreasValue = Record<number, number>
 
@@ -278,6 +304,13 @@ export const NavAreas = defineResource<NavAreasValue>('nav/Areas', {
 export interface NavFilterValue {
   areas?: Record<number, number>
   exclude?: ('closed' | 'locked' | 'custom')[]
+  /** Gate states it plans through at a cost and never walks through while shut (0114). */
+  breach?: ('closed' | 'locked' | 'custom')[]
+  /**
+   * What a breach costs, in metres of walking: one for every gate area, or by gate area (unlisted
+   * ones cost the default, 20).
+   */
+  breachCost?: number | Record<number, number>
 }
 
 export type NavFiltersValue = Record<string, NavFilterValue>
@@ -287,7 +320,7 @@ export const MAX_NAV_FILTERS = 15
 
 export const NavFilters = defineResource<NavFiltersValue>('nav/Filters', {
   description:
-    'Named navmesh query filters (0112), up to 15: { "zombie": { "exclude": ["closed", "locked"] } }. NavAgent.filter, findPath and nav.path pick one by name. Each takes nav/Areas costs, overridden by its own `areas` (0 excludes an area 0–11), and passes no gate polygon flagged with a state in `exclude`. Write it with insertResource or patchResource.',
+    'Named navmesh query filters (0112), up to 15: { "zombie": { "breach": ["closed", "locked"], "breachCost": 20 } }. NavAgent.filter, findPath and nav.path pick one by name. Each takes nav/Areas costs, overridden by its own `areas` (0 excludes an area 0–11), and passes no gate polygon flagged with a state in `exclude`. States in `breach` (0114) are planned through at `breachCost` metres a crossing (by gate area, or one for all; default 20) and never walked through: agents wait at the gate (NavGateBlocked). Write it with insertResource or patchResource.',
   init: () => ({}),
 })
 
@@ -310,6 +343,23 @@ export const NavBudget = defineResource<NavBudgetValue>('nav/Budget', {
     "How much navmesh work a frame may do (0112): ms of main-thread bake work with a worker pool, tiles built a frame without one (frame-exact), and agents replanned a frame. A navmesh's first bake ignores the bake limits.",
   init: () => ({ ms: 1.5, tiles: 4, workers: true, replans: 6 }),
   hostWritable: true,
+})
+
+/**
+ * How agents wait at a shut gate they breach (0114): they claim a slot within `claim` m of where
+ * their path enters it, in rows along its face (row 0 spans its width plus `spread` each side),
+ * up to `rows` rows.
+ */
+export interface NavBreachValue {
+  claim: number
+  spread: number
+  rows: number
+}
+
+export const NavBreach = defineResource<NavBreachValue>('nav/Breach', {
+  description:
+    'Slots at shut gates agents breach (0114): an agent claims one within `claim` m of the gate; row 0 spans the gate plus `spread` m each side, and up to `rows` rows queue behind it.',
+  init: () => ({ claim: 4, spread: 0.5, rows: 8 }),
 })
 
 /** The worker pool navmesh tiles build on (0112): the platform's, set by the host. */

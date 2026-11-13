@@ -1,11 +1,14 @@
 import { defineSchema, type Entity, findComponent, t, type World } from '@aethervtt/shard-core'
 import type { AppMethod } from '@aethervtt/shard-runtime'
 import { bakeNavigation, liveTileKeys, NO_RECAST } from './bake'
+import { blockedAt } from './breach'
 import { NavCache, saveNavCache } from './cache'
-import { AGENT_STATUSES, DRIVES, NavAgent, NavAgentState, NavMesh } from './components'
+import { AGENT_STATUSES, DRIVES, NavAgent, NavAgentState, NavFilters, NavMesh } from './components'
 import { DIAGONAL_MODES } from './grid'
+import { DEFAULT_BREACH_COST } from './navmesh'
 import { findPath } from './query'
-import { navState } from './state'
+import { GATE_BITS } from './recast'
+import { Nav, type NavState, navState } from './state'
 
 const round = (x: number, digits = 3) => Math.round(x * 10 ** digits) / 10 ** digits
 const r3 = (v: ArrayLike<number>) => [round(v[0]!), round(v[1]!), round(v[2]!)]
@@ -65,13 +68,40 @@ export function describeNav(world: World) {
           examined: rt.stats.examined,
           sourcesGathered: rt.stats.gathered,
         },
-        filters: [...rt.named.entries()].map(([name, slot]) => ({ name, crowdSlot: slot.index })),
-        gates: [...rt.gateTiles.keys()].map((owner) => ({
-          owner,
-          polygons: rt.gatePolygons(owner),
-          flags: nav.gates.byOwner.get(owner)?.flags ?? 0,
-          area: nav.gates.byOwner.get(owner)?.area ?? 0,
+        filters: [...rt.named.entries()].map(([name, slot]) => ({
+          name,
+          crowdSlot: slot.index,
+          // Breaching (0114): the states it plans through, and what a crossing costs.
+          ...(slot.breach !== 0
+            ? {
+                breach: (Object.keys(GATE_BITS) as (keyof typeof GATE_BITS)[]).filter(
+                  (k) => (slot.breach & GATE_BITS[k]) !== 0,
+                ),
+                breachCost:
+                  world.tryResource(NavFilters)?.[name]?.breachCost ?? DEFAULT_BREACH_COST,
+              }
+            : {}),
         })),
+        gates: [...rt.gateTiles.keys()].map((owner) => {
+          // Slot sets at it (0114), by side, and how many agents wait there.
+          const sets = [-1, 1].flatMap((side) => {
+            const set = rt.slots.get(owner * 2 + (side > 0 ? 1 : 0))
+            if (!set) return []
+            let rows = 0
+            for (let i = 0; i < set.count; i++) rows = Math.max(rows, set.row[i]! + 1)
+            return [{ side, slots: set.count, rows, claimed: set.claimed(), open: set.open }]
+          })
+          let waiting = 0
+          for (const a of nav.agents.values()) if (blockedAt(a) === owner) waiting++
+          return {
+            owner,
+            polygons: rt.gatePolygons(owner),
+            flags: nav.gates.byOwner.get(owner)?.flags ?? 0,
+            area: nav.gates.byOwner.get(owner)?.area ?? 0,
+            ...(sets.length > 0 ? { slots: sets } : {}),
+            ...(waiting > 0 ? { waiting } : {}),
+          }
+        }),
         bakes: rt.stats.bakes,
         tilesBuilt: rt.stats.totalBuilt,
         cacheHits: rt.stats.totalCached,
@@ -87,6 +117,8 @@ export function describeNav(world: World) {
       entitySources: nav.sources.size,
       shapes: nav.shapes.size,
       gates: nav.gates.size,
+      // What breach costs convert by (0114): each gate area's depths, the deepest used.
+      gateDepths: gateDepths(nav),
       links: nav.links.length,
       skipped: nav.skipped.map((s) => ({ ...s, path: scenePath(world, s.entity) })),
     },
@@ -114,6 +146,8 @@ export function describeNav(world: World) {
           filter: a.filter || null,
           replans: a.replans,
           status: state.status,
+          ...(state.status === 'blocked' ? { gate: state.gate, row: state.row } : {}),
+          ...(a.external ? { mover: 'external' } : {}),
           remaining: round(state.remaining),
           corners: state.corners,
           velocity: r3(state.velocity),
@@ -141,7 +175,7 @@ export const navMethods: AppMethod[] = [
   {
     name: 'nav.path',
     description:
-      'A path between two world points on the NavGrid or NavMesh containing `from` (or `nav`): status (complete, partial: ends at the closest reachable point, none), corners, and length. Errors nav/no-navmesh and nav/out-of-bounds say why there is none.',
+      'A path between two world points on the NavGrid or NavMesh containing `from` (or `nav`): status (complete, partial: ends at the closest reachable point, none), corners, length, and the gates it must breach in order (0114: shut in a state its filter breaches). Errors nav/no-navmesh and nav/out-of-bounds say why there is none.',
     params: defineSchema('nav/PathParams', {
       from: t.vec3({ required: true }),
       to: t.vec3({ required: true }),
@@ -153,13 +187,25 @@ export const navMethods: AppMethod[] = [
       }),
     }),
     handler: ({ world }, p) => {
+      const polys: number[] = []
       const path = findPath(world, p.from as number[], p.to as number[], {
         nav: (p.nav as Entity | null | undefined) ?? null,
         areas: (p.areas as Record<number, number> | null | undefined) ?? undefined,
         filter: (p.filter as string | undefined) || undefined,
+        polys,
       })
+      // The gates it must breach (0114), in order: shut in a state its filter breaches.
+      const rt = path.nav === null ? undefined : world.resource(Nav).meshes.get(path.nav)
+      const breach: number[] = []
+      const bits = rt?.breachBits((p.filter as string | undefined) || undefined) ?? 0
+      for (const ref of bits !== 0 ? polys : []) {
+        const owner = rt!.refGate.get(ref)
+        const gate = owner === undefined ? undefined : rt!.gateOf.get(owner)
+        if (gate && (gate.flags & bits) !== 0 && !breach.includes(owner!)) breach.push(owner!)
+      }
       return {
         status: path.status,
+        breach,
         length: round(path.length),
         corners: Array.from({ length: path.count }, (_, i) =>
           r3(path.corners.subarray(i * 3, i * 3 + 3)),
@@ -213,3 +259,15 @@ export const navMethods: AppMethod[] = [
     },
   },
 ]
+
+/** Each gate area's least and greatest depth (0114). */
+function gateDepths(nav: NavState): { area: number; min: number; max: number }[] {
+  const by = new Map<number, { area: number; min: number; max: number }>()
+  for (const g of nav.gates.byOwner.values()) {
+    const d = by.get(g.area) ?? { area: g.area, min: Infinity, max: 0 }
+    d.min = Math.min(d.min, round(g.depth))
+    d.max = Math.max(d.max, round(g.depth))
+    by.set(g.area, d)
+  }
+  return [...by.values()].sort((a, b) => a.area - b.area)
+}

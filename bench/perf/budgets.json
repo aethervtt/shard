@@ -234,7 +234,7 @@
       "kind": "target",
       "laptop": 0.05,
       "desktop": 0.05,
-      "note": "0112 proposed: a door toggle on the town fixture: the gate's setPolyFlags calls and marking the agents whose paths cross it, median. No tile builds. Part 2 measured a toggle's whole frame at 0.01 ms on the 200-building town on an Apple M5 Max (not a named machine), 2026-11-12. nav/src/gates.test.ts."
+      "note": "0112 proposed: a door toggle on the town fixture: the gate's setPolyFlags calls and marking the agents whose paths cross it, median. No tile builds. Part 2 measured a toggle's whole frame at 0.01 ms on the 200-building town on an Apple M5 Max (not a named machine), 2026-11-12. nav/src/gates.test.ts. 0114 adds each polygon's shut area to the toggle and measures the median of 21 toggles, as this budget states (the test took one, whose first call's cost alone came to 0.05 to 0.09 ms on main): 0.005 ms (Apple M5 Max, not a named machine, 2026-11-13)."
     },
     "nav/tile": {
       "kind": "target",
@@ -246,7 +246,31 @@
       "kind": "target",
       "laptop": 5,
       "desktop": 5,
-      "note": "0112 proposed: a frame of nav/agents with 300 crowd agents (survivor and zombie filters) on the town fixture while doors toggle and walls change, replans included, p95. Scaled from nav/mesh-agents (1.5 ms for 100). Not yet measured on either machine. Part 3 measured 4.04 ms p95 while 128 agents replanned, at NavBudget.replans 6 (Apple M5 Max (not a named machine, 2026-11-13, against the laptop's numbers). structure/src/pacing.test.ts."
+      "note": "0112 proposed: a frame of nav/agents with 300 crowd agents (survivor and zombie filters) on the town fixture while doors toggle and walls change, replans included, p95. Scaled from nav/mesh-agents (1.5 ms for 100). Not yet measured on either machine. Part 3 measured 4.04 ms p95 while 128 agents replanned, at NavBudget.replans 6 (Apple M5 Max (not a named machine, 2026-11-13, against the laptop's numbers). structure/src/pacing.test.ts. 0114 holds it too, with 150 zombies breaching 50 houses and 150 survivors walking: 1.0 ms p95 (same machine). structure/src/breach.test.ts."
+    },
+    "nav/breach-path": {
+      "kind": "target",
+      "laptop": 0.5,
+      "desktop": 0.5,
+      "note": "0114 proposed: findPath with a breaching filter on the town fixture (200 buildings), from 40 m south of a building's front door to its back room, through one of its shut doors or windows, median of 20. Like a replan across the town (0112 part 3: about 0.4 ms). Measured on an Apple M5 Max (not a named machine, 2026-11-13, against the laptop's numbers): 0.044 ms. structure/src/breach.test.ts."
+    },
+    "nav/gate-slots": {
+      "kind": "target",
+      "laptop": 0.5,
+      "desktop": 0.5,
+      "note": "0114 proposed: building one side's slot set of a town door for 0.3 m agents (8 rows, a nearest-polygon check and a navmesh raycast per candidate), median of 10. About 50 candidates at roughly 5 us each, doubled. Measured on an Apple M5 Max (not a named machine, 2026-11-13, against the laptop's numbers): 0.18 ms. structure/src/breach.test.ts."
+    },
+    "nav/breach-open": {
+      "kind": "target",
+      "laptop": 0.75,
+      "desktop": 0.75,
+      "note": "0114 proposed: the frame a door opens with 30 agents waiting at it: structure's sync and nav bridge, nav/bake (its flags and shut areas) and nav/agents (the first in line walks on, the crowd steps), median of 5 openings. Measured on an Apple M5 Max (not a named machine, 2026-11-13, against the laptop's numbers): 0.33 ms. structure/src/breach.test.ts."
+    },
+    "nav/breach-agents": {
+      "kind": "target",
+      "laptop": 0.75,
+      "desktop": 0.75,
+      "note": "0114 proposed: a frame of nav/agents while 30 zombies claim slots at one door and settle, p95. Scaled from nav/mesh-agents (1.5 ms for 100 agents), plus slot claims. Measured on an Apple M5 Max (not a named machine, 2026-11-13, against the laptop's numbers): 0.14 ms. structure/src/breach.test.ts."
     },
     "noise/fbm6": {
       "kind": "rate",

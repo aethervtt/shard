@@ -1,5 +1,6 @@
 import { defineOverlay, type GizmoStore } from '@aethervtt/shard-render'
 import { GlobalTransform } from '@aethervtt/shard-transform'
+import { BLOCKED as BLOCKED_STATUS } from './breach'
 import type { NavMeshRuntime } from './navmesh'
 import { type GridRecord, Nav } from './state'
 
@@ -105,6 +106,9 @@ const LINK = new Float32Array([1, 0.75, 0.2, 1])
 const GRID = new Float32Array([0.2, 0.85, 0.75, 1])
 const PATH = new Float32Array([1, 0.95, 0.3, 1])
 const UNREACHABLE = new Float32Array([1, 0.35, 0.3, 1])
+const BLOCKED = new Float32Array([1, 0.6, 0.1, 1])
+const SLOT_FREE = new Float32Array([0.55, 0.55, 0.6, 1])
+const SLOT_TAKEN = new Float32Array([1, 0.6, 0.1, 1])
 const a = new Float64Array(3)
 const b = new Float64Array(3)
 const mid = new Float64Array(3)
@@ -115,7 +119,7 @@ const MAX_SEGMENTS = 60_000
 export const navOverlay = defineOverlay({
   name: 'navmesh',
   description:
-    'Navigation: navmesh polygon edges colored by area, off-mesh links as arcs, NavGrid walkable-area outlines, and every NavAgent’s path (yellow; red when unreachable).',
+    'Navigation: navmesh polygon edges colored by area, off-mesh links as arcs, NavGrid walkable-area outlines, every NavAgent’s path (yellow; red when unreachable; amber, as far as the gate, while blocked at one), and slots at shut gates (0114: crosses, amber when claimed).',
   draw(world, g: GizmoStore, passes) {
     const nav = world.tryResource(Nav)
     if (!nav) return
@@ -148,6 +152,23 @@ export const navOverlay = defineOverlay({
         g.line(a, mid, LINK)
         g.line(mid, b, LINK)
       }
+      // Slots at gates agents breach (0114): a small cross each.
+      for (const set of rt.slots.values()) {
+        for (let i = 0; i < set.count; i++) {
+          const col = set.owner[i]! >= 0 ? SLOT_TAKEN : SLOT_FREE
+          const r = set.radius * 0.5
+          a[1] = b[1] = set.y[i]! + 0.05
+          a[0] = set.x[i]! - r
+          a[2] = set.z[i]!
+          b[0] = set.x[i]! + r
+          b[2] = set.z[i]!
+          g.line(a, b, col)
+          a[0] = b[0] = set.x[i]!
+          a[2] = set.z[i]! - r
+          b[2] = set.z[i]! + r
+          g.line(a, b, col)
+        }
+      }
     }
     for (const rec of nav.grids.values()) {
       if (!rec.grid || !passes(rec.entity)) continue
@@ -169,11 +190,13 @@ export const navOverlay = defineOverlay({
       if (!world.has(rec.entity, GlobalTransform)) continue
       const m = world.get(rec.entity, GlobalTransform).matrix
       const c = rec.corners
-      const col = rec.reachable ? PATH : UNREACHABLE
+      const col = rec.status === BLOCKED_STATUS ? BLOCKED : rec.reachable ? PATH : UNREACHABLE
       a[0] = m[3]!
       a[1] = m[7]! + (rec.kind === 'mesh' ? 0.1 : 0)
       a[2] = m[11]!
-      for (let i = Math.max(1, rec.kind === 'grid' ? rec.next : 1); i < rec.count; i++) {
+      // Blocked at a gate (0114): as far as the gate.
+      const end = rec.status === BLOCKED_STATUS ? Math.min(rec.count, rec.legCount + 1) : rec.count
+      for (let i = Math.max(1, rec.kind === 'grid' ? rec.next : 1); i < end; i++) {
         b[0] = c[i * 3]!
         b[1] = c[i * 3 + 1]! + (rec.kind === 'mesh' ? 0.1 : 0)
         b[2] = c[i * 3 + 2]!

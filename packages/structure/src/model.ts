@@ -15,6 +15,7 @@ import { type AppMethod, definePlugin, type Plugin } from '@aethervtt/shard-runt
 import { TransformSystems } from '@aethervtt/shard-transform'
 import {
   Backdrop,
+  Breach,
   Cutout,
   Floor,
   Level,
@@ -63,6 +64,14 @@ export interface OpeningModel {
   sill: number
   state: 'closed' | 'open' | 'locked'
   movement: 'normal' | 'none'
+  barricaded: boolean
+}
+
+/** A breachable span of a wall (0114), as its component says: nav works out where it lies. */
+export interface BreachModel {
+  wall: Entity
+  offset: number
+  width: number
 }
 
 export interface SlabModel {
@@ -86,7 +95,11 @@ export interface CutoutModel {
   ring: number
 }
 
-export type EditPart = 'wall' | 'opening' | 'floor' | 'roof' | 'cutout'
+/**
+ * What an edit is of. A Breach on a wall's own entity logs as that wall's `wall` edit (the log
+ * has one part per entity); one on its own entity logs as `breach`.
+ */
+export type EditPart = 'wall' | 'opening' | 'floor' | 'roof' | 'cutout' | 'breach'
 
 /**
  * One change: `geometry` (its shape changed, or it appeared), `state` (a door, window or hatch
@@ -190,6 +203,9 @@ export class StructureModelState {
   readonly openings = new Map<Entity, OpeningModel>()
   readonly slabs = new Map<Entity, SlabModel>()
   readonly cutouts = new Map<Entity, CutoutModel>()
+  /** Breachable spans (0114), and them by wall. */
+  readonly breaches = new Map<Entity, BreachModel>()
+  readonly breachesByWall = new Map<Entity, Set<Entity>>()
   /** Openings by host wall, and cutouts by host floor or roof (hosts may not exist yet). */
   readonly byWall = new Map<Entity, Set<Entity>>()
   readonly byHost = new Map<Entity, Set<Entity>>()
@@ -256,6 +272,10 @@ export class StructureModelState {
       const o = this.openings.get(entity)
       return o ? (this.walls.get(o.wall)?.solid ?? true) : true
     }
+    if (part === 'breach') {
+      const b = this.breaches.get(entity)
+      return b ? (this.walls.get(b.wall)?.solid ?? true) : true
+    }
     const c = this.cutouts.get(entity)
     return c ? (this.slabs.get(c.host)?.solid ?? true) : true
   }
@@ -276,6 +296,7 @@ export class StructureModelState {
       floors,
       roofs: this.slabs.size - floors,
       cutouts: this.cutouts.size,
+      breaches: this.breaches.size,
       levels: this.levels.size,
       syncs: this.syncs,
       log: this.log.length,
@@ -444,6 +465,7 @@ function readOpening(model: StructureModelState, entity: Entity, batch: Batch): 
       sill: v.sill,
       state: v.state,
       movement: v.movement,
+      barricaded: v.barricaded,
     })
     hostSet(model.byWall, wall).add(entity)
     batch.walls.add(wall)
@@ -465,7 +487,11 @@ function readOpening(model: StructureModelState, entity: Entity, batch: Batch): 
       batch.walls.add(wall)
     }
     batch.geometry.set(entity, 'opening')
-  } else if (rec.state !== v.state || rec.movement !== v.movement) {
+  } else if (
+    rec.state !== v.state ||
+    rec.movement !== v.movement ||
+    rec.barricaded !== v.barricaded
+  ) {
     batch.state.set(entity, 'opening')
   }
   rec.wall = wall
@@ -476,6 +502,19 @@ function readOpening(model: StructureModelState, entity: Entity, batch: Batch): 
   rec.sill = v.sill
   rec.state = v.state
   rec.movement = v.movement
+  rec.barricaded = v.barricaded
+}
+
+/** A Breach added or changed (0114): its own edit, or its wall's when it's on the wall. */
+function readBreach(model: StructureModelState, entity: Entity, batch: Batch): void {
+  const v = model.world.get(entity, Breach)
+  const wall = (v.wall ?? entity) as Entity
+  const rec = model.breaches.get(entity)
+  if (rec && rec.wall === wall && rec.offset === v.offset && rec.width === v.width) return
+  if (rec && rec.wall !== wall) model.breachesByWall.get(rec.wall)?.delete(entity)
+  hostSet(model.breachesByWall, wall).add(entity)
+  model.breaches.set(entity, { wall, offset: v.offset, width: v.width })
+  batch.geometry.set(entity, model.walls.has(entity) ? 'wall' : 'breach')
 }
 
 function readCutout(model: StructureModelState, entity: Entity, batch: Batch): void {
@@ -540,7 +579,7 @@ export function syncModel(
   const model = world.resource(StructureModel)
   const since = model.seen
   model.seen = thisTick
-  const { walls, floors, roofs, openings, cutouts, levels } = queries
+  const { walls, floors, roofs, openings, cutouts, levels, breaches } = queries
   const tolerance = world.resource(StructureSettings).curveTolerance
   const any =
     model.removed.length > 0 ||
@@ -551,7 +590,8 @@ export function syncModel(
     changed(roofs, Roof, since) ||
     changed(openings, Opening, since) ||
     changed(cutouts, Cutout, since) ||
-    changed(levels, Level, since)
+    changed(levels, Level, since) ||
+    changed(breaches, Breach, since)
   if (!any) return
   const start = performance.now()
   const batch: Batch = {
@@ -587,6 +627,15 @@ export function syncModel(
       batch.removed.set(entity, part)
       // Its openings lose their hole.
       for (const o of rec.openings) if (model.openings.has(o)) batch.geometry.set(o, 'opening')
+    } else if (part === 'breach') {
+      const rec = model.breaches.get(entity)
+      if (!rec) continue
+      model.breaches.delete(entity)
+      model.breachesByWall.get(rec.wall)?.delete(entity)
+      // On a wall that stays, it's that wall's edit: its span closes again for nav.
+      if (model.walls.has(entity) && world.isAlive(entity) && world.has(entity, Wall))
+        batch.geometry.set(entity, 'wall')
+      else batch.removed.set(entity, part)
     } else if (part === 'floor' || part === 'roof') {
       const rec = model.slabs.get(entity)
       if (!rec) continue
@@ -622,6 +671,8 @@ export function syncModel(
   for (const e of batch.slabs)
     if (world.isAlive(e) && (world.has(e, Floor) || world.has(e, Roof)))
       evaluateSlab(model, e, batch)
+  // After walls, so a Breach on a new wall's own entity is that wall's edit.
+  forEachChanged(breaches, Breach, since, (e) => readBreach(model, e, batch))
   // In entity order, so consumers build in the same order on every run.
   let edits = 0
   const append = (map: Map<Entity, EditPart>, kind: StructureEdit['kind']) => {
@@ -665,6 +716,7 @@ function modelQueries(world: World) {
     openings: world.query({ with: [Opening] }),
     cutouts: world.query({ with: [Cutout] }),
     levels: world.query({ with: [Level] }),
+    breaches: world.query({ with: [Breach] }),
   }
 }
 
@@ -708,7 +760,7 @@ export const structureMethods: AppMethod[] = [
 export const structureModelPlugin: Plugin = definePlugin({
   name: 'structure/model',
   dependencies: ['core/transform'],
-  provides: [Wall, Opening, Floor, Level, Roof, Cutout, Backdrop, StructureSettings],
+  provides: [Wall, Opening, Floor, Level, Roof, Cutout, Backdrop, Breach, StructureSettings],
   build(app) {
     const world = app.world
     world.initResource(StructureSettings)
@@ -724,6 +776,7 @@ export const structureModelPlugin: Plugin = definePlugin({
     world.observe(onRemove(Roof), removed('roof'))
     world.observe(onRemove(Opening), removed('opening'))
     world.observe(onRemove(Cutout), removed('cutout'))
+    world.observe(onRemove(Breach), removed('breach'))
     const backdrop = ({ entity }: { entity: Entity }) => {
       model.backdrops.push(entity)
     }

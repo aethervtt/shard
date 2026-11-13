@@ -69,11 +69,17 @@ describe('nav gates and filters', () => {
     const built = rt.stats.totalBuilt
     const bakes = rt.stats.bakes
 
-    // The toggle's whole navmesh work: the gate's polygons' flags, nothing baked.
-    nav.gates.setFlags(DOOR, GATE_CLOSED)
-    const t0 = performance.now()
-    updateNavigation(world, world.tick)
-    expect(performance.now() - t0).toBeLessThan(budget('nav/gate'))
+    // The toggle's whole navmesh work: the gate's polygons' flags (and, 0114, their shut area),
+    // nothing baked. Median of 21 toggles, as the budget is; the last leaves it closed.
+    const toggles: number[] = []
+    for (let i = 0; i < 21; i++) {
+      nav.gates.setFlags(DOOR, i % 2 === 0 ? GATE_CLOSED : 0)
+      const t0 = performance.now()
+      updateNavigation(world, world.tick)
+      toggles.push(performance.now() - t0)
+    }
+    toggles.sort((x, y) => x - y)
+    expect(toggles[10]!).toBeLessThan(budget('nav/gate'))
     frames(app, 1)
     expect(status(world)).toBe('complete')
     expect(status(world, 'survivor')).toBe('complete')

@@ -135,9 +135,34 @@ export const Opening = defineComponent(
     movement: t.enum(CHANNELS, {
       description: 'Whether it blocks movement when closed (planarBarriers).',
     }),
+    barricaded: t.bool({
+      description:
+        "Boarded up (0114): its collider stays on whatever its state or movement, and its nav gate gets the `custom` state, which survivors' filters exclude and zombies' breach.",
+    }),
     light: lightField('it, closed,'),
   },
   { description: 'A door or window cut into a wall.' },
+)
+
+export const Breach = defineComponent(
+  'structure/Breach',
+  {
+    wall: t.entity({ description: "The wall it's a span of. Empty: this entity's own Wall." }),
+    offset: t.f32({
+      min: 0,
+      unit: 'm',
+      description: "Distance from the wall's start to the span.",
+    }),
+    width: t.f32({
+      min: 0,
+      unit: 'm',
+      description: "Width along the wall. 0: to the wall's end.",
+    }),
+  },
+  {
+    description:
+      'A span of a wall that agents can breach (0114): a player-built wall or a barricade. It still draws and collides; navigation cuts it out of the wall and puts a gate across it (closed and locked) that breaching filters plan through and wait at (NavGateBlocked). Break it by removing or splitting the wall. Generated walls without one stay unbreachable.',
+  },
 )
 
 export const Floor = defineComponent(
@@ -367,6 +392,8 @@ export interface StructureNavSettings {
   doorArea: number
   windowArea: number
   hatchArea: number
+  /** Area code of Breach spans' gates (0114). */
+  breachArea: number
   /** Roofs bake as nav sources too (agents don't usually walk them). */
   roofs: boolean
   /** Windows with a sill at most this high get a link across the wall, m. */
@@ -388,6 +415,7 @@ export function defaultStructureNav(): StructureNavSettings {
     doorArea: 10,
     windowArea: 11,
     hatchArea: 9,
+    breachArea: 8,
     roofs: false,
     windowClimb: 1.2,
     windowReach: 0.5,

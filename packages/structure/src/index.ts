@@ -18,6 +18,7 @@ export {
 } from './compile'
 export {
   Backdrop,
+  Breach,
   CHANNELS,
   type ColliderSettings,
   ContactMesh,

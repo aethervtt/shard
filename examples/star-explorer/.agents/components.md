@@ -546,10 +546,12 @@ What a NavAgent is doing. Written by navigation; read-only.
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `status` | `"idle"` \| `"moving"` \| `"arrived"` \| `"unreachable"` | `"idle"` |  | idle: stopped or no navigation here. moving. arrived: within stoppingDistance. unreachable: no path; it walks to the closest point it can reach. |
+| `status` | `"idle"` \| `"moving"` \| `"arrived"` \| `"unreachable"` \| `"blocked"` | `"idle"` |  | idle: stopped or no navigation here. moving. arrived: within stoppingDistance. unreachable: no path; it walks to the closest point it can reach. blocked: waiting at a shut gate its filter breaches (0114), in a slot or for one. |
 | `remaining` | number | `0` | m | Distance left along the path. |
 | `corners` | integer | `0` | ≥ 0, ≤ 65535 | Corners left on the path. |
 | `velocity` | number[3] | `[0,0,0]` | m/s | Steering velocity. |
+| `gate` | null or integer or string | `null` |  | The gate it waits at while blocked (0114): a door, window or Breach. |
+| `row` | integer | `0` | ≥ 0, ≤ 255 | While blocked: its slot row at the gate, 0 against it, more behind; 255 while it waits for a slot (0114). |
 
 ## `nav/NavGrid`
 
@@ -1886,6 +1888,16 @@ Drawn, not solid: the wall, floor or roof (or every piece on this Level) gets no
 
 Tag (no fields).
 
+## `structure/Breach`
+
+A span of a wall that agents can breach (0114): a player-built wall or a barricade. It still draws and collides; navigation cuts it out of the wall and puts a gate across it (closed and locked) that breaching filters plan through and wait at (NavGateBlocked). Break it by removing or splitting the wall. Generated walls without one stay unbreachable.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `wall` | null or integer or string | `null` |  | The wall it's a span of. Empty: this entity's own Wall. |
+| `offset` | number | `0` | ≥ 0, m | Distance from the wall's start to the span. |
+| `width` | number | `0` | ≥ 0, m | Width along the wall. 0: to the wall's end. |
+
 ## `structure/Chunk`
 
 One group's geometry in one chunk and one material, rebuilt by structure compile.
@@ -1987,6 +1999,7 @@ A door or window cut into a wall.
 | `state` | `"closed"` \| `"open"` \| `"locked"` | `"closed"` |  | Doors: a change swings the leaf and rebuilds no geometry. |
 | `sight` | `"normal"` \| `"none"` | `"normal"` |  | Whether it blocks sight when closed (planarBarriers). |
 | `movement` | `"normal"` \| `"none"` | `"normal"` |  | Whether it blocks movement when closed (planarBarriers). |
+| `barricaded` | boolean | `false` |  | Boarded up (0114): its collider stays on whatever its state or movement, and its nav gate gets the `custom` state, which survivors' filters exclude and zombies' breach. |
 | `light` | `"sight"` \| `"normal"` \| `"none"` | `"sight"` |  | Whether it, closed, blocks light (0069): sky light spilling in, and wall-blocked lights. sight (unset) follows its sight channel; set it for a curtain that blocks sight but not light, or the opposite. |
 
 ## `structure/Roof`

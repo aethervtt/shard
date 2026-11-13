@@ -65,12 +65,30 @@ export function stripShapes(
   }
 }
 
-/** A wall's solid pieces (frames left out). */
-export function wallBlockers(wall: WallModel, out: BlockingShape[] = []): BlockingShape[] {
+/**
+ * A wall's solid pieces (frames left out). `cut` (sorted `[s0, s1]` pairs along the centreline)
+ * leaves spans out at every height: nav's Breach spans (0114).
+ */
+export function wallBlockers(
+  wall: WallModel,
+  out: BlockingShape[] = [],
+  cut?: readonly number[],
+): BlockingShape[] {
   const line = wall.shape.line
   for (let i = 0; i < wall.count; i++) {
     const p = wall.pieces[i]!
-    if (!p.frame) stripShapes(line, p.s0, p.s1, p.y0, p.y1, p.half, out)
+    if (p.frame) continue
+    if (!cut || cut.length === 0) {
+      stripShapes(line, p.s0, p.s1, p.y0, p.y1, p.half, out)
+      continue
+    }
+    let a = p.s0
+    for (let k = 0; k < cut.length; k += 2) {
+      if (cut[k + 1]! <= a || cut[k]! >= p.s1) continue
+      if (cut[k]! > a) stripShapes(line, a, cut[k]!, p.y0, p.y1, p.half, out)
+      a = Math.max(a, cut[k + 1]!)
+    }
+    if (a < p.s1) stripShapes(line, a, p.s1, p.y0, p.y1, p.half, out)
   }
   return out
 }

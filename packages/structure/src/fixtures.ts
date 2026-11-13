@@ -26,6 +26,11 @@ import {
 } from '../fixtures/structure/index.mjs'
 import { Floor, Opening, Wall } from './components'
 
+export {
+  type BreachHouse,
+  type BreachHouseOptions,
+  breachHouse,
+} from './breach-house'
 export { type Town, type TownBuilding, type TownOptions, town } from './town'
 export { LIMITS, maxScene, type SceneDocs, shadowStress }
 
