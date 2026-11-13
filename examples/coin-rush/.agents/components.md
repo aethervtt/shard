@@ -562,6 +562,7 @@ Brings along: `core/Transform`, `nav/NavAgentState`.
 | `drive` | `"character"` \| `"transform"` \| `"velocity"` | `"character"` |  | character: writes CharacterIntent.move so physics walks it (slopes, steps, collisions; falls back to transform without a CharacterController). velocity: writes the rigid body’s Velocity. transform: moves the Transform directly. |
 | `stopped` | boolean | `false` |  | Hold position (status idle) until cleared. |
 | `nav` | null or integer or string | `null` |  | The NavGrid or NavMesh to walk on (default: the one the agent stands in). |
+| `filter` | string | `""` |  | Navmeshes: the nav/Filters entry it paths with (0112), such as "zombie"; empty is the default filter (nav/Areas costs, every gate passable). |
 
 ## `nav/NavAgentState`
 

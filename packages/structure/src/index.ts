@@ -1,5 +1,6 @@
 export {
   type BlockingShape,
+  blockingTriangles,
   cutoutBlockers,
   gapBlockers,
   slabBlockers,
@@ -27,6 +28,7 @@ export {
   defaultColliders,
   defaultContact,
   defaultInterior,
+  defaultStructureNav,
   Floor,
   HINGES,
   INTERIOR_QUALITIES,
@@ -38,6 +40,7 @@ export {
   Opening,
   Roof,
   StructureChunk,
+  type StructureNavSettings,
   StructureSettings,
   type StructureSettingsValue,
   SWINGS,

@@ -1,12 +1,25 @@
-import { defineSystem, type Entity, type Table, type World } from '@aethervtt/shard-core'
+import {
+  defineSystem,
+  type Entity,
+  ShardError,
+  type Table,
+  type World,
+} from '@aethervtt/shard-core'
 import { CharacterController, CharacterIntent, Physics, Velocity } from '@aethervtt/shard-physics'
 import { FixedTime } from '@aethervtt/shard-runtime'
 import { GlobalTransform, Transform } from '@aethervtt/shard-transform'
-import { NavAgent, NavAgentState, NavAreas, NavArrived, NavUnreachable } from './components'
+import {
+  NavAgent,
+  NavAgentState,
+  NavAreas,
+  NavArrived,
+  NavFilters,
+  NavUnreachable,
+} from './components'
 import { traceSegment } from './grid'
 import type { NavMeshRuntime } from './navmesh'
 import { createNavPath, findPath, meshPathLocal, type NavPath } from './query'
-import { type AgentRecord, type GridRecord, Nav, type NavState } from './state'
+import { type AgentRecord, type GridRecord, Nav, type NavState, navWarn } from './state'
 
 const IDLE = 0
 const MOVING = 1
@@ -41,6 +54,7 @@ interface Columns {
   drive: Uint8Array
   stopped: Uint8Array
   nav: Float64Array
+  filter: string[]
   agentTicks: Uint32Array
   status: Uint8Array
   remaining: Float32Array
@@ -63,6 +77,7 @@ function columns(table: Table, out: Columns): void {
   out.drive = table.column(NavAgent, 'drive') as Uint8Array
   out.stopped = table.column(NavAgent, 'stopped') as Uint8Array
   out.nav = table.column(NavAgent, 'nav') as Float64Array
+  out.filter = table.column(NavAgent, 'filter') as unknown as string[]
   out.agentTicks = table.changedTicks(NavAgent)
   out.status = table.column(NavAgentState, 'status') as Uint8Array
   out.remaining = table.column(NavAgentState, 'remaining') as Float32Array
@@ -90,6 +105,7 @@ function newRecord(entity: Entity): AgentRecord {
     agentTick: 0,
     drive: DRIVE_TRANSFORM,
     framed: false,
+    filter: '',
     lpos: new Float64Array(3),
     link: { active: false, lift: 0, x0: 0, z0: 0, y0: 0, x1: 0, z1: 0, y1: 0, arc: 0 },
   }
@@ -114,7 +130,11 @@ export const navAgents = defineSystem({
     query: world.query({ with: [NavAgent, NavAgentState, Transform] }),
     cols: {} as Columns,
     path: createNavPath(CORNERS),
-    find: { out: undefined as NavPath | undefined, nav: null as Entity | null },
+    find: {
+      out: undefined as NavPath | undefined,
+      nav: null as Entity | null,
+      filter: undefined as string | undefined,
+    },
     // Grid separation: agent positions and radii this step, bucketed in a spatial hash.
     gx: new Float64Array(64),
     gy: new Float64Array(64),
@@ -355,6 +375,7 @@ function stepAgent(
     (target >= 0 && moved > 1e-4 && rec.sinceRepath >= c.repath[row]!)
   if (repath) {
     rec.agentTick = c.agentTicks[row]!
+    rec.filter = c.filter[row] ?? ''
     rec.goal[0] = goal[0]
     rec.goal[1] = goal[1]
     rec.goal[2] = goal[2]
@@ -379,7 +400,24 @@ function plan(s: State, world: World, nav: NavState, rec: AgentRecord): void {
   s.find.out = path
   s.find.nav = rec.nav
   const mesh = rec.kind === 'mesh' ? nav.meshes.get(rec.nav) : undefined
-  if (mesh && rec.framed) meshPathLocal(mesh, pos, rec.goal, path)
+  // A filter nav/Filters doesn't have: the default, reported once (0112).
+  let filter = rec.kind === 'mesh' ? rec.filter : ''
+  if (filter && mesh && !mesh.named.has(filter)) {
+    if (!nav.badFilters.has(rec.entity)) {
+      nav.badFilters.add(rec.entity)
+      navWarn(
+        world,
+        new ShardError(
+          'nav/unknown-filter',
+          `NavAgent ${rec.entity} paths with filter "${filter}", which nav/Filters doesn't have`,
+          { hint: 'Add it to nav/Filters, or clear NavAgent.filter. It paths with the default.' },
+        ),
+      )
+    }
+    filter = ''
+  }
+  s.find.filter = filter
+  if (mesh && rec.framed) meshPathLocal(mesh, pos, rec.goal, path, undefined, filter)
   else findPath(world, pos, rec.goal, s.find)
   rec.corners.set(path.corners.subarray(0, path.count * 3))
   rec.count = path.count
@@ -687,7 +725,7 @@ function crowdParams(s: State, row: number, rt: NavMeshRuntime) {
     separationWeight: 0,
     updateFlags: ANTICIPATE_TURNS | OPTIMIZE_VIS | OPTIMIZE_TOPO | (avoid ? OBSTACLE_AVOIDANCE : 0),
     obstacleAvoidanceType: 3,
-    queryFilterType: 0,
+    queryFilterType: rt.crowdSlot(c.filter[row] ?? ''),
   }
 }
 
@@ -701,7 +739,7 @@ function ensureCrowd(world: World, nav: NavState, rt: NavMeshRuntime, radius: nu
   rt.crowd = new rt.R.Crowd(rt.navMesh, { maxAgents: capacity, maxAgentRadius: maxRadius })
   rt.crowdCapacity = capacity
   rt.crowdRadius = maxRadius
-  rt.applyAreas(world.tryResource(NavAreas) ?? {})
+  rt.applyFilters(world.tryResource(NavAreas) ?? {}, world.tryResource(NavFilters) ?? {})
   for (const r of nav.agents.values()) if (r.nav === rt.entity) r.crowdIndex = -1
 }
 

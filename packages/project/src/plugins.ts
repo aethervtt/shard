@@ -36,6 +36,7 @@ import { scatterPlugin } from '@aethervtt/shard-scatter'
 import { ScenePlugin } from '@aethervtt/shard-scene'
 import { spritePlugin } from '@aethervtt/shard-sprite'
 import { structureModelPlugin, structurePlugin } from '@aethervtt/shard-structure'
+import { structureNavPlugin } from '@aethervtt/shard-structure/nav'
 import { structurePhysicsPlugin } from '@aethervtt/shard-structure/physics'
 import { terrainPlugin } from '@aethervtt/shard-terrain'
 // Also registers the string table importer and the StringTable asset type for every project host.
@@ -212,9 +213,10 @@ export const engineStructure: EnginePlugin = {
   name: 'structure',
   namespaces: ['structure'],
   add(app, _ctx, names) {
-    // The model always; meshes with a display; colliders with physics3d (0112).
+    // The model always; meshes with a display; colliders with physics3d, nav sources with nav (0112).
     app.addPlugin(names.has('render/forward') ? structurePlugin : structureModelPlugin)
     if (names.has('physics3d')) app.addPlugin(structurePhysicsPlugin)
+    if (names.has('nav')) app.addPlugin(structureNavPlugin)
   },
 }
 export const engineTerrain: EnginePlugin = {

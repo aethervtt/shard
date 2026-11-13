@@ -16,7 +16,16 @@ import { LogResource } from '@aethervtt/shard-runtime'
 import { Tilemap, TilemapDatas } from '@aethervtt/shard-sprite'
 import { GlobalTransform } from '@aethervtt/shard-transform'
 import { NavCache } from './cache'
-import { NavAreas, NavGrid, NavGridDatas, NavMesh, NavSource, OffMeshLink } from './components'
+import {
+  MAX_NAV_FILTERS,
+  NavAreas,
+  NavFilters,
+  NavGrid,
+  NavGridDatas,
+  NavMesh,
+  NavSource,
+  OffMeshLink,
+} from './components'
 import {
   boxTriangles,
   capsuleProfile,
@@ -25,15 +34,20 @@ import {
   pushMesh,
   pushTransformed,
   sphereProfile,
+  TriangleSoup,
 } from './geometry'
 import { DIAGONAL_MODES, NavGridData } from './grid'
 import { Hash64 } from './hash'
 import { NavMeshRuntime, packTile } from './navmesh'
 import { type BakeSettings, buildTile, type OffMeshLinkParams, voxelSettings } from './recast'
-import { type GridRecord, Nav, type NavState } from './state'
+import { type NavContribution, type NavGate, triangleLanes } from './sources'
+import { type GridRecord, LINKS, Nav, type NavState, navWarn } from './state'
 
-/** Bumped when tile building changes in a way that makes old cached tiles wrong. */
-const BAKE_FORMAT = 'recast-navigation@0.43.1/shard-1'
+/**
+ * Bumped when tile building changes in a way that makes old cached tiles wrong. shard-2 (0112):
+ * the poly flag layout changed (areas 0–11 exact, bit 12 shared, gate bits 13–15).
+ */
+const BAKE_FORMAT = 'recast-navigation@0.43.1/shard-2'
 
 interface BakeQueries {
   grids: Query
@@ -391,7 +405,6 @@ export const NO_RECAST =
 function updateMeshes(s: BakeQueries, world: World, nav: NavState, since: number): void {
   const R = nav.R
   if (!R) return
-  let changed = false
   // Runtimes follow NavMesh components: settings changes start a fresh navmesh.
   for (let t = 0; t < s.meshes.tables.length; t++) {
     const table = s.meshes.tables[t]!
@@ -402,7 +415,8 @@ function updateMeshes(s: BakeQueries, world: World, nav: NavState, since: number
       if (rt && ticks[row]! <= since) continue
       const settings = settingsOf(table, row)
       if (rt && sameSettings(rt.settings, settings)) {
-        changed = true // bounds may have changed
+        // Bounds may have changed: every source is placed again.
+        rt.indexed = false
         continue
       }
       if (rt) {
@@ -412,7 +426,6 @@ function updateMeshes(s: BakeQueries, world: World, nav: NavState, since: number
       nav.meshes.set(entity, new NavMeshRuntime(R, entity, settings))
       nav.meshList = [...nav.meshes.values()]
       nav.areas = Number.NaN
-      changed = true
     }
   }
   if (nav.meshes.size > 0 && nav.meshes.size !== s.meshes.count()) {
@@ -425,32 +438,147 @@ function updateMeshes(s: BakeQueries, world: World, nav: NavState, since: number
     nav.meshList = [...nav.meshes.values()]
   }
   if (nav.meshes.size === 0) return
-  // Frames: a navmesh baked in an entity's space follows it; a moved frame rebakes.
+  // Frames: a navmesh baked in an entity's space follows it; a moved frame places every source
+  // again.
   for (let i = 0; i < nav.meshList.length; i++) {
     const rt = nav.meshList[i]!
     const frame = world.get(rt.entity, NavMesh).frame
-    if (updateFrame(world, rt, frame)) changed = true
+    if (updateFrame(world, rt, frame)) rt.indexed = false
   }
   const areas = world.tryResource(NavAreas)
   const signature = areasSignature(areas)
-  if (nav.areas !== signature) {
+  const filters = world.tryResource(NavFilters)
+  if (nav.areas !== signature || world.resourceChanged(NavFilters, since)) {
     nav.areas = signature
-    for (let i = 0; i < nav.meshList.length; i++) nav.meshList[i]!.applyAreas(areas ?? {})
+    if (filters && Object.keys(filters).length > MAX_NAV_FILTERS) {
+      navWarn(
+        world,
+        new ShardError(
+          'nav/too-many-filters',
+          `nav/Filters has ${Object.keys(filters).length} filters; navmeshes keep the first ${MAX_NAV_FILTERS} by name`,
+          { hint: "Detour's crowd has 16 filter slots, and the default filter takes one." },
+        ),
+      )
+    }
+    for (let i = 0; i < nav.meshList.length; i++)
+      nav.meshList[i]!.applyFilters(areas ?? {}, filters ?? {})
   }
-  let pending = false
-  for (let i = 0; i < nav.meshList.length; i++) if (nav.meshList[i]!.pending > 0) pending = true
-  if (!nav.dirty && !changed && !pending && !watchedChanged(world, nav, since)) return
-  gather(s, world, nav)
-  nav.dirty = false
-  for (const rt of nav.meshes.values()) {
+  // What changed: entity sources (by root), shapes, gates and links.
+  findChanges(world, nav, since)
+  const shapes = nav.shapes
+  const gates = nav.gates
+  let gathered = 0
+  if (nav.dirty) {
+    nav.dirty = false
+    nav.linksDirty = true
+    for (let t = 0; t < s.sources.tables.length; t++) {
+      const table = s.sources.tables[t]!
+      for (let row = 0; row < table.count; row++) nav.dirtyRoots.add(table.entities[row]!)
+    }
+    for (const root of nav.sources.keys()) nav.dirtyRoots.add(root)
+  }
+  let indexed = true
+  for (let i = 0; i < nav.meshList.length; i++) if (!nav.meshList[i]!.indexed) indexed = false
+  // A frame where nothing moved allocates nothing: the rest only runs on a change.
+  if (
+    !indexed ||
+    nav.dirtyRoots.size > 0 ||
+    nav.pendingRoots.size > 0 ||
+    shapes.changed.size > 0 ||
+    gates.changed.size > 0 ||
+    nav.linksDirty
+  )
+    gathered = applyChanges(world, nav)
+  nav.linksDirty = false
+  // Gates whose state alone changed: their polygons' flags, no tile.
+  if (gates.flagged.size > 0) {
+    for (const owner of gates.flagged) {
+      const gate = gates.byOwner.get(owner)
+      if (!gate) continue
+      for (let i = 0; i < nav.meshList.length; i++) nav.meshList[i]!.setGateFlags(gate)
+    }
+    gates.flagged.clear()
+  }
+  for (let i = 0; i < nav.meshList.length; i++) {
+    const rt = nav.meshList[i]!
+    if (rt.dirty.size === 0) continue
     try {
-      bakeRuntime(world, nav, rt)
+      bakeDirty(world, nav, rt, gathered)
       rt.problem = null
     } catch (err) {
       rt.problem = err instanceof Error ? err.message : String(err)
       world.tryResource(LogResource)?.error(err)
     }
   }
+}
+
+/** Gathers what changed, and places it in every navmesh's tile index. Returns sources re-read. */
+function applyChanges(world: World, nav: NavState): number {
+  for (const root of nav.pendingRoots) nav.dirtyRoots.add(root)
+  let gathered = 0
+  const shapes = nav.shapes
+  const gates = nav.gates
+  const changes: [NavContribution | undefined, NavContribution | undefined][] = []
+  if (nav.dirtyRoots.size > 0) {
+    const roots = [...nav.dirtyRoots].sort((a, b) => a - b)
+    nav.dirtyRoots.clear()
+    for (const root of roots) {
+      const old = nav.sources.get(root)
+      const next = gatherRoot(world, nav, root) ?? undefined
+      gathered++
+      if (next) nav.sources.set(root, next)
+      else nav.sources.delete(root)
+      if (old || next) changes.push([old, next])
+    }
+    nav.watchedList = [...nav.watched]
+    nav.skipped = [...nav.skippedBy.values()].flat()
+  }
+  if (shapes.changed.size > 0) {
+    const owners = [...shapes.changed].sort((a, b) => a - b)
+    shapes.changed.clear()
+    for (const owner of owners) {
+      const old = nav.shapeSources.get(owner)
+      const next = shapes.byOwner.get(owner)
+      gathered++
+      if (next) nav.shapeSources.set(owner, next)
+      else nav.shapeSources.delete(owner)
+      if (old !== next) changes.push([old, next])
+    }
+  }
+  let gateChanges: [NavGate | undefined, NavGate | undefined][] | undefined
+  if (gates.changed.size > 0) {
+    gateChanges = []
+    const owners = [...gates.changed].sort((a, b) => a - b)
+    gates.changed.clear()
+    for (const owner of owners) {
+      const old = nav.gateSources.get(owner)
+      const next = gates.byOwner.get(owner)
+      if (next) nav.gateSources.set(owner, next)
+      else nav.gateSources.delete(owner)
+      gateChanges.push([old, next])
+      if (old?.link || next?.link) nav.linksDirty = true
+    }
+  }
+  if (nav.linksDirty) gatherLinks(world, nav)
+  for (let i = 0; i < nav.meshList.length; i++) {
+    const rt = nav.meshList[i]!
+    const nm = world.get(rt.entity, NavMesh)
+    if (!rt.indexed) indexAll(nav, rt, nm)
+    else {
+      for (const [old, next] of changes) {
+        if (old) unbin(rt, old)
+        if (next) bin(rt, next, nm)
+      }
+      if (gateChanges)
+        for (const [old, next] of gateChanges) {
+          if (old) unbinGate(rt, old)
+          if (next) binGate(rt, next)
+        }
+      if (nav.linksDirty) relink(nav, rt)
+    }
+    rt.pending = nav.pendingRoots.size
+  }
+  return gathered
 }
 
 /**
@@ -477,59 +605,27 @@ function updateFrame(world: World, rt: NavMeshRuntime, frame: Entity | null): bo
   return true
 }
 
-/** The world soup, links, and hashes moved into a framed navmesh's space. */
-function localize(nav: NavState, rt: NavMeshRuntime) {
-  const src = nav.soup
-  const soup = rt.local
-  soup.clear()
-  const m = rt.toLocal
-  const p = src.positions
-  const q = new Float64Array(9)
-  for (let t = 0; t < src.count; t++) {
-    for (let k = 0; k < 3; k++) {
-      const o = t * 9 + k * 3
-      const x = p[o]!
-      const y = p[o + 1]!
-      const z = p[o + 2]!
-      q[k * 3] = m[0]! * x + m[1]! * y + m[2]! * z + m[3]!
-      q[k * 3 + 1] = m[4]! * x + m[5]! * y + m[6]! * z + m[7]!
-      q[k * 3 + 2] = m[8]! * x + m[9]! * y + m[10]! * z + m[11]!
-    }
-    soup.push(q[0]!, q[1]!, q[2]!, q[3]!, q[4]!, q[5]!, q[6]!, q[7]!, q[8]!, src.areas[t]!)
-  }
-  if (rt.localHashes.length < soup.count * 2) rt.localHashes = new Uint32Array(soup.count * 2)
-  const lp = soup.positions
-  for (let t = 0; t < soup.count; t++) {
-    hash.reset()
-    for (let k = 0; k < 9; k++) hash.f32word(lp[t * 9 + k]!)
-    hash.u32word(soup.areas[t]!)
-    hash.lanes(rt.localHashes, t * 2)
-  }
-  const out = new Float64Array(3)
-  const links = nav.links.map((l) => {
-    rt.pointIn(l.start[0], l.start[1], l.start[2], out)
-    const start: [number, number, number] = [out[0]!, out[1]!, out[2]!]
-    rt.pointIn(l.end[0], l.end[1], l.end[2], out)
-    return { ...l, start, end: [out[0]!, out[1]!, out[2]!] as [number, number, number] }
-  })
-  return { soup, lanes: rt.localHashes, links }
-}
-
-/** Whether any watched entity died or had its transform, shape, mesh, or tags changed. */
-function watchedChanged(world: World, nav: NavState, since: number): boolean {
+/** Marks the roots whose watched entities died or had their transform, shape, mesh or tags changed. */
+function findChanges(world: World, nav: NavState, since: number): void {
   const list = nav.watchedList
   for (let i = 0; i < list.length; i++) {
     const e = list[i]!
-    if (!world.isAlive(e)) return true
-    const table = world.entityTable(e)
-    const row = world.entityRow(e)
-    if (table.has(GlobalTransform) && table.changedTicks(GlobalTransform)[row]! > since) return true
-    if (table.has(Collider) && table.changedTicks(Collider)[row]! > since) return true
-    if (table.has(Mesh3d) && table.changedTicks(Mesh3d)[row]! > since) return true
-    if (table.has(NavSource) && table.changedTicks(NavSource)[row]! > since) return true
-    if (table.has(OffMeshLink) && table.changedTicks(OffMeshLink)[row]! > since) return true
+    let changed = !world.isAlive(e)
+    if (!changed) {
+      const table = world.entityTable(e)
+      const row = world.entityRow(e)
+      changed =
+        (table.has(GlobalTransform) && table.changedTicks(GlobalTransform)[row]! > since) ||
+        (table.has(Collider) && table.changedTicks(Collider)[row]! > since) ||
+        (table.has(Mesh3d) && table.changedTicks(Mesh3d)[row]! > since) ||
+        (table.has(NavSource) && table.changedTicks(NavSource)[row]! > since) ||
+        (table.has(OffMeshLink) && table.changedTicks(OffMeshLink)[row]! > since)
+    }
+    if (!changed) continue
+    const root = nav.rootOf.get(e)
+    if (root === undefined || root === LINKS) nav.linksDirty = true
+    if (root !== undefined && root !== LINKS) nav.dirtyRoots.add(root)
   }
-  return false
 }
 
 /** Local triangles for primitive collider shapes, by shape and size. */
@@ -545,17 +641,45 @@ function primitive(key: string, make: () => number[]): number[] {
   return tris
 }
 
-/** Collects every source's world-space triangles and every link into the nav state. */
-function gather(s: BakeQueries, world: World, nav: NavState): void {
-  const soup = nav.soup
+/** Marks entities watched for a root (or `LINKS`), forgetting what it watched before. */
+function watch(nav: NavState, owner: Entity, members: Entity[]): void {
+  for (const e of nav.members.get(owner) ?? []) {
+    if (nav.rootOf.get(e) === owner) {
+      nav.rootOf.delete(e)
+      nav.watched.delete(e)
+    }
+  }
+  if (members.length === 0) nav.members.delete(owner)
+  else nav.members.set(owner, members)
+  for (const e of members) {
+    nav.rootOf.set(e, owner)
+    nav.watched.add(e)
+  }
+}
+
+const rootSoup = new TriangleSoup()
+
+/**
+ * One NavSource subtree's world triangles: its root's collider (else render mesh), and its
+ * descendants' that have no NavSource of their own, with the root's area. Null when the root is
+ * gone or isn't a source any more.
+ */
+function gatherRoot(world: World, nav: NavState, root: Entity): NavContribution | null {
+  nav.pendingRoots.delete(root)
+  nav.skippedBy.delete(root)
+  if (!world.isAlive(root) || !world.has(root, NavSource) || !world.has(root, GlobalTransform)) {
+    watch(nav, root, [])
+    return null
+  }
+  const soup = rootSoup
   soup.clear()
-  nav.watched.clear()
-  nav.skipped = []
-  nav.links = []
+  const members: Entity[] = []
+  const skipped: { entity: Entity; reason: string }[] = []
   let pending = 0
   const meshes = world.tryResource(Meshes)
-  const visit = (e: Entity, area: number) => {
-    nav.watched.add(e)
+  const area = world.get(root, NavSource).area
+  const visit = (e: Entity) => {
+    members.push(e)
     const m = world.get(e, GlobalTransform).matrix
     if (world.has(e, Collider)) {
       const c = world.get(e, Collider)
@@ -610,11 +734,11 @@ function gather(s: BakeQueries, world: World, nav: NavState): void {
             else if (c.mesh) {
               pending++
               requestAsset(world, c.mesh)
-            } else nav.skipped.push({ entity: e, reason: `${c.shape} collider without a mesh` })
+            } else skipped.push({ entity: e, reason: `${c.shape} collider without a mesh` })
             break
           }
           default:
-            nav.skipped.push({ entity: e, reason: `${c.shape} colliders are 2D` })
+            skipped.push({ entity: e, reason: `${c.shape} colliders are 2D` })
         }
         if (tris) pushTransformed(soup, tris, undefined, tris.length / 9, m, area)
       }
@@ -630,31 +754,53 @@ function gather(s: BakeQueries, world: World, nav: NavState): void {
     const children = world.tryGet(e, Children)?.entities
     if (children) {
       for (const child of children) {
-        if (child !== null && world.isAlive(child) && !world.has(child, NavSource))
-          visit(child, area)
+        if (
+          child !== null &&
+          world.isAlive(child) &&
+          !world.has(child, NavSource) &&
+          world.has(child, GlobalTransform)
+        )
+          visit(child)
       }
     }
   }
-  for (let t = 0; t < s.sources.tables.length; t++) {
-    const table = s.sources.tables[t]!
-    const area = table.column(NavSource, 'area') as Uint8Array
-    if (!table.has(GlobalTransform)) continue
-    for (let row = 0; row < table.count; row++) visit(table.entities[row]!, area[row]!)
+  visit(root)
+  watch(nav, root, members)
+  if (pending > 0) nav.pendingRoots.add(root)
+  if (skipped.length > 0) nav.skippedBy.set(root, skipped)
+  const count = soup.count
+  const c: NavContribution = {
+    kind: 0,
+    owner: root,
+    positions: soup.positions.slice(0, count * 9),
+    areas: soup.areas.slice(0, count),
+    lanes: new Uint32Array(count * 2),
+    count,
   }
-  for (let t = 0; t < s.links.tables.length; t++) {
-    const table = s.links.tables[t]!
+  triangleLanes(c)
+  return c
+}
+
+/** Every OffMeshLink, and every link gate (0112), as link parameters. */
+function gatherLinks(world: World, nav: NavState): void {
+  const members: Entity[] = []
+  const links: OffMeshLinkParams[] = []
+  nav.skippedBy.delete(LINKS)
+  const skipped: { entity: Entity; reason: string }[] = []
+  for (const table of world.query({ with: [OffMeshLink] }).tables) {
     for (let row = 0; row < table.count; row++) {
-      const e = table.entities[row]!
-      nav.watched.add(e)
+      const e = table.entities[row]! as Entity
+      members.push(e)
       const link = world.get(e, OffMeshLink)
       if (link.to === null || !world.isAlive(link.to) || !world.has(link.to, GlobalTransform)) {
-        nav.skipped.push({ entity: e, reason: 'off-mesh link without a `to` entity' })
+        skipped.push({ entity: e, reason: 'off-mesh link without a `to` entity' })
         continue
       }
-      nav.watched.add(link.to)
+      if (!world.has(e, GlobalTransform)) continue
+      members.push(link.to)
       const a = world.get(e, GlobalTransform).matrix
       const b = world.get(link.to, GlobalTransform).matrix
-      nav.links.push({
+      links.push({
         start: [a[3]!, a[7]!, a[11]!],
         end: [b[3]!, b[7]!, b[11]!],
         radius: link.radius,
@@ -663,47 +809,80 @@ function gather(s: BakeQueries, world: World, nav: NavState): void {
       })
     }
   }
+  for (const gate of [...nav.gateSources.values()].sort((a, b) => a.owner - b.owner)) {
+    if (!gate.link) continue
+    links.push({
+      start: gate.link.start,
+      end: gate.link.end,
+      radius: gate.link.radius,
+      bidirectional: gate.link.bidirectional,
+      area: gate.area,
+    })
+  }
+  if (skipped.length > 0) nav.skippedBy.set(LINKS, skipped)
+  nav.skipped = [...nav.skippedBy.values()].flat()
+  nav.links = links
+  watch(nav, LINKS, members)
   nav.watchedList = [...nav.watched]
-  for (const rt of nav.meshes.values()) rt.pending = pending
-  // Per-triangle hashes, combined per tile into its key.
-  const n = soup.count
-  if (nav.triHashes.length < n * 2) nav.triHashes = new Uint32Array(n * 2)
-  const p = soup.positions
-  for (let t = 0; t < n; t++) {
-    hash.reset()
-    for (let k = 0; k < 9; k++) hash.f32word(p[t * 9 + k]!)
-    hash.u32word(soup.areas[t]!)
-    hash.lanes(nav.triHashes, t * 2)
+}
+
+// --- the tile index (0112) --------------------------------------------------------
+
+const scratch3 = new Float64Array(3)
+
+/** A source in a framed navmesh's space (the same object when the navmesh has no frame). */
+function inSpace(rt: NavMeshRuntime, c: NavContribution): NavContribution {
+  if (rt.frame === null) return c
+  let local = rt.localOf.get(c)
+  if (local) return local
+  const p = c.positions
+  const out = new Float32Array(c.count * 9)
+  for (let v = 0; v < c.count * 3; v++) {
+    rt.pointIn(p[v * 3]!, p[v * 3 + 1]!, p[v * 3 + 2]!, scratch3)
+    out[v * 3] = scratch3[0]!
+    out[v * 3 + 1] = scratch3[1]!
+    out[v * 3 + 2] = scratch3[2]!
+  }
+  local = { ...c, positions: out, lanes: new Uint32Array(c.count * 2) }
+  triangleLanes(local)
+  rt.localOf.set(c, local)
+  return local
+}
+
+/** The tile range a navmesh's bounds allow, and its border in world units. */
+function extent(rt: NavMeshRuntime, nm: { boundsMin: number[]; boundsMax: number[] }) {
+  const tw = rt.tileWorld
+  const v = voxelSettings(rt.settings)
+  const bounded =
+    nm.boundsMin[0]! < nm.boundsMax[0]! ||
+    nm.boundsMin[1]! < nm.boundsMax[1]! ||
+    nm.boundsMin[2]! < nm.boundsMax[2]!
+  return {
+    tw,
+    border: v.borderSize * rt.settings.cellSize,
+    bounded,
+    min: nm.boundsMin,
+    max: nm.boundsMax,
+    tMinX: bounded ? Math.floor(nm.boundsMin[0]! / tw) : -Infinity,
+    tMaxX: bounded ? Math.floor(nm.boundsMax[0]! / tw) : Infinity,
+    tMinZ: bounded ? Math.floor(nm.boundsMin[2]! / tw) : -Infinity,
+    tMaxZ: bounded ? Math.floor(nm.boundsMax[2]! / tw) : Infinity,
   }
 }
 
-/** Bakes the runtime's tiles: kept when unchanged, from the cache when known, else Recast. */
-function bakeRuntime(world: World, nav: NavState, rt: NavMeshRuntime): void {
-  const t0 = performance.now()
-  const R = rt.R
-  const framed = rt.frame !== null ? localize(nav, rt) : undefined
-  const soup = framed ? framed.soup : nav.soup
-  const allLinks = framed ? framed.links : nav.links
-  const s = rt.settings
-  const v = voxelSettings(s)
-  const tw = rt.tileWorld
-  const border = v.borderSize * s.cellSize
-  const nm = world.get(rt.entity, NavMesh)
-  const bounded =
-    nm.boundsMin[0] < nm.boundsMax[0] ||
-    nm.boundsMin[1] < nm.boundsMax[1] ||
-    nm.boundsMin[2] < nm.boundsMax[2]
-  const [bx0, by0, bz0] = nm.boundsMin
-  const [bx1, by1, bz1] = nm.boundsMax
-  // Tile range the bounds allow (tiles are world-aligned).
-  const tMinX = bounded ? Math.floor(bx0 / tw) : -Infinity
-  const tMaxX = bounded ? Math.floor(bx1 / tw) : Infinity
-  const tMinZ = bounded ? Math.floor(bz0 / tw) : -Infinity
-  const tMaxZ = bounded ? Math.floor(bz1 / tw) : Infinity
+type Extent = ReturnType<typeof extent>
 
-  const perTile = new Map<number, number[]>()
-  const p = soup.positions
-  for (let t = 0; t < soup.count; t++) {
+/** Places a source in the tiles its triangles (with the tile border) overlap, marking them. */
+function bin(
+  rt: NavMeshRuntime,
+  source: NavContribution,
+  nm: { boundsMin: number[]; boundsMax: number[] },
+  ex: Extent = extent(rt, nm),
+): void {
+  const c = inSpace(rt, source)
+  const p = c.positions
+  const keys = new Set<number>()
+  for (let t = 0; t < c.count; t++) {
     const o = t * 9
     const minX = Math.min(p[o]!, p[o + 3]!, p[o + 6]!)
     const maxX = Math.max(p[o]!, p[o + 3]!, p[o + 6]!)
@@ -712,59 +891,248 @@ function bakeRuntime(world: World, nav: NavState, rt: NavMeshRuntime): void {
     const minZ = Math.min(p[o + 2]!, p[o + 5]!, p[o + 8]!)
     const maxZ = Math.max(p[o + 2]!, p[o + 5]!, p[o + 8]!)
     if (
-      bounded &&
-      (maxX < bx0 || minX > bx1 || maxY < by0 || minY > by1 || maxZ < bz0 || minZ > bz1)
+      ex.bounded &&
+      (maxX < ex.min[0]! ||
+        minX > ex.max[0]! ||
+        maxY < ex.min[1]! ||
+        minY > ex.max[1]! ||
+        maxZ < ex.min[2]! ||
+        minZ > ex.max[2]!)
     )
       continue
-    const x0 = Math.max(tMinX, Math.floor((minX - border) / tw))
-    const x1 = Math.min(tMaxX, Math.floor((maxX + border) / tw))
-    const z0 = Math.max(tMinZ, Math.floor((minZ - border) / tw))
-    const z1 = Math.min(tMaxZ, Math.floor((maxZ + border) / tw))
-    for (let tz = z0; tz <= z1; tz++) {
-      for (let tx = x0; tx <= x1; tx++) {
-        const k = packTile(tx, tz)
-        let list = perTile.get(k)
-        if (!list) {
-          list = []
-          perTile.set(k, list)
-        }
-        list.push(t)
-      }
-    }
+    const x0 = Math.max(ex.tMinX, Math.floor((minX - ex.border) / ex.tw))
+    const x1 = Math.min(ex.tMaxX, Math.floor((maxX + ex.border) / ex.tw))
+    const z0 = Math.max(ex.tMinZ, Math.floor((minZ - ex.border) / ex.tw))
+    const z1 = Math.min(ex.tMaxZ, Math.floor((maxZ + ex.border) / ex.tw))
+    for (let tz = z0; tz <= z1; tz++) for (let tx = x0; tx <= x1; tx++) keys.add(packTile(tx, tz))
   }
+  const list = [...keys]
+  rt.binned.set(source, list)
+  for (const k of list) {
+    let set = rt.index.get(k)
+    if (!set) {
+      set = new Set()
+      rt.index.set(k, set)
+    }
+    set.add(source)
+    rt.dirty.add(k)
+  }
+}
 
+function unbin(rt: NavMeshRuntime, source: NavContribution): void {
+  for (const k of rt.binned.get(source) ?? []) {
+    const set = rt.index.get(k)
+    set?.delete(source)
+    if (set?.size === 0) rt.index.delete(k)
+    rt.dirty.add(k)
+  }
+  rt.binned.delete(source)
+  rt.localOf.delete(source)
+}
+
+/** A gate's tiles: an area gate's footprint with the border; a link gate's start tile. */
+function binGate(rt: NavMeshRuntime, gate: NavGate): void {
+  const tw = rt.tileWorld
+  const keys: number[] = []
+  if (gate.link) {
+    rt.pointIn(gate.link.start[0], gate.link.start[1], gate.link.start[2], scratch3)
+    keys.push(packTile(Math.floor(scratch3[0]! / tw), Math.floor(scratch3[2]! / tw)))
+  } else {
+    const border = voxelSettings(rt.settings).borderSize * rt.settings.cellSize
+    for (
+      let tz = Math.floor((gate.minZ - border) / tw);
+      tz <= Math.floor((gate.maxZ + border) / tw);
+      tz++
+    )
+      for (
+        let tx = Math.floor((gate.minX - border) / tw);
+        tx <= Math.floor((gate.maxX + border) / tw);
+        tx++
+      )
+        keys.push(packTile(tx, tz))
+  }
+  rt.gateTiles.set(gate.owner, keys)
+  for (const k of keys) {
+    let set = rt.gateIndex.get(k)
+    if (!set) {
+      set = new Set()
+      rt.gateIndex.set(k, set)
+    }
+    set.add(gate)
+    rt.dirty.add(k)
+  }
+}
+
+function unbinGate(rt: NavMeshRuntime, gate: NavGate): void {
+  for (const k of rt.gateTiles.get(gate.owner) ?? []) {
+    const set = rt.gateIndex.get(k)
+    set?.delete(gate)
+    if (set?.size === 0) rt.gateIndex.delete(k)
+    rt.dirty.add(k)
+  }
+  rt.gateTiles.delete(gate.owner)
+  rt.gateRefs.delete(gate.owner)
+}
+
+/** Links changed: the tiles they started in, and start in now, are keyed again. */
+function relink(nav: NavState, rt: NavMeshRuntime): void {
+  for (const k of rt.linkTiles) rt.dirty.add(k)
+  const tw = rt.tileWorld
+  const keys = new Set<number>()
+  for (const l of nav.links) {
+    rt.pointIn(l.start[0], l.start[1], l.start[2], scratch3)
+    keys.add(packTile(Math.floor(scratch3[0]! / tw), Math.floor(scratch3[2]! / tw)))
+  }
+  rt.linkTiles = [...keys]
+  for (const k of keys) rt.dirty.add(k)
+}
+
+/**
+ * Places every source, gate and link again (a new navmesh, new bounds or a moved frame), and
+ * marks every tile it has and will have.
+ */
+function indexAll(
+  nav: NavState,
+  rt: NavMeshRuntime,
+  nm: { boundsMin: number[]; boundsMax: number[] },
+): void {
+  for (const k of rt.tiles.keys()) rt.dirty.add(k)
+  for (const k of rt.index.keys()) rt.dirty.add(k)
+  rt.index.clear()
+  rt.binned.clear()
+  rt.localOf.clear()
+  rt.gateIndex.clear()
+  rt.gateTiles.clear()
+  rt.gateRefs.clear()
+  const ex = extent(rt, nm)
+  const all = [...nav.sources.values(), ...nav.shapeSources.values()]
+  all.sort((a, b) => a.kind - b.kind || a.owner - b.owner)
+  for (const c of all) bin(rt, c, nm, ex)
+  for (const gate of nav.gateSources.values()) binGate(rt, gate)
+  rt.linkTiles = []
+  relink(nav, rt)
+  rt.indexed = true
+}
+
+const tileSoup = new TriangleSoup()
+let tileIndices = new Int32Array(64)
+
+/**
+ * Keys every dirty tile from the sources, gates and links in it, and brings it in: kept when its
+ * key is unchanged, from the cache when known, else built by Recast. Gates in it get their flags.
+ */
+function bakeDirty(world: World, nav: NavState, rt: NavMeshRuntime, gathered: number): void {
+  const t0 = performance.now()
+  const R = rt.R
+  const s = rt.settings
+  const nm = world.get(rt.entity, NavMesh)
+  const ex = extent(rt, nm)
+  const tw = ex.tw
   const cache = world.initResource(NavCache)
-  rt.reserve(perTile.size)
-  const lanes = framed ? framed.lanes : nav.triHashes
   const stats = rt.stats
   stats.built = 0
   stats.cached = 0
-  stats.kept = 0
   stats.removed = 0
-  let indices = new Int32Array(64)
-  for (const [k, list] of perTile) {
+  stats.examined = rt.dirty.size
+  stats.gathered = gathered
+  // Row by row (z, then x), the order a gather of one source meets them: Detour links tiles as
+  // they're added, and a path through a shared corner depends on it.
+  const keys = [...rt.dirty].sort((a, b) => (a % 65536) - (b % 65536) || a - b)
+  rt.dirty.clear()
+  let tiles = rt.tiles.size
+  for (const k of keys) if (!rt.tiles.has(k) && rt.index.has(k)) tiles++
+  rt.reserve(tiles)
+  const framedLinks =
+    rt.frame === null
+      ? nav.links
+      : nav.links.map((l) => {
+          rt.pointIn(l.start[0], l.start[1], l.start[2], scratch3)
+          const start: [number, number, number] = [scratch3[0]!, scratch3[1]!, scratch3[2]!]
+          rt.pointIn(l.end[0], l.end[1], l.end[2], scratch3)
+          return {
+            ...l,
+            start,
+            end: [scratch3[0]!, scratch3[1]!, scratch3[2]!] as [number, number, number],
+          }
+        })
+  for (const k of keys) {
     const tx = Math.floor(k / 65536) - 32768
     const tz = (k % 65536) - 32768
-    // Vertical range from this tile's own triangles, so a change elsewhere can't touch its key.
+    const x0 = tx * tw
+    const z0 = tz * tw
+    // This tile's triangles, from the sources indexed in it, in source order.
+    const soup = tileSoup
+    soup.clear()
     let yMin = Infinity
     let yMax = -Infinity
     let sumA = 0
     let sumB = 0
-    for (let i = 0; i < list.length; i++) {
-      const t = list[i]!
-      const o = t * 9
-      yMin = Math.min(yMin, p[o + 1]!, p[o + 4]!, p[o + 7]!)
-      yMax = Math.max(yMax, p[o + 1]!, p[o + 4]!, p[o + 7]!)
-      sumA = (sumA + lanes[t * 2]!) >>> 0
-      sumB = (sumB + lanes[t * 2 + 1]!) >>> 0
+    const sources = [...(rt.index.get(k) ?? [])].sort(
+      (a, b) => a.kind - b.kind || a.owner - b.owner,
+    )
+    for (const source of sources) {
+      const c = inSpace(rt, source)
+      const p = c.positions
+      for (let t = 0; t < c.count; t++) {
+        const o = t * 9
+        const minX = Math.min(p[o]!, p[o + 3]!, p[o + 6]!)
+        const maxX = Math.max(p[o]!, p[o + 3]!, p[o + 6]!)
+        const minY = Math.min(p[o + 1]!, p[o + 4]!, p[o + 7]!)
+        const maxY = Math.max(p[o + 1]!, p[o + 4]!, p[o + 7]!)
+        const minZ = Math.min(p[o + 2]!, p[o + 5]!, p[o + 8]!)
+        const maxZ = Math.max(p[o + 2]!, p[o + 5]!, p[o + 8]!)
+        if (
+          ex.bounded &&
+          (maxX < ex.min[0]! ||
+            minX > ex.max[0]! ||
+            maxY < ex.min[1]! ||
+            minY > ex.max[1]! ||
+            maxZ < ex.min[2]! ||
+            minZ > ex.max[2]!)
+        )
+          continue
+        // The same test as binning: the triangle's tile range covers this tile.
+        if (
+          Math.floor((minX - ex.border) / tw) > tx ||
+          Math.floor((maxX + ex.border) / tw) < tx ||
+          Math.floor((minZ - ex.border) / tw) > tz ||
+          Math.floor((maxZ + ex.border) / tw) < tz
+        )
+          continue
+        if (minY < yMin) yMin = minY
+        if (maxY > yMax) yMax = maxY
+        sumA = (sumA + c.lanes[t * 2]!) >>> 0
+        sumB = (sumB + c.lanes[t * 2 + 1]!) >>> 0
+        soup.push(
+          p[o]!,
+          p[o + 1]!,
+          p[o + 2]!,
+          p[o + 3]!,
+          p[o + 4]!,
+          p[o + 5]!,
+          p[o + 6]!,
+          p[o + 7]!,
+          p[o + 8]!,
+          c.areas[t]!,
+        )
+      }
+    }
+    const gates = [...(rt.gateIndex.get(k) ?? [])].sort((a, b) => a.owner - b.owner)
+    const areaGates = gates.filter((g) => !g.link)
+    const links = framedLinks.filter(
+      (l) => l.start[0] >= x0 && l.start[0] < x0 + tw && l.start[2] >= z0 && l.start[2] < z0 + tw,
+    )
+    const entry = rt.tiles.get(k)
+    if (soup.count === 0) {
+      if (entry) {
+        rt.removeTile(tx, tz)
+        stats.removed++
+      }
+      if (gates.length > 0) rt.mapGates(k, gates)
+      continue
     }
     yMin = Math.floor(yMin) - 1
     yMax = Math.ceil(yMax) + 1
-    const x0 = tx * tw
-    const z0 = tz * tw
-    const links = allLinks.filter(
-      (l) => l.start[0] >= x0 && l.start[0] < x0 + tw && l.start[2] >= z0 && l.start[2] < z0 + tw,
-    )
     hash.reset().string(BAKE_FORMAT)
     hash
       .f32word(s.agentRadius)
@@ -778,7 +1146,7 @@ function bakeRuntime(world: World, nav: NavState, rt: NavMeshRuntime): void {
       .u32word(tz)
       .f32word(yMin)
       .f32word(yMax)
-      .u32word(list.length)
+      .u32word(soup.count)
       .u32word(sumA)
       .u32word(sumB)
     for (const l of links) {
@@ -788,30 +1156,42 @@ function bakeRuntime(world: World, nav: NavState, rt: NavMeshRuntime): void {
         .u32word(l.bidirectional ? 1 : 0)
         .u32word(l.area)
     }
+    // Area gates' geometry (not their flags) is part of the key; tiles without gates key as 0037.
+    for (const g of areaGates) hash.u32word(g.key[0]).u32word(g.key[1])
     const key = hash.hex()
-    const entry = rt.tiles.get(k)
-    if (entry && entry.key === key) {
-      stats.kept++
-      continue
-    }
+    if (entry && entry.key === key) continue
     let bytes = cache.tiles.get(key)
     if (bytes !== undefined) stats.cached++
     else {
-      if (indices.length < list.length) indices = new Int32Array(list.length * 2)
-      for (let i = 0; i < list.length; i++) indices[i] = list[i]!
-      bytes = buildTile(R, s, tx, tz, yMin, yMax, soup, indices, list.length, links)
+      if (tileIndices.length < soup.count) tileIndices = new Int32Array(soup.count * 2)
+      for (let i = 0; i < soup.count; i++) tileIndices[i] = i
+      bytes = buildTile(R, s, tx, tz, yMin, yMax, soup, tileIndices, soup.count, links, areaGates)
       cache.tiles.set(key, bytes)
       stats.built++
     }
     rt.setTile(tx, tz, key, bytes)
+    if (gates.length > 0) rt.mapGates(k, gates)
   }
-  for (const [k, entry] of rt.tiles) {
-    if (!perTile.has(k)) {
-      rt.removeTile(entry.tx, entry.ty)
-      stats.removed++
+  // Gates with no polygon of theirs anywhere (a door too narrow for the agent, say).
+  for (const gate of nav.gateSources.values()) {
+    if (gate.link || !rt.gateTiles.has(gate.owner)) continue
+    if (rt.gatePolygons(gate.owner) > 0) rt.unmatched.delete(gate.owner)
+    else if (!rt.unmatched.has(gate.owner)) {
+      rt.unmatched.add(gate.owner)
+      navWarn(
+        world,
+        new ShardError(
+          'nav/gate-unmatched',
+          `Gate ${gate.owner} has no polygon of area ${gate.area} on navmesh ${rt.entity}`,
+          {
+            hint: 'The opening may be too narrow for the agent radius and cell size, or off the walkable surface.',
+          },
+        ),
+      )
     }
   }
   rt.updateBounds()
+  stats.kept = rt.tiles.size - stats.built - stats.cached
   stats.bakes++
   stats.totalBuilt += stats.built
   stats.totalCached += stats.cached

@@ -36,8 +36,9 @@ export interface TownOptions {
 
 /**
  * Spawns a town: buildings of one to three rooms on 20 m lots, each with 0.2 m walls 3 m tall, a
- * 1 m front door, 0.9 m interior doors and a window in each side wall; one in five has an arched
- * back wall. A ground floor covers every lot.
+ * 1 m front door into the first room, 1 m interior doors and a window in each side wall; one in
+ * five has an arched back wall. A ground floor covers every lot. 1 m doors pass a 0.3 m agent on
+ * 0.1 m cells (structure/door-too-narrow).
  */
 export function town(world: World, options: TownOptions = {}): Town {
   const rng = new Rng(options.seed ?? 1)
@@ -82,7 +83,8 @@ export function town(world: World, options: TownOptions = {}): Town {
     const b: TownBuilding = {
       bounds: [x0, z0, xe, ze],
       walls: [front, back, left, right],
-      doors: [opening(front, { kind: 'door', offset: w / 2 - 0.5, width: 1, height: 2.1 })],
+      // In the middle of the first room, clear of the interior walls.
+      doors: [opening(front, { kind: 'door', offset: w / rooms / 2 - 0.5, width: 1, height: 2.1 })],
       windows: [
         opening(left, { kind: 'window', offset: d / 2 - 0.6, width: 1.2, height: 1.2, sill: 0.9 }),
         opening(right, { kind: 'window', offset: d / 2 - 0.6, width: 1.2, height: 1.2, sill: 0.9 }),
@@ -96,7 +98,7 @@ export function town(world: World, options: TownOptions = {}): Town {
       const x = x0 + (w * r) / rooms
       const inner = wall([x, z0], [x, ze])
       b.walls.push(inner)
-      b.doors.push(opening(inner, { kind: 'door', offset: d / 2 - 0.45, width: 0.9, height: 2.1 }))
+      b.doors.push(opening(inner, { kind: 'door', offset: d / 2 - 0.5, width: 1, height: 2.1 }))
     }
     buildings.push(b)
   }

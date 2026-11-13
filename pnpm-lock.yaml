@@ -2097,6 +2097,9 @@ importers:
       '@aethervtt/shard-mirror':
         specifier: workspace:*
         version: link:../mirror
+      '@aethervtt/shard-nav':
+        specifier: workspace:*
+        version: link:../nav
       '@aethervtt/shard-physics':
         specifier: workspace:*
         version: link:../physics

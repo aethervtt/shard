@@ -1,7 +1,7 @@
 # 0112 — Structure that blocks: colliders, navigation and doors
 
-- **Status:** accepted (part 1 built: the model and colliders; part 2, nav, and part 3, budgeted
-  rebuilds and replans, to come)
+- **Status:** accepted (parts 1 and 2 built: the model, colliders and nav sources, gates and
+  filters; part 3, budgeted rebuilds and replans, to come)
 - **Packages:** `@aethervtt/shard-structure`, `@aethervtt/shard-physics`, `@aethervtt/shard-nav`,
   `@aethervtt/shard-project`
 - **Depends on:** 0028, 0029, 0037, 0055, 0066, 0067, 0092
@@ -151,9 +151,9 @@ footprint, or the link's polygon. It sets each one's flags to `areaFlags(area) |
 
 | Gate | Shape | Flags |
 |---|---|---|
-| Door | the gap through the wall, plus 0.2 m beyond each face; y from the floor to +0.5 m | open: none. closed: `closed`. locked: `closed \| locked`. `movement: 'none'`: none |
-| Window | a link across the wall at floor height, `agentRadius + 0.1` from each face, if `sill ≤ windowClimb` (1.2 m) | `movement: 'none'`: none. Else `locked` |
-| Hatch | the hole's footprint on its host's surface | closed or locked (shut, walkable): none. Open: `locked` |
+| Door | the gap through the wall, plus `gateMargin` (0.6 m) past each face; y within 0.5 m of the hole's floor | open: none. closed: `closed`. locked: `closed \| locked`. `movement: 'none'`: none |
+| Window | a link across the wall at floor height, `windowReach` (0.5 m) past each face, if `sill ≤ windowClimb` (1.2 m) | `movement: 'none'`: none. Else `locked` |
+| Hatch | the convex hull of the hole, on its host's surface (the hole itself is filled for nav) | closed or locked (shut, walkable): none. Open: `locked` |
 
 `Opening.movement: 'none'` already means the opening doesn't block movement when closed (0055's
 planar channel). It is how a game marks a window passable (smashed, open) or a door that never
@@ -166,10 +166,19 @@ costs apply over `NavAreas`. `NavAgent.filter: string` (empty means default),
 `findPath(…, { filter })` and `nav.path { filter }` take a name. Survivors are
 `{ exclude: ['locked'] }`, and zombies are `{ exclude: ['closed', 'locked'] }`.
 
-**Door width.** Erosion rounds the radius up to whole cells, and thin walls rasterize a cell wide.
-At 0.2 m cells a 1 m door is shut to every radius from 0.25 m to 0.4 m; at 0.1 m cells it passes up
-to 0.35 m (measured, recast-navigation 0.43.1). `structure/nav` warns `structure/door-too-narrow`
-once per door and navmesh when `width < 2·⌈r/cs⌉·cs + 2·cs`.
+**Door width.** Erosion rounds the radius up to whole cells, each jamb can take a cell off the gap
+(walls rasterize conservatively), and the passage needs about two cells left to survive contour
+simplification. `structure/nav` warns `structure/door-too-narrow` once per door and navmesh when
+`width < 2·⌈r/cs⌉·cs + 4·cs`. Measured on the town with doors at every grid alignment
+(recast-navigation 0.43.1, r = 0.3 m): at 0.1 m cells every 1 m door passes and no 0.9 m one; at
+0.05 m cells every 0.8 m door and no 0.7 m one; at 0.2 m cells 1.4 m passes (the rule asks 1.6 m,
+one cell to spare).
+
+A gate's footprint must reach past each face by more than the largest agent radius
+(`gateMargin`): erosion clears that much beside the wall, and a gate left with only the sliver
+inside the doorway is dropped by contour simplification, door and all. A shut gate's polygons are
+excluded without erosion, so a path round them (an open hatch's hole) runs along their edge, and
+an agent brushes it by its radius.
 
 ### Incremental bake
 
@@ -307,7 +316,7 @@ with survivor and zombie filters.
 On the town fixture, in headless tests (`structureModelPlugin`, `structurePhysicsPlugin`,
 `structureNavPlugin`, `physics3d`, `nav`; no render plugin, no GPU context), except render parity.
 
-- [ ] **Headless.** The town gets every collider and a complete navmesh. No `Mesh3d` entity,
+- [x] **Headless.** The town gets every collider and a complete navmesh. No `Mesh3d` entity,
       `GpuContext` or render resource exists, and the manifest plugin `structure` under
       `display: false` gives the same result.
 - [ ] **Cold and warm.** From no cache, model, colliders and the complete navmesh are in within
@@ -330,12 +339,12 @@ On the town fixture, in headless tests (`structureModelPlugin`, `structurePhysic
       `structure/*`, `physics/sync-in` and `nav/bake` together exceed `structure/edit-burst`. Every
       tile lands within `nav/burst-frames` frames, and no single tile build exceeds `nav/tile`.
       300 agents' `nav/agents`, replans included, stay within `nav/town-agents` (p95).
-- [ ] **Doors and filters.** A door toggle builds 0 tiles, calls no Recast function, and takes at
+- [x] **Doors and filters.** A door toggle builds 0 tiles, calls no Recast function, and takes at
       most `nav/gate`. From outside a one-door building to its back room, paths are complete for
       default, survivor and zombie when the door is open; complete for survivor and partial (ending
       at the door) for zombie when closed; partial for both when locked. With a second door,
       zombies route through it while the first is closed. Queries and crowd agents agree.
-- [ ] **Windows and hatches.** Toggling `movement` on a window, or `state` on a hatch, builds 0
+- [x] **Windows and hatches.** Toggling `movement` on a window, or `state` on a hatch, builds 0
       tiles. A filter that doesn't exclude area 11 paths through a passable window by its link,
       and not through a blocked one. Nobody paths onto an open hatch.
 - [x] **Walls stop agents.** A character controller (0029) walking at 4 m/s into a wall, a closed
@@ -345,20 +354,21 @@ On the town fixture, in headless tests (`structureModelPlugin`, `structurePhysic
       the other door, or ends `unreachable` at the closed one when there is none. A wall built
       across one agent's path replans that agent. Agents whose paths cross neither replan 0 times
       (`nav.describe` counts). A survivor reaching a closed door gets one `NavGateAhead`.
-- [ ] **Narrow doors.** A 1 m door on a navmesh with 0.2 m cells and a 0.3 m radius warns
+- [x] **Narrow doors.** A 1 m door on a navmesh with 0.2 m cells and a 0.3 m radius warns
       `structure/door-too-narrow` once. At 0.1 m cells it doesn't, and the door passes.
 - [ ] **Determinism.** Two inline runs with the same edits and door toggles at fixed frames give the
       same world hash. A worker run ends with the same tile keys and bytes.
-- [ ] **Render parity.** With `structurePlugin` added (GPU tier), colliders and tile keys are
+- [x] **Render parity.** With `structurePlugin` added (GPU tier), colliders and tile keys are
       identical to the headless run, and 0055/0066/0067/0070's structure tests pass unchanged.
-- [ ] **0037 kept.** The nav tests pass with the new flag layout: exclusion is exact for areas
+- [x] **0037 kept.** The nav tests pass with the new flag layout: exclusion is exact for areas
       0–11, and a NavSource edit still rebuilds only its tiles, now without a gather.
 
 ## Implementation notes
 
-Part 1 (the model and colliders) is built; parts 2 and 3 (nav, then budgeted rebuilds and replans)
-are not. In the criteria above, part 1 meets these halves, checked in `colliders.test.ts` and
-`project/src/plugins.test.ts`, and the rest wait on nav:
+### Part 1: the model and colliders
+
+In the criteria above, part 1 meets these halves, checked in `colliders.test.ts` and
+`project/src/plugins.test.ts`:
 
 - **Headless:** every collider of the town, no `Mesh3d`, no render resource, and the manifest's
   `structure` under `display: false` adds `structure/model` and `structure/physics` only.
@@ -377,6 +387,35 @@ Measured on an Apple M5 Max (not a named machine), 2026-11-12, on the 200-buildi
 walls, 1,813 owners, 4,149 Rapier colliders): the first sync and colliders take 15–41 ms; one wall
 edit takes 0.015–0.025 ms median (one 3.2 ms outlier in 120, likely a collection); a door toggle,
 4–10 µs.
+
+### Part 2: nav sources, gates and filters
+
+Checked in `nav/src/gates.test.ts` and `structure/src/nav.test.ts`, headless. Doors and filters,
+windows and hatches, narrow doors, render parity (tile keys too) and 0037 kept are met. For nav
+edits, adding, removing and splitting a wall rebuild exactly the tiles whose key changed (a
+from-scratch bake of the result keys every tile the same), and the bake re-reads only the walls
+edited (`stats.gathered`); tiles still build inline, in the frame of the edit, until part 3.
+
+- **Nav:** `nav.shapes` and `nav.gates` (`NavShapes`, `NavGates`) on `NavState`; sources are
+  indexed per tile on each navmesh (`index`, `binned`, `gateIndex`), and a frame's changes mark
+  only their old and new tiles. Framed navmeshes move each source into their frame once, when it's
+  indexed. Dirty tiles bake row by row (z, then x), the order a single source's gather met them:
+  Detour links tiles as they're added, and a path through a corner four tiles share depends on it.
+  `BAKE_FORMAT` is `shard-2`, since the flag layout changed every tile's bytes.
+- **Gates** need an area of 1 to 62 (`nav/invalid-gate`): area 0 is the ground's. Link gates go
+  into `nav.links` with OffMeshLinks, so agents cross windows the way they cross links.
+- **Filters:** `NavFilters` (up to 15, by sorted name), `NavAgent.filter`, `findPath({ filter })`
+  and `nav.path`. An agent naming a filter nav/Filters lacks paths with the default and warns once.
+- **Structure:** `structureNavPlugin` (`./nav`), `structure/nav-fixed` before nav's agents and
+  `structure/nav` before its bake; `StructureSettings.nav` adds `windowReach` and `gateMargin`.
+  The town fixture's interior doors are 1 m (0.9 m doors don't pass its own navmesh), and its front
+  doors open into the first room, clear of interior walls.
+
+Measured on an Apple M5 Max (not a named machine), 2026-11-12, on the 200-building town (2,160
+tiles, 12,914 polygons), inline: the cold bake takes 1.13–1.17 s on one thread (0.52 ms a tile);
+a wall edit rebuilds 3 tiles in a 3.4–3.6 ms frame (median; worst 5.9–15.4 ms), which part 3's
+workers and frame budget take off the main thread; a door toggle's frame takes 0.01 ms; the model
+sync and nav bridge, 0.03–0.06 ms an edit.
 
 ## Open questions
 

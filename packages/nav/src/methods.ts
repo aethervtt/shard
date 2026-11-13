@@ -62,7 +62,16 @@ export function describeNav(world: World) {
           fromCache: rt.stats.cached,
           kept: rt.stats.kept,
           removed: rt.stats.removed,
+          examined: rt.stats.examined,
+          sourcesGathered: rt.stats.gathered,
         },
+        filters: [...rt.named.entries()].map(([name, slot]) => ({ name, crowdSlot: slot.index })),
+        gates: [...rt.gateTiles.keys()].map((owner) => ({
+          owner,
+          polygons: rt.gatePolygons(owner),
+          flags: nav.gates.byOwner.get(owner)?.flags ?? 0,
+          area: nav.gates.byOwner.get(owner)?.area ?? 0,
+        })),
         bakes: rt.stats.bakes,
         tilesBuilt: rt.stats.totalBuilt,
         cacheHits: rt.stats.totalCached,
@@ -74,7 +83,10 @@ export function describeNav(world: World) {
       }
     }),
     sources: {
-      triangles: nav.soup.count,
+      triangles: nav.triangles(),
+      entitySources: nav.sources.size,
+      shapes: nav.shapes.size,
+      gates: nav.gates.size,
       links: nav.links.length,
       skipped: nav.skipped.map((s) => ({ ...s, path: scenePath(world, s.entity) })),
     },
@@ -126,11 +138,16 @@ export const navMethods: AppMethod[] = [
       to: t.vec3({ required: true }),
       nav: t.entity({ description: 'The NavGrid or NavMesh entity (default: the one at from).' }),
       areas: t.json({ description: 'Area costs for this query: { "1": 10 } (0 excludes).' }),
+      filter: t.string({
+        description:
+          'Navmeshes: the nav/Filters entry to path with (0112), such as "zombie". Empty: the default filter.',
+      }),
     }),
     handler: ({ world }, p) => {
       const path = findPath(world, p.from as number[], p.to as number[], {
         nav: (p.nav as Entity | null | undefined) ?? null,
         areas: (p.areas as Record<number, number> | null | undefined) ?? undefined,
+        filter: (p.filter as string | undefined) || undefined,
       })
       return {
         status: path.status,

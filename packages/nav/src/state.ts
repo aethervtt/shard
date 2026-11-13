@@ -1,10 +1,11 @@
 import { defineResource, type Entity, ShardError, type World } from '@aethervtt/shard-core'
+import { LogResource } from '@aethervtt/shard-runtime'
 import type { TileLayer } from '@aethervtt/shard-sprite'
 import type { GridSource } from './components'
-import { TriangleSoup } from './geometry'
 import { GridSearch, type NavGridData } from './grid'
 import type { NavMeshRuntime } from './navmesh'
 import type { OffMeshLinkParams, Recast } from './recast'
+import { type NavContribution, type NavGate, NavGates, NavShapes } from './sources'
 
 /** A NavGrid entity's effective grid: its cells and where they sit in the world. */
 export interface GridRecord {
@@ -67,6 +68,8 @@ export interface AgentRecord {
   drive: number
   /** On a framed navmesh: steering happens in its space, from this position (set each step). */
   framed: boolean
+  /** The nav/Filters entry it paths with (0112); '' is the default. */
+  filter: string
   lpos: Float64Array
   /**
    * Crossing an off-mesh link: where it started (x, z), the link's near and far surface
@@ -96,24 +99,56 @@ export class NavState {
   gridList: GridRecord[] = []
   meshList: NavMeshRuntime[] = []
   readonly search = new GridSearch()
-  readonly soup = new TriangleSoup()
+  /** Every OffMeshLink and link gate, as link parameters. */
   links: OffMeshLinkParams[] = []
-  /** Entities whose changes rebake navmeshes: sources, their descendants, and link ends. */
+  /** Shapes and gates plugins push (0112): structure's walls, floors and doors. */
+  readonly shapes = new NavShapes()
+  readonly gates = new NavGates()
+  /** What the bake has indexed: entity sources by root, shapes and gates by owner. */
+  readonly sources = new Map<Entity, NavContribution>()
+  readonly shapeSources = new Map<Entity, NavContribution>()
+  readonly gateSources = new Map<Entity, NavGate>()
+  /** Entities whose changes rebake: sources, their descendants, and link ends. */
   readonly watched = new Set<Entity>()
   /** `watched` as an array, for the per-frame change check. */
   watchedList: Entity[] = []
-  /** Two 32-bit hash lanes per soup triangle, combined into tile keys. */
-  triHashes = new Uint32Array(0)
-  /** Something structural changed (a source added or removed): gather and bake. */
+  /** Watched entity → the source root it belongs to (`LINKS` for links and their ends). */
+  readonly rootOf = new Map<Entity, Entity>()
+  readonly members = new Map<Entity, Entity[]>()
+  /** Roots to gather again, and roots whose meshes are still loading (gathered every frame). */
+  readonly dirtyRoots = new Set<Entity>()
+  readonly pendingRoots = new Set<Entity>()
+  /** Links to gather again. */
+  linksDirty = true
+  /** Gather every source again (the first bake, nav.bake). */
   dirty = true
   /** Signature of the nav/Areas costs last applied (NaN: none yet). */
   areas = Number.NaN
   /** Colliders: count and tick of the last change seen (grids rasterized from them rebuild). */
   colliderCount = -1
   colliderTick = 0
-  /** Source entities skipped by the last gather, with why. */
+  /** Agents whose filter was reported missing (once each). */
+  readonly badFilters = new Set<Entity>()
+  /** Source entities skipped, with why, by root (`LINKS` for links), and all of them. */
+  readonly skippedBy = new Map<Entity, { entity: Entity; reason: string }[]>()
   skipped: { entity: Entity; reason: string }[] = []
+
+  /** Triangles across every indexed source. */
+  triangles(): number {
+    let n = 0
+    for (const c of this.sources.values()) n += c.count
+    for (const c of this.shapeSources.values()) n += c.count
+    return n
+  }
 }
+
+/** Logs a warning with its code and hint. */
+export function navWarn(world: World, err: ShardError): void {
+  world.tryResource(LogResource)?.log('warn', err.message, { code: err.code, hint: err.hint })
+}
+
+/** The `rootOf` owner of links and their end entities. */
+export const LINKS = -1 as Entity
 
 export const Nav = defineResource<NavState>('nav/State', {
   description: 'Navigation runtime: grids, navmeshes, agents.',

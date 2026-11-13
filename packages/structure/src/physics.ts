@@ -161,6 +161,9 @@ export const structureColliders = defineSystem({
     const s = world.resource(StructureColliders)
     const model = world.resource(StructureModel)
     const raw = world.resource(StructureSettings).colliders
+    // Nothing new in the log and the same settings: no work, and no allocation.
+    if (s.cursor !== undefined && raw === s.seen && s.cursor.at === model.offset + model.log.length)
+      return
     const start = performance.now()
     s.last.built = 0
     s.last.toggled = 0

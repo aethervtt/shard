@@ -135,3 +135,61 @@ export function cutoutBlockers(
   if (mesh.indices.length >= 3) out.push(mesh)
   return out
 }
+
+/**
+ * Triangles of blocking shapes for a navmesh (0112), 9 floats each. A box's or hull's top faces
+ * up by Recast's rule ((v1 − v0) × (v2 − v0) points up), so it bakes as walkable when flat enough;
+ * slab trimeshes keep their winding, which faces out.
+ */
+export function blockingTriangles(shapes: readonly BlockingShape[]): Float32Array {
+  const out: number[] = []
+  const corner = new Float64Array(24)
+  for (const s of shapes) {
+    if (s.kind === 'trimesh') {
+      const p = s.positions
+      for (let i = 0; i < s.indices.length; i++) {
+        const v = s.indices[i]! * 3
+        out.push(p[v]!, p[v + 1]!, p[v + 2]!)
+      }
+      continue
+    }
+    // Eight corners, indexed (along, up, side) as bits 2, 1, 0... in the same order for both.
+    if (s.kind === 'cuboid') {
+      const c = Math.cos(s.yaw)
+      const n = Math.sin(s.yaw)
+      const [hx, hy, hz] = s.halfExtents
+      for (let i = 0; i < 8; i++) {
+        const x = i & 4 ? hx! : -hx!
+        const y = i & 2 ? hy! : -hy!
+        const z = i & 1 ? hz! : -hz!
+        corner[i * 3] = s.center[0]! + x * c + z * n
+        corner[i * 3 + 1] = s.center[1]! + y
+        corner[i * 3 + 2] = s.center[2]! - x * n + z * c
+      }
+    } else {
+      // stripShapes writes (along, side, up) as bits 2, 1, 0: swap to (along, up, side).
+      for (let i = 0; i < 8; i++) {
+        const src = (i & 4) | ((i & 1) << 1) | ((i & 2) >> 1)
+        corner[i * 3] = s.points[src * 3]!
+        corner[i * 3 + 1] = s.points[src * 3 + 1]!
+        corner[i * 3 + 2] = s.points[src * 3 + 2]!
+      }
+    }
+    for (const f of BOX_FACES)
+      for (const i of f) out.push(corner[i * 3]!, corner[i * 3 + 1]!, corner[i * 3 + 2]!)
+  }
+  return new Float32Array(out)
+}
+
+/**
+ * A box's faces by corner (along, up, side as bits 2, 1, 0; along and side are a right-handed
+ * x and z). The top is wound so Recast sees it facing up, the bottom down.
+ */
+const BOX_FACES = [
+  [2, 3, 7, 2, 7, 6],
+  [0, 4, 5, 0, 5, 1],
+  [0, 1, 3, 0, 3, 2],
+  [4, 6, 7, 4, 7, 5],
+  [0, 2, 6, 0, 6, 4],
+  [1, 5, 7, 1, 7, 3],
+]
