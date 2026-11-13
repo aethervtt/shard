@@ -1,6 +1,6 @@
 # 0114 — Breaching: agents that plan through shut doors, windows and walls
 
-- **Status:** accepted (built; every criterion passes locally, awaiting CI)
+- **Status:** implemented
 - **Packages:** `@aethervtt/shard-nav`, `@aethervtt/shard-structure`
 - **Depends on:** 0037, 0112
 
