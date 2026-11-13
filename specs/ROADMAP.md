@@ -267,8 +267,14 @@ Shard app running the game's scripts; transports and lobby services are swappabl
 | [0091](0091-p2p-webrtc-host.md) | Peer-to-peer sessions (WebRTC transport, lobby and signaling, host mode) | accepted |
 | [0092](0092-multiplayer-projects.md) | Multiplayer projects (project net config, `shard server`, `run --net`, coin-rush example) | accepted |
 | [0093](0093-published-cli.md) | Published CLI (`@aethervtt/shard-cli` on npm, engine found in any install layout) | accepted |
+| [0112](0112-structure-blocking.md) | Structure that blocks (headless structure model, colliders, structure as a nav source, door gates and filters, budgeted incremental rebakes, targeted replans) | draft |
 
 Phase 1 is 0086, 0087 and 0089 (built; `host` and a few items each spec marks as not built
 wait): enough for turn-based card games and MMO-style state sync. 0088 follows. Later specs, designed for but not drafted: WebRTC transport and host migration, a world
 snapshot for lockstep and rollback, line-of-sight interest for shooters, zone sharding, and a
 dedicated-server command and export.
+
+0112 is for server-authoritative open-world games with destructible buildings, like Project
+Zomboid. It needs only the implemented structure (0055, 0066, 0067) and nav (0037). It amends
+0037's poly flags, gather and repath rule, and splits 0055's structure plugin into a render-free
+model and its consumers.
