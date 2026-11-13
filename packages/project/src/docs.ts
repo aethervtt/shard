@@ -994,6 +994,21 @@ the body's \`physics/Velocity\`, \`"transform"\` moves it directly. \`nav/NavAge
 \`nav/NavUnreachable\` events. From code: \`findPath(world, from, to, { out })\`, \`nearestPoint\`,
 \`navRaycast\` from \`@aethervtt/shard-nav\`.
 
+**Doors and breaching.** Structure's doors, windows and hatches are gates with state (\`closed\`,
+\`locked\`, \`custom\` for a barricade); \`nav/Filters\` names who passes. A filter's \`exclude\` keeps
+it out; its \`breach\` plans through at \`breachCost\` metres a crossing (by gate area: doors 10,
+windows 11, \`structure/Breach\` wall spans 8) and never walks through:
+
+\`\`\`json
+"nav/Filters": { "survivor": { "exclude": ["locked", "custom"] },
+  "zombie": { "breach": ["closed", "locked", "custom"], "breachCost": { "10": 12, "11": 6 } } }
+\`\`\`
+
+A zombie walks to the gate, waits in a slot there (\`status: "blocked"\`, \`gate\`, \`row\`: 0 is against
+it) and gets \`nav/NavGateBlocked\`. Game code bashes it, then breaks it (\`movement: "none"\` or
+\`state: "open"\` on the \`structure/Opening\`; split or remove a wall): the queue walks on, one at a
+time, without replanning. \`nav_path\` lists the gates a path must breach.
+
 Check it as data: \`nav_path\` says whether two points connect, \`nav_describe\` lists tiles, skipped
 sources, and each agent's route. In gameplay tests:
 

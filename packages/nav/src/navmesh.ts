@@ -1,4 +1,5 @@
 import { type Entity, ShardError } from '@aethervtt/shard-core'
+import type { SlotSet } from './breach'
 import type { NavFiltersValue, NavFilterValue } from './components'
 import { MAX_NAV_FILTERS } from './components'
 import {
@@ -6,7 +7,11 @@ import {
   type BakeSettings,
   EXACT_AREAS,
   GATE_BITS,
+  gatePolyArea,
+  gatePolyFlags,
+  MAX_GATE_AREA,
   type Recast,
+  SHUT_AREA,
   voxelSettings,
 } from './recast'
 import { insideConvex, type NavContribution, type NavGate } from './sources'
@@ -18,16 +23,51 @@ type RFilter = InstanceType<Recast['QueryFilter']>
 
 const AREA_MASK = (1 << (EXACT_AREAS + 1)) - 1
 
+/** What a breach costs when a filter doesn't say, in metres of walking (0114). */
+export const DEFAULT_BREACH_COST = 20
+
+/** A filter's breach cost for gates of `area`, in metres of walking. */
+export function breachCostOf(def: NavFilterValue | undefined, area: number): number {
+  const c = def?.breachCost
+  if (typeof c === 'number') return c
+  return c?.[area] ?? DEFAULT_BREACH_COST
+}
+
+/** The gate state bits a filter names. */
+export function stateBits(names: readonly string[] | undefined): number {
+  let bits = 0
+  for (const name of names ?? []) bits |= GATE_BITS[name as keyof typeof GATE_BITS] ?? 0
+  return bits
+}
+
+/** Why a named filter can't be used (`nav/invalid-filter`), or null. */
+export function filterProblem(name: string, def: NavFilterValue): string | null {
+  const both = (def.breach ?? []).filter((b) => def.exclude?.includes(b))
+  if (both.length > 0)
+    return `Filter "${name}" both excludes and breaches ${both.join(', ')}: a state is one or the other`
+  const costs =
+    typeof def.breachCost === 'number' ? [def.breachCost] : Object.values(def.breachCost ?? {})
+  if (costs.some((c) => !(c >= 0 && Number.isFinite(c))))
+    return `Filter "${name}" has a breach cost that isn't a number of metres ≥ 0`
+  return null
+}
+
 /**
  * Sets a filter from area costs and, for a named filter, its own costs and excluded gate states
  * (0112). A polygon passes when it shares an included area bit and has no excluded state bit, so
  * `includeFlags` holds area bits only (an excluded area 0–11 left out) and `excludeFlags` the
  * gate states.
+ *
+ * Shut gates' areas (0114) cost what their open areas do. A filter that breaches gets two Detour
+ * filters: `plan` passes its breach states and adds each breach's cost over the deepest gate of
+ * that area (`depths`); `walk`, its crowd slot, excludes them, so no agent walks through one.
  */
 export function configureFilter(
   f: RFilter,
   areas: Record<number, number>,
   def?: NavFilterValue,
+  mode: 'plan' | 'walk' = 'plan',
+  depths?: ArrayLike<number>,
 ): void {
   for (let a = 0; a < 63; a++) f.setAreaCost(a, 1)
   let exclude = 0
@@ -44,10 +84,15 @@ export function configureFilter(
       }
     }
   }
-  let states = 0
-  for (const name of def?.exclude ?? []) states |= GATE_BITS[name] ?? 0
+  const breach = stateBits(def?.breach)
+  for (let a = 1; a <= MAX_GATE_AREA; a++) {
+    let cost = f.getAreaCost(a)
+    if (breach !== 0 && mode === 'plan') cost += breachCostOf(def, a) / (depths?.[a] ?? 1)
+    f.setAreaCost(a + SHUT_AREA, cost)
+  }
+  const states = stateBits(def?.exclude)
   f.includeFlags = AREA_MASK & ~exclude
-  f.excludeFlags = states
+  f.excludeFlags = mode === 'walk' ? states | breach : states
 }
 
 function unknownFilter(name: string, named: Map<string, unknown>): ShardError {
@@ -180,8 +225,20 @@ export class NavMeshRuntime {
   readonly dirty = new Set<number>()
   /** Tiles the links start in, at the last bake. */
   linkTiles: number[] = []
-  /** Named filters (0112): crowd slot 1–15 and the query filter. Slot 0 is `filter`. */
-  readonly named = new Map<string, { index: number; filter: RFilter }>()
+  /**
+   * Named filters (0112): crowd slot 1–15 and the query filter. Slot 0 is `filter`. A filter that
+   * breaches (0114) plans with `filter` and walks with `walk` (its crowd slot's); otherwise the
+   * two are the same object. `breach` and `exclude` are its gate state bits.
+   */
+  readonly named = new Map<
+    string,
+    { index: number; filter: RFilter; walk: RFilter; breach: number; exclude: number }
+  >()
+  /** Each gate whose polygons are here, by owner, as last mapped or flagged (0114). */
+  readonly gateOf = new Map<Entity, NavGate>()
+  /** Slot sets at shut gates (0114), by gate owner × 2 + side, and gates whose tiles changed. */
+  readonly slots = new Map<number, SlotSet>()
+  readonly staleGates = new Set<Entity>()
   /** Gates whose tiles had no polygon of their area in their footprint (nav/gate-unmatched). */
   readonly unmatched = new Set<Entity>()
   /** Gate polygons' owners, by polygon ref. */
@@ -270,6 +327,7 @@ export class NavMeshRuntime {
     // Every polygon ref changed with the navmesh: find gates' polygons again.
     this.gateRefs.clear()
     this.refGate.clear()
+    this.gateOf.clear()
     this.generation++
     for (const [k, gates] of this.gateIndex) this.mapGates(k, gates)
     this.version++
@@ -353,26 +411,50 @@ export class NavMeshRuntime {
    * Applies area costs (0 excludes an area 0–11) to the default filter, and the named filters
    * (0112) over them, to queries and the crowd. Names beyond the 15th, sorted, are left out.
    */
-  applyFilters(areas: Record<number, number>, named: NavFiltersValue = {}): void {
+  applyFilters(
+    areas: Record<number, number>,
+    named: NavFiltersValue = {},
+    depths?: ArrayLike<number>,
+  ): void {
     configureFilter(this.filter, areas)
     if (this.crowd) configureFilter(this.crowd.getFilter(0), areas)
-    const names = Object.keys(named).sort().slice(0, MAX_NAV_FILTERS)
+    // Invalid filters (nav/invalid-filter, warned by the bake) are left out.
+    const names = Object.keys(named)
+      .filter((name) => filterProblem(name, named[name]!) === null)
+      .sort()
+      .slice(0, MAX_NAV_FILTERS)
     for (const [name, slot] of this.named) {
       if (names.includes(name)) continue
-      this.R.Raw.destroy(slot.filter.raw)
+      this.destroySlot(slot)
       this.named.delete(name)
     }
     for (let i = 0; i < names.length; i++) {
       const name = names[i]!
+      const def = named[name]!
+      const breach = stateBits(def.breach)
       let slot = this.named.get(name)
       if (!slot) {
-        slot = { index: 0, filter: new this.R.QueryFilter() }
+        const filter = new this.R.QueryFilter()
+        slot = { index: 0, filter, walk: filter, breach: 0, exclude: 0 }
         this.named.set(name, slot)
       }
+      if (breach !== 0 && slot.walk === slot.filter) slot.walk = new this.R.QueryFilter()
+      else if (breach === 0 && slot.walk !== slot.filter) {
+        this.R.Raw.destroy(slot.walk.raw)
+        slot.walk = slot.filter
+      }
       slot.index = i + 1
-      configureFilter(slot.filter, areas, named[name])
-      if (this.crowd) configureFilter(this.crowd.getFilter(slot.index), areas, named[name])
+      slot.breach = breach
+      slot.exclude = stateBits(def.exclude)
+      configureFilter(slot.filter, areas, def, 'plan', depths)
+      if (slot.walk !== slot.filter) configureFilter(slot.walk, areas, def, 'walk', depths)
+      if (this.crowd) configureFilter(this.crowd.getFilter(slot.index), areas, def, 'walk', depths)
     }
+  }
+
+  private destroySlot(slot: { filter: RFilter; walk: RFilter }): void {
+    if (slot.walk !== slot.filter) this.R.Raw.destroy(slot.walk.raw)
+    this.R.Raw.destroy(slot.filter.raw)
   }
 
   /** The query filter for a filter name ('' is the default). Throws `nav/unknown-filter`. */
@@ -381,6 +463,17 @@ export class NavMeshRuntime {
     const slot = this.named.get(name)
     if (!slot) throw unknownFilter(name, this.named)
     return slot.filter
+  }
+
+  /** The filter an agent walks with (0114): a breaching filter's walk variant, else its own. */
+  walkFilter(name: string | undefined): RFilter {
+    if (!name) return this.filter
+    return this.named.get(name)?.walk ?? this.filter
+  }
+
+  /** The gate states a filter breaches (0114); 0 for the default and unknown names. */
+  breachBits(name: string | undefined): number {
+    return name ? (this.named.get(name)?.breach ?? 0) : 0
   }
 
   /** The crowd slot of a filter name ('' and unknown names: 0, the default). */
@@ -417,7 +510,10 @@ export class NavMeshRuntime {
           const polys = header.polyCount()
           for (let i = 0; i < polys; i++) {
             const poly = tile.polys(i)
-            if (poly.getType() !== 0 || (poly.areaAndType() & 0x3f) !== gate.area) continue
+            // Its open area, or its shut one when it was shut before the tile was mapped again.
+            const area = poly.areaAndType() & 0x3f
+            if (poly.getType() !== 0 || (area !== gate.area && area !== gate.area + SHUT_AREA))
+              continue
             const n = poly.vertCount()
             let cx = 0
             let cy = 0
@@ -440,8 +536,16 @@ export class NavMeshRuntime {
       for (const ref of refs) this.refGate.set(ref, gate.owner)
       if (refs.length > 0) byTile.set(k, refs)
       else byTile.delete(k)
-      const flags = areaFlags(gate.area) | gate.flags
-      for (const ref of refs) this.navMesh.setPolyFlags(ref, flags)
+      if (byTile.size > 0) this.gateOf.set(gate.owner, gate)
+      else this.gateOf.delete(gate.owner)
+      // Slots at it were placed on polygons that may have gone (0114).
+      if (this.slots.size > 0) this.staleGates.add(gate.owner)
+      const flags = gatePolyFlags(gate.area, gate.flags)
+      const area = gatePolyArea(gate.area, gate.flags)
+      for (const ref of refs) {
+        this.navMesh.setPolyFlags(ref, flags)
+        this.navMesh.setPolyArea(ref, area)
+      }
     }
   }
 
@@ -453,10 +557,16 @@ export class NavMeshRuntime {
       gate.owner,
       (this.changedGates.get(gate.owner) ?? 0) | (before ^ gate.flags),
     )
-    const flags = areaFlags(gate.area) | gate.flags
+    this.gateOf.set(gate.owner, gate)
+    const flags = gatePolyFlags(gate.area, gate.flags)
+    const area = gatePolyArea(gate.area, gate.flags)
+    const shut = area !== gatePolyArea(gate.area, before)
     let n = 0
     for (const refs of byTile.values()) {
-      for (const ref of refs) this.navMesh.setPolyFlags(ref, flags)
+      for (const ref of refs) {
+        this.navMesh.setPolyFlags(ref, flags)
+        if (shut) this.navMesh.setPolyArea(ref, area)
+      }
       n += refs.length
     }
     return n
@@ -476,7 +586,7 @@ export class NavMeshRuntime {
   }
 
   destroy(): void {
-    for (const slot of this.named.values()) this.R.Raw.destroy(slot.filter.raw)
+    for (const slot of this.named.values()) this.destroySlot(slot)
     this.named.clear()
     this.destroyCrowd()
     this.query.destroy()

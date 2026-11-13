@@ -79,6 +79,35 @@ export interface AgentRecord {
   replans: number
   /** The closed gate it was last told it's at (NavGateAhead), or -1. */
   gateAhead: number
+  // Breaching (0114). `breach` is its filter's breach state bits. Each crossed gate has an entry
+  // in `entries` (5 per gate, in `pathGates` order): where the path enters it (x, y, z), which
+  // side it enters from (±1 along the gate's axis), and the corner index it enters at.
+  breach: number
+  entries: Float64Array
+  /** The leg it walks: `pathGates` index of the shut gate it ends at, or -1 (the path's end). */
+  leg: number
+  /** Corners of the leg (the path's up to the gate), and where the leg ends: its slot, or entry. */
+  legCount: number
+  legEnd: Float64Array
+  /** legEnd moved since the crowd was last told. */
+  legMoved: boolean
+  /** Its slot set and slot at the leg's gate, or -1; waiting: no slot was free. */
+  slots: import('./breach').SlotSet | null
+  slot: number
+  waiting: boolean
+  /** The closest it has got to its slot, and for how long it hasn't got closer (s). */
+  slotBest: number
+  slotStuck: number
+  /** Another system moves it (setNavMover): no crowd, no drive (0114). */
+  external: boolean
+  /** An external mover said it stands at legEnd (navAgentAt). */
+  atLeg: boolean
+  /** Seconds left shoving out of a queue (no avoidance), and whether the crowd was told. */
+  shove: number
+  shoving: boolean
+  /** Where it stood at its last step (navmesh space), for slot claims. */
+  px: number
+  pz: number
   lpos: Float64Array
   /**
    * Crossing an off-mesh link: where it started (x, z), the link's near and far surface
@@ -146,6 +175,12 @@ export class NavState {
   replans = 0
   /** Agents whose filter was reported missing (once each). */
   readonly badFilters = new Set<Entity>()
+  /** Sources and links warned for baking with a shut gate's area (nav/reserved-area). */
+  readonly reservedWarned = new Set<Entity>()
+  /** nav/invalid-filter problems already warned. */
+  readonly badFilterNames = new Set<string>()
+  /** Agents another system moves (setNavMover, 0114). */
+  readonly external = new Set<Entity>()
   /** Source entities skipped, with why, by root (`LINKS` for links), and all of them. */
   readonly skippedBy = new Map<Entity, { entity: Entity; reason: string }[]>()
   skipped: { entity: Entity; reason: string }[] = []

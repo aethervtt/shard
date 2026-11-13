@@ -9,6 +9,17 @@ import { CharacterController, CharacterIntent, Physics, Velocity } from '@aether
 import { FixedTime } from '@aethervtt/shard-runtime'
 import { GlobalTransform, Transform } from '@aethervtt/shard-transform'
 import {
+  BLOCKED,
+  blockedAt,
+  blockedRow,
+  breachStep,
+  dropStaleSlots,
+  gateEntries,
+  MOVING,
+  nextLeg,
+  releaseSlot,
+} from './breach'
+import {
   NavAgent,
   NavAgentState,
   NavAreas,
@@ -21,11 +32,10 @@ import {
 import { traceSegment } from './grid'
 import type { NavMeshRuntime } from './navmesh'
 import { createNavPath, findPath, meshPathLocal, type NavPath } from './query'
-import { GATE_CLOSED } from './recast'
+import { GATE_CLOSED, GATE_SOLID } from './recast'
 import { type AgentRecord, type GridRecord, Nav, type NavState, navWarn } from './state'
 
 const IDLE = 0
-const MOVING = 1
 const ARRIVED = 2
 const UNREACHABLE = 3
 
@@ -63,6 +73,8 @@ interface Columns {
   remaining: Float32Array
   corners: Uint16Array
   velocity: Float32Array
+  gate: Float64Array
+  row: Uint8Array
   translation: Float32Array
   rotation: Float32Array
   global: Float32Array
@@ -86,6 +98,8 @@ function columns(table: Table, out: Columns): void {
   out.remaining = table.column(NavAgentState, 'remaining') as Float32Array
   out.corners = table.column(NavAgentState, 'corners') as Uint16Array
   out.velocity = table.column(NavAgentState, 'velocity') as Float32Array
+  out.gate = table.column(NavAgentState, 'gate') as Float64Array
+  out.row = table.column(NavAgentState, 'row') as Uint8Array
   out.translation = table.column(Transform, 'translation') as Float32Array
   out.rotation = table.column(Transform, 'rotation') as Float32Array
   out.global = table.column(GlobalTransform, 'matrix') as Float32Array
@@ -115,6 +129,23 @@ function newRecord(entity: Entity): AgentRecord {
     replan: false,
     replans: 0,
     gateAhead: -1,
+    breach: 0,
+    entries: new Float64Array(20),
+    leg: -1,
+    legCount: 0,
+    legEnd: new Float64Array(3),
+    legMoved: false,
+    slots: null,
+    slot: -1,
+    waiting: false,
+    slotBest: Number.POSITIVE_INFINITY,
+    slotStuck: 0,
+    external: false,
+    atLeg: false,
+    shove: 0,
+    shoving: false,
+    px: 0,
+    pz: 0,
     lpos: new Float64Array(3),
     link: { active: false, lift: 0, x0: 0, z0: 0, y0: 0, x1: 0, z1: 0, y1: 0, arc: 0 },
   }
@@ -125,6 +156,7 @@ const pos = new Float64Array(3)
 const goal = new Float64Array(3)
 const seg = new Float64Array(4)
 const vec = { x: 0, y: 0, z: 0 }
+const place = { x: 0, y: 0, z: 0 }
 
 /**
  * Moves every NavAgent (spec 0037): repaths when the destination changes or the target moves,
@@ -144,9 +176,11 @@ export const navAgents = defineSystem({
       nav: null as Entity | null,
       filter: undefined as string | undefined,
       polys: undefined as number[] | undefined,
+      refs: undefined as number[] | undefined,
     },
-    /** The path's polygon refs (navmesh plans). */
+    /** The path's polygon refs (navmesh plans), and the polygon each corner enters (0114). */
     polys: [] as number[],
+    refs: [] as number[],
     /** Replans this frame may still do (NavBudget.replans). */
     replansLeft: 0,
     // Grid separation: agent positions and radii this step, bucketed in a spatial hash.
@@ -169,6 +203,7 @@ export const navAgents = defineSystem({
     // about, replan (0112), at most NavBudget.replans a frame.
     s.replansLeft = world.tryResource(NavBudget)?.replans ?? 6
     markReplans(nav)
+    for (let i = 0; i < nav.meshList.length; i++) dropStaleSlots(nav, nav.meshList[i]!)
     // Pass 0: grid agents' positions into the spatial hash for separation.
     buildHash(s, nav)
     // Pass 1: navigation, repaths, grid steering, crowd requests.
@@ -338,7 +373,12 @@ function stepAgent(
     c.global[g12 + 7]!,
     c.global[g12 + 11]!,
   )
+  // Moved by another system (0114): no crowd agent, no drive.
+  const external = nav.external.size > 0 && nav.external.has(entity)
+  if (external && !rec.external) removeFromCrowd(nav, rec)
+  rec.external = external
   if (navEntity !== rec.nav) {
+    releaseSlot(nav, rec)
     removeFromCrowd(nav, rec)
     rec.nav = navEntity
     rec.kind = navEntity < 0 ? 'none' : nav.grids.has(navEntity) ? 'grid' : 'mesh'
@@ -346,8 +386,12 @@ function stepAgent(
     rec.count = 0
   }
   if (rec.kind === 'none' || c.stopped[row] === 1) {
+    releaseSlot(nav, rec)
     removeFromCrowd(nav, rec)
-    halt(s, world, table, row, rec, IDLE, dim)
+    if (rec.external) setStatus(world, s, row, rec, IDLE)
+    else halt(s, world, table, row, rec, IDLE, dim)
+    c.gate[row] = -1
+    c.row[row] = 0
     return false
   }
   // On a framed navmesh everything steers in its space: from the world position.
@@ -408,14 +452,65 @@ function stepAgent(
       s.replansLeft--
     }
     plan(s, world, nav, rec)
-    if (rec.status === ARRIVED || rec.status === IDLE) rec.status = MOVING
+    if (rec.status === ARRIVED || rec.status === IDLE || rec.status === BLOCKED) rec.status = MOVING
   }
   if (grid) {
     steerGrid(s, world, table, row, rec, grid, dt, dim)
     return false
   }
   if (rec.pathGates.length > 0 && !rec.framed) gateAhead(world, nav, rec, c.radius[row]! + 1)
+  // Breaching (0114): legs, slots and waiting, from where the agent is, whatever moves it.
+  if (rec.breach !== 0) {
+    breachStep(
+      world,
+      nav,
+      mesh!,
+      rec,
+      rec.filter,
+      c.radius[row]!,
+      c.stopping[row]!,
+      pos[0]!,
+      pos[1]!,
+      pos[2]!,
+      dt,
+    )
+  }
+  if (rec.shove > 0) rec.shove = Math.max(0, rec.shove - dt)
+  c.gate[row] = blockedAt(rec)
+  c.row[row] = blockedRow(rec)
+  if (rec.external) {
+    stepExternal(s, world, row, rec, mesh!)
+    return false
+  }
   return requestCrowd(s, world, nav, table, row, rec, mesh!, repath, dim)
+}
+
+/**
+ * An agent another system moves (0114): its state from where the mover put it. It's arrived (or
+ * unreachable) at the path's end within stoppingDistance, or when the mover says it's there.
+ */
+function stepExternal(s: State, world: World, row: number, rec: AgentRecord, rt: NavMeshRuntime) {
+  const c = s.cols
+  const dx = rec.legEnd[0]! - pos[0]!
+  const dz = rec.legEnd[2]! - pos[2]!
+  const flat = Math.sqrt(dx * dx + dz * dz)
+  c.remaining[row] = rec.count === 0 ? 0 : flat
+  c.corners[row] = rec.legCount
+  if (rec.status === BLOCKED) {
+    c.status[row] = BLOCKED
+    return
+  }
+  if (rec.count === 0) {
+    setStatus(world, s, row, rec, UNREACHABLE)
+    return
+  }
+  const there =
+    rec.leg < 0 &&
+    ((flat <= c.stopping[row]! && Math.abs(rec.legEnd[1]! - pos[1]!) < rt.settings.agentHeight) ||
+      rec.atLeg)
+  rec.atLeg = false
+  if (there) setStatus(world, s, row, rec, rec.reachable ? ARRIVED : UNREACHABLE)
+  else setStatus(world, s, row, rec, rec.reachable ? MOVING : UNREACHABLE)
 }
 
 /**
@@ -434,7 +529,18 @@ function markReplans(nav: NavState): void {
         if (rt.changedTiles.has(rec.pathTiles[j]!)) hit = true
       for (let j = 0; j < rec.pathGates.length && !hit; j++) {
         const bits = rt.changedGates.get(rec.pathGates[j]!)
-        if (bits !== undefined && (bits & rec.exclude) !== 0) hit = true
+        if (bits === undefined) continue
+        if (rec.breach === 0) {
+          if ((bits & rec.exclude) !== 0) hit = true
+          continue
+        }
+        // A breacher (0114) replans when it can't cross the gate now, or when the gate shut (a
+        // cheaper way may exist). A gate that opened only shortens its plan: it walks on.
+        const gate = nav.gates.byOwner.get(rec.pathGates[j]!)
+        const flags = gate ? gate.flags : GATE_SOLID
+        const before = flags ^ bits
+        if ((flags & rec.exclude) !== 0) hit = true
+        else if ((flags & rec.breach) !== 0 && (before & rec.breach) === 0) hit = true
       }
       if (hit) rec.replan = true
     }
@@ -454,7 +560,8 @@ function gateAhead(world: World, nav: NavState, rec: AgentRecord, reach: number)
   if ((rec.exclude & GATE_CLOSED) === 0) {
     for (let j = 0; j < rec.pathGates.length; j++) {
       const gate = nav.gates.byOwner.get(rec.pathGates[j]!)
-      if (!gate || (gate.flags & GATE_CLOSED) === 0) continue
+      // A gate it breaches is NavGateBlocked's (0114).
+      if (!gate || (gate.flags & GATE_CLOSED) === 0 || (gate.flags & rec.breach) !== 0) continue
       const dx = gate.cx - pos[0]!
       const dz = gate.cz - pos[2]!
       if (dx * dx + dz * dz <= reach * reach) {
@@ -471,6 +578,7 @@ function gateAhead(world: World, nav: NavState, rec: AgentRecord, reach: number)
 
 function plan(s: State, world: World, nav: NavState, rec: AgentRecord): void {
   const path: NavPath = s.path
+  releaseSlot(nav, rec)
   if (rec.kind === 'grid' && !nav.grids.get(rec.nav)?.grid) {
     rec.count = 0
     return
@@ -496,6 +604,9 @@ function plan(s: State, world: World, nav: NavState, rec: AgentRecord): void {
   }
   s.find.filter = filter
   s.find.polys = mesh ? s.polys : undefined
+  // Breaching (0114) needs where the path enters each gate: the polygon each corner enters.
+  rec.breach = mesh && !rec.framed ? mesh.breachBits(filter) : 0
+  s.find.refs = rec.breach !== 0 ? s.refs : undefined
   if (mesh && rec.framed) meshPathLocal(mesh, pos, rec.goal, path, undefined, filter, s.polys)
   else findPath(world, pos, rec.goal, s.find)
   // What the path crosses, so only a change there replans it (0112).
@@ -510,12 +621,16 @@ function plan(s: State, world: World, nav: NavState, rec: AgentRecord): void {
       const gate = mesh.refGate.get(ref)
       if (gate !== undefined && !rec.pathGates.includes(gate)) rec.pathGates.push(gate)
     }
-    rec.exclude = mesh.queryFilter(filter).excludeFlags
+    // Nobody crosses a solid gate, whatever their filter excludes.
+    rec.exclude = mesh.queryFilter(filter).excludeFlags | GATE_SOLID
   }
-  rec.corners.set(path.corners.subarray(0, path.count * 3))
-  rec.count = path.count
+  const count = Math.min(path.count, rec.corners.length / 3)
+  rec.corners.set(path.corners.subarray(0, count * 3))
+  rec.count = count
   rec.next = 1
   rec.reachable = path.status === 'complete'
+  if (mesh && rec.breach !== 0) gateEntries(nav, mesh, rec, s.refs)
+  nextLeg(nav, rec, 0)
 }
 
 /** Stops an agent: zero velocity, the drive told to stand still, status set. */
@@ -802,10 +917,11 @@ function steerGrid(
 
 // --- navmesh agents --------------------------------------------------------------
 
-function crowdParams(s: State, row: number, rt: NavMeshRuntime) {
+function crowdParams(s: State, row: number, rt: NavMeshRuntime, rec: AgentRecord) {
   const c = s.cols
   const r = c.radius[row]!
-  const avoid = c.avoidance[row] === 1
+  // Shoving out of a queue at a gate (0114): no avoidance, so it isn't stopped by those waiting.
+  const avoid = c.avoidance[row] === 1 && !rec.shoving
   return {
     radius: r,
     height: rt.settings.agentHeight,
@@ -832,7 +948,11 @@ function ensureCrowd(world: World, nav: NavState, rt: NavMeshRuntime, radius: nu
   rt.crowd = new rt.R.Crowd(rt.navMesh, { maxAgents: capacity, maxAgentRadius: maxRadius })
   rt.crowdCapacity = capacity
   rt.crowdRadius = maxRadius
-  rt.applyFilters(world.tryResource(NavAreas) ?? {}, world.tryResource(NavFilters) ?? {})
+  rt.applyFilters(
+    world.tryResource(NavAreas) ?? {},
+    world.tryResource(NavFilters) ?? {},
+    nav.gates.depths,
+  )
   for (const r of nav.agents.values()) if (r.nav === rt.entity) r.crowdIndex = -1
 }
 
@@ -855,30 +975,44 @@ function requestCrowd(
   vec.z = pos[2]!
   let agent = rec.crowdIndex >= 0 ? crowd.agents[rec.crowdIndex] : undefined
   if (!agent) {
-    agent = crowd.addAgent(vec, crowdParams(s, row, rt))
+    // On the surface: Detour places agents within 1.5 radii of it vertically, and a character's
+    // capsule centre sits higher than that above its feet (0114).
+    place.y = Math.max(2, rt.settings.agentHeight * 1.5)
+    place.x = place.z = Math.max(1, c.radius[row]! * 2)
+    const at = rt.query.findNearestPoly(vec, {
+      filter: rt.walkFilter(rec.filter),
+      halfExtents: place,
+    })
+    if (at.success && at.nearestRef !== 0) vec.y = at.nearestPoint.y
+    agent = crowd.addAgent(vec, crowdParams(s, row, rt, rec))
     rec.crowdIndex = agent.agentIndex
     repath = true
-  } else if (c.agentTicks[row]! > rec.agentTick || repath) {
-    agent.updateParameters(crowdParams(s, row, rt))
+  } else if (c.agentTicks[row]! > rec.agentTick || repath || rec.shoving !== rec.shove > 0) {
+    rec.shoving = rec.shove > 0
+    agent.updateParameters(crowdParams(s, row, rt, rec))
   }
   if (rec.count === 0) {
     halt(s, world, table, row, rec, UNREACHABLE, dim)
     agent.resetMoveTarget()
     return true
   }
-  if (repath) {
-    // Aim for where the path ends: the goal, or the closest reachable point.
-    const e = (rec.count - 1) * 3
-    vec.x = rec.corners[e]!
-    vec.y = rec.corners[e + 1]!
-    vec.z = rec.corners[e + 2]!
-    agent.requestMoveTarget(vec)
+  if (repath || rec.legMoved) {
+    rec.legMoved = false
+    // Aim for where the leg ends (0114): the goal, the closest reachable point, or a gate to
+    // breach (its slot once claimed). Waiting at one, stand still.
+    if (rec.status === BLOCKED) agent.resetMoveTarget()
+    else {
+      vec.x = rec.legEnd[0]!
+      vec.y = rec.legEnd[1]!
+      vec.z = rec.legEnd[2]!
+      agent.requestMoveTarget(vec)
+    }
   }
-  // Physics moves character and velocity agents: start the crowd step from where they are.
+  // Physics moves character and velocity agents: start the crowd step from where they are. Only
+  // across: the crowd keeps its own height on the surface, which a capsule's centre is well above.
   if (rec.drive !== DRIVE_TRANSFORM && agent.raw.get_state() !== CROWD_OFFMESH) {
     const raw = agent.raw
     raw.set_npos(0, pos[0]!)
-    raw.set_npos(1, pos[1]!)
     raw.set_npos(2, pos[2]!)
   }
   return true
@@ -901,6 +1035,17 @@ function readCrowd(
   if (!agent || rec.count === 0) return
   const raw = agent.raw
   const o3 = row * 3
+  if (rec.status === BLOCKED) {
+    // Waiting at a gate (0114): it stands. Moving the transform, it gives way where the crowd
+    // pushes it, so a queue packs without overlap; otherwise physics places it.
+    halt(s, world, table, row, rec, BLOCKED, dim)
+    if (rec.drive === DRIVE_TRANSFORM && !rec.framed) {
+      c.translation[o3] = raw.get_npos(0)
+      c.translation[o3 + 2] = raw.get_npos(2)
+      table.markChanged(Transform, row)
+    }
+    return
+  }
   const px = raw.get_npos(0)
   const py = raw.get_npos(1)
   const pz = raw.get_npos(2)
@@ -911,10 +1056,11 @@ function readCrowd(
   const hx = rec.framed ? rec.lpos[0]! : c.translation[o3]!
   const hy = rec.framed ? rec.lpos[1]! : c.translation[o3 + 1]!
   const hz = rec.framed ? rec.lpos[2]! : c.translation[o3 + 2]!
-  const e = (rec.count - 1) * 3
-  const ex = rec.corners[e]! - hx
-  const ez = rec.corners[e + 2]! - hz
-  const ey = rec.corners[e + 1]! - hy
+  // Toward the leg's end (0114): the path's end, or a gate it has to breach.
+  const end = rec.legEnd
+  const ex = end[0]! - hx
+  const ez = end[2]! - hz
+  const ey = end[1]! - hy
   // Remaining: along the crowd's corners, then straight on to the path's end.
   let remaining = 0
   let lx = hx
@@ -932,17 +1078,12 @@ function readCrowd(
     lz = cz
     if ((raw.get_cornerFlags(i) & STRAIGHTPATH_END) !== 0) ended = true
   }
-  if (!ended) {
-    remaining += Math.sqrt(
-      (rec.corners[e]! - lx) ** 2 +
-        (rec.corners[e + 1]! - ly) ** 2 +
-        (rec.corners[e + 2]! - lz) ** 2,
-    )
-  }
+  if (!ended)
+    remaining += Math.sqrt((end[0]! - lx) ** 2 + (end[1]! - ly) ** 2 + (end[2]! - lz) ** 2)
   const flat = Math.sqrt(ex * ex + ez * ez)
   c.remaining[row] = n === 0 ? flat : remaining
   c.corners[row] = n
-  if (flat <= c.stopping[row]! && Math.abs(ey) < rt!.settings.agentHeight) {
+  if (rec.leg < 0 && flat <= c.stopping[row]! && Math.abs(ey) < rt!.settings.agentHeight) {
     agent.resetMoveTarget()
     halt(s, world, table, row, rec, rec.reachable ? ARRIVED : UNREACHABLE, dim)
     c.remaining[row] = flat
@@ -1041,6 +1182,8 @@ export function dropAgent(world: World, entity: Entity): void {
   const nav = world.tryResource(Nav)
   const rec = nav?.agents.get(entity)
   if (!nav || !rec) return
+  releaseSlot(nav, rec)
   removeFromCrowd(nav, rec)
   nav.agents.delete(entity)
+  nav.external.delete(entity)
 }

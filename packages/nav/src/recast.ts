@@ -48,6 +48,29 @@ export {
   voxelSettings,
 } from './tile-build.js'
 
+import { areaFlags, GATE_CLOSED, GATE_CUSTOM, GATE_LOCKED } from './tile-build.js'
+
+/**
+ * A gate nobody passes, whatever their filter, breaching or not (0114): an open hatch's hole. Nav
+ * keeps it on the gate and never writes it to Detour: the gate's polygons get flags 0.
+ */
+export const GATE_SOLID = 1 << 16
+/** Any of these makes a gate shut: its polygons take its shut area. */
+export const GATE_STATES = GATE_CLOSED | GATE_LOCKED | GATE_CUSTOM | GATE_SOLID
+/** Gates take areas 1 to 31; a shut gate's polygons take its area plus SHUT_AREA (0114). */
+export const MAX_GATE_AREA = 31
+export const SHUT_AREA = 31
+
+/** A gate polygon's Detour flags: its area's bit and its state, or 0 when it's solid. */
+export function gatePolyFlags(area: number, flags: number): number {
+  return (flags & GATE_SOLID) !== 0 ? 0 : areaFlags(area) | (flags & 0xe000)
+}
+
+/** A gate polygon's Detour area: its own while open, its shut area while it has a state bit. */
+export function gatePolyArea(area: number, flags: number): number {
+  return (flags & GATE_STATES) !== 0 ? area + SHUT_AREA : area
+}
+
 /**
  * Builds one navmesh tile with Recast on this thread (tile-build.js, the code workers run too).
  * Throws `nav/bake-failed` when a Recast step fails.

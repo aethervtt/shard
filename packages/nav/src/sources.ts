@@ -1,5 +1,6 @@
 import { type Entity, ShardError } from '@aethervtt/shard-core'
 import { Hash64 } from './hash'
+import { MAX_GATE_AREA } from './recast'
 
 // Navmesh sources without entities (0112): shapes (world triangles a plugin pushes, such as
 // structure's walls and floors) and gates (regions whose polygons get flags at runtime, such as
@@ -31,10 +32,15 @@ export interface NavGateSpec {
     radius: number
     bidirectional?: boolean
   }
-  /** The area its polygons get (costs in nav/Areas and filters). */
+  /** The area its polygons get (costs in nav/Areas and filters), 1 to 31. */
   area: number
-  /** Gate state bits (GATE_CLOSED, GATE_LOCKED, GATE_CUSTOM). */
+  /** Gate state bits (GATE_CLOSED, GATE_LOCKED, GATE_CUSTOM, GATE_SOLID). */
   flags?: number
+  /**
+   * Area gates: the direction agents cross it, (x, z) (0114). Default: across the footprint's
+   * least width. Its depth along this axis converts breach costs.
+   */
+  axis?: readonly number[]
 }
 
 export interface NavGate {
@@ -61,6 +67,14 @@ export interface NavGate {
   /** Its centre (a link's start), for agents nearing it. */
   cx: number
   cz: number
+  // Its shape as agents cross it (0114): the middle, the unit axis they cross along, how deep it
+  // is along that axis, and how wide across it (half). A link's axis runs from start to end.
+  mx: number
+  mz: number
+  ax: number
+  az: number
+  depth: number
+  halfWidth: number
 }
 
 const hash = new Hash64()
@@ -123,12 +137,22 @@ export class NavGates {
   readonly changed = new Set<Entity>()
   /** Owners whose flags alone changed, with their flags before the change. */
   readonly flagged = new Map<Entity, number>()
+  /**
+   * The deepest gate of each area (0114), which breach costs convert by (1 for an area with
+   * none), and whether a gate came or went since they were last computed.
+   */
+  readonly depths = new Float64Array(MAX_GATE_AREA + 1).fill(1)
+  depthsDirty = false
 
   set(owner: Entity, spec: NavGateSpec): void {
-    if (!(spec.area >= 1 && spec.area <= 62)) {
-      throw new ShardError('nav/invalid-gate', `A gate's area must be 1 to 62, got ${spec.area}`, {
-        hint: "Area 0 is the ground every source bakes with: a gate's polygons need an area of their own.",
-      })
+    if (!(spec.area >= 1 && spec.area <= MAX_GATE_AREA)) {
+      throw new ShardError(
+        'nav/invalid-gate',
+        `A gate's area must be 1 to ${MAX_GATE_AREA}, got ${spec.area}`,
+        {
+          hint: "Area 0 is the ground every source bakes with: a gate's polygons need an area of their own. Areas 32 to 62 are shut gates' (0114).",
+        },
+      )
     }
     const gate = makeGate(owner, spec)
     const old = this.byOwner.get(owner)
@@ -138,6 +162,21 @@ export class NavGates {
       return
     }
     this.changed.add(owner)
+    this.depthsDirty = true
+  }
+
+  /** Computes `depths` again; true when one changed. */
+  updateDepths(): boolean {
+    this.depthsDirty = false
+    const next = new Float64Array(MAX_GATE_AREA + 1)
+    for (const g of this.byOwner.values()) if (g.depth > next[g.area]!) next[g.area] = g.depth
+    let changed = false
+    for (let a = 0; a <= MAX_GATE_AREA; a++) {
+      const d = next[a]! > 0 ? next[a]! : 1
+      if (d !== this.depths[a]) changed = true
+      this.depths[a] = d
+    }
+    return changed
   }
 
   /** Sets a gate's state bits: its polygons' flags change, no tile rebuilds. */
@@ -149,7 +188,10 @@ export class NavGates {
   }
 
   delete(owner: Entity): void {
-    if (this.byOwner.delete(owner)) this.changed.add(owner)
+    if (this.byOwner.delete(owner)) {
+      this.changed.add(owner)
+      this.depthsDirty = true
+    }
   }
 
   get size(): number {
@@ -196,6 +238,7 @@ function makeGate(owner: Entity, spec: NavGateSpec): NavGate {
   }
   hash.u32word(spec.area)
   hash.lanes(lanes, 0)
+  const shape = crossing(points, link, spec.axis)
   return {
     owner,
     points,
@@ -211,6 +254,87 @@ function makeGate(owner: Entity, spec: NavGateSpec): NavGate {
     key: [lanes[0]!, lanes[1]!],
     cx: link ? link.start[0] : (minX + maxX) / 2,
     cz: link ? link.start[2] : (minZ + maxZ) / 2,
+    ...shape,
+  }
+}
+
+/**
+ * How agents cross a gate (0114): a link from start to end; an area gate along `axis`, else
+ * across its least width. Its middle, depth along the axis and half width across it come from
+ * the footprint's extent in that frame.
+ */
+function crossing(
+  points: Float64Array | null,
+  link: NavGate['link'],
+  axis: readonly number[] | undefined,
+): Pick<NavGate, 'mx' | 'mz' | 'ax' | 'az' | 'depth' | 'halfWidth'> {
+  if (link) {
+    const dx = link.end[0] - link.start[0]
+    const dz = link.end[2] - link.start[2]
+    const l = Math.sqrt(dx * dx + dz * dz) || 1
+    return {
+      mx: (link.start[0] + link.end[0]) / 2,
+      mz: (link.start[2] + link.end[2]) / 2,
+      ax: dx / l,
+      az: dz / l,
+      depth: l,
+      halfWidth: link.radius,
+    }
+  }
+  const p = points!
+  const n = p.length / 2
+  let ax = 1
+  let az = 0
+  if (axis && axis.length >= 2 && (axis[0] !== 0 || axis[1] !== 0)) {
+    const l = Math.sqrt(axis[0]! * axis[0]! + axis[1]! * axis[1]!)
+    ax = axis[0]! / l
+    az = axis[1]! / l
+  } else {
+    // Across the least width: the normal of the edge the footprint is thinnest from.
+    let least = Infinity
+    for (let i = 0; i < n; i++) {
+      const ex = p[((i + 1) % n) * 2]! - p[i * 2]!
+      const ez = p[((i + 1) % n) * 2 + 1]! - p[i * 2 + 1]!
+      const el = Math.sqrt(ex * ex + ez * ez)
+      if (el < 1e-9) continue
+      const nx = -ez / el
+      const nz = ex / el
+      let w = 0
+      for (let j = 0; j < n; j++) {
+        const d = Math.abs((p[j * 2]! - p[i * 2]!) * nx + (p[j * 2 + 1]! - p[i * 2 + 1]!) * nz)
+        if (d > w) w = d
+      }
+      if (w < least) {
+        least = w
+        ax = nx
+        az = nz
+      }
+    }
+  }
+  let a0 = Infinity
+  let a1 = -Infinity
+  let t0 = Infinity
+  let t1 = -Infinity
+  for (let i = 0; i < n; i++) {
+    const x = p[i * 2]!
+    const z = p[i * 2 + 1]!
+    const a = x * ax + z * az
+    const t = -x * az + z * ax
+    if (a < a0) a0 = a
+    if (a > a1) a1 = a
+    if (t < t0) t0 = t
+    if (t > t1) t1 = t
+  }
+  if (n === 0) return { mx: 0, mz: 0, ax, az, depth: 0, halfWidth: 0 }
+  const am = (a0 + a1) / 2
+  const tm = (t0 + t1) / 2
+  return {
+    mx: am * ax - tm * az,
+    mz: am * az + tm * ax,
+    ax,
+    az,
+    depth: a1 - a0,
+    halfWidth: (t1 - t0) / 2,
   }
 }
 

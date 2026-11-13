@@ -12,6 +12,15 @@ export {
   updateNavigation,
   whenNavReady,
 } from './bake'
+export {
+  BLOCKED,
+  buildSlots,
+  NO_ROW,
+  navAgentAt,
+  navAgentRecord,
+  SlotSet,
+  setNavMover,
+} from './breach'
 export { loadNavCache, NAV_CACHE_PATH, NavCache, NavCacheStore, saveNavCache } from './cache'
 export {
   AGENT_STATUSES,
@@ -27,6 +36,8 @@ export {
   NavAreas,
   type NavAreasValue,
   NavArrived,
+  NavBreach,
+  type NavBreachValue,
   NavBudget,
   type NavBudgetValue,
   NavFilters,
@@ -34,6 +45,8 @@ export {
   type NavFilterValue,
   NavGateAhead,
   type NavGateAheadData,
+  NavGateBlocked,
+  type NavGateBlockedData,
   NavGrid,
   NavGridDataAssetType,
   NavGridDataImporter,
@@ -60,7 +73,15 @@ export {
   traceSegment,
 } from './grid'
 export { describeNav, navMethods } from './methods'
-export { type BakeStats, configureFilter, NavMeshRuntime, type TileEntry } from './navmesh'
+export {
+  type BakeStats,
+  breachCostOf,
+  configureFilter,
+  DEFAULT_BREACH_COST,
+  filterProblem,
+  NavMeshRuntime,
+  type TileEntry,
+} from './navmesh'
 export { navGridPlugin, navPlugin } from './plugin'
 export {
   createNavPath,
@@ -84,8 +105,14 @@ export {
   GATE_CLOSED,
   GATE_CUSTOM,
   GATE_LOCKED,
+  GATE_SOLID,
+  GATE_STATES,
   type GateState,
+  gatePolyArea,
+  gatePolyFlags,
   loadRecast,
+  MAX_GATE_AREA,
+  SHUT_AREA,
 } from './recast'
 export {
   insideConvex,

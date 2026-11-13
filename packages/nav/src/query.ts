@@ -20,10 +20,19 @@ export interface NavPath {
   status: PathStatus
   /** The NavGrid or NavMesh entity the path is on. */
   nav: Entity | null
+  /** The first gate the path must breach (0114): shut, in a state its filter breaches. -1: none. */
+  breach: number
 }
 
 export function createNavPath(capacity = 256): NavPath {
-  return { corners: new Float32Array(capacity * 3), count: 0, length: 0, status: 'none', nav: null }
+  return {
+    corners: new Float32Array(capacity * 3),
+    count: 0,
+    length: 0,
+    status: 'none',
+    nav: null,
+    breach: -1,
+  }
 }
 
 export interface FindPathOptions {
@@ -42,6 +51,11 @@ export interface FindPathOptions {
   filter?: string
   /** Navmeshes: filled with the path's polygon refs, in order (0112: agents replan by them). */
   polys?: number[]
+  /**
+   * Navmeshes: filled with the polygon each corner enters (0114). The path then gets a corner
+   * wherever the area changes, so where it enters each gate is a corner.
+   */
+  refs?: number[]
 }
 
 /** Which grid or navmesh a point is in. */
@@ -165,6 +179,7 @@ export function findPath(
   options: FindPathOptions = {},
 ): NavPath {
   const out = options.out ?? createNavPath()
+  out.breach = -1
   let navEntity = options.nav ?? null
   if (navEntity === null && options.agent != null && world.has(options.agent, NavAgent)) {
     navEntity = world.get(options.agent, NavAgent).nav
@@ -176,12 +191,22 @@ export function findPath(
   } else {
     out.nav = foundMesh!.entity
     const m = foundMesh!
-    if (m.frame === null) meshPath(m, from, to, out, options.areas, options.filter, options.polys)
+    if (m.frame === null)
+      meshPath(m, from, to, out, options.areas, options.filter, options.polys, options.refs)
     else {
       // In the navmesh's frame, then the corners back to world space.
       m.pointIn(from[0]!, from[1]!, from[2] ?? 0, fromLocal)
       m.pointIn(to[0]!, to[1]!, to[2] ?? 0, toLocal)
-      meshPath(m, fromLocal, toLocal, out, options.areas, options.filter, options.polys)
+      meshPath(
+        m,
+        fromLocal,
+        toLocal,
+        out,
+        options.areas,
+        options.filter,
+        options.polys,
+        options.refs,
+      )
       const c = out.corners
       for (let i = 0; i < out.count; i++) {
         m.pointOut(c[i * 3]!, c[i * 3 + 1]!, c[i * 3 + 2]!, inFrame)
@@ -209,9 +234,11 @@ export function meshPathLocal(
   areas?: Record<number, number>,
   filter?: string,
   polys?: number[],
+  refs?: number[],
 ): void {
   out.nav = m.entity
-  meshPath(m, from, to, out, areas, filter, polys)
+  out.breach = -1
+  meshPath(m, from, to, out, areas, filter, polys, refs)
 }
 
 function gridPath(
@@ -289,6 +316,9 @@ function gridPath(
   out.status = exact ? 'complete' : 'partial'
 }
 
+/** Detour's straight-path option: a corner wherever the area changes. */
+const AREA_CROSSINGS = 1
+
 const v3 = { x: 0, y: 0, z: 0 }
 const v3b = { x: 0, y: 0, z: 0 }
 const extents = { x: 0, y: 0, z: 0 }
@@ -328,8 +358,10 @@ function meshPath(
   areas: Record<number, number> | undefined,
   name?: string,
   polysOut?: number[],
+  refsOut?: number[],
 ): void {
   if (polysOut) polysOut.length = 0
+  if (refsOut) refsOut.length = 0
   out.count = 0
   out.length = 0
   out.status = 'none'
@@ -368,6 +400,15 @@ function meshPath(
       while (n < polys.size && polys.get(n) !== 0) n++
       if (n === 0) return
       if (polysOut) for (let i = 0; i < n; i++) polysOut.push(polys.get(i))
+      // The first gate it crosses in a state its filter breaches (0114).
+      const breach = m.breachBits(name)
+      if (breach !== 0) {
+        for (let i = 0; i < n && out.breach === -1; i++) {
+          const owner = m.refGate.get(polys.get(i))
+          const gate = owner === undefined ? undefined : m.gateOf.get(owner)
+          if (gate && (gate.flags & breach) !== 0) out.breach = owner!
+        }
+      }
       const lastPoly = polys.get(n - 1)
       let target = endPos
       const complete = lastPoly === end.nearestRef && end.success && end.nearestRef !== 0
@@ -378,6 +419,7 @@ function meshPath(
       if (n < polys.size) polys.resize(n)
       const straight = q.findStraightPath(startPos, target, polys, {
         maxStraightPathPoints: capacity,
+        straightPathOptions: refsOut ? AREA_CROSSINGS : 0,
       })
       try {
         if (!straight.success) return
@@ -397,6 +439,7 @@ function meshPath(
         }
         out.count = count
         out.length = length
+        if (refsOut) for (let i = 0; i < count; i++) refsOut.push(straight.straightPathRefs.get(i))
         // A goal off the mesh (beyond query reach) counts as complete when the path ends as
         // close as the navmesh gets to it horizontally.
         out.status = complete ? 'complete' : 'partial'

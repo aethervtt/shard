@@ -30,8 +30,12 @@ import {
 // geometry, openings cut out, owned by its entity so hits report it. Doors, windows and hatches get
 // a collider filling their hole that turns on and off with their state, without a rebuild.
 
-/** Whether an opening's hole is blocked: a shut door, or a window the game hasn't made passable. */
+/**
+ * Whether an opening's hole is blocked: a shut door, a window the game hasn't made passable, or a
+ * barricaded one (0114).
+ */
 export function openingBlocks(o: OpeningModel): boolean {
+  if (o.barricaded) return true
   if (o.movement === 'none') return false
   return o.kind === 'window' || o.state !== 'open'
 }
@@ -71,6 +75,8 @@ function build(
   entity: Entity,
   part: StructureEdit['part'],
 ): void {
+  // A Breach (0114) is nav's alone: the wall it's a span of keeps its colliders.
+  if (part === 'breach') return
   const out = s.shapes
   out.length = 0
   let on = true

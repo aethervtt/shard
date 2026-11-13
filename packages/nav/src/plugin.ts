@@ -18,7 +18,15 @@ import { navBake } from './bake'
 import * as cacheModule from './cache'
 import { NavCache } from './cache'
 import * as componentsModule from './components'
-import { NavAgent, NavAreas, NavFilters, NavGridDatas, NavSource, OffMeshLink } from './components'
+import {
+  NavAgent,
+  NavAreas,
+  NavBreach,
+  NavFilters,
+  NavGridDatas,
+  NavSource,
+  OffMeshLink,
+} from './components'
 import { navMethods } from './methods'
 import * as overlayModule from './overlay'
 import { loadRecast } from './recast'
@@ -77,6 +85,7 @@ function build(app: App): void {
   const nav = w.initResource(Nav)
   w.initResource(NavAreas)
   w.initResource(NavFilters)
+  w.initResource(NavBreach)
   w.initResource(NavCache)
   w.initResource(NavGridDatas)
   observe(w, nav)
