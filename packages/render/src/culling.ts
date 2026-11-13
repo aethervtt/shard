@@ -312,7 +312,11 @@ export class GpuCuller {
       this.batchF32[o + 3] = Math.fround(Math.sqrt(ex * ex + ey * ey + ez * ez))
       this.batchData[o + 4] = batch.mesh.drawCount
       // An arena mesh (0116) lives at its place in the arena's buffers.
-      const placed = batch.mesh.arena !== undefined && assets ? assets.mesh(batch.mesh) : undefined
+      // Live batches only: asking for a released mesh's GPU copy would place it in the arena again.
+      const placed =
+        batch.count > 0 && batch.mesh.arena !== undefined && assets
+          ? assets.mesh(batch.mesh)
+          : undefined
       const base = placed?.arena ? placed.baseVertex : batch.mesh.baseVertex
       // 0: not indexed; else 1 + the base vertex (meshes sharing vertex buffers).
       this.batchData[o + 5] = batch.mesh.indexed ? 1 + base : 0

@@ -162,7 +162,16 @@ export class GpuAssets {
       return gm
     }
     if (this.counts) this.counts.meshesRebuilt++
-    if (mesh.arena !== undefined && !mesh.gpu && mesh.indices) return this.arenaMesh(mesh, gm)
+    if (mesh.arena !== undefined && !mesh.gpu && mesh.indices) {
+      const placed = this.arenaMesh(mesh, gm)
+      if (placed) return placed
+      // The arena is full (the device's largest buffer): buffers of its own.
+      gm = this.meshes.get(mesh)
+      if (gm?.arena) {
+        this.meshes.delete(mesh)
+        gm = undefined
+      }
+    }
     if (gm && gm.generation === gpu.generation) {
       // New data that fits the buffers it had is written in place: no new buffers (0055).
       if (!mesh.gpu && this.rewrite(mesh, gm)) return gm
@@ -223,7 +232,7 @@ export class GpuAssets {
    * A mesh in an arena (0116): written where it was while it fits, else moved within the arena (which
    * grows when it must). Its buffers are the arena's.
    */
-  private arenaMesh(mesh: Mesh, previous: GpuMesh | undefined): GpuMesh {
+  private arenaMesh(mesh: Mesh, previous: GpuMesh | undefined): GpuMesh | undefined {
     const gpu = this.gpu
     const name = mesh.arena!
     let arena = this.arenas.get(name)
@@ -236,12 +245,12 @@ export class GpuAssets {
       if (arena.fits(mesh, gm.place)) arena.write(mesh, gm.place)
       else {
         arena.release(gm.place)
-        arena.place(mesh, gm.place)
+        if (!arena.place(mesh, gm.place)) return undefined
       }
     } else {
       if (gm && gm.generation === gpu.generation) this.destroyMesh(gm)
       const place: ArenaPlace = { vertexStart: 0, vertexCount: 0, indexStart: 0, indexCount: 0 }
-      arena.place(mesh, place)
+      if (!arena.place(mesh, place)) return undefined
       gm = {
         version: mesh.version,
         generation: gpu.generation,

@@ -11,6 +11,7 @@ import {
   Culler,
   ForwardStateResource,
   Gpu,
+  GpuAssetsResource,
   LightingSettings,
   type PickHit,
   pick,
@@ -585,8 +586,12 @@ describe('the max fixture', () => {
     // One cycle warms the pools that stay (instance and cull buffers, the leaf and prop meshes).
     await cycle()
     const baseline = gpu.stats(owner)
+    // Chunk meshes share an arena (0116): released ranges are reused, so it stops growing.
+    const arena = () => world.resource(GpuAssetsResource).arenas.get('structure')!.vertices.capacity
+    const capacity = arena()
     for (let i = 0; i < 20; i++) await cycle()
     expect(gpu.stats(owner)).toEqual(baseline)
+    expect(arena()).toBe(capacity)
     expect(world.query({ with: [StructureChunk] }).count()).toBe(0)
     await r.dispose()
   })

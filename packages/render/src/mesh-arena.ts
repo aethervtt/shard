@@ -109,8 +109,11 @@ export class MeshArena {
     return this.buffers[0]!
   }
 
-  /** Places a mesh's data (indexed CPU meshes only), growing the arena if it must. */
-  place(mesh: Mesh, out: ArenaPlace): void {
+  /**
+   * Places a mesh's data (indexed CPU meshes only), growing the arena if it must. False when it
+   * would outgrow the device's largest buffer: the mesh then keeps buffers of its own.
+   */
+  place(mesh: Mesh, out: ArenaPlace): boolean {
     const n = mesh.vertexCount
     const m = mesh.indices!.length
     let v = this.vertices.alloc(n)
@@ -118,15 +121,21 @@ export class MeshArena {
     if (v < 0 || i < 0) {
       if (v >= 0) this.vertices.free(v, n)
       if (i >= 0) this.indexRanges.free(i, m)
-      this.grow(n, m)
+      if (!this.grow(n, m)) return false
       v = this.vertices.alloc(n)
       i = this.indexRanges.alloc(m)
+      if (v < 0 || i < 0) {
+        if (v >= 0) this.vertices.free(v, n)
+        if (i >= 0) this.indexRanges.free(i, m)
+        return false
+      }
     }
     out.vertexStart = v
     out.vertexCount = n
     out.indexStart = i
     out.indexCount = m
     this.write(mesh, out)
+    return true
   }
 
   /** Whether new data for a placed mesh fits where it is. */
@@ -186,14 +195,28 @@ export class MeshArena {
     this.indices.destroy()
   }
 
-  /** Doubles (at least) the room for vertices and indices, copying what's there. */
-  private grow(n: number, m: number): void {
+  /**
+   * Doubles (at least) the room for vertices and indices, copying what's there, within the
+   * device's largest buffer. False when even that can't hold `n` more vertices and `m` indices.
+   */
+  private grow(n: number, m: number): boolean {
     const device = this.gpu.device
+    const max = device.limits.maxBufferSize
+    // The widest attribute (tangents, 16 bytes) and the indices (4) bound each size.
+    const maxVertices = Math.floor(max / 16)
+    const maxIndices = Math.floor(max / 4)
+    const vertices = Math.min(
+      maxVertices,
+      Math.max(this.vertices.capacity * 2, this.vertices.capacity + n),
+    )
+    const indices = Math.min(
+      maxIndices,
+      Math.max(this.indexRanges.capacity * 2, this.indexRanges.capacity + m),
+    )
+    if (vertices === this.vertices.capacity && indices === this.indexRanges.capacity) return false
     const encoder = device.createCommandEncoder({ label: `arena/${this.name}/grow` })
     const old = this.buffers.slice()
     const oldIndices = this.indices
-    const vertices = Math.max(this.vertices.capacity * 2, this.vertices.capacity + n)
-    const indices = Math.max(this.indexRanges.capacity * 2, this.indexRanges.capacity + m)
     for (let k = 0; k < 5; k++) {
       const next = this.vertexBuffer(k, vertices)
       encoder.copyBufferToBuffer(old[k]!, 0, next, 0, old[k]!.size)
@@ -207,6 +230,7 @@ export class MeshArena {
     this.vertices.grow(vertices)
     this.indexRanges.grow(indices)
     this.version++
+    return true
   }
 
   private vertexBuffer(k: number, vertices: number): GPUBuffer {
