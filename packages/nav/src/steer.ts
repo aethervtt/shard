@@ -2,7 +2,7 @@ import { defineSystem, type Entity, type Table, type World } from '@aethervtt/sh
 import { CharacterController, CharacterSuspended } from '@aethervtt/shard-physics'
 import { FixedTime } from '@aethervtt/shard-runtime'
 import { Transform } from '@aethervtt/shard-transform'
-import { gateLeg, navAgentAt, setNavMover } from './breach'
+import { gateEntries, gateLeg, navAgentAt, nextLeg, setNavMover } from './breach'
 import {
   NavAgent,
   NavAgentState,
@@ -40,6 +40,15 @@ const UNREACHABLE = 3
 const BLOCKED = 4
 /** Polygons ahead on a flow route checked for a gate the agent breaches. */
 const GATE_LOOKAHEAD = 8
+/**
+ * The gate a leg ends at (0114), as a fence: a steer agent walking to it keeps its centre out of
+ * the gate's footprint (the gap and gateMargin past each face), on its own side. The walk filter
+ * keeps it off the gate's polygons, but polygons beside them reach into the margin.
+ */
+const fence = { on: false, mx: 0, mz: 0, ax: 0, az: 0, side: 1, half: 0, width: 0 }
+/** How far outside the footprint a fenced agent keeps (m). */
+const FENCE_PAD = 0.02
+
 /** A leg's corners: the path's up to legCount, then legEnd (scratch). */
 let legCorners = new Float64Array(3 * 130)
 
@@ -275,7 +284,14 @@ export const navSteer = defineSystem({
     query: world.query({ with: [NavAgent, NavAgentState, Transform] }),
     cols: {} as Columns,
     step: 0,
-    find: { out: createNavPath(128), filter: '', nav: null as Entity | null },
+    find: {
+      out: createNavPath(128),
+      filter: '',
+      nav: null as Entity | null,
+      // The polygons the path crosses, and the one entered at each corner (0114's gate legs).
+      polys: [] as number[],
+      refs: [] as number[],
+    },
     // Separation: every navmesh agent's position, radius and navmesh, bucketed in a spatial hash.
     hx: new Float64Array(256),
     hz: new Float64Array(256),
@@ -460,6 +476,35 @@ function stand(s: SteerState, row: number, m: Mover, snap = true): void {
   v[row * 3 + 2] = 0
 }
 
+/** The gate `rec`'s leg ends at, as the fence for this decision (none without one). */
+function setFence(world: World, rec: AgentRecord): void {
+  fence.on = false
+  if (rec.leg < 0) return
+  const gate = world.resource(Nav).gates.byOwner.get(rec.pathGates[rec.leg]! as Entity)
+  if (!gate?.points) return
+  fence.on = true
+  fence.mx = gate.mx
+  fence.mz = gate.mz
+  fence.ax = gate.ax
+  fence.az = gate.az
+  fence.side = rec.entries[rec.leg * 5 + 3]! < 0 ? -1 : 1
+  fence.half = gate.depth / 2
+  // Half its width across the axis, from its footprint's corners.
+  let w = 0
+  const p = gate.points
+  for (let i = 0; i < p.length; i += 2) {
+    const along = Math.abs((p[i]! - gate.mx) * -gate.az + (p[i + 1]! - gate.mz) * gate.ax)
+    if (along > w) w = along
+  }
+  fence.width = w
+}
+
+/** Whether (x, z) lies across from the fenced gate's gap (within its width, plus a margin). */
+function besideGate(x: number, z: number): boolean {
+  const along = Math.abs((x - fence.mx) * -fence.az + (z - fence.mz) * fence.ax)
+  return along < fence.width + 0.5
+}
+
 /** Starts the legs at the agent's surface point. */
 function legsFrom(m: Mover): void {
   m.legs[0] = m.at[0]!
@@ -506,6 +551,8 @@ function think(
     if (m.lift < 0) m.lift = Math.max(0, py - surf.y)
   }
   legsFrom(m)
+  // This decision's fence: its own leg's gate, or none (the fence is scratch shared by all).
+  setFence(world, rec)
   // Waiting in a slot at a shut gate (0114): it stands until the gate passes its filter.
   if (rec.status === BLOCKED) {
     stand(s, row, m)
@@ -564,19 +611,26 @@ function fallback(
   rec.paths++
   if (f) f.fallbacks++
   world.resource(NavMovers).fallbacks++
-  rec.corners.set(path.corners.subarray(0, path.count * 3))
-  rec.count = path.count
+  // What it crosses, so a tile or gate change there reaches it (0112), and its legs: up to the
+  // first gate its filter breaches, as plan() sets them (0114).
+  rec.pathTiles.length = 0
+  rec.pathGates.length = 0
+  const polys = s.find.polys
+  for (let i = 0; i < polys.length; i++) {
+    const ref = polys[i]!
+    const tile = rt.tileIndexOf(ref)
+    if (!rec.pathTiles.includes(tile)) rec.pathTiles.push(tile)
+    const gate = rt.refGate.get(ref)
+    if (gate !== undefined && !rec.pathGates.includes(gate)) rec.pathGates.push(gate)
+  }
+  const count = Math.min(path.count, rec.corners.length / 3)
+  rec.corners.set(path.corners.subarray(0, count * 3))
+  rec.count = count
   rec.next = 1
   rec.reachable = path.status === 'complete'
-  // Its leg is the whole path (0114's legs come from plan(), which a flow agent skips).
-  rec.leg = -1
-  rec.legCount = path.count
-  if (path.count > 0) {
-    const e = (path.count - 1) * 3
-    rec.legEnd[0] = path.corners[e]!
-    rec.legEnd[1] = path.corners[e + 1]!
-    rec.legEnd[2] = path.corners[e + 2]!
-  }
+  const nav = world.resource(Nav)
+  if (rec.breach !== 0) gateEntries(nav, rt, rec, s.find.refs)
+  nextLeg(nav, rec, 0)
   m.fallback = true
   m.fallbackGoal.set(goal)
   return path.count > 0
@@ -602,6 +656,23 @@ function leg(
   const lx = m.legs[o]!
   const ly = m.legs[o + 1]!
   const lz = m.legs[o + 2]!
+  if (fence.on && besideGate(lx, lz)) {
+    // Beside the gap, nearer the wall than the face: out along the gate's axis first, so the
+    // line on to the target can't cut the footprint's corner.
+    const d = ((lx - fence.mx) * fence.ax + (lz - fence.mz) * fence.az) * fence.side
+    if (d < fence.half + FENCE_PAD) {
+      const out = fence.half + FENCE_PAD - d
+      tx = lx + fence.ax * fence.side * out
+      tz = lz + fence.az * fence.side * out
+    }
+  }
+  if (fence.on && besideGate(tx, tz)) {
+    const d = ((tx - fence.mx) * fence.ax + (tz - fence.mz) * fence.az) * fence.side
+    if (d < fence.half + FENCE_PAD) {
+      tx += fence.ax * fence.side * (fence.half + FENCE_PAD - d)
+      tz += fence.az * fence.side * (fence.half + FENCE_PAD - d)
+    }
+  }
   if (!moveAlong(rt, filter, m.ref, lx, ly, lz, tx, ty, tz)) return false
   let rx = surf.x
   let rz = surf.z
