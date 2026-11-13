@@ -1064,6 +1064,7 @@ _Computed by the engine; never written in scene files._
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `visible` | boolean | `true` |  | Final visibility after inheritance. |
+| `shadowOnly` | boolean | `false` |  | Not visible, but drawn in shadow views (shadow-only after inheritance). |
 
 ## `render/Cutaway`
 
@@ -1143,6 +1144,10 @@ Brings along: `core/Transform`.
 | `shadowSoftness` | number | `0` | ≥ 0 | PCF filter radius in texels beyond the base 3x3 (0 = 3x3). Softer edges. |
 | `shadowUpdate` | `"always"` \| `"on-change"` | `"always"` |  | always: shadow maps redraw every frame. on-change: they redraw only when the light or the camera's cascade fit moved, or a shadow caster inside them changed (0055); a still scene draws none. |
 | `cascades` | object | `{"count":4,"maxDistance":150,"splitLambda":0.8}` |  | How cascaded shadow maps divide the view. |
+| `shadowStep` | number | `0.125` | ≥ 0, ≤ 1 | on-change only: a cached cascade moves in steps of this fraction of its width (its box grows by one step), so walking redraws it only when the eye crosses a step (0116). 0 follows texel by texel. |
+| `shadowFarEvery` | integer | `4` | ≥ 1, ≤ 16 | on-change only: the farthest cascade redraws its dynamic casters every this many frames, the next every half as many, nearer ones every frame (0116). |
+| `minCasterTexels` | number | `1` | ≥ 0 | Casters whose bounding sphere spans fewer texels than this in a cascade are left out of it (0116). 0 keeps every caster. |
+| `shadowAngleStep` | number | `0` | ≥ 0, ≤ 10, deg | The shadows' direction moves in steps of this many degrees (elevation and azimuth), so a turning sun redraws cached shadows in steps (0116). 0 follows it exactly. |
 | `angularDiameter` | number | `0.53` | ≥ 0, ≤ 30, deg | The sun disk's size in an atmosphere's sky (the Sun 0.53°). 0: no disk. Illuminance is at the top of the atmosphere. |
 
 ## `render/DrivesView`
@@ -1150,6 +1155,12 @@ Brings along: `core/Transform`.
 An offscreen camera that is a real view (a minimap, split screen): terrain LOD, the water clipmap, particle culling and shadow ranking may follow it like a window camera.
 
 Brings along: `render/Camera3d`.
+
+Tag (no fields).
+
+## `render/DynamicCaster`
+
+Tag: always a dynamic shadow caster: redrawn each frame into cached lights' dynamic layers, never cached.
 
 Tag (no fields).
 
@@ -1302,6 +1313,28 @@ Tag (no fields).
 Tag: shadows are not applied to this mesh.
 
 Tag (no fields).
+
+## `render/Occluder`
+
+What this entity hides from cameras with OcclusionCulling (0116). It follows the entity's visibility, render layers and each camera's ViewVisibility; a shadow-only or hidden entity hides nothing.
+
+Brings along: `core/Transform`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `mesh` | null or Mesh ref | `null` |  | Triangles, in the entity's space, that lie inside what it draws: what it hides (a wall's solid spans, a hill's core). At most 256. |
+
+## `render/OcclusionCulling`
+
+Culls what occluders hide from this camera (0116): occluders are rasterized on the CPU into a small depth buffer each frame, and draws behind it are skipped. For street-level views; a top-down camera gains nothing.
+
+Brings along: `render/Camera3d`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `width` | integer | `256` | ≥ 16, ≤ 1024 | Width of the camera's occlusion buffer in pixels; its height follows the aspect. |
+| `range` | number | `200` | ≥ 1, m | Occluders farther than this from the camera are left out of its buffer. |
+| `shadows` | boolean | `true` |  | Also drop dynamic casters from this camera's cascades when where their shadow falls is hidden. |
 
 ## `render/Outline`
 
@@ -1575,7 +1608,7 @@ Brings along: `render/ComputedVisibility`.
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `mode` | `"inherit"` \| `"visible"` \| `"hidden"` | `"inherit"` |  | 'inherit' follows the parent; 'visible' shows even under a hidden parent; 'hidden' hides this and inheriting children. |
+| `mode` | `"inherit"` \| `"visible"` \| `"hidden"` \| `"shadow-only"` | `"inherit"` |  | 'inherit' follows the parent; 'visible' shows even under a hidden parent; 'hidden' hides this and inheriting children; 'shadow-only' hides this and inheriting children from cameras but keeps them in shadow views, unless a parent is hidden (0116). |
 
 ## `render/VisibilityRange`
 
@@ -2019,6 +2052,18 @@ Brings along: `core/Transform`.
 | `shadowWhenHidden` | boolean | `true` |  | While hidden (Visibility), it still casts shadows, keeping the interior dark. |
 | `cutaway` | boolean | `false` |  | Opens around cameras' reveal points (CutawayView, 0070) instead of hiding whole: its chunk meshes, hatches and skylights are Cutaway. It still casts whole. |
 | `level` | null or integer or string | `null` |  | The Level it stands on (0067). Empty is the ground level; elevation is relative to the level. |
+
+## `structure/ShadowProxy`
+
+One group's opaque structure over one region, merged into a shadow-only mesh: shadow passes draw it instead of the region's chunk meshes (0116).
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `group` | null or integer or string | `null` |  | The group it belongs to: a Level, a Roof, or the ground level. |
+| `x` | integer | `0` | ≥ -2147483648, ≤ 2147483647 | Region column (x / shadowRegion). |
+| `z` | integer | `0` | ≥ -2147483648, ≤ 2147483647 | Region row (z / shadowRegion). |
 
 ## `structure/Wall`
 

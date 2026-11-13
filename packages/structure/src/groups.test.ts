@@ -11,6 +11,7 @@ import {
   Materials,
   Mesh3d,
   RenderStats,
+  ShadowWhenHidden,
   Visibility,
   worldToScreen,
 } from '@aethervtt/shard-render'
@@ -19,7 +20,7 @@ import { LogResource } from '@aethervtt/shard-runtime'
 import { Transform } from '@aethervtt/shard-transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { roofAt, Structure } from './compile'
-import { Cutout, DoorLeaf, Floor, Level, Roof, Wall } from './components'
+import { Cutout, DoorLeaf, Floor, Level, Roof, StructureShadowProxy, Wall } from './components'
 import { chunkKey, insideRing } from './geometry'
 import { type Rig, rig } from './harness'
 import { planarBarriers } from './planar'
@@ -116,16 +117,22 @@ describe('levels and roofs', () => {
     for (const group of [upper, roof]) {
       const meshes = groupMeshes(world, group)
       expect(meshes.length, `${group}`).toBeGreaterThan(1)
+      // Every mesh whose flags change writes its slot: each chunk mesh, and a shadow proxy (0116)
+      // unless it casts while hidden (a roof's), when it was shadow-only already.
+      const writes = meshes.filter(
+        (e) => !world.has(e, StructureShadowProxy) || !world.has(e, ShadowWhenHidden),
+      ).length
+      expect(meshes.some((e) => world.has(e, StructureShadowProxy))).toBe(true)
       const rebuilt = state.chunksRebuilt
       world.add(group, Visibility, { mode: 'hidden' })
       r.frame()
       expect(stats.lastFrame.chunksRebuilt).toBe(0)
       expect(stats.lastFrame.bytes.meshes).toBe(0)
-      expect(stats.lastFrame.bytes.instances).toBe(meshes.length * RECORD_BYTES)
+      expect(stats.lastFrame.bytes.instances).toBe(writes * RECORD_BYTES)
       world.set(group, Visibility, { mode: 'inherit' })
       r.frame()
       expect(stats.lastFrame.bytes.meshes).toBe(0)
-      expect(stats.lastFrame.bytes.instances).toBe(meshes.length * RECORD_BYTES)
+      expect(stats.lastFrame.bytes.instances).toBe(writes * RECORD_BYTES)
       expect(state.chunksRebuilt).toBe(rebuilt)
     }
     const described = state.describe()

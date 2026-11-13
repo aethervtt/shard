@@ -177,14 +177,31 @@ export async function captureShadowMap(
         ? `camera:${camera}`
         : world.resource(Views).list.find((v) => cameraOf(v))?.name
     const pv = viewName ? state.views.get(viewName) : undefined
-    if (!pv?.cascades.texture || layer >= pv.cascades.count) throw noShadow('no cascades rendered')
-    return readTextureLayer(gpu, pv.cascades.texture, layer)
+    // Cached cascades (0116) keep their dynamic layers at 4–7, after the static ones.
+    const c = pv?.cascades
+    const shown = c && (layer < c.count || (c.cached && layer >= 4 && layer < 4 + c.count))
+    if (!c?.texture || !shown) throw noShadow('no cascades rendered')
+    return readTextureLayer(gpu, c.texture, layer)
   }
   const r = lights.byEntity.get(light)
   if (!r) throw noShadow('not a light')
   if (r.shadowIndex < 0) throw noShadow('no shadow map this frame (budget or shadows off)')
-  if (r.kind === 1) return readTextureLayer(gpu, local.spotTexture!, r.shadowIndex)
-  return readTextureLayer(gpu, local.pointTexture!, r.shadowIndex * 6 + Math.min(5, layer))
+  // A cached light's dynamic layer (0116): layer 1 of a spot, 6–11 of a point light.
+  if (r.kind === 1) {
+    const dynamic = layer >= 1 && r.cachedShadow
+    return readTextureLayer(
+      gpu,
+      local.spotTexture!,
+      dynamic ? local.spots.length + r.shadowIndex : r.shadowIndex,
+    )
+  }
+  const face = Math.min(5, layer % 6)
+  const dynamic = layer >= 6 && r.cachedShadow
+  return readTextureLayer(
+    gpu,
+    local.pointTexture!,
+    (dynamic ? local.points.length * 6 : 0) + r.shadowIndex * 6 + face,
+  )
 }
 
 /** The lighting section of `render.describe`: per view lights, clusters, shadows, uploads. */

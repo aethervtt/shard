@@ -38,16 +38,18 @@ import { Cutaway, CutawayPath, type CutawaySupport, CutawayView } from './cutawa
 import { DataStore, dataEntry } from './data-store'
 import { addDisplayNodes } from './display-nodes'
 import { Environments, environmentParams } from './environment-state'
-import { addRenderFeatures } from './features'
-import { FoliagePath } from './foliage-path'
+import { addRenderFeatures, warnFeatureMissing } from './features'
+import { FoliagePath, type FoliageSupport } from './foliage-path'
 import { ShaderGlobals, ShaderGlobalsData } from './globals'
 import { GpuAssets, GpuAssetsResource } from './gpu-assets'
 import { type ColorAttachment, type NodeContext, RenderPhase, type RenderView } from './graph'
 import { clearHealthIssue, MaterialFallbacks, raiseHealthIssue } from './health'
 import {
+  CasterClass,
   type CullParams,
   DeformPath,
   type DrawList,
+  DynamicCaster,
   InstanceData,
   InstanceFlags,
   InstanceSlot,
@@ -75,6 +77,7 @@ import {
   DirectionalLight,
   extractLights,
   LightingSettings,
+  type LightRecord,
   LightStore,
   Lights,
   observeLightRemovals,
@@ -91,6 +94,7 @@ import {
   variantCull,
 } from './material-pipelines'
 import { isTransparent, type MaterialType } from './materials'
+import { Occluder, OcclusionCulling, OcclusionPath } from './occlusion'
 import { Outline, OutlinePath, observeOutlinesWithoutPass } from './outline'
 import { PixelPerfect, PixelPerfectPath, PixelTargets } from './pixel-perfect'
 import { Gpu, Graph, RenderDescribers, RenderSet, Shaders, Views } from './plugin'
@@ -115,6 +119,7 @@ import {
   ScreenEffects,
 } from './screen-effects'
 import { ViewUniform, viewLayout } from './shaders'
+import { sliceFrustum } from './shadow-volume'
 import {
   assignLocalShadows,
   Cascades,
@@ -124,6 +129,7 @@ import {
   LocalShadows,
   markShadowDrawn,
   packShadowData,
+  pointTanHalf,
   SHADOW_DATA_FLOATS,
   ShadowPassUniforms,
   ShadowsResource,
@@ -170,6 +176,8 @@ export { Mesh3d, MeshMaterial }
 /** Per camera view: uniforms, clusters, lights, and shadows, and the bind groups over them. */
 export interface ViewGpu {
   uniform: GpuBuffer
+  /** Swaying foliage casts into this camera's nearest cascade this frame (0045, 0116). */
+  foliageAnimated: boolean
   /** This frame's SSAO texture, when the camera has Ssao. */
   ao: GPUTexture | undefined
   lightList: ViewLightList
@@ -211,6 +219,10 @@ export interface ForwardState {
   shadowSampler: GPUSampler | undefined
   /** Frame counter, so shared passes (local shadows) run once per frame. */
   frame: number
+  /** The driving camera's view frustum, which local lights' shadow volumes must reach (0116). */
+  localPlanes: Float32Array
+  /** Clears a rectangle of a cached shadow layer (0116), and the GPU generation it's for. */
+  clearRect: { pipeline: GPURenderPipeline | undefined; generation: number }
   /** Last warnings, so each is logged once per change. */
   warned: { budget: string; overflow: string }
   /** Time, delta time, frame and plugin slots for shaders (`shard::globals`, ShaderGlobals). */
@@ -295,6 +307,38 @@ const shadowCull: CullParams = {
   layers: 0xffffffff,
 }
 
+/** Occluders and occlusion cameras without occlusionPlugin cull nothing: says so once (0116). */
+const warnOcclusionMissing = defineSystem({
+  name: 'render/occlusion-missing',
+  description: 'Warns once when OcclusionCulling or Occluder is used without occlusionPlugin.',
+  setup: (world) => ({
+    cameras: world.query({ with: [OcclusionCulling] }),
+    occluders: world.query({ with: [Occluder] }),
+  }),
+  run: ({ cameras, occluders }, world) => {
+    if (world.hasResource(OcclusionPath)) return
+    const any = (q: typeof cameras) => q.tables.some((t) => t.count > 0)
+    if (any(cameras) || any(occluders))
+      warnFeatureMissing(
+        world,
+        'An entity has OcclusionCulling or Occluder',
+        'occlusionPlugin',
+        'nothing is occlusion culled',
+      )
+  },
+})
+
+/** A local light's shadow volumes: swept away from it, to its range (0116). */
+function setLocalSweep(view: ShadowViewDraw, r: LightRecord, margin: number): void {
+  view.sweepMode = 2
+  view.sweep[0] = r.x
+  view.sweep[1] = r.y
+  view.sweep[2] = r.z
+  view.sweep[3] = r.range
+  view.margin = margin
+  view.minRadius = 0
+}
+
 /** Culling parameters of a camera: its (possibly frozen) frustum, eye, and LOD scale. */
 function cameraParams(cam: CameraData, out: CullParams): CullParams {
   out.planes = cam.frozenFrustum ?? cam.frustum
@@ -324,6 +368,7 @@ export const forwardQueue = defineSystem({
     const shadows = world.resource(ShadowsResource)
     const settings = world.resource(LightingSettings)
     const stats = world.resource(RenderStats)
+    const foliage = world.tryResource(FoliagePath)
     stats.clear()
     state.frame++
     ensureLayouts(gpu, state, world.resource(GpuAssetsResource), store)
@@ -343,11 +388,14 @@ export const forwardQueue = defineSystem({
     // Camera views first: they choose LOD levels, which their shadow views reuse.
     let main: CameraData | undefined
     let mainOrder = Number.POSITIVE_INFINITY
+    const occlusion = world.tryResource(OcclusionPath)
     for (const view of world.resource(Views).list) {
       const cam = cameraOf(view)
       if (!cam) continue
       cam.lodCapacity = store.capacity
       const params = cameraParams(cam, cameraCull)
+      // What its occluders hide this frame (0116).
+      params.occlusion = occlusion?.bufferOf(cam.entity)
       const forwardOnly = cam.deferred ? cam.forwardOnly : undefined
       if (gpuCull) {
         culler.add(store, cam.draws, params, culler.lodCamera(cam.entity), forwardOnly)
@@ -389,37 +437,84 @@ export const forwardQueue = defineSystem({
     }
     const cullShadow = (
       cam: CameraData,
-      draws: DrawList,
+      view: ShadowViewDraw,
       planes: Float32Array,
       box?: Float32Array,
       own = false,
     ) => {
       const params = shadowParams(cam, planes, own)
+      // A camera's dynamic casters whose shadows fall where its occluders hide them (0116).
+      const buffer = own && view.sweepMode === 1 ? occlusion?.bufferOf(cam.entity) : undefined
+      params.receiver = buffer?.shadows ? buffer : undefined
+      if (params.receiver) params.receiverFloor = store.casterFloor()
+      params.classes = view.classes
+      params.sweepMode = view.sweepMode
+      params.sweep = view.sweep
+      params.margin = view.margin
+      params.minRadius = view.minRadius
       if (gpuCull) {
-        culler.add(store, draws, params, culler.lodCamera(cam.entity))
+        culler.add(store, view.draws, params, culler.lodCamera(cam.entity))
         // No CPU cull to take a union from: fit to every caster instead.
         if (box) store.casterBounds(box)
         return true
       }
-      store.cullCpu(draws, params, box)
-      return draws.visible > 0
+      store.cullCpu(view.draws, params, box)
+      return view.draws.visible > 0
+    }
+    // A local light's views (0116): its static view when cached, redrawn where static casters
+    // changed, and a dynamic one over it. Returns whether the dynamic one has casters.
+    const queueLocalView = (
+      view: ShadowViewDraw,
+      dyn: ShadowViewDraw,
+      r: LightRecord,
+      tanHalf: number,
+    ): boolean => {
+      view.offset = shadows.uniforms.push(view.viewProj)
+      dyn.offset = view.offset
+      dyn.viewProj.set(view.viewProj)
+      const texel = (2 * r.range * tanHalf) / settings.shadowMapSize
+      const margin = texel * (2 + r.shadowSoftness + r.shadowNormalBias)
+      dyn.redraw = false
+      if (!r.cachedShadow) {
+        view.classes = CasterClass.all
+        setLocalSweep(view, r, margin)
+        cullShadow(main!, view, state.localPlanes)
+        view.redraw = true
+        return false
+      }
+      view.classes = CasterClass.static
+      view.sweepMode = 0
+      view.margin = 0
+      view.redraw = shadowRedraw(view, true, store)
+      if (view.redraw) cullShadow(main!, view, view.frustum)
+      if (store.dynamicCasters === 0) return false
+      dyn.classes = CasterClass.dynamic
+      setLocalSweep(dyn, r, margin)
+      if (!store.anyDynamicIn(state.localPlanes, 2, dyn.sweep, margin, 0)) return false
+      dyn.redraw = true
+      return cullShadow(main!, dyn, state.localPlanes)
     }
     const local = shadows.local
     fitLocalShadows(local, settings.shadowMapSize)
-    // Cached shadow maps (0055) redraw only when something they show changed.
+    store.staticAfterFrames = settings.staticAfterFrames
+    // Cached shadow maps (0055) redraw only where something they show changed (0116).
     store.checkMeshVersions()
+    local.spotDynamicOn = 0
+    local.pointDynamicOn = 0
     if (main) {
+      // Shadows whose volume misses the driving camera's view can't be seen (0116).
+      sliceFrustum(state.localPlanes, 0, main, main.near, main.far > 0 ? main.far : 1e7)
       for (let i = 0; i < local.spots.length; i++) {
-        const view = local.spotViews[i]!
-        cullShadow(main, view.draws, view.frustum)
-        view.offset = shadows.uniforms.push(view.viewProj)
-        view.redraw = shadowRedraw(view, local.spots[i]?.cachedShadow ?? false, store)
+        const r = local.spots[i]!
+        const tanHalf = local.spotParams[i * 4]!
+        if (queueLocalView(local.spotViews[i]!, local.spotDynamic[i]!, r, tanHalf))
+          local.spotDynamicOn |= 1 << i
       }
+      const pointTan = pointTanHalf(settings.shadowMapSize)
       for (let i = 0; i < local.points.length * 6; i++) {
-        const view = local.pointViews[i]!
-        cullShadow(main, view.draws, view.frustum)
-        view.offset = shadows.uniforms.push(view.viewProj)
-        view.redraw = shadowRedraw(view, local.points[(i / 6) | 0]?.cachedShadow ?? false, store)
+        const r = local.points[(i / 6) | 0]!
+        if (queueLocalView(local.pointViews[i]!, local.pointDynamic[i]!, r, pointTan))
+          local.pointDynamicOn |= 1 << ((i / 6) | 0)
       }
     }
 
@@ -445,13 +540,22 @@ export const forwardQueue = defineSystem({
       }
       const sun = lights.shadowSun
       if (sun) {
-        fitCascades(pv.cascades, cam, sun, settings.cascadeMapSize, (v, planes, box) =>
-          cullShadow(cam, v.draws, planes, box, true),
+        // Swaying foliage (0045) draws into the nearest cascade's dynamic layer each frame.
+        pv.foliageAnimated = foliage?.animatedShadows(cam) ?? false
+        fitCascades(
+          pv.cascades,
+          cam,
+          sun,
+          settings.cascadeMapSize,
+          store,
+          state.frame,
+          pv.foliageAnimated,
+          (v, planes, box) => cullShadow(cam, v, planes, box, true),
         )
         for (let i = 0; i < pv.cascades.count; i++) {
           const v = pv.cascades.views[i]!
           v.offset = shadows.uniforms.push(v.viewProj)
-          v.redraw = shadowRedraw(v, sun.cached, store)
+          pv.cascades.dynamic[i]!.offset = v.offset
         }
       } else {
         pv.cascades.count = 0
@@ -506,6 +610,7 @@ function viewGpu(gpu: GpuContext, state: ForwardState, name: string): ViewGpu {
         size: SHADOW_DATA_FLOATS * 4,
       }),
       cascades: new Cascades(),
+      foliageAnimated: false,
       ao: undefined,
       bindGroup: undefined,
       bound: '',
@@ -615,7 +720,11 @@ export const upload = defineSystem({
     const culler = world.resource(Culler)
     if (culler.active) {
       // Hidden sets (0070) upload for the GPU cull; CPU culls read their bits.
-      culler.prepare(store, world.tryResource(HiddenSetsResource))
+      culler.prepare(
+        store,
+        world.tryResource(HiddenSetsResource),
+        world.resource(GpuAssetsResource),
+      )
       store.gpuVisible = culler.visible
     }
     store.finishFrame()
@@ -817,7 +926,7 @@ export function drawMaterials(
         boundIndices = gm.indices
       }
       if (item.indirect >= 0) renderPass.drawIndexedIndirect(args, item.indirect)
-      else renderPass.drawIndexed(gm.count, item.count, 0, gm.baseVertex, item.first)
+      else renderPass.drawIndexed(gm.count, item.count, gm.firstIndex, gm.baseVertex, item.first)
     } else if (item.indirect >= 0) {
       renderPass.drawIndirect(args, item.indirect)
     } else {
@@ -1332,7 +1441,101 @@ function endShadowView(ctx: NodeContext, view: ShadowViewDraw): void {
   else view.drawn = false
 }
 
-/** Renders the camera's cascades: one depth layer per cascade. */
+/** The pipeline that clears a rectangle of a cached shadow layer (0116), once ready. */
+function clearRectPipeline(ctx: NodeContext, state: ForwardState): GPURenderPipeline | undefined {
+  const c = state.clearRect
+  const gpu = ctx.gpu
+  if (c.generation === gpu.generation && c.pipeline) return c.pipeline
+  // shard::fullscreen's triangle sits at depth 0: the far plane, a cleared layer's value.
+  const module = ctx.world.resource(Shaders).module(gpu, { root: 'shard::fullscreen' })
+  if (!module) return undefined
+  c.pipeline = gpu.pipelines.render({
+    label: 'shadows/clear-rect',
+    layout: gpu.layouts.pipelineLayout({ label: 'shadows/clear-rect', bindGroupLayouts: [] }),
+    vertex: { module, entryPoint: 'vs' },
+    primitive: { topology: 'triangle-list' },
+    depthStencil: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'always' },
+  })
+  c.generation = gpu.generation
+  return c.pipeline
+}
+
+function layerView(texture: GPUTexture, layer: number): GPUTextureView {
+  return texture.createView({ dimension: '2d', baseArrayLayer: layer, arrayLayerCount: 1 })
+}
+
+/**
+ * Draws a cached light's static view, whole or only its rect (0116). A rect redraw that can't
+ * clear yet (its pipeline compiling) leaves the layer incomplete: it redraws whole next frame.
+ */
+function drawStaticView(
+  ctx: NodeContext,
+  state: ForwardState,
+  texture: GPUTexture,
+  view: ShadowViewDraw,
+  label: string,
+  foliage?: FoliageSupport,
+  cam?: CameraData,
+  cascade = 0,
+): void {
+  if (!beginShadowView(ctx, view)) return
+  const clear = view.rect ? clearRectPipeline(ctx, state) : undefined
+  if (view.rect && !clear) {
+    view.drawn = false
+    return
+  }
+  const shadows = ctx.world.resource(ShadowsResource)
+  drawShadowCasters(
+    ctx,
+    layerView(texture, view.layer),
+    view,
+    view.offset,
+    shadows.uniforms,
+    state.pipelines,
+    state.layouts.shadowView,
+    label,
+    foliage,
+    cam,
+    cascade,
+    clear,
+  )
+  endShadowView(ctx, view)
+}
+
+/** Draws a cached light's dynamic view over its static one, when the queue asked for it (0116). */
+function drawDynamicView(
+  ctx: NodeContext,
+  state: ForwardState,
+  texture: GPUTexture,
+  view: ShadowViewDraw,
+  label: string,
+  foliage?: FoliageSupport,
+  cam?: CameraData,
+  cascade = 0,
+): void {
+  if (!view.redraw) return
+  ctx.world.resource(RenderStats).current.shadowMapsRendered++
+  const shadows = ctx.world.resource(ShadowsResource)
+  drawShadowCasters(
+    ctx,
+    layerView(texture, view.layer),
+    view,
+    view.offset,
+    shadows.uniforms,
+    state.pipelines,
+    state.layouts.shadowView,
+    label,
+    foliage,
+    cam,
+    cascade,
+  )
+  view.drawn = true
+}
+
+/**
+ * Renders the camera's cascades: one depth layer per cascade, or for a cached sun (0116) a static
+ * layer redrawn where it changed and a dynamic layer over it.
+ */
 function cascadeNode(state: ForwardState) {
   return {
     kind: 'raw' as const,
@@ -1343,31 +1546,36 @@ function cascadeNode(state: ForwardState) {
     writes: ['shadow-cascades'],
     run: (ctx: NodeContext) => {
       const pv = state.views.get(ctx.view.name)!
-      const shadows = ctx.world.resource(ShadowsResource)
+      const cascades = pv.cascades
       const size = ctx.world.resource(LightingSettings).cascadeMapSize
-      const texture = pv.cascades.ensureTexture(ctx.gpu, size, ctx.view.name)
-      // Swaying foliage (0045) keeps the nearest cascade (where it casts) from going stale.
+      const texture = cascades.ensureTexture(ctx.gpu, size, ctx.view.name)
       const foliage = ctx.world.tryResource(FoliagePath)
       const cam = cameraOf(ctx.view)!
-      const animated = foliage?.animatedShadows(cam) ?? false
-      for (let i = 0; i < pv.cascades.count; i++) {
-        const view = pv.cascades.views[i]!
-        if (animated && i === 0) view.redraw = true
-        if (!beginShadowView(ctx, view)) continue
-        drawShadowCasters(
+      // Swaying foliage (0045) casts each frame: into the dynamic layer when cached, else it keeps
+      // the nearest cascade redrawing.
+      const animated = pv.foliageAnimated
+      // Compiled ahead, so the first rect redraw doesn't fall back to a full one.
+      if (cascades.cached) clearRectPipeline(ctx, state)
+      for (let i = 0; i < cascades.count; i++) {
+        const view = cascades.views[i]!
+        const label = `shadows/cascade${i}`
+        if (!cascades.cached) {
+          if (animated && i === 0) view.redraw = true
+          drawStaticView(ctx, state, texture, view, label, foliage, cam, i)
+          continue
+        }
+        drawStaticView(ctx, state, texture, view, label, animated ? undefined : foliage, cam, i)
+        const dynamic = cascades.dynamic[i]!
+        drawDynamicView(
           ctx,
-          texture.createView({ dimension: '2d', baseArrayLayer: i, arrayLayerCount: 1 }),
-          view,
-          view.offset,
-          shadows.uniforms,
-          state.pipelines,
-          state.layouts.shadowView,
-          `shadows/cascade${i}`,
-          foliage,
+          state,
+          texture,
+          dynamic,
+          `${label}/dynamic`,
+          animated ? foliage : undefined,
           cam,
           i,
         )
-        endShadowView(ctx, view)
       }
     },
   }
@@ -1388,37 +1596,26 @@ function localShadowNode(state: ForwardState) {
       local.renderedFrame = state.frame
       if (local.spots.length === 0 && local.points.length === 0) return
       local.ensureTextures(ctx.gpu, ctx.world.resource(LightingSettings).shadowMapSize)
-      const layer = (texture: GPUTexture, i: number) =>
-        texture.createView({ dimension: '2d', baseArrayLayer: i, arrayLayerCount: 1 })
+      if (local.anyCached) clearRectPipeline(ctx, state)
       for (let i = 0; i < local.spots.length; i++) {
-        const view = local.spotViews[i]!
-        if (!beginShadowView(ctx, view)) continue
-        drawShadowCasters(
+        drawStaticView(ctx, state, local.spotTexture!, local.spotViews[i]!, `shadows/spot${i}`)
+        drawDynamicView(
           ctx,
-          layer(local.spotTexture!, i),
-          view,
-          view.offset,
-          shadows.uniforms,
-          state.pipelines,
-          state.layouts.shadowView,
-          `shadows/spot${i}`,
+          state,
+          local.spotTexture!,
+          local.spotDynamic[i]!,
+          `shadows/spot${i}/dynamic`,
         )
-        endShadowView(ctx, view)
       }
       for (let i = 0; i < local.points.length * 6; i++) {
-        const view = local.pointViews[i]!
-        if (!beginShadowView(ctx, view)) continue
-        drawShadowCasters(
+        drawStaticView(ctx, state, local.pointTexture!, local.pointViews[i]!, `shadows/point${i}`)
+        drawDynamicView(
           ctx,
-          layer(local.pointTexture!, i),
-          view,
-          view.offset,
-          shadows.uniforms,
-          state.pipelines,
-          state.layouts.shadowView,
-          `shadows/point${i}`,
+          state,
+          local.pointTexture!,
+          local.pointDynamic[i]!,
+          `shadows/point${i}/dynamic`,
         )
-        endShadowView(ctx, view)
       }
     },
   }
@@ -1784,6 +1981,9 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       NotShadowCaster,
       NotShadowReceiver,
       ShadowWhenHidden,
+      DynamicCaster,
+      OcclusionCulling,
+      Occluder,
       SkinnedMesh,
       VisibilityRange,
       AmbientLight,
@@ -1800,6 +2000,7 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       Cutaway,
       CutawayView,
       CutawayPath,
+      OcclusionPath,
       // interior lighting (0069)
       InteriorPath,
       Cameras,
@@ -1896,6 +2097,7 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
           prepareInstances.inSet(RenderSet.Prepare),
           prepareLights.inSet(RenderSet.Prepare),
           forwardQueue.inSet(RenderSet.Queue),
+          warnOcclusionMissing.inSet(RenderSet.Queue),
           upload.inSet(RenderSet.Upload),
         )
     },
@@ -1956,6 +2158,8 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
           white: undefined,
           shadowSampler: undefined,
           frame: 0,
+          localPlanes: new Float32Array(24),
+          clearRect: { pipeline: undefined, generation: -1 },
           warned: { budget: '', overflow: '' },
           globals: new GpuBuffer(gpu, {
             label: 'globals',

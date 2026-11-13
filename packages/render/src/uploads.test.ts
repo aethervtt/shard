@@ -7,6 +7,7 @@ import { lookAt, Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { MaterialAsset, Materials, Meshes, RenderTargets } from './assets'
 import { Camera3d, Exposure } from './camera'
+import { ForwardStateResource } from './forward'
 import { Mesh3d, MeshMaterial } from './instances'
 import { DirectionalLight, PointLight } from './lights'
 import { describeRender, Gpu, renderPlugin } from './plugin'
@@ -160,24 +161,35 @@ describe('cached shadows', () => {
     target.destroy()
   })
 
-  it("'on-change' draws none on a still frame, and all when the light turns", async () => {
+  it("'on-change' draws none on a still frame, and one cascade a frame when the light turns (0116)", async () => {
     const { app, world, sun, box, target, stats } = await scene('on-change')
+    const cascades = () =>
+      world.resource(ForwardStateResource).views.values().next().value!.cascades
     app.update(1 / 60)
     expect(stats.lastFrame.shadowMapsRendered).toBe(0)
     world.set(sun, Transform, { rotation: lookAt([-3, 6, 2], [0, 0, 0]) })
-    app.update(1 / 60)
-    expect(stats.lastFrame.shadowMapsRendered).toBe(4)
+    // Every cascade must redraw; at most one full redraw a frame, the others wait their turn.
+    for (let i = 0; i < 4; i++) {
+      app.update(1 / 60)
+      expect(stats.lastFrame.shadowMapsRendered, `frame ${i}`).toBe(1)
+      expect(cascades().fullRedraws).toBe(1)
+    }
     app.update(1 / 60)
     expect(stats.lastFrame.shadowMapsRendered).toBe(0)
-    // A caster moving redraws the cascades that hold it (at least the nearest).
+    // A caster that starts moving leaves the static layers where it was (rect redraws only) and
+    // casts from the dynamic layers.
     world.set(box, Transform, { translation: [0.5, 0.5, 0] })
     app.update(1 / 60)
-    expect(stats.lastFrame.shadowMapsRendered).toBeGreaterThan(0)
-    // Hiding a caster changes what casts: every cached view redraws once.
-    world.set(box, Transform, { translation: [0.5, 0.5, 0] })
+    expect(cascades().fullRedraws).toBe(0)
+    expect(cascades().rectRedraws).toBeGreaterThan(0)
+    expect(cascades().dynamic.some((v) => v.redraw)).toBe(true)
+    // Moving again, or going away while dynamic: no static redraw at all.
+    world.set(box, Transform, { translation: [0.6, 0.5, 0] })
+    app.update(1 / 60)
+    expect(cascades().fullRedraws + cascades().rectRedraws).toBe(0)
     world.remove(box, Mesh3d)
     app.update(1 / 60)
-    expect(stats.lastFrame.shadowMapsRendered).toBe(4)
+    expect(cascades().fullRedraws + cascades().rectRedraws).toBe(0)
     app.update(1 / 60)
     expect(stats.lastFrame.shadowMapsRendered).toBe(0)
     await app.dispose()

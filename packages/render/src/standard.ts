@@ -12,6 +12,7 @@ import { fxaaPlugin } from './fxaa'
 import { gizmosPlugin } from './gizmos-plugin'
 import { interiorPlugin } from './interior-plugin'
 import { lensPlugin } from './lens-plugin'
+import { occlusionPlugin } from './occlusion-plugin'
 import { opaqueCopyPlugin } from './opaque-copy'
 import { outlinePlugin } from './outline-plugin'
 import { pickingPlugin } from './picking-plugin'
@@ -47,6 +48,7 @@ export function forwardPlugin(options: ForwardPluginOptions = {}): Plugin {
         toonPlugin,
         cutawayPlugin,
         viewVisibilityPlugin,
+        occlusionPlugin,
         interiorPlugin,
         shadowCatcherPlugin,
         foliagePlugin,

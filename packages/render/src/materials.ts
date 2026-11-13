@@ -58,6 +58,11 @@ export interface MaterialTypeOptions<F extends Fields> {
    */
   pickable?: boolean
   /**
+   * Its vertex stage moves vertices over time (wind, vertex animation): its instances are dynamic
+   * shadow casters, drawn into cached lights' dynamic layers each frame (0116). Default false.
+   */
+  animatesVertices?: boolean
+  /**
    * Where `shader` comes from when a plugin registers it, e.g. `surfacePlugin from
    * '@aethervtt/shard-render/surface'`: a draw without it logs `render/feature-missing` naming it.
    */
@@ -112,6 +117,8 @@ export class MaterialType {
   colors: Set<string>
   /** Whether picks can hit draws of this type (MaterialTypeOptions.pickable). */
   pickable = true
+  /** Whether its vertex stage animates (MaterialTypeOptions.animatesVertices, 0116). */
+  animatesVertices = false
   /** The plugin that registers its shader (MaterialTypeOptions.plugin). */
   plugin: string | undefined
   /** Fields it no longer has, and what replaced them (MaterialTypeOptions.removed). */
@@ -161,6 +168,7 @@ export class MaterialType {
     this.extends = options.extends ?? 'standard'
     this.standardTextures = options.standardTextures ?? true
     this.pickable = options.pickable ?? true
+    this.animatesVertices = options.animatesVertices ?? false
     this.plugin = options.plugin
     this.removed = options.removed ?? {}
     this.schema = schema
@@ -342,6 +350,7 @@ function signatureOf(ext: string, options: MaterialTypeOptions<Fields>, fields: 
     colors: options.colors ?? [],
     standardTextures: options.standardTextures ?? true,
     pickable: options.pickable ?? true,
+    animatesVertices: options.animatesVertices ?? false,
     plugin: options.plugin ?? null,
     removed: options.removed ?? {},
     description: options.description ?? null,

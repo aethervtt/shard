@@ -735,7 +735,7 @@ function outlineNode(world: World): NodeDescriptor {
         pass.setVertexBuffer(4, gm.tangents)
         if (gm.indices) {
           pass.setIndexBuffer(gm.indices, gm.indexFormat)
-          pass.drawIndexed(gm.count, item.count, 0, gm.baseVertex, item.first)
+          pass.drawIndexed(gm.count, item.count, gm.firstIndex, gm.baseVertex, item.first)
         } else pass.draw(gm.count, item.count, 0, item.first)
       }
       pass.end()

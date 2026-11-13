@@ -54,6 +54,7 @@ const PLUGINS: Record<string, (m: Mod) => PluginLike[]> = {
     m.lensPlugin as PluginLike,
     m.cutawayPlugin as PluginLike,
     m.viewVisibilityPlugin as PluginLike,
+    m.occlusionPlugin as PluginLike,
     m.interiorPlugin as PluginLike,
     m.outlinePlugin as PluginLike,
     m.shadowCatcherPlugin as PluginLike,

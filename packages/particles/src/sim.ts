@@ -1232,7 +1232,7 @@ export function drawNode(): NodeDescriptor {
             pass.setVertexBuffer(0, gm.positions)
             if (gm.indices) {
               pass.setIndexBuffer(gm.indices, gm.indexFormat)
-              pass.drawIndexed(gm.count, e.capacity)
+              pass.drawIndexed(gm.count, e.capacity, gm.firstIndex, gm.baseVertex)
             } else pass.draw(gm.count, e.capacity)
           } else {
             pass.draw(6, e.capacity)

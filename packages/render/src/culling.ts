@@ -1,6 +1,8 @@
 import { defineResource } from '@aethervtt/shard-core'
 import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
+import type { LinkRequest } from '@aethervtt/shard-shader'
 import { readBuffer } from './debug-views'
+import type { GpuAssets } from './gpu-assets'
 import type { NodeContext } from './graph'
 import {
   type CullParams,
@@ -10,20 +12,28 @@ import {
   LOD_UNSET,
   SLOT_MASK,
 } from './instances'
+import { OcclusionPath } from './occlusion'
 import { Shaders } from './plugin'
 import { NO_HIDDEN } from './view-visibility'
 import type { HiddenSets } from './view-visibility-plugin'
 
 /** Words per indirect draw: indexed (count, instances, first index, base vertex, first instance). */
 const ARGS_WORDS = 5
-const VIEW_FLOATS = 36
-const BATCH_WORDS = 8
+const VIEW_FLOATS = 44
+const BATCH_WORDS = 12
 const LOD_WORDS = 20
 
 const VIEW_CASTERS = 1
 const VIEW_UPDATE_LOD = 2
 const VIEW_ORTHO = 4
 const VIEW_NO_PLANES = 8
+// 16 is VIEW_NO_EYE, set in prepare.
+/** Shadow views of cached lights draw one class of caster (0116). */
+const VIEW_STATIC = 32
+const VIEW_DYNAMIC = 64
+/** Shadow volumes (0116): swept along a sun, or away from a local light. */
+const VIEW_SWEEP = 128
+const VIEW_SWEEP_POINT = 256
 
 /** Drawn from CPU lists (blended, or on the ground, 0057): the GPU cull skips it. */
 const BATCH_TRANSPARENT = 1
@@ -44,6 +54,14 @@ interface CullView {
   layers: number
   /** Its hidden set's first word in `HiddenSets.data` (0070), or NO_HIDDEN. */
   hiddenBase: number
+  /** Shadow volume and size tests (0116; see CullParams). */
+  sweep: Float32Array
+  margin: number
+  minRadius: number
+  /** Occlusion (0116): the camera's layer + 1 in the GPU copy, for its own or its shadows' test. */
+  occlusion: number
+  receiver: number
+  floor: number
 }
 
 /**
@@ -58,6 +76,8 @@ export class GpuCuller {
   enabled = true
   /** Views this frame with a hidden set (0070): the cull links its HIDDEN variant. */
   private hiddenViews = 0
+  /** Views with an occlusion test this frame (0116). */
+  private occlusionViews = 0
   private readonly views: CullView[] = []
   private viewCount = 0
   private cameraViews = 0
@@ -83,6 +103,8 @@ export class GpuCuller {
   private lodStateCapacity = 0
   private readonly gpu: GpuContext
   private bindGroups: { key: string; groups: GPUBindGroup[] } | undefined
+  private boundOcclusion: GPUTextureView | undefined
+  private boundUniform: GPUBuffer | undefined
   private readonly readbacks: { buffer: GPUBuffer; busy: boolean; generation: number }[] = []
   /** Visible instances per DrawList, from the last readback (a frame or two late). */
   readonly counts = new WeakMap<DrawList, number>()
@@ -124,6 +146,7 @@ export class GpuCuller {
     this.viewCount = 0
     this.cameraViews = 0
     this.hiddenViews = 0
+    this.occlusionViews = 0
   }
 
   /** The LOD state row of a camera (cameras choose; their shadow views reuse the choice). */
@@ -163,6 +186,12 @@ export class GpuCuller {
         lodCamera: 0,
         layers: 0xffffffff,
         hiddenBase: NO_HIDDEN,
+        sweep: new Float32Array(4),
+        margin: 0,
+        minRadius: 0,
+        occlusion: 0,
+        receiver: 0,
+        floor: 0,
       }
       this.views.push(view)
     }
@@ -177,11 +206,23 @@ export class GpuCuller {
     view.layers = params.layers ?? 0xffffffff
     view.hiddenBase = params.hiddenBase ?? NO_HIDDEN
     if (view.hiddenBase !== NO_HIDDEN) this.hiddenViews++
+    const sweepMode = params.planes ? (params.sweepMode ?? 0) : 0
+    if (sweepMode !== 0) view.sweep.set(params.sweep!)
+    view.margin = params.margin ?? 0
+    view.minRadius = params.minRadius ?? 0
+    const occlusion = params.occlusion
+    view.occlusion = occlusion && occlusion.layer >= 0 ? occlusion.layer + 1 : 0
+    const receiver = sweepMode === 1 ? params.receiver : undefined
+    view.receiver = receiver && receiver.layer >= 0 ? receiver.layer + 1 : 0
+    view.floor = params.receiverFloor ?? 0
+    if (view.occlusion !== 0 || view.receiver !== 0) this.occlusionViews++
     view.flags =
       (params.require & InstanceFlags.Caster ? VIEW_CASTERS : 0) |
       (params.updateLod ? VIEW_UPDATE_LOD : 0) |
       (params.orthographic ? VIEW_ORTHO : 0) |
-      (params.planes ? 0 : VIEW_NO_PLANES)
+      (params.planes ? 0 : VIEW_NO_PLANES) |
+      (params.classes === 1 ? VIEW_STATIC : params.classes === 2 ? VIEW_DYNAMIC : 0) |
+      (sweepMode === 1 ? VIEW_SWEEP : sweepMode === 2 ? VIEW_SWEEP_POINT : 0)
     if (params.updateLod) this.cameraViews = v + 1
     list.cullView = v
     list.culled = 0
@@ -192,12 +233,20 @@ export class GpuCuller {
       forwardOnly.cullView = v
       forwardOnly.visible = this.counts.get(forwardOnly) ?? 0
     }
-    // One indirect draw per live, ready, opaque batch, in draw order.
+    // One indirect draw per live, ready, opaque batch, in draw order. Shadow views skip batches
+    // with no caster of their class (0116).
+    const shadow = (params.require & InstanceFlags.Caster) !== 0
+    const classes = params.classes ?? 0
     let n = 0
     let m = 0
     for (const batch of store.sorted) {
-      if (batch.count === 0 || batch.transparent || batch.ground || !store.anyVisible(batch))
+      if (batch.count === 0 || batch.transparent || batch.ground) continue
+      if (shadow ? !store.anyCaster(batch, classes) : !store.anyVisible(batch)) continue
+      // A small batch the camera's occlusion buffer hides whole draws nothing (0116).
+      if (occlusion && !shadow && !store.anyUnoccluded(batch, occlusion)) {
+        occlusion.culledBatches++
         continue
+      }
       // Waiting on its material's GPU resources: its members count as pending, so readiness
       // checks (settle, asset previews) wait for them.
       if (!batch.ready) {
@@ -226,7 +275,7 @@ export class GpuCuller {
    * ride in the LOD state buffer after its entries: the cull's storage bindings are at WebGPU's
    * guaranteed 8 per stage.
    */
-  prepare(store: InstanceStore, hidden?: HiddenSets): void {
+  prepare(store: InstanceStore, hidden?: HiddenSets, assets?: GpuAssets): void {
     if (this.viewCount === 0) return
     const lodCams = Math.max(1, this.lodCameras.size)
     const hiddenWords = hidden && hidden.sets.size > 0 ? hidden.data.length : 0
@@ -262,12 +311,24 @@ export class GpuCuller {
       const ez = (b[5]! - b[2]!) * 0.5
       this.batchF32[o + 3] = Math.fround(Math.sqrt(ex * ex + ey * ey + ez * ez))
       this.batchData[o + 4] = batch.mesh.drawCount
+      // An arena mesh (0116) lives at its place in the arena's buffers.
+      // Live batches only: asking for a released mesh's GPU copy would place it in the arena again.
+      const placed =
+        batch.count > 0 && batch.mesh.arena !== undefined && assets
+          ? assets.mesh(batch.mesh)
+          : undefined
+      const base = placed?.arena ? placed.baseVertex : batch.mesh.baseVertex
       // 0: not indexed; else 1 + the base vertex (meshes sharing vertex buffers).
-      this.batchData[o + 5] = batch.mesh.indexed ? 1 + batch.mesh.baseVertex : 0
+      this.batchData[o + 5] = batch.mesh.indexed ? 1 + base : 0
       this.batchData[o + 6] = batch.region
       this.batchData[o + 7] =
         (batch.transparent || batch.ground ? BATCH_TRANSPARENT : 0) |
         (batch.ready ? 0 : BATCH_NOT_READY)
+      this.batchData[o + 8] = placed?.arena ? placed.firstIndex : 0
+      // The local box, for the occlusion test (0116): its half extents (the center is the sphere's).
+      this.batchF32[o + 9] = ex
+      this.batchF32[o + 10] = ey
+      this.batchF32[o + 11] = ez
     }
     this.regionSize = Math.max(1, region)
     this.batchBuffer.write(this.batchData, 0, 0, Math.max(1, batches.length) * BATCH_WORDS)
@@ -310,6 +371,13 @@ export class GpuCuller {
       this.viewU32[o + 32] = view.layers
       this.viewU32[o + 33] =
         view.hiddenBase === NO_HIDDEN ? NO_HIDDEN : this.lodStateCapacity + view.hiddenBase
+      this.viewData[o + 34] = view.minRadius
+      this.viewData[o + 35] = view.margin
+      this.viewData.set(view.sweep, o + 36)
+      this.viewU32[o + 40] = view.occlusion
+      this.viewU32[o + 41] = view.receiver
+      this.viewData[o + 42] = view.floor
+      this.viewU32[o + 43] = 0
       // Draw items: byte offsets of their indirect arguments.
       for (const list of [view.list, view.forwardOnly]) {
         if (!list) continue
@@ -336,22 +404,26 @@ export class GpuCuller {
     if (this.viewCount === 0) return
     const gpu = ctx.gpu
     const world = ctx.world
-    // Hidden sets (0070) link the test in, only in frames where a view has one.
+    // Hidden sets (0070) and occlusion (0116) link their tests in only in frames where a view has
+    // one.
     const hidden = this.hiddenViews > 0
-    const module = world.resource(Shaders).module(gpu, hidden ? HIDDEN_REQUEST : CULL_REQUEST)
+    const occ = this.occlusionViews > 0 ? world.tryResource(OcclusionPath)?.gpu(gpu) : undefined
+    const request = cullRequest(hidden, occ !== undefined)
+    const module = world.resource(Shaders).module(gpu, request)
     if (!module) {
       gpu.pipelines.skipped++
       return
     }
-    const layout = cullLayout(gpu)
+    const variant = `${hidden ? '/hidden' : ''}${occ ? '/occlusion' : ''}`
+    const layout = cullLayout(gpu, occ !== undefined)
     const pipelineLayout = gpu.layouts.pipelineLayout({ label: 'cull', bindGroupLayouts: [layout] })
     const reset = gpu.pipelines.compute({
-      label: hidden ? 'cull/reset/hidden' : 'cull/reset',
+      label: `cull/reset${variant}`,
       layout: pipelineLayout,
       compute: { module, entryPoint: 'reset' },
     })
     const cull = gpu.pipelines.compute({
-      label: hidden ? 'cull/instances/hidden' : 'cull/instances',
+      label: `cull/instances${variant}`,
       layout: pipelineLayout,
       compute: { module, entryPoint: 'cull' },
     })
@@ -390,7 +462,13 @@ export class GpuCuller {
       this.lodState.version,
       store.deform.recordBuffer.version,
       ...this.paramBuffers.map((b) => b.version),
+      occ ? 'occlusion' : '',
     ].join('/')
+    if (occ && (this.boundOcclusion !== occ.texture || this.boundUniform !== occ.uniform)) {
+      this.boundOcclusion = occ.texture
+      this.boundUniform = occ.uniform
+      this.bindGroups = undefined
+    }
     if (!this.bindGroups || this.bindGroups.key !== key) {
       this.bindGroups = {
         key,
@@ -408,6 +486,12 @@ export class GpuCuller {
               { binding: 6, resource: { buffer: this.lodState.buffer } },
               { binding: 7, resource: { buffer: params.buffer } },
               { binding: 8, resource: { buffer: store.deform.recordBuffer.gpuBuffer } },
+              ...(occ
+                ? [
+                    { binding: 9, resource: { buffer: occ.uniform } },
+                    { binding: 10, resource: occ.texture },
+                  ]
+                : []),
             ],
           }),
         ),
@@ -527,10 +611,18 @@ export class GpuCuller {
   }
 }
 
-const CULL_REQUEST = { root: 'shard::cull' }
-const HIDDEN_REQUEST = { root: 'shard::cull', defines: { HIDDEN: true } }
+const CULL_REQUESTS: LinkRequest[] = [
+  { root: 'shard::cull' },
+  { root: 'shard::cull', defines: { HIDDEN: true } },
+  { root: 'shard::cull', defines: { OCCLUSION: true } },
+  { root: 'shard::cull', defines: { HIDDEN: true, OCCLUSION: true } },
+]
 
-function cullLayout(gpu: GpuContext): GPUBindGroupLayout {
+function cullRequest(hidden: boolean, occlusion: boolean) {
+  return CULL_REQUESTS[(hidden ? 1 : 0) + (occlusion ? 2 : 0)]!
+}
+
+function cullLayout(gpu: GpuContext, occlusion: boolean): GPUBindGroupLayout {
   const C = GPUShaderStage.COMPUTE
   const read = (binding: number) => ({
     binding,
@@ -542,20 +634,28 @@ function cullLayout(gpu: GpuContext): GPUBindGroupLayout {
     visibility: C,
     buffer: { type: 'storage' as const },
   })
-  return gpu.layouts.bindGroupLayout({
-    label: 'cull',
-    entries: [
-      read(0),
-      read(1),
-      read(2),
-      read(3),
-      write(4),
-      write(5),
-      write(6),
-      { binding: 7, visibility: C, buffer: { type: 'uniform' } },
-      read(8),
-    ],
-  })
+  const entries: GPUBindGroupLayoutEntry[] = [
+    read(0),
+    read(1),
+    read(2),
+    read(3),
+    write(4),
+    write(5),
+    write(6),
+    { binding: 7, visibility: C, buffer: { type: 'uniform' } },
+    read(8),
+  ]
+  // Occlusion (0116): the cameras' projections and pyramids. Not storage: the stage has none left.
+  if (occlusion)
+    entries.push(
+      { binding: 9, visibility: C, buffer: { type: 'uniform' } },
+      {
+        binding: 10,
+        visibility: C,
+        texture: { sampleType: 'unfilterable-float', viewDimension: '2d-array' },
+      },
+    )
+  return gpu.layouts.bindGroupLayout({ label: occlusion ? 'cull/occlusion' : 'cull', entries })
 }
 
 export const Culler = defineResource<GpuCuller>('render/Culler', {

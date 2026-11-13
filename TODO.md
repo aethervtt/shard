@@ -45,14 +45,17 @@ at what it measured, with a note; remove the override and the entry when the mis
 - Lead: terrain/select at 5.6 ms in the descent; capture it (`shard profile`, or the scenario
   test's capture) to see whether it's the quadtree walk or the frames where selection changes most.
 
-### tabletop-max on the laptop (2026-10-08)
+### tabletop-max on the laptop (2026-10-08; 0116, 2026-11-13)
 
-- At 1080p the max fixture's CPU frame is 210.7 ms p95, almost all `render` (210.2 ms; a local
-  probe put `render/shadows/cascades` encoding at about 160 ms and `forward-opaque` at 40), and
-  its GPU frame 25.4 ms (`gpu:shadows` 9.69 ms by ablation). The laptop overrides the frames
-  (232 and 28 ms), `render` and `gpu:shadows`.
-- Lead: per-batch draw encoding for thousands of structure chunks in four cascades (0022's note on
-  one indirect draw per live batch).
+- At 1080p the max fixture's CPU frame was 210.7 ms p95 on the laptop, about 160 ms of it encoding
+  four cascades. 0116 merged structure's casters into shadow proxies and put chunk meshes in one
+  arena: on an Apple M5 Max (not a named machine) `render` is now 14.4 to 18.5 ms p95, the cascade
+  encode about 1 ms. `budgets.json` now asks 20 ms of the laptop, unmeasured.
+- To close: bench tabletop-max on the laptop (`pnpm bench --scenario tabletop-max`). If it meets
+  20 ms, remove this entry; if not, give the laptop its measured number with a note.
+- Lead for the rest: per-batch work over 8,812 single-instance batches, `render/forward-opaque`
+  (7.2 ms encoding) and `render/forward-queue` (6.4 ms: culls and the near-first sort). Merging a
+  chunk's materials, or render bundles for the static draws (0116's decisions), are the next steps.
 
 ## CI speed
 
