@@ -192,6 +192,8 @@ export class PhysicsWorld {
   readonly colliderEntity = new Map<number, Entity>()
   /** Collider entity → the body entity it's attached to (absent: fixed). */
   readonly colliderOwner = new Map<Entity, Entity>()
+  /** Body entity → the collider entities attached to it: `colliderOwner` inverted. */
+  readonly bodyColliders = new Map<Entity, Set<Entity>>()
   /** Shape kind per collider entity, for describe and the overlay. */
   readonly colliderShape = new Map<Entity, Shape>()
   readonly joints = new Map<Entity, { joint: RJoint; a: Entity; b: Entity }>()
@@ -395,11 +397,14 @@ export class PhysicsWorld {
       this.characters.delete(entity)
     }
     // Rapier removes the body's colliders and joints with it.
-    for (const [collider, owner] of this.colliderOwner) {
-      if (owner !== entity) continue
-      this.forgetCollider(collider)
-      if (world.isAlive(collider) && world.has(collider, Collider)) {
-        this.dirtyColliders.add(collider)
+    const attached = this.bodyColliders.get(entity)
+    if (attached) {
+      this.bodyColliders.delete(entity)
+      for (const collider of attached) {
+        this.forgetCollider(collider)
+        if (world.isAlive(collider) && world.has(collider, Collider)) {
+          this.dirtyColliders.add(collider)
+        }
       }
     }
     for (const [jointEntity, j] of this.joints) {
@@ -688,7 +693,7 @@ export class PhysicsWorld {
     this.colliders.set(entity, collider)
     this.colliderEntity.set(collider.handle, entity)
     this.colliderShape.set(entity, shape)
-    this.colliderOwner.set(entity, entity)
+    this.attach(entity, entity)
 
     const kcc = this.raw.createCharacterController(CHARACTER_OFFSET)
     const slope = (Math.min(Math.max(c.maxSlope, 0), 90) * Math.PI) / 180
@@ -737,12 +742,31 @@ export class PhysicsWorld {
     walk(entity)
   }
 
+  /** Records that a collider entity is attached to a body entity. */
+  private attach(collider: Entity, owner: Entity): void {
+    this.colliderOwner.set(collider, owner)
+    let attached = this.bodyColliders.get(owner)
+    if (!attached) {
+      attached = new Set()
+      this.bodyColliders.set(owner, attached)
+    }
+    attached.add(collider)
+  }
+
   private forgetCollider(entity: Entity): void {
     const collider = this.colliders.get(entity)
     if (!collider) return
     this.colliderEntity.delete(collider.handle)
     this.colliders.delete(entity)
-    this.colliderOwner.delete(entity)
+    const owner = this.colliderOwner.get(entity)
+    if (owner !== undefined) {
+      this.colliderOwner.delete(entity)
+      const attached = this.bodyColliders.get(owner)
+      if (attached) {
+        attached.delete(entity)
+        if (attached.size === 0) this.bodyColliders.delete(owner)
+      }
+    }
     this.colliderShape.delete(entity)
     this.meshColliders.delete(entity)
   }
@@ -840,7 +864,7 @@ export class PhysicsWorld {
     this.colliders.set(entity, collider)
     this.colliderEntity.set(collider.handle, entity)
     this.colliderShape.set(entity, c.shape)
-    if (owner !== undefined) this.colliderOwner.set(entity, owner)
+    if (owner !== undefined) this.attach(entity, owner)
     if (mesh) this.meshColliders.set(entity, { mesh, version: mesh.version })
     if (owner !== undefined && world.has(owner, Mass)) this.fixMass(world, owner)
   }
@@ -873,8 +897,7 @@ export class PhysicsWorld {
     const current = record.body.mass()
     if (current > 1e-9) {
       const k = target / current
-      for (const [entity, o] of this.colliderOwner) {
-        if (o !== owner) continue
+      for (const entity of this.bodyColliders.get(owner) ?? []) {
         const collider = this.colliders.get(entity)!
         collider.setDensity(collider.density() * k)
       }

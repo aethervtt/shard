@@ -71,6 +71,36 @@ export const SaveConfig = defineResource<SaveConfigValue>('save/Config', {
   init: () => ({ storage: createMemoryStorage(), readScene: undefined, engine: '0.x' }),
 })
 
+// --- sections ------------------------------------------------------------------------------------
+
+/** What a save section writes and reads back (`defineSaveSection`). */
+export interface SaveSection {
+  /** The section's data for a save, or `undefined` to write nothing. Called by `captureGame`. */
+  capture(world: World): JsonValue | undefined
+  /**
+   * Restores the section's data. `loadGame` calls it after scenes, runtime entities, resources, RNG
+   * streams, and time are restored, and before instances settle; push problems onto
+   * `report.warnings`. Not called when the save has no data for the section.
+   */
+  restore(world: World, data: JsonValue, report: { warnings: ShardError[] }): void | Promise<void>
+  /**
+   * Entities the section saves itself. `captureGame` leaves them and their descendants out of
+   * `spawned` and out of scene diffs; `loadGame` still despawns owned runtime entities, before
+   * `restore` runs.
+   */
+  owns?(world: World, entity: Entity): boolean
+}
+
+const saveSections = new Map<string, SaveSection>()
+
+/**
+ * Adds a section to every save: `captureGame` writes `capture`'s data under `sections[name]` and
+ * `loadGame` hands it back to `restore`. Defining a name again replaces it (hot reload).
+ */
+export function defineSaveSection(name: string, section: SaveSection): void {
+  saveSections.set(name, section)
+}
+
 const SLOT = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
 
 /** The storage key of a slot: `saves/<slot>.json`. */
@@ -130,13 +160,48 @@ function authoredEntities(world: World): Set<Entity> {
   return out
 }
 
-/** Runtime saved entities, parents before children. */
-function runtimeEntities(world: World, authored: Set<Entity>): Entity[] {
+/** Whether an entity or one of its ancestors matches `test`, memoized for one capture. */
+function inSubtreeOf(world: World, test: (e: Entity) => boolean): (e: Entity) => boolean {
+  const known = new Map<Entity, boolean>()
+  const check = (e: Entity): boolean => {
+    let result = known.get(e)
+    if (result !== undefined) return result
+    const parent = world.tryGet(e, ChildOf)?.parent
+    result =
+      test(e) || (parent !== null && parent !== undefined && world.isAlive(parent) && check(parent))
+    known.set(e, result)
+    return result
+  }
+  return check
+}
+
+/** Entities a save section owns, and their descendants; `undefined` when no section owns any. */
+function sectionOwned(world: World): ((e: Entity) => boolean) | undefined {
+  const owners: SaveSection[] = []
+  for (const section of saveSections.values()) if (section.owns) owners.push(section)
+  if (owners.length === 0) return undefined
+  return inSubtreeOf(world, (e) => {
+    for (const section of owners) if (section.owns!(world, e)) return true
+    return false
+  })
+}
+
+/**
+ * Runtime saved entities, parents before children. A `NoSave` entity keeps its whole subtree out
+ * (generated children, and runtime entities parented anywhere under it), and so does an entity
+ * `owned` says a save section saves itself.
+ */
+function runtimeEntities(
+  world: World,
+  authored: Set<Entity>,
+  owned?: (e: Entity) => boolean,
+): Entity[] {
   const out: Entity[] = []
+  const underNoSave = inSubtreeOf(world, (e) => world.has(e, NoSave))
   for (const table of world.allTables()) {
     for (let row = 0; row < table.count; row++) {
       const e = table.entities[row]! as Entity
-      if (isRuntimeSaved(world, e, authored)) out.push(e)
+      if (isRuntimeSaved(world, e, authored) && !underNoSave(e) && !owned?.(e)) out.push(e)
     }
   }
   // Only runtime parents need to come first: scene entities exist before any of these spawn.
@@ -210,7 +275,8 @@ export interface CaptureOptions {
 export function captureGame(world: World, options: CaptureOptions = {}): SaveFile {
   const index = world.tryResource(SceneIndex)
   const authored = authoredEntities(world)
-  const runtime = runtimeEntities(world, authored)
+  const owned = sectionOwned(world)
+  const runtime = runtimeEntities(world, authored, owned)
   const saveId = new Map<Entity, string>()
   for (let i = 0; i < runtime.length; i++) saveId.set(runtime[i]!, `@${i}`)
   const schemas: Record<string, number> = {}
@@ -256,7 +322,7 @@ export function captureGame(world: World, options: CaptureOptions = {}): SaveFil
         if (parent === undefined || !gone.has(parent)) removed.push(path)
         continue
       }
-      if (world.has(entity, NoSave)) continue
+      if (world.has(entity, NoSave) || owned?.(entity)) continue
       const loaded = scene.loaded.get(entity) ?? new Map()
       const now = savedComponents(world, entity)
       const out: Record<string, Record<string, JsonValue> | null> = {}
@@ -347,6 +413,12 @@ export function captureGame(world: World, options: CaptureOptions = {}): SaveFil
     for (const [label, stream] of global.streams()) rng[label] = stream.getState()
   }
 
+  const sections: Record<string, JsonValue> = {}
+  for (const name of [...saveSections.keys()].sort()) {
+    const data = saveSections.get(name)!.capture(world)
+    if (data !== undefined) sections[name] = data
+  }
+
   const time = world.tryResource(Time)
   const fixed = world.tryResource(FixedTime)
   const file: SaveFile = {
@@ -363,6 +435,8 @@ export function captureGame(world: World, options: CaptureOptions = {}): SaveFil
     resources,
     rng,
   }
+  // Only when a section wrote something, so saves without sections stay as they were.
+  if (Object.keys(sections).length > 0) file.sections = sections
   if (options.meta !== undefined) file.meta = options.meta
   return file
 }
@@ -512,7 +586,7 @@ export function validateSave(json: unknown): ShardError[] {
       if (!isPlainObject(e.components)) bad(`${at}/components`, '"components" must be an object')
     })
   }
-  for (const key of ['resources', 'rng', 'schemas'] as const) {
+  for (const key of ['resources', 'rng', 'schemas', 'sections'] as const) {
     if (json[key] !== undefined && !isPlainObject(json[key]))
       bad(`/${key}`, `"${key}" must be an object`)
   }
@@ -814,6 +888,7 @@ export async function loadGame(world: World, slot: string | SaveFile): Promise<L
     }
     const fixed = world.tryResource(FixedTime)
     if (fixed && file.time?.fixedElapsed !== undefined) fixed.elapsed = file.time.fixedElapsed
+    await restoreSections(world, file, warnings)
 
     // Instances whose overrides changed respawn their children now.
     updateInstances(world)
@@ -854,6 +929,42 @@ function restoreResources(world: World, file: SaveFile, warn: (error: ShardError
     const current = world.tryResource(def)
     if (isPlainObject(current)) Object.assign(current, value)
     else world.insertResource(def, value)
+  }
+}
+
+/** Hands each registered section its saved data; data for an unknown section is a warning. */
+async function restoreSections(
+  world: World,
+  file: SaveFile,
+  warnings: ShardError[],
+): Promise<void> {
+  const data = file.sections ?? {}
+  for (const name of Object.keys(data)) {
+    if (saveSections.has(name)) continue
+    warnings.push(
+      new ShardError('save/unknown-section', `No save section "${name}" any more`, {
+        path: pointer('/sections', name),
+        hint: 'The section is defined with defineSaveSection; was it renamed, or is its plugin missing? Its saved data is skipped.',
+      }),
+    )
+  }
+  const report = { warnings }
+  for (const [name, section] of saveSections) {
+    if (!Object.hasOwn(data, name)) continue
+    try {
+      await section.restore(world, data[name]!, report)
+    } catch (err) {
+      const at = pointer('/sections', name)
+      warnings.push(
+        err instanceof ShardError
+          ? new ShardError(err.code, err.message, { path: at, hint: err.hint, cause: err })
+          : new ShardError(
+              'save/section-failed',
+              `Save section "${name}" failed to restore: ${String((err as Error)?.message ?? err)}`,
+              { path: at, cause: err },
+            ),
+      )
+    }
   }
 }
 
@@ -908,5 +1019,6 @@ export function describeSave(file: SaveFile) {
     spawned: { total: file.spawned.length, prefabs, entities: plain },
     resources: Object.keys(file.resources ?? {}),
     rng: Object.keys(file.rng ?? {}),
+    sections: Object.keys(file.sections ?? {}),
   }
 }

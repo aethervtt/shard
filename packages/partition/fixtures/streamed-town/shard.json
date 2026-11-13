@@ -1,0 +1,8 @@
+{
+  "name": "streamed-town",
+  "version": "0.1.0",
+  "engine": "0.x",
+  "entry": "scripts/main.ts",
+  "seed": 3,
+  "plugins": []
+}

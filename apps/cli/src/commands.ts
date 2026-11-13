@@ -36,6 +36,7 @@ import {
 } from '@aethervtt/shard-project'
 import { DEFAULT_HUB_PORT } from '@aethervtt/shard-protocol'
 import { Gpu, Shaders } from '@aethervtt/shard-render'
+import { StepMode, settleBeforeStep } from '@aethervtt/shard-runtime'
 import {
   loadInstanceAssets,
   loadScene,
@@ -423,7 +424,9 @@ async function nondeterministicCalls(project: string): Promise<Diagnostic[]> {
         line: call.line,
         column: call.column,
         code: 'procgen/nondeterministic',
-        message: `${call.call} in a generator module: generators must be pure (use ctx.rng; pass times in as params).`,
+        message:
+          call.message ??
+          `${call.call} in a generator module: generators must be pure (use ctx.rng; pass times in as params).`,
       })
     }
   }
@@ -624,7 +627,7 @@ export async function tiles({ out, project, args, flags }: CommandContext): Prom
 
 // --- run / screenshot / describe --------------------------------------------------
 
-async function withProject<T>(
+export async function withProject<T>(
   ctx: CommandContext,
   options: Omit<OpenProjectOptions, 'root' | 'gpu'>,
   fn: (p: HeadlessProject) => Promise<T>,
@@ -650,12 +653,24 @@ export async function run(ctx: CommandContext): Promise<number> {
       await whenSceneReady(p.app.world, scene)
     }
     const start = performance.now()
-    const loop = () => {
-      for (let i = 0; i < frames; i++) p.app.update(1 / p.app.fixedHz)
+    // A headless run is deterministic: its world hash depends only on input and seed.
+    const mode = p.app.world.initResource(StepMode)
+    mode.deterministic = true
+    const loop = async () => {
+      // Plugins with async work that lands on fixed frames (partition, 0113) are awaited first;
+      // without any, frames step back to back.
+      if (mode.settles.length === 0) {
+        for (let i = 0; i < frames; i++) p.app.update(1 / p.app.fixedHz)
+        return
+      }
+      for (let i = 0; i < frames; i++) {
+        await settleBeforeStep(p.app.world)
+        p.app.update(1 / p.app.fixedHz)
+      }
     }
     // --cpu-prof (0074): V8's sampling profiler over the frames, written as a .cpuprofile.
     const profiled = ctx.flags['cpu-prof'] ? await withCpuProfile(p.root, loop) : undefined
-    if (!profiled) loop()
+    if (!profiled) await loop()
     const result = {
       frames,
       seed: p.manifest.seed,

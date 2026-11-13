@@ -23,6 +23,8 @@ export interface SaveFile {
   resources: Record<string, JsonValue>
   /** Named RNG streams' state words (`core/GlobalRng` for the root stream). */
   rng: Record<string, number[]>
+  /** Data from `defineSaveSection` sections, by name. Absent when no section wrote anything. */
+  sections?: Record<string, JsonValue>
 }
 
 export interface SavedScene {
@@ -147,6 +149,11 @@ export function saveJsonSchema(): JsonSchema {
           minItems: 4,
           maxItems: 4,
         },
+      },
+      sections: {
+        type: 'object',
+        description:
+          'Save sections (defineSaveSection) by name: data a package or game saves on its own terms.',
       },
     },
   }

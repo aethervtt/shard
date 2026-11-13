@@ -1,7 +1,7 @@
 // Side effects: `procedural:<generator>` refs, generators in the catalog by name, the *.gen.json
 // importer, and the GeneratorInstance kind.
 
-export { findNondeterminism, type NondeterministicCall } from './check'
+export { findNondeterminism, NONDETERMINISTIC_MATH, type NondeterministicCall } from './check'
 export {
   type ContextState,
   createContext,
@@ -64,7 +64,7 @@ export {
 } from './methods'
 export { encodeOutput, type GenOutputAsset, toJson } from './outputs'
 export { type ProcgenPluginOptions, procgenPlugin } from './plugin'
-export { decodeRecord, encodeRecord, type OutputRecord } from './record'
+export { decodeRecord, encodeRecord, type OutputRecord, recordHash } from './record'
 export {
   type CacheResult,
   configureProcgenHost,
@@ -75,6 +75,7 @@ export {
   GeneratorBindings,
   generate,
   mainThreadTurn,
+  outputHash,
   type ProcgenHost,
   type ProcgenOptions,
   ProcgenResource,

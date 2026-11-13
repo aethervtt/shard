@@ -3,7 +3,7 @@ import type { NetCommandDef, NetEventDef, ReplicationEntry } from './registry'
 import type { Channel, NetConnection } from './transport'
 
 /** Bumped when the message layout changes. */
-export const PROTOCOL_VERSION = 1
+export const PROTOCOL_VERSION = 2
 
 /** The first byte of every message. Each is followed by a u32 tick. */
 export const Msg = {
@@ -27,6 +27,10 @@ export const Msg = {
 /** Sections of a `reliable` message, in the order they're written. */
 export const Section = {
   spawn: 1,
+  /** A bound entity (0113): net id and the ref the client resolves to an entity it already has. */
+  bind: 7,
+  /** Send intervals (0113): net id and the network ticks between its unreliable state sends. */
+  rate: 8,
   set: 2,
   remove: 3,
   despawn: 4,

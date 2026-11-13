@@ -1,3 +1,5 @@
+import { sha256Hex } from '@aethervtt/shard-assets'
+import { isPlainObject, type JsonValue } from '@aethervtt/shard-core'
 import type { GenRequest } from './generator'
 import type { GenOutputAsset } from './outputs'
 
@@ -79,4 +81,50 @@ export function decodeRecord(data: Uint8Array): OutputRecord | undefined {
     }
   })
   return { ...json, assets, bytes: recordBytes(assets) }
+}
+
+/** JSON with object keys sorted and no whitespace: the same text for the same value anywhere. */
+function canonicalJson(value: JsonValue | undefined): string {
+  if (value === undefined) return 'null'
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  if (isPlainObject(value)) {
+    const keys = Object.keys(value)
+      .filter((k) => value[k] !== undefined)
+      .sort()
+    return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(value[k])}`).join(',')}}`
+  }
+  // Number to text is exactly specified (the shortest round trip), so engines agree.
+  return JSON.stringify(value)
+}
+
+/**
+ * The SHA-256 (hex) of a record's artifacts: per asset, by label, a canonical JSON header (label,
+ * type, the artifact's JSON, its byte length) and then its bytes. The key, timing, warnings, and
+ * `info` are left out, so the same output hashes the same on every machine and engine, however
+ * it was made (inline, on a worker, from the disk cache).
+ */
+export function recordHash(record: Pick<OutputRecord, 'assets'>): Promise<string> {
+  const assets = [...record.assets].sort((a, b) =>
+    a.label < b.label ? -1 : a.label > b.label ? 1 : 0,
+  )
+  const parts: Uint8Array[] = []
+  let length = 0
+  for (const a of assets) {
+    const header = encoder.encode(
+      `${canonicalJson({ label: a.label, type: a.type, json: a.json ?? null, bytes: a.bytes?.byteLength ?? -1 })}\n`,
+    )
+    parts.push(header)
+    length += header.byteLength
+    if (a.bytes) {
+      parts.push(a.bytes)
+      length += a.bytes.byteLength
+    }
+  }
+  const all = new Uint8Array(length)
+  let at = 0
+  for (const p of parts) {
+    all.set(p, at)
+    at += p.byteLength
+  }
+  return sha256Hex(all)
 }

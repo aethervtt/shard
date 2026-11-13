@@ -58,8 +58,9 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ hashFiles('pnpm-lock.yaml') }}
 
-      - name: Install Chromium
-        run: pnpm --filter @aethervtt/shard-playground exec playwright install --with-deps chromium
+      # Firefox and WebKit run one check: a generated cell is the same bits in every engine (0113).
+      - name: Install Chromium, Firefox and WebKit
+        run: pnpm --filter @aethervtt/shard-playground exec playwright install --with-deps chromium firefox webkit
 
       # 0062's criteria in real Chromium (apps/playground/src/verify.test.ts), and 0064's on WebGL2:
       # the demos on both backends, the fixture's plans with backend webgl2, context loss, picking

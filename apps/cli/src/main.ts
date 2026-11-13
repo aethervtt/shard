@@ -27,6 +27,7 @@ import { exportCommand } from './export-command'
 import { nature } from './nature-command'
 import { lobby, server } from './net-command'
 import { createOutput, EXIT, errorJson, formatError } from './output'
+import { partition } from './partition-command'
 import { profile } from './profile'
 import { shaders } from './shaders-command'
 import { terrain } from './terrain-command'
@@ -93,6 +94,10 @@ const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; 
   shaders: {
     run: shaders,
     help: 'shaders bake [--manifest f] [--out f]   WebGL2 translations into .shard/shaders/webgl2.json',
+  },
+  partition: {
+    run: partition,
+    help: 'partition gen [grid] --cell x,z [--level l] [--seed N] [--compare]   hash one generated cell (0113)',
   },
   terrain: {
     run: terrain,
@@ -190,6 +195,9 @@ export async function main(argv: string[]): Promise<number> {
         chunk: { type: 'string' },
         rect: { type: 'string' },
         cell: { type: 'string', multiple: true },
+        level: { type: 'string' },
+        partition: { type: 'string' },
+        compare: { type: 'boolean' },
         fill: { type: 'string' },
         row: { type: 'string', multiple: true },
         encoding: { type: 'string' },

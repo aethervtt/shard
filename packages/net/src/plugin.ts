@@ -75,6 +75,11 @@ export interface NetOptions<U = unknown, L = unknown, S = unknown> {
   commandsPerSecond?: number
   /** Client: spawns a replicated entity from its prefab (0087). Default: a bare entity. */
   spawnPrefab?: (world: World, prefab: string) => Entity
+  /**
+   * Client: resolves a bound entity's ref (`Replicated.bound`, 0113) to an entity this client
+   * already has, such as one it generated. Undefined ignores the entity: its updates are dropped.
+   */
+  bind?: (world: World, ref: string) => Entity | undefined
   /** The clock in ms (pings, rate limits). Default: frame time. */
   now?: () => number
 }
@@ -190,6 +195,7 @@ export function netPlugin<U = unknown, L = unknown, S = unknown>(
           maxMessage,
           token: options.token ?? '',
           spawnPrefab: options.spawnPrefab,
+          bind: options.bind,
           now,
         })
       }

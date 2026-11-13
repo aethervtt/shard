@@ -10,9 +10,10 @@ import { App, Log, LogResource } from '@aethervtt/shard-runtime'
 import { GridCell, Transform } from '@aethervtt/shard-transform'
 import { afterAll, describe, expect, it } from 'vitest'
 import { InstancePart, PrefabInstance } from './components'
-import type { SceneFile } from './format'
+import type { Overrides, SceneFile } from './format'
 import {
   currentOverrides,
+  entityOverrides,
   instanceEntities,
   loadPrefab,
   ScenePlugin,
@@ -244,6 +245,67 @@ describe('instances', () => {
     updateInstances(w)
     expect(w.get(at(w, 'wingman/Exhaust'), Thruster).power).toBe(9)
     expect(currentOverrides(w, root)).toEqual({ Exhaust: { 'test/Thruster': { power: 9 } } })
+  })
+
+  it('entityOverrides is currentOverrides one entity at a time (0113)', () => {
+    const w = world()
+    registerPrefab(w, SHIP, ship)
+    load(w)
+    // A runtime instance whose overrides include a stale path.
+    const runtime = spawnPrefab(w, SHIP, {
+      overrides: { Gone: { 'test/Health': { max: 1 } }, Hull: { 'test/Health': { max: 4 } } },
+    })
+    w.set(instanceEntities(w, runtime).get('Hull')!, Health, { current: 2 })
+    // player-ship already has overrides: patch one, revert one, and edit around them.
+    w.set(at(w, 'player-ship/Exhaust'), Thruster, { label: 'hot' })
+    w.set(at(w, 'player-ship/Hull/Cockpit'), Health, { max: 10 })
+    w.add(at(w, 'player-ship/Hull/Cockpit'), Aim, { target: at(w, 'player-ship/Exhaust') })
+    // wingman: a moved entity, a removed component, a despawned entity, an added component, a
+    // reference to the despawned entity, and a runtime child under a generated entity.
+    w.set(at(w, 'wingman/Hull/Antenna'), Transform, { translation: [0, 3, 0] })
+    w.remove(at(w, 'wingman/Hull'), Mesh3d)
+    const cockpit = at(w, 'wingman/Hull/Cockpit')
+    w.set(at(w, 'wingman/Exhaust'), Aim, { target: cockpit })
+    w.despawn(cockpit)
+    w.add(at(w, 'wingman/Exhaust'), Health, { max: 1 })
+    w.spawn(Transform, [ChildOf, { parent: at(w, 'wingman/Hull') }])
+
+    const paths = ['Hull', 'Hull/Cockpit', 'Hull/Antenna', 'Exhaust']
+    for (const root of [at(w, 'player-ship'), at(w, 'wingman'), runtime]) {
+      const union: Overrides = {}
+      for (const path of paths) Object.assign(union, entityOverrides(w, root, path))
+      const all = currentOverrides(w, root)!
+      if (root === runtime) {
+        expect(all.Gone).toEqual({ 'test/Health': { max: 1 } })
+        delete all.Gone // stale keys belong to no entity
+      }
+      expect(union).toEqual(all)
+    }
+    expect(entityOverrides(w, runtime, 'Hull')).toEqual({
+      Hull: { 'test/Health': { max: 4, current: 2 } },
+    })
+    const wingman = at(w, 'wingman')
+    expect(entityOverrides(w, wingman, 'Hull')).toEqual({ 'Hull/render/Mesh3d': null })
+    expect(entityOverrides(w, wingman, 'Hull/Cockpit')).toEqual({ 'Hull/Cockpit': null })
+    expect(entityOverrides(w, wingman, 'Exhaust')).toEqual({
+      Exhaust: { 'test/Aim': { target: 'Hull/Cockpit' }, 'test/Health': { max: 1, current: 10 } },
+    })
+    const player = at(w, 'player-ship')
+    // The override added Health, so it stays even at its default value.
+    expect(entityOverrides(w, player, 'Hull/Cockpit')).toEqual({
+      'Hull/Cockpit': { 'test/Health': { max: 10 }, 'test/Aim': { target: 'Exhaust' } },
+    })
+    expect(entityOverrides(w, player, 'Hull')).toEqual({})
+    expect(entityOverrides(w, player, 'Hull/Antenna')).toEqual({ 'Hull/Antenna': null })
+    expect(entityOverrides(w, player, 'Exhaust')).toEqual({
+      Exhaust: { 'test/Thruster': { power: 2, label: 'hot' } },
+      'Exhaust/test/Aim': null,
+    })
+    // Untouched: nothing. Not an instance, or no such path: undefined.
+    const fresh = spawnPrefab(w, SHIP)
+    for (const path of paths) expect(entityOverrides(w, fresh, path)).toEqual({})
+    expect(entityOverrides(w, fresh, 'Nope')).toBeUndefined()
+    expect(entityOverrides(w, at(w, 'player-ship/Hull'), 'Cockpit')).toBeUndefined()
   })
 
   it('despawning the instance despawns what it generated', () => {

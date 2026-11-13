@@ -220,6 +220,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `nav/too-many-filters` | @aethervtt/shard-nav | Detour's crowd has 16 filter slots, and the default filter takes one. |
 | `nav/unknown-filter` | @aethervtt/shard-nav | Add it to nav/Filters, or clear NavAgent.filter. It paths with the default. |
 | `net/address-in-use` | @aethervtt/shard-net |  |
+| `net/bad-interval` | @aethervtt/shard-net |  |
 | `net/bad-message` | @aethervtt/shard-net | Both sides must run the same build; the connection is closed. |
 | `net/cannot-listen` | @aethervtt/shard-net | Servers need a transport with listen(), such as webSocketServer() or loopback(). |
 | `net/connect-failed` | @aethervtt/shard-net | Start the server (role: "server") before connecting clients. |
@@ -260,6 +261,17 @@ Every engine error is a `ShardError` with one of these codes.
 | `noise/unknown-node` | @aethervtt/shard-noise |  |
 | `noise/unknown-type` | @aethervtt/shard-noise | Types: value, perlin, simplex, cellular, fbm, ridged, billow, add, multiply, min, max, lerp, select, remap, clamp, curve, terrace, abs, power, constant, warp, scale, translate. |
 | `particles/invalid-effect` | @aethervtt/shard-particles |  |
+| `partition/bad-levels` | @aethervtt/shard-partition | Levels run near to far with increasing ranges, and simulate covers the first. |
+| `partition/cell-loaded` | @aethervtt/shard-partition | Dormant entities move between unloaded cells; a loaded cell simulates its own. |
+| `partition/generated-replicated` | @aethervtt/shard-partition | Change generated entities on the server and let the cell's delta carry it; put secrets in the grid's secrets components. |
+| `partition/generator-mismatch` | @aethervtt/shard-partition | Clients and the server must run the same generator version and code. |
+| `partition/late-commit` | @aethervtt/shard-partition | Await partitionSettled(world) before each step when commits are deterministic. |
+| `partition/no-dormant` | @aethervtt/shard-partition |  |
+| `partition/no-instance` | @aethervtt/shard-partition | Spawn partition/PartitionInstance, or call cellHashOf with a partition and seed. |
+| `partition/nondeterministic-generator` | @aethervtt/shard-partition | Cells are generated on every client, in V8, SpiderMonkey and JavaScriptCore: use dsin, dcos, datan2, dexp, dlog and dpow from @aethervtt/shard-mesh, and set deterministicMath: true. |
+| `partition/secret-in-fragment` | @aethervtt/shard-partition | Clients generate this fragment: write secret components from the secrets generator instead. |
+| `partition/unknown-grid` | @aethervtt/shard-partition |  |
+| `partition/unknown-partition` | @aethervtt/shard-partition | Define it with definePartition before spawning its PartitionInstance. |
 | `perf/async-overflow` | @aethervtt/shard-core | Every beginAsync(span, key) needs an endAsync(span, key), even when the work fails. |
 | `perf/capture-running` | @aethervtt/shard-core | Wait for it to finish (perf.capture resolves when it does), then capture again. |
 | `perf/capture-truncated` | @aethervtt/shard-core | Capture fewer frames, or pass a larger "events". |
@@ -317,6 +329,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `procgen/generator-failed` | @aethervtt/shard-procgen | The error is in the generator; procgen.run with the same seed and params reproduces it. |
 | `procgen/no-preview` | @aethervtt/shard-procgen | procgen.run returns the value summary; asset.get shows it. |
 | `procgen/nondeterministic` | @aethervtt/shard-procgen | Generators are pure: use ctx.rng for randomness and pass times in as params. |
+| `procgen/not-generated` | @aethervtt/shard-procgen | Pass the ref generate() returned, a gen: guid, or a procedural: path. |
 | `procgen/output-mismatch` | @aethervtt/shard-procgen | Use its output as a handle instead (a mesh: render/Mesh3d { "mesh": { "path": "procedural:…" } }). |
 | `procgen/undeclared-dependency` | @aethervtt/shard-procgen | ctx.load takes the handles in the params (declare a t.handle param and pass the asset in). |
 | `procgen/unknown-generator` | @aethervtt/shard-procgen | Name a generator ("star-explorer/StarSystem") or a *.gen.json#Generator. |
@@ -391,10 +404,12 @@ Every engine error is a `ShardError` with one of these codes.
 | `save/invalid-settings` | @aethervtt/shard-save |  |
 | `save/missing-scene` | @aethervtt/shard-save | The scene file was moved or deleted since the save was made. |
 | `save/not-found` | @aethervtt/shard-save | save.list shows the saved slots. |
+| `save/section-failed` | @aethervtt/shard-save |  |
 | `save/stale-entity` | @aethervtt/shard-save | The prefab was moved or deleted since the save was made. |
 | `save/stale-field` | @aethervtt/shard-save | Give the component a version and a migrate that renames or drops the field. |
 | `save/unknown-component` | @aethervtt/shard-save | The component was renamed or removed from the code; its saved data is skipped. |
 | `save/unknown-resource` | @aethervtt/shard-save | The resource was renamed, removed, or lost its persist option; its saved value is skipped. |
+| `save/unknown-section` | @aethervtt/shard-save | The section is defined with defineSaveSection; was it renamed, or is its plugin missing? Its saved data is skipped. |
 | `save/unknown-settings` | @aethervtt/shard-save |  |
 | `save/version-mismatch` | @aethervtt/shard-save |  |
 | `scatter/bad-point` | @aethervtt/shard-scatter | Pass an entity id or a scene path. |

@@ -7,6 +7,7 @@ import {
   sampleOffset,
   sampleSpherePatch,
 } from '@aethervtt/shard-noise'
+import { NONDETERMINISTIC_MATH } from './check'
 import type { Generator, GenParams, GenRequest, OutputAsset, OutputSpec } from './generator'
 import { guidOf, identityOf, proceduralPath, requestOf } from './generator'
 import { type MeshBuilderApi, meshBuilder } from './mesh-builder'
@@ -148,9 +149,14 @@ export function createContext(
 
 /**
  * Replaces `Math.random`, `Date.now`, and `performance.now` with functions that throw
- * `procgen/nondeterministic`. Returns a function that restores them.
+ * `procgen/nondeterministic`. With `deterministicMath`, the transcendental `Math` functions
+ * (`NONDETERMINISTIC_MATH`) throw too, each hint naming its replacement from
+ * `@aethervtt/shard-mesh`. Returns a function that restores them all.
  */
-export function guardNondeterminism(generator: string): () => void {
+export function guardNondeterminism(
+  generator: string,
+  options: { deterministicMath?: boolean } = {},
+): () => void {
   const fail = (what: string) => () => {
     throw new ShardError('procgen/nondeterministic', `${generator} called ${what}`, {
       hint: 'Generators are pure: use ctx.rng for randomness and pass times in as params.',
@@ -169,6 +175,18 @@ export function guardNondeterminism(generator: string): () => void {
       writable: true,
     })
   }
+  const math = Math as unknown as Record<string, unknown>
+  const saved: [string, unknown][] = []
+  if (options.deterministicMath) {
+    for (const [name, instead] of Object.entries(NONDETERMINISTIC_MATH)) {
+      saved.push([name, math[name]])
+      math[name] = () => {
+        throw new ShardError('procgen/nondeterministic', `${generator} called Math.${name}()`, {
+          hint: `It has deterministicMath, and engines differ in Math.${name}'s last bits. ${instead}`,
+        })
+      }
+    }
+  }
   return () => {
     Math.random = random
     Date.now = now
@@ -176,5 +194,6 @@ export function guardNondeterminism(generator: string): () => void {
       if (ownNow) Object.defineProperty(perf, 'now', ownNow)
       else delete perf.now
     }
+    for (const [name, f] of saved) math[name] = f
   }
 }

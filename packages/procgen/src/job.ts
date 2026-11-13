@@ -95,7 +95,8 @@ export async function executeJob(job: GenJob): Promise<GenResult> {
   const params = gen.params.deserialize(job.params)
   const ctx = createContext(gen, job, deps, job.chain, state)
   const start = performance.now()
-  let restore: (() => void) | undefined = guardNondeterminism(gen.name)
+  const guard = { deterministicMath: gen.deterministicMath }
+  let restore: (() => void) | undefined = guardNondeterminism(gen.name, guard)
   try {
     let result: unknown = gen.run(ctx, params as never)
     if (!job.guardAll) {
@@ -103,6 +104,11 @@ export async function executeJob(job: GenJob): Promise<GenResult> {
       restore = undefined
     }
     if (result instanceof Promise) result = await result
+    if (restore && gen.deterministicMath) {
+      // Encoding is engine code, not the generator's: only Math.random and the clock stay guarded.
+      restore()
+      restore = guardNondeterminism(gen.name)
+    }
     const assets = encodeOutput(gen, result, { checkComponents: job.checkComponents })
     restore?.()
     restore = undefined

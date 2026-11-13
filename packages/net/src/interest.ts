@@ -6,6 +6,7 @@ import {
   type Fields,
   type Query,
   type QueryDescriptor,
+  ShardError,
   type Table,
   type World,
 } from '@aethervtt/shard-core'
@@ -14,15 +15,22 @@ import { Replicated } from './components'
 import type { PeerId } from './transport'
 import { NumberList } from './vec'
 
+/** The largest send interval `RelevanceSet.add` takes, in network ticks. */
+export const MAX_SEND_INTERVAL = 0xffff
+
 /**
  * A set of entities with a stable iteration order. Membership is a stamp per entity index, so
  * `clear` is O(1) and refilling it every tick allocates nothing once it has grown.
+ *
+ * Each entity also has a send interval (0113): the network ticks between its unreliable state
+ * sends. When several policies add one entity, the smallest interval wins.
  */
 export class RelevanceSet {
   private readonly list = new NumberList()
   private stamp = 1
   private marks = new Uint32Array(64)
   private ids = new Float64Array(64)
+  private intervals = new Uint16Array(64)
 
   private grow(index: number): void {
     let size = this.marks.length
@@ -31,22 +39,45 @@ export class RelevanceSet {
     marks.set(this.marks)
     const ids = new Float64Array(size)
     ids.set(this.ids)
+    const intervals = new Uint16Array(size)
+    intervals.set(this.intervals)
     this.marks = marks
     this.ids = ids
+    this.intervals = intervals
   }
 
-  add(entity: Entity): void {
+  /**
+   * Adds `entity`, sent every `every` network ticks (1: every tick). Adding it again keeps the
+   * smaller interval.
+   */
+  add(entity: Entity, every = 1): void {
+    if (every !== 1 && ((every | 0) !== every || every < 1 || every > MAX_SEND_INTERVAL)) {
+      throw new ShardError('net/bad-interval', `Send interval ${every} isn't a whole number ≥ 1`, {
+        hint: `Pass a whole number of network ticks from 1 to ${MAX_SEND_INTERVAL}.`,
+      })
+    }
     const i = entityIndex(entity)
     if (i >= this.marks.length) this.grow(i)
-    if (this.marks[i] === this.stamp && this.ids[i] === entity) return
+    if (this.marks[i] === this.stamp && this.ids[i] === entity) {
+      if (every < this.intervals[i]!) this.intervals[i] = every
+      return
+    }
     this.marks[i] = this.stamp
     this.ids[i] = entity
+    this.intervals[i] = every
     this.list.push(entity)
   }
 
   has(entity: Entity): boolean {
     const i = entityIndex(entity)
     return i < this.marks.length && this.marks[i] === this.stamp && this.ids[i] === entity
+  }
+
+  /** The entity's send interval in network ticks: 1 when it isn't in the set. */
+  everyOf(entity: Entity): number {
+    const i = entityIndex(entity)
+    if (i >= this.marks.length || this.marks[i] !== this.stamp || this.ids[i] !== entity) return 1
+    return this.intervals[i]!
   }
 
   get size(): number {
@@ -71,7 +102,7 @@ export class RelevanceSet {
     }
   }
 
-  /** Keeps the entities `keep` returns true for. */
+  /** Keeps the entities `keep` returns true for. Kept entities keep their intervals. */
   retain(keep: (entity: Entity) => boolean): void {
     const data = this.list.data
     let n = 0
@@ -79,6 +110,25 @@ export class RelevanceSet {
       const e = data[i]!
       if (keep(e)) data[n++] = e
       else this.marks[entityIndex(e)] = 0
+    }
+    this.list.length = n
+  }
+
+  /**
+   * Keeps the entities `other` has too. Each keeps the larger of its two intervals: an entity
+   * every policy wants is sent as often as the least eager of them asks.
+   */
+  intersect(other: RelevanceSet): void {
+    const data = this.list.data
+    let n = 0
+    for (let k = 0; k < this.list.length; k++) {
+      const e = data[k]!
+      const i = entityIndex(e)
+      if (other.has(e)) {
+        data[n++] = e
+        const theirs = other.intervals[i]!
+        if (theirs > this.intervals[i]!) this.intervals[i] = theirs
+      } else this.marks[i] = 0
     }
     this.list.length = n
   }
@@ -322,7 +372,7 @@ export function teamInterest<F extends Fields>(
   }
 }
 
-/** Everything any of the policies includes. */
+/** Everything any of the policies includes, each entity at the smallest interval given. */
 export function anyOf(...policies: InterestPolicy[]): InterestPolicy {
   return {
     name: `anyOf(${policies.map((p) => p.name).join(', ')})`,
@@ -335,7 +385,7 @@ export function anyOf(...policies: InterestPolicy[]): InterestPolicy {
   }
 }
 
-/** What every policy includes. */
+/** What every policy includes, each entity at the largest interval any of them gave it. */
 export function allOf(...policies: InterestPolicy[]): InterestPolicy {
   const scratch = new RelevanceSet()
   return {
@@ -350,7 +400,7 @@ export function allOf(...policies: InterestPolicy[]): InterestPolicy {
       for (const p of rest) {
         scratch.clear()
         p.update(world, peer, scratch)
-        out.retain((e) => scratch.has(e))
+        out.intersect(scratch)
       }
     },
   }

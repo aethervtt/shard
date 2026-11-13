@@ -1,5 +1,5 @@
 import { type Entity, ProfilerResource, Rng, type World } from '@aethervtt/shard-core'
-import { budget, timeout } from '@aethervtt/shard-core/test-env'
+import { budget, timeout, timingMode } from '@aethervtt/shard-core/test-env'
 import { Mesh, plane, sphere } from '@aethervtt/shard-mesh'
 import { Meshes } from '@aethervtt/shard-render'
 import { App, animationFrameRunner, FixedTime, FrameDemand, Time } from '@aethervtt/shard-runtime'
@@ -728,5 +728,72 @@ describe.each(VARIANTS)('on-demand frames (0052, %s)', (v) => {
     } finally {
       fake.restore()
     }
+  })
+})
+
+describe('removing bodies (0113)', () => {
+  it('despawns 500 bodies among 20,000 fixed colliders, touching only their own colliders', {
+    timeout: timeout(60_000),
+  }, async () => {
+    variant = 'regular'
+    const a = await app()
+    const w = a.world
+    // A streamed world's static scenery: fixed colliders on a grid far below the bodies.
+    for (let i = 0; i < 20_000; i++) {
+      w.spawn(
+        [Collider, { shape: 'cuboid', halfExtents: [0.4, 0.4, 0.4] }],
+        [Transform, { translation: [(i % 200) * 1.0, -100, Math.floor(i / 200) * 1.0] }],
+      )
+    }
+    const bodies: Entity[] = []
+    for (let i = 0; i < 1000; i++) {
+      bodies.push(ball(w, [(i % 40) * 2, 10, Math.floor(i / 40) * 2]))
+    }
+    a.update(DT)
+    const p = w.resource(Physics)
+    expect(p.colliders.size).toBe(21_000)
+    expect(p.bodyColliders.size).toBe(1000)
+
+    // Half the bodies unload with their cell; ten lose only their RigidBody and turn fixed.
+    const removed = bodies.filter((_, i) => i % 2 === 0)
+    const stripped = bodies.filter((_, i) => i % 2 === 1).slice(0, 10)
+    const kept = bodies.filter((_, i) => i % 2 === 1).slice(10)
+    const start = performance.now()
+    for (const e of removed) w.despawn(e)
+    const ms = performance.now() - start
+    for (const e of stripped) w.remove(e, RigidBody)
+    a.update(DT)
+
+    expect(p.bodies.size).toBe(kept.length)
+    expect(p.colliders.size).toBe(20_000 + stripped.length + kept.length)
+    for (const e of removed) {
+      expect(p.colliders.has(e)).toBe(false)
+      expect(p.colliderOwner.has(e)).toBe(false)
+      expect(p.bodyColliders.has(e)).toBe(false)
+    }
+    for (const e of stripped) {
+      expect(p.colliders.has(e)).toBe(true)
+      expect(p.colliderOwner.has(e)).toBe(false)
+      expect(p.bodyColliders.has(e)).toBe(false)
+    }
+    for (const e of kept) {
+      expect(p.colliderOwner.get(e)).toBe(e)
+      expect([...p.bodyColliders.get(e)!]).toEqual([e])
+    }
+    expect(p.bodyColliders.size).toBe(kept.length)
+    expect(p.raw.colliders.len()).toBe(p.colliders.size)
+    expect(p.raw.bodies.len()).toBe(p.bodies.size)
+
+    // A body added back to a stripped entity takes its collider and falls.
+    const back = stripped[0]!
+    const y = pos(w, back)[1]!
+    w.add(back, RigidBody, { kind: 'dynamic' })
+    frames(a, 30)
+    expect(p.colliderOwner.get(back)).toBe(back)
+    expect([...p.bodyColliders.get(back)!]).toEqual([back])
+    expect(pos(w, back)[1]).toBeLessThan(y - 0.5)
+    expect(pos(w, stripped[1]!)[1]).toBe(y) // still fixed
+
+    if (timingMode === 'bench') expect(ms).toBeLessThan(budget('physics/remove-bodies'))
   })
 })

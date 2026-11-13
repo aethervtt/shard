@@ -85,6 +85,14 @@ export interface GeneratorOptions<P extends Fields, O extends OutputSpec> {
   version?: number
   description?: string
   /**
+   * Holds `run` to math that gives the same bits in every JavaScript engine (0113): `Math.sin`,
+   * `exp`, `log`, `pow`, `atan2`, `hypot` and the other transcendental functions throw
+   * `procgen/nondeterministic` while it runs, and `shard check` flags them and `**` in its module.
+   * Use `@aethervtt/shard-mesh`'s `dsin`, `dcos`, `datan2`, `dexp`, `dlog`, and `dpow` instead.
+   * For outputs that must match across machines (streamed world cells). Default false.
+   */
+  deterministicMath?: boolean
+  /**
    * Makes the output. Pure: only `ctx.rng`, `ctx.noise`, the params, and what `ctx.load` returns.
    * Returns synchronously, or a promise when it awaits `ctx.generate`.
    */
@@ -108,6 +116,8 @@ export interface Generator<P extends Fields = Fields, O extends OutputSpec = Out
   /** The data type a `data` output is validated against, if any. */
   readonly dataType: ComponentDef | undefined
   readonly version: number
+  /** Whether transcendental `Math` functions throw while it runs (see `GeneratorOptions`). */
+  readonly deterministicMath: boolean
   readonly run: GeneratorOptions<P, O>['run']
 }
 
@@ -177,6 +187,7 @@ export function defineGenerator<const P extends Fields, const O extends OutputSp
     outputType: out.outputType as OutputAsset<O>,
     dataType: out.dataType,
     version,
+    deterministicMath: options.deterministicMath ?? false,
     run: options.run,
   }
   generators.set(name, gen as unknown as Generator)

@@ -22,6 +22,10 @@ export const Replicated = defineComponent(
       description: 'Prefab clients spawn this entity from (path or guid); empty for a bare entity.',
     }),
     owner: t.u32({ description: 'Peer that owns it; 0 for the server.' }),
+    bound: t.bool({
+      description:
+        'Clients already have it (0113): `prefab` is a ref their `bind` resolves, and only components replicated with `visibleTo` are sent.',
+    }),
   },
   {
     description:

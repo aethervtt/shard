@@ -18,7 +18,7 @@ import {
   ShardError,
   World,
 } from '@aethervtt/shard-core'
-import { type Log, LogResource, type Plugin } from '@aethervtt/shard-runtime'
+import { type Log, LogResource, type Plugin, StepMode } from '@aethervtt/shard-runtime'
 import { Transform } from '@aethervtt/shard-transform'
 import * as componentsModule from './components'
 import {
@@ -666,6 +666,10 @@ interface WorldInstances {
   templates: Map<string, Template>
   off: () => void
   dirty: boolean
+  /** Entities whose instance component was added, set or removed since the last update. */
+  pending: Set<Entity>
+  /** The next update walks every instance (first run, a new kind). */
+  full: boolean
   /** Instance components whose add/set/remove mark the world dirty. */
   observed: Set<ComponentDef>
 }
@@ -680,16 +684,39 @@ function stateOf(world: World): WorldInstances {
       // A failed model spawns its fallback; a retried one comes back as 'loaded'.
       if (e.kind !== 'loaded' && e.kind !== 'modified' && e.kind !== 'failed') return
       const type = assetServer(world).entry(e.guid)?.type
-      if (type === 'Scene' || type === 'Prefab') updateInstances(world)
+      if (type !== 'Scene' && type !== 'Prefab') return
+      // A host stepping deterministically (0113) spawns on frames, never between them: when an
+      // asset lands depends on the clock, and so would the order of entity ids.
+      if (world.tryResource(StepMode)?.deterministic) {
+        const st = perWorld.get(world)
+        if (st) {
+          st.full = true
+          st.dirty = true
+        }
+        return
+      }
+      updateInstances(world)
     })
-    s = { states: new Map(), templates: new Map(), off, dirty: true, observed: new Set() }
+    s = {
+      states: new Map(),
+      templates: new Map(),
+      off,
+      dirty: true,
+      pending: new Set(),
+      full: true,
+      observed: new Set(),
+    }
     perWorld.set(world, s)
   }
   if (s.observed.size !== kinds.length) {
     const state = s
-    const mark = () => {
+    const mark = ({ entity }: { entity: Entity }) => {
       state.dirty = true
+      state.pending.add(entity)
     }
+    // Instances of a kind added now were spawned unobserved: walk everything once.
+    state.full = true
+    state.dirty = true
     for (const { def } of kinds) {
       if (state.observed.has(def)) continue
       state.observed.add(def)
@@ -1046,7 +1073,7 @@ export const sceneInstancesSystem = defineSystem({
   description: 'Spawns and respawns SceneInstance and PrefabInstance children.',
   run: (_, world) => {
     const s = perWorld.get(world)
-    if (s?.dirty) updateInstances(world)
+    if (s?.dirty) updateInstances(world, s.full ? undefined : s.pending)
   },
 })
 
@@ -1064,51 +1091,83 @@ export const ScenePlugin: Plugin = {
  * Spawns the children of every SceneInstance and PrefabInstance whose asset is loaded (requesting
  * it otherwise), respawns those whose asset, dependencies, or overrides changed, and cleans up after
  * removed instances. Instances inlined into another instance are part of it and skipped.
+ *
+ * With `only`, it looks at just those entities (ones whose instance component was added, set or
+ * removed): what the frame's system does, so its cost follows changes rather than the number of
+ * instances. Asset loads and reloads still update every instance.
  */
-export function updateInstances(world: World): void {
+export function updateInstances(world: World, only?: Iterable<Entity>): void {
   const s = stateOf(world)
-  s.dirty = false
   const server = assetServer(world)
-  for (const [entity, state] of [...s.states]) {
-    if (world.isAlive(entity) && world.has(entity, state.def)) continue
-    despawnGenerated(world, state, entity)
-    s.states.delete(entity)
+  const list = only === undefined ? undefined : [...only]
+  if (list === undefined) {
+    s.dirty = false
+    s.full = false
+    s.pending.clear()
+    for (const [entity, state] of [...s.states]) {
+      if (world.isAlive(entity) && world.has(entity, state.def)) continue
+      despawnGenerated(world, state, entity)
+      s.states.delete(entity)
+    }
+  } else {
+    for (const entity of list) {
+      s.pending.delete(entity)
+      const state = s.states.get(entity)
+      if (!state || (world.isAlive(entity) && world.has(entity, state.def))) continue
+      despawnGenerated(world, state, entity)
+      s.states.delete(entity)
+    }
+    if (!s.full && s.pending.size === 0) s.dirty = false
   }
   const todo: [Entity, InstanceKind, AssetEntry, Overrides][] = []
-  for (const kind of kinds) {
+  const consider = (entity: Entity, kind: InstanceKind) => {
     const def = kind.def
-    const q = world.query(kind.nested ? { with: [def] } : { with: [def], without: [InstancePart] })
-    for (const table of q.tables) {
-      for (let i = 0; i < table.count; i++) {
-        const entity = table.entities[i]! as Entity
-        const value = world.get(entity, def) as Record<string, unknown>
-        let entry: AssetEntry | undefined
-        try {
-          entry = kind.source(world, value, entity)
-        } catch (err) {
-          world.tryResource(LogResource)?.error(err)
-          continue
-        }
-        if (!entry) continue
-        if (entry.state === 'unloaded') {
-          server.request(entry.guid)
-          continue
-        }
-        // A failed model spawns its fallback (a box) until assets.retry brings it back (0061).
-        if (entry.state !== 'loaded' && !server.isFallback(entry.guid)) continue
-        const state = s.states.get(entity)
-        const o = overridesOf(value.overrides as JsonValue | undefined)
-        if (
-          state &&
-          state.def === def &&
-          state.template.entry.guid === entry.guid &&
-          isCurrent(world, state.template) &&
-          state.template.flat.missing.size === 0 &&
-          state.overridesKey === JSON.stringify(o)
-        ) {
-          continue
-        }
-        todo.push([entity, kind, entry, o])
+    const value = world.get(entity, def) as Record<string, unknown>
+    let entry: AssetEntry | undefined
+    try {
+      entry = kind.source(world, value, entity)
+    } catch (err) {
+      world.tryResource(LogResource)?.error(err)
+      return
+    }
+    if (!entry) return
+    if (entry.state === 'unloaded') {
+      server.request(entry.guid)
+      return
+    }
+    // A failed model spawns its fallback (a box) until assets.retry brings it back (0061).
+    if (entry.state !== 'loaded' && !server.isFallback(entry.guid)) return
+    const state = s.states.get(entity)
+    const o = overridesOf(value.overrides as JsonValue | undefined)
+    if (
+      state &&
+      state.def === def &&
+      state.template.entry.guid === entry.guid &&
+      isCurrent(world, state.template) &&
+      state.template.flat.missing.size === 0 &&
+      state.overridesKey === JSON.stringify(o)
+    ) {
+      return
+    }
+    todo.push([entity, kind, entry, o])
+  }
+  if (list === undefined) {
+    for (const kind of kinds) {
+      const def = kind.def
+      const q = world.query(
+        kind.nested ? { with: [def] } : { with: [def], without: [InstancePart] },
+      )
+      for (const table of q.tables) {
+        for (let i = 0; i < table.count; i++) consider(table.entities[i]! as Entity, kind)
+      }
+    }
+  } else {
+    for (const entity of list) {
+      if (!world.isAlive(entity)) continue
+      for (const kind of kinds) {
+        if (!world.has(entity, kind.def)) continue
+        if (!kind.nested && world.has(entity, InstancePart)) continue
+        consider(entity, kind)
       }
     }
   }
@@ -1376,15 +1435,16 @@ function canonicalComponents(
 function liveComponents(
   world: World,
   entity: Entity,
-  pathOf: Map<Entity, string>,
+  pathOf: (e: Entity) => string | undefined,
 ): Map<string, Record<string, JsonValue>> {
   const json = serializeComponents(world, entity)
   for (const [name, value] of json) {
     const def = componentDef(name)!
     for (const { name: field, field: type } of def.layout) {
       const v = value[field]
-      if (type.kind === 'entity' && typeof v === 'number' && pathOf.has(v))
-        value[field] = pathOf.get(v)!
+      if (type.kind !== 'entity' || typeof v !== 'number') continue
+      const path = pathOf(v as Entity)
+      if (path !== undefined) value[field] = path
     }
   }
   return json
@@ -1416,125 +1476,248 @@ function diffFields(
   return out
 }
 
+type ComponentJsonMap = Map<string, Record<string, JsonValue>>
+
+/** Diffing an instance's generated entities against its template, with per-node caches. */
+interface OverrideDiff {
+  world: World
+  state: InstanceState
+  base: Map<number, ComponentJsonMap>
+  /** A generated entity's path relative to the instance ("." for the instance itself). */
+  pathOf: (e: Entity) => string | undefined
+  loaded: Map<number, ComponentJsonMap>
+  live: Map<number, ComponentJsonMap>
+  /** `node|component` pairs an existing override key already wrote. */
+  handled: Set<string>
+  /** Nodes whose removal an existing override key already wrote. */
+  gone: Set<number>
+}
+
+function overrideDiff(
+  world: World,
+  state: InstanceState,
+  pathOf: (e: Entity) => string | undefined,
+): OverrideDiff {
+  return {
+    world,
+    state,
+    base: canonicalOf(state.template),
+    pathOf,
+    loaded: new Map(),
+    live: new Map(),
+    handled: new Set(),
+    gone: new Set(),
+  }
+}
+
+function diffAlive(d: OverrideDiff, i: number): boolean {
+  const id = d.state.ids[i]!
+  return id >= 0 && d.world.isAlive(id)
+}
+
+/** A node's components as spawned: the template's, or the plan's where overrides touched it. */
+function diffLoaded(d: OverrideDiff, i: number): ComponentJsonMap | undefined {
+  const plan = d.state.plan
+  if (!plan.flat.touched.has(i)) return d.base.get(i)
+  let m = d.loaded.get(i)
+  if (!m && plan.entities[i]) {
+    const nodes = plan.flat.nodes
+    m = canonicalComponents(plan.entities[i]!, (t) => (t === -1 ? '.' : nodes[t]!.path))
+    d.loaded.set(i, m)
+  }
+  return m
+}
+
+function diffLive(d: OverrideDiff, i: number): ComponentJsonMap {
+  let m = d.live.get(i)
+  if (!m) {
+    m = liveComponents(d.world, d.state.ids[i]!, d.pathOf)
+    d.live.set(i, m)
+  }
+  return m
+}
+
+/**
+ * The node an instance's existing override key applies to: an entity path (a removal or a patch)
+ * or a component removal. -1 for stale keys, which are kept as written.
+ */
+function overrideNode(flat: Flat, key: string, value: Overrides[string]): number {
+  const i = flat.index.get(key)
+  if (i !== undefined) return value === null || isPlainObject(value) ? i : -1
+  if (value !== null) return -1
+  return splitComponentKey(flat, key)?.i ?? -1
+}
+
+/** Rewrites one of the instance's existing override keys (on node `i`) as it stands now. */
+function diffOverrideKey(
+  d: OverrideDiff,
+  i: number,
+  key: string,
+  value: Overrides[string],
+  out: Overrides,
+): void {
+  const flat = d.state.plan.flat
+  if (value === null) {
+    if (flat.index.get(key) === i) {
+      if (!diffAlive(d, i)) {
+        out[key] = null
+        d.gone.add(i)
+      }
+      return
+    }
+    const cut = splitComponentKey(flat, key)!
+    if (diffAlive(d, i) && !diffLive(d, i).has(cut.component)) {
+      out[key] = null
+      d.handled.add(`${i}|${cut.component}`)
+    }
+    return
+  }
+  if (!diffAlive(d, i)) return
+  const entry: Record<string, Record<string, JsonValue> | null> = {}
+  for (const [name, patch] of Object.entries(value)) {
+    const now = diffLive(d, i).get(name)
+    if (patch === null) {
+      if (!now) {
+        entry[name] = null
+        d.handled.add(`${i}|${name}`)
+      }
+      continue
+    }
+    if (!now || !isPlainObject(patch)) continue
+    d.handled.add(`${i}|${name}`)
+    const b = d.base.get(i)?.get(name)
+    const fields = diffFields(name, patch, now, diffLoaded(d, i)?.get(name), b)
+    if (Object.keys(fields).length > 0 || !b) entry[name] = fields
+  }
+  if (Object.keys(entry).length > 0) out[key] = entry
+}
+
+/** What changed on node `i` that the existing override keys didn't cover. */
+function diffNode(d: OverrideDiff, i: number, out: Overrides): void {
+  if (!d.state.template.entities[i]) return // removed by the prefab itself
+  const node = d.state.plan.flat.nodes[i]!
+  const path = node.path
+  const parent = node.parent
+  if (!diffAlive(d, i)) {
+    const parentGone = parent !== -1 && (!diffAlive(d, parent) || d.gone.has(parent))
+    if (!parentGone && !d.gone.has(i)) out[path] = null
+    d.gone.add(i)
+    return
+  }
+  const b = d.base.get(i) ?? new Map()
+  const now = diffLive(d, i)
+  const existing = out[path]
+  const entry: Record<string, Record<string, JsonValue> | null> = isPlainObject(existing)
+    ? (existing as Record<string, Record<string, JsonValue> | null>)
+    : {}
+  // Compared with the entity as spawned, so components that came and went along with an
+  // override (a removed Mesh3d's Visibility) aren't reported again.
+  const loaded = diffLoaded(d, i)
+  for (const name of b.keys()) {
+    if (d.handled.has(`${i}|${name}`) || now.has(name) || !loaded?.has(name)) continue
+    out[`${path}/${name}`] = null
+  }
+  for (const [name, value] of now) {
+    if (d.handled.has(`${i}|${name}`)) continue
+    const before = b.get(name)
+    if (!before) {
+      const spawned = loaded?.get(name)
+      if (!spawned || !equal(spawned, value)) entry[name] = value
+      continue
+    }
+    const fields: Record<string, JsonValue> = {}
+    for (const field of Object.keys(value))
+      if (!equal(value[field], before[field])) fields[field] = value[field]!
+    if (Object.keys(fields).length > 0) entry[name] = fields
+  }
+  if (Object.keys(entry).length > 0) out[path] = entry
+}
+
 /**
  * An instance's current differences from its prefab or model, as overrides: what a save writes.
  * Overrides already in the file keep their order and authored form while unchanged; stale ones
  * (paths that no longer exist) are kept. Undefined for entities that aren't spawned instances.
+ *
+ * Only the generated entities are compared: entities the game or a scene file parented under them
+ * aren't overrides (saves write those as entities of their own).
  */
 export function currentOverrides(world: World, entity: Entity): Overrides | undefined {
   const state = perWorld.get(world)?.states.get(entity)
   if (!state) return undefined
-  const { template, plan, ids } = state
+  const { plan, ids } = state
   const nodes = plan.flat.nodes
-  const base = canonicalOf(template)
   const pathOf = new Map<Entity, string>([[entity, '.']])
   for (let i = 0; i < ids.length; i++) if (ids[i]! >= 0) pathOf.set(ids[i]!, nodes[i]!.path)
-  const alive = (i: number) => ids[i]! >= 0 && world.isAlive(ids[i]!)
-  const loadedCache = new Map<number, Map<string, Record<string, JsonValue>>>()
-  const loadedOf = (i: number) => {
-    if (!plan.flat.touched.has(i)) return base.get(i)
-    let m = loadedCache.get(i)
-    if (!m && plan.entities[i]) {
-      m = canonicalComponents(plan.entities[i]!, (t) => (t === -1 ? '.' : nodes[t]!.path))
-      loadedCache.set(i, m)
-    }
-    return m
-  }
-  const live = new Map<number, Map<string, Record<string, JsonValue>>>()
-  const liveOf = (i: number) => {
-    let m = live.get(i)
-    if (!m) {
-      m = liveComponents(world, ids[i]!, pathOf)
-      live.set(i, m)
-    }
-    return m
-  }
+  const d = overrideDiff(world, state, (e) => pathOf.get(e))
   const out: Overrides = {}
-  const handled = new Set<string>()
-  const gone = new Set<number>()
-
   for (const [key, value] of Object.entries(state.overrides)) {
-    const i = plan.flat.index.get(key)
-    if (value === null) {
-      if (i !== undefined) {
-        if (!alive(i)) {
-          out[key] = null
-          gone.add(i)
-        }
-        continue
-      }
-      const cut = splitComponentKey(plan.flat, key)
-      if (!cut)
-        out[key] = null // stale: kept as written
-      else if (alive(cut.i) && !liveOf(cut.i).has(cut.component)) {
-        out[key] = null
-        handled.add(`${cut.i}|${cut.component}`)
-      }
-      continue
-    }
-    if (i === undefined || !isPlainObject(value)) {
-      out[key] = value // stale
-      continue
-    }
-    if (!alive(i)) continue
-    const entry: Record<string, Record<string, JsonValue> | null> = {}
-    for (const [name, patch] of Object.entries(value)) {
-      const now = liveOf(i).get(name)
-      if (patch === null) {
-        if (!now) {
-          entry[name] = null
-          handled.add(`${i}|${name}`)
-        }
-        continue
-      }
-      if (!now || !isPlainObject(patch)) continue
-      handled.add(`${i}|${name}`)
-      const b = base.get(i)?.get(name)
-      const fields = diffFields(name, patch, now, loadedOf(i)?.get(name), b)
-      if (Object.keys(fields).length > 0 || !b) entry[name] = fields
-    }
-    if (Object.keys(entry).length > 0) out[key] = entry
+    const i = overrideNode(plan.flat, key, value)
+    if (i === -1)
+      out[key] = value // stale: kept as written
+    else diffOverrideKey(d, i, key, value, out)
   }
-
-  for (let i = 0; i < nodes.length; i++) {
-    if (!template.entities[i]) continue // removed by the prefab itself
-    const path = nodes[i]!.path
-    const parent = nodes[i]!.parent
-    if (!alive(i)) {
-      const parentGone = parent !== -1 && (!alive(parent) || gone.has(parent))
-      if (!parentGone && !gone.has(i)) out[path] = null
-      gone.add(i)
-      continue
-    }
-    const b = base.get(i) ?? new Map()
-    const now = liveOf(i)
-    const existing = out[path]
-    const entry: Record<string, Record<string, JsonValue> | null> = isPlainObject(existing)
-      ? (existing as Record<string, Record<string, JsonValue> | null>)
-      : {}
-    // Compared with the entity as spawned, so components that came and went along with an
-    // override (a removed Mesh3d's Visibility) aren't reported again.
-    const loaded = loadedOf(i)
-    for (const name of b.keys()) {
-      if (handled.has(`${i}|${name}`) || now.has(name) || !loaded?.has(name)) continue
-      out[`${path}/${name}`] = null
-    }
-    for (const [name, value] of now) {
-      if (handled.has(`${i}|${name}`)) continue
-      const before = b.get(name)
-      if (!before) {
-        const spawned = loaded?.get(name)
-        if (!spawned || !equal(spawned, value)) entry[name] = value
-        continue
-      }
-      const fields: Record<string, JsonValue> = {}
-      for (const field of Object.keys(value))
-        if (!equal(value[field], before[field])) fields[field] = value[field]!
-      if (Object.keys(fields).length > 0) entry[name] = fields
-    }
-    if (Object.keys(entry).length > 0) out[path] = entry
-  }
+  for (let i = 0; i < nodes.length; i++) diffNode(d, i, out)
   return out
+}
+
+/**
+ * The part of `currentOverrides` about one generated entity, by its path in the instance: the
+ * `path` key (a component patch, or `null` once the entity is gone) and its `path/ns/Component`
+ * removal keys, exactly as `currentOverrides` writes them. `{}` when the entity matches what the
+ * instance spawned; undefined when `instance` isn't a spawned instance or has no such path.
+ *
+ * Costs one entity's diff, not the instance's: incremental saves and deltas call it for the
+ * entities that changed. Stale override keys (paths that no longer exist) belong to no entity and
+ * are left out; entities parented under generated ones aren't overrides at all.
+ */
+export function entityOverrides(
+  world: World,
+  instance: Entity,
+  path: string,
+): Overrides | undefined {
+  const state = perWorld.get(world)?.states.get(instance)
+  if (!state) return undefined
+  const flat = state.plan.flat
+  const i = flat.index.get(path)
+  if (i === undefined) return undefined
+  const d = overrideDiff(world, state, generatedPathOf(world, instance, state))
+  const out: Overrides = {}
+  const prefix = `${path}/`
+  for (const key of Object.keys(state.overrides)) {
+    if (key !== path && !key.startsWith(prefix)) continue
+    const value = state.overrides[key] as Overrides[string]
+    if (overrideNode(flat, key, value) === i) diffOverrideKey(d, i, key, value, out)
+  }
+  diffNode(d, i, out)
+  return out
+}
+
+/**
+ * Generated entities' paths without walking the instance: an entity's InstancePart names its
+ * node. Despawned entities, which no longer have one, fall back to a walk of the ids.
+ */
+function generatedPathOf(
+  world: World,
+  instance: Entity,
+  state: InstanceState,
+): (e: Entity) => string | undefined {
+  const { nodes, index } = state.plan.flat
+  let dead: Map<Entity, string> | undefined
+  return (e) => {
+    if (e === instance) return '.'
+    if (world.isAlive(e)) {
+      const part = world.tryGet(e, InstancePart)
+      if (part?.instance !== instance) return undefined
+      const k = index.get(part.path)
+      if (k !== undefined && state.ids[k] === e) return nodes[k]!.path
+    }
+    if (!dead) {
+      dead = new Map()
+      for (let k = 0; k < state.ids.length; k++)
+        if (state.ids[k]! >= 0) dead.set(state.ids[k]!, nodes[k]!.path)
+    }
+    return dead.get(e)
+  }
 }
 
 // --- apply to prefab --------------------------------------------------------------------------------

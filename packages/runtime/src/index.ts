@@ -80,6 +80,7 @@ export {
   type StateValue,
   setState,
 } from './state'
+export { StepMode, type StepModeData, settleBeforeStep } from './step-mode'
 export {
   DevMode,
   DisplayRate,

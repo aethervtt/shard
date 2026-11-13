@@ -42,4 +42,4 @@ export {
   treeSkeleton,
   tubeAlong,
 } from './tree'
-export { DEG, dcos, dsin, sinCos } from './trig'
+export { DEG, datan2, dcos, dexp, dlog, dpow, dsin, sinCos } from './trig'

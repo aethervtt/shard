@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { assetServer } from '@aethervtt/shard-assets'
 import { defineComponent, type Entity, type ShardError, t, World } from '@aethervtt/shard-core'
-import { decodeMesh, loadMeshSimplifier } from '@aethervtt/shard-mesh'
+import { datan2, dcos, decodeMesh, dsin, loadMeshSimplifier } from '@aethervtt/shard-mesh'
 import { loadNoiseKernel, type NoiseGraph } from '@aethervtt/shard-noise'
 import { createNodePlatform } from '@aethervtt/shard-platform-node'
 import { Mesh3d, Meshes } from '@aethervtt/shard-render'
@@ -31,11 +31,14 @@ import {
   guidOf,
   identityOf,
   meshBuilder,
+  outputHash,
   parseProceduralRef,
   proceduralPath,
   procgen,
+  recordHash,
   requestOf,
 } from '.'
+import { runGeneratorJob } from './worker'
 
 beforeAll(async () => {
   await loadNoiseKernel()
@@ -172,6 +175,102 @@ describe('jobs', () => {
     expect(performance.now()).toBeGreaterThan(0)
   })
 
+  describe('deterministicMath', () => {
+    const Trig = defineGenerator('test/Trig', {
+      params: { fn: t.string({ default: 'sin' }), late: t.bool() },
+      output: 'data',
+      deterministicMath: true,
+      async run(ctx, p) {
+        // After an await: only a worker (guarding the whole run) still catches it.
+        if (p.late) await Promise.resolve()
+        const f = (Math as unknown as Record<string, (...a: number[]) => number>)[p.fn]!
+        return f(ctx.rng.float(), 2)
+      },
+    })
+    const Deterministic = defineGenerator('test/Deterministic', {
+      params: {},
+      output: 'texture',
+      deterministicMath: true,
+      run(ctx) {
+        const mip = new Uint8Array(4 * 4 * 4)
+        for (let i = 0; i < mip.length; i++) {
+          const a = datan2(ctx.rng.float() - 0.5, 0.5)
+          mip[i] = Math.floor((dsin(a) * 0.5 + 0.5) * 255)
+        }
+        // Encoding (mipmaps) runs unguarded: it's engine code.
+        return { width: 4, height: 4, mips: [mip], mipmaps: true }
+      },
+    })
+    const Free = defineGenerator('test/FreeTrig', {
+      params: {},
+      output: 'data',
+      run: (ctx) => Math.sin(ctx.rng.float()) + Math.exp(1),
+    })
+    const job = (gen: typeof Trig | typeof Free | typeof Deterministic, params = {}) => ({
+      ...requestOf(gen as never, params, 3),
+      deps: [],
+      chain: [],
+    })
+    const originals = {
+      sin: Math.sin,
+      exp: Math.exp,
+      pow: Math.pow,
+      hypot: Math.hypot,
+      random: Math.random,
+    }
+
+    it('throws procgen/nondeterministic on Math.sin, naming it, its generator, and dsin', async () => {
+      const err = await errorOf(() => executeJob(job(Trig)))
+      expect(err.code).toBe('procgen/nondeterministic')
+      expect(err.message).toBe('test/Trig called Math.sin()')
+      expect(err.hint).toContain('dsin(x) from @aethervtt/shard-mesh')
+      for (const [fn, hint] of [
+        ['atan2', 'datan2'],
+        ['exp', 'dexp'],
+        ['log10', 'dlog'],
+        ['pow', 'dpow'],
+        ['hypot', 'Math.sqrt'],
+      ] as const) {
+        const e = await errorOf(() => executeJob(job(Trig, { fn })))
+        expect(e.message).toBe(`test/Trig called Math.${fn}()`)
+        expect(e.hint).toContain(hint)
+      }
+      // sqrt and the rounding functions are exact everywhere.
+      expect((await executeJob(job(Trig, { fn: 'sqrt' }))).assets[0]!.json).toBeTypeOf('number')
+    })
+
+    it('throws on a worker for the whole run, and the encoding is unguarded', async () => {
+      const err = await errorOf(() => runGeneratorJob(job(Trig, { late: true })))
+      expect(err.code).toBe('procgen/nondeterministic')
+      expect(err.message).toBe('test/Trig called Math.sin()')
+      // Inline, only the first turn is guarded (as with Math.random).
+      expect((await executeJob(job(Trig, { late: true }))).assets).toHaveLength(1)
+      const { packed } = await runGeneratorJob(job(Deterministic))
+      const pooled = decodeRecord(packed)!
+      const inline = await executeJob(job(Deterministic))
+      expect(checksum(pooled.assets[0]!.bytes!)).toBe(checksum(inline.assets[0]!.bytes!))
+    })
+
+    it('leaves generators without it free to call Math.sin, and restores Math', async () => {
+      await executeJob(job(Trig)).catch(() => {})
+      await runGeneratorJob(job(Trig, { late: true })).catch(() => {})
+      const free = await executeJob(job(Free))
+      expect(free.assets[0]!.json).toBeTypeOf('number')
+      expect(Math.sin).toBe(originals.sin)
+      expect(Math.exp).toBe(originals.exp)
+      expect(Math.pow).toBe(originals.pow)
+      expect(Math.hypot).toBe(originals.hypot)
+      expect(Math.random).toBe(originals.random)
+      expect(Math.sin(0)).toBe(0)
+      expect(dcos(0)).toBe(1)
+    })
+
+    it('is on the generator', () => {
+      expect(Trig.deterministicMath).toBe(true)
+      expect(Free.deterministicMath).toBe(false)
+    })
+  })
+
   it('wraps other errors with the generator, seed, and params; checks output types', async () => {
     const Throws = defineGenerator('test/Throws', {
       params: { n: t.u32() },
@@ -218,6 +317,35 @@ describe('jobs', () => {
       { file: 'scripts/rock.ts', line: 3, column: 33, call: 'Date.now()' },
     ])
     expect(findNondeterminism('scripts/main.ts', 'Math.random()')).toEqual([])
+  })
+
+  it('finds transcendental Math and ** in modules with a deterministicMath generator', () => {
+    const src = [
+      "const Cell = project.generator('Cell', {",
+      '  deterministicMath: true,',
+      "  description: '**bold** Math.sin(x)',",
+      '  run: (ctx) => Math.sin(1) + Math.sqrt(2) + Math.atan2(1, 2) + 2 ** 32 + ctx.x ** 2,',
+      '  // Math.exp(1) in a comment is fine',
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: the source has a template literal
+      '  other: (x) => x ** 0.5 + Math.random() + `${Math.hypot(x, 1)} **`,',
+      '})',
+    ].join('\n')
+    const found = findNondeterminism('scripts/cell.ts', src)
+    expect(found.map((f) => [f.line, f.column, f.call])).toEqual([
+      [4, 17, 'Math.sin()'],
+      [4, 46, 'Math.atan2()'],
+      [6, 19, '**'],
+      [6, 28, 'Math.random()'],
+      [6, 47, 'Math.hypot()'],
+    ])
+    expect(found[0]!.message).toContain('dsin(x) from @aethervtt/shard-mesh')
+    expect(found[2]!.message).toContain('dpow')
+    expect(found[3]!.message).toBeUndefined()
+    // Without the option, only the clock and Math.random.
+    const plain = src.replace('deterministicMath: true', 'deterministicMath: false')
+    expect(findNondeterminism('scripts/cell.ts', plain).map((f) => f.call)).toEqual([
+      'Math.random()',
+    ])
   })
 })
 
@@ -373,6 +501,58 @@ describe('runtime', () => {
 function world2Positions(world: World, guid: string): number[] {
   return Array.from(world.resource(Meshes).byGuid(guid)!.positions)
 }
+
+describe('outputHash', () => {
+  const Cell = defineGenerator('test/Cell', {
+    params: { x: t.i32(), z: t.i32() },
+    output: 'entities',
+    deterministicMath: true,
+    run(ctx, p) {
+      const out = []
+      for (let i = 0; i < 4; i++) {
+        const a = ctx.rng.range(0, 6.283185307179586)
+        out.push({
+          name: `tree-${i}`,
+          components: {
+            'core/Transform': {
+              translation: [p.x * 64 + dcos(a) * 10, 0, p.z * 64 + dsin(a) * 10],
+            },
+          },
+        })
+      }
+      return out
+    },
+  })
+
+  it('is the same for the same output in two worlds, and differs with the seed', async () => {
+    const one = new World()
+    const two = new World()
+    const ref = await generate(one, Cell, { x: 3, z: -2 }, 1234)
+    const hash = await outputHash(one, ref)
+    expect(hash).toMatch(/^[0-9a-f]{64}$/)
+    // By procedural path in another world (it generates there first).
+    expect(await outputHash(two, ref.path!)).toBe(hash)
+    expect(procgen(two).stats.runs).toBe(1)
+    const other = await generate(two, Cell, { x: 3, z: -2 }, 1235)
+    expect(await outputHash(two, other)).not.toBe(hash)
+    const moved = await generate(two, Cell, { x: 4, z: -2 }, 1234)
+    expect(await outputHash(two, moved)).not.toBe(hash)
+    // The record's own hash, however it got here (an encoded and decoded copy).
+    const record = await procgen(one).outputRecord(ref)
+    expect(await recordHash(decodeRecord(encodeRecord(record))!)).toBe(hash)
+  })
+
+  it('hashes meshes by their bytes, and rejects refs that are not outputs', async () => {
+    const world = new World()
+    const ref = await generate(world, Rock, {}, 5)
+    const elsewhere = new World()
+    const again = await outputHash(elsewhere, (await generate(elsewhere, Rock, {}, 5)).guid!)
+    expect(await outputHash(world, ref)).toBe(again)
+    expect(await outputHash(world, `${ref.guid}/LOD1`)).toBe(again)
+    const err = await errorOf(() => outputHash(world, 'nope.mesh.json'))
+    expect(err.code).toBe('procgen/not-generated')
+  })
+})
 
 describe('GeneratorInstance', () => {
   const Field = defineGenerator('test/Field', {
