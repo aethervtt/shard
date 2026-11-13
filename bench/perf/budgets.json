@@ -461,7 +461,7 @@
       "kind": "target",
       "laptop": 1,
       "desktop": 1,
-      "note": "0112 proposed: main-thread structure/sync, structure/physics and structure/nav for one wall added, removed or split on the town fixture (its collider set and nav shapes, and marking its tiles; not the tile builds), median, headless. Not yet measured on either machine."
+      "note": "0112 proposed: main-thread structure/sync, structure/physics and structure/nav for one wall added, removed or split on the town fixture (its collider set and nav shapes, and marking its tiles; not the tile builds), median, headless. Part 1 (model and colliders, no nav yet) measured 0.015 to 0.025 ms median for one wall edit on the 200-building town on an Apple M5 Max (not a named machine), 2026-11-12. structure/src/colliders.test.ts."
     },
     "structure/edit-burst": {
       "kind": "target",

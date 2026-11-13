@@ -1,6 +1,7 @@
 # 0112 — Structure that blocks: colliders, navigation and doors
 
-- **Status:** draft
+- **Status:** accepted (part 1 built: the model and colliders; part 2, nav, and part 3, budgeted
+  rebuilds and replans, to come)
 - **Packages:** `@aethervtt/shard-structure`, `@aethervtt/shard-physics`, `@aethervtt/shard-nav`,
   `@aethervtt/shard-project`
 - **Depends on:** 0028, 0029, 0037, 0055, 0066, 0067, 0092
@@ -44,22 +45,28 @@ it has no notion of a door.
 
 | Plugin | Entry | Needs | Does |
 |---|---|---|---|
-| `structure/model` | `.` | `core/transform` | components, records, pieces, chunk sets, the edit log |
-| `structure` | `.` | model, `render/forward` | chunk meshes, leaves, panes, contact shade (as today) |
-| `structure/physics` | `./physics` | model, `physics3d` | colliders |
-| `structure/nav` | `./nav` | model, `nav` | nav shapes and gates |
+| `structure/model` | `.` | `core/transform` | components, records, pieces, the edit log |
+| `structure` | `.` | `render/forward` | chunk meshes, leaves, panes, contact shade (as today) |
+| `structure/physics` | `./physics` | `physics3d` | colliders |
+| `structure/nav` | `./nav` | `nav` | nav shapes and gates |
 
-`compile.ts` is split along this line. Evaluating walls, slabs, openings and cutouts, which yields
-records, `wallPieces`, chunk sets and validation errors, moves to `model.ts`, which imports nothing
-from render. `rebuildChunk`, leaves and contact stay in `compile.ts` and read the model.
-`geometry.ts` and `curve.ts` are already pure.
+`structure`, `structure/physics` and `structure/nav` add `structure/model` when it's missing, so
+hosts that add only `structurePlugin` keep working. `model.ts` imports nothing from render; it
+evaluates walls (their shape and solid pieces, no frames), openings, slabs (triangulated, cutouts
+accepted) and cutouts. Render compile keeps its own records (they hold leaves, chunk sets and
+contact quads) but takes the same path through the shared pure functions: `wallShape`,
+`curveDrawable` and `acceptCutouts` in `model.ts`, and `geometry.ts` and `curve.ts`. So with a
+display, evaluation runs twice: once for the model, once for compile.
 
-The model's `structure/sync` runs twice a frame: in `FixedUpdate` before `PhysicsSystems`, so an
-edit made in `Update` or an earlier fixed system reaches colliders in that step, and in
-`PostUpdate` before `structure/compile`. A run with no changes costs a tick compare per table.
-Each run appends to an **edit log** of `{ entity, kind: 'geometry' | 'state' | 'removed' }`.
-Consumers (compile, physics, nav) read it from their own cursor. Entries every cursor has passed
-are dropped, so no consumer rescans the world.
+The model syncs twice a frame: `structure/sync-fixed` in `FixedUpdate`, before `PhysicsSystems`,
+so an edit made in `Update` or an earlier fixed system is solid in that step; `structure/sync` in
+`PostUpdate`. They share the tick they last saw, so an edit is read once. A run with no changes
+costs a tick compare per table. Each run appends to an **edit log** of `{ entity, part, kind }`
+(`kind`: `geometry`, `state` or `removed`), in entity order. Consumers read it from their own
+cursor, and entries every cursor has passed are dropped, so no consumer rescans the world. A
+consumer that starts late, or whose settings change, rebuilds from the records and reads on from
+the log's end. `structure.describe` belongs to the model; the render state and colliders add
+their sections to it.
 
 The manifest gains an engine plugin `structure`. It adds `structure/model`, adds `structure` when
 there is a display, and adds `structure/physics` or `structure/nav` when the manifest has
@@ -95,15 +102,25 @@ They count in `physics.describe` (as `static`), draw in the `colliders` overlay,
 |---|---|---|
 | Wall | its pieces' shapes | always |
 | Floor, Roof | slab trimesh | always |
-| Door (Opening) | a box filling the gap, wall-thick | `state` closed or locked, and `movement: 'normal'` |
-| Window (Opening) | a box filling the gap | `movement: 'normal'` |
+| Door (Opening) | the whole hole (frames included), wall-thick | `state` closed or locked, and `movement: 'normal'` |
+| Window (Opening) | the whole hole, wall-thick | `movement: 'normal'` |
 | Hatch (Cutout) | the hole's slab | `state` closed or locked |
 | Skylight (Cutout) | the hole's slab | always |
 
-A door's collider is binary and doesn't follow the swing animation. A `geometry` log entry rebuilds
-that owner's set (a wall's, plus its openings' when the wall moved). A `state` entry is one
-`enableStatic`. Sets are created in entity order within a sync, so replays hash the same (0028).
-`StructureSettings.colliders` holds `{ enabled, layers, mask, friction }`.
+A door's collider is binary and doesn't follow the swing animation. The hole is the span
+`wallPieces` cut the wall around (it reports each opening's `[s0, s1, sill, head]`), so the
+wall's and the door's colliders meet with no gap. A `geometry` log entry rebuilds that owner's
+set (a wall's, plus its openings' when the wall moved or its openings changed); a `state` entry
+is one `enableStatic`. An opening's frame, swing or material is neither. Sets are created in
+entity order within a sync, so replays hash the same (0028). `StructureSettings.colliders` holds
+`{ enabled, layers, mask, friction }`; a patch may hold only some of them, and any change
+rebuilds every structure collider. `StructureColliders` (a resource) holds the owners and what the
+last update built, toggled and removed.
+
+Static colliders map their Rapier handles to the owner in `colliderEntity`, so ray hits, contact
+events and a character's ground report the owner without other changes. Collision events read a
+collider's sensor flag by handle, since an owner isn't in `colliders`; an origin shift (0040)
+moves static sets too.
 
 ### Nav: shapes, gates and filters
 
@@ -280,6 +297,10 @@ with survivor and zombie filters.
   polygons and build time.
 - **Two syncs a frame.** An edit made before physics is solid in the same step, and an edit made
   later is drawn in the same frame.
+- **Compile keeps its records and shares the evaluation, rather than reading the model.** Compile's
+  records carry leaves, chunk sets, contact quads and cutaway tags; moving them would touch most of
+  its 2,000 lines and every structure golden for no gain in what's drawn. Sharing the functions
+  that decide geometry keeps the two from disagreeing; evaluating twice costs microseconds per edit.
 
 ## Acceptance criteria
 
@@ -292,7 +313,7 @@ On the town fixture, in headless tests (`structureModelPlugin`, `structurePhysic
 - [ ] **Cold and warm.** From no cache, model, colliders and the complete navmesh are in within
       `structure/town-cold`. With the cache written, a fresh app gets there within
       `structure/town-warm` and Recast builds 0 tiles.
-- [ ] **Collider shapes.** For a straight, an arc and a Bézier wall, each with a door and a window,
+- [x] **Collider shapes.** For a straight, an arc and a Bézier wall, each with a door and a window,
       horizontal rays at 0.5 m intervals hit the wall face (± 1 cm plus `curveTolerance`) except in
       openings. A ray through a door gap hits the door's collider when it's closed or locked, and
       passes when it's open. A ray through a window gap hits the window unless `movement: 'none'`.
@@ -317,7 +338,7 @@ On the town fixture, in headless tests (`structureModelPlugin`, `structurePhysic
 - [ ] **Windows and hatches.** Toggling `movement` on a window, or `state` on a hatch, builds 0
       tiles. A filter that doesn't exclude area 11 paths through a passable window by its link,
       and not through a blocked one. Nobody paths onto an open hatch.
-- [ ] **Walls stop agents.** A character controller (0029) walking at 4 m/s into a wall, a closed
+- [x] **Walls stop agents.** A character controller (0029) walking at 4 m/s into a wall, a closed
       door, and a window stops within 2 cm of the face plus the controller's offset, and stays out
       for 600 steps. Once the door opens, it walks through.
 - [ ] **Replans.** A zombie routed through a door that shuts replans within 2 frames and arrives by
@@ -332,6 +353,30 @@ On the town fixture, in headless tests (`structureModelPlugin`, `structurePhysic
       identical to the headless run, and 0055/0066/0067/0070's structure tests pass unchanged.
 - [ ] **0037 kept.** The nav tests pass with the new flag layout: exclusion is exact for areas
       0–11, and a NavSource edit still rebuilds only its tiles, now without a gather.
+
+## Implementation notes
+
+Part 1 (the model and colliders) is built; parts 2 and 3 (nav, then budgeted rebuilds and replans)
+are not. In the criteria above, part 1 meets these halves, checked in `colliders.test.ts` and
+`project/src/plugins.test.ts`, and the rest wait on nav:
+
+- **Headless:** every collider of the town, no `Mesh3d`, no render resource, and the manifest's
+  `structure` under `display: false` adds `structure/model` and `structure/physics` only.
+- **Collider edits:** adding, splitting and removing a wall build exactly the wall's and its
+  openings' sets (`StructureColliders.last`), a door toggle builds nothing and toggles one, and a
+  frame or swing edit does neither. `structure/sync` plus `structure/physics` stay within
+  `structure/edit`.
+- **Determinism:** two runs of the same edits build the same sets in the same order.
+- **Render parity:** with `structurePlugin`, the colliders match the headless run's; every
+  existing structure test passes unchanged.
+
+Physics: `setStatic`, `enableStatic`, `clearStatic` and `isStaticEnabled` on `PhysicsWorld`, with
+`statics` (owner → set) and `describe().static`; `static.test.ts`.
+
+Measured on an Apple M5 Max (not a named machine), 2026-11-12, on the 200-building town (1,006
+walls, 1,813 owners, 4,149 Rapier colliders): the first sync and colliders take 15–41 ms; one wall
+edit takes 0.015–0.025 ms median (one 3.2 ms outlier in 120, likely a collection); a door toggle,
+4–10 µs.
 
 ## Open questions
 
