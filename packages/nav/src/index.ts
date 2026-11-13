@@ -7,6 +7,7 @@ export {
   liveTileKeys,
   navBake,
   navReady,
+  navReadyIn,
   type TileJob,
   updateNavigation,
   whenNavReady,

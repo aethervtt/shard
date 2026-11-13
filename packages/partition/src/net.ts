@@ -48,6 +48,7 @@ import { cellDistance, cellKey, type ResolvedGrid } from './partition'
 import { keepDeltas, streamCells } from './plugin'
 import {
   type Cell,
+  cellResolver,
   generatorInfo,
   type InstanceRuntime,
   PartitionState,
@@ -579,19 +580,20 @@ function applyEntry(
     const saved = value as unknown as SavedCellEntity
     if (cell.level !== 0 && saved.components['partition/FarVisible'] === undefined) return
     const e = world.spawn()
-    addComponents(world, e, saved.components as Record<string, JsonValue>, warn)
+    cell.added.set(key, e)
+    addComponents(world, e, saved.components as Record<string, JsonValue>, warn, cellResolver(cell))
     if (saved.parent !== undefined) {
       const parent = cell.entities.get(saved.parent)
       if (parent !== undefined && world.isAlive(parent)) world.add(e, ChildOf, { parent })
     }
-    cell.added.set(key, e)
     return
   }
   const path = pathOfKey(key)
   const e = cell.entities.get(path)
   if (e === undefined || !world.isAlive(e)) return
   if (value === undefined) {
-    if (restore && typeof restore === 'object') addComponents(world, e, restore as JsonObject, warn)
+    if (restore && typeof restore === 'object')
+      addComponents(world, e, restore as JsonObject, warn, cellResolver(cell))
     return
   }
   if (value === null) {
@@ -606,7 +608,7 @@ function applyEntry(
     s.suppress--
     return
   }
-  addComponents(world, e, value as JsonObject, warn)
+  addComponents(world, e, value as JsonObject, warn, cellResolver(cell))
   void rt
 }
 
@@ -684,6 +686,9 @@ function clientSystem(options: PartitionNetOptions) {
       for (const { data } of ctx.reader(CellDeltaEvent.event).read()) applyCellDelta(world, data)
       const queued = c.add.length + c.update.length + c.remove.length + c.loaded.length
       if (queued > 0 && world.resource(NetRole).connected) {
+        // Hashes finish in the order crypto's thread pool returns them: sort, so the server sees
+        // the same report, and builds the same interest order, on every run.
+        for (const list of [c.add, c.update, c.remove, c.loaded]) list.sort(byCell)
         sendCommand(world, CellsCommand, {
           add: c.add,
           update: c.update,
@@ -697,6 +702,12 @@ function clientSystem(options: PartitionNetOptions) {
       }
     },
   })
+}
+
+function byCell(a: JsonValue, b: JsonValue): number {
+  const p = a as number[]
+  const q = b as number[]
+  return p[0]! - q[0]! || p[1]! - q[1]! || p[2]! - q[2]!
 }
 
 function localGenerator(name: string): { version: number; codeHash: string } | undefined {

@@ -130,6 +130,56 @@ export function navReady(world: World): boolean {
 }
 
 /**
+ * Whether every navmesh's tiles over a world-space XZ rectangle are built (0113): a streamed cell
+ * that just loaded is walkable once this is true, while tiles elsewhere may still be building.
+ * Source changes not yet placed in the tile index count as not ready anywhere.
+ */
+export function navReadyIn(
+  world: World,
+  minX: number,
+  minZ: number,
+  maxX: number,
+  maxZ: number,
+): boolean {
+  const nav = world.tryResource(Nav)
+  if (!nav?.R) return false
+  if (
+    nav.dirty ||
+    nav.dirtyRoots.size > 0 ||
+    nav.shapes.changed.size > 0 ||
+    nav.gates.changed.size > 0
+  )
+    return false
+  if (nav.meshes.size !== world.query({ with: [NavMesh] }).count()) return false
+  for (const rt of nav.meshes.values()) {
+    if (!rt.indexed || rt.pending > 0) return false
+    // In navmesh space (a framed navmesh); with the tile border, as the index bins sources.
+    rt.pointIn(minX, 0, minZ, readyA)
+    rt.pointIn(maxX, 0, maxZ, readyB)
+    const tw = rt.tileWorld
+    const border = voxelSettings(rt.settings).borderSize * rt.settings.cellSize
+    const x0 = Math.floor((Math.min(readyA[0]!, readyB[0]!) - border) / tw)
+    const x1 = Math.floor((Math.max(readyA[0]!, readyB[0]!) + border) / tw)
+    const z0 = Math.floor((Math.min(readyA[2]!, readyB[2]!) - border) / tw)
+    const z1 = Math.floor((Math.max(readyA[2]!, readyB[2]!) + border) / tw)
+    for (let tz = z0; tz <= z1; tz++) {
+      for (let tx = x0; tx <= x1; tx++) {
+        const k = packTile(tx, tz)
+        if (rt.dirty.has(k) || rt.inflight.has(k)) return false
+      }
+    }
+    // Built on the pool but not yet in the navmesh.
+    for (const job of rt.jobs) {
+      if (job.tx >= x0 && job.tx <= x1 && job.tz >= z0 && job.tz <= z1) return false
+    }
+  }
+  return true
+}
+
+const readyA = new Float64Array(3)
+const readyB = new Float64Array(3)
+
+/**
  * Resolves once every navmesh is baked (`navReady`), as the bake system finds it: frames must keep
  * running. A server awaits it before it takes players; `bakeNavigation` bakes without frames.
  */
@@ -500,17 +550,21 @@ function updateMeshes(
       const rt = nav.meshes.get(entity)
       if (rt && ticks[row]! <= since) continue
       const settings = settingsOf(table, row)
+      const capacity = table.column(NavMesh, 'maxTiles')[row]!
       if (rt && sameSettings(rt.settings, settings)) {
-        // New bounds place every source again; anything else changes nothing here.
+        // New bounds place every source again; a larger capacity grows the navmesh once now.
         const nm = world.get(entity, NavMesh)
         if (!sameBounds(rt.bounds, nm.boundsMin, nm.boundsMax)) rt.indexed = false
+        if (capacity > rt.maxTiles && rt.reserve(capacity)) {
+          for (const a of nav.agents.values()) if (a.nav === entity) a.crowdIndex = -1
+        }
         continue
       }
       if (rt) {
         rt.destroy()
         for (const a of nav.agents.values()) if (a.nav === entity) a.crowdIndex = -1
       }
-      nav.meshes.set(entity, new NavMeshRuntime(R, entity, settings))
+      nav.meshes.set(entity, new NavMeshRuntime(R, entity, settings, capacity))
       nav.meshList = [...nav.meshes.values()]
       nav.areas = Number.NaN
     }

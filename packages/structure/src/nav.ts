@@ -171,7 +171,10 @@ function build(
   const settings = s.settings
   const shapes: BlockingShape[] = []
   const area = settings.floorArea
-  if (part === 'wall') {
+  if (!model.isSolid(entity, part)) {
+    // A backdrop (0113): no shape, and no gate.
+    if (s.gates.delete(entity)) nav.gates.delete(entity)
+  } else if (part === 'wall') {
     const w = model.walls.get(entity)
     if (w) wallBlockers(w, shapes)
   } else if (part === 'floor' || (part === 'roof' && settings.roofs)) {

@@ -3,7 +3,8 @@
 - **Status:** accepted (built; implemented once its criteria pass in CI)
 - **Packages:** `@aethervtt/shard-partition` (new, per 0072), `@aethervtt/shard-net`,
   `@aethervtt/shard-save`, `@aethervtt/shard-procgen`, `@aethervtt/shard-scene`,
-  `@aethervtt/shard-mesh`, `@aethervtt/shard-physics`, `@aethervtt/shard-runtime`, `apps/cli`,
+  `@aethervtt/shard-mesh`, `@aethervtt/shard-physics`, `@aethervtt/shard-runtime`,
+  `@aethervtt/shard-structure`, `@aethervtt/shard-nav`, `apps/cli`,
   `apps/playground`
 - **Depends on:** 0030, 0038, 0040, 0042, 0072, 0087, 0089, 0092, 0112
 
@@ -209,8 +210,13 @@ interface SavedCellEntity {
   `partition/FarVisible` (a built wall).
 - **Dormant entities.** At unload, each dynamic `CellBound` entity is written into `dormant`:
   its saved components, its parent's path when it hangs under a generated entity, and what a hook
-  keeps (`net/Replicated`'s prefab and owner, which saves skip). Entity fields are written as
-  `null`, and `save/NoSave` entities are dropped. When the cell next loads inside a `simulate`
+  keeps (`net/Replicated`'s prefab and owner, which saves skip). `save/NoSave` entities are
+  dropped.
+- **References.** In added and dormant entities, an entity field naming a generated entity of
+  the same cell is written as its path, and one naming a static added entity as `+n`; anything
+  else is `null`. A cell's added entities spawn first and fill in after, so `+n` links between
+  them resolve (a player-built door keeps its player-built wall). A `CellBound` entity needs a
+  `Transform`: its position decides its cell. When the cell next loads inside a `simulate`
   ring, they spawn and replicate again.
 - **Levels.** A delta applies at every level. Ops on paths a level doesn't have are skipped there,
   silently. So a knocked-down wall disappears from the `far` shell as well, as long as the far
@@ -349,18 +355,16 @@ These are limited to what streaming can't do without.
 - **runtime:** `StepMode { deterministic, settles }` and `settleBeforeStep(world)` (above).
 - **physics:** `removeBody` scanned every collider, so unloading a cell with n bodies cost
   O(n × colliders). A collider list per body (`bodyColliders`) fixes it.
-- **structure and nav: spec 0112 (structure that blocks), not built here.** It covers:
-  - the headless structure model, colliders and nav sources on a `display: false` app (built);
-  - incremental per-tile rebakes, with no world gather, so a cell's despawn dirties only its own
-    tiles (built);
-  - count-based budgeted rebuilds and `whenNavReady` (its part 3).
-
-  Still wanted from it:
-  - a per-structure switch that turns off collider and nav output, which `far` levels set;
-  - a query for whether the tiles over given bounds are built, so a game can hold agents in a
-    fresh cell (`whenNavReady` is world-wide);
-  - an initial `maxTiles` setting, so streaming never hits `reserve`'s full rebuild, which also
-    destroys the crowd.
+- **structure and nav.** Spec 0112 (structure that blocks) gives the headless structure model,
+  colliders and nav sources, per-tile rebakes with no world gather, and count-based budgeted
+  rebuilds. Streaming added three things to it:
+  - `structure/Backdrop`: a tag on a wall, floor or roof, or on its `Level`, that keeps the piece
+    drawn but gives it no colliders and no nav shapes or gates (its openings and cutouts follow).
+    `far` levels put it on their shells;
+  - `navReadyIn(world, minX, minZ, maxX, maxZ)`: whether the tiles over a rectangle are built,
+    so a game can hold agents in a fresh cell while tiles elsewhere still build;
+  - `NavMesh.maxTiles` (default 256): the navmesh starts that big, so tiles streaming in never
+    regrow it (a regrow re-adds every tile and resets the crowd); raising it grows it once.
 
   Structure's absolute `Wall` coordinates need no change, because fragments are in partition
   space. Cells bring colliders and nav sources as ordinary entities, and unloading despawns them.
@@ -474,6 +478,13 @@ unless named.
       unloads. One that walks into a cell nobody simulates (drawn at `far`) becomes dormant there,
       and is back when that cell loads at `full` (`persistence.test.ts`).
 - [x] An untouched cell's delta message is under 32 bytes (`perf.test.ts`).
+- [x] A town of real structure buildings streams with colliders and nav: full cells' walls own
+      colliders and nav shapes, far cells' (`structure/Backdrop`) none; the player's new cell
+      passes `navReadyIn`; the navmesh never regrows; and no frame of a 512 m walk exceeds
+      `partition/structure-walk-frame`. A player-built wall with a door in it comes back after an
+      unload with the door on that wall, its collider and its nav gate
+      (`structure-stream.test.ts`; `Backdrop` alone in `structure/src/backdrop.test.ts`, the nav
+      pieces in `nav/src/streaming.test.ts`).
 - [x] A delta made with generator version 1 applies to version 2 after a save and a load: surviving
       paths apply, a missing path warns `partition/stale-delta` and stays in the delta, and the
       migration runs once (`persistence.test.ts`). A client whose generator `codeHash` differs is
@@ -506,9 +517,15 @@ for the laptop, and `budgets.json` notes say so.
   pass incremental, brought them to the numbers above.
 - `shard run --net` first gave a client a different hash one run in four: a Prefab landing between
   steps respawned instances there, so entity ids came out in another order. Scene now defers that
-  respawn to the frame under `StepMode.deterministic`.
-- Nav and structure aren't in the fixture's apps; the fixture's walls are boxes with
-  `nav/NavSource`. Streaming 0112's structure is the next step once its part 3 lands.
+  respawn to the frame under `StepMode.deterministic`. Under load (the whole suite in parallel)
+  a client still differed now and then: hashes finish in the order crypto's thread pool returns
+  them, that order became the order of the client's cell report, then of the server's interest,
+  then of the client's entity ids. Clients now sort each report by cell; 39 concurrent runs then
+  matched.
+- The structure town (`fixtures/structure-town.ts`, real walls, doors, windows and floors) walks
+  512 m in a single-player app with physics, nav and structure's bridges: worst frame 5.5 ms,
+  p95 2.5 ms, streaming p95 0.26 ms, 70 level swaps, 629 nav tiles and no navmesh regrow. Full
+  cells get every collider and nav shape, far cells none.
 
 ## Open questions
 

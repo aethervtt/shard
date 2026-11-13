@@ -459,6 +459,19 @@ the worst frame's structure, physics sync-in and nav bake take 3.41 ms (median 1
 slowest tile build on a worker 0.88 ms (mean 0.57 ms), and `nav/agents` stays within 4.04 ms
 (p95) while 128 agents replan.
 
+### Added by 0113 (streaming)
+
+- `structure/Backdrop` (a tag on a wall, floor or roof, or its `Level`): drawn, no colliders, no
+  nav shapes or gates; openings and cutouts follow their host. The model's records carry `solid`
+  in their signature, and observers catch the tag coming and going.
+- Wall and slab signatures now include their `level`: a piece moved to another level at the same
+  elevation kept the old one in its record.
+- `navReadyIn(world, minX, minZ, maxX, maxZ)`: `navReady` over a rectangle (dirty, building and
+  pool-built-but-unapplied tiles under it, with the border; unplaced source changes count as not
+  ready).
+- `NavMesh.maxTiles` (default 256): the initial capacity, outside the bake settings so tile keys
+  don't change; raising it reserves once.
+
 ## Open questions
 
 - **Closing a door on someone.** The collider enables anyway, and the character controller pushes

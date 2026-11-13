@@ -17,7 +17,7 @@ import {
   townApp,
   townPlugins,
 } from './fixtures/apps'
-import { Door, defineTown } from './fixtures/town'
+import { Door, defineTown, Hinge } from './fixtures/town'
 import {
   CellBound,
   cellParams,
@@ -110,6 +110,45 @@ describe('deltas through saves', () => {
     expect(v.get(back.entities.get('b1/door')!, Door).open).toBe(true)
     expect(back.added.size).toBe(1)
     expect(count(v, [CellBound, Replicated])).toBe(1)
+  })
+})
+
+describe('references in a cell', () => {
+  const TOWN = defineTown({ name: 'ref-town', props: 1 })
+
+  it('keeps an added door’s links to a built wall and a generated wall across an unload', async () => {
+    const app = await townApp()
+    const world = app.world
+    spawnTown(world, TOWN)
+    const player = spawnSource(world, 32, 32)
+    await steps(app, 6)
+    const generated = cellOf(world, '0:0,0')!.entities.get('b0/n')!
+    const built = world.spawn(
+      [Transform, { translation: [10, 1, 10] }],
+      [CellBound, {}],
+      [Door, {}],
+    )
+    await steps(app, 2)
+    world.spawn(
+      [Transform, { translation: [11, 1, 10] }],
+      [CellBound, {}],
+      [Hinge, { wall: built, frame: generated }],
+    )
+    await steps(app, 2)
+    moveTo(world, player, 2032, 32)
+    await steps(app, 220)
+    expect(loadedCells(world)['0:0,0']).toBeUndefined()
+    moveTo(world, player, 32, 32)
+    await steps(app, 220)
+    const cell = cellOf(world, '0:0,0')!
+    let hinge: Entity | undefined
+    for (const e of cell.added.values()) if (world.has(e, Hinge)) hinge = e
+    const links = world.get(hinge!, Hinge)
+    expect(links.frame).toBe(cell.entities.get('b0/n'))
+    expect(links.wall).not.toBeNull()
+    expect(world.has(links.wall!, Door)).toBe(true)
+    expect([...cell.added.values()]).toContain(links.wall)
+    app.dispose()
   })
 })
 

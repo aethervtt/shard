@@ -163,31 +163,46 @@ function skipped(def: ComponentDef): boolean {
   )
 }
 
-/** An entity's saved components as JSON, with entity fields nulled. */
+/**
+ * An entity's saved components as JSON. Entity fields (and lists of them) become what `refOf`
+ * makes of their target, a path in the cell (0113), or null.
+ */
 export function serializeComponents(
   world: World,
   entity: Entity,
+  refOf?: (target: Entity) => string | null,
   leaveOut?: ReadonlySet<string>,
 ): Record<string, JsonObject> {
   const out: Record<string, JsonObject> = {}
+  const ref = (v: unknown): JsonValue =>
+    typeof v === 'number' && v >= 0 ? (refOf?.(v as Entity) ?? null) : null
   for (const def of world.componentsOf(entity)) {
     if (skipped(def) || leaveOut?.has(def.name)) continue
-    const json = def.serialize(world.get(entity, def) as never)
+    const value = world.get(entity, def) as Record<string, unknown>
+    const json = def.serialize(value as never)
     for (const [name, field] of Object.entries(def.fields)) {
-      if (field.kind === 'entity') json[name] = null
+      if (field.kind === 'entity') json[name] = ref(value[name])
+      else if (field.kind === 'list' && field.item?.kind === 'entity') {
+        json[name] = ((value[name] as unknown[] | undefined) ?? []).map(ref)
+      }
     }
     out[def.name] = json
   }
   return out
 }
 
-/** Adds components from their JSON (unknown names are reported, not thrown). */
+/**
+ * Adds components from their JSON (unknown names are reported, not thrown). Entity paths resolve
+ * through `resolve`; one that doesn't becomes null rather than losing its component.
+ */
 export function addComponents(
   world: World,
   entity: Entity,
   components: Record<string, JsonValue>,
   warn: (error: ShardError) => void,
+  resolve?: (path: string) => Entity | undefined,
 ): void {
+  const ctx = { resolveEntity: (path: string) => resolve?.(path) ?? (-1 as Entity) }
   for (const [name, json] of Object.entries(components)) {
     const def = findComponent(name)
     if (!def) {
@@ -203,7 +218,7 @@ export function addComponents(
       ? { ...def.serialize(world.get(entity, def) as never), ...json }
       : json
     try {
-      world.add(entity, def, def.deserialize(merged) as never)
+      world.add(entity, def, def.deserialize(merged, ctx) as never)
     } catch (err) {
       warn(err as ShardError)
     }

@@ -15,6 +15,8 @@ export const Container = defineComponent('test/Container', { capacity: t.u8({ de
 export const Contents = defineComponent('test/Contents', { items: t.list(t.string()) })
 export const Door = defineComponent('test/Door', { open: t.bool() })
 export const Shell = defineComponent('test/Shell', {})
+/** A player-built door's links: to a built wall (an added entity) and to a generated one. */
+export const Hinge = defineComponent('test/Hinge', { wall: t.entity(), frame: t.entity() })
 
 const CELL = 64
 
