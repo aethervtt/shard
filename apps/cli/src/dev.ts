@@ -48,17 +48,19 @@ function projectShaders(root: string): { file: string; source: string }[] {
 const cliRoot = resolve(here, '..')
 
 /**
- * An import map pointing every `@aethervtt/shard-<pkg>` at the URL Vite serves that package's entry from, so
- * the project bundle (which leaves `@aethervtt/shard-*` external) shares the page's module instances.
+ * An import map pointing every `@aethervtt/shard-<pkg>` and each of its subpath exports
+ * (`@aethervtt/shard-partition/net`) at the URL Vite serves that file from, so the project bundle
+ * (which leaves `@aethervtt/shard-*` external) shares the page's module instances.
  * Repository source or installed `dist`, in any package-manager layout (0093).
  */
-function engineImportMap(engine: readonly EnginePackage[]): Record<string, string> {
+export function engineImportMap(engine: readonly EnginePackage[]): Record<string, string> {
   const imports: Record<string, string> = {}
   for (const pkg of engine) {
-    if (!pkg.entry) continue
-    // Vite's `/@fs/` prefix takes an absolute path; a Windows one (`C:/…`) needs its own slash.
-    const path = pkg.entry.split(sep).join('/')
-    imports[pkg.name] = `/@fs${path.startsWith('/') ? '' : '/'}${path}`
+    for (const [subpath, file] of Object.entries(pkg.exports)) {
+      // Vite's `/@fs/` prefix takes an absolute path; a Windows one (`C:/…`) needs its own slash.
+      const path = file.split(sep).join('/')
+      imports[pkg.name + subpath.slice(1)] = `/@fs${path.startsWith('/') ? '' : '/'}${path}`
+    }
   }
   return imports
 }
