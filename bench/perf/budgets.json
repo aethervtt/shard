@@ -291,6 +291,12 @@
       "desktop": 2,
       "note": "0113 (like 0072's streaming share): main-thread streaming time in a frame (selection, commits, unloads) while a player walks 1 km across the town fixture at 30 m/s, p95, on the server and on a headless client. Measured 0.26 ms on an Apple M5 Max (2026-11-12), not a named machine. partition/src/perf.test.ts."
     },
+    "partition/structure-walk-frame": {
+      "kind": "target",
+      "laptop": 8,
+      "desktop": 8,
+      "note": "0113 with 0112: the worst main-thread frame (GC pauses subtracted) of a single-player app walking 512 m through the structure town (real walls, doors and floors, physics, nav tiles under NavBudget), cells loading, unloading and changing level; half a 60 Hz frame. partition/src/structure-stream.test.ts."
+    },
     "partition/walk-frame": {
       "kind": "target",
       "laptop": 8,

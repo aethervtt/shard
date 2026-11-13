@@ -74,7 +74,10 @@ function build(
   const out = s.shapes
   out.length = 0
   let on = true
-  if (part === 'wall') {
+  // A backdrop (0113) leaves out.length at 0: its colliders go.
+  if (!model.isSolid(entity, part)) {
+    // nothing to build
+  } else if (part === 'wall') {
     const w = model.walls.get(entity)
     if (w) wallBlockers(w, out)
   } else if (part === 'opening') {

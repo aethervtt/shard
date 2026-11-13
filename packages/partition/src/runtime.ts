@@ -420,8 +420,38 @@ function isDynamic(world: World, entity: Entity): boolean {
   return state(world).hooks.isDynamic?.(world, entity) ?? false
 }
 
+/**
+ * How a saved cell entity refers to another (0113): a generated entity of the same cell by its
+ * path, a static added one by `+key`, anything else as null.
+ */
+function refIn(world: World, cell: Cell): (target: Entity) => string | null {
+  return (target) => {
+    if (!world.isAlive(target)) return null
+    const part = world.tryGet(target, InstancePart)
+    if (part && part.instance === cell.root) return part.path
+    const cb = world.tryGet(target, CellBound)
+    if (
+      cb &&
+      cb.key > 0 &&
+      cb.x === cell.x &&
+      cb.z === cell.z &&
+      cb.grid === cell.grid.index &&
+      !isDynamic(world, target)
+    )
+      return `+${cb.key}`
+    return null
+  }
+}
+
+/** The other side of `refIn`: a path in a loaded cell to its entity. */
+export function cellResolver(cell: Cell): (path: string) => Entity | undefined {
+  return (path) => (path.startsWith('+') ? cell.added.get(path) : cell.entities.get(path))
+}
+
 function savedEntity(world: World, cell: Cell, entity: Entity): SavedCellEntity {
-  const saved: SavedCellEntity = { components: serializeComponents(world, entity) }
+  const saved: SavedCellEntity = {
+    components: serializeComponents(world, entity, refIn(world, cell)),
+  }
   const parent = world.tryGet(entity, ChildOf)?.parent
   if (parent !== undefined && parent !== null && parent >= 0 && world.isAlive(parent)) {
     const part = world.tryGet(parent, InstancePart)
@@ -432,25 +462,19 @@ function savedEntity(world: World, cell: Cell, entity: Entity): SavedCellEntity 
   return saved
 }
 
-/** Spawns a saved cell entity (an added one, or a dormant one coming back). */
-function spawnSaved(
-  world: World,
-  rt: InstanceRuntime,
-  cell: Cell,
-  saved: SavedCellEntity,
-  key: number,
-): Entity {
-  const e = world.spawn()
+/**
+ * Fills an entity spawned for a saved cell entity (an added one, or a dormant one coming back).
+ * Callers spawn every entity of a batch first, so references between them resolve.
+ */
+function fillSaved(world: World, cell: Cell, e: Entity, saved: SavedCellEntity, key: number): void {
   const warn = (error: ShardError) => warnOnce(world, `${cell.key}:${error.message}`, error)
-  addComponents(world, e, saved.components as Record<string, JsonValue>, warn)
+  addComponents(world, e, saved.components as Record<string, JsonValue>, warn, cellResolver(cell))
   if (saved.parent !== undefined) {
     const parent = cell.entities.get(saved.parent)
     if (parent !== undefined && world.isAlive(parent)) world.add(e, ChildOf, { parent })
   }
   world.add(e, CellBound, { x: cell.x, z: cell.z, grid: cell.grid.index, key })
   if (saved.extra) state(world).hooks.restoreExtra?.(world, e, saved.extra)
-  void rt
-  return e
 }
 
 // --- generation ---------------------------------------------------------------------------------
@@ -632,14 +656,19 @@ function syncAdded(world: World, rt: InstanceRuntime, cell: Cell, level: number)
     s.suppress--
     cell.added.delete(key)
   }
+  const fresh: [string, SavedCellEntity][] = []
   for (const [key, value] of delta.entries) {
     if (!key.startsWith('+') || cell.added.has(key)) continue
     const saved = value as unknown as SavedCellEntity
     if (!visibleAt(level, saved)) continue
-    s.suppress++
-    cell.added.set(key, spawnSaved(world, rt, cell, saved, Number(key.slice(1))))
-    s.suppress--
+    cell.added.set(key, world.spawn())
+    fresh.push([key, saved])
   }
+  s.suppress++
+  for (const [key, saved] of fresh) {
+    fillSaved(world, cell, cell.added.get(key)!, saved, Number(key.slice(1)))
+  }
+  s.suppress--
 }
 
 function bindSecrets(world: World, cell: Cell): void {
@@ -722,7 +751,8 @@ function wakeDormant(world: World, rt: InstanceRuntime, cell: Cell): void {
   const list = delta.dormant
   delta.dormant = []
   s.suppress++
-  for (const saved of list) spawnSaved(world, rt, cell, saved, ++delta.next)
+  const spawned = list.map(() => world.spawn())
+  for (let i = 0; i < list.length; i++) fillSaved(world, cell, spawned[i]!, list[i]!, ++delta.next)
   s.suppress--
 }
 

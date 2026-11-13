@@ -17,6 +17,7 @@ export {
   swingDoors,
 } from './compile'
 export {
+  Backdrop,
   CHANNELS,
   type ColliderSettings,
   ContactMesh,

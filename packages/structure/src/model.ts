@@ -5,6 +5,7 @@ import {
   defineSystem,
   type Entity,
   FixedUpdate,
+  onAdd,
   onRemove,
   PostUpdate,
   type Query,
@@ -12,7 +13,16 @@ import {
 } from '@aethervtt/shard-core'
 import { type AppMethod, definePlugin, type Plugin } from '@aethervtt/shard-runtime'
 import { TransformSystems } from '@aethervtt/shard-transform'
-import { Cutout, Floor, Level, Opening, Roof, StructureSettings, Wall } from './components'
+import {
+  Backdrop,
+  Cutout,
+  Floor,
+  Level,
+  Opening,
+  Roof,
+  StructureSettings,
+  Wall,
+} from './components'
 import { sampleWall } from './curve'
 import {
   type FloorShape,
@@ -39,6 +49,8 @@ export interface WallModel {
   openings: Entity[]
   gaps: number[]
   level: Entity | null
+  /** False for a backdrop (structure/Backdrop on it or its level): no colliders, no nav. */
+  solid: boolean
   signature: string
 }
 
@@ -59,6 +71,8 @@ export interface SlabModel {
   /** Accepted cutouts in ring order (cutout i is ring i + 1). */
   cutouts: Entity[]
   level: Entity | null
+  /** False for a backdrop (structure/Backdrop on it or its level): no colliders, no nav. */
+  solid: boolean
   signature: string
 }
 
@@ -191,6 +205,8 @@ export class StructureModelState {
   /** What the last sync that changed something logged, and how long it took. */
   last = { edits: 0, ms: 0 }
   readonly removed: { entity: Entity; part: EditPart | 'level' }[] = []
+  /** Entities that gained or lost structure/Backdrop since the last sync. */
+  readonly backdrops: Entity[] = []
   /** Sections other structure plugins add to `structure.describe` (render, colliders). */
   readonly sections: (() => Record<string, unknown>)[] = []
   readonly world: World
@@ -223,6 +239,25 @@ export class StructureModelState {
       this.log.splice(0, drop)
       this.offset = min
     }
+  }
+
+  /** Whether a piece blocks: no structure/Backdrop on it or on its level. */
+  solidOf(entity: Entity, level: Entity | null): boolean {
+    const world = this.world
+    if (world.has(entity, Backdrop)) return false
+    return level === null || !world.isAlive(level) || !world.has(level, Backdrop)
+  }
+
+  /** Whether an edit's piece is solid: its own record's, or its host's for openings and cutouts. */
+  isSolid(entity: Entity, part: EditPart): boolean {
+    if (part === 'wall') return this.walls.get(entity)?.solid ?? true
+    if (part === 'floor' || part === 'roof') return this.slabs.get(entity)?.solid ?? true
+    if (part === 'opening') {
+      const o = this.openings.get(entity)
+      return o ? (this.walls.get(o.wall)?.solid ?? true) : true
+    }
+    const c = this.cutouts.get(entity)
+    return c ? (this.slabs.get(c.host)?.solid ?? true) : true
   }
 
   /** Where a piece on `level` stands: its Level's elevation, or 0. */
@@ -283,7 +318,8 @@ function evaluateWall(model: StructureModelState, entity: Entity, batch: Batch):
   const shape = wallShape(v, base, model.curveTolerance)
   const ids = [...(model.byWall.get(entity) ?? [])].filter((o) => model.openings.has(o))
   ids.sort((p, q) => model.openings.get(p)!.offset - model.openings.get(q)!.offset || p - q)
-  let signature = `${v.a}|${v.b}|${v.height}|${v.thickness}|${v.elevation}|${v.shape}|${v.bow}|${v.c0}|${v.c1}|${base}|${model.curveTolerance}`
+  const solid = model.solidOf(entity, level)
+  let signature = `${v.a}|${v.b}|${v.height}|${v.thickness}|${v.elevation}|${v.shape}|${v.bow}|${v.c0}|${v.c1}|${base}|${model.curveTolerance}|${level}|${solid}`
   for (const o of ids) {
     const r = model.openings.get(o)!
     signature += `|${o}:${r.kind}:${r.offset}:${r.width}:${r.height}:${r.sill}`
@@ -298,10 +334,12 @@ function evaluateWall(model: StructureModelState, entity: Entity, batch: Batch):
     openings: [],
     gaps: [],
     level,
+    solid,
     signature: '',
   }
   rec.shape = shape
   rec.level = level
+  rec.solid = solid
   rec.signature = signature
   rec.openings = ids
   shapes.length = 0
@@ -366,9 +404,10 @@ function evaluateSlab(model: StructureModelState, entity: Entity, batch: Batch):
     for (let i = 0; i < cut.points.length; i += 2) ring.push([cut.points[i]!, cut.points[i + 1]!])
     holes.push(ring)
   }
+  const solid = model.solidOf(entity, level)
   let signature = roof
-    ? `roof|${outline}|${base + roof.height}|${roof.thickness}|${roof.pitch}|${roof.ridge}`
-    : `floor|${outline}|${base + floor!.elevation}|${floor!.thickness}`
+    ? `roof|${outline}|${base + roof.height}|${roof.thickness}|${roof.pitch}|${roof.ridge}|${level}|${solid}`
+    : `floor|${outline}|${base + floor!.elevation}|${floor!.thickness}|${level}|${solid}`
   for (const c of accepted) signature += `|${c}:${model.cutouts.get(c)!.points}`
   if (old && old.signature === signature && old.kind === part) return
   const shape = floorShape(
@@ -383,6 +422,7 @@ function evaluateSlab(model: StructureModelState, entity: Entity, batch: Batch):
     shape,
     cutouts: accepted,
     level,
+    solid,
     signature,
   })
   batch.geometry.set(entity, part)
@@ -504,6 +544,7 @@ export function syncModel(
   const tolerance = world.resource(StructureSettings).curveTolerance
   const any =
     model.removed.length > 0 ||
+    model.backdrops.length > 0 ||
     tolerance !== model.curveTolerance ||
     changed(walls, Wall, since) ||
     changed(floors, Floor, since) ||
@@ -558,6 +599,13 @@ export function syncModel(
     }
   }
   model.removed.length = 0
+  // A backdrop turned on or off: the piece, or every piece on the level, is evaluated again.
+  for (const e of model.backdrops) {
+    if (model.walls.has(e)) batch.walls.add(e)
+    if (model.slabs.has(e)) batch.slabs.add(e)
+    dirtyLevel(model, e, batch)
+  }
+  model.backdrops.length = 0
   forEachChanged(levels, Level, since, (e) => {
     const elevation = world.get(e, Level).elevation
     if (model.levels.get(e) === elevation) return
@@ -660,7 +708,7 @@ export const structureMethods: AppMethod[] = [
 export const structureModelPlugin: Plugin = definePlugin({
   name: 'structure/model',
   dependencies: ['core/transform'],
-  provides: [Wall, Opening, Floor, Level, Roof, Cutout, StructureSettings],
+  provides: [Wall, Opening, Floor, Level, Roof, Cutout, Backdrop, StructureSettings],
   build(app) {
     const world = app.world
     world.initResource(StructureSettings)
@@ -676,6 +724,11 @@ export const structureModelPlugin: Plugin = definePlugin({
     world.observe(onRemove(Roof), removed('roof'))
     world.observe(onRemove(Opening), removed('opening'))
     world.observe(onRemove(Cutout), removed('cutout'))
+    const backdrop = ({ entity }: { entity: Entity }) => {
+      model.backdrops.push(entity)
+    }
+    world.observe(onAdd(Backdrop), backdrop)
+    world.observe(onRemove(Backdrop), backdrop)
     world.observe(onRemove(Level), ({ entity }) => {
       model.removed.push({ entity, part: 'level' })
     })

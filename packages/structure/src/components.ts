@@ -275,6 +275,16 @@ export const DoorLeaf = defineComponent(
 )
 
 /** A chunk's contact shade mesh (0068): one per (group, chunk) with walls near floors. */
+/**
+ * A building (on its Level) or a piece that's drawn but not solid (0113): no colliders and no nav
+ * shapes or gates. A streamed cell's far level marks its shells with it, so clients don't build
+ * physics and navmesh for buildings hundreds of metres away.
+ */
+export const Backdrop = defineTag('structure/Backdrop', {
+  description:
+    'Drawn, not solid: the wall, floor or roof (or every piece on this Level) gets no colliders and no nav shapes or gates. Far, distant-only geometry.',
+})
+
 export const ContactMesh = defineTag('structure/ContactMesh', { serialize: false, save: false })
 
 /** Glass in a window: a pane that structure spawns and keeps. */

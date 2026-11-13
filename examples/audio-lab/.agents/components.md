@@ -584,6 +584,7 @@ A navmesh baked with Recast from every NavSource, with OffMeshLinks. Tiles are c
 | `cellSize` | number | `0.2` | ≥ 0.01, m | Voxel size across: smaller follows edges closer and bakes slower. |
 | `cellHeight` | number | `0.1` | ≥ 0.01, m | Voxel height. |
 | `tileSize` | integer | `64` | ≥ 8, ≤ 1024 | Cells per tile side: the unit that rebuilds when a source changes. |
+| `maxTiles` | integer | `256` | ≥ 1, ≤ 16384 | Tiles the navmesh holds before it has to grow. Growing re-adds every tile and resets the crowd, so a streamed world (0113) sizes it for its rings up front. |
 | `boundsMin` | number[3] | `[0,0,0]` | m | World-space bake bounds, min corner. Equal to boundsMax (the default): bounds of every source. |
 | `boundsMax` | number[3] | `[0,0,0]` | m | World-space bake bounds, max corner. |
 | `frame` | null or integer or string | `null` |  | Bake and query in this entity's local space instead of the world's: its +Y is up. Positions and paths stay world-space in the API. Lets a navmesh ride a moving or rotating frame (a planet's surface) and keeps its tiles when the floating origin moves. Bounds are in this space. |
@@ -1864,6 +1865,12 @@ Unlit ground tiles (a Tilemap on a GroundLayer, lit: none).
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `atlas` | null or Texture ref | `null` |  | The tile atlas. |
+
+## `structure/Backdrop`
+
+Drawn, not solid: the wall, floor or roof (or every piece on this Level) gets no colliders and no nav shapes or gates. Far, distant-only geometry.
+
+Tag (no fields).
 
 ## `structure/Chunk`
 

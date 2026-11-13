@@ -116,6 +116,13 @@ export const NavMesh = defineComponent(
       max: 1024,
       description: 'Cells per tile side: the unit that rebuilds when a source changes.',
     }),
+    maxTiles: t.u32({
+      default: 256,
+      min: 1,
+      max: 16384,
+      description:
+        'Tiles the navmesh holds before it has to grow. Growing re-adds every tile and resets the crowd, so a streamed world (0113) sizes it for its rings up front.',
+    }),
     boundsMin: t.vec3({
       unit: 'm',
       description:
