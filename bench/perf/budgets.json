@@ -206,6 +206,43 @@
       "desktop": 3,
       "note": "0045: 2.2M grass blades in view within 60 m at 960\u00d7540, full density with no budget, GPU frame with the layer minus without (median): a regression guard, since in an app foliage adapts to its scatter-walk slice (FoliageBudget, 0075 part B). The laptop measured 18.49 ms in the first 0075 bench (2026-10-08), then 19.10, 19.67, 19.64, 19.77 and 20.37 ms in quiet reruns; part A, before foliage drew in a foliage/draw pass of its own, measured the same. About half is vertex work (12M vertices through the material's hooks) and half shading on overlapping blades; it was 70 ms before LODs and nearest-cascade shadows. Leads: compute each visible instance's transform once in the cull pass, and a simpler material for the farthest level. The desktop's 3 ms is 0045's number, not measured. scatter/src/bench.test.ts."
     },
+    "hlod/build": {
+      "kind": "target",
+      "laptop": 20,
+      "desktop": 12,
+      "note": "0073 proposed: one proxy built on the worker pool (worker/hlod: structure geometry, members merged per material, part-size LODs, the shadow mesh, occluders), p95 over the town-hlod walk. Basis: merging plus two meshoptimizer passes took 1.1, 3.0 and 7.4 ms for 2k, 10k and 30k box-built triangles on an Apple M5 Max (not a named machine, 2026-11-13); structure geometry comes on top. Neither named machine is measured. partition/src/hlod.test.ts."
+    },
+    "hlod/frame": {
+      "kind": "target",
+      "laptop": 1,
+      "desktop": 0.7,
+      "note": "0073 proposed, like partition/stream's share: main-thread HLOD time in a frame (hlod/select, hlod/gather, hlod/commit), p95 over the town-hlod walk. Not measured. partition/src/hlod.test.ts."
+    },
+    "hlod/frame-max": {
+      "kind": "target",
+      "laptop": 2,
+      "desktop": 1.5,
+      "note": "0073 proposed, like partition/cell-commit: the worst frame's main-thread HLOD time (covers, uncovers, gathers and uploads) over the town-hlod walk. Not measured. partition/src/hlod.test.ts."
+    },
+    "hlod/rebuild-latency": {
+      "kind": "target",
+      "laptop": 500,
+      "desktop": 300,
+      "note": "0073 proposed: from a client applying a delta that breaks a wall in a covered far cell to the frame its rebuilt proxy draws (settleFrames, a gather, a worker job and a commit). Not measured. partition/src/hlod-net.test.ts."
+    },
+    "hlod/offline-build": {
+      "kind": "target",
+      "laptop": 900000,
+      "desktop": 600000,
+      "note": "0073: shard hlod build over 0072's fixture (a town of 2,000 building entities), merged and baked, from an empty cache. The desktop keeps the old spec's 10 minutes; the laptop gets half again. Proposed, waits on 0072's importer. apps/cli/src/hlod.test.ts."
+    },
+    "hlod/texture-memory": {
+      "kind": "target",
+      "in": "MB",
+      "laptop": 256,
+      "desktop": 256,
+      "note": "0073: GPU memory of baked proxies' textures while flying 0072's fixture, the old spec's limit. Proposed, waits on 0072's importer. partition/src/hlod-file.test.ts."
+    },
     "mirror/sync": {
       "kind": "target",
       "laptop": 0.2,
@@ -623,6 +660,13 @@
       "laptop": 400,
       "desktop": 400,
       "note": "0112 proposed: the town fixture headless with its nav cache written: model, colliders, tile keys and 2,068 tiles added from NavCache, no Recast, until whenNavReady resolves. Not yet measured on either machine. Part 3 measured 60 to 77 ms (Apple M5 Max (not a named machine, 2026-11-13, against the laptop's numbers). structure/src/pacing.test.ts."
+    },
+    "structure/region-batches": {
+      "kind": "target",
+      "in": "ratio",
+      "laptop": 0.3,
+      "desktop": 0.3,
+      "note": "0073 proposed: structure's camera-view batches with region meshes (one per 32 m region, group and material) over batches with a mesh per chunk, summed over 0116's street-town walk. 16 chunks make one region, less where materials differ. Not measured. structure/src/region-meshes.test.ts."
     },
     "terrain/descent-frame": {
       "kind": "target",
@@ -1062,6 +1106,38 @@
         }
       },
       "note": "0116 proposed, not yet measured on either machine, and no scenario test reads it yet (partition/src/street-town.test.ts walks the town for 0116's counts, not through a capture): eight one- and two-storey houses per 64 m cell along 12 m streets, far cells to 512 m, 300 characters, a sun with four on-change cascades, occlusion on the camera. Shares are proposals like tabletop-max's. Keys cover the spans the walk records, none twice: gpu:forward-opaque, gpu:shadows (cascade0-3, static and dynamic layers), gpu:tonemap; instance-cull and light-clusters fall in headroom. CPU: render (render systems, render/occlusion and node encodes); partition, nav and animation fall in headroom. partition/src/street-town.test.ts."
+    },
+    "town-hlod": {
+      "what": "0073's dressed town (test/DressedTownCell): 16 full cells to 96 m and about 84 far cells (about 150 far houses) drawn as proxies to 320 m, walked at street level in third person; a sun with four on-change cascades, occlusion on the camera",
+      "resolution": [1920, 1080],
+      "renderScale": 1,
+      "fps": 60,
+      "frame": {
+        "gpu": {
+          "laptop": 16.6,
+          "desktop": 8.3
+        },
+        "cpu": {
+          "laptop": 16.7,
+          "desktop": 8.3
+        }
+      },
+      "slices": {
+        "gpu": {
+          "gpu:forward-opaque": 0.5,
+          "gpu:shadows": 0.2,
+          "gpu:tonemap": 0.05,
+          "headroom": 0.25
+        },
+        "cpu": {
+          "render": 0.6,
+          "hlod": 0.06,
+          "structure": 0.03,
+          "partition": 0.03,
+          "headroom": 0.28
+        }
+      },
+      "note": "0073 proposed, not measured on either machine. The CPU frame is the target Risen asked for (a frame under 16.7 ms on the laptop). Measured before HLOD on an Apple M5 Max (not a named machine, 2026-11-13), in Risen's town (16 full, 80 far cells) in headless Chromium at 1920x1080: CPU frame 16.5 ms p50 (17.2 p95), 18,736 mesh slots in 16,650 batches, 3,391 camera draws; far houses 4,158 slots, 247 draws, 2.5 ms; full houses 5,053 slots, 1,075 draws, 2.9-4.9 ms; ground chunks 8,107 slots, 2,057 draws, 2.8-4.6 ms; everything hidden 6.5 ms. Projected with proxies: about 8.5 ms there, about 14 ms on the laptop in a browser. Keys cover the spans the walk records, none twice: gpu:forward-opaque, gpu:shadows, gpu:tonemap. CPU: render (render systems, render/occlusion and node encodes), hlod (hlod/select, hlod/gather, hlod/commit), structure (structure/compile), partition (partition/stream); the rest falls in headroom. partition/src/hlod.test.ts."
     }
   }
 }
