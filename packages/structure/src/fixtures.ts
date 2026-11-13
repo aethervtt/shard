@@ -26,6 +26,7 @@ import {
 } from '../fixtures/structure/index.mjs'
 import { Floor, Opening, Wall } from './components'
 
+export { type Town, type TownBuilding, type TownOptions, town } from './town'
 export { LIMITS, maxScene, type SceneDocs, shadowStress }
 
 /**

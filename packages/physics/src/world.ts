@@ -120,10 +120,42 @@ export interface QueryShape {
   halfHeight?: number
 }
 
+/**
+ * A shape of an owned static collider set (0112), in world space. 3D only.
+ * - `cuboid`: a box at `center`, turned `yaw` radians about +Y.
+ * - `convex`: the hull of `points` (xyz triples).
+ * - `trimesh`: triangles over `positions` (xyz triples).
+ */
+export type StaticShape =
+  | {
+      kind: 'cuboid'
+      center: ArrayLike<number>
+      halfExtents: ArrayLike<number>
+      yaw?: number
+    }
+  | { kind: 'convex'; points: Float32Array }
+  | { kind: 'trimesh'; positions: Float32Array; indices: Uint32Array }
+
+export interface StaticOptions {
+  /** Collision layers and mask, as on Collider (default 1 and all). */
+  layers?: number
+  mask?: number
+  friction?: number
+}
+
+/** An owner's static colliders: no Collider component, no body, hits report the owner. */
+export interface StaticSet {
+  colliders: RCollider[]
+  kinds: StaticShape['kind'][]
+  enabled: boolean
+}
+
 export interface PhysicsStats {
   bodies: Record<string, number>
   sleeping: number
   colliders: Record<string, number>
+  /** Owned static collider sets (0112): owners, colliders, and owners currently disabled. */
+  static: { sets: number; colliders: number; disabled: number }
   joints: number
   /** Character controllers (not counted in bodies or colliders). */
   characters: number
@@ -165,6 +197,8 @@ export class PhysicsWorld {
   /** Shape kind per collider entity, for describe and the overlay. */
   readonly colliderShape = new Map<Entity, Shape>()
   readonly joints = new Map<Entity, { joint: RJoint; a: Entity; b: Entity }>()
+  /** Owned static collider sets by owner (0112). Their handles map to the owner in colliderEntity. */
+  readonly statics = new Map<Entity, StaticSet>()
   /** Character controllers by entity; each also has a body record and a capsule collider. */
   readonly characters = new Map<Entity, CharacterRecord>()
   /** Colliders to (re)build at the next sync, e.g. after their body changed. */
@@ -485,6 +519,12 @@ export class PhysicsWorld {
       const t = collider.translation() as RAPIER.Vector
       collider.setTranslation(this.vec(t.x + ox, t.y + oy, this.dim === 3 ? t.z + oz : 0))
     }
+    for (const set of this.statics.values()) {
+      for (const collider of set.colliders) {
+        const t = collider.translation() as RAPIER.Vector
+        collider.setTranslation(this.vec(t.x + ox, t.y + oy, this.dim === 3 ? t.z + oz : 0))
+      }
+    }
     this.raw.propagateModifiedBodyPositionsToColliders()
     // Queries go through the broad phase, which only a step updates. Nothing moves in a zero-length
     // step; contacts that started since the last step still report.
@@ -500,7 +540,7 @@ export class PhysicsWorld {
         b,
         bodyA: this.colliderOwner.get(a) ?? (-1 as Entity),
         bodyB: this.colliderOwner.get(b) ?? (-1 as Entity),
-        sensor: this.colliders.get(a)!.isSensor() || this.colliders.get(b)!.isSensor(),
+        sensor: this.raw.getCollider(h1).isSensor() || this.raw.getCollider(h2).isSensor(),
       })
     })
     this.events.drainContactForceEvents(() => {})
@@ -986,6 +1026,72 @@ export class PhysicsWorld {
     return out
   }
 
+  // --- owned static colliders (0112) -------------------------------------------
+
+  /**
+   * Replaces `owner`'s static colliders with `shapes` (world space; none removes them). They
+   * belong to no body and no Collider component: queries, events and characters report `owner`.
+   * Shapes with no volume are skipped. Keeps the set's enabled state.
+   */
+  setStatic(owner: Entity, shapes: readonly StaticShape[], options: StaticOptions = {}): void {
+    if (this.dim !== 3) throw unsupported('owned static collider sets')
+    const old = this.statics.get(owner)
+    const enabled = old?.enabled ?? true
+    this.clearStatic(owner)
+    if (shapes.length === 0) return
+    const set: StaticSet = { colliders: [], kinds: [], enabled }
+    const D = this.R.ColliderDesc
+    const groups = (((options.layers ?? 1) & 0xffff) << 16) | ((options.mask ?? 0xffff) & 0xffff)
+    for (const s of shapes) {
+      let desc: RColliderDesc | null = null
+      if (s.kind === 'cuboid') {
+        const h = s.halfExtents
+        if (h[0]! <= 0 || h[1]! <= 0 || h[2]! <= 0) continue
+        desc = D.cuboid(h[0]!, h[1]!, h[2]!)
+        desc.setTranslation(s.center[0]!, s.center[1]!, s.center[2]!)
+        const half = (s.yaw ?? 0) / 2
+        desc.setRotation({ x: 0, y: Math.sin(half), z: 0, w: Math.cos(half) })
+      } else if (s.kind === 'convex') {
+        if (s.points.length >= 12) desc = D.convexHull(s.points)
+      } else if (s.positions.length >= 9 && s.indices.length >= 3) {
+        desc = D.trimesh(s.positions, s.indices)
+      }
+      if (!desc) continue
+      desc.setFriction(options.friction ?? 0.5)
+      desc.setCollisionGroups(groups)
+      desc.setEnabled(enabled)
+      const collider = this.raw.createCollider(desc)
+      set.colliders.push(collider)
+      set.kinds.push(s.kind)
+      this.colliderEntity.set(collider.handle, owner)
+    }
+    if (set.colliders.length > 0) this.statics.set(owner, set)
+  }
+
+  /** Turns `owner`'s static colliders on or off without rebuilding them (a door opening). */
+  enableStatic(owner: Entity, on: boolean): void {
+    const set = this.statics.get(owner)
+    if (!set || set.enabled === on) return
+    set.enabled = on
+    for (const c of set.colliders) c.setEnabled(on)
+  }
+
+  /** Removes `owner`'s static colliders. */
+  clearStatic(owner: Entity): void {
+    const set = this.statics.get(owner)
+    if (!set) return
+    for (const c of set.colliders) {
+      this.colliderEntity.delete(c.handle)
+      this.raw.removeCollider(c, false)
+    }
+    this.statics.delete(owner)
+  }
+
+  /** Whether `owner` has an enabled static collider set. */
+  isStaticEnabled(owner: Entity): boolean {
+    return this.statics.get(owner)?.enabled === true
+  }
+
   // --- joints ----------------------------------------------------------------
 
   removeJoint(entity: Entity): void {
@@ -1088,8 +1194,9 @@ export class PhysicsWorld {
       const a = this.colliderEntity.get(h1)
       const b = this.colliderEntity.get(h2)
       if (a === undefined || b === undefined) return
-      const ca = this.colliders.get(a)!
-      const cb = this.colliders.get(b)!
+      // By handle: an owned static collider (0112) isn't in `colliders` under its owner.
+      const ca = this.raw.getCollider(h1)
+      const cb = this.raw.getCollider(h2)
       onCollision({
         kind: started ? 'started' : 'stopped',
         a,
@@ -1351,10 +1458,17 @@ export class PhysicsWorld {
         contacts++
       })
     }
+    let staticColliders = 0
+    let disabled = 0
+    for (const set of this.statics.values()) {
+      staticColliders += set.colliders.length
+      if (!set.enabled) disabled++
+    }
     return {
       bodies,
       sleeping,
       colliders,
+      static: { sets: this.statics.size, colliders: staticColliders, disabled },
       joints: this.joints.size,
       characters: this.characters.size,
       contacts: contacts / 2,

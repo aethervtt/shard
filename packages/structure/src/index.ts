@@ -1,4 +1,13 @@
 export {
+  type BlockingShape,
+  blockingTriangles,
+  cutoutBlockers,
+  gapBlockers,
+  slabBlockers,
+  stripShapes,
+  wallBlockers,
+} from './blocking'
+export {
   type CompileReport,
   compileStructure,
   DOOR_DEMAND,
@@ -9,14 +18,17 @@ export {
 } from './compile'
 export {
   CHANNELS,
+  type ColliderSettings,
   ContactMesh,
   type ContactSettings,
   CUTOUT_KINDS,
   Cutout,
   DOOR_STATES,
   DoorLeaf,
+  defaultColliders,
   defaultContact,
   defaultInterior,
+  defaultStructureNav,
   Floor,
   HINGES,
   INTERIOR_QUALITIES,
@@ -28,6 +40,7 @@ export {
   Opening,
   Roof,
   StructureChunk,
+  type StructureNavSettings,
   StructureSettings,
   type StructureSettingsValue,
   SWINGS,
@@ -119,4 +132,23 @@ export {
   skyAt,
   updateInterior,
 } from './interior-plugin'
-export { structureMethods, structurePlugin } from './plugin'
+export {
+  acceptCutouts,
+  type CutoutModel,
+  type CutoutVerdict,
+  curveDrawable,
+  type EditCursor,
+  type EditPart,
+  type OpeningModel,
+  type SlabModel,
+  type StructureEdit,
+  StructureModel,
+  StructureModelState,
+  structureMethods,
+  structureModelPlugin,
+  syncStructure,
+  syncStructureFixed,
+  type WallModel,
+  wallShape,
+} from './model'
+export { structurePlugin } from './plugin'

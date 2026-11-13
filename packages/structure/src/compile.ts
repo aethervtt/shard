@@ -40,7 +40,7 @@ import {
   WindowPane,
 } from './components'
 import { ContactQuads, contactChunks, contactQuads, emitContact } from './contact'
-import { pointAt, sampleWall } from './curve'
+import { pointAt } from './curve'
 import {
   ClipScratch,
   chunkKey,
@@ -56,9 +56,7 @@ import {
   type OpeningShape,
   type Piece,
   ringChunks,
-  ringInside,
   ringShape,
-  ringsOverlap,
   type SlabFrame,
   slabY,
   type WallShape,
@@ -66,6 +64,7 @@ import {
   wallLength,
   wallPieces,
 } from './geometry'
+import { acceptCutouts, curveDrawable, wallShape } from './model'
 
 type MaterialRef = AssetRef<'Material'>
 
@@ -506,33 +505,6 @@ export function observeRemovals(world: World, state: StructureState): void {
   })
 }
 
-function wallShape(
-  value: {
-    a: number[]
-    b: number[]
-    height: number
-    thickness: number
-    elevation: number
-    shape: 'straight' | 'arc' | 'bezier'
-    bow: number
-    c0: number[]
-    c1: number[]
-  },
-  base: number,
-  tolerance: number,
-): WallShape {
-  return {
-    ax: value.a[0]!,
-    az: value.a[1]!,
-    bx: value.b[0]!,
-    bz: value.b[1]!,
-    height: value.height,
-    thickness: value.thickness,
-    elevation: base + value.elevation,
-    line: sampleWall(value, tolerance),
-  }
-}
-
 function log(state: StructureState, level: 'error' | 'warn', err: ShardError): void {
   state.world.tryResource(LogResource)?.log(level, err.message, {
     code: err.code,
@@ -556,6 +528,7 @@ function checkCurve(
     state.warned.delete(entity)
     return true
   }
+  const drawable = curveDrawable(value, shape)
   const signature = `${value.shape}/${value.bow}/${value.c0}/${value.c1}/${value.thickness}`
   const arc = value.shape === 'arc'
   if (state.warned.get(entity) !== signature) {
@@ -577,7 +550,7 @@ function checkCurve(
       ),
     )
   }
-  return !arc
+  return drawable
 }
 
 function markChunks(state: StructureState, chunks: Set<number>): void {
@@ -742,27 +715,18 @@ function evaluateSlab(state: StructureState, entity: Entity): void {
   // Cutouts: each inside the outline and clear of the ones before it. Those it already has come
   // first, so a new cutout that overlaps one is the one reported; then the rest by entity.
   const ids = [...(state.byHost.get(entity) ?? [])].filter((c) => state.cutouts.has(c))
-  const rank = (c: Entity) => {
-    const i = oldCutouts.indexOf(c)
-    return i < 0 ? oldCutouts.length : i
-  }
-  ids.sort((a, b) => rank(a) - rank(b) || a - b)
+  const verdicts = acceptCutouts(ids, oldCutouts, outline, (c) => state.cutouts.get(c)!.points)
   const accepted: Entity[] = []
   const holes: number[][][] = []
   const frames: SlabFrame[] = []
   const frameMaterials: string[] = []
   const rings = new Map<Entity, string>()
-  for (const c of ids) {
+  for (const c of ids) state.cutouts.get(c)!.ring = -1
+  for (const v of verdicts) {
+    const c = v.entity
     const cut = state.cutouts.get(c)!
-    cut.ring = -1
-    if (cut.points.length < 6) continue
-    if (!ringInside(cut.points, outline)) {
-      rejectCutout(state, c, 'structure/cutout-outside')
-      continue
-    }
-    const clash = accepted.find((a) => ringsOverlap(cut.points, state.cutouts.get(a)!.points))
-    if (clash !== undefined) {
-      rejectCutout(state, c, 'structure/cutout-overlap', clash)
+    if (v.problem !== null) {
+      rejectCutout(state, c, v.problem, v.other)
       continue
     }
     state.cutoutWarned.delete(c)

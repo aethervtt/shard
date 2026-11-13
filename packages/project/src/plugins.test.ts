@@ -1,4 +1,7 @@
+import { Physics } from '@aethervtt/shard-physics'
+import { StructureModel, Wall } from '@aethervtt/shard-structure'
 import { describe, expect, it } from 'vitest'
+import { buildApp } from './host'
 import { BUILTIN_PLUGINS, Manifest } from './manifest'
 import * as rows from './plugins'
 import { enginePluginExport, enginePlugins, resolvePlugins } from './plugins'
@@ -24,5 +27,24 @@ describe('engine plugin table (0110)', () => {
     expect(server.has('render')).toBe(false)
     expect(server.has('scatter')).toBe(false)
     expect(server.has('wind')).toBe(true)
+  })
+
+  it('keeps structure and its colliders on a server, without drawing it (0112)', async () => {
+    const manifest = Manifest.deserialize({
+      name: 'demo',
+      plugins: ['render/forward', 'structure', 'physics3d', 'nav'],
+    })
+    const app = buildApp({ manifest, display: false })
+    expect(app.hasPlugin('structure/model')).toBe(true)
+    expect(app.hasPlugin('structure/physics')).toBe(true)
+    expect(app.hasPlugin('structure/nav')).toBe(true)
+    expect(app.hasPlugin('structure')).toBe(false)
+    expect(app.hasPlugin('render')).toBe(false)
+    await app.init()
+    const wall = app.world.spawn([Wall, { a: [0, 0], b: [4, 0] }])
+    app.update(1 / 60)
+    expect(app.world.resource(StructureModel).walls.has(wall)).toBe(true)
+    expect(app.world.resource(Physics).statics.has(wall)).toBe(true)
+    await app.dispose()
   })
 })

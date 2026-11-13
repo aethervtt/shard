@@ -18,33 +18,51 @@ import { navBake } from './bake'
 import * as cacheModule from './cache'
 import { NavCache } from './cache'
 import * as componentsModule from './components'
-import { NavAgent, NavAreas, NavGridDatas, NavSource, OffMeshLink } from './components'
+import { NavAgent, NavAreas, NavFilters, NavGridDatas, NavSource, OffMeshLink } from './components'
 import { navMethods } from './methods'
 import * as overlayModule from './overlay'
 import { loadRecast } from './recast'
 import * as stateModule from './state'
-import { Nav, type NavState } from './state'
+import { LINKS, Nav, type NavState } from './state'
 
-/** Whether an entity is a source or sits under one (its colliders and meshes bake). */
-function underSource(world: World, entity: Entity): boolean {
+/** The NavSource an entity is, or sits under (its colliders and meshes bake with it). */
+function rootOf(world: World, entity: Entity): Entity | undefined {
   for (let e: Entity | null = entity, depth = 0; e !== null && depth < 64; depth++) {
-    if (!world.isAlive(e)) return false
-    if (world.has(e, NavSource)) return true
+    if (!world.isAlive(e)) return undefined
+    if (world.has(e, NavSource)) return e
     e = world.tryGet(e, ChildOf)?.parent ?? null
   }
-  return false
+  return undefined
 }
 
+/**
+ * Marks only what an add or remove touches (0112): the source root it belongs to now and the one it
+ * did, or the links. The bake gathers just those again.
+ */
 function observe(world: World, nav: NavState): void {
-  const structural = () => {
-    nav.dirty = true
+  const source = ({ entity }: { entity: Entity }) => {
+    nav.dirtyRoots.add(entity)
+    // A source inside another one leaves or joins its parent's subtree.
+    const parent = world.tryGet(entity, ChildOf)?.parent
+    const above = parent != null ? rootOf(world, parent) : undefined
+    if (above !== undefined) nav.dirtyRoots.add(above)
   }
   const shape = ({ entity }: { entity: Entity }) => {
-    if (nav.watched.has(entity) || underSource(world, entity)) nav.dirty = true
+    const was = nav.rootOf.get(entity)
+    if (was === LINKS) nav.linksDirty = true
+    else if (was !== undefined) nav.dirtyRoots.add(was)
+    const now = rootOf(world, entity)
+    if (now !== undefined) nav.dirtyRoots.add(now)
   }
-  for (const def of [NavSource, OffMeshLink] as ComponentDef[]) {
-    world.observe(onAdd(def), structural)
-    world.observe(onRemove(def), structural)
+  world.observe(onAdd(NavSource), source)
+  world.observe(onRemove(NavSource), source)
+  for (const def of [OffMeshLink] as ComponentDef[]) {
+    world.observe(onAdd(def), () => {
+      nav.linksDirty = true
+    })
+    world.observe(onRemove(def), () => {
+      nav.linksDirty = true
+    })
   }
   for (const def of [Collider, Mesh3d, ChildOf] as ComponentDef[]) {
     world.observe(onAdd(def), shape)
@@ -58,6 +76,7 @@ function build(app: App): void {
   const w = app.world
   const nav = w.initResource(Nav)
   w.initResource(NavAreas)
+  w.initResource(NavFilters)
   w.initResource(NavCache)
   w.initResource(NavGridDatas)
   observe(w, nav)

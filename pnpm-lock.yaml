@@ -1711,6 +1711,9 @@ importers:
       '@aethervtt/shard-sprite':
         specifier: workspace:*
         version: link:../sprite
+      '@aethervtt/shard-structure':
+        specifier: workspace:*
+        version: link:../structure
       '@aethervtt/shard-terrain':
         specifier: workspace:*
         version: link:../terrain
@@ -2152,6 +2155,12 @@ importers:
       '@aethervtt/shard-mirror':
         specifier: workspace:*
         version: link:../mirror
+      '@aethervtt/shard-nav':
+        specifier: workspace:*
+        version: link:../nav
+      '@aethervtt/shard-physics':
+        specifier: workspace:*
+        version: link:../physics
       '@aethervtt/shard-render':
         specifier: workspace:*
         version: link:../render

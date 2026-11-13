@@ -216,6 +216,38 @@
       "desktop": 1.5,
       "note": "0037: a frame of 100 navmesh agents in a crowd, median. nav/src/perf.test.ts."
     },
+    "nav/burst-frames": {
+      "kind": "target",
+      "in": "frames",
+      "laptop": 30,
+      "desktop": 20,
+      "note": "0112 proposed: frames at 60 Hz from 50 wall edits in one tick on the town fixture until every touched tile has landed, on the worker pool at NavBudget's defaults. Roughly 150 tiles at about 0.85 ms each spread over the pool, plus the per-frame cap on main-thread packing. Not yet measured on either machine."
+    },
+    "nav/edit-frames": {
+      "kind": "target",
+      "in": "frames",
+      "laptop": 4,
+      "desktop": 4,
+      "note": "0112 proposed: frames at 60 Hz from one wall added, removed or split on the town fixture until its tiles (one to four 6.4 m tiles) have landed, workers or inline at NavBudget's defaults. Not yet measured on either machine."
+    },
+    "nav/gate": {
+      "kind": "target",
+      "laptop": 0.05,
+      "desktop": 0.05,
+      "note": "0112 proposed: a door toggle on the town fixture: the gate's setPolyFlags calls and marking the agents whose paths cross it, median. No tile builds. Part 2 measured a toggle's whole frame at 0.01 ms on the 200-building town on an Apple M5 Max (not a named machine), 2026-11-12. nav/src/gates.test.ts."
+    },
+    "nav/tile": {
+      "kind": "target",
+      "laptop": 3,
+      "desktop": 3,
+      "note": "0112 proposed: the slowest single tile build of the town fixture (cell size 0.1, tile size 64, agent radius 0.3), on a worker. Measured with recast-navigation 0.43.1's generateTiledNavMesh on an Apple M5 Max (not a named machine), 2026-11-12: 2,068 tiles in 1.67 to 1.89 s single-threaded, 0.81 to 0.91 ms a tile on average. 128-cell tiles at the same cell size averaged 2.7 ms. The incremental bake (0112 part 2) built the 200-building town's 2,160 tiles in 1.13 to 1.17 s inline, 0.52 ms a tile on average (same machine, 2026-11-12)."
+    },
+    "nav/town-agents": {
+      "kind": "target",
+      "laptop": 5,
+      "desktop": 5,
+      "note": "0112 proposed: a frame of nav/agents with 300 crowd agents (survivor and zombie filters) on the town fixture while doors toggle and walls change, replans included, p95. Scaled from nav/mesh-agents (1.5 ms for 100). Not yet measured on either machine."
+    },
     "noise/fbm6": {
       "kind": "rate",
       "per": "point",
@@ -460,6 +492,30 @@
       "laptop": 4,
       "desktop": 4,
       "note": "0055, 0066: a wall edit rebuilds only the chunks it touches, median edit (straight and curved walls). structure/src/structure.test.ts, curved.test.ts."
+    },
+    "structure/edit": {
+      "kind": "target",
+      "laptop": 1,
+      "desktop": 1,
+      "note": "0112 proposed: main-thread structure/sync, structure/physics and structure/nav for one wall added, removed or split on the town fixture (its collider set and nav shapes, and marking its tiles; not the tile builds), median, headless. Part 1 (model and colliders, no nav yet) measured 0.015 to 0.025 ms median for one wall edit on the 200-building town on an Apple M5 Max (not a named machine), 2026-11-12. structure/src/colliders.test.ts."
+    },
+    "structure/edit-burst": {
+      "kind": "target",
+      "laptop": 4,
+      "desktop": 4,
+      "note": "0112 proposed: the worst frame's main-thread structure/*, physics/sync-in and nav/bake together while 50 wall edits made in one tick land on the town fixture with 300 agents walking, headless. NavBudget.ms (2) caps nav/bake; the rest is the edits' sync. Not yet measured on either machine."
+    },
+    "structure/town-cold": {
+      "kind": "target",
+      "laptop": 1500,
+      "desktop": 1000,
+      "note": "0112 proposed: the town fixture (200 buildings, 2,068 nav tiles) headless from no nav cache: model, colliders and a complete navmesh on the worker pool, until whenNavReady resolves. Recast alone measured 1.67 to 1.89 s single-threaded on an Apple M5 Max (not a named machine, 2026-11-12, recast-navigation 0.43.1), so this assumes the pool. Part 2's inline bake (no pool yet) took 1.13 to 1.17 s for the town's nav, same machine. Not yet measured on either machine."
+    },
+    "structure/town-warm": {
+      "kind": "target",
+      "laptop": 400,
+      "desktop": 400,
+      "note": "0112 proposed: the town fixture headless with its nav cache written: model, colliders, tile keys and 2,068 tiles added from NavCache, no Recast, until whenNavReady resolves. Not yet measured on either machine."
     },
     "terrain/descent-frame": {
       "kind": "target",

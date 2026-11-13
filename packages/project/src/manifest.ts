@@ -125,7 +125,7 @@ export const Manifest = defineSchema(
     plugins: t.list(t.string, {
       default: ['render/forward', 'input'],
       description:
-        'Engine plugins to enable, by name: render, render/forward, sprite, text, particles, animation, physics3d, physics2d, input, gestures, controls, audio, ui, nav, nav/grid, terrain, scatter, nature, dice, core/transform.',
+        'Engine plugins to enable, by name: render, render/forward, sprite, text, particles, animation, physics3d, physics2d, input, gestures, controls, audio, ui, nav, nav/grid, structure, terrain, scatter, nature, dice, core/transform.',
     }),
   },
   { description: 'shard.json: the project manifest.' },
@@ -199,6 +199,8 @@ export const BUILTIN_PLUGINS = {
   nav: 'navigation: NavGrid A* (2D), NavMesh baked by Recast from NavSource geometry, OffMeshLink, path queries, NavAgent steering (includes core/transform)',
   'nav/grid':
     'navigation on NavGrids only, without loading the Recast WASM (includes core/transform)',
+  structure:
+    'walls (straight, arc, Bézier), doors, windows, floors, roofs, cutouts and levels (0055, 0066, 0067); with render/forward it draws them, with physics3d (0112) they collide: static colliders for walls, floors and roofs, and door, window and hatch colliders that follow their state; with nav they feed navmeshes directly, doors and hatches as gates whose flags follow their state and passable windows as links, so a door toggle re-bakes nothing and nav/Filters decide who passes. Runs headless (includes core/transform)',
   terrain:
     'planets: Planet cube-sphere terrain from noise graphs with LOD, geomorphing, oceans, biomes, collider chunks around characters, navmeshes on the surface; terrain.* methods (includes core/transform; add render/forward to draw it, physics3d for colliders)',
   scatter:

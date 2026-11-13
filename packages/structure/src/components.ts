@@ -333,6 +333,58 @@ export function defaultInterior(): InteriorSettings {
   return { sky: true, blockLights: true, quality: 'medium', spillReach: 3, maxBlockedLights: 256 }
 }
 
+/** Colliders (0112), with structurePhysicsPlugin. */
+export interface ColliderSettings {
+  /** false removes every structure collider. */
+  enabled: boolean
+  /** Collision layers and mask, as on Collider. */
+  layers: number
+  mask: number
+  friction: number
+}
+
+/** Colliders' defaults. */
+export function defaultColliders(): ColliderSettings {
+  return { enabled: true, layers: 1, mask: 0xffff, friction: 0.5 }
+}
+
+/** Navigation (0112), with structureNavPlugin. */
+export interface StructureNavSettings {
+  /** false removes every structure shape and gate from navmeshes. */
+  enabled: boolean
+  /** Area codes (costs in nav/Areas and filters): floors, door gates, window links, hatch gates. */
+  floorArea: number
+  doorArea: number
+  windowArea: number
+  hatchArea: number
+  /** Roofs bake as nav sources too (agents don't usually walk them). */
+  roofs: boolean
+  /** Windows with a sill at most this high get a link across the wall, m. */
+  windowClimb: number
+  /** How far from each face a window's link ends, m. */
+  windowReach: number
+  /**
+   * How far a door's gate reaches past each face of its wall, m. Keep it above the largest agent
+   * radius: erosion takes that much off it, and too little left drops the gate's polygons.
+   */
+  gateMargin: number
+}
+
+/** Navigation's defaults. */
+export function defaultStructureNav(): StructureNavSettings {
+  return {
+    enabled: true,
+    floorArea: 0,
+    doorArea: 10,
+    windowArea: 11,
+    hatchArea: 9,
+    roofs: false,
+    windowClimb: 1.2,
+    windowReach: 0.5,
+    gateMargin: 0.6,
+  }
+}
+
 export interface StructureSettingsValue {
   /** Chunk edge, world units. Changing it rebuilds every chunk. */
   chunkSize: number
@@ -363,11 +415,21 @@ export interface StructureSettingsValue {
    * rebuilds every row once.
    */
   interior: InteriorSettings
+  /**
+   * Colliders (0112), with structurePhysicsPlugin. A patch may hold only the fields it changes. A
+   * change rebuilds every structure collider.
+   */
+  colliders: ColliderSettings
+  /**
+   * Navigation (0112), with structureNavPlugin. A patch may hold only the fields it changes. A
+   * change sets every structure shape and gate again.
+   */
+  nav: StructureNavSettings
 }
 
 export const StructureSettings = defineResource<StructureSettingsValue>('structure/Settings', {
   description:
-    'Chunk size, door swing time, reduced motion, curve tolerance, contact shade, cutaway walls and interior lighting. Write with patchResource.',
+    'Chunk size, door swing time, reduced motion, curve tolerance, contact shade, cutaway walls, interior lighting, colliders and navigation. Write with patchResource.',
   init: () => ({
     chunkSize: 8,
     doorSwingMs: 250,
@@ -376,6 +438,8 @@ export const StructureSettings = defineResource<StructureSettingsValue>('structu
     contact: defaultContact(),
     cutawayWalls: false,
     interior: defaultInterior(),
+    colliders: defaultColliders(),
+    nav: defaultStructureNav(),
   }),
   hostWritable: true,
 })

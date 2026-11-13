@@ -557,6 +557,7 @@ Brings along: `core/Transform`, `nav/NavAgentState`.
 | `drive` | `"character"` \| `"transform"` \| `"velocity"` | `"character"` |  | character: writes CharacterIntent.move so physics walks it (slopes, steps, collisions; falls back to transform without a CharacterController). velocity: writes the rigid body’s Velocity. transform: moves the Transform directly. |
 | `stopped` | boolean | `false` |  | Hold position (status idle) until cleared. |
 | `nav` | null or integer or string | `null` |  | The NavGrid or NavMesh to walk on (default: the one the agent stands in). |
+| `filter` | string | `""` |  | Navmeshes: the nav/Filters entry it paths with (0112), such as "zombie"; empty is the default filter (nav/Areas costs, every gate passable). |
 
 ## `nav/NavAgentState`
 
@@ -1882,6 +1883,152 @@ Unlit ground tiles (a Tilemap on a GroundLayer, lit: none).
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `atlas` | null or Texture ref | `null` |  | The tile atlas. |
+
+## `structure/Chunk`
+
+One group's geometry in one chunk and one material, rebuilt by structure compile.
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `group` | null or integer or string | `null` |  | The group it belongs to: a Level, a Roof, or the ground level. |
+| `x` | integer | `0` | ≥ -2147483648, ≤ 2147483647 | Chunk column (x / chunkSize). |
+| `z` | integer | `0` | ≥ -2147483648, ≤ 2147483647 | Chunk row (z / chunkSize). |
+
+## `structure/ContactMesh`
+
+_Computed by the engine; never written in scene files._
+
+Tag (no fields).
+
+## `structure/ContactShade`
+
+Structure's contact shade (0068): dark strips where walls meet floors and each other. Built in; StructureSettings.contact sets its fields.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `opacity` | number | `0.2` | ≥ 0, ≤ 1 | Alpha scale of the falloff. |
+| `maxAlpha` | number | `0.42` | ≥ 0, ≤ 1 | Alpha never goes above this. |
+| `color` | number[3] | `[0.0033,0.0052,0.008]` |  | What it darkens toward: linear, display-referred (exposure is undone). |
+| `wobble` | number | `0.2` | ≥ 0, ≤ 1 | How far the noise moves the strip's edge, as a share of its reach. |
+
+## `structure/Cutout`
+
+A hole, hatch or skylight cut into a floor or a roof (0067).
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `host` | null or integer or string | `null` |  | The Floor or Roof it cuts. |
+| `points` | number[2][] | `[]` |  | The hole, (x, z): a simple polygon inside its host, either winding. |
+| `kind` | `"hole"` \| `"hatch"` \| `"skylight"` | `"hole"` |  | hole (a gap), hatch (a leaf that swings up) or skylight (glass). |
+| `frameWidth` | number | `0.06` | ≥ 0, m | Width of the frame around the hole, on the host surface. |
+| `frameDepth` | number | `0.03` | ≥ 0, m | How far the frame stands above the host surface. |
+| `frameMaterial` | null or Material ref | `null` |  | Frame and hatch leaf material. Empty uses the built-in wood (structure:frame). |
+| `hinge` | integer | `0` | ≥ 0, ≤ 65535 | Hatches: the outline edge the leaf hangs from (edge i runs from point i to i + 1). |
+| `state` | `"closed"` \| `"open"` \| `"locked"` | `"closed"` |  | Hatches: a change swings the leaf and rebuilds no geometry. |
+
+## `structure/DoorLeaf`
+
+A door leaf (or a window pane) that structure spawns for an opening. Picks resolve through `opening`.
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `opening` | null or integer or string | `null` |  | The Opening (a door or window) or Cutout (a hatch or skylight) it belongs to. |
+| `angle` | number | `0` |  | How far open, 0 (closed) to 1 (open). |
+
+## `structure/Floor`
+
+A flat floor polygon, triangulated once per edit (with its cutouts as holes) and clipped into chunks.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `points` | number[2][] | `[]` |  | Outline, (x, z) in world units: a simple polygon of 3 to 256 points, either winding. |
+| `elevation` | number | `0` | m | Height of the floor (y), above its level. |
+| `thickness` | number | `0` | ≥ 0, m | Slab thickness below the surface: 0 draws the top only; more adds the underside, the edges and the rims of its cutouts. |
+| `material` | null or Material ref | `null` |  | Surface material. Empty uses a plain grey. |
+| `level` | null or integer or string | `null` |  | The Level it stands on (0067). Empty is the ground level; elevation is relative to the level. |
+
+## `structure/Level`
+
+A level (0067): its walls, floors and roofs compile into its own group of chunk meshes, children of this entity, so Visibility on it hides the level without a rebuild.
+
+Brings along: `core/Transform`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `index` | integer | `0` | ≥ -16, ≤ 15 | Stacking order: a cellar is -1, the ground level 0. Use it as the GroundLayer.level of what stands on the level. |
+| `elevation` | number | `0` | m | Where the level's floor stands (y). Pieces on it are placed relative to it. |
+| `height` | number | `3` | ≥ 0, m | Floor to ceiling. |
+| `interiorAmbient` | number[3] | `[0,0,0]` | cd/m² | Interior lighting (0069): ambient light where the sky doesn't reach, linear colour, added to interiorFill's share of the sky's. A cellar darker than a hall. |
+| `interiorFill` | number | `0.05` | ≥ 0, ≤ 1 | Interior lighting (0069): the share of the view's sky ambient (uniform or image-based) kept where the sky doesn't reach. |
+
+## `structure/Opening`
+
+A door or window cut into a wall.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `wall` | null or integer or string | `null` |  | The host wall entity. |
+| `kind` | `"door"` \| `"window"` | `"door"` |  | A door (with a leaf that swings) or a window (with glass). |
+| `offset` | number | `0` | ≥ 0, m | Distance from the wall's start to the opening. |
+| `width` | number | `1` | ≥ 0, m | Width along the wall. |
+| `height` | number | `2.1` | ≥ 0, m | Height of the hole. |
+| `sill` | number | `0` | ≥ 0, m | Height of the hole's bottom above the wall's base. |
+| `frameWidth` | number | `0.08` | ≥ 0, m | Width of the frame around the hole. |
+| `frameDepth` | number | `0.04` | ≥ 0, m | How far the frame stands out from each face of the wall. |
+| `frameMaterial` | null or Material ref | `null` |  | Frame and door leaf material. Empty uses the built-in wood (structure:frame). |
+| `hinge` | `"start"` \| `"end"` | `"start"` |  | Doors: which end of the opening the leaf hangs from. |
+| `swing` | `"left"` \| `"right"` | `"left"` |  | Doors: which side of the wall the leaf opens toward. |
+| `state` | `"closed"` \| `"open"` \| `"locked"` | `"closed"` |  | Doors: a change swings the leaf and rebuilds no geometry. |
+| `sight` | `"normal"` \| `"none"` | `"normal"` |  | Whether it blocks sight when closed (planarBarriers). |
+| `movement` | `"normal"` \| `"none"` | `"normal"` |  | Whether it blocks movement when closed (planarBarriers). |
+| `light` | `"sight"` \| `"normal"` \| `"none"` | `"sight"` |  | Whether it, closed, blocks light (0069): sky light spilling in, and wall-blocked lights. sight (unset) follows its sight channel; set it for a curtain that blocks sight but not light, or the opposite. |
+
+## `structure/Roof`
+
+A roof (0067): its own group of chunk meshes, children of this entity, so it hides alone and nothing under it rebuilds.
+
+Brings along: `core/Transform`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `points` | number[2][] | `[]` |  | Footprint, (x, z): a simple polygon of 3 to 256 points, either winding. |
+| `height` | number | `3` | ≥ 0, m | The eaves' height above its level's elevation. |
+| `pitch` | number | `0` | ≥ 0, ≤ 80, deg | 0 is flat; more is one slope rising toward ridge from the lowest point. |
+| `ridge` | number[2] | `[0,1]` |  | The direction the slope rises, (x, z). |
+| `thickness` | number | `0.2` | ≥ 0, m | Measured straight down. |
+| `material` | null or Material ref | `null` |  | Surface material. Empty uses a plain grey. |
+| `shadowWhenHidden` | boolean | `true` |  | While hidden (Visibility), it still casts shadows, keeping the interior dark. |
+| `cutaway` | boolean | `false` |  | Opens around cameras' reveal points (CutawayView, 0070) instead of hiding whole: its chunk meshes, hatches and skylights are Cutaway. It still casts whole. |
+| `level` | null or integer or string | `null` |  | The Level it stands on (0067). Empty is the ground level; elevation is relative to the level. |
+
+## `structure/Wall`
+
+A wall: straight, an arc or a Bézier (0066). Structure compile draws it into chunked, per-material meshes; the entity itself draws nothing.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `a` | number[2] | `[0,0]` |  | Start of the centreline, (x, z) in world units. |
+| `b` | number[2] | `[0,0]` |  | End of the centreline, (x, z) in world units. |
+| `height` | number | `3` | ≥ 0, m | Height above elevation. |
+| `thickness` | number | `0.2` | ≥ 0, m | Full thickness. |
+| `elevation` | number | `0` | m | Where the wall stands (y), above its level. |
+| `level` | null or integer or string | `null` |  | The Level it stands on (0067). Empty is the ground level; elevation is relative to the level. |
+| `material` | null or Material ref | `null` |  | Surface material. Empty uses a plain grey. |
+| `shape` | `"straight"` \| `"arc"` \| `"bezier"` | `"straight"` |  | straight; arc (bowed by bow); bezier (a cubic through c0 and c1). |
+| `bow` | number | `0` | m | Arc: how far the midpoint bows off the line from a to b; positive bows to the left of a → b. More than half the chord is a major arc. |
+| `c0` | number[2] | `[0,0]` |  | Bézier: the first control point, (x, z). |
+| `c1` | number[2] | `[0,0]` |  | Bézier: the second control point, (x, z). |
+| `light` | `"sight"` \| `"normal"` \| `"none"` | `"sight"` |  | Whether it blocks light (0069): sky light spilling in, and wall-blocked lights. sight (unset) follows its sight channel; set it for a curtain that blocks sight but not light, or the opposite. |
+
+## `structure/WindowPane`
+
+_Computed by the engine; never written in scene files._
+
+Tag (no fields).
 
 ## `terrain/Chunk`
 

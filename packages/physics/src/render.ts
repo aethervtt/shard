@@ -47,24 +47,16 @@ export const collidersOverlay = defineOverlay({
         : record?.body.isSleeping()
           ? SLEEPING
           : COLORS[record?.kind ?? KIND_FIXED]!
-      const t = collider.translation(p.v3 as never)
-      center[0] = t.x
-      center[1] = t.y
-      center[2] = p.dim === 3 ? (t as { z: number }).z : 0
-      if (p.dim === 3) {
-        const r = collider.rotation(p.q4 as never) as { x: number; y: number; z: number; w: number }
-        q[0] = r.x
-        q[1] = r.y
-        q[2] = r.z
-        q[3] = r.w
-      } else {
-        const angle = collider.rotation() as unknown as number
-        q[0] = 0
-        q[1] = 0
-        q[2] = Math.sin(angle / 2)
-        q[3] = Math.cos(angle / 2)
-      }
+      place(p, collider)
       drawCollider(p, g, collider, p.colliderShape.get(entity)!, color)
+    }
+    // Owned static sets (0112): fixed colour, disabled ones (an open door) left out.
+    for (const [owner, set] of p.statics) {
+      if (!set.enabled || !passes(owner)) continue
+      for (let i = 0; i < set.colliders.length; i++) {
+        place(p, set.colliders[i]!)
+        drawCollider(p, g, set.colliders[i]!, set.kinds[i]!, COLORS[KIND_FIXED]!)
+      }
     }
     // Characters: their up, from the capsule's center to a little past its top.
     for (const [entity, c] of p.characters) {
@@ -95,6 +87,27 @@ export const collidersOverlay = defineOverlay({
 
 type Gz = GizmoStore
 type RCollider = InstanceType<PhysicsWorld['R']['Collider']>
+
+/** Puts a collider's pose in `center` and `q`, which drawCollider reads. */
+function place(p: PhysicsWorld, collider: RCollider): void {
+  const t = collider.translation(p.v3 as never)
+  center[0] = t.x
+  center[1] = t.y
+  center[2] = p.dim === 3 ? (t as { z: number }).z : 0
+  if (p.dim === 3) {
+    const r = collider.rotation(p.q4 as never) as { x: number; y: number; z: number; w: number }
+    q[0] = r.x
+    q[1] = r.y
+    q[2] = r.z
+    q[3] = r.w
+  } else {
+    const angle = collider.rotation() as unknown as number
+    q[0] = 0
+    q[1] = 0
+    q[2] = Math.sin(angle / 2)
+    q[3] = Math.cos(angle / 2)
+  }
+}
 
 const MAX_CONTACT_PAIRS = 1000
 let contactBudget = 0

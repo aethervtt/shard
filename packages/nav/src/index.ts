@@ -11,12 +11,16 @@ export {
   type Drive,
   GRID_SOURCES,
   type GridSource,
+  MAX_NAV_FILTERS,
   NavAgent,
   type NavAgentEventData,
   NavAgentState,
   NavAreas,
   type NavAreasValue,
   NavArrived,
+  NavFilters,
+  type NavFiltersValue,
+  type NavFilterValue,
   NavGrid,
   NavGridDataAssetType,
   NavGridDataImporter,
@@ -42,7 +46,7 @@ export {
   traceSegment,
 } from './grid'
 export { describeNav, navMethods } from './methods'
-export { type BakeStats, NavMeshRuntime, type TileEntry } from './navmesh'
+export { type BakeStats, configureFilter, NavMeshRuntime, type TileEntry } from './navmesh'
 export { navGridPlugin, navPlugin } from './plugin'
 export {
   createNavPath,
@@ -58,8 +62,26 @@ export {
   PATH_STATUSES,
   type PathStatus,
 } from './query'
-export { type BakeSettings, loadRecast } from './recast'
-export { type AgentRecord, type GridRecord, Nav, NavState, navState } from './state'
+export {
+  areaFlags,
+  type BakeSettings,
+  EXACT_AREAS,
+  GATE_BITS,
+  GATE_CLOSED,
+  GATE_CUSTOM,
+  GATE_LOCKED,
+  type GateState,
+  loadRecast,
+} from './recast'
+export {
+  insideConvex,
+  type NavContribution,
+  type NavGate,
+  type NavGateSpec,
+  NavGates,
+  NavShapes,
+} from './sources'
+export { type AgentRecord, type GridRecord, LINKS, Nav, NavState, navState } from './state'
 
 /** Replaces the navmesh area costs; agents and queries use them from the next frame. */
 export function setNavAreas(world: World, areas: NavAreasValue): void {
