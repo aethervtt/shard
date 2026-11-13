@@ -24,7 +24,8 @@ import { describe, expect, it } from 'vitest'
 import { Animator, AnimatorStateEntered, describeAnimator, evaluateGraphs } from './animator'
 import { animationLayer } from './api'
 import { AnimationClips } from './clip'
-import { AnimationPlayer } from './components'
+import { AnimationPlayer, AnimationSampling } from './components'
+import { createFlatPose, flatRest, flatSkeleton, samplePose } from './flat'
 import { AnimationGraphs, createAnimationGraph } from './graph'
 import { describeIk, solveIk, TwoBoneIk } from './ik'
 import { sampleAnimations } from './player'
@@ -95,6 +96,63 @@ describe('performance', () => {
     )
     if (allocationChecks) expect(collections).toBe(0)
     expect(median(list)).toBeLessThan(budget('animation/sample'))
+  })
+
+  it('flat poses: 200 characters of 60 joints sampled within characters/sample, allocating nothing', async () => {
+    const app = new App().addPlugin(TransformPlugin, ScenePlugin, animationPlugin)
+    await app.init()
+    const w = app.world
+    const c = creature()
+    const assets = addCreatureAssets(w, c)
+    // No joint entities: time-only players, sampled into flat poses (0115's mid tier).
+    const body = c.skeleton.components!['core/Transform'] as { translation: number[] }
+    const skeleton = flatSkeleton(c.skin, (path) =>
+      path === 'Body'
+        ? { translation: body.translation, rotation: [0, 0, 0, 1], scale: [1, 1, 1] }
+        : undefined,
+    )
+    const rest = flatRest(c.skin)
+    const n = c.joints.length
+    const players = grid().map((translation, i) =>
+      w.spawn(
+        [Transform, { translation }],
+        [
+          AnimationPlayer,
+          { layers: [animationLayer(assets.clip, { time: (i * 0.137) % c.clip.duration })] },
+        ],
+        [AnimationSampling, { mode: 'none' }],
+      ),
+    )
+    const poses = players.map(() => createFlatPose(skeleton, rest))
+    const out = new Float32Array(players.length * n * 12)
+    const radii = new Float32Array(n).fill(0.07)
+    const sphere = new Float32Array(4)
+    const sampleAll = () => {
+      for (let k = 0; k < players.length; k++)
+        samplePose(w, players[k]!, poses[k]!, out, k * n * 12, radii, sphere)
+    }
+    for (let i = 0; i < 300; i++) {
+      app.update(1 / 60)
+      sampleAll()
+    }
+    expect(sphere[3]!).toBeGreaterThan(0.5)
+    ;(globalThis as { gc?: () => void }).gc?.()
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    const times = new Float64Array(1000)
+    const gcs = gcWindow()
+    for (let f = 0; f < times.length; f++) {
+      const t0 = performance.now()
+      sampleAll()
+      times[f] = performance.now() - t0
+    }
+    const collections = await gcs.end()
+    const list = [...times]
+    const joints = players.length * n
+    console.log(
+      `flat poses 200 × 60 joints: ${Math.min(...list).toFixed(3)} ms best, ${median(list).toFixed(3)} ms median (${((median(list) / joints) * 1e6).toFixed(1)} ns a joint); GC events: ${collections}`,
+    )
+    if (allocationChecks) expect(collections).toBe(0)
+    expect(median(list)).toBeLessThan(budget('characters/sample', { count: joints }))
   })
 
   it('200 animators evaluate in under 0.5 ms a frame, allocating nothing', async () => {

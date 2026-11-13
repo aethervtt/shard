@@ -9,8 +9,17 @@ import {
 import type { Mesh } from '@aethervtt/shard-mesh'
 import { LogResource } from '@aethervtt/shard-runtime'
 import { GlobalTransform } from '@aethervtt/shard-transform'
-import { DEFORM_WORDS, type DeformStore, type MeshDeform } from './deform'
-import { InstanceSlot, type InstanceStore, Instances, MorphWeights, SkinnedMesh } from './instances'
+import { BAKED_BIT, DEFORM_WORDS, type DeformStore, type MeshDeform } from './deform'
+import {
+  InstanceSlot,
+  type InstanceStore,
+  Instances,
+  Lod,
+  Mesh3d,
+  MorphWeights,
+  SkinnedMesh,
+  SkinPose,
+} from './instances'
 import { defineOverlay } from './overlay-registry'
 import { findModelRoot } from './paths'
 import { MAX_JOINTS, type SkinAsset, Skins } from './skin-asset'
@@ -85,11 +94,32 @@ const bounds = new Float32Array(6)
 const topIndex = new Int32Array(8)
 const topWeight = new Float32Array(8)
 
+/** The SkinPose columns of the table prepare-deforms is visiting (set per table, no allocation). */
+const poseColumns: {
+  base: Uint32Array
+  joints: Uint32Array
+  morphBase: Uint32Array
+  morphCount: Uint32Array
+  sphere: Float32Array
+} = {
+  base: new Uint32Array(0),
+  joints: new Uint32Array(0),
+  morphBase: new Uint32Array(0),
+  morphCount: new Uint32Array(0),
+  sphere: new Float32Array(0),
+}
+
 interface DeformState {
   /** Frame at which to retry resolving an entity's joints. */
   retry: Map<Entity, number>
   warned: Set<string>
   frame: number
+  /**
+   * Per slot, for SkinPose rows (0115): the store layout + 1 its record was fully written at
+   * (0: not cached), and the batch it was written for. A cached record only moves its sphere.
+   */
+  fullLayout: Int32Array
+  fullBatch: Int32Array
 }
 
 /**
@@ -109,15 +139,26 @@ export const prepareDeforms = defineSystem({
       with: [MorphWeights, InstanceSlot, ComputedVisibility],
       without: [SkinnedMesh],
     }),
-    state: { retry: new Map(), warned: new Set(), frame: 0 } as DeformState,
+    state: {
+      retry: new Map(),
+      warned: new Set(),
+      frame: 0,
+      fullLayout: new Int32Array(256),
+      fullBatch: new Int32Array(256),
+    } as DeformState,
   }),
-  run: ({ skinned, morphed, state }, world) => {
+  run: ({ skinned, morphed, state }, world, ctx) => {
     const store = world.resource(Instances)
     const d = store.deform
     d.beginFrame()
     state.frame++
     const skins = world.tryResource(Skins)
     const records = d.records
+    const since = ctx.lastRunTick
+    if (state.fullLayout.length < d.capacity) {
+      state.fullLayout = new Int32Array(d.capacity)
+      state.fullBatch = new Int32Array(d.capacity)
+    }
     for (let ti = 0; ti < skinned.tables.length; ti++) {
       const table = skinned.tables[ti]!
       const n = table.count
@@ -130,6 +171,22 @@ export const prepareDeforms = defineSystem({
       const weights = table.has(MorphWeights)
         ? (table.column(MorphWeights, 'weights') as number[][])
         : undefined
+      // SkinPose rows other than 'joints' take their pose from the store, not joint entities.
+      const sources = table.has(SkinPose) ? table.column(SkinPose, 'source') : undefined
+      // Change ticks deciding whether a SkinPose row's cached record still holds.
+      const poseTicks = sources ? table.changedTicks(SkinPose) : undefined
+      const meshTicks = table.changedTicks(Mesh3d)
+      const lodTicks = table.has(Lod) ? table.changedTicks(Lod) : undefined
+      const visTicks = table.changedTicks(ComputedVisibility)
+      const globalTicks = table.changedTicks(GlobalTransform)
+      const weightTicks = table.has(MorphWeights) ? table.changedTicks(MorphWeights) : undefined
+      if (sources) {
+        poseColumns.base = table.column(SkinPose, 'base')
+        poseColumns.joints = table.column(SkinPose, 'joints')
+        poseColumns.morphBase = table.column(SkinPose, 'morphBase')
+        poseColumns.morphCount = table.column(SkinPose, 'morphCount')
+        poseColumns.sphere = table.column(SkinPose, 'sphere')
+      }
       for (let i = 0; i < n; i++) {
         const slot = slots[i]! - 1
         if (slot < 0 || vis[i] === 0) continue
@@ -139,6 +196,39 @@ export const prepareDeforms = defineSystem({
           continue
         }
         const o = slot * DEFORM_WORDS
+        if (sources !== undefined && sources[i] !== 0) {
+          // Cached (0115): nothing it was written from changed, and its morphs (if any) are a
+          // persistent block. Only the sphere follows the slot's transform.
+          if (
+            state.fullLayout[slot] === d.layout + 1 &&
+            state.fullBatch[slot] === store.batchOf[slot] &&
+            poseTicks![i]! <= since &&
+            meshTicks[i]! <= since &&
+            (lodTicks === undefined || lodTicks[i]! <= since) &&
+            visTicks[i]! <= since &&
+            (records[o + 9] === 0 || poseColumns.morphBase[i] !== 0) &&
+            (weightTicks === undefined ||
+              weightTicks[i]! <= since ||
+              poseColumns.morphBase[i] !== 0)
+          ) {
+            markLevelsUsed(store, slot, state.frame)
+            d.meshData(mesh)
+            if (sources[i] === 2 && records[o + 5] !== 0) d.bakedSlots++
+            if (globalTicks[i]! > since) {
+              writeSphere(d.recordF32, o, i, g)
+              d.touch(slot)
+            }
+            continue
+          }
+          writeLevels(store, slot, o)
+          const md = d.meshData(mesh)
+          writeMeshFields(records, o, md)
+          writeSkinPose(world, state, d, o, i, g, sources[i] === 2, weights?.[i], md)
+          state.fullLayout[slot] = d.layout + 1
+          state.fullBatch[slot] = store.batchOf[slot]!
+          d.touch(slot)
+          continue
+        }
         writeLevels(store, slot, o)
         const md = d.meshData(mesh)
         writeMeshFields(records, o, md)
@@ -206,9 +296,96 @@ export const prepareDeforms = defineSystem({
 })
 
 /**
+ * A SkinPose row's record (spec 0115): word 4 its pose rows or baked header, word 5 its joint
+ * count (with BAKED_BIT), words 9-10 its persistent morph block (else this frame's MorphWeights),
+ * and its sphere through the slot's GlobalTransform. No joint entities are read.
+ */
+function writeSkinPose(
+  world: World,
+  state: DeformState,
+  d: DeformStore,
+  o: number,
+  i: number,
+  g: Float32Array,
+  baked: boolean,
+  weights: readonly number[] | undefined,
+  md: MeshDeform,
+): void {
+  const records = d.records
+  const f = d.recordF32
+  const c = poseColumns
+  const joints = md.skinBase >= 0 ? c.joints[i]! : 0
+  records[o + 4] = joints > 0 ? c.base[i]! : 0
+  records[o + 5] = joints > 0 ? (baked ? (joints | BAKED_BIT) >>> 0 : joints) : 0
+  if (baked && joints > 0) d.bakedSlots++
+  const morphBase = c.morphBase[i]!
+  if (morphBase !== 0) {
+    let count = c.morphCount[i]!
+    if (count > 8) count = 8
+    // A pair naming a target this mesh lacks would read another mesh's deltas at level 0.
+    const p = d.poses
+    for (let k = 0; k < count; k++) {
+      if (p[morphBase * 4 + k * 2]! >= md.targetCount) {
+        warnMorphRange(world, state)
+        count = 0
+      }
+    }
+    records[o + 9] = count
+    records[o + 10] = count > 0 ? morphBase : 0
+  } else writeMorph(d, o, weights, md)
+  if (joints === 0) {
+    f[o + 3] = 0
+    return
+  }
+  writeSphere(f, o, i, g)
+}
+
+/** A SkinPose row's model-space sphere through its GlobalTransform, into record words 0-3. */
+function writeSphere(f: Float32Array, o: number, i: number, g: Float32Array): void {
+  const s = poseColumns.sphere
+  const so = i * 4
+  const go = i * 12
+  const cx = s[so]!
+  const cy = s[so + 1]!
+  const cz = s[so + 2]!
+  f[o] = g[go]! * cx + g[go + 1]! * cy + g[go + 2]! * cz + g[go + 3]!
+  f[o + 1] = g[go + 4]! * cx + g[go + 5]! * cy + g[go + 6]! * cz + g[go + 7]!
+  f[o + 2] = g[go + 8]! * cx + g[go + 9]! * cy + g[go + 10]! * cz + g[go + 11]!
+  const sx = g[go]! * g[go]! + g[go + 4]! * g[go + 4]! + g[go + 8]! * g[go + 8]!
+  const sy = g[go + 1]! * g[go + 1]! + g[go + 5]! * g[go + 5]! + g[go + 9]! * g[go + 9]!
+  const sz = g[go + 2]! * g[go + 2]! + g[go + 6]! * g[go + 6]! + g[go + 10]! * g[go + 10]!
+  f[o + 3] = s[so + 3]! * Math.sqrt(sx > sy ? (sx > sz ? sx : sz) : sy > sz ? sy : sz)
+}
+
+function warnMorphRange(world: World, state: DeformState): void {
+  if (state.warned.has('render/morph-target-range')) return
+  state.warned.add('render/morph-target-range')
+  world
+    .tryResource(LogResource)
+    ?.error(
+      new ShardError(
+        'render/morph-target-range',
+        "A SkinPose morph block names a target the mesh doesn't have",
+        { hint: "Pack only targets every part's mesh has; the part draws without morphs." },
+      ),
+    )
+}
+
+/**
  * Record word 11: the slot's LOD level table (each level's own skin and morph data), so a lower
  * level reads its own vertices' joints, weights, and deltas, not level 0's. 0 without Lod.
  */
+/** Marks a LOD set's levels' mesh data used, once a frame (a repack drops unused meshes). */
+function markLevelsUsed(store: InstanceStore, slot: number, frame: number): void {
+  const a = store.batchOf[slot]!
+  if (a > -2) return
+  const set = store.lodSets[-2 - a]!
+  if (set.usedFrame === frame) return
+  set.usedFrame = frame
+  const d = store.deform
+  for (let k = 0; k < set.batches.length; k++) d.meshData(store.batches[set.batches[k]!]!.mesh)
+}
+
 function writeLevels(store: InstanceStore, slot: number, o: number): void {
   const d = store.deform
   const a = store.batchOf[slot]!

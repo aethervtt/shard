@@ -7,6 +7,8 @@ import {
   type Fields,
   type InferFields,
   type Quantize,
+  type RowCodec,
+  type RowCodecOptions,
   ShardError,
   type World,
 } from '@aethervtt/shard-core'
@@ -24,6 +26,11 @@ export interface ReplicateOptions<F extends Fields = Fields> {
   quantize?: { readonly [K in keyof F]?: Quantize }
   /** Redaction: false keeps the component off that peer's wire. */
   visibleTo?: (world: World, peer: PeerId, entity: Entity) => boolean
+  /**
+   * Its own wire codec instead of the schema's (lists cross as JSON text otherwise): a packed
+   * payload such as 0115's horde members. Both sides must pass the same one.
+   */
+  codec?: (def: ComponentDef<F>, options: RowCodecOptions) => RowCodec<F>
 }
 
 export interface ReplicationEntry {
@@ -32,6 +39,7 @@ export interface ReplicationEntry {
   readonly channel: 'reliable' | 'unreliable'
   readonly quantize: Readonly<Record<string, Quantize>>
   readonly visibleTo: ((world: World, peer: PeerId, entity: Entity) => boolean) | undefined
+  readonly codec: ((def: ComponentDef, options: RowCodecOptions) => RowCodec) | undefined
 }
 
 /** A component to replicate, and how (0087). Pass the result to `netPlugin({ replicate })`. */
@@ -51,6 +59,7 @@ export function replicate<F extends Fields>(
     channel: options.channel ?? 'unreliable',
     quantize: (options.quantize ?? {}) as Record<string, Quantize>,
     visibleTo: options.visibleTo,
+    codec: options.codec as ReplicationEntry['codec'],
   }
 }
 

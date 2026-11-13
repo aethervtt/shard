@@ -29,6 +29,7 @@ import {
   NavGateAhead,
   NavUnreachable,
 } from './components'
+import { flowGoal, flowOf } from './flow-state'
 import { traceSegment } from './grid'
 import type { NavMeshRuntime } from './navmesh'
 import { createNavPath, findPath, meshPathLocal, type NavPath } from './query'
@@ -68,6 +69,8 @@ interface Columns {
   stopped: Uint8Array
   nav: Float64Array
   filter: string[]
+  /** 0115: NavAgent.flow. */
+  flow: Float64Array
   agentTicks: Uint32Array
   status: Uint8Array
   remaining: Float32Array
@@ -93,6 +96,7 @@ function columns(table: Table, out: Columns): void {
   out.stopped = table.column(NavAgent, 'stopped') as Uint8Array
   out.nav = table.column(NavAgent, 'nav') as Float64Array
   out.filter = table.column(NavAgent, 'filter') as unknown as string[]
+  out.flow = table.column(NavAgent, 'flow') as Float64Array
   out.agentTicks = table.changedTicks(NavAgent)
   out.status = table.column(NavAgentState, 'status') as Uint8Array
   out.remaining = table.column(NavAgentState, 'remaining') as Float32Array
@@ -146,6 +150,8 @@ function newRecord(entity: Entity): AgentRecord {
     shoving: false,
     px: 0,
     pz: 0,
+    flow: -1,
+    paths: 0,
     lpos: new Float64Array(3),
     link: { active: false, lift: 0, x0: 0, z0: 0, y0: 0, x1: 0, z1: 0, y1: 0, arc: 0 },
   }
@@ -373,9 +379,13 @@ function stepAgent(
     c.global[g12 + 7]!,
     c.global[g12 + 11]!,
   )
+  // 0115: the flow field it follows, if NavAgent.flow names one.
+  rec.flow = flowOf(world, c.flow[row]!)
   // Moved by another system (0114): no crowd agent, no drive.
   const external = nav.external.size > 0 && nav.external.has(entity)
   if (external && !rec.external) removeFromCrowd(nav, rec)
+  // 0115: a flow agent planned nothing while external, so it plans as it joins the crowd.
+  else if (!external && rec.external && rec.flow >= 0) rec.navVersion = -1
   rec.external = external
   if (navEntity !== rec.nav) {
     releaseSlot(nav, rec)
@@ -405,7 +415,13 @@ function stepAgent(
   }
   // Where it's going: the target's position, or the destination.
   const target = c.target[row]!
-  if (target >= 0 && world.isAlive(target) && world.has(target, GlobalTransform)) {
+  // 0115: a flow agent goes where its field leads.
+  if (rec.flow >= 0) {
+    const at = flowGoal(world, rec.flow)
+    goal[0] = at[0]!
+    goal[1] = at[1]!
+    goal[2] = at[2]!
+  } else if (target >= 0 && world.isAlive(target) && world.has(target, GlobalTransform)) {
     const tt = world.entityTable(target)
     const tm = tt.column(GlobalTransform, 'matrix') as Float32Array
     const tr = world.entityRow(target)
@@ -479,7 +495,8 @@ function stepAgent(
   c.gate[row] = blockedAt(rec)
   c.row[row] = blockedRow(rec)
   if (rec.external) {
-    stepExternal(s, world, row, rec, mesh!)
+    // A flow agent (0115) has no corners: nav/steer writes its status. Corner walkers' is here.
+    if (rec.flow < 0) stepExternal(s, world, row, rec, mesh!)
     return false
   }
   return requestCrowd(s, world, nav, table, row, rec, mesh!, repath, dim)
@@ -606,6 +623,17 @@ function plan(s: State, world: World, nav: NavState, rec: AgentRecord): void {
   s.find.polys = mesh ? s.polys : undefined
   // Breaching (0114) needs where the path enters each gate: the polygon each corner enters.
   rec.breach = mesh && !rec.framed ? mesh.breachBits(filter) : 0
+  // 0115: an external flow agent follows its field (nav/steer) and makes no findPath call.
+  if (mesh && rec.external && rec.flow >= 0) {
+    rec.pathTiles.length = 0
+    rec.pathGates.length = 0
+    rec.exclude = mesh.queryFilter(filter).excludeFlags
+    rec.count = 0
+    rec.next = 1
+    rec.reachable = true
+    return
+  }
+  rec.paths++
   s.find.refs = rec.breach !== 0 ? s.refs : undefined
   if (mesh && rec.framed) meshPathLocal(mesh, pos, rec.goal, path, undefined, filter, s.polys)
   else findPath(world, pos, rec.goal, s.find)
@@ -987,6 +1015,14 @@ function requestCrowd(
     agent = crowd.addAgent(vec, crowdParams(s, row, rt, rec))
     rec.crowdIndex = agent.agentIndex
     repath = true
+    // 0115: it joins at the velocity it has, so a tier change doesn't stop it.
+    const raw = agent.raw
+    for (let i = 0; i < 3; i++) {
+      const v = c.velocity[row * 3 + i]!
+      raw.set_vel(i, v)
+      raw.set_nvel(i, v)
+      raw.set_dvel(i, v)
+    }
   } else if (c.agentTicks[row]! > rec.agentTick || repath || rec.shoving !== rec.shove > 0) {
     rec.shoving = rec.shove > 0
     agent.updateParameters(crowdParams(s, row, rt, rec))

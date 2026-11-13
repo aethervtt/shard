@@ -1,4 +1,11 @@
-import { defineComponent, defineEvent, defineResource, type Entity, t } from '@aethervtt/shard-core'
+import {
+  defineComponent,
+  defineEvent,
+  defineResource,
+  defineTag,
+  type Entity,
+  t,
+} from '@aethervtt/shard-core'
 import { Transform } from '@aethervtt/shard-transform'
 
 export const BODY_KINDS = ['dynamic', 'fixed', 'kinematic-position', 'kinematic-velocity'] as const
@@ -333,6 +340,15 @@ export const CharacterController = defineComponent(
     requires: [Transform, CharacterIntent, CharacterState],
   },
 )
+
+/**
+ * Suspends a character controller (0115): no move query, gravity or pushes; its capsule follows
+ * the entity's Transform kinematically. Navigation's cheaper movement tiers add it to agents they
+ * move by the Transform, and remove it when the agent joins the crowd again.
+ */
+export const CharacterSuspended = defineTag('physics/CharacterSuspended', {
+  description: 'A CharacterController that skips its move; the capsule follows the Transform.',
+})
 
 export interface CharacterGroundEventData {
   entity: Entity

@@ -4,9 +4,13 @@ Every engine error is a `ShardError` with one of these codes.
 
 | Code | Source | Hint |
 |---|---|---|
+| `animation/invalid-bake` | @aethervtt/shard-animation |  |
 | `animation/invalid-clip` | @aethervtt/shard-animation |  |
+| `animation/invalid-flat-pose` | @aethervtt/shard-animation |  |
+| `animation/invalid-flat-skeleton` | @aethervtt/shard-animation | Build it with flatSkeleton(skin). |
 | `animation/invalid-joint-map` | @aethervtt/shard-animation |  |
 | `animation/invalid-mask` | @aethervtt/shard-animation |  |
+| `animation/no-entity` | @aethervtt/shard-animation |  |
 | `animation/no-model` | @aethervtt/shard-animation | Clips from .anim.json animate whatever plays them: preview the scene that uses it with a screenshot. |
 | `animation/no-player` | @aethervtt/shard-animation | Add animation/AnimationPlayer to the model root first. |
 | `animation/unknown-socket` | @aethervtt/shard-animation | Put animation/BoneSocket { "name": ... } on the joint; on a model, add it with a SceneInstance override on the joint path. |
@@ -105,6 +109,13 @@ Every engine error is a `ShardError` with one of these codes.
 | `cards/texture-budget` | @aethervtt/shard-cards | Use a visible subset or a smaller resolution; prepare an inspection page separately. |
 | `cards/texture-size` | @aethervtt/shard-cards |  |
 | `cards/unknown-finish` | @aethervtt/shard-cards |  |
+| `characters/merge-material` | @aethervtt/shard-characters | Merge only parts that share one material. |
+| `characters/no-character` | @aethervtt/shard-characters | characters.describe without an entity lists counts for every character. |
+| `characters/skeleton-mismatch` | @aethervtt/shard-characters | Parts need the same joint names, in order, and the same inverse bind matrices (within 1e-4). |
+| `characters/too-many-looks` | @aethervtt/shard-characters |  |
+| `characters/unknown-build` | @aethervtt/shard-characters |  |
+| `characters/unknown-look` | @aethervtt/shard-characters | Register looks with characterLooks(world, [...]) first. |
+| `characters/unknown-rig` | @aethervtt/shard-characters | Load the model (assets.load) before createCharacterRig. |
 | `cli/missing-playwright` | @aethervtt/shard-cli | Install it next to the CLI: npm install -D playwright && npx playwright install chromium. |
 | `cli/no-response` | @aethervtt/shard-cli |  |
 | `cli/no-target` | @aethervtt/shard-cli | Start the app (shard dev, Studio) with the hub address, then run this again. |
@@ -211,6 +222,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `nature/too-big` | @aethervtt/shard-nature | Fewer children per branch, fewer leaves per twig, or fewer sections and segments. |
 | `nav/bad-cache` | @aethervtt/shard-nav |  |
 | `nav/bake-failed` | @aethervtt/shard-nav | Check the NavSource geometry has upward faces flatter than maxSlope, wide enough for agentRadius. |
+| `nav/flow-unreachable` | @aethervtt/shard-nav | Move the goal onto the navmesh, or check the field’s filter and nav. |
 | `nav/gate-unmatched` | @aethervtt/shard-nav | The opening may be too narrow for the agent radius and cell size, or off the walkable surface. |
 | `nav/invalid-filter` | @aethervtt/shard-nav | Fix it in nav/Filters: until then navmeshes leave it out, and agents naming it path with the default. |
 | `nav/invalid-gate` | @aethervtt/shard-nav | Area 0 is the ground every source bakes with: a gate's polygons need an area of their own. Areas 32 to 62 are shut gates' (0114). |
@@ -379,15 +391,22 @@ Every engine error is a `ShardError` with one of these codes.
 | `render/globals-full` | @aethervtt/shard-render | Plugins share shard::globals’ data array; reserve fewer slots. |
 | `render/gpu-timing-unavailable` | @aethervtt/shard-render | Ablation reads gpu:frame, which needs the 'timestamp-query' feature. |
 | `render/graph-cycle` | @aethervtt/shard-render | Check reads/writes and `after` on these nodes. |
+| `render/invalid-persistent-block` | @aethervtt/shard-render | Free exactly what allocPersistent returned, once. |
+| `render/invalid-persistent-size` | @aethervtt/shard-render | Allocate at least one vec4. |
 | `render/invalid-screen-effect` | @aethervtt/shard-render | A screen effect has a kind, a radius of at least 0, and at most 8 params. |
 | `render/material-field-clash` | @aethervtt/shard-render | Give the field another name, or use extends: "none". |
 | `render/material-noise-name` | @aethervtt/shard-render | Use lowercase letters, digits, and underscores: { detail: "assets/noise/rock.noise.json" }. |
 | `render/missing-resource` | @aethervtt/shard-render | Declare it in a node's `writes` (as a transient texture) or with graph.declare. |
+| `render/morph-target-range` | @aethervtt/shard-render | Pack only targets every part's mesh has; the part draws without morphs. |
+| `render/no-positions` | @aethervtt/shard-render |  |
 | `render/no-shadow-map` | @aethervtt/shard-render | Set shadows: true on the light, and check render.describe for the shadow budget. |
+| `render/no-slot` | @aethervtt/shard-render | Run a frame after spawning it. |
 | `render/no-view` | @aethervtt/shard-render | Spawn an entity with Camera3d, or pass the camera to pick from. |
 | `render/noise-graph-missing` | @aethervtt/shard-render | noise paths name *.noise.json assets, e.g. { detail: "assets/noise/rock.noise.json" }. |
 | `render/not-an-atmosphere` | @aethervtt/shard-render | Pass the entity that has render/Atmosphere (render.describe lists each camera’s). |
 | `render/not-ready` | @aethervtt/shard-render | Await app.init() so the render plugin can create the GPU device. |
+| `render/out-too-small` | @aethervtt/shard-render |  |
+| `render/persistent-double-free` | @aethervtt/shard-render | Free each block once, with the size it was allocated with. |
 | `render/registry-conflict` | @aethervtt/shard-render | Two definitions (two apps or bundles) share the name. Rename one, or share the definition. |
 | `render/surface-device` | @aethervtt/shard-render | Pass the GpuContext the surface was added to (surface.gpu), or omit gpu. |
 | `render/texture-color-space-mismatch` | @aethervtt/shard-render | Set its usage to match the slot in its .meta, and the copy goes. |

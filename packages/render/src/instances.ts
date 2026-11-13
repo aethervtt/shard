@@ -163,6 +163,44 @@ export const MorphWeights = defineComponent(
   },
 )
 
+/** SkinPose.source values, in column order. */
+export const SKIN_POSE_SOURCES = ['joints', 'pose', 'baked'] as const
+
+/**
+ * Where a skinned mesh's pose comes from (spec 0115): its joint entities (`joints`, as without
+ * it), rows a caller keeps in the deform store's persistent region (`pose`), or baked clips the
+ * vertex stage plays by the store's clock (`baked`). Written by code (characters), not scenes.
+ */
+export const SkinPose = defineComponent(
+  'render/SkinPose',
+  {
+    source: t.enum(SKIN_POSE_SOURCES, {
+      description:
+        "joints: SkinnedMesh.joints' transforms. pose: 3 rows per joint at `base`. baked: the playback header at `base`.",
+    }),
+    base: t.u32({
+      description:
+        "pose: vec4 index (DeformStore.poses) of joint 0's first row; each joint has 3 rows of `jointModel × inverseBind` in the mesh entity's space. baked: vec4 index of the 3-vec4 playback header.",
+    }),
+    joints: t.u32({ description: 'Joint count.' }),
+    morphBase: t.u32({
+      description:
+        'vec4 index of a persistent block of 8 (target, weight) pairs; 0 uses MorphWeights each frame.',
+    }),
+    morphCount: t.u32({ description: 'Active pairs in the morph block (at most 8).' }),
+    sphere: t.vec4({
+      description:
+        "Bounding sphere of every pose in the mesh entity's space: center xyz, radius w (0: the mesh bounds).",
+    }),
+  },
+  {
+    description:
+      "A skinned mesh's pose source: its joint entities, rows kept in the deform store, or baked clips played on the GPU.",
+    requires: [SkinnedMesh],
+    serialize: false,
+  },
+)
+
 export const VisibilityRange = defineComponent(
   'render/VisibilityRange',
   {
@@ -298,7 +336,16 @@ export interface Batch {
 }
 
 /** A Lod component's levels resolved to batches, shared by every entity with the same values. */
+/**
+ * Clean slots an upload run bridges rather than starting another write, once a frame has made
+ * UPLOAD_EXACT_RUNS writes (0115): small edits stay exact, scattered mass updates batch.
+ */
+const UPLOAD_GAP = 8
+const UPLOAD_EXACT_RUNS = 32
+
 export interface LodSet {
+  /** The deform store frame its levels' mesh data was last marked used (prepare-deforms). */
+  usedFrame?: number
   index: number
   key: string
   batches: number[]
@@ -625,6 +672,8 @@ export class InstanceStore {
   dev = false
   /** Bytes of instance data uploaded this frame. */
   uploadedBytes = 0
+  /** Bytes the last upload wrote, with the clean slots its runs bridged (0115). */
+  writtenBytes = 0
   /** Slots with a batch and not hidden, and hidden ones: stats for GPU-culled views. */
   drawableCount = 0
   hiddenCount = 0
@@ -1157,7 +1206,7 @@ export class InstanceStore {
 
   /** Whether skinned or morphed poses are being written this frame (their shadows move). */
   get deforming(): boolean {
-    return this.deform.poseCount > 0
+    return this.deform.deforming
   }
 
   /** A plain batch assignment. */
@@ -1337,42 +1386,62 @@ export class InstanceStore {
       this.prevHi = this.high - 1
       this.prevDirty.fill(1, 0, this.high)
     }
+    // Runs of dirty slots bridge gaps of up to UPLOAD_GAP clean ones: a write costs far more than
+    // the few hundred bytes it carries, and scattered changes (0115's parts) made thousands.
     let start = -1
+    let last = -1
+    let runs = 0
     for (let s = this.prevLo; s <= this.prevHi + 1; s++) {
       if (s <= this.prevHi && this.prevDirty[s] === 1) {
         this.prevDirty[s] = 0
         if (start < 0) start = s
-      } else if (start >= 0) {
-        this.prevBuffer.write(this.prev, start * PREV_BYTES, start * 12, (s - start) * 12)
+        last = s
+      } else if (
+        start >= 0 &&
+        (s > this.prevHi || s - last > (runs < UPLOAD_EXACT_RUNS ? 0 : UPLOAD_GAP))
+      ) {
+        this.prevBuffer.write(this.prev, start * PREV_BYTES, start * 12, (last + 1 - start) * 12)
+        runs++
         start = -1
       }
     }
     this.prevLo = Number.POSITIVE_INFINITY
     this.prevHi = -1
+    // `bytes`: the slots that changed; `written`: those plus the clean ones runs bridged.
     let bytes = 0
+    let written = 0
+    runs = 0
     const lo = this.dirtyLo
     const hi = this.dirtyHi
     let runStart = -1
+    let runLast = -1
     for (let s = lo; s <= hi + 1; s++) {
       const d = s <= hi && this.dirty[s] === 1
       if (d) {
         this.dirty[s] = 0
+        bytes += INSTANCE_BYTES
         if (runStart < 0) runStart = s
-      } else if (runStart >= 0) {
-        const n = s - runStart
+        runLast = s
+      } else if (
+        runStart >= 0 &&
+        (s > hi || s - runLast > (runs < UPLOAD_EXACT_RUNS ? 0 : UPLOAD_GAP))
+      ) {
+        runs++
+        const n = runLast + 1 - runStart
         this.instanceBuffer.write(
           this.f32,
           runStart * INSTANCE_BYTES,
           runStart * INSTANCE_FLOATS,
           n * INSTANCE_FLOATS,
         )
-        bytes += n * INSTANCE_BYTES
+        written += n * INSTANCE_BYTES
         runStart = -1
       }
     }
     this.dirtyLo = Number.POSITIVE_INFINITY
     this.dirtyHi = -1
     this.uploadedBytes = bytes
+    this.writtenBytes = written
     return bytes
   }
 

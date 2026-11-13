@@ -1,6 +1,6 @@
 import { Last } from '@aethervtt/shard-core'
 import { definePlugin } from '@aethervtt/shard-runtime'
-import { DeformPath, prepareInstances } from './instances'
+import { DeformPath, prepareInstances, SkinPose } from './instances'
 import { RenderSet } from './plugin'
 import { prepareDeforms, skeletonOverlay } from './skinning'
 
@@ -10,7 +10,7 @@ import { prepareDeforms, skeletonOverlay } from './skinning'
  */
 export const skinningPlugin = definePlugin({
   name: 'render/skinning',
-  provides: [skeletonOverlay],
+  provides: [skeletonOverlay, SkinPose],
   dependencies: ['render/forward'],
   build(app) {
     app

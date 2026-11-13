@@ -532,6 +532,39 @@ export function gateEntries(
   }
 }
 
+/**
+ * A flow agent (0115) about to enter gate `owner`, which its filter breaches: its path is where it
+ * stands, the gate is its only crossed gate, and its leg ends at the gate's face on its side, as
+ * for a path that enters a gate at no corner. The breach step claims it a slot from there.
+ */
+export function gateLeg(
+  nav: NavState,
+  rec: AgentRecord,
+  owner: Entity,
+  x: number,
+  y: number,
+  z: number,
+): void {
+  const gate = nav.gates.byOwner.get(owner)
+  if (!gate) return
+  rec.corners[0] = x
+  rec.corners[1] = y
+  rec.corners[2] = z
+  rec.count = 1
+  rec.next = 1
+  rec.pathGates.length = 0
+  rec.pathGates.push(owner)
+  if (rec.entries.length < 5) rec.entries = new Float64Array(10)
+  const side = sideOf(gate, x, z)
+  const d = gate.depth / 2
+  rec.entries[0] = gate.mx + gate.ax * side * d
+  rec.entries[1] = y
+  rec.entries[2] = gate.mz + gate.az * side * d
+  rec.entries[3] = side
+  rec.entries[4] = 1
+  nextLeg(nav, rec, 0)
+}
+
 function sideOf(gate: NavGate, x: number, z: number): number {
   return (x - gate.mx) * gate.ax + (z - gate.mz) * gate.az < 0 ? -1 : 1
 }

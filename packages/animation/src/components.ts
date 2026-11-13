@@ -173,6 +173,23 @@ export const AnimationPlayer = defineComponent(
   },
 )
 
+export const SAMPLING_MODES = ['entities', 'none'] as const
+
+export const AnimationSampling = defineComponent(
+  'animation/AnimationSampling',
+  {
+    mode: t.enum(SAMPLING_MODES, {
+      description:
+        "entities: animation/sample blends the layers into the joints and fields under the player (as without this component). none: it only runs the player's time (fades, events, AnimationFinished); nothing is bound, blended or written, and root motion doesn't move it. samplePose samples such a player into a flat pose.",
+    }),
+  },
+  {
+    description:
+      "How animation/sample treats this entity's AnimationPlayer: sampled onto entities, or time only (a character drawn from a flat pose or a bake, 0115).",
+    serialize: false,
+  },
+)
+
 export type AnimationPlayerValue = Infer<typeof AnimationPlayer>
 export type AnimationLayerValue = AnimationPlayerValue['layers'][number]
 

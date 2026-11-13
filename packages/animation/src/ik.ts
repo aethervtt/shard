@@ -1217,6 +1217,19 @@ function stale(
   return !jointsLive(world, s)
 }
 
+/**
+ * A solver at weight 0 or less resolves nothing and logs nothing: its joints may be a rig about
+ * to be handed to another character (0115 fades IK out before taking a rig away). It puts back
+ * what it last wrote, as at any weight, then forgets its joints, so weight coming back resolves
+ * them from scratch. Returns whether the solver is idle.
+ */
+function idle(world: World, s: Solver, weight: number): boolean {
+  if (weight > 0) return false
+  if (s.ok) restore(world, s)
+  s.resolved = false
+  return true
+}
+
 interface Queries {
   two: ReturnType<World['query']>
   look: ReturnType<World['query']>
@@ -1231,8 +1244,10 @@ function prepare(world: World, state: IkState, q: Queries, frame: number): void 
     const roots = table.column(TwoBoneIk, 'root') as string[]
     const mids = table.column(TwoBoneIk, 'mid') as string[]
     const tips = table.column(TwoBoneIk, 'tip') as string[]
+    const weights = table.column(TwoBoneIk, 'weight')
     for (let i = 0; i < table.count; i++) {
       const s = solverFor(state, KIND_TWO_BONE, table.entities[i]!)
+      if (idle(world, s, weights[i]!)) continue
       if (stale(world, s, frame, roots[i]!, mids[i]!, tips[i]!, undefined)) {
         s.writtenAt = -1
         s.names = [roots[i]!, mids[i]!, tips[i]!]
@@ -1247,8 +1262,10 @@ function prepare(world: World, state: IkState, q: Queries, frame: number): void 
     const table = tables[ti]!
     const roots = table.column(ChainIk, 'root') as string[]
     const tips = table.column(ChainIk, 'tip') as string[]
+    const weights = table.column(ChainIk, 'weight')
     for (let i = 0; i < table.count; i++) {
       const s = solverFor(state, KIND_CHAIN, table.entities[i]!)
+      if (idle(world, s, weights[i]!)) continue
       if (stale(world, s, frame, roots[i]!, tips[i]!, '', undefined)) {
         s.writtenAt = -1
         s.names = [roots[i]!, tips[i]!]
@@ -1263,8 +1280,10 @@ function prepare(world: World, state: IkState, q: Queries, frame: number): void 
     const table = tables[ti]!
     const joints = table.column(LookAtIk, 'joint') as string[]
     const chains = table.column(LookAtIk, 'chain') as ChainEntry[][]
+    const weights = table.column(LookAtIk, 'weight')
     for (let i = 0; i < table.count; i++) {
       const s = solverFor(state, KIND_LOOK_AT, table.entities[i]!)
+      if (idle(world, s, weights[i]!)) continue
       const chain = chains[i]!
       // Names: the joint, then the chain (resolved top first, the joint last).
       if (stale(world, s, frame, joints[i]!, chain[0]?.joint ?? '', chain[1]?.joint ?? '', chain)) {
@@ -1281,8 +1300,10 @@ function prepare(world: World, state: IkState, q: Queries, frame: number): void 
     const table = tables[ti]!
     const hips = table.column(FootPlacement, 'hips') as string[]
     const feet = table.column(FootPlacement, 'feet') as FootEntry[][]
+    const weights = table.column(FootPlacement, 'weight')
     for (let i = 0; i < table.count; i++) {
       const s = solverFor(state, KIND_FEET, table.entities[i]!)
+      if (idle(world, s, weights[i]!)) continue
       const list = feet[i]!
       if (stale(world, s, frame, hips[i]!, list[0]?.footJoint ?? '', '', list)) {
         s.writtenAt = -1

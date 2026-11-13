@@ -9,7 +9,7 @@ import {
   PostUpdate,
   type World,
 } from '@aethervtt/shard-core'
-import { Collider, PhysicsSystems } from '@aethervtt/shard-physics'
+import { CharacterSuspended, Collider, PhysicsSystems } from '@aethervtt/shard-physics'
 import { Mesh3d } from '@aethervtt/shard-render'
 import { type App, definePlugin, type Plugin } from '@aethervtt/shard-runtime'
 import { TransformSystems } from '@aethervtt/shard-transform'
@@ -23,15 +23,18 @@ import {
   NavAreas,
   NavBreach,
   NavFilters,
+  NavFlowField,
   NavGridDatas,
   NavSource,
   OffMeshLink,
 } from './components'
+import { NavFlows } from './flow-state'
 import { navMethods } from './methods'
 import * as overlayModule from './overlay'
 import { loadRecast } from './recast'
 import * as stateModule from './state'
 import { LINKS, Nav, type NavState } from './state'
+import { NavMovers } from './steer-state'
 
 /** The NavSource an entity is, or sits under (its colliders and meshes bake with it). */
 function rootOf(world: World, entity: Entity): Entity | undefined {
@@ -77,7 +80,15 @@ function observe(world: World, nav: NavState): void {
     world.observe(onRemove(def), shape)
   }
   world.observe(onSet(ChildOf), shape)
-  world.observe(onRemove(NavAgent), ({ entity }) => dropAgent(world, entity))
+  world.observe(onRemove(NavAgent), ({ entity }) => {
+    dropAgent(world, entity)
+    world.tryResource(NavMovers)?.drop(entity)
+    // A controller nav suspended walks again once nav no longer moves it.
+    if (world.isAlive(entity) && world.has(entity, CharacterSuspended)) {
+      world.remove(entity, CharacterSuspended)
+    }
+  })
+  world.observe(onRemove(NavFlowField), ({ entity }) => world.tryResource(NavFlows)?.drop(entity))
 }
 
 function build(app: App): void {

@@ -133,7 +133,13 @@ export {
   type GBufferChannel,
 } from './deferred'
 export { deferredPlugin } from './deferred-plugin'
-export { DEFORM_WORDS, DeformStore, type MeshDeform } from './deform'
+export {
+  BAKED_BIT,
+  DEFORM_WORDS,
+  DeformStore,
+  JOINT_COUNT_MASK,
+  type MeshDeform,
+} from './deform'
 export { renderDescribePlugin } from './describe-plugin'
 export { whiteBalance } from './display-nodes'
 export {
@@ -275,7 +281,9 @@ export {
   NotShadowReceiver,
   recordFlags,
   ShadowWhenHidden,
+  SKIN_POSE_SOURCES,
   SkinnedMesh,
+  SkinPose,
   selectLod,
   VisibilityRange,
 } from './instances'

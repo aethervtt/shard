@@ -7,6 +7,7 @@ export {
   type CharacterGroundEventData,
   CharacterIntent,
   CharacterState,
+  CharacterSuspended,
   Collider,
   CollisionEvent,
   type CollisionEventData,

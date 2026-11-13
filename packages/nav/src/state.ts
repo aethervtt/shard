@@ -108,6 +108,11 @@ export interface AgentRecord {
   /** Where it stood at its last step (navmesh space), for slot claims. */
   px: number
   pz: number
+  // 0115: movement tiers and flow fields.
+  /** The NavFlowField it follows (NavAgent.flow, when that names one), or -1. */
+  flow: number
+  /** findPath calls made for it: plan()'s, and nav/steer's fallback outside its field. */
+  paths: number
   lpos: Float64Array
   /**
    * Crossing an off-mesh link: where it started (x, z), the link's near and far surface

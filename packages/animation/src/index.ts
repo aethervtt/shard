@@ -41,13 +41,27 @@ export {
   AnimationMasks,
   AnimationPlayer,
   type AnimationPlayerValue,
+  AnimationSampling,
   BLEND_MODES,
   LOOP_MODES,
   MaskImporter,
   maskWeight,
   ROOT_MOTION_MODES,
   RootMotion,
+  SAMPLING_MODES,
 } from './components'
+export {
+  type BakedClip,
+  type BakeRetarget,
+  bakeClip,
+  createFlatPose,
+  type FlatPose,
+  type FlatSkeleton,
+  flatRest,
+  flatSkeleton,
+  type JointTrs,
+  samplePose,
+} from './flat'
 export {
   type AnimationGraphAsset,
   AnimationGraphAssetType,
@@ -77,7 +91,7 @@ export {
   TwoBoneIk,
 } from './ik'
 export { animationMethods, describePlayer } from './methods'
-export { AnimationStateResource, sampleAnimations } from './player'
+export { AnimationStateResource, forgetBinding, sampleAnimations } from './player'
 export { animationPlugin } from './plugin'
 export {
   type JointMapAsset,

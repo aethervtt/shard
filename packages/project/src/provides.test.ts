@@ -31,7 +31,11 @@ const PLUGINS: Record<string, (m: Mod) => PluginLike[]> = {
   fog: (m) => [m.fogPlugin as PluginLike],
   gltf: (m) => [m.gltfPlugin as PluginLike],
   input: (m) => [(m.inputPlugin as () => PluginLike)(), m.gesturesPlugin as PluginLike],
-  nav: (m) => [m.navPlugin as PluginLike, m.navGridPlugin as PluginLike],
+  nav: (m) => [
+    m.navPlugin as PluginLike,
+    m.navGridPlugin as PluginLike,
+    m.navTiersPlugin as PluginLike,
+  ],
   noise: (m) => [m.noisePlugin as PluginLike],
   particles: (m) => [m.particlesPlugin as PluginLike],
   physics: (m) => [

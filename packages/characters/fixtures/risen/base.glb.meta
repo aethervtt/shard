@@ -1,0 +1,22 @@
+{
+  "guid": "4d4a1f8c3182ae1eee9ba89a0819ad45",
+  "importer": "gltf",
+  "settings": {
+    "scale": 1,
+    "forward": "+z",
+    "emissiveLuminance": 1000,
+    "cameras": false,
+    "lights": false,
+    "generateNormals": "missing",
+    "lods": "auto",
+    "lodTriangles": [
+      0.5,
+      0.2,
+      0.05
+    ],
+    "lodPixelError": 1,
+    "textureCompression": "none",
+    "textureMaxSize": 4096,
+    "materialTypes": {}
+  }
+}
