@@ -32,6 +32,7 @@ const BASELINE_ISSUES: Record<string, string[]> = {
   galaxy: ['render/feature-unsupported playground/galaxy'],
   terrain: ['render/feature-unsupported terrain'],
   atmosphere: ['render/feature-unsupported terrain'],
+  scatter: ['render/feature-unsupported terrain'],
   lights: ['render/light-budget camera:1'],
   deferred: ['render/light-budget camera:0'],
 }
