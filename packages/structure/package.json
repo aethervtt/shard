@@ -33,6 +33,7 @@
     "@types/node": "^26.6.2",
     "@webgpu/types": "^0.1.74",
     "webgpu": "0.6.1",
-    "@aethervtt/shard-gpu-webgl2": "workspace:*"
+    "@aethervtt/shard-gpu-webgl2": "workspace:*",
+    "@aethervtt/shard-platform-node": "workspace:*"
   }
 }

@@ -1,0 +1,187 @@
+// Building one navmesh tile with Recast (0037, 0112). Plain JavaScript, so worker threads import
+// it with no loader: the main thread and the pool build tiles with this same code.
+
+/** Recast's walkable area code; Detour sees it as area 0. */
+const WALKABLE = 63
+
+/**
+ * Poly flags (0112): bits 0–11 are areas 0–11, one each, so a filter excludes those exactly; bit
+ * 12 is shared by areas 12–62; bits 13–15 are gate state, set at runtime on a gate's polygons.
+ */
+export const EXACT_AREAS = 12
+export const GATE_CLOSED = 1 << 13
+export const GATE_LOCKED = 1 << 14
+export const GATE_CUSTOM = 1 << 15
+/** Gate state bits by name, as filters exclude them. */
+export const GATE_BITS = { closed: GATE_CLOSED, locked: GATE_LOCKED, custom: GATE_CUSTOM }
+
+/** Poly flags for an area: its own bit for areas 0–11, the shared bit 12 for the rest. */
+export function areaFlags(area) {
+  return 1 << (area < EXACT_AREAS ? area : EXACT_AREAS)
+}
+
+/** Voxel counts Recast wants, from world-unit settings. */
+export function voxelSettings(s) {
+  const walkableRadius = Math.ceil(s.agentRadius / s.cellSize)
+  return {
+    walkableRadius,
+    walkableHeight: Math.max(3, Math.ceil(s.agentHeight / s.cellHeight)),
+    walkableClimb: Math.floor(s.maxClimb / s.cellHeight),
+    borderSize: walkableRadius + 3,
+    tileWorld: s.tileSize * s.cellSize,
+  }
+}
+
+/** Reused typed buffers for one tile's triangles. */
+const scratch = { verts: new Float32Array(0), tris: new Int32Array(0), areas: new Uint8Array(0) }
+
+/**
+ * Builds one navmesh tile with Recast: the triangles of `soup` listed in `triangles` (already
+ * those overlapping the tile plus its border), rasterized with their area codes, filtered for
+ * the agent, and turned into Detour tile data. Returns the tile's bytes, or null when nothing is
+ * walkable in it. Throws `nav/bake-failed` when a Recast step fails.
+ */
+export function buildTile(R, s, tx, ty, yMin, yMax, soup, triangles, count, links, gates = []) {
+  const v = voxelSettings(s)
+  const cs = s.cellSize
+  const ch = s.cellHeight
+  const border = v.borderSize
+  const size = s.tileSize + border * 2
+  const bmin = [tx * v.tileWorld - border * cs, yMin, ty * v.tileWorld - border * cs]
+  const bmax = [(tx + 1) * v.tileWorld + border * cs, yMax, (ty + 1) * v.tileWorld + border * cs]
+  if (count === 0) return null
+
+  if (scratch.areas.length < count) {
+    scratch.verts = new Float32Array(count * 9)
+    scratch.tris = new Int32Array(count * 3)
+    scratch.areas = new Uint8Array(count)
+  }
+  const p = soup.positions
+  for (let i = 0; i < count; i++) {
+    const t = triangles[i]
+    scratch.verts.set(p.subarray(t * 9, t * 9 + 9), i * 9)
+    scratch.tris[i * 3] = i * 3
+    scratch.tris[i * 3 + 1] = i * 3 + 1
+    scratch.tris[i * 3 + 2] = i * 3 + 2
+    scratch.areas[i] = soup.areas[t]
+  }
+
+  const ctx = new R.RecastBuildContext(false)
+  const verts = new R.VerticesArray()
+  const tris = new R.TrianglesArray()
+  const areas = new R.TriangleAreasArray()
+  verts.copy(scratch.verts.subarray(0, count * 9))
+  tris.copy(scratch.tris.subarray(0, count * 3))
+  areas.resize(count)
+  let hf
+  let chf
+  let cset
+  let pmesh
+  let dmesh
+  // A plain Error with a code: worker threads can't import core's ShardError (recast.ts wraps it).
+  const fail = (step) => {
+    throw Object.assign(new Error(`Recast failed to ${step} for tile (${tx}, ${ty})`), {
+      code: 'nav/bake-failed',
+      hint: 'Check the NavMesh settings: cellSize and cellHeight must be positive, and tileSize small enough for its bounds.',
+    })
+  }
+  try {
+    hf = R.allocHeightfield()
+    if (!R.createHeightfield(ctx, hf, size, size, bmin, bmax, cs, ch)) fail('create a heightfield')
+    R.markWalkableTriangles(ctx, s.maxSlope, verts, count * 3, tris, count, areas)
+    // Walkable triangles take their source's area code (area 0 stays Recast's walkable code).
+    const view = areas.getHeapView()
+    for (let i = 0; i < count; i++) {
+      const a = scratch.areas[i]
+      if (a !== 0 && view[i] === WALKABLE) view[i] = a
+    }
+    if (!R.rasterizeTriangles(ctx, verts, count * 3, tris, areas, count, hf, v.walkableClimb))
+      fail('rasterize triangles')
+    R.filterLowHangingWalkableObstacles(ctx, v.walkableClimb, hf)
+    R.filterLedgeSpans(ctx, v.walkableHeight, v.walkableClimb, hf)
+    R.filterWalkableLowHeightSpans(ctx, v.walkableHeight, hf)
+    chf = R.allocCompactHeightfield()
+    if (!R.buildCompactHeightfield(ctx, v.walkableHeight, v.walkableClimb, hf, chf))
+      fail('build the compact heightfield')
+    R.freeHeightfield(hf)
+    hf = undefined
+    if (!R.erodeWalkableArea(ctx, v.walkableRadius, chf)) fail('erode the walkable area')
+    // Area gates (0112), after erosion as Recast's convex volumes are: their cells take the gate's
+    // area, so its polygons are its own (regions never merge across areas).
+    for (const gate of gates) {
+      const p = gate.points
+      if (!p || p.length < 6) continue
+      const n = p.length / 2
+      const verts = new R.FloatArray()
+      const flat = new Float32Array(n * 3)
+      for (let i = 0; i < n; i++) {
+        flat[i * 3] = p[i * 2]
+        flat[i * 3 + 1] = gate.yMin
+        flat[i * 3 + 2] = p[i * 2 + 1]
+      }
+      verts.copy(flat)
+      R.markConvexPolyArea(ctx, verts, n, gate.yMin, gate.yMax, gate.area, chf)
+      verts.destroy()
+    }
+    if (!R.buildDistanceField(ctx, chf)) fail('build the distance field')
+    if (!R.buildRegions(ctx, chf, border, 8 * 8, 20 * 20)) fail('build regions')
+    cset = R.allocContourSet()
+    const maxEdge = Math.ceil((s.agentRadius * 8) / cs) || 12
+    if (!R.buildContours(ctx, chf, 1.3, maxEdge, cset, R.Recast.RC_CONTOUR_TESS_WALL_EDGES))
+      fail('trace contours')
+    pmesh = R.allocPolyMesh()
+    if (!R.buildPolyMesh(ctx, cset, 6, pmesh)) fail('triangulate contours')
+    dmesh = R.allocPolyMeshDetail()
+    if (!R.buildPolyMeshDetail(ctx, pmesh, chf, cs * 6, ch * 1, dmesh))
+      fail('build the detail mesh')
+    const npolys = pmesh.npolys()
+    if (npolys === 0) return null
+    for (let i = 0; i < npolys; i++) {
+      let area = pmesh.areas(i)
+      if (area === WALKABLE) {
+        area = 0
+        pmesh.setAreas(i, 0)
+      }
+      pmesh.setFlags(i, areaFlags(area))
+    }
+    const params = new R.NavMeshCreateParams()
+    params.setPolyMeshCreateParams(pmesh)
+    params.setPolyMeshDetailCreateParams(dmesh)
+    params.setWalkableHeight(v.walkableHeight * ch)
+    params.setWalkableRadius(v.walkableRadius * cs)
+    params.setWalkableClimb(v.walkableClimb * ch)
+    params.setCellSize(cs)
+    params.setCellHeight(ch)
+    params.setBuildBvTree(true)
+    if (links.length > 0) {
+      params.setOffMeshConnections(
+        links.map((l) => ({
+          startPosition: { x: l.start[0], y: l.start[1], z: l.start[2] },
+          endPosition: { x: l.end[0], y: l.end[1], z: l.end[2] },
+          radius: l.radius,
+          bidirectional: l.bidirectional,
+          area: l.area,
+          flags: areaFlags(l.area),
+        })),
+      )
+    }
+    params.setTileX(tx)
+    params.setTileY(ty)
+    const result = R.createNavMeshData(params)
+    R.Raw.destroy(params.raw)
+    if (!result.success) fail('create Detour tile data')
+    const bytes = result.navMeshData.toTypedArray().slice()
+    result.navMeshData.destroy()
+    return bytes
+  } finally {
+    if (hf) R.freeHeightfield(hf)
+    if (chf) R.freeCompactHeightfield(chf)
+    if (cset) R.freeContourSet(cset)
+    if (pmesh) R.freePolyMesh(pmesh)
+    if (dmesh) R.freePolyMeshDetail(dmesh)
+    verts.destroy()
+    tris.destroy()
+    areas.destroy()
+    R.Raw.destroy(ctx.raw)
+  }
+}

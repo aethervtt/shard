@@ -58,6 +58,9 @@ export interface NavGate {
   maxZ: number
   /** Hash of everything but `flags`, in the keys of the tiles it covers. */
   key: [number, number]
+  /** Its centre (a link's start), for agents nearing it. */
+  cx: number
+  cz: number
 }
 
 const hash = new Hash64()
@@ -118,8 +121,8 @@ export class NavGates {
   readonly byOwner = new Map<Entity, NavGate>()
   /** Owners whose footprint, link or area changed (or that went away) since the bake read them. */
   readonly changed = new Set<Entity>()
-  /** Owners whose flags alone changed. */
-  readonly flagged = new Set<Entity>()
+  /** Owners whose flags alone changed, with their flags before the change. */
+  readonly flagged = new Map<Entity, number>()
 
   set(owner: Entity, spec: NavGateSpec): void {
     if (!(spec.area >= 1 && spec.area <= 62)) {
@@ -131,7 +134,7 @@ export class NavGates {
     const old = this.byOwner.get(owner)
     this.byOwner.set(owner, gate)
     if (old && old.key[0] === gate.key[0] && old.key[1] === gate.key[1]) {
-      if (old.flags !== gate.flags) this.flagged.add(owner)
+      if (old.flags !== gate.flags && !this.flagged.has(owner)) this.flagged.set(owner, old.flags)
       return
     }
     this.changed.add(owner)
@@ -141,8 +144,8 @@ export class NavGates {
   setFlags(owner: Entity, flags: number): void {
     const gate = this.byOwner.get(owner)
     if (!gate || gate.flags === flags) return
+    if (!this.flagged.has(owner)) this.flagged.set(owner, gate.flags)
     gate.flags = flags
-    this.flagged.add(owner)
   }
 
   delete(owner: Entity): void {
@@ -206,6 +209,8 @@ function makeGate(owner: Entity, spec: NavGateSpec): NavGate {
     maxX,
     maxZ,
     key: [lanes[0]!, lanes[1]!],
+    cx: link ? link.start[0] : (minX + maxX) / 2,
+    cz: link ? link.start[2] : (minZ + maxZ) / 2,
   }
 }
 

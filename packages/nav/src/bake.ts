@@ -11,6 +11,7 @@ import {
   type World,
 } from '@aethervtt/shard-core'
 import { BODY_KINDS, Collider, Physics } from '@aethervtt/shard-physics'
+import type { Workers } from '@aethervtt/shard-platform'
 import { Mesh3d, Meshes } from '@aethervtt/shard-render'
 import { LogResource } from '@aethervtt/shard-runtime'
 import { Tilemap, TilemapDatas } from '@aethervtt/shard-sprite'
@@ -19,11 +20,13 @@ import { NavCache } from './cache'
 import {
   MAX_NAV_FILTERS,
   NavAreas,
+  NavBudget,
   NavFilters,
   NavGrid,
   NavGridDatas,
   NavMesh,
   NavSource,
+  NavWorkers,
   OffMeshLink,
 } from './components'
 import {
@@ -39,7 +42,13 @@ import {
 import { DIAGONAL_MODES, NavGridData } from './grid'
 import { Hash64 } from './hash'
 import { NavMeshRuntime, packTile } from './navmesh'
-import { type BakeSettings, buildTile, type OffMeshLinkParams, voxelSettings } from './recast'
+import {
+  type BakeSettings,
+  buildTile,
+  type OffMeshLinkParams,
+  toShardError,
+  voxelSettings,
+} from './recast'
 import { type NavContribution, type NavGate, triangleLanes } from './sources'
 import { type GridRecord, LINKS, Nav, type NavState, navWarn } from './state'
 
@@ -69,9 +78,15 @@ function queries(world: World): BakeQueries {
 
 /**
  * Brings grids and navmeshes up to date with everything changed since tick `since`. The bake
- * system runs it every frame; `nav.bake` runs it on demand.
+ * system runs it every frame; `nav.bake` runs it on demand. `flush` takes no frame limits
+ * (NavBudget): every dirty tile is keyed now, and built or sent to the pool.
  */
-export function updateNavigation(world: World, since: number, s = queries(world)): void {
+export function updateNavigation(
+  world: World,
+  since: number,
+  s = queries(world),
+  flush = false,
+): void {
   const nav = world.tryResource(Nav)
   if (!nav) return
   // Colliders changed since the last run (for grids rasterized from them).
@@ -86,7 +101,61 @@ export function updateNavigation(world: World, since: number, s = queries(world)
     nav.colliderTick = world.tick
   }
   updateGrids(s, world, nav, since, nav.colliderTick)
-  updateMeshes(s, world, nav, since)
+  updateMeshes(s, world, nav, since, flush)
+  if (nav.readyWaiters.length > 0 && navReady(world)) {
+    const waiters = nav.readyWaiters
+    nav.readyWaiters = []
+    for (const resolve of waiters) resolve()
+  }
+}
+
+/**
+ * Whether every navmesh is baked: its sources placed, no tile left dirty or building on the
+ * pool, no source mesh still loading.
+ */
+export function navReady(world: World): boolean {
+  const nav = world.tryResource(Nav)
+  if (!nav?.R) return false
+  if (
+    nav.dirty ||
+    nav.dirtyRoots.size > 0 ||
+    nav.shapes.changed.size > 0 ||
+    nav.gates.changed.size > 0
+  )
+    return false
+  for (const rt of nav.meshes.values()) {
+    if (!rt.indexed || rt.dirty.size > 0 || rt.jobs.length > 0 || rt.pending > 0) return false
+  }
+  return nav.meshes.size === world.query({ with: [NavMesh] }).count()
+}
+
+/**
+ * Resolves once every navmesh is baked (`navReady`), as the bake system finds it: frames must keep
+ * running. A server awaits it before it takes players; `bakeNavigation` bakes without frames.
+ */
+export function whenNavReady(world: World): Promise<void> {
+  if (navReady(world)) return Promise.resolve()
+  return new Promise((resolve) => world.resource(Nav).readyWaiters.push(resolve))
+}
+
+/**
+ * Bakes every navmesh to completion now, with no frame limits, waiting for the pool's tiles
+ * (`nav.bake`, a cold start before the first frame).
+ */
+export async function bakeNavigation(world: World): Promise<void> {
+  const nav = world.tryResource(Nav)
+  if (!nav) return
+  let since = 0
+  for (let round = 0; round < 1000; round++) {
+    updateNavigation(world, since, queries(world), true)
+    since = world.tick
+    const jobs: Promise<void>[] = []
+    for (const rt of nav.meshes.values()) for (const job of rt.jobs) jobs.push(job.promise)
+    if (jobs.length === 0 && navReady(world)) return
+    await Promise.all(jobs)
+    // Meshes still loading: give their requests a turn.
+    if (jobs.length === 0) await new Promise((resolve) => setTimeout(resolve, 0))
+  }
 }
 
 /**
@@ -398,11 +467,28 @@ function sameSettings(a: BakeSettings, b: BakeSettings): boolean {
   )
 }
 
+function sameBounds(b: Float64Array, min: number[], max: number[]): boolean {
+  return (
+    b[0] === min[0] &&
+    b[1] === min[1] &&
+    b[2] === min[2] &&
+    b[3] === max[0] &&
+    b[4] === max[1] &&
+    b[5] === max[2]
+  )
+}
+
 /** Why NavMesh entities have no navmesh when Recast isn't loaded. */
 export const NO_RECAST =
   'nav/no-navmesh: Recast is not loaded; add the nav plugin (nav/grid only does grids)'
 
-function updateMeshes(s: BakeQueries, world: World, nav: NavState, since: number): void {
+function updateMeshes(
+  s: BakeQueries,
+  world: World,
+  nav: NavState,
+  since: number,
+  flush: boolean,
+): void {
   const R = nav.R
   if (!R) return
   // Runtimes follow NavMesh components: settings changes start a fresh navmesh.
@@ -415,8 +501,9 @@ function updateMeshes(s: BakeQueries, world: World, nav: NavState, since: number
       if (rt && ticks[row]! <= since) continue
       const settings = settingsOf(table, row)
       if (rt && sameSettings(rt.settings, settings)) {
-        // Bounds may have changed: every source is placed again.
-        rt.indexed = false
+        // New bounds place every source again; anything else changes nothing here.
+        const nm = world.get(entity, NavMesh)
+        if (!sameBounds(rt.bounds, nm.boundsMin, nm.boundsMax)) rt.indexed = false
         continue
       }
       if (rt) {
@@ -487,23 +574,26 @@ function updateMeshes(s: BakeQueries, world: World, nav: NavState, since: number
     shapes.changed.size > 0 ||
     gates.changed.size > 0 ||
     nav.linksDirty
-  )
+  ) {
+    // The frame's budget counts from here: reading and placing what changed is part of it.
+    nav.workStart = performance.now()
     gathered = applyChanges(world, nav)
+  } else nav.workStart = 0
   nav.linksDirty = false
   // Gates whose state alone changed: their polygons' flags, no tile.
   if (gates.flagged.size > 0) {
-    for (const owner of gates.flagged) {
+    for (const [owner, before] of gates.flagged) {
       const gate = gates.byOwner.get(owner)
       if (!gate) continue
-      for (let i = 0; i < nav.meshList.length; i++) nav.meshList[i]!.setGateFlags(gate)
+      for (let i = 0; i < nav.meshList.length; i++) nav.meshList[i]!.setGateFlags(gate, before)
     }
     gates.flagged.clear()
   }
   for (let i = 0; i < nav.meshList.length; i++) {
     const rt = nav.meshList[i]!
-    if (rt.dirty.size === 0) continue
+    if (rt.dirty.size === 0 && rt.jobs.length === 0) continue
     try {
-      bakeDirty(world, nav, rt, gathered)
+      bakeDirty(world, nav, rt, gathered, flush)
       rt.problem = null
     } catch (err) {
       rt.problem = err instanceof Error ? err.message : String(err)
@@ -1004,6 +1094,16 @@ function indexAll(
   rt.gateIndex.clear()
   rt.gateTiles.clear()
   rt.gateRefs.clear()
+  rt.refGate.clear()
+  rt.gateRefsLost = true
+  rt.bounds.set([
+    nm.boundsMin[0]!,
+    nm.boundsMin[1]!,
+    nm.boundsMin[2]!,
+    nm.boundsMax[0]!,
+    nm.boundsMax[1]!,
+    nm.boundsMax[2]!,
+  ])
   const ex = extent(rt, nm)
   const all = [...nav.sources.values(), ...nav.shapeSources.values()]
   all.sort((a, b) => a.kind - b.kind || a.owner - b.owner)
@@ -1017,33 +1117,118 @@ function indexAll(
 const tileSoup = new TriangleSoup()
 let tileIndices = new Int32Array(64)
 
+/** A tile built on the pool (0112): applied in submission order once done, dropped if stale. */
+export interface TileJob {
+  k: number
+  tx: number
+  tz: number
+  key: string
+  done: boolean
+  /** The tile was dirtied again, to a different key, while this ran. */
+  stale: boolean
+  bytes: Uint8Array | null
+  error: { message: string; code?: string; hint?: string } | null
+  /** The pool rejected the job (the worker couldn't load Recast), as opposed to a failed build. */
+  rejected: boolean
+  promise: Promise<void>
+}
+
+const WORKER = new URL('./nav-worker.js', import.meta.url).href
+
+/** The pool tiles build on: the host's (NavWorkers), unless it has none or couldn't load Recast. */
+function poolFor(world: World, nav: NavState): Workers | undefined {
+  const budget = world.tryResource(NavBudget)
+  const pool = world.tryResource(NavWorkers)
+  if (!pool || pool.size === 0 || budget?.workers === false || nav.poolFailed) return undefined
+  return pool
+}
+
 /**
- * Keys every dirty tile from the sources, gates and links in it, and brings it in: kept when its
- * key is unchanged, from the cache when known, else built by Recast. Gates in it get their flags.
+ * Brings in pool jobs that finished, in the order they were sent, until `deadline` (at least one
+ * a frame; the rest wait their turn).
  */
-function bakeDirty(world: World, nav: NavState, rt: NavMeshRuntime, gathered: number): void {
-  const t0 = performance.now()
+function applyJobs(world: World, nav: NavState, rt: NavMeshRuntime, deadline: number): void {
+  const cache = world.initResource(NavCache)
+  const stats = rt.stats
+  let applied = 0
+  while (rt.jobs.length > 0 && rt.jobs[0]!.done) {
+    if (applied > 0 && performance.now() >= deadline) break
+    applied++
+    const job = rt.jobs.shift()!
+    if (rt.inflight.get(job.k) === job) rt.inflight.delete(job.k)
+    if (job.stale) continue
+    if (job.rejected) {
+      // The pool couldn't run the job (no Recast in its threads): build inline from now on.
+      if (!nav.poolFailed) {
+        nav.poolFailed = true
+        navWarn(
+          world,
+          new ShardError(
+            'nav/workers-unavailable',
+            `Navmesh tiles can't build on the worker pool: ${job.error?.message}`,
+            {
+              hint: 'They build on the main thread instead. A bundled server needs recast-navigation where nav-worker.js can import it.',
+            },
+          ),
+        )
+      }
+      rt.dirty.add(job.k)
+      continue
+    }
+    if (job.error) {
+      const err = toShardError(Object.assign(new Error(job.error.message), job.error))
+      rt.problem = err instanceof Error ? err.message : String(err)
+      world.tryResource(LogResource)?.error(err)
+      continue
+    }
+    cache.tiles.set(job.key, job.bytes)
+    rt.setTile(job.tx, job.tz, job.key, job.bytes)
+    const gates = rt.gateIndex.get(job.k)
+    if (gates) rt.mapGates(job.k, gates)
+    stats.built++
+  }
+}
+
+/**
+ * Keys dirty tiles from the sources, gates and links in them, and brings them in: kept when the
+ * key is unchanged, from the cache when known, else built by Recast, inline (at most
+ * `NavBudget.tiles` a frame) or on the pool (main-thread work up to `NavBudget.ms` a frame). A
+ * navmesh's first bake, and `flush`, take no limits. Tiles left over stay dirty for the next frame.
+ */
+function bakeDirty(
+  world: World,
+  nav: NavState,
+  rt: NavMeshRuntime,
+  gathered: number,
+  flush: boolean,
+): void {
+  const t0 = nav.workStart || performance.now()
   const R = rt.R
   const s = rt.settings
   const nm = world.get(rt.entity, NavMesh)
   const ex = extent(rt, nm)
   const tw = ex.tw
   const cache = world.initResource(NavCache)
+  const budget = world.tryResource(NavBudget)
+  const pool = poolFor(world, nav)
+  const unlimited = flush || rt.cold
   const stats = rt.stats
   stats.built = 0
   stats.cached = 0
   stats.removed = 0
-  stats.examined = rt.dirty.size
+  stats.examined = 0
   stats.gathered = gathered
+  const maxMs = budget?.ms ?? 1.5
+  applyJobs(world, nav, rt, unlimited ? Infinity : t0 + maxMs)
   // Row by row (z, then x), the order a gather of one source meets them: Detour links tiles as
   // they're added, and a path through a shared corner depends on it.
-  const keys = [...rt.dirty].sort((a, b) => (a % 65536) - (b % 65536) || a - b)
-  rt.dirty.clear()
+  const keys =
+    rt.dirty.size > 0 ? [...rt.dirty].sort((a, b) => (a % 65536) - (b % 65536) || a - b) : []
   let tiles = rt.tiles.size
   for (const k of keys) if (!rt.tiles.has(k) && rt.index.has(k)) tiles++
   rt.reserve(tiles)
   const framedLinks =
-    rt.frame === null
+    rt.frame === null || keys.length === 0
       ? nav.links
       : nav.links.map((l) => {
           rt.pointIn(l.start[0], l.start[1], l.start[2], scratch3)
@@ -1055,7 +1240,15 @@ function bakeDirty(world: World, nav: NavState, rt: NavMeshRuntime, gathered: nu
             end: [scratch3[0]!, scratch3[1]!, scratch3[2]!] as [number, number, number],
           }
         })
+  const maxTiles = budget?.tiles ?? 4
+  let builtInline = 0
   for (const k of keys) {
+    // The frame's share: a count inline (frame-exact), time with a pool. At least one tile goes.
+    if (!unlimited && stats.examined > 0) {
+      if (pool ? performance.now() - t0 >= maxMs : builtInline >= maxTiles) break
+    }
+    rt.dirty.delete(k)
+    stats.examined++
     const tx = Math.floor(k / 65536) - 32768
     const tz = (k % 65536) - 32768
     const x0 = tx * tw
@@ -1123,7 +1316,9 @@ function bakeDirty(world: World, nav: NavState, rt: NavMeshRuntime, gathered: nu
       (l) => l.start[0] >= x0 && l.start[0] < x0 + tw && l.start[2] >= z0 && l.start[2] < z0 + tw,
     )
     const entry = rt.tiles.get(k)
+    const running = rt.inflight.get(k)
     if (soup.count === 0) {
+      if (running) running.stale = true
       if (entry) {
         rt.removeTile(tx, tz)
         stats.removed++
@@ -1159,44 +1354,124 @@ function bakeDirty(world: World, nav: NavState, rt: NavMeshRuntime, gathered: nu
     // Area gates' geometry (not their flags) is part of the key; tiles without gates key as 0037.
     for (const g of areaGates) hash.u32word(g.key[0]).u32word(g.key[1])
     const key = hash.hex()
-    if (entry && entry.key === key) continue
-    let bytes = cache.tiles.get(key)
-    if (bytes !== undefined) stats.cached++
-    else {
-      if (tileIndices.length < soup.count) tileIndices = new Int32Array(soup.count * 2)
-      for (let i = 0; i < soup.count; i++) tileIndices[i] = i
-      bytes = buildTile(R, s, tx, tz, yMin, yMax, soup, tileIndices, soup.count, links, areaGates)
-      cache.tiles.set(key, bytes)
-      stats.built++
+    // A job already building this key keeps going; one building an older key is stale.
+    if (running) {
+      if (running.key === key) continue
+      running.stale = true
+      rt.inflight.delete(k)
     }
+    if (entry && entry.key === key) {
+      // Kept as it is; a re-index dropped its gates' polygons, so find them again.
+      if (gates.length > 0 && rt.gateRefsLost) rt.mapGates(k, gates)
+      continue
+    }
+    const known = cache.tiles.get(key)
+    if (known !== undefined) {
+      stats.cached++
+      rt.setTile(tx, tz, key, known)
+      if (gates.length > 0) rt.mapGates(k, gates)
+      continue
+    }
+    if (pool) {
+      const job: TileJob = {
+        k,
+        tx,
+        tz,
+        key,
+        done: false,
+        stale: false,
+        bytes: null,
+        error: null,
+        rejected: false,
+        promise: Promise.resolve(),
+      }
+      const positions = soup.positions.slice(0, soup.count * 9)
+      const areas = soup.areas.slice(0, soup.count)
+      const tileGates = areaGates.map((g) => ({
+        points: g.points,
+        yMin: g.yMin,
+        yMax: g.yMax,
+        area: g.area,
+      }))
+      job.promise = pool
+        .run<{ bytes?: Uint8Array | null; error?: TileJob['error'] }>(
+          WORKER,
+          'buildNavTile',
+          [{ ...s }, tx, tz, yMin, yMax, positions, areas, links, tileGates],
+          { transfer: [positions.buffer, areas.buffer], kind: 'nav/tile' },
+        )
+        .then(
+          (r) => {
+            job.bytes = r.bytes ?? null
+            job.error = r.error ?? null
+            job.done = true
+          },
+          (err: unknown) => {
+            job.error = { message: err instanceof Error ? err.message : String(err) }
+            job.rejected = true
+            job.done = true
+          },
+        )
+      rt.jobs.push(job)
+      rt.inflight.set(k, job)
+      continue
+    }
+    if (tileIndices.length < soup.count) tileIndices = new Int32Array(soup.count * 2)
+    for (let i = 0; i < soup.count; i++) tileIndices[i] = i
+    const bytes = buildTile(
+      R,
+      s,
+      tx,
+      tz,
+      yMin,
+      yMax,
+      soup,
+      tileIndices,
+      soup.count,
+      links,
+      areaGates,
+    )
+    cache.tiles.set(key, bytes)
+    stats.built++
+    builtInline++
     rt.setTile(tx, tz, key, bytes)
     if (gates.length > 0) rt.mapGates(k, gates)
   }
-  // Gates with no polygon of theirs anywhere (a door too narrow for the agent, say).
-  for (const gate of nav.gateSources.values()) {
-    if (gate.link || !rt.gateTiles.has(gate.owner)) continue
-    if (rt.gatePolygons(gate.owner) > 0) rt.unmatched.delete(gate.owner)
-    else if (!rt.unmatched.has(gate.owner)) {
-      rt.unmatched.add(gate.owner)
-      navWarn(
-        world,
-        new ShardError(
-          'nav/gate-unmatched',
-          `Gate ${gate.owner} has no polygon of area ${gate.area} on navmesh ${rt.entity}`,
-          {
-            hint: 'The opening may be too narrow for the agent radius and cell size, or off the walkable surface.',
-          },
-        ),
-      )
+  const settled = rt.dirty.size === 0 && rt.jobs.length === 0
+  if (settled) {
+    rt.cold = false
+    rt.gateRefsLost = false
+    // Gates with no polygon of theirs anywhere (a door too narrow for the agent, say).
+    for (const gate of nav.gateSources.values()) {
+      if (gate.link || !rt.gateTiles.has(gate.owner)) continue
+      if (rt.gatePolygons(gate.owner) > 0) rt.unmatched.delete(gate.owner)
+      else if (!rt.unmatched.has(gate.owner)) {
+        rt.unmatched.add(gate.owner)
+        navWarn(
+          world,
+          new ShardError(
+            'nav/gate-unmatched',
+            `Gate ${gate.owner} has no polygon of area ${gate.area} on navmesh ${rt.entity}`,
+            {
+              hint: 'The opening may be too narrow for the agent radius and cell size, or off the walkable surface.',
+            },
+          ),
+        )
+      }
     }
   }
-  rt.updateBounds()
+  if (settled && rt.boundsStale) {
+    rt.updateBounds()
+    rt.boundsStale = false
+  }
   stats.kept = rt.tiles.size - stats.built - stats.cached
   stats.bakes++
   stats.totalBuilt += stats.built
   stats.totalCached += stats.cached
+  stats.totalRemoved += stats.removed
+  stats.totalExamined += stats.examined
   stats.ms = performance.now() - t0
-  if (rt.tiles.size > 0 && rt.polygons() === 0 && rt.problem === null) {
+  if (settled && rt.tiles.size > 0 && rt.polygons() === 0 && rt.problem === null) {
     throw new ShardError('nav/bake-failed', 'The navmesh baked without any walkable polygons', {
       hint: 'Check the NavSource geometry has upward faces flatter than maxSlope, wide enough for agentRadius.',
     })

@@ -40,6 +40,8 @@ export interface FindPathOptions {
    * filter. Throws `nav/unknown-filter` for a name nav/Filters doesn't have.
    */
   filter?: string
+  /** Navmeshes: filled with the path's polygon refs, in order (0112: agents replan by them). */
+  polys?: number[]
 }
 
 /** Which grid or navmesh a point is in. */
@@ -174,12 +176,12 @@ export function findPath(
   } else {
     out.nav = foundMesh!.entity
     const m = foundMesh!
-    if (m.frame === null) meshPath(m, from, to, out, options.areas, options.filter)
+    if (m.frame === null) meshPath(m, from, to, out, options.areas, options.filter, options.polys)
     else {
       // In the navmesh's frame, then the corners back to world space.
       m.pointIn(from[0]!, from[1]!, from[2] ?? 0, fromLocal)
       m.pointIn(to[0]!, to[1]!, to[2] ?? 0, toLocal)
-      meshPath(m, fromLocal, toLocal, out, options.areas, options.filter)
+      meshPath(m, fromLocal, toLocal, out, options.areas, options.filter, options.polys)
       const c = out.corners
       for (let i = 0; i < out.count; i++) {
         m.pointOut(c[i * 3]!, c[i * 3 + 1]!, c[i * 3 + 2]!, inFrame)
@@ -206,9 +208,10 @@ export function meshPathLocal(
   out: NavPath,
   areas?: Record<number, number>,
   filter?: string,
+  polys?: number[],
 ): void {
   out.nav = m.entity
-  meshPath(m, from, to, out, areas, filter)
+  meshPath(m, from, to, out, areas, filter, polys)
 }
 
 function gridPath(
@@ -324,7 +327,9 @@ function meshPath(
   out: NavPath,
   areas: Record<number, number> | undefined,
   name?: string,
+  polysOut?: number[],
 ): void {
+  if (polysOut) polysOut.length = 0
   out.count = 0
   out.length = 0
   out.status = 'none'
@@ -362,6 +367,7 @@ function meshPath(
       let n = 0
       while (n < polys.size && polys.get(n) !== 0) n++
       if (n === 0) return
+      if (polysOut) for (let i = 0; i < n; i++) polysOut.push(polys.get(i))
       const lastPoly = polys.get(n - 1)
       let target = endPos
       const complete = lastPoly === end.nearestRef && end.success && end.nearestRef !== 0

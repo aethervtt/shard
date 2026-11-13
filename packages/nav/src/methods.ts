@@ -1,6 +1,6 @@
 import { defineSchema, type Entity, findComponent, t, type World } from '@aethervtt/shard-core'
 import type { AppMethod } from '@aethervtt/shard-runtime'
-import { liveTileKeys, NO_RECAST, updateNavigation } from './bake'
+import { bakeNavigation, liveTileKeys, NO_RECAST } from './bake'
 import { NavCache, saveNavCache } from './cache'
 import { AGENT_STATUSES, DRIVES, NavAgent, NavAgentState, NavMesh } from './components'
 import { DIAGONAL_MODES } from './grid'
@@ -90,6 +90,13 @@ export function describeNav(world: World) {
       links: nav.links.length,
       skipped: nav.skipped.map((s) => ({ ...s, path: scenePath(world, s.entity) })),
     },
+    replans: nav.replans,
+    rebuild: [...nav.meshes.values()].map((rt) => ({
+      entity: rt.entity,
+      dirty: rt.dirty.size,
+      building: rt.jobs.length,
+      cold: rt.cold,
+    })),
     cache: {
       tiles: cache?.tiles.size ?? 0,
       loadedFromDisk: cache?.loaded ?? 0,
@@ -104,6 +111,8 @@ export function describeNav(world: World) {
           entity: a.entity,
           path: scenePath(world, a.entity),
           on: a.nav >= 0 ? { entity: a.nav, path: scenePath(world, a.nav), kind: a.kind } : null,
+          filter: a.filter || null,
+          replans: a.replans,
           status: state.status,
           remaining: round(state.remaining),
           corners: state.corners,
@@ -185,7 +194,7 @@ export const navMethods: AppMethod[] = [
         }
       }
       nav.dirty = true
-      updateNavigation(world, 0)
+      await bakeNavigation(world)
       const saved = p.save === false ? 0 : await saveNavCache(world, liveTileKeys(nav))
       return {
         meshes: [...nav.meshes.values()].map((rt) => ({

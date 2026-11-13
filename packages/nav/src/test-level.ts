@@ -80,3 +80,39 @@ export function level(world: World): {
   ramp(world, -8, -6, 60, 3)
   return { upper: [6, 3, -12], steep: [-8, 3, -12] }
 }
+
+/** 12 triangles of an axis-aligned box, world space. */
+export function box(
+  x0: number,
+  y0: number,
+  z0: number,
+  x1: number,
+  y1: number,
+  z1: number,
+): number[] {
+  const c = [
+    [x0, y0, z0],
+    [x1, y0, z0],
+    [x1, y0, z1],
+    [x0, y0, z1],
+    [x0, y1, z0],
+    [x1, y1, z0],
+    [x1, y1, z1],
+    [x0, y1, z1],
+  ]
+  // Recast takes a face as walkable when (v1 − v0) × (v2 − v0) points up: the top's must.
+  const faces = [
+    [0, 1, 2, 0, 2, 3],
+    [4, 6, 5, 4, 7, 6],
+    [0, 1, 5, 0, 5, 4],
+    [1, 2, 6, 1, 6, 5],
+    [2, 3, 7, 2, 7, 6],
+    [3, 0, 4, 3, 4, 7],
+  ]
+  const out: number[] = []
+  for (const f of faces) for (const i of f) out.push(...c[i]!)
+  return out
+}
+
+/** Boxes as one nav shape's triangles. */
+export const shape = (...boxes: number[][]) => new Float32Array(boxes.flat())

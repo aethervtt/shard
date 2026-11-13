@@ -13,12 +13,15 @@ import {
   NavAgentState,
   NavAreas,
   NavArrived,
+  NavBudget,
   NavFilters,
+  NavGateAhead,
   NavUnreachable,
 } from './components'
 import { traceSegment } from './grid'
 import type { NavMeshRuntime } from './navmesh'
 import { createNavPath, findPath, meshPathLocal, type NavPath } from './query'
+import { GATE_CLOSED } from './recast'
 import { type AgentRecord, type GridRecord, Nav, type NavState, navWarn } from './state'
 
 const IDLE = 0
@@ -106,6 +109,12 @@ function newRecord(entity: Entity): AgentRecord {
     drive: DRIVE_TRANSFORM,
     framed: false,
     filter: '',
+    pathTiles: [],
+    pathGates: [],
+    exclude: 0,
+    replan: false,
+    replans: 0,
+    gateAhead: -1,
     lpos: new Float64Array(3),
     link: { active: false, lift: 0, x0: 0, z0: 0, y0: 0, x1: 0, z1: 0, y1: 0, arc: 0 },
   }
@@ -134,7 +143,12 @@ export const navAgents = defineSystem({
       out: undefined as NavPath | undefined,
       nav: null as Entity | null,
       filter: undefined as string | undefined,
+      polys: undefined as number[] | undefined,
     },
+    /** The path's polygon refs (navmesh plans). */
+    polys: [] as number[],
+    /** Replans this frame may still do (NavBudget.replans). */
+    replansLeft: 0,
     // Grid separation: agent positions and radii this step, bucketed in a spatial hash.
     gx: new Float64Array(64),
     gy: new Float64Array(64),
@@ -151,6 +165,10 @@ export const navAgents = defineSystem({
     const dt = world.resource(FixedTime).step
     const since = ctx.lastRunTick
     const physicsDim = world.tryResource(Physics)?.dim ?? 3
+    // Agents whose paths cross a tile that changed, or a gate whose new state their filter cares
+    // about, replan (0112), at most NavBudget.replans a frame.
+    s.replansLeft = world.tryResource(NavBudget)?.replans ?? 6
+    markReplans(nav)
     // Pass 0: grid agents' positions into the spatial hash for separation.
     buildHash(s, nav)
     // Pass 1: navigation, repaths, grid steering, crowd requests.
@@ -359,7 +377,7 @@ function stepAgent(
   rec.sinceRepath += dt
   const grid = rec.kind === 'grid' ? nav.grids.get(rec.nav)! : undefined
   const mesh = rec.kind === 'mesh' ? nav.meshes.get(rec.nav)! : undefined
-  const version = grid ? grid.version : mesh!.version
+  const version = grid ? grid.version : mesh!.generation
   const cell = grid
     ? Math.max(grid.csx, grid.csy)
     : Math.max(c.radius[row]!, mesh!.settings.cellSize)
@@ -368,8 +386,10 @@ function stepAgent(
   const gdz = goal[2] - rec.goal[2]!
   const moved = Math.sqrt(gdx * gdx + gdy * gdy + gdz * gdz)
   const edited = c.agentTicks[row]! > since && c.agentTicks[row]! !== rec.agentTick
+  const replan = rec.replan && s.replansLeft > 0
   const repath =
     rec.navVersion !== version ||
+    replan ||
     edited ||
     moved > cell ||
     (target >= 0 && moved > 1e-4 && rec.sinceRepath >= c.repath[row]!)
@@ -381,6 +401,12 @@ function stepAgent(
     rec.goal[2] = goal[2]
     rec.navVersion = version
     rec.sinceRepath = 0
+    if (rec.replan) {
+      rec.replan = false
+      rec.replans++
+      nav.replans++
+      s.replansLeft--
+    }
     plan(s, world, nav, rec)
     if (rec.status === ARRIVED || rec.status === IDLE) rec.status = MOVING
   }
@@ -388,7 +414,59 @@ function stepAgent(
     steerGrid(s, world, table, row, rec, grid, dt, dim)
     return false
   }
+  if (rec.pathGates.length > 0 && !rec.framed) gateAhead(world, nav, rec, c.radius[row]! + 1)
   return requestCrowd(s, world, nav, table, row, rec, mesh!, repath, dim)
+}
+
+/**
+ * Marks the agents to replan (0112): on each navmesh whose tiles or gates changed, those whose
+ * path crosses a changed tile, or a gate whose changed bits their filter excludes, and those with
+ * no full path (a change may open one). Runs only on frames where something changed.
+ */
+function markReplans(nav: NavState): void {
+  for (let i = 0; i < nav.meshList.length; i++) {
+    const rt = nav.meshList[i]!
+    if (rt.changedTiles.size === 0 && rt.changedGates.size === 0 && !rt.tileAdded) continue
+    for (const rec of nav.agents.values()) {
+      if (rec.kind !== 'mesh' || rec.nav !== rt.entity || rec.replan) continue
+      let hit = rec.status === UNREACHABLE
+      for (let j = 0; j < rec.pathTiles.length && !hit; j++)
+        if (rt.changedTiles.has(rec.pathTiles[j]!)) hit = true
+      for (let j = 0; j < rec.pathGates.length && !hit; j++) {
+        const bits = rt.changedGates.get(rec.pathGates[j]!)
+        if (bits !== undefined && (bits & rec.exclude) !== 0) hit = true
+      }
+      if (hit) rec.replan = true
+    }
+    rt.changedTiles.clear()
+    rt.changedGates.clear()
+    rt.tileAdded = false
+  }
+}
+
+/**
+ * Sends NavGateAhead once when an agent comes within `reach` of a closed gate on its path that its
+ * filter passes (a survivor at a shut door): game code opens it.
+ */
+function gateAhead(world: World, nav: NavState, rec: AgentRecord, reach: number): void {
+  let near = -1
+  let flags = 0
+  if ((rec.exclude & GATE_CLOSED) === 0) {
+    for (let j = 0; j < rec.pathGates.length; j++) {
+      const gate = nav.gates.byOwner.get(rec.pathGates[j]!)
+      if (!gate || (gate.flags & GATE_CLOSED) === 0) continue
+      const dx = gate.cx - pos[0]!
+      const dz = gate.cz - pos[2]!
+      if (dx * dx + dz * dz <= reach * reach) {
+        near = gate.owner
+        flags = gate.flags
+        break
+      }
+    }
+  }
+  if (near !== -1 && near !== rec.gateAhead)
+    world.send(NavGateAhead, { entity: rec.entity, gate: near as Entity, flags })
+  rec.gateAhead = near
 }
 
 function plan(s: State, world: World, nav: NavState, rec: AgentRecord): void {
@@ -417,8 +495,23 @@ function plan(s: State, world: World, nav: NavState, rec: AgentRecord): void {
     filter = ''
   }
   s.find.filter = filter
-  if (mesh && rec.framed) meshPathLocal(mesh, pos, rec.goal, path, undefined, filter)
+  s.find.polys = mesh ? s.polys : undefined
+  if (mesh && rec.framed) meshPathLocal(mesh, pos, rec.goal, path, undefined, filter, s.polys)
   else findPath(world, pos, rec.goal, s.find)
+  // What the path crosses, so only a change there replans it (0112).
+  rec.pathTiles.length = 0
+  rec.pathGates.length = 0
+  if (mesh) {
+    const polys = s.polys
+    for (let i = 0; i < polys.length; i++) {
+      const ref = polys[i]!
+      const tile = mesh.tileIndexOf(ref)
+      if (!rec.pathTiles.includes(tile)) rec.pathTiles.push(tile)
+      const gate = mesh.refGate.get(ref)
+      if (gate !== undefined && !rec.pathGates.includes(gate)) rec.pathGates.push(gate)
+    }
+    rec.exclude = mesh.queryFilter(filter).excludeFlags
+  }
   rec.corners.set(path.corners.subarray(0, path.count * 3))
   rec.count = path.count
   rec.next = 1

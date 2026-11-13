@@ -89,6 +89,9 @@ export interface BakeStats {
   gathered: number
   /** Tiles Recast built since the navmesh appeared. */
   totalBuilt: number
+  /** Tiles removed and tiles keyed since the navmesh appeared. */
+  totalRemoved: number
+  totalExamined: number
   /** Tiles taken from the cache since the navmesh appeared. */
   totalCached: number
 }
@@ -123,6 +126,8 @@ export class NavMeshRuntime {
     gathered: 0,
     bakes: 0,
     totalBuilt: 0,
+    totalRemoved: 0,
+    totalExamined: 0,
     totalCached: 0,
   }
   /** Bounds of the walkable tiles, for "which navmesh contains this point". */
@@ -137,8 +142,28 @@ export class NavMeshRuntime {
   /** World → navmesh space and back (affine 3×4, row by row). */
   readonly toLocal = new Float64Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0])
   readonly toWorld = new Float64Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0])
+  /** For reading a ref's tile index without calling into Detour (`tileIndexOf`). */
+  polyScale = 1
+  tileMask = 0
+
+  /** The Detour tile index in a polygon or tile ref. */
+  tileIndexOf(ref: number): number {
+    return Math.floor(ref / this.polyScale) & this.tileMask
+  }
+
   /** Whether every source has been placed in the tile index (false: place them all again). */
   indexed = false
+  /** Until its first bake completes, a navmesh bakes with no frame limits (0112). */
+  cold = true
+  /** The bounds it was indexed with (min xyz, max xyz). */
+  readonly bounds = new Float64Array(6)
+  /** A re-index dropped every gate's polygons: kept tiles find theirs again as they're keyed. */
+  gateRefsLost = false
+  /** A tile went: `min`/`max` may be too big until recomputed. */
+  boundsStale = false
+  /** Tiles building on the pool, in the order they were sent, and the one running per tile. */
+  readonly jobs: import('./bake').TileJob[] = []
+  readonly inflight = new Map<number, import('./bake').TileJob>()
 
   // The tile index (0112): which sources and gates overlap each tile (with its border), so an
   // edit re-keys only the tiles its old and new geometry touch.
@@ -159,6 +184,17 @@ export class NavMeshRuntime {
   readonly named = new Map<string, { index: number; filter: RFilter }>()
   /** Gates whose tiles had no polygon of their area in their footprint (nav/gate-unmatched). */
   readonly unmatched = new Set<Entity>()
+  /** Gate polygons' owners, by polygon ref. */
+  readonly refGate = new Map<number, Entity>()
+  // What agents replan for (0112): read and cleared by nav/agents.
+  /** Bumps when every polygon ref changed (the navmesh grew): every agent replans. */
+  generation = 0
+  /** Tile slots replaced or removed (Detour tile indexes, as in polygon refs). */
+  readonly changedTiles = new Set<number>()
+  /** A tile appeared where there was none: paths that found no way may find one now. */
+  tileAdded = false
+  /** Gates whose flags changed, with the bits that changed. */
+  readonly changedGates = new Map<Entity, number>()
 
   /** A world point into navmesh space (identity without a frame). */
   pointIn(x: number, y: number, z: number, out: { [i: number]: number }): void {
@@ -198,6 +234,9 @@ export class NavMeshRuntime {
   private createNavMesh(maxTiles: number): RNavMesh {
     const R = this.R
     const tileBits = Math.min(14, Math.max(1, Math.ceil(Math.log2(maxTiles))))
+    // Detour's refs: salt | tile index (tileBits) | polygon index (22 − tileBits).
+    this.polyScale = 2 ** (22 - tileBits)
+    this.tileMask = (1 << tileBits) - 1
     const navMesh = new R.NavMesh()
     navMesh.initTiled(
       R.NavMeshParams.create({
@@ -230,6 +269,8 @@ export class NavMeshRuntime {
     this.destroyCrowd()
     // Every polygon ref changed with the navmesh: find gates' polygons again.
     this.gateRefs.clear()
+    this.refGate.clear()
+    this.generation++
     for (const [k, gates] of this.gateIndex) this.mapGates(k, gates)
     this.version++
     return true
@@ -249,14 +290,25 @@ export class NavMeshRuntime {
     }
     t.ref = res.tileRef
     const tile = this.navMesh.getTileByRef(res.tileRef)
-    t.polys = tile ? (tile.header()?.polyCount() ?? 0) : 0
+    const header = tile?.header()
+    t.polys = header?.polyCount() ?? 0
+    // Bounds only grow as tiles come in; a removal recomputes them once the bake settles.
+    if (header && t.polys > 0) {
+      for (let i = 0; i < 3; i++) {
+        this.min[i] = Math.min(this.min[i]!, header.bmin(i))
+        this.max[i] = Math.max(this.max[i]!, header.bmax(i))
+      }
+    }
   }
 
   /** Puts a tile's data in (null: removes it). */
   setTile(tx: number, ty: number, key: string, bytes: Uint8Array | null): void {
     const k = packTile(tx, ty)
     const old = this.tiles.get(k)
-    if (old?.ref) this.navMesh.removeTile(old.ref)
+    if (old?.ref) {
+      this.changedTiles.add(this.tileIndexOf(old.ref))
+      this.navMesh.removeTile(old.ref)
+    } else this.tileAdded = true
     const t: TileEntry = { tx, ty, key, bytes, ref: 0, polys: 0 }
     this.tiles.set(k, t)
     if (bytes) this.add(t)
@@ -267,8 +319,12 @@ export class NavMeshRuntime {
     const k = packTile(tx, ty)
     const old = this.tiles.get(k)
     if (!old) return
-    if (old.ref) this.navMesh.removeTile(old.ref)
+    if (old.ref) {
+      this.changedTiles.add(this.tileIndexOf(old.ref))
+      this.navMesh.removeTile(old.ref)
+    }
     this.tiles.delete(k)
+    this.boundsStale = true
     this.version++
   }
 
@@ -380,6 +436,8 @@ export class NavMeshRuntime {
           }
         }
       }
+      for (const ref of byTile.get(k) ?? []) this.refGate.delete(ref)
+      for (const ref of refs) this.refGate.set(ref, gate.owner)
       if (refs.length > 0) byTile.set(k, refs)
       else byTile.delete(k)
       const flags = areaFlags(gate.area) | gate.flags
@@ -387,10 +445,14 @@ export class NavMeshRuntime {
     }
   }
 
-  /** Rewrites a gate's polygons' flags (its state changed): no tile is touched. */
-  setGateFlags(gate: NavGate): number {
+  /** Rewrites a gate's polygons' flags (its state changed from `before`): no tile is touched. */
+  setGateFlags(gate: NavGate, before: number): number {
     const byTile = this.gateRefs.get(gate.owner)
     if (!byTile) return 0
+    this.changedGates.set(
+      gate.owner,
+      (this.changedGates.get(gate.owner) ?? 0) | (before ^ gate.flags),
+    )
     const flags = areaFlags(gate.area) | gate.flags
     let n = 0
     for (const refs of byTile.values()) {

@@ -2,7 +2,15 @@ import type { World } from '@aethervtt/shard-core'
 import { NavAreas, type NavAreasValue } from './components'
 
 export { navAgents } from './agents'
-export { liveTileKeys, navBake, updateNavigation } from './bake'
+export {
+  bakeNavigation,
+  liveTileKeys,
+  navBake,
+  navReady,
+  type TileJob,
+  updateNavigation,
+  whenNavReady,
+} from './bake'
 export { loadNavCache, NAV_CACHE_PATH, NavCache, NavCacheStore, saveNavCache } from './cache'
 export {
   AGENT_STATUSES,
@@ -18,9 +26,13 @@ export {
   NavAreas,
   type NavAreasValue,
   NavArrived,
+  NavBudget,
+  type NavBudgetValue,
   NavFilters,
   type NavFiltersValue,
   type NavFilterValue,
+  NavGateAhead,
+  type NavGateAheadData,
   NavGrid,
   NavGridDataAssetType,
   NavGridDataImporter,
@@ -30,6 +42,7 @@ export {
   NavMesh,
   NavSource,
   NavUnreachable,
+  NavWorkers,
   navGridFromJson,
   navGridToJson,
   OffMeshLink,
