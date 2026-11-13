@@ -657,7 +657,7 @@ export async function run(ctx: CommandContext): Promise<number> {
     const mode = p.app.world.initResource(StepMode)
     mode.deterministic = true
     const loop = async () => {
-      // Plugins with async work that lands on fixed frames (partition, 0112) are awaited first;
+      // Plugins with async work that lands on fixed frames (partition, 0113) are awaited first;
       // without any, frames step back to back.
       if (mode.settles.length === 0) {
         for (let i = 0; i < frames; i++) p.app.update(1 / p.app.fixedHz)

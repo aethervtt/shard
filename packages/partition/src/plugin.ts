@@ -12,7 +12,7 @@ import { definePartitionSaveSection } from './save'
 export const streamCells = defineSystem({
   name: 'partition/stream',
   description:
-    'Loads, swaps and unloads partition cells around StreamingSources: generation on the pool, commits within StreamingBudget (0112).',
+    'Loads, swaps and unloads partition cells around StreamingSources: generation on the pool, commits within StreamingBudget (0113).',
   setup: (world) => {
     const camera = findComponent('render/Camera3d')
     return {
@@ -35,7 +35,7 @@ export const keepDeltas = defineSystem({
   run: (s, world) => upkeep(world, s.generated, s.bound),
 })
 
-/** Streamed generated worlds (0112). Add `partitionNetPlugin` too for multiplayer. */
+/** Streamed generated worlds (0113). Add `partitionNetPlugin` too for multiplayer. */
 export function partitionPlugin(): Plugin {
   return definePlugin({
     name: 'partition',

@@ -1,4 +1,4 @@
-// The 0112 hash check in a browser: the test town's cells at both levels, generated here. The
+// The 0113 hash check in a browser: the test town's cells at both levels, generated here. The
 // browser test reads `partitionHashes` and compares it with the hashes Node makes.
 import { World } from '@aethervtt/shard-core'
 import { cellHashOf } from '@aethervtt/shard-partition'

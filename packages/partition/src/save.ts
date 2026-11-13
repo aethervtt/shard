@@ -53,7 +53,7 @@ function restore(world: World, data: JsonValue): void {
   }
 }
 
-/** Registers the `partition` save section (0112). The plugin calls it. */
+/** Registers the `partition` save section (0113). The plugin calls it. */
 export function definePartitionSaveSection(): void {
   defineSaveSection('partition', { capture, restore, owns: ownedByPartition })
 }

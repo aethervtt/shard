@@ -97,7 +97,7 @@ const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; 
   },
   partition: {
     run: partition,
-    help: 'partition gen [grid] --cell x,z [--level l] [--seed N] [--compare]   hash one generated cell (0112)',
+    help: 'partition gen [grid] --cell x,z [--level l] [--seed N] [--compare]   hash one generated cell (0113)',
   },
   terrain: {
     run: terrain,

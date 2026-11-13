@@ -411,7 +411,7 @@ export const TOOLS: Tool[] = [
   forward(
     'describe_partition',
     'partition.describe',
-    'Streamed generated worlds (spec 0112) as data: this app’s role (server, client or local), the streaming budget, and per partition its cells loaded by level, cells generating, deltas (count and bytes), dormant entities, and last frame’s streaming ms. Use it to check what loads around a player.',
+    'Streamed generated worlds (spec 0113) as data: this app’s role (server, client or local), the streaming budget, and per partition its cells loaded by level, cells generating, deltas (count and bytes), dormant entities, and last frame’s streaming ms. Use it to check what loads around a player.',
   ),
   forward(
     'partition_cell',

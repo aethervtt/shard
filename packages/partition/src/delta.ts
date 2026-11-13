@@ -14,7 +14,7 @@ import { CellBound, StreamedCell } from './components'
 
 /**
  * An added entity in a delta (`+n`): its saved components, and its parent's path in the cell when
- * it hangs under a generated entity. Entity fields are written as null (0112: references don't
+ * it hangs under a generated entity. Entity fields are written as null (0113: references don't
  * survive a cell unloading).
  */
 export interface SavedCellEntity {
@@ -24,7 +24,7 @@ export interface SavedCellEntity {
   extra?: JsonObject
 }
 
-/** A cell's changes against its generated baseline (0112), in the form saves write. */
+/** A cell's changes against its generated baseline (0113), in the form saves write. */
 export interface CellDeltaJson {
   generator: string
   version: number

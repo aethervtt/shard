@@ -271,31 +271,31 @@
       "kind": "target",
       "laptop": 3,
       "desktop": 3,
-      "note": "0112: one frame's commits (every cell it spawns or swaps level, within StreamingBudget.entitiesPerFrame, one updateInstances pass), worst frame of the 1 km walk on the server and a headless client. A per-entity unit was proposed; the cost is mostly per cell (fragment info, overrides, finishing), so a frame target fits. Measured 1.06 ms worst on an Apple M5 Max (2026-11-12), not a named machine; neither named machine has run it yet. partition/src/perf.test.ts."
+      "note": "0113: one frame's commits (every cell it spawns or swaps level, within StreamingBudget.entitiesPerFrame, one updateInstances pass), worst frame of the 1 km walk on the server and a headless client. A per-entity unit was proposed; the cost is mostly per cell (fragment info, overrides, finishing), so a frame target fits. Measured 1.06 ms worst on an Apple M5 Max (2026-11-12), not a named machine; neither named machine has run it yet. partition/src/perf.test.ts."
     },
     "partition/delta-apply": {
       "kind": "target",
       "laptop": 0.5,
       "desktop": 0.5,
-      "note": "0112: a client applying one partition/CellDelta of 100 entries to a loaded cell, in place, median. Measured 0.17 ms on an Apple M5 Max (2026-11-12), not a named machine. partition/src/perf.test.ts."
+      "note": "0113: a client applying one partition/CellDelta of 100 entries to a loaded cell, in place, median. Measured 0.17 ms on an Apple M5 Max (2026-11-12), not a named machine. partition/src/perf.test.ts."
     },
     "partition/delta-update": {
       "kind": "target",
       "laptop": 1,
       "desktop": 1,
-      "note": "0112: the server recomputing a network tick's delta keys for 100 changed generated entities across loaded cells, median. Proposed 0.5; measured 0.39 ms on an Apple M5 Max (2026-11-12, not a named machine), so 1 ms leaves the laptop room. partition/src/perf.test.ts."
+      "note": "0113: the server recomputing a network tick's delta keys for 100 changed generated entities across loaded cells, median. Proposed 0.5; measured 0.39 ms on an Apple M5 Max (2026-11-12, not a named machine), so 1 ms leaves the laptop room. partition/src/perf.test.ts."
     },
     "partition/stream": {
       "kind": "target",
       "laptop": 2,
       "desktop": 2,
-      "note": "0112 (like 0072's streaming share): main-thread streaming time in a frame (selection, commits, unloads) while a player walks 1 km across the town fixture at 30 m/s, p95, on the server and on a headless client. Measured 0.26 ms on an Apple M5 Max (2026-11-12), not a named machine. partition/src/perf.test.ts."
+      "note": "0113 (like 0072's streaming share): main-thread streaming time in a frame (selection, commits, unloads) while a player walks 1 km across the town fixture at 30 m/s, p95, on the server and on a headless client. Measured 0.26 ms on an Apple M5 Max (2026-11-12), not a named machine. partition/src/perf.test.ts."
     },
     "partition/walk-frame": {
       "kind": "target",
       "laptop": 8,
       "desktop": 8,
-      "note": "0112: the worst main-thread frame (GC pauses subtracted, as in 0042) of the headless server and a headless client during the same walk; half a 60 Hz frame. Measured 1.9 ms (server) and 1.8 ms (client) on an Apple M5 Max (2026-11-12), not a named machine. partition/src/perf.test.ts."
+      "note": "0113: the worst main-thread frame (GC pauses subtracted, as in 0042) of the headless server and a headless client during the same walk; half a 60 Hz frame. Measured 1.9 ms (server) and 1.8 ms (client) on an Apple M5 Max (2026-11-12), not a named machine. partition/src/perf.test.ts."
     },
     "physics/bodies-5k": {
       "kind": "target",
@@ -313,7 +313,7 @@
       "kind": "target",
       "laptop": 15,
       "desktop": 15,
-      "note": "0112: despawning 500 dynamic bodies in a world with 20,000 fixed colliders (a cell unloading), one pass. Measured 3.5-5 ms on an Apple M5 Max, ×3 rounded up. physics/src/physics.test.ts."
+      "note": "0113: despawning 500 dynamic bodies in a world with 20,000 fixed colliders (a cell unloading), one pass. Measured 3.5-5 ms on an Apple M5 Max, ×3 rounded up. physics/src/physics.test.ts."
     },
     "physics/track-abort": {
       "kind": "target",

@@ -175,7 +175,7 @@ export interface PartitionStateData {
 }
 
 export const PartitionState = defineResource<PartitionStateData>('partition/State', {
-  description: 'Streaming state: instances, their cells, and every cell delta (0112).',
+  description: 'Streaming state: instances, their cells, and every cell delta (0113).',
   init: () => ({
     hooks: { role: 'local' },
     instances: new Map(),

@@ -2,7 +2,7 @@
  * Sine and cosine from + and * only, so mesh code gets the same bits in V8, JavaScriptCore, and
  * SpiderMonkey (their `Math.sin` differ in the last place). Accurate to about 1e-15 over any
  * argument a mesh uses. `datan2`, `dexp`, `dlog`, and `dpow` (below) do the same for the rest of
- * what generators need, so a cell generated in Node is the same bits as in any browser (0112).
+ * what generators need, so a cell generated in Node is the same bits as in any browser (0113).
  */
 
 const TWO_OVER_PI = 0.6366197723675814

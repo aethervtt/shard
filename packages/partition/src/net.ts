@@ -1,4 +1,4 @@
-// Multiplayer streaming (0112): the server streams around every player and simulates; clients
+// Multiplayer streaming (0113): the server streams around every player and simulates; clients
 // generate their own cells, report them, and receive only deltas and dynamic entities. Nothing
 // registers on import: add partitionNetPlugin() and spread partitionNet() into the net options.
 
@@ -401,7 +401,7 @@ const SPAN = 1 << 21
 
 /**
  * Replicated entities in cells the peer reported, within the grid's replication range of its
- * nearest focus (1.1 × for ones it has), each at its band's interval (0112). Uses the first grid.
+ * nearest focus (1.1 × for ones it has), each at its band's interval (0113). Uses the first grid.
  */
 export function streamInterest(): InterestPolicy {
   const buckets = new Map<number, Entity[]>()
@@ -705,7 +705,7 @@ function localGenerator(name: string): { version: number; codeHash: string } | u
 }
 
 /**
- * Streaming over the network (0112). On the server: the world for joining clients, deltas, cell
+ * Streaming over the network (0113). On the server: the world for joining clients, deltas, cell
  * checks and `streamInterest`'s data; on a client: its own player as the source, cell reports,
  * deltas applied in place. Without the net plugin (a single-player build of the same project) it
  * does nothing.

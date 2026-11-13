@@ -104,7 +104,7 @@ interface Known {
   readonly sentAt: Float64Array
   /** The fixed tick anything of it was last sent: older entities go first under a budget. */
   lastSent: number
-  /** A bound entity (0112): the client resolved it; only `visibleTo` components are sent. */
+  /** A bound entity (0113): the client resolved it; only `visibleTo` components are sent. */
   readonly bound: boolean
   /** The send interval the client was last told, in network ticks. */
   every: number

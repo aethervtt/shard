@@ -8,7 +8,7 @@ import {
 } from '@aethervtt/shard-core'
 
 /**
- * Streams a partition's cells (0112): generated from `seed`, with their deltas applied. The server
+ * Streams a partition's cells (0113): generated from `seed`, with their deltas applied. The server
  * and single-player games spawn it; a client gets it from the server when it joins.
  */
 export const PartitionInstance = defineComponent(
@@ -22,7 +22,7 @@ export const PartitionInstance = defineComponent(
     }),
     enabled: t.bool({ default: true }),
   },
-  { description: 'Streams a partition of generated cells around StreamingSources (0112).' },
+  { description: 'Streams a partition of generated cells around StreamingSources (0113).' },
 )
 
 /** A point cells load around (0072): a player, a vehicle, a scripted event. */
@@ -37,11 +37,11 @@ export const StreamingSource = defineComponent(
         'The peer it belongs to (0 for the server). partitionNet copies net/Replicated.owner here, so a client streams around its own player.',
     }),
   },
-  { description: 'Cells load around it (0072, 0112).' },
+  { description: 'Cells load around it (0072, 0113).' },
 )
 
 /**
- * A runtime entity that belongs to the cell it's in (0072, amended by 0112): it moves to the cell it
+ * A runtime entity that belongs to the cell it's in (0072, amended by 0113): it moves to the cell it
  * walks into, unloads with that cell, and comes back when it loads. `key` is assigned when it joins
  * a cell (0: not yet).
  */
@@ -110,7 +110,7 @@ export interface StreamingBudgetData {
 }
 
 export const StreamingBudget = defineResource<StreamingBudgetData>('partition/StreamingBudget', {
-  description: 'Limits and modes for partition streaming (0112).',
+  description: 'Limits and modes for partition streaming (0113).',
   init: () => ({
     entitiesPerFrame: 2000,
     jobsInFlight: 8,

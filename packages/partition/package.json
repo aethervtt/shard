@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "sideEffects": false,
-  "description": "Streamed generated worlds (spec 0112, on 0072's runtime): cells from generators keyed by seed, cell and detail level, per-cell deltas, server-driven loading around streaming sources, and replication by cell.",
+  "description": "Streamed generated worlds (spec 0113, on 0072's runtime): cells from generators keyed by seed, cell and detail level, per-cell deltas, server-driven loading around streaming sources, and replication by cell.",
   "exports": {
     ".": "./src/index.ts",
     "./net": "./src/net.ts",

@@ -8,7 +8,7 @@ const USAGE =
   'Usage: shard partition gen [grid] --cell x,z [--level name] [--seed N] [--partition name] [--compare]'
 
 /**
- * `shard partition gen [grid] --cell x,z [--level far] --seed N [--compare]` (0112): generates one
+ * `shard partition gen [grid] --cell x,z [--level far] --seed N [--compare]` (0113): generates one
  * cell of a streamed partition in a fresh world and prints its hash, entity count and time. With
  * `--compare`, it also generates it inline, off the worker pool; the hashes must match.
  */

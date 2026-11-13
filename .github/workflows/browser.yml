@@ -58,7 +58,7 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ hashFiles('pnpm-lock.yaml') }}
 
-      # Firefox and WebKit run one check: a generated cell is the same bits in every engine (0112).
+      # Firefox and WebKit run one check: a generated cell is the same bits in every engine (0113).
       - name: Install Chromium, Firefox and WebKit
         run: pnpm --filter @aethervtt/shard-playground exec playwright install --with-deps chromium firefox webkit
 

@@ -247,7 +247,7 @@ describe('instances', () => {
     expect(currentOverrides(w, root)).toEqual({ Exhaust: { 'test/Thruster': { power: 9 } } })
   })
 
-  it('entityOverrides is currentOverrides one entity at a time (0112)', () => {
+  it('entityOverrides is currentOverrides one entity at a time (0113)', () => {
     const w = world()
     registerPrefab(w, SHIP, ship)
     load(w)

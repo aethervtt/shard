@@ -22,7 +22,7 @@ export const MAX_SEND_INTERVAL = 0xffff
  * A set of entities with a stable iteration order. Membership is a stamp per entity index, so
  * `clear` is O(1) and refilling it every tick allocates nothing once it has grown.
  *
- * Each entity also has a send interval (0112): the network ticks between its unreliable state
+ * Each entity also has a send interval (0113): the network ticks between its unreliable state
  * sends. When several policies add one entity, the smallest interval wins.
  */
 export class RelevanceSet {

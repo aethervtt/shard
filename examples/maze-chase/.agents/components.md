@@ -669,7 +669,7 @@ _Computed by the engine; never written in scene files._
 |---|---|---|---|---|
 | `prefab` | string | `""` |  | Prefab clients spawn this entity from (path or guid); empty for a bare entity. |
 | `owner` | integer | `0` | ≥ 0, ≤ 4294967295 | Peer that owns it; 0 for the server. |
-| `bound` | boolean | `false` |  | Clients already have it (0112): `prefab` is a ref their `bind` resolves, and only components replicated with `visibleTo` are sent. |
+| `bound` | boolean | `false` |  | Clients already have it (0113): `prefab` is a ref their `bind` resolves, and only components replicated with `visibleTo` are sent. |
 
 ## `particles/ParticleEmitterOverrides`
 
@@ -723,7 +723,7 @@ Tag (no fields).
 
 ## `partition/PartitionInstance`
 
-Streams a partition of generated cells around StreamingSources (0112).
+Streams a partition of generated cells around StreamingSources (0113).
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
@@ -747,7 +747,7 @@ _Computed by the engine; never written in scene files._
 
 ## `partition/StreamingSource`
 
-Cells load around it (0072, 0112).
+Cells load around it (0072, 0113).
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|

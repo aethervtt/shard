@@ -85,7 +85,7 @@ export interface GeneratorOptions<P extends Fields, O extends OutputSpec> {
   version?: number
   description?: string
   /**
-   * Holds `run` to math that gives the same bits in every JavaScript engine (0112): `Math.sin`,
+   * Holds `run` to math that gives the same bits in every JavaScript engine (0113): `Math.sin`,
    * `exp`, `log`, `pow`, `atan2`, `hypot` and the other transcendental functions throw
    * `procgen/nondeterministic` while it runs, and `shard check` flags them and `**` in its module.
    * Use `@aethervtt/shard-mesh`'s `dsin`, `dcos`, `datan2`, `dexp`, `dlog`, and `dpow` instead.

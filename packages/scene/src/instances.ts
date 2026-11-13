@@ -685,7 +685,7 @@ function stateOf(world: World): WorldInstances {
       if (e.kind !== 'loaded' && e.kind !== 'modified' && e.kind !== 'failed') return
       const type = assetServer(world).entry(e.guid)?.type
       if (type !== 'Scene' && type !== 'Prefab') return
-      // A host stepping deterministically (0112) spawns on frames, never between them: when an
+      // A host stepping deterministically (0113) spawns on frames, never between them: when an
       // asset lands depends on the clock, and so would the order of entity ids.
       if (world.tryResource(StepMode)?.deterministic) {
         const st = perWorld.get(world)

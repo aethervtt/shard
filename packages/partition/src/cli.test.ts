@@ -17,7 +17,7 @@ function shard(args: string[]) {
   return { code: r.status, stdout: r.stdout, stderr: r.stderr }
 }
 
-describe('shard CLI on a streamed project (0112)', () => {
+describe('shard CLI on a streamed project (0113)', () => {
   it(
     'run --net streams a server and two clients, and two runs print the same hashes',
     () => {

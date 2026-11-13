@@ -77,7 +77,7 @@ export async function netHarness(options: NetHarnessOptions = {}): Promise<NetHa
 
   const make = (side: 'server' | 'client', index: number, appSeed: number) => {
     const app = options.createApp?.(side, index) ?? new App({ fixedHz, seed: appSeed, now })
-    // One fake clock, results from input and seed alone (0112: streaming commits on fixed frames).
+    // One fake clock, results from input and seed alone (0113: streaming commits on fixed frames).
     app.world.initResource(StepMode).deterministic = true
     return app
   }
@@ -165,7 +165,7 @@ export async function netHarness(options: NetHarnessOptions = {}): Promise<NetHa
       for (const e of peer.relevant.entities) {
         const id = server.world.get(e, NetId).id
         const local = client.byNetId.get(id)
-        // A bound entity (0112) the client couldn't resolve is one it doesn't have: nothing to
+        // A bound entity (0113) the client couldn't resolve is one it doesn't have: nothing to
         // compare. One it resolved receives only redacted components.
         const bound = server.world.get(e, Replicated).bound
         if (local === undefined) {

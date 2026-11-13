@@ -1,11 +1,11 @@
-# 0112 — Streamed generated worlds (generated cells, deltas, server-driven loading)
+# 0113 — Streamed generated worlds (generated cells, deltas, server-driven loading)
 
 - **Status:** accepted (built; implemented once its criteria pass in CI)
 - **Packages:** `@aethervtt/shard-partition` (new, per 0072), `@aethervtt/shard-net`,
   `@aethervtt/shard-save`, `@aethervtt/shard-procgen`, `@aethervtt/shard-scene`,
   `@aethervtt/shard-mesh`, `@aethervtt/shard-physics`, `@aethervtt/shard-runtime`, `apps/cli`,
   `apps/playground`
-- **Depends on:** 0030, 0038, 0040, 0042, 0072, 0087, 0089, 0092
+- **Depends on:** 0030, 0038, 0040, 0042, 0072, 0087, 0089, 0092, 0112
 
 ## Context
 
@@ -349,15 +349,16 @@ These are limited to what streaming can't do without.
 - **runtime:** `StepMode { deterministic, settles }` and `settleBeforeStep(world)` (above).
 - **physics:** `removeBody` scanned every collider, so unloading a cell with n bodies cost
   O(n × colliders). A collider list per body (`bodyColliders`) fixes it.
-- **structure and nav, from the parallel collider and navmesh branch (not built here):**
-  - structure runs on a `display: false` app, producing colliders and nav sources without meshes;
-  - a per-structure switch turns off collider and nav output, which `far` levels set;
-  - a count-based per-frame compile budget for structure, if measuring shows a full cell's compile
-    exceeds its slice (count-based keeps headless hashes deterministic);
-  - nav's incremental gather and budgeted tile rebuilds, triggered by a "sources changed in these
-    bounds" signal (or per-tile dirtiness) when a cell despawns;
-  - a nav query for whether the tiles over given bounds are built, so a game can hold agents in a
-    fresh cell;
+- **structure and nav: spec 0112 (structure that blocks), not built here.** It covers:
+  - the headless structure model, colliders and nav sources on a `display: false` app (built);
+  - incremental per-tile rebakes, with no world gather, so a cell's despawn dirties only its own
+    tiles (built);
+  - count-based budgeted rebuilds and `whenNavReady` (its part 3).
+
+  Still wanted from it:
+  - a per-structure switch that turns off collider and nav output, which `far` levels set;
+  - a query for whether the tiles over given bounds are built, so a game can hold agents in a
+    fresh cell (`whenNavReady` is world-wide);
   - an initial `maxTiles` setting, so streaming never hits `reserve`'s full rebuild, which also
     destroys the crowd.
 
@@ -506,8 +507,8 @@ for the laptop, and `budgets.json` notes say so.
 - `shard run --net` first gave a client a different hash one run in four: a Prefab landing between
   steps respawned instances there, so entity ids came out in another order. Scene now defers that
   respawn to the frame under `StepMode.deterministic`.
-- Nav and structure aren't in the fixture's apps (the parallel branch reworks both); the fixture's
-  walls carry `nav/NavSource` for when they are.
+- Nav and structure aren't in the fixture's apps; the fixture's walls are boxes with
+  `nav/NavSource`. Streaming 0112's structure is the next step once its part 3 lands.
 
 ## Open questions
 

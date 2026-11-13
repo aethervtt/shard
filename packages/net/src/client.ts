@@ -31,7 +31,7 @@ export interface ClientConfig {
   readonly maxMessage: number
   readonly token: string
   readonly spawnPrefab: ((world: World, prefab: string) => Entity) | undefined
-  /** Resolves a bound entity's ref to an entity this client already has (0112). */
+  /** Resolves a bound entity's ref to an entity this client already has (0113). */
   readonly bind?: ((world: World, ref: string) => Entity | undefined) | undefined
   readonly now: () => number
 }
@@ -84,9 +84,9 @@ export class NetClient {
   private readonly fragmenter = new Fragmenter()
   private readonly inbox: { channel: Channel; bytes: Uint8Array }[] = []
   private readonly applied = new Map<number, Float64Array>()
-  /** Send intervals in network ticks, by net id: absent means 1 (0112). */
+  /** Send intervals in network ticks, by net id: absent means 1 (0113). */
   private readonly rates = new Map<number, number>()
-  /** Net ids of bound entities, resolved or not (0112): updates for them are never an error. */
+  /** Net ids of bound entities, resolved or not (0113): updates for them are never an error. */
   private readonly bound = new Set<number>()
   /** Resolved bound entities, which have no NetId component, to their net ids. */
   private readonly boundIds = new Map<Entity, number>()
@@ -196,7 +196,7 @@ export class NetClient {
     return this.rates.get(netId) ?? 1
   }
 
-  /** Whether `netId` is a bound entity (0112), resolved or not. */
+  /** Whether `netId` is a bound entity (0113), resolved or not. */
   isBound(netId: number): boolean {
     return this.bound.has(netId)
   }
@@ -538,7 +538,7 @@ export class NetClient {
     const entity = this.byNetId.get(netId)
     if (entity === undefined || !world.isAlive(entity)) return
     // An entity sent every `every` network ticks renders that far behind, so it moves between its
-    // sparse samples instead of holding the newest one and jumping (0112).
+    // sparse samples instead of holding the newest one and jumping (0113).
     const every = this.rates.get(netId)
     const delay =
       every === undefined

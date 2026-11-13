@@ -127,7 +127,7 @@ acceptance evidence are mapped in [the implementation checklist](research/audio-
 | [0106](0106-view-camera.md) | The view camera (one rule for the camera terrain, water, particles and shadows follow; offscreen cameras opt in) | draft (built) |
 | [0072](0072-world-partition.md) | World partition and streaming (cells as scene files, streaming sources, diffs for unloaded cells) | accepted |
 | [0073](0073-hlod.md) | Hierarchical LOD (baked proxies for unloaded cells: instances, merged, baked) | accepted |
-| [0112](0112-streamed-generated-worlds.md) | Streamed generated worlds (cells from generators, per-cell deltas, server-driven loading, detail levels, replication by cell) | accepted (built) |
+| [0113](0113-streamed-generated-worlds.md) | Streamed generated worlds (cells from generators, per-cell deltas, server-driven loading, detail levels, replication by cell) | accepted (built) |
 | [0095](0095-procedural-trees.md) | Procedural trees (EZ-Tree port in an experimental `nature` package, species assets, GLB export) | implemented |
 | [0096](0096-shared-wind.md) | Shared wind (`Wind` in m/s, `windAt` on CPU and GPU, zones, synced changes) | implemented |
 | [0097](0097-water-bodies.md) | Water bodies and surface (ocean, lakes, spline rivers, tanks; water as a volume; masks; `waterAt`) | draft (part 1 built) |
@@ -140,7 +140,7 @@ the opaque copy it adds to the renderer, `waterAt`; built), 0098 (built), 0097 p
 sides, masks, shore foam), then 0100 and 0099, each an opt-in plugin of `@aethervtt/shard-water`. 0099 and 0100 only need 0097; with 0098 they also use its waves and foam.
 
 Open worlds land in order: 0071 (terrain), 0072 (partition, its always scene holds the terrain),
-then 0073 (HLOD over the partition's cells). 0112 builds 0072's runtime first, for generated cells
+then 0073 (HLOD over the partition's cells). 0113 builds 0072's runtime first, for generated cells
 streamed by a server; 0072's file cells and tools plug into it. 0073 uses 0045's simplifier
 (`simplifyLods`). 2D streaming (a metroidvania's rooms) is noted in 0072's open questions and gets
 its own spec when a 2D project needs it.

@@ -1,4 +1,4 @@
-// The 0112 test town: 64 m cells of box-collider buildings, at two levels.
+// The 0113 test town: 64 m cells of box-collider buildings, at two levels.
 // `full`: walls with colliders and NavSource, interior walls, props, a door and a crate.
 // `far`: the same outer wall paths (shells, no colliders), nothing inside.
 // `test/TownLoot` (the secrets generator) fills each crate's `test/Contents` from the secret seed.

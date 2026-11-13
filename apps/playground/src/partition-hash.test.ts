@@ -15,7 +15,7 @@ const engines: [string, BrowserType][] = [
   ['webkit', webkit],
 ]
 
-/** Spec 0112: a cell is the same bits in every engine (V8, SpiderMonkey, JavaScriptCore). */
+/** Spec 0113: a cell is the same bits in every engine (V8, SpiderMonkey, JavaScriptCore). */
 describe('partition cell hashes across browsers', () => {
   let server: PlaygroundServer
   let node: string[]

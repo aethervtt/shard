@@ -4,7 +4,7 @@ export interface StepModeData {
   /**
    * The host steps on a fixed clock and wants results that depend only on input and seed:
    * `shard run`, `shard run --net` and netHarness. Plugins that would otherwise act whenever
-   * async work lands (partition commits, 0112) act on fixed frames instead.
+   * async work lands (partition commits, 0113) act on fixed frames instead.
    */
   deterministic: boolean
   /** Work such a host awaits before each step (generation due next frame). Plugins push here. */

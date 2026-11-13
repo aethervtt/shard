@@ -1,4 +1,4 @@
-// Prints the test town's cell hashes as JSON: a second process for the 0112 hash criterion.
+// Prints the test town's cell hashes as JSON: a second process for the 0113 hash criterion.
 // tsx src/fixtures/hash-cells.ts '[[x, z, "full"], …]'
 import { World } from '@aethervtt/shard-core'
 import { cellHashOf } from '../methods'

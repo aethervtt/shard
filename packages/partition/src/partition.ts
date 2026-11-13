@@ -59,7 +59,7 @@ export interface ResolvedGrid {
 const partitions = new Map<string, PartitionConfig>()
 
 /**
- * Defines a partition in code (0112). `PartitionInstance.partition` names it. Defining a name again
+ * Defines a partition in code (0113). `PartitionInstance.partition` names it. Defining a name again
  * replaces it (hot reload). The `*.partition.json` file form lands with 0072, with the same fields.
  */
 export function definePartition(name: string, config: PartitionConfig): string {
@@ -157,7 +157,7 @@ export function cellParams<const L extends readonly string[]>(levels: L) {
   }
 }
 
-/** Rewrites a delta made by an older generator version (0112). Registered per generator name. */
+/** Rewrites a delta made by an older generator version (0113). Registered per generator name. */
 export type DeltaMigration = (overrides: Overrides, from: number, to: number) => Overrides
 
 const migrations = new Map<string, DeltaMigration>()

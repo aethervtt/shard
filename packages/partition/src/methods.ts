@@ -25,7 +25,7 @@ function gridOf(partition: Partition, grid: string | number) {
 
 /**
  * The hash of a cell's generated fragment at one level, for `seed`: the same bits on every machine
- * and engine, or the cell diverged (0112). Generates the level if it isn't cached.
+ * and engine, or the cell diverged (0113). Generates the level if it isn't cached.
  */
 export async function cellHashOf(
   world: World,

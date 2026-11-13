@@ -731,7 +731,7 @@ describe.each(VARIANTS)('on-demand frames (0052, %s)', (v) => {
   })
 })
 
-describe('removing bodies (0112)', () => {
+describe('removing bodies (0113)', () => {
   it('despawns 500 bodies among 20,000 fixed colliders, touching only their own colliders', {
     timeout: timeout(60_000),
   }, async () => {

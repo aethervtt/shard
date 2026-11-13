@@ -1,4 +1,4 @@
-// The 0112 fixture project: a generated town streamed by a server around two players, with
+// The 0113 fixture project: a generated town streamed by a server around two players, with
 // zombies that wander between cells. `shard run --net clients=2` runs it headless.
 
 import { defineSystem, FixedUpdate, Startup } from '@aethervtt/shard-core'

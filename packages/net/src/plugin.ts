@@ -76,7 +76,7 @@ export interface NetOptions<U = unknown, L = unknown, S = unknown> {
   /** Client: spawns a replicated entity from its prefab (0087). Default: a bare entity. */
   spawnPrefab?: (world: World, prefab: string) => Entity
   /**
-   * Client: resolves a bound entity's ref (`Replicated.bound`, 0112) to an entity this client
+   * Client: resolves a bound entity's ref (`Replicated.bound`, 0113) to an entity this client
    * already has, such as one it generated. Undefined ignores the entity: its updates are dropped.
    */
   bind?: (world: World, ref: string) => Entity | undefined
