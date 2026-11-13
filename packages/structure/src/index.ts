@@ -45,6 +45,7 @@ export {
   type StructureNavSettings,
   StructureSettings,
   type StructureSettingsValue,
+  StructureShadowProxy,
   SWINGS,
   WALL_SHAPES,
   Wall,

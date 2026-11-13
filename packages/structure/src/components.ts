@@ -264,6 +264,25 @@ export const Cutout = defineComponent(
   { description: 'A hole, hatch or skylight cut into a floor or a roof (0067).' },
 )
 
+/** On each shadow proxy structure spawns (0116): one group's merged casters over one region. */
+export const StructureShadowProxy = defineComponent(
+  'structure/ShadowProxy',
+  {
+    group: t.entity({
+      readonly: true,
+      description: 'The group it belongs to: a Level, a Roof, or the ground level.',
+    }),
+    x: t.i32({ readonly: true, description: 'Region column (x / shadowRegion).' }),
+    z: t.i32({ readonly: true, description: 'Region row (z / shadowRegion).' }),
+  },
+  {
+    description:
+      "One group's opaque structure over one region, merged into a shadow-only mesh: shadow passes draw it instead of the region's chunk meshes (0116).",
+    serialize: false,
+    save: false,
+  },
+)
+
 export const StructureChunk = defineComponent(
   'structure/Chunk',
   {
@@ -463,11 +482,21 @@ export interface StructureSettingsValue {
    * change sets every structure shape and gate again.
    */
   nav: StructureNavSettings
+  /**
+   * Shadow proxies (0116): a region's opaque structure merged into one shadow-only mesh per group,
+   * this many meters on a side (a multiple of chunkSize). 0 draws each chunk mesh into shadows.
+   */
+  shadowRegion: number
+  /**
+   * Occluders (0116): each chunk mesh gets its walls' solid spans, and each door leaf its box, as an
+   * Occluder for cameras with OcclusionCulling. A change rebuilds every chunk with walls.
+   */
+  occluders: boolean
 }
 
 export const StructureSettings = defineResource<StructureSettingsValue>('structure/Settings', {
   description:
-    'Chunk size, door swing time, reduced motion, curve tolerance, contact shade, cutaway walls, interior lighting, colliders and navigation. Write with patchResource.',
+    'Chunk size, door swing time, reduced motion, curve tolerance, contact shade, cutaway walls, interior lighting, colliders, navigation and shadow proxies. Write with patchResource.',
   init: () => ({
     chunkSize: 8,
     doorSwingMs: 250,
@@ -478,6 +507,8 @@ export const StructureSettings = defineResource<StructureSettingsValue>('structu
     interior: defaultInterior(),
     colliders: defaultColliders(),
     nav: defaultStructureNav(),
+    shadowRegion: 32,
+    occluders: true,
   }),
   hostWritable: true,
 })

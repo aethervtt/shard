@@ -6,6 +6,7 @@ import { FORMAT_INFO, Texture, Textures } from '@aethervtt/shard-texture'
 import { MaterialAsset, STANDARD_TYPE, TEXTURE_SLOTS } from './assets'
 import type { BaselineTexture } from './baseline/textures'
 import type { MaterialType } from './materials'
+import { type ArenaPlace, MeshArena } from './mesh-arena'
 import { materialLayout } from './shaders'
 import type { FrameCounts, GpuMemoryData } from './stats'
 
@@ -26,6 +27,12 @@ export interface GpuMesh {
   sharedVertices: boolean
   /** Where this mesh's vertices start in its (shared) vertex buffers. */
   baseVertex: number
+  /** Where its indices start in its (arena's) index buffer. */
+  firstIndex: number
+  /** The arena it lives in (Mesh.arena, 0116), its place there, and the arena version read. */
+  arena: MeshArena | undefined
+  place: ArenaPlace | undefined
+  arenaVersion: number
 }
 
 export interface GpuMaterial {
@@ -78,6 +85,8 @@ interface SlotValue {
  */
 export class GpuAssets {
   readonly meshes = new Map<Mesh, GpuMesh>()
+  /** Shared buffers of meshes that opt in with `Mesh.arena` (0116), by name. */
+  readonly arenas = new Map<string, MeshArena>()
   /** Where mesh uploads are counted (`RenderStats.current.meshesRebuilt`), when set. */
   counts: FrameCounts | undefined
   readonly materials = new Map<MaterialAsset, GpuMaterial>()
@@ -126,6 +135,7 @@ export class GpuAssets {
   /** Call once per frame before drawing: rebuilds after device loss and resets readiness. */
   beginFrame(): void {
     this.ready.clear()
+    for (const arena of this.arenas.values()) arena.releaseRetired()
     // Baseline: what uploaded last frame had its chance to twin from its bytes.
     for (let i = 0; i < this.releaseLater.length; i++) {
       const t = this.releaseLater[i]!
@@ -136,6 +146,7 @@ export class GpuAssets {
     this.generation = this.gpu.generation
     this.materialLayout = createMaterialLayout(this.gpu)
     this.textures.clear()
+    this.arenas.clear()
     this.memory.textures = 0
     this.memory.textureBytes = 0
     this.defaults = undefined
@@ -147,9 +158,11 @@ export class GpuAssets {
     let gm = this.meshes.get(mesh)
     if (gm && gm.version === mesh.version && gm.generation === gpu.generation) {
       if (mesh.gpu) gm.count = mesh.drawCount
+      if (gm.arena && gm.arenaVersion !== gm.arena.version) bindArena(gm, gm.arena)
       return gm
     }
     if (this.counts) this.counts.meshesRebuilt++
+    if (mesh.arena !== undefined && !mesh.gpu && mesh.indices) return this.arenaMesh(mesh, gm)
     if (gm && gm.generation === gpu.generation) {
       // New data that fits the buffers it had is written in place: no new buffers (0055).
       if (!mesh.gpu && this.rewrite(mesh, gm)) return gm
@@ -197,8 +210,62 @@ export class GpuAssets {
       sharedIndices: false,
       sharedVertices: false,
       baseVertex: 0,
+      firstIndex: 0,
+      arena: undefined,
+      place: undefined,
+      arenaVersion: 0,
     }
     this.meshes.set(mesh, gm)
+    return gm
+  }
+
+  /**
+   * A mesh in an arena (0116): written where it was while it fits, else moved within the arena (which
+   * grows when it must). Its buffers are the arena's.
+   */
+  private arenaMesh(mesh: Mesh, previous: GpuMesh | undefined): GpuMesh {
+    const gpu = this.gpu
+    const name = mesh.arena!
+    let arena = this.arenas.get(name)
+    if (!arena) {
+      arena = new MeshArena(gpu, name)
+      this.arenas.set(name, arena)
+    }
+    let gm = previous
+    if (gm && gm.generation === gpu.generation && gm.arena === arena && gm.place) {
+      if (arena.fits(mesh, gm.place)) arena.write(mesh, gm.place)
+      else {
+        arena.release(gm.place)
+        arena.place(mesh, gm.place)
+      }
+    } else {
+      if (gm && gm.generation === gpu.generation) this.destroyMesh(gm)
+      const place: ArenaPlace = { vertexStart: 0, vertexCount: 0, indexStart: 0, indexCount: 0 }
+      arena.place(mesh, place)
+      gm = {
+        version: mesh.version,
+        generation: gpu.generation,
+        positions: arena.positions,
+        normals: arena.positions,
+        uvs: arena.positions,
+        uvs1: arena.positions,
+        tangents: arena.positions,
+        indices: arena.indices,
+        indexFormat: 'uint32',
+        count: mesh.drawCount,
+        sharedIndices: true,
+        sharedVertices: true,
+        baseVertex: 0,
+        firstIndex: 0,
+        arena,
+        place,
+        arenaVersion: -1,
+      }
+      this.meshes.set(mesh, gm)
+    }
+    gm.version = mesh.version
+    gm.count = mesh.drawCount
+    bindArena(gm, arena)
     return gm
   }
 
@@ -247,6 +314,10 @@ export class GpuAssets {
   }
 
   private destroyMesh(gm: GpuMesh): void {
+    if (gm.arena && gm.place) {
+      if (gm.place.vertexCount > 0) gm.arena.release(gm.place)
+      return
+    }
     if (gm.sharedVertices) return
     gm.positions.destroy()
     gm.normals.destroy()
@@ -310,6 +381,10 @@ export class GpuAssets {
       sharedIndices: true,
       sharedVertices: source !== undefined,
       baseVertex: mesh.baseVertex,
+      firstIndex: 0,
+      arena: undefined,
+      place: undefined,
+      arenaVersion: 0,
     }
     this.meshes.set(mesh, gm)
     return gm
@@ -838,3 +913,18 @@ function missingTexture(world: World, ref: { guid?: string | undefined }): Textu
 export const GpuAssetsResource = defineResource<GpuAssets>('render/GpuAssets', {
   description: 'GPU copies of meshes, textures, and materials.',
 })
+
+/** Points an arena mesh at its arena's current buffers and its place in them. */
+function bindArena(gm: GpuMesh, arena: MeshArena): void {
+  const b = arena.buffers
+  gm.positions = b[0]!
+  gm.normals = b[1]!
+  gm.uvs = b[2]!
+  gm.uvs1 = b[3]!
+  gm.tangents = b[4]!
+  gm.indices = arena.indices
+  // Arena indices are absolute: no base vertex.
+  gm.baseVertex = 0
+  gm.firstIndex = gm.place!.indexStart
+  gm.arenaVersion = arena.version
+}

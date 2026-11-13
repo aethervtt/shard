@@ -101,6 +101,12 @@ export class Mesh {
   /** The stand-in for a mesh that failed to load (0061): drawn with the missing material. */
   missing = false
   /**
+   * The renderer's shared buffers this mesh lives in (0116), e.g. `'structure'`: meshes in one
+   * arena draw without rebinding vertex or index buffers. Undefined: buffers of its own. Set it
+   * before the mesh first draws.
+   */
+  arena: string | undefined
+  /**
    * Set for meshes the GPU writes (`Mesh.gpu`): their vertex buffers are storage buffers with no
    * CPU copy; `positions` is empty.
    */

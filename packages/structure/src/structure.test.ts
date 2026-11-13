@@ -11,6 +11,7 @@ import {
   Culler,
   ForwardStateResource,
   Gpu,
+  LightingSettings,
   type PickHit,
   pick,
   RenderStats,
@@ -283,7 +284,7 @@ describe('structure on the shadow-stress fixture', () => {
     }
   })
 
-  it('with on-change shadows, a still frame draws no shadow map; a token move only its cascades', {
+  it('with on-change shadows, a still frame draws no shadow map; a moved token leaves the static layers where it was, casts from the dynamic ones, and settles back (0116)', {
     timeout: timeout(60_000),
   }, async () => {
     const r = await rig(gpu, { shadowUpdate: 'on-change' })
@@ -291,11 +292,11 @@ describe('structure on the shadow-stress fixture', () => {
     r.host.sync(docs)
     r.look([10, 20, 24], [10, 0, 8])
     const world = r.app.world
+    world.resource(LightingSettings).staticAfterFrames = 3
     await still(r)
     const stats = world.resource(RenderStats)
     r.frame()
     expect(stats.lastFrame.shadowMapsRendered).toBe(0)
-    // The cascades whose cull volume holds the token, before or after the move.
     const token = docs.tokens[5]!
     const root = r.host.tokens.entity(token.id)!
     const disc = r.host.discs.get(root)!
@@ -303,15 +304,24 @@ describe('structure on the shadow-stress fixture', () => {
     docs.tokens[5] = { ...token, rev: token.rev + 1, y: token.y + 35 }
     r.host.sync(docs)
     r.frame()
-    const after = world.get(disc, GlobalTransform).matrix
-    const { views } = forwardCascades(world, r.view)
-    let containing = 0
-    for (const v of views) {
-      if (inPlanes(v.cullPlanes, before) || inPlanes(v.cullPlanes, after)) containing++
+    const cascades = forwardCascades(world, r.view).cascades
+    // Rects only, in cascades whose rectangle holds where it was; no full redraw.
+    expect(cascades.fullRedraws).toBe(0)
+    expect(cascades.rectRedraws).toBeGreaterThan(0)
+    expect(cascades.rectRedraws).toBeLessThan(cascades.count)
+    for (let i = 0; i < cascades.count; i++)
+      if (cascades.rectMask & (1 << i))
+        expect(inPlanes(cascades.views[i]!.cullPlanes, before)).toBe(true)
+    const dynamic = cascades.dynamic.filter((v) => v.redraw).length
+    expect(stats.lastFrame.shadowMapsRendered).toBe(cascades.rectRedraws + dynamic)
+    // Still for staticAfterFrames: one more rect frame where it stopped, then nothing.
+    let settled = 0
+    for (let f = 0; f < 6; f++) {
+      r.frame()
+      expect(cascades.fullRedraws).toBe(0)
+      if (cascades.rectRedraws > 0) settled++
     }
-    expect(containing).toBeGreaterThan(0)
-    expect(containing).toBeLessThan(views.length)
-    expect(stats.lastFrame.shadowMapsRendered).toBe(containing)
+    expect(settled).toBe(1)
     r.frame()
     expect(stats.lastFrame.shadowMapsRendered).toBe(0)
     await r.dispose()
@@ -321,7 +331,7 @@ describe('structure on the shadow-stress fixture', () => {
 /** The camera's cascade views (fitted this frame). */
 function forwardCascades(world: App['world'], view: string) {
   const cascades = world.resource(ForwardStateResource).views.get(view)!.cascades
-  return { views: cascades.views.slice(0, cascades.count) }
+  return { cascades, views: cascades.views.slice(0, cascades.count) }
 }
 
 /** Whether a token disc (unit cylinder through its world matrix) touches six half-spaces. */

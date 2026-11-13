@@ -426,6 +426,39 @@
       "desktop": 1,
       "note": "0022: CPU prep of a static 200k-instance frame (slots, culling submission, uploads), best of 10. render/src/culling.test.ts."
     },
+    "render/shadow-encode": {
+      "kind": "target",
+      "laptop": 1.5,
+      "desktop": 1.2,
+      "note": "0116: p95 of the render/shadows/cascades span (encoding four cascades) during tabletop-max's pan, with the scenario's 'always' sun. The laptop measured about 160 ms before 0116 (2026-10-08, TODO.md). As built, on an Apple M5 Max (not a named machine, 2026-11-13): 0.94 to 1.0 ms p95, with structure's shadow proxies (a full redraw of four cascades issues 572 draws instead of 38,304) and chunk meshes in one arena; the laptop's number keeps a third more room for the M4, the desktop's is scaled, neither is measured. structure/src/scenario.test.ts."
+    },
+    "render/occlusion": {
+      "kind": "target",
+      "laptop": 1,
+      "desktop": 0.8,
+      "note": "0116: per camera, the occluder raster, farthest-depth pyramid and CPU tests, p95 over the street-town walk. As built, on an Apple M5 Max (not a named machine, 2026-11-13): 0.6 ms median, 0.67 ms p95 at 256x144 over 192 m (24 frames sampled), the first raster 1.5 ms. An unoptimized prototype took 3.8 ms. Neither named machine is measured. partition/src/street-town.test.ts."
+    },
+    "render/occlusion-draws": {
+      "kind": "target",
+      "in": "ratio",
+      "laptop": 0.3,
+      "desktop": 0.3,
+      "note": "0116: camera-view draws with occlusion over draws without, summed over the street-town walk (CPU cull, exact counts). As built (2026-11-13): 0.19 (10,371 against 53,546 over 24 frames), with instances tested by their mesh's oriented box; with bounding spheres it was 0.42. The spec proposed 0.5. partition/src/street-town.test.ts."
+    },
+    "render/occlusion-instances": {
+      "kind": "target",
+      "in": "ratio",
+      "laptop": 0.2,
+      "desktop": 0.2,
+      "note": "0116: camera-view instances drawn with occlusion over without, over the street-town walk. As built (2026-11-13): 0.15 (17,351 against 117,715), furniture indoors, half the characters indoors. partition/src/street-town.test.ts."
+    },
+    "render/occlusion-shadow-instances": {
+      "kind": "target",
+      "in": "ratio",
+      "laptop": 0.65,
+      "desktop": 0.65,
+      "note": "0116: dynamic-caster instances drawn into the cascades with occlusion's receiver test over without, over the street-town walk. As built (2026-11-13): 0.57 (465 against 817): 0.52 for characters indoors and 0.59 for those on the five nearest streets, whose shadows show through the gaps between houses. The spec proposed 0.4 from a prototype whose characters stood in lots; occlusion from the light's side (roofs over indoor characters) is the open question that would cut more. partition/src/street-town.test.ts."
+    },
     "render/shader-reload": {
       "kind": "target",
       "in": "frames",
@@ -870,8 +903,8 @@
           "desktop": 8.3
         },
         "cpu": {
-          "laptop": 232,
-          "desktop": 6
+          "laptop": 20,
+          "desktop": 15
         }
       },
       "slices": {
@@ -882,22 +915,41 @@
           "headroom": 0.3
         },
         "cpu": {
-          "render": 0.3,
-          "structure": 0.15,
-          "headroom": 0.55
+          "render": 0.95,
+          "structure": 0.01,
+          "headroom": 0.04
         }
       },
-      "note": "Shares are proposals; the laptop's numbers are its first bench (2026-10-08), a known miss at the measured value plus about 10%: a 210.7 ms CPU frame p95, almost all render (210.2 ms; render/shadows/cascades encoding is most of it), and a 25.4 ms GPU frame, gpu:forward-opaque 7.43 ms and gpu:shadows 9.69 ms by ablation. The desktop is unmeasured. Keys cover the spans the pan records (structure/src/scenario.test.ts), none twice: gpu:forward-opaque (walls, floors, props, and the windows: forward-transparent draws in its render pass since passes on the same attachments merge), gpu:shadows (cascade0-3), gpu:tonemap; instance-cull and light-clusters fall in headroom. CPU: render (render systems and node encodes), structure (structure/compile, structure/doors).",
-      "overrides": {
-        "laptop": {
-          "gpu": {
-            "gpu:shadows": 10.7
-          },
-          "cpu": {
-            "render": 232
-          }
+      "note": "0116 as built, on an Apple M5 Max (not a named machine, 2026-11-13): render 14.4 to 18.5 ms p95 over two runs, structure 0.02 ms, render/shadows/cascades 0.94 to 1.0 ms (it was about 160 ms of the laptop's 210.7 ms frame on 2026-10-08), gpu:forward-opaque 2.0 to 2.3 ms, gpu:shadows 0.5 ms. What's left of the CPU frame is per-batch work over 8,812 single-instance batches: render/forward-opaque 7.2 ms (encoding) and render/forward-queue 6.4 ms p95 (culls and the near-first sort). The laptop's 20 ms keeps a third more room for the M4 than the M5 measured, the desktop's 15 ms is scaled: neither is measured. The GPU frame budgets are the first bench's (2026-10-08), not measured since. Keys cover the spans the pan records (structure/src/scenario.test.ts), none twice: gpu:forward-opaque (walls, floors, props, and the windows: forward-transparent draws in its render pass since passes on the same attachments merge), gpu:shadows (cascade0-3), gpu:tonemap; instance-cull and light-clusters fall in headroom. CPU: render (render systems and node encodes, render/occlusion included), structure (structure/compile, structure/doors)."
+    },
+    "town-street": {
+      "what": "0116's street town (test/StreetTownCell) walked 512 m at street level in third person",
+      "resolution": [1920, 1080],
+      "renderScale": 1,
+      "fps": 60,
+      "frame": {
+        "gpu": {
+          "laptop": 16.6,
+          "desktop": 8.3
+        },
+        "cpu": {
+          "laptop": 8.3,
+          "desktop": 6
         }
-      }
+      },
+      "slices": {
+        "gpu": {
+          "gpu:forward-opaque": 0.5,
+          "gpu:shadows": 0.2,
+          "gpu:tonemap": 0.05,
+          "headroom": 0.25
+        },
+        "cpu": {
+          "render": 0.6,
+          "headroom": 0.4
+        }
+      },
+      "note": "0116 proposed, not yet measured on either machine, and no scenario test reads it yet (partition/src/street-town.test.ts walks the town for 0116's counts, not through a capture): eight one- and two-storey houses per 64 m cell along 12 m streets, far cells to 512 m, 300 characters, a sun with four on-change cascades, occlusion on the camera. Shares are proposals like tabletop-max's. Keys cover the spans the walk records, none twice: gpu:forward-opaque, gpu:shadows (cascade0-3, static and dynamic layers), gpu:tonemap; instance-cull and light-clusters fall in headroom. CPU: render (render systems, render/occlusion and node encodes); partition, nav and animation fall in headroom. partition/src/street-town.test.ts."
     }
   }
 }

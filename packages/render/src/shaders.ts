@@ -566,6 +566,10 @@ struct ShadowData {
   sizes: vec4f,
   /** tan(half angle), near plane. */
   spot_params: array<vec4f, 8>,
+  /** Per cascade: 1 if its dynamic layer (at index + 4) holds casters (0116). */
+  cascade_dynamic: vec4f,
+  /** Spots and point lights with a dynamic layer (bit masks), and where those layers start. */
+  local_dynamic: vec4f,
 }
 
 @data(uniform) @group(0) @binding(4) var<storage, read> shadows: ShadowData;
@@ -637,7 +641,12 @@ fn directional_shadow(world: vec3f, n: vec3f, view_depth: f32, frag: vec2f) -> f
   let biased = world + l * shadows.cascade_params.y + n * shadows.cascade_params.z * shadows.cascade_texel[i];
   let p = clip_to_uv(shadows.cascade_view_proj[i] * vec4f(biased, 1.0));
   if (!in_unit(p.xy)) { return 1.0; }
-  return pcf(cascade_maps, i, p.xy, p.z, shadows.sizes.x, shadows.cascade_params.w, frag);
+  var lit = pcf(cascade_maps, i, p.xy, p.z, shadows.sizes.x, shadows.cascade_params.w, frag);
+  // Cached cascades (0116): dynamic casters drawn over the static layer; the darker wins.
+  if (shadows.cascade_dynamic[i] != 0.0) {
+    lit = min(lit, pcf(cascade_maps, i + 4, p.xy, p.z, shadows.sizes.x, shadows.cascade_params.w, frag));
+  }
+  return lit;
 }
 
 fn spot_shadow(index: u32, world: vec3f, n: vec3f, light_pos: vec3f, bias: f32, normal_bias: f32, softness: f32, frag: vec2f) -> f32 {
@@ -647,7 +656,12 @@ fn spot_shadow(index: u32, world: vec3f, n: vec3f, light_pos: vec3f, bias: f32, 
   let biased = world + to_light / d * bias + n * normal_bias * texel;
   let p = clip_to_uv(shadows.spot_view_proj[index] * vec4f(biased, 1.0));
   if (!in_unit(p.xy) || p.z <= 0.0) { return 1.0; }
-  return pcf(spot_maps, i32(index), p.xy, p.z, shadows.sizes.y, softness, frag);
+  var lit = pcf(spot_maps, i32(index), p.xy, p.z, shadows.sizes.y, softness, frag);
+  if (((u32(shadows.local_dynamic.x) >> index) & 1u) != 0u) {
+    let layer = i32(index) + i32(shadows.local_dynamic.z);
+    lit = min(lit, pcf(spot_maps, layer, p.xy, p.z, shadows.sizes.y, softness, frag));
+  }
+  return lit;
 }
 
 fn point_shadow(index: u32, world: vec3f, n: vec3f, bias: f32, normal_bias: f32, softness: f32, frag: vec2f) -> f32 {
@@ -665,7 +679,12 @@ fn point_shadow(index: u32, world: vec3f, n: vec3f, bias: f32, normal_bias: f32,
   else { face = select(5u, 4u, v.z > 0.0); }
   let layer = index * 6u + face;
   let p = clip_to_uv(shadows.point_view_proj[layer] * vec4f(biased, 1.0));
-  return pcf(point_maps, i32(layer), p.xy, p.z, shadows.sizes.y, softness, frag);
+  var lit = pcf(point_maps, i32(layer), p.xy, p.z, shadows.sizes.y, softness, frag);
+  if (((u32(shadows.local_dynamic.y) >> index) & 1u) != 0u) {
+    let dynamic_layer = i32(layer) + i32(shadows.local_dynamic.w);
+    lit = min(lit, pcf(point_maps, dynamic_layer, p.xy, p.z, shadows.sizes.y, softness, frag));
+  }
+  return lit;
 }`,
 
   'shard::pbr::lighting': `

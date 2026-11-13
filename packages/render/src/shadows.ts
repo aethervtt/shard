@@ -5,13 +5,15 @@ import type { FoliageSupport } from './foliage-path'
 import { GpuAssetsResource } from './gpu-assets'
 import type { NodeContext } from './graph'
 import {
+  CasterClass,
   createDrawList,
   type DrawList,
   InstanceFlags,
   type InstanceStore,
   Instances,
+  sphereInFrustum,
 } from './instances'
-import { type LightRecord, type LightStore, setShadowIndex } from './lights'
+import { type LightRecord, type LightStore, type ShadowSun, setShadowIndex } from './lights'
 import {
   type MaterialPipelines,
   materialVariant,
@@ -19,6 +21,12 @@ import {
   variantBlend,
   variantCull,
 } from './material-pipelines'
+import {
+  cascadeSplits,
+  createCascadeGeometry,
+  fitCascadeGeometry,
+  sliceSphereInto,
+} from './shadow-volume'
 import { bindingDimension } from './tier'
 import type { CameraData } from './view'
 
@@ -27,7 +35,7 @@ export const MAX_SHADOWED_SPOTS = 8
 export const MAX_SHADOWED_POINTS = 4
 
 /** Floats in a view's ShadowData buffer (see `shard::pbr::shadows`). */
-export const SHADOW_DATA_FLOATS = 644
+export const SHADOW_DATA_FLOATS = 652
 const OFF = {
   cascadeViewProj: 0,
   cascadeSplits: 64,
@@ -39,6 +47,8 @@ const OFF = {
   pointViewProj: 224,
   sizes: 608,
   spotParams: 612,
+  cascadeDynamic: 644,
+  localDynamic: 648,
 } as const
 
 /** Point shadow faces cover a little more than 90° so PCF taps near an edge stay on the face. */
@@ -64,9 +74,24 @@ export interface ShadowViewDraw {
   drawnEpoch: number
   /** Set by the queue: draw it this frame. */
   redraw: boolean
+  /** The texture array layer it draws into. */
+  layer: number
+  /**
+   * Which casters it draws (0116): all, the static ones (a cached layer), or the dynamic ones (the
+   * layer drawn over it each frame). See `CasterClass`.
+   */
+  classes: number
+  /** Shadow volume test (CullParams.sweepMode): 0 none, 1 along a sun, 2 away from a local light. */
+  sweepMode: number
+  sweep: Float32Array
+  margin: number
+  minRadius: number
+  /** Redraw only the texels in `rect` (x0, y0, x1, y1), clearing them first (0116). */
+  rect: boolean
+  readonly rects: Float32Array
 }
 
-function shadowView(): ShadowViewDraw {
+export function shadowView(layer = 0): ShadowViewDraw {
   return {
     viewProj: mat4.create(),
     frustum: frustum.create(),
@@ -77,22 +102,42 @@ function shadowView(): ShadowViewDraw {
     drawnViewProj: mat4.create(),
     drawnEpoch: -1,
     redraw: true,
+    layer,
+    classes: CasterClass.all,
+    sweepMode: 0,
+    sweep: new Float32Array(4),
+    margin: 0,
+    minRadius: 0,
+    rect: false,
+    rects: new Float32Array(4),
   }
 }
 
 /**
- * Whether a shadow view must draw this frame (0055). Views of `shadowUpdate: 'always'` lights
- * always do. A cached view draws when its layer isn't complete, its matrix changed (the light or
- * the cascade's fit moved), what casts shadows changed (`shadowEpoch`), poses deform, or a
- * caster inside its cull planes moved.
+ * Whether a shadow view of a local light must draw this frame. Views of `shadowUpdate: 'always'`
+ * lights always do. A cached static view draws when its layer isn't complete, its matrix changed,
+ * what casts shadows changed (`shadowEpoch`), or a static caster changed inside its frustum (0116).
  */
 export function shadowRedraw(view: ShadowViewDraw, cached: boolean, store: InstanceStore): boolean {
-  if (!cached || !view.drawn || view.drawnEpoch !== store.shadowEpoch || store.deforming)
-    return true
+  if (!cached || !view.drawn || view.drawnEpoch !== store.shadowEpoch) return true
   const a = view.viewProj
   const b = view.drawnViewProj
   for (let i = 0; i < 16; i++) if (a[i] !== b[i]) return true
-  return store.movedCasterIn(view.cullPlanes)
+  return staticChangeIn(store, view.cullPlanes)
+}
+
+/** Whether any of this frame's static changes touch the half-spaces `planes`. */
+function staticChangeIn(store: InstanceStore, planes: Float32Array): boolean {
+  const c = store.staticChanges
+  const sphere = scratchSphere
+  for (let k = 0; k < store.staticChangeCount; k++) {
+    sphere[0] = c[k * 4]!
+    sphere[1] = c[k * 4 + 1]!
+    sphere[2] = c[k * 4 + 2]!
+    sphere[3] = c[k * 4 + 3]!
+    if (sphereInFrustum(planes, sphere)) return true
+  }
+  return false
 }
 
 /** Records that a shadow view's layer now holds a complete draw of this frame's state. */
@@ -102,25 +147,52 @@ export function markShadowDrawn(view: ShadowViewDraw, store: InstanceStore): voi
   view.drawnEpoch = store.shadowEpoch
 }
 
-/** A camera's cascades: fitted each frame, one depth layer each. */
+/**
+ * A camera's cascades: fitted each frame, one depth layer each. Cached cascades (0116) have two:
+ * `views` holds static casters at layers 0–3 and redraws only where they changed, and `dynamic`
+ * draws the rest over it each frame at layers 4–7. Receivers sample both.
+ */
 export class Cascades {
   count = 0
-  readonly views: ShadowViewDraw[] = [shadowView(), shadowView(), shadowView(), shadowView()]
-  readonly splits = new Float32Array(4)
-  readonly texel = new Float32Array(4)
+  readonly geometry = createCascadeGeometry()
+  readonly views: ShadowViewDraw[] = [shadowView(0), shadowView(1), shadowView(2), shadowView(3)]
+  readonly dynamic: ShadowViewDraw[] = [shadowView(4), shadowView(5), shadowView(6), shadowView(7)]
+  readonly splits = this.geometry.splits
+  readonly texel = this.geometry.texel
   /** Light-space centers after snapping (for tests: sub-texel moves don't change them). */
-  readonly centers = new Float32Array(12)
+  readonly centers = this.geometry.centers
+  /** Whether each cascade's dynamic layer holds casters (receivers sample it). */
+  readonly dynamicOn = new Uint8Array(4)
+  /** Cached: static and dynamic layers. */
+  cached = false
+  /** The box each static layer was drawn with: light-space center, radius, near depth. */
+  readonly drawnFit = new Float32Array(4 * 8)
+  /** A full static redraw waits for a frame of its own (one per light per frame). */
+  readonly pendingFull = new Uint8Array(4)
+  /** Static redraws this frame, full and rect, and which cascades (bit masks; describe, tests). */
+  fullRedraws = 0
+  rectRedraws = 0
+  fullMask = 0
+  rectMask = 0
   texture: GPUTexture | undefined
   size = 0
+  layers = 0
   generation = -1
 
   ensureTexture(gpu: GpuContext, size: number, label: string): GPUTexture {
-    if (!this.texture || this.size !== size || this.generation !== gpu.generation) {
+    const layers = this.cached ? MAX_CASCADES * 2 : MAX_CASCADES
+    if (
+      !this.texture ||
+      this.size !== size ||
+      this.layers !== layers ||
+      this.generation !== gpu.generation
+    ) {
       this.texture?.destroy()
       for (const view of this.views) view.drawn = false
+      for (const view of this.dynamic) view.drawn = false
       this.texture = gpu.device.createTexture({
         label: `${label}/cascades`,
-        size: [size, size, MAX_CASCADES],
+        size: [size, size, layers],
         format: 'depth32float',
         usage:
           GPUTextureUsage.RENDER_ATTACHMENT |
@@ -129,6 +201,7 @@ export class Cascades {
         ...bindingDimension(gpu, '2d-array'),
       })
       this.size = size
+      this.layers = layers
       this.generation = gpu.generation
     }
     return this.texture
@@ -137,182 +210,340 @@ export class Cascades {
 
 const scratchPlanes = new Float32Array(24)
 const scratchBox = new Float32Array(6)
-
-/** Unit basis for a light shining along `f` (world): right, up, forward, rows. */
-function lightBasis(out: Float32Array, fx: number, fy: number, fz: number): Float32Array {
-  // up = world Y unless the light is (almost) vertical.
-  let ux = 0
-  let uy = 1
-  let uz = 0
-  if (Math.abs(fy) > 0.99) {
-    ux = 1
-    uy = 0
-  }
-  // right = normalize(f × up)
-  let rx = fy * uz - fz * uy
-  let ry = fz * ux - fx * uz
-  let rz = fx * uy - fy * ux
-  const rl = Math.sqrt(rx * rx + ry * ry + rz * rz)
-  rx /= rl
-  ry /= rl
-  rz /= rl
-  // up = right × f
-  ux = ry * fz - rz * fy
-  uy = rz * fx - rx * fz
-  uz = rx * fy - ry * fx
-  out[0] = rx
-  out[1] = ry
-  out[2] = rz
-  out[3] = ux
-  out[4] = uy
-  out[5] = uz
-  out[6] = fx
-  out[7] = fy
-  out[8] = fz
-  return out
-}
-
-const basis = new Float32Array(9)
+const dynamicBox = new Float32Array(6)
+const scratchSphere = new Float32Array(4)
 const scratchLightView = mat4.create()
 const scratchLightProj = mat4.create()
 
-/**
- * Practical split scheme: a blend of logarithmic and uniform splits. Returns the far view depth of
- * each cascade.
- */
-export function cascadeSplits(
-  out: Float32Array,
-  count: number,
-  near: number,
-  far: number,
-  lambda: number,
-): Float32Array {
-  for (let i = 1; i <= count; i++) {
-    const log = near * (far / near) ** (i / count)
-    const uniform = near + ((far - near) * i) / count
-    out[i - 1] = lambda * log + (1 - lambda) * uniform
-  }
+/** Practical split scheme (see shadow-volume.ts). */
+export { cascadeSplits }
+
+/** The bounding sphere of a view-frustum slice [a, b]: its center's view depth, and its radius. */
+export function sliceSphere(cam: CameraData, a: number, b: number): [number, number] {
+  const out: [number, number] = [0, 0]
+  sliceSphereInto(out, cam, a, b)
   return out
 }
 
-/**
- * The bounding sphere of a view-frustum slice [a, b] (view depths): its center's view depth and its
- * radius. Depends only on the projection, so the sphere doesn't change size as the camera turns.
- */
-export function sliceSphere(cam: CameraData, a: number, b: number): [number, number] {
-  let ha: number
-  let hb: number
-  if (cam.orthographic) {
-    const hy = cam.orthoHeight / 2
-    const hx = hy * cam.aspect
-    ha = hb = hx * hx + hy * hy
-  } else {
-    const t = Math.tan(cam.fovY / 2)
-    const k = 1 + cam.aspect * cam.aspect
-    ha = a * a * t * t * k
-    hb = b * b * t * t * k
+/** Culls a shadow view's casters into its draw list, unioning their bounds into `box`. */
+export type CullShadow = (
+  view: ShadowViewDraw,
+  planes: Float32Array,
+  box: Float32Array | undefined,
+) => boolean
+
+/** The light-space depth nearest the light among `box`'s corners. */
+function nearestDepth(basis: Float32Array, box: Float32Array, start: number): number {
+  let z = start
+  for (let c = 0; c < 8; c++) {
+    const x = c & 1 ? box[3]! : box[0]!
+    const y = c & 2 ? box[4]! : box[1]!
+    const w = c & 4 ? box[5]! : box[2]!
+    const d = basis[6]! * x + basis[7]! * y + basis[8]! * w
+    if (d < z) z = d
   }
-  let c = (a + b) / 2 + (hb - ha) / (2 * (b - a))
-  if (c > b) c = b
-  if (c < a) c = a
-  const r = Math.sqrt(Math.max(hb + (b - c) * (b - c), ha + (c - a) * (c - a)))
-  return [c, r]
+  return z
+}
+
+/** Box planes: four sides around (lx, ly) of half-sizes (hx, hy), and the far side lz. */
+function boxPlanes(
+  p: Float32Array,
+  basis: Float32Array,
+  x0: number,
+  x1: number,
+  y0: number,
+  y1: number,
+  far: number,
+): void {
+  setPlane(p, 0, basis[0]!, basis[1]!, basis[2]!, -x0)
+  setPlane(p, 1, -basis[0]!, -basis[1]!, -basis[2]!, x1)
+  setPlane(p, 2, basis[3]!, basis[4]!, basis[5]!, -y0)
+  setPlane(p, 3, -basis[3]!, -basis[4]!, -basis[5]!, y1)
+  setPlane(p, 4, -basis[6]!, -basis[7]!, -basis[8]!, far)
+  setPlane(p, 5, 0, 0, 0, 1)
+}
+
+function setPlane(p: Float32Array, k: number, nx: number, ny: number, nz: number, d: number) {
+  p[k * 4] = nx
+  p[k * 4 + 1] = ny
+  p[k * 4 + 2] = nz
+  p[k * 4 + 3] = d
 }
 
 /**
- * Fits and culls a camera's cascades for a sun direction (toward the light). Each cascade is the
- * slice's bounding sphere, snapped to texels in light space, with its depth range reaching back to
- * the casters that can shade it.
+ * Fits and culls a camera's cascades for the shadowed sun (0018, 0116). Each cascade is the slice's
+ * bounding sphere in light space, snapped (to texels, or for cached cascades to steps).
+ *
+ * An `'always'` sun has one layer per cascade, holding every caster whose shadow can land in the
+ * slice. A cached sun has a static layer, culled against the cascade's box and redrawn only when
+ * the box moved, the light turned, or a static caster changed (then only that rectangle), and a
+ * dynamic layer of dynamic casters whose shadows reach the slice, redrawn each frame (far cascades
+ * less often). At most one full static redraw per frame: others wait with their old matrices.
  */
 export function fitCascades(
   cascades: Cascades,
   cam: CameraData,
-  sun: { direction: Float32Array; count: number; maxDistance: number; splitLambda: number },
+  sun: ShadowSun,
   size: number,
-  cull: (view: ShadowViewDraw, planes: Float32Array, box: Float32Array) => boolean,
+  store: InstanceStore,
+  frame: number,
+  animatedNear: boolean,
+  cull: CullShadow,
 ): void {
-  const count = Math.min(MAX_CASCADES, Math.max(1, sun.count))
+  const geo = cascades.geometry
+  fitCascadeGeometry(geo, cam, sun, size)
+  const count = geo.count
   cascades.count = count
-  const near = Math.max(cam.near, 1e-3)
-  const far = Math.max(near * 1.01, sun.maxDistance)
-  cascadeSplits(cascades.splits, count, near, far, sun.splitLambda)
-  for (let i = count; i < 4; i++) cascades.splits[i] = 0
-  // The light travels along -direction.
-  const fx = -sun.direction[0]!
-  const fy = -sun.direction[1]!
-  const fz = -sun.direction[2]!
-  lightBasis(basis, fx, fy, fz)
-  let start = near
+  const cached = sun.cached
+  if (cached !== cascades.cached) {
+    cascades.cached = cached
+    cascades.pendingFull.fill(0)
+    for (const view of cascades.views) view.drawn = false
+  }
+  cascades.fullRedraws = 0
+  cascades.rectRedraws = 0
+  cascades.fullMask = 0
+  cascades.rectMask = 0
+  const basis = geo.basis
+  const anyDynamic = store.dynamicCasters > 0
+  let fullBudget = 1
   for (let i = 0; i < count; i++) {
-    const end = cascades.splits[i]!
-    const [depth, radius] = sliceSphere(cam, start, end)
-    start = end
-    const cxw = cam.position[0]! + cam.forward[0]! * depth
-    const cyw = cam.position[1]! + cam.forward[1]! * depth
-    const czw = cam.position[2]! + cam.forward[2]! * depth
-    const texel = (2 * radius) / size
-    // Light-space center, snapped to whole texels so edges don't swim as the camera moves.
-    const lx = Math.floor((basis[0]! * cxw + basis[1]! * cyw + basis[2]! * czw) / texel) * texel
-    const ly = Math.floor((basis[3]! * cxw + basis[4]! * cyw + basis[5]! * czw) / texel) * texel
-    const lz = Math.floor((basis[6]! * cxw + basis[7]! * cyw + basis[8]! * czw) / texel) * texel
-    cascades.centers[i * 3] = lx
-    cascades.centers[i * 3 + 1] = ly
-    cascades.centers[i * 3 + 2] = lz
-    cascades.texel[i] = texel
-    // Cull planes: four sides and the far side; nothing between the light and the cascade is culled.
-    const p = scratchPlanes
-    const set = (k: number, nx: number, ny: number, nz: number, d: number) => {
-      p[k * 4] = nx
-      p[k * 4 + 1] = ny
-      p[k * 4 + 2] = nz
-      p[k * 4 + 3] = d
+    const lx = geo.centers[i * 3]!
+    const ly = geo.centers[i * 3 + 1]!
+    const lz = geo.centers[i * 3 + 2]!
+    const radius = geo.radius[i]!
+    const texel = geo.texel[i]!
+    const sv = cascades.views[i]!
+    const dv = cascades.dynamic[i]!
+    // Box planes: four sides and the far side; nothing between the light and the cascade is culled.
+    boxPlanes(scratchPlanes, basis, lx - radius, lx + radius, ly - radius, ly + radius, lz + radius)
+    sv.cullPlanes.set(scratchPlanes)
+    const slice = geo.slices.subarray(i * 24, i * 24 + 24)
+    const margin = texel * (2 + sun.softness + sun.normalBias)
+    const minRadius = sun.minCasterTexels * texel * 0.5
+    sv.rect = false
+    if (!cached) {
+      // One layer: every caster whose shadow can land in the slice.
+      sv.classes = CasterClass.all
+      setSweep(sv, basis, lz + radius, margin, minRadius)
+      const any = cull(sv, slice, scratchBox)
+      const zNear = any ? nearestDepth(basis, scratchBox, lz - radius) : lz - radius
+      writeMatrix(sv, basis, lx, ly, lz, radius, quantize(zNear, radius))
+      sv.redraw = true
+      cascades.dynamicOn[i] = 0
+      dv.redraw = false
+      continue
     }
-    set(0, basis[0]!, basis[1]!, basis[2]!, -(lx - radius))
-    set(1, -basis[0]!, -basis[1]!, -basis[2]!, lx + radius)
-    set(2, basis[3]!, basis[4]!, basis[5]!, -(ly - radius))
-    set(3, -basis[3]!, -basis[4]!, -basis[5]!, ly + radius)
-    set(4, -basis[6]!, -basis[7]!, -basis[8]!, lz + radius)
-    set(5, 0, 0, 0, 1)
-    const view = cascades.views[i]!
-    view.cullPlanes.set(p)
-    const any = cull(view, p, scratchBox)
-    // Depth range: from the nearest culled caster to the far side of the sphere, quantized.
-    let zNear = lz - radius
-    if (any) {
-      for (let c = 0; c < 8; c++) {
-        const x = c & 1 ? scratchBox[3]! : scratchBox[0]!
-        const y = c & 2 ? scratchBox[4]! : scratchBox[1]!
-        const z = c & 4 ? scratchBox[5]! : scratchBox[2]!
-        const d = basis[6]! * x + basis[7]! * y + basis[8]! * z
-        if (d < zNear) zNear = d
+    // Cached: the static layer (box planes, static casters) and the dynamic layer over it.
+    const fit = cascades.drawnFit
+    const f = i * 8
+    let full =
+      !sv.drawn ||
+      cascades.pendingFull[i] === 1 ||
+      sv.drawnEpoch !== store.shadowEpoch ||
+      fit[f] !== Math.fround(lx) ||
+      fit[f + 1] !== Math.fround(ly) ||
+      fit[f + 2] !== Math.fround(lz) ||
+      fit[f + 3] !== Math.fround(radius) ||
+      fit[f + 5] !== Math.fround(basis[6]!) ||
+      fit[f + 6] !== Math.fround(basis[7]!) ||
+      fit[f + 7] !== Math.fround(basis[8]!)
+    let zNear = fit[f + 4]!
+    sv.classes = CasterClass.static
+    sv.sweepMode = 0
+    sv.margin = 0
+    sv.minRadius = minRadius
+    // Dynamic casters: every frame near, every few frames far (staggered), and whenever the static
+    // layer moves under them.
+    const every = Math.max(1, sun.farEvery >> (count - 1 - i))
+    const due = every <= 1 || (frame + i) % every === 0
+    dv.classes = CasterClass.dynamic
+    setSweep(dv, basis, lz + radius, margin, minRadius)
+    const foliageHere = animatedNear && i === 0
+    const dynamicNow =
+      (foliageHere ||
+        (anyDynamic && store.anyDynamicIn(slice, 1, dv.sweep, dv.margin, dv.minRadius))) &&
+      (due || full || !dv.drawn)
+    let dynamicTop = Number.POSITIVE_INFINITY
+    let dynamicAny = false
+    if (dynamicNow) {
+      dynamicAny = cull(dv, slice, dynamicBox)
+      if (dynamicAny) dynamicTop = nearestDepth(basis, dynamicBox, Number.POSITIVE_INFINITY)
+    }
+    // A dynamic caster nearer the light than the drawn range grows it: a full redraw.
+    if (!full && dynamicTop < zNear) full = true
+    // Otherwise only the rectangle this frame's static changes touch, unless that's most of it.
+    let rect = false
+    if (!full) {
+      const r = staticRect(sv, store, basis, lx, ly, lz, radius, size)
+      if (r === 2) full = true
+      rect = r === 1
+    }
+    // A full redraw waits for its own frame unless the layer is empty; the old one stays valid
+    // inside its step's guard band.
+    if (full && sv.drawn && fullBudget === 0) {
+      cascades.pendingFull[i] = 1
+      sv.redraw = false
+      sv.viewProj.set(sv.drawnViewProj)
+    } else {
+      if (full) {
+        fullBudget--
+        cascades.pendingFull[i] = 0
+        sv.cullPlanes.set(scratchPlanes)
+        const any = cull(sv, scratchPlanes, scratchBox)
+        let z = any ? nearestDepth(basis, scratchBox, lz - radius) : lz - radius
+        if (dynamicTop < z) z = dynamicTop
+        zNear = quantize(z, radius)
+        writeMatrix(sv, basis, lx, ly, lz, radius, zNear)
+        fit[f] = lx
+        fit[f + 1] = ly
+        fit[f + 2] = lz
+        fit[f + 3] = radius
+        fit[f + 4] = zNear
+        fit[f + 5] = basis[6]!
+        fit[f + 6] = basis[7]!
+        fit[f + 7] = basis[8]!
+        sv.redraw = true
+        cascades.fullRedraws++
+        cascades.fullMask |= 1 << i
+      } else {
+        sv.redraw = rect
+        sv.rect = rect
+        if (rect) {
+          cull(sv, sv.cullPlanes, undefined)
+          cascades.rectRedraws++
+          cascades.rectMask |= 1 << i
+        }
       }
     }
-    const q = radius * 0.25
-    zNear = Math.floor((zNear - q * 0.5) / q) * q
-    const zFar = lz + radius
-    // View: rotation into light space (camera looks down -Z, so z row = -forward).
-    const v = mat4.identity(scratchLightView)
-    v[0] = basis[0]!
-    v[4] = basis[1]!
-    v[8] = basis[2]!
-    v[1] = basis[3]!
-    v[5] = basis[4]!
-    v[9] = basis[5]!
-    v[2] = -basis[6]!
-    v[6] = -basis[7]!
-    v[10] = -basis[8]!
-    const proj = mat4.orthographicReversedZ(
-      scratchLightProj,
-      lx - radius,
-      lx + radius,
-      ly - radius,
-      ly + radius,
-      zNear,
-      zFar,
-    )
-    mat4.multiply(view.viewProj, proj, v)
-    frustum.fromViewProjection(view.frustum, view.viewProj)
+    dv.viewProj.set(sv.viewProj)
+    dv.redraw = dynamicNow
+    // Sampled while it holds casters. A far cascade waiting its turn keeps what it drew; one that
+    // was due with nothing casting into it stops being sampled.
+    if (dynamicNow) cascades.dynamicOn[i] = dynamicAny || foliageHere ? 1 : 0
+    else if (due || full || !dv.drawn) cascades.dynamicOn[i] = 0
   }
+}
+
+function setSweep(
+  view: ShadowViewDraw,
+  basis: Float32Array,
+  far: number,
+  margin: number,
+  minRadius: number,
+): void {
+  view.sweepMode = 1
+  view.sweep[0] = basis[6]!
+  view.sweep[1] = basis[7]!
+  view.sweep[2] = basis[8]!
+  view.sweep[3] = far
+  view.margin = margin
+  view.minRadius = minRadius
+}
+
+/** Depth ranges step in quarters of the cascade's radius, so they don't change as casters move. */
+function quantize(zNear: number, radius: number): number {
+  const q = radius * 0.25
+  return Math.floor((zNear - q * 0.5) / q) * q
+}
+
+function writeMatrix(
+  view: ShadowViewDraw,
+  basis: Float32Array,
+  lx: number,
+  ly: number,
+  lz: number,
+  radius: number,
+  zNear: number,
+): void {
+  // View: rotation into light space (camera looks down -Z, so z row = -forward).
+  const v = mat4.identity(scratchLightView)
+  v[0] = basis[0]!
+  v[4] = basis[1]!
+  v[8] = basis[2]!
+  v[1] = basis[3]!
+  v[5] = basis[4]!
+  v[9] = basis[5]!
+  v[2] = -basis[6]!
+  v[6] = -basis[7]!
+  v[10] = -basis[8]!
+  const proj = mat4.orthographicReversedZ(
+    scratchLightProj,
+    lx - radius,
+    lx + radius,
+    ly - radius,
+    ly + radius,
+    zNear,
+    lz + radius,
+  )
+  mat4.multiply(view.viewProj, proj, v)
+  frustum.fromViewProjection(view.frustum, view.viewProj)
+}
+
+/**
+ * The rectangle of a cached static layer this frame's static changes touch, in texels, into
+ * `view.rects`, with its cull planes narrowed to it: 1. 0 if none touch the cascade; 2 if the
+ * rectangle is over half the layer (a full redraw instead).
+ */
+function staticRect(
+  view: ShadowViewDraw,
+  store: InstanceStore,
+  basis: Float32Array,
+  lx: number,
+  ly: number,
+  lz: number,
+  radius: number,
+  size: number,
+): number {
+  const c = store.staticChanges
+  let x0 = Number.POSITIVE_INFINITY
+  let y0 = Number.POSITIVE_INFINITY
+  let x1 = Number.NEGATIVE_INFINITY
+  let y1 = Number.NEGATIVE_INFINITY
+  for (let k = 0; k < store.staticChangeCount; k++) {
+    const cx = c[k * 4]!
+    const cy = c[k * 4 + 1]!
+    const cz = c[k * 4 + 2]!
+    const r = c[k * 4 + 3]!
+    const x = basis[0]! * cx + basis[1]! * cy + basis[2]! * cz
+    const y = basis[3]! * cx + basis[4]! * cy + basis[5]! * cz
+    const z = basis[6]! * cx + basis[7]! * cy + basis[8]! * cz
+    // Outside the box, or wholly past its far side: not in this layer.
+    if (x + r < lx - radius || x - r > lx + radius) continue
+    if (y + r < ly - radius || y - r > ly + radius) continue
+    if (z - r > lz + radius) continue
+    if (x - r < x0) x0 = x - r
+    if (x + r > x1) x1 = x + r
+    if (y - r < y0) y0 = y - r
+    if (y + r > y1) y1 = y + r
+  }
+  if (x1 < x0) return 0
+  // To texels, a texel wider each way (rasterization rounds), clamped to the layer.
+  const scale = size / (2 * radius)
+  const tx0 = Math.max(0, Math.floor((x0 - (lx - radius)) * scale) - 1)
+  const tx1 = Math.min(size, Math.ceil((x1 - (lx - radius)) * scale) + 1)
+  // Texel rows run top down: light-space y up.
+  const ty0 = Math.max(0, Math.floor((ly + radius - y1) * scale) - 1)
+  const ty1 = Math.min(size, Math.ceil((ly + radius - y0) * scale) + 1)
+  if (tx1 <= tx0 || ty1 <= ty0) return 0
+  if ((tx1 - tx0) * (ty1 - ty0) > size * size * 0.5) return 2
+  view.rects[0] = tx0
+  view.rects[1] = ty0
+  view.rects[2] = tx1
+  view.rects[3] = ty1
+  // The planes of the rectangle: only casters over it draw.
+  const lo = lx - radius
+  const top = ly + radius
+  boxPlanes(
+    view.cullPlanes,
+    basis,
+    lo + tx0 / scale,
+    lo + tx1 / scale,
+    top - ty1 / scale,
+    top - ty0 / scale,
+    lz + radius,
+  )
+  return 1
 }
 
 /** Spot and point shadows: shared by every camera, rendered once per frame. */
@@ -321,6 +552,16 @@ export class LocalShadows {
   readonly points: (LightRecord | undefined)[] = []
   readonly spotViews: ShadowViewDraw[] = []
   readonly pointViews: ShadowViewDraw[] = []
+  /**
+   * Dynamic layers of cached lights (0116), drawn over their static views each frame, after the
+   * static layers in the same arrays: spot i's at `spots.length + i`, point face k's at
+   * `points.length * 6 + k`.
+   */
+  readonly spotDynamic: ShadowViewDraw[] = []
+  readonly pointDynamic: ShadowViewDraw[] = []
+  /** Which spots and point lights have a dynamic layer with casters this frame (bit masks). */
+  spotDynamicOn = 0
+  pointDynamicOn = 0
   /** Near plane and tan(half angle) per spot. */
   readonly spotParams = new Float32Array(MAX_SHADOWED_SPOTS * 4)
   /** Position and near plane per point light. */
@@ -337,13 +578,31 @@ export class LocalShadows {
   renderedFrame = -1
 
   constructor() {
-    for (let i = 0; i < MAX_SHADOWED_SPOTS; i++) this.spotViews.push(shadowView())
-    for (let i = 0; i < MAX_SHADOWED_POINTS * 6; i++) this.pointViews.push(shadowView())
+    for (let i = 0; i < MAX_SHADOWED_SPOTS; i++) {
+      this.spotViews.push(shadowView(i))
+      this.spotDynamic.push(shadowView())
+    }
+    for (let i = 0; i < MAX_SHADOWED_POINTS * 6; i++) {
+      this.pointViews.push(shadowView(i))
+      this.pointDynamic.push(shadowView())
+    }
+  }
+
+  /** Whether any assigned light is cached (its arrays then hold dynamic layers too). */
+  get anyCached(): boolean {
+    for (const r of this.spots) if (r?.cachedShadow) return true
+    for (const r of this.points) if (r?.cachedShadow) return true
+    return false
   }
 
   ensureTextures(gpu: GpuContext, size: number): void {
-    const spotLayers = Math.max(1, this.spots.length)
-    const pointLayers = Math.max(1, this.points.length) * 6
+    const twice = this.anyCached ? 2 : 1
+    const spotLayers = Math.max(1, this.spots.length * twice)
+    const pointLayers = Math.max(1, this.points.length * twice) * 6
+    for (let i = 0; i < this.spotDynamic.length; i++)
+      this.spotDynamic[i]!.layer = this.spots.length + i
+    for (let i = 0; i < this.pointDynamic.length; i++)
+      this.pointDynamic[i]!.layer = this.points.length * 6 + i
     const fresh = this.generation !== gpu.generation || this.size !== size
     const make = (label: string, layers: number) =>
       gpu.device.createTexture({
@@ -539,6 +798,13 @@ export function packShadowData(
   out[OFF.sizes] = cascadeSize
   out[OFF.sizes + 1] = size
   out[OFF.sizes + 2] = pointTanHalf(size)
+  // Dynamic layers (0116): which ones receivers sample too, and where local ones start.
+  if (cascades?.cached)
+    for (let i = 0; i < cascades.count; i++) out[OFF.cascadeDynamic + i] = cascades.dynamicOn[i]!
+  out[OFF.localDynamic] = local.spotDynamicOn
+  out[OFF.localDynamic + 1] = local.pointDynamicOn
+  out[OFF.localDynamic + 2] = local.spots.length
+  out[OFF.localDynamic + 3] = local.points.length * 6
 }
 
 // --- GPU passes ----------------------------------------------------------------
@@ -660,22 +926,32 @@ export function drawShadowCasters(
   foliage?: FoliageSupport,
   cam?: CameraData,
   cascade = 0,
+  clearRect?: GPURenderPipeline,
 ): void {
   const world = ctx.world
   const gpu = ctx.gpu
   const store = world.resource(Instances)
   const assets = world.resource(GpuAssetsResource)
+  // A rect redraw (0116) keeps the layer and redraws only its rectangle: cleared to the far depth
+  // (0 in reversed Z, what shard::fullscreen writes), then drawn into, all scissored.
+  const rect = view.rect && clearRect !== undefined
   const pass = ctx.encoder.beginRenderPass({
     label,
     colorAttachments: [],
     depthStencilAttachment: {
       view: target,
-      depthLoadOp: 'clear',
+      depthLoadOp: rect ? 'load' : 'clear',
       depthClearValue: 0,
       depthStoreOp: 'store',
     },
     timestampWrites: ctx.timestamps(label),
   })
+  if (rect) {
+    const r = view.rects
+    pass.setScissorRect(r[0]!, r[1]!, r[2]! - r[0]!, r[3]! - r[1]!)
+    pass.setPipeline(clearRect)
+    pass.draw(3)
+  }
   const draws0 = view.draws
   const instances = draws0.cullView >= 0 ? store.gpuBindGroup : store.bindGroup
   if (!instances || !uniforms.bindGroup) {
@@ -766,7 +1042,7 @@ export function drawShadowCasters(
         boundIndices = gm.indices
       }
       if (item.indirect >= 0) pass.drawIndexedIndirect(args, item.indirect)
-      else pass.drawIndexed(gm.count, item.count, 0, gm.baseVertex, item.first)
+      else pass.drawIndexed(gm.count, item.count, gm.firstIndex, gm.baseVertex, item.first)
     } else if (item.indirect >= 0) {
       pass.drawIndirect(args, item.indirect)
     } else {

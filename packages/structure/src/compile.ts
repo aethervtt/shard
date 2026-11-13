@@ -19,6 +19,7 @@ import {
   Meshes,
   MeshMaterial,
   NotShadowCaster,
+  Occluder,
   RenderStats,
   ShadowWhenHidden,
 } from '@aethervtt/shard-render'
@@ -47,12 +48,14 @@ import {
   chunkX,
   chunkZ,
   emitFloor,
+  emitOccluder,
   emitWall,
   type FloorShape,
   floorChunks,
   floorShape,
   insideRing,
   MeshBuilder,
+  OccluderBuilder,
   type OpeningShape,
   type Piece,
   ringChunks,
@@ -65,6 +68,7 @@ import {
   wallPieces,
 } from './geometry'
 import { acceptCutouts, curveDrawable, wallShape } from './model'
+import { ShadowProxies } from './shadow-proxies'
 
 type MaterialRef = AssetRef<'Material'>
 
@@ -174,6 +178,8 @@ interface ChunkMesh {
   mesh: Mesh
   ref: AssetRef<'Mesh'>
   triangles: number
+  /** What its walls hide from cameras with OcclusionCulling (0116): their solid spans. */
+  occluder: { mesh: Mesh; ref: AssetRef<'Mesh'> } | null
 }
 
 interface ChunkRecord {
@@ -284,6 +290,20 @@ export class StructureState {
   readonly world: World
   /** Interior lighting's section of `describe` (0069), while interiorLightingPlugin is installed. */
   describeInterior: (() => unknown) | undefined
+  /** Merged shadow-only meshes per region and group (0116). */
+  readonly proxies = new ShadowProxies()
+  /** Wall occluders per builder key while a chunk rebuilds, and whether walls occlude (0116). */
+  readonly occluderBuilders = new Map<string, OccluderBuilder>()
+  occluders = true
+
+  occluderBuilder(key: string): OccluderBuilder {
+    let b = this.occluderBuilders.get(key)
+    if (!b) {
+      b = new OccluderBuilder()
+      this.occluderBuilders.set(key, b)
+    }
+    return b
+  }
 
   constructor(world: World) {
     this.world = world
@@ -788,9 +808,11 @@ function evaluateSlab(state: StructureState, entity: Entity): void {
   rec.frameMaterials = frameMaterials
   const shadow = roof?.shadowWhenHidden ?? false
   if (old && old.shadowWhenHidden !== shadow) {
-    for (const key of old.chunks)
+    for (const key of old.chunks) {
       for (const cm of state.chunks.get(key)?.meshes.values() ?? [])
         setShadowWhenHidden(state, cm, shadow)
+      state.proxies.mark(state, key)
+    }
   }
   rec.shadowWhenHidden = shadow
   const cut = roof?.cutaway ?? false
@@ -983,6 +1005,9 @@ function spawnLeaf(state: StructureState, opening: Entity, rec: OpeningRecord): 
   if (rec.kind === 'window') {
     world.add(leaf, WindowPane)
     world.add(leaf, NotShadowCaster)
+  } else if (state.occluders) {
+    // A door leaf hides what's behind it, wherever it has swung (0116).
+    world.add(leaf, Occluder, { mesh: state.leafMesh! })
   }
   if (state.cutawayWalls) world.add(leaf, Cutaway)
   rec.leaf = leaf
@@ -1303,6 +1328,7 @@ function rebuildChunk(state: StructureState, key: number): number {
   const maxX = minX + size
   const maxZ = minZ + size
   for (const b of state.builders.values()) b.reset()
+  for (const b of state.occluderBuilders.values()) b.reset()
   // Cutaway walls (0070) build apart from floors of the same material.
   const wallKey = state.cutawayWalls ? WALL_KEY : ''
   for (const entity of chunk.walls) {
@@ -1319,6 +1345,14 @@ function rebuildChunk(state: StructureState, key: number): number {
       (i) => state.builder(wallKey + rec.pieceMaterials[i]!),
       state.scratch,
     )
+    // Their solid spans hide what's behind (0116); not where the material lets light through.
+    if (state.occluders)
+      emitOccluder(rec.shape, rec.pieces, rec.count, minX, minZ, maxX, maxZ, (i) => {
+        const material = rec.pieceMaterials[i]!
+        return state.proxies.opaque(state, material)
+          ? state.occluderBuilder(wallKey + material)
+          : undefined
+      })
   }
   let shadowWhenHidden = false
   let cutawayRoof = false
@@ -1343,6 +1377,8 @@ function rebuildChunk(state: StructureState, key: number): number {
     } else {
       if (existing) dropChunkMesh(world, existing)
       const mesh = Mesh.create(data)
+      // Every chunk shares one set of GPU buffers (0116): a pass draws them without rebinding.
+      mesh.arena = 'structure'
       const ref = meshes.add(
         mesh,
         `structure:chunk/${chunk.group}/${chunk.x},${chunk.z}/${material || 'default'}`,
@@ -1357,7 +1393,13 @@ function rebuildChunk(state: StructureState, key: number): number {
       )
       if (shadowWhenHidden) world.add(entity, ShadowWhenHidden)
       if (cutawayRoof || material.startsWith(WALL_KEY)) world.add(entity, Cutaway)
-      chunk.meshes.set(material, { entity, mesh, ref, triangles: b.indexCount / 3 })
+      chunk.meshes.set(material, {
+        entity,
+        mesh,
+        ref,
+        triangles: b.indexCount / 3,
+        occluder: null,
+      })
     }
     rebuilt++
   }
@@ -1367,6 +1409,8 @@ function rebuildChunk(state: StructureState, key: number): number {
     dropChunkMesh(world, cm)
     chunk.meshes.delete(material)
   }
+  for (const [material, cm] of chunk.meshes)
+    setOccluder(state, cm, state.occluderBuilders.get(material))
   rebuildContact(state, chunk)
   dropIfEmpty(state, key, chunk)
   return rebuilt
@@ -1604,7 +1648,7 @@ function rebuildContact(state: StructureState, chunk: ChunkRecord): void {
     Transform,
     Derived,
   )
-  chunk.contact = { entity, mesh, ref, triangles: b.indexCount / 3 }
+  chunk.contact = { entity, mesh, ref, triangles: b.indexCount / 3, occluder: null }
 }
 
 /** Contact off: every contact mesh goes, and every wall forgets its quads. */
@@ -1673,6 +1717,32 @@ function dropChunkMesh(world: World, cm: ChunkMesh): void {
   if (world.isAlive(cm.entity)) world.despawn(cm.entity)
   world.tryResource(GpuAssetsResource)?.releaseMesh(cm.mesh)
   world.resource(Meshes).delete(cm.ref.guid!)
+  if (cm.occluder) world.resource(Meshes).delete(cm.occluder.ref.guid!)
+  cm.occluder = null
+}
+
+/** Gives a chunk mesh the occluder its walls built, or takes it away when they built none (0116). */
+function setOccluder(state: StructureState, cm: ChunkMesh, b: OccluderBuilder | undefined): void {
+  const world = state.world
+  if (!b || b.empty) {
+    if (cm.occluder) {
+      if (world.isAlive(cm.entity) && world.has(cm.entity, Occluder))
+        world.remove(cm.entity, Occluder)
+      world.resource(Meshes).delete(cm.occluder.ref.guid!)
+      cm.occluder = null
+    }
+    return
+  }
+  const data = { positions: new Float32Array(b.positions), indices: new Uint16Array(b.indices) }
+  if (cm.occluder) {
+    cm.occluder.mesh.update(data)
+    world.set(cm.entity, Occluder, { mesh: cm.occluder.ref })
+    return
+  }
+  const mesh = Mesh.create(data)
+  const ref = world.resource(Meshes).add(mesh, `${cm.ref.guid}/occluder`) as AssetRef<'Mesh'>
+  cm.occluder = { mesh, ref }
+  world.add(cm.entity, Occluder, { mesh: ref })
 }
 
 function meshData(b: MeshBuilder): MeshData {
@@ -1701,6 +1771,7 @@ function applyCutawayWalls(state: StructureState, on: boolean): void {
 
 /** Every chunk mesh goes, and every wall and slab is placed again (the chunk size changed). */
 function resetChunks(state: StructureState): void {
+  state.proxies.reset(state)
   for (const chunk of state.chunks.values()) {
     for (const cm of chunk.meshes.values()) dropChunkMesh(state.world, cm)
     if (chunk.contact) dropChunkMesh(state.world, chunk.contact)
@@ -1763,6 +1834,9 @@ export const compileStructure = defineSystem({
         state.removedCutouts.length +
         state.removedLevels.length >
         0 ||
+      state.proxies.dirty.size > 0 ||
+      settings.shadowRegion !== state.proxies.size ||
+      settings.occluders !== state.occluders ||
       size !== state.chunkSize ||
       tolerance !== state.curveTolerance
     if (!any) {
@@ -1787,6 +1861,14 @@ export const compileStructure = defineSystem({
       state.chunkSize = size
       state.curveTolerance = tolerance
       resetChunks(state)
+    }
+    if (settings.occluders !== state.occluders) {
+      state.occluders = settings.occluders
+      for (const [key, chunk] of state.chunks) if (chunk.walls.size > 0) state.dirtyChunks.add(key)
+    }
+    if (settings.shadowRegion !== state.proxies.size) {
+      state.proxies.size = settings.shadowRegion
+      state.proxies.reset(state)
     }
     // Despawns first: an entity removed and added back this frame reads as new below.
     for (const e of state.removedOpenings) forgetOpening(state, e)
@@ -1871,7 +1953,10 @@ export const compileStructure = defineSystem({
       if (world.isAlive(e) && (world.has(e, Floor) || world.has(e, Roof))) evaluateSlab(state, e)
     state.dirtySlabs.clear()
     updateContacts(state)
-    if (state.dirtyChunks.size === 0 && state.dirtyContact.size === 0) return
+    if (state.dirtyChunks.size === 0 && state.dirtyContact.size === 0) {
+      state.proxies.update(state)
+      return
+    }
     const dirty: [number, number][] = []
     const groups: Entity[] = []
     let meshes = 0
@@ -1879,6 +1964,7 @@ export const compileStructure = defineSystem({
     for (const key of keys) {
       const group = state.groups[Math.floor(key / GROUP_STRIDE)]!
       meshes += rebuildChunk(state, key)
+      state.proxies.mark(state, key)
       const plain = key % GROUP_STRIDE
       dirty.push([chunkX(plain), chunkZ(plain)])
       groups.push(group)
@@ -1895,6 +1981,7 @@ export const compileStructure = defineSystem({
     }
     state.dirtyContact.clear()
     state.dirtyChunks.clear()
+    state.proxies.update(state)
     state.last = {
       dirtyChunks: dirty,
       dirtyGroups: groups,

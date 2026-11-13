@@ -75,6 +75,7 @@ export {
   PhysicalCamera,
   viewCamera,
 } from './camera'
+export { casterRelevant } from './caster-relevance'
 export {
   CLUSTER_COUNT,
   CLUSTER_X,
@@ -248,11 +249,14 @@ export {
 } from './health'
 export {
   type Batch,
+  CasterClass,
   CUTAWAY_BIT,
   createDrawList,
   DeformPath,
   type DrawItem,
   type DrawList,
+  DYNAMIC_BIT,
+  DynamicCaster,
   groundKey,
   INSTANCE_BYTES,
   INSTANCE_FLOATS,
@@ -360,6 +364,22 @@ export {
   materialModulePath,
   onMaterialTypeChange,
 } from './materials'
+export {
+  MAX_OCCLUDER_TRIANGLES,
+  Occluder,
+  OcclusionCulling,
+  OcclusionPath,
+  type OcclusionSupport,
+  type OcclusionTest,
+  occluded,
+} from './occlusion'
+export { OcclusionBuffer, orientedBox, receiverBox } from './occlusion-buffer'
+export {
+  MAX_OCCLUSION_CAMERAS,
+  OcclusionState,
+  OcclusionStateResource,
+  occlusionPlugin,
+} from './occlusion-plugin'
 export {
   OPAQUE_COPY_MIPS,
   OPAQUE_COPY_PHASE,
@@ -505,6 +525,15 @@ export {
   viewLayout,
 } from './shaders'
 export { SHADOW_CATCHER_SHADERS, ShadowCatcher, shadowCatcherPlugin } from './shadow-catcher'
+export {
+  type CascadeCamera,
+  type CascadeGeometry,
+  type CascadeSun,
+  capsuleInPlanes,
+  createCascadeGeometry,
+  fitCascadeGeometry,
+  sliceFrustum,
+} from './shadow-volume'
 export {
   Cascades,
   cascadeSplits,

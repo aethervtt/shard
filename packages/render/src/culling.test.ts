@@ -1,6 +1,6 @@
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { ProfilerResource, quat, Rng } from '@aethervtt/shard-core'
+import { ChildOf, ProfilerResource, quat, Rng } from '@aethervtt/shard-core'
 import { budget, timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
@@ -31,12 +31,12 @@ import {
 } from './instances'
 import { DirectionalLight, SpotLight } from './lights'
 import { captureView, describeRender, Gpu, renderPlugin, Views } from './plugin'
-import { ShadowsResource } from './shadows'
+import { ShadowsResource, type ShadowViewDraw } from './shadows'
 import { forwardPlugin } from './standard'
 import { OffscreenTarget } from './target'
 import { compareGolden, pixel, renderView, settle } from './testing'
 import { cameraOf } from './view'
-import { Visibility } from './visibility'
+import { ComputedVisibility, Visibility } from './visibility'
 
 let gpu: GpuContext
 beforeAll(async () => {
@@ -87,21 +87,35 @@ function cpuSets(world: World, name: string) {
     lodState,
     updateLod: true,
   }
-  const run = (planes: Float32Array, shadow: boolean) => {
+  // Shadow views cull with their own tests (0116): the shadow volume against the camera's slice, or
+  // against the driving camera's frustum for local lights.
+  const run = (planes: Float32Array, shadow: ShadowViewDraw | undefined) => {
     const list = createDrawList()
     params.planes = planes
     params.require = shadow ? InstanceFlags.Visible | InstanceFlags.Caster : InstanceFlags.Visible
     params.updateLod = !shadow
+    params.classes = shadow?.classes ?? 0
+    params.sweepMode = shadow?.sweepMode ?? 0
+    params.sweep = shadow?.sweep
+    params.margin = shadow?.margin ?? 0
+    params.minRadius = shadow?.minRadius ?? 0
     store.cullCpu(list, params)
     return visibleSlots(store, list, ALL)
   }
-  const camera = run(cam.frustum, false)
-  const pv = world.resource(ForwardStateResource).views.get(name)!
+  const camera = run(cam.frustum, undefined)
+  const state = world.resource(ForwardStateResource)
+  const pv = state.views.get(name)!
   const cascades: Set<number>[] = []
-  for (let i = 0; i < pv.cascades.count; i++)
-    cascades.push(run(pv.cascades.views[i]!.frustum, true))
+  for (let i = 0; i < pv.cascades.count; i++) {
+    const view = pv.cascades.views[i]!
+    const slice = pv.cascades.geometry.slices.subarray(i * 24, i * 24 + 24)
+    cascades.push(run(view.sweepMode ? slice : view.cullPlanes, view))
+  }
   const local = world.resource(ShadowsResource).local
-  const spots = local.spots.map((_, i) => run(local.spotViews[i]!.frustum, true))
+  const spots = local.spots.map((_, i) => {
+    const view = local.spotViews[i]!
+    return run(view.sweepMode ? state.localPlanes : view.frustum, view)
+  })
   return { cam, pv, local, camera, cascades, spots }
 }
 
@@ -184,11 +198,13 @@ describe('GPU culling', () => {
     expect([...levels].sort()).toEqual([0, 1, 2])
     const cameraLevel = new Map([...gpuSet.camera].map((e) => [e & 0x0fffffff, e >>> 28]))
     let shared = 0
-    for (const e of gpuSet.cascades[0]!) {
-      const level = cameraLevel.get(e & 0x0fffffff)
-      if (level === undefined) continue
-      expect(e >>> 28).toBe(level)
-      shared++
+    for (const cascade of gpuSet.cascades) {
+      for (const e of cascade) {
+        const level = cameraLevel.get(e & 0x0fffffff)
+        if (level === undefined) continue
+        expect(e >>> 28).toBe(level)
+        shared++
+      }
     }
     expect(shared).toBeGreaterThan(0)
 
@@ -409,6 +425,69 @@ describe('GPU culling', () => {
       expect(await drawnIn(plain), 'hidden').toEqual({ camera: false, shadow: false })
       world.set(roof, Visibility, { mode: 'inherit' })
       expect(await drawnIn(roof), 'shown again').toEqual({ camera: true, shadow: true })
+    }
+  })
+
+  it("draws a 'shadow-only' subtree in shadow views only; a hidden parent hides it (0116)", async () => {
+    for (const gpuCull of [true, false]) {
+      const { app, world, material, cameraAt } = await scene(48, 32)
+      world.resource(Culler).enabled = gpuCull
+      const mesh = world.resource(Meshes).add(cube({ size: 1 }))
+      const group = world.spawn([Transform, {}], [Visibility, {}])
+      const body = world.spawn(
+        [Mesh3d, { mesh }],
+        [MeshMaterial, { material }],
+        [Transform, {}],
+        [ChildOf, { parent: group }],
+      )
+      const part = world.spawn(
+        [Mesh3d, { mesh }],
+        [MeshMaterial, { material }],
+        [Transform, { translation: [0, 1, 0] }],
+        [ChildOf, { parent: body }],
+      )
+      const shown = world.spawn(
+        [Mesh3d, { mesh }],
+        [MeshMaterial, { material }],
+        [Transform, { translation: [2, 0, 0] }],
+        [Visibility, { mode: 'visible' }],
+        [ChildOf, { parent: body }],
+      )
+      world.spawn(
+        [DirectionalLight, { illuminance: 2000, shadows: true }],
+        [Transform, { rotation: q(-0.9, 0.6, 0) }],
+      )
+      const cam = cameraAt([1, 2, 8], [1, 0, 0])
+      const name = `camera:${cam}`
+      const drawn = async () => {
+        await settle(app, 3)
+        const sets = gpuCull ? await gpuSets(world, name) : cpuSets(world, name)
+        const of = (e: number) => {
+          const slot = slotOf(world, e)
+          return { camera: sets.camera.has(slot), shadow: sets.cascades.some((c) => c.has(slot)) }
+        }
+        return { body: of(body), part: of(part), shown: of(shown) }
+      }
+      const both = { camera: true, shadow: true }
+      const shadowOnly = { camera: false, shadow: true }
+      const none = { camera: false, shadow: false }
+      expect(await drawn(), 'all shown').toEqual({ body: both, part: both, shown: both })
+      world.set(body, Visibility, { mode: 'shadow-only' })
+      expect(await drawn(), 'shadow-only, inherited; visible overrides').toEqual({
+        body: shadowOnly,
+        part: shadowOnly,
+        shown: both,
+      })
+      expect(world.get(part, ComputedVisibility)).toEqual({ visible: false, shadowOnly: true })
+      world.set(group, Visibility, { mode: 'hidden' })
+      expect(await drawn(), 'a hidden parent hides shadow-only').toEqual({
+        body: none,
+        part: none,
+        shown: both,
+      })
+      world.set(group, Visibility, { mode: 'inherit' })
+      world.set(body, Visibility, { mode: 'inherit' })
+      expect(await drawn(), 'shown again').toEqual({ body: both, part: both, shown: both })
     }
   })
 

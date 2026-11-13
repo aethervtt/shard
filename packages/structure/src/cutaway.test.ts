@@ -24,7 +24,16 @@ import { compareGolden, pixel, renderView, settle } from '@aethervtt/shard-rende
 import { Transform } from '@aethervtt/shard-transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Structure } from './compile'
-import { Cutout, DoorLeaf, Floor, Opening, Roof, StructureSettings, Wall } from './components'
+import {
+  Cutout,
+  DoorLeaf,
+  Floor,
+  Opening,
+  Roof,
+  StructureSettings,
+  StructureShadowProxy,
+  Wall,
+} from './components'
 import { maxScene } from './fixtures'
 import { type Rig, rig } from './harness'
 
@@ -69,9 +78,10 @@ function room(world: World, x: number, z: number, size: number, material?: Asset
 }
 
 /** The meshes structure keeps under a group or piece: chunk meshes, leaves and panes. */
+/** A group's chunk meshes (its shadow proxies draw in shadow views only: never cut, 0116). */
 function meshesUnder(world: World, group: Entity): Entity[] {
   return (world.tryGet(group, Children)?.entities ?? []).filter(
-    (e): e is Entity => e !== null && world.has(e, Mesh3d),
+    (e): e is Entity => e !== null && world.has(e, Mesh3d) && !world.has(e, StructureShadowProxy),
   )
 }
 

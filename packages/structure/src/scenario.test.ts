@@ -1,4 +1,4 @@
-import { timeout, timingMode } from '@aethervtt/shard-core/test-env'
+import { budget, timeout, timingMode } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { Gpu } from '@aethervtt/shard-render'
@@ -63,6 +63,14 @@ describe('scenario: tabletop-max (0075)', () => {
           .join('\n'),
     )
     expectScenario(run, expect)
+    // The shadow encode alone (0116): four cascades over the max fixture, under 'always'.
+    const encode = run.summary.top.find((t) => t.span === 'render/shadows/cascades')
+    if (process.env.SHARD_TOP)
+      console.info(run.summary.top.map((t) => `${t.span} ${t.p95.toFixed(2)}`).join('\n'))
+    if (encode) {
+      console.info(`render/shadows/cascades: p95 ${encode.p95.toFixed(3)} ms`)
+      expect(encode.p95).toBeLessThanOrEqual(budget('render/shadow-encode'))
+    }
     await r.dispose()
   })
 })

@@ -5,6 +5,7 @@ import {
   defineSystem,
   type Entity,
   onRemove,
+  type Table,
   t,
   type World,
 } from '@aethervtt/shard-core'
@@ -14,6 +15,7 @@ import { LightPresets } from './camera'
 import { DataStore } from './data-store'
 import { warnFeatureMissing } from './features'
 import { InteriorPath } from './interior'
+import { quantizeDirection } from './shadow-volume'
 
 /** Luminous power presets in lumens, for point and spot lights. */
 export const LuminousPowerPresets = {
@@ -91,6 +93,33 @@ export const DirectionalLight = defineComponent(
     ...shadowFields({ bias: 0.02, normalBias: 1.5 }),
     shadowUpdate: shadowUpdateField(),
     cascades: CascadeSettings,
+    shadowStep: t.f32({
+      default: 0.125,
+      min: 0,
+      max: 1,
+      description:
+        'on-change only: a cached cascade moves in steps of this fraction of its width (its box grows by one step), so walking redraws it only when the eye crosses a step (0116). 0 follows texel by texel.',
+    }),
+    shadowFarEvery: t.u8({
+      default: 4,
+      min: 1,
+      max: 16,
+      description:
+        'on-change only: the farthest cascade redraws its dynamic casters every this many frames, the next every half as many, nearer ones every frame (0116).',
+    }),
+    minCasterTexels: t.f32({
+      default: 1,
+      min: 0,
+      description:
+        'Casters whose bounding sphere spans fewer texels than this in a cascade are left out of it (0116). 0 keeps every caster.',
+    }),
+    shadowAngleStep: t.f32({
+      min: 0,
+      max: 10,
+      unit: 'deg',
+      description:
+        "The shadows' direction moves in steps of this many degrees (elevation and azimuth), so a turning sun redraws cached shadows in steps (0116). 0 follows it exactly.",
+    }),
     angularDiameter: t.f32({
       default: 0.53,
       min: 0,
@@ -222,6 +251,11 @@ export interface LightingSettingsValue {
   cascadeMapSize: number
   /** Spot and point shadow map size (per face). */
   shadowMapSize: number
+  /**
+   * Frames a moved shadow caster stays dynamic before cached lights draw it into their static
+   * layers again (0116).
+   */
+  staticAfterFrames: number
   maxShadowedPoints: number
   maxShadowedSpots: number
   /**
@@ -240,6 +274,7 @@ export const LightingSettings = defineResource<LightingSettingsValue>('render/Li
     clusterFar: 0,
     cascadeMapSize: 2048,
     shadowMapSize: 1024,
+    staticAfterFrames: 60,
     maxShadowedPoints: 4,
     maxShadowedSpots: 8,
     baselineMaxLights: 128,
@@ -276,6 +311,9 @@ export interface LightRecord {
   alive: boolean
   /** `shadowUpdate: 'on-change'`: the light's shadow maps are cached. */
   cachedShadow: boolean
+  /** Its PCF radius and normal bias, in texels: how far around a receiver its shadows sample. */
+  shadowSoftness: number
+  shadowNormalBias: number
   /** Its wall-blocking row (0069), or -1: see `setLightRow`. */
   row: number
 }
@@ -313,18 +351,21 @@ export class LightStore {
   private readonly directionalSent = new Float32Array(this.directionalData.length)
   private directionalStale = true
   /** The first directional light with shadows: entity, and its settings. */
-  shadowSun: {
-    entity: Entity
-    direction: Float32Array
-    count: number
-    maxDistance: number
-    splitLambda: number
-    bias: number
-    normalBias: number
-    softness: number
-    /** `shadowUpdate: 'on-change'`: cascades are cached. */
-    cached: boolean
-  } | null = null
+  shadowSun: ShadowSun | null = null
+  readonly sunRecord: ShadowSun = {
+    entity: -1 as Entity,
+    direction: new Float32Array(3),
+    count: 4,
+    maxDistance: 150,
+    splitLambda: 0.8,
+    step: 0,
+    farEvery: 4,
+    minCasterTexels: 1,
+    bias: 0,
+    normalBias: 0,
+    softness: 0,
+    cached: false,
+  }
   directionalCount = 0
   private generation: number
   private readonly gpu: GpuContext
@@ -381,6 +422,8 @@ export class LightStore {
       radius: 0,
       alive: true,
       cachedShadow: false,
+      shadowSoftness: 0,
+      shadowNormalBias: 0,
       row: -1,
     }
     this.records[slot] = r
@@ -591,6 +634,8 @@ export const extractLights = defineSystem({
           if (!r) continue
           r.shadows = shadows[i] !== 0
           r.cachedShadow = update[i] === 1
+          r.shadowSoftness = softness[i]!
+          r.shadowNormalBias = normalBias[i]!
           if (existing === r && gChanged[i]! <= since && changed[i]! <= since) continue
           if (blocked[i] !== 0 && !interior) warnBlockedWithoutPlugin(world)
           writeLight(
@@ -629,7 +674,6 @@ export const extractLights = defineSystem({
       const color = table.column(DirectionalLight, 'color')
       const lux = table.column(DirectionalLight, 'illuminance')
       const shadows = table.column(DirectionalLight, 'shadows')
-      const cascades = table.column(DirectionalLight, 'cascades')
       const angular = table.column(DirectionalLight, 'angularDiameter')
       for (let i = 0; i < table.count && count < MAX_DIRECTIONAL; i++) {
         const o = 4 + count * 8
@@ -649,18 +693,7 @@ export const extractLights = defineSystem({
         // Angular radius (rad), for sun disks.
         d[o + 7] = (angular[i]! * Math.PI) / 360
         if (shadowed) {
-          const c = cascades[i] as { count: number; maxDistance: number; splitLambda: number }
-          store.shadowSun = {
-            entity: table.entities[i]!,
-            direction: new Float32Array([x / len, y / len, z / len]),
-            count: c.count,
-            maxDistance: c.maxDistance,
-            splitLambda: c.splitLambda,
-            bias: table.column(DirectionalLight, 'shadowBias')[i]!,
-            normalBias: table.column(DirectionalLight, 'shadowNormalBias')[i]!,
-            softness: table.column(DirectionalLight, 'shadowSoftness')[i]!,
-            cached: table.column(DirectionalLight, 'shadowUpdate')[i] === 1,
-          }
+          store.shadowSun = readShadowSun(store.sunRecord, table, i)
         }
         count++
       }
@@ -669,6 +702,58 @@ export const extractLights = defineSystem({
     store.directionalCount = count
   },
 })
+
+/** The settings shadow views read from the first shadowed directional light (0018, 0116). */
+export interface ShadowSun {
+  entity: Entity
+  /** Toward the light, quantized by `shadowAngleStep`. */
+  direction: Float32Array
+  count: number
+  maxDistance: number
+  splitLambda: number
+  /** Cascade steps (fraction of width) when cached, else 0. */
+  step: number
+  farEvery: number
+  minCasterTexels: number
+  bias: number
+  normalBias: number
+  softness: number
+  /** `shadowUpdate: 'on-change'`: cascades are cached. */
+  cached: boolean
+}
+
+/**
+ * Reads the shadowed sun at row `i` of a DirectionalLight table into `out`, as `prepare-lights`
+ * does: its casterRelevant twin reads it the same way. Allocation-free.
+ */
+export function readShadowSun(out: ShadowSun, table: Table, i: number): ShadowSun {
+  const g = table.column(GlobalTransform, 'matrix')
+  const x = g[i * 12 + 2]!
+  const y = g[i * 12 + 6]!
+  const z = g[i * 12 + 10]!
+  const len = Math.sqrt(x * x + y * y + z * z) || 1
+  out.entity = table.entities[i]!
+  out.direction[0] = x / len
+  out.direction[1] = y / len
+  out.direction[2] = z / len
+  quantizeDirection(out.direction, table.column(DirectionalLight, 'shadowAngleStep')[i]!)
+  const c = table.column(DirectionalLight, 'cascades')[i] as {
+    count: number
+    maxDistance: number
+    splitLambda: number
+  }
+  out.cached = table.column(DirectionalLight, 'shadowUpdate')[i] === 1
+  out.count = c.count
+  out.maxDistance = c.maxDistance
+  out.splitLambda = c.splitLambda
+  out.step = out.cached ? table.column(DirectionalLight, 'shadowStep')[i]! : 0
+  out.farEvery = table.column(DirectionalLight, 'shadowFarEvery')[i]!
+  out.minCasterTexels = table.column(DirectionalLight, 'minCasterTexels')[i]!
+  out.bias = table.column(DirectionalLight, 'shadowBias')[i]!
+  out.normalBias = table.column(DirectionalLight, 'shadowNormalBias')[i]!
+  out.softness = table.column(DirectionalLight, 'shadowSoftness')[i]!
+  return out
+}
 
 /** Frees a light's slot when its component goes away (including despawn). */
 export function observeLightRemovals(world: World): void {

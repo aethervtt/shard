@@ -21,6 +21,8 @@ import { warnFeatureMissing } from './features'
 import { GpuAssetsResource } from './gpu-assets'
 import { GroundLayer, OVERLAY_BAND, RenderLayers } from './layers'
 import { isTransparent } from './materials'
+import type { OcclusionTest } from './occlusion'
+import { capsuleInPlanes, sweptInSlice } from './shadow-volume'
 import { ComputedVisibility, Visibility } from './visibility'
 
 export const InstanceSlot = defineComponent(
@@ -51,6 +53,20 @@ export const ShadowWhenHidden = defineComponent(
   'render/ShadowWhenHidden',
   {},
   { description: 'Tag: while hidden, this mesh still casts shadows (camera views skip it).' },
+)
+
+/**
+ * Tag: a dynamic shadow caster (0116). Lights with `shadowUpdate: 'on-change'` draw it into their
+ * dynamic layers every frame instead of caching it, as they do for skinned, morphed and recently
+ * moved casters. For meshes whose shadow changes without the engine seeing it move.
+ */
+export const DynamicCaster = defineComponent(
+  'render/DynamicCaster',
+  {},
+  {
+    description:
+      "Tag: always a dynamic shadow caster: redrawn each frame into cached lights' dynamic layers, never cached.",
+  },
 )
 
 export const NotShadowReceiver = defineComponent(
@@ -196,14 +212,23 @@ export const InstanceFlags = {
   Skinned: 32,
   /** Morphed: the vertex stage adds morph target deltas. */
   Morph: 64,
-  /** Hidden, but drawn in shadow views (ShadowWhenHidden); Visible is off. */
+  /** Hidden, but drawn in shadow views (shadow-only Visibility, or ShadowWhenHidden); Visible is off. */
   ShadowOnly: 128,
   /**
    * May be cut away around a camera's reveal points (Cutaway, 0070). In the record's flags word
    * it rides in bit 28 (`CUTAWAY_BIT`), above the layers and the LOD.
    */
   Cutaway: 256,
+  /**
+   * A dynamic shadow caster for a lasting reason: DynamicCaster, or a material type that animates
+   * vertices (0116). In the record's flags word, bit 29 (`DYNAMIC_BIT`) marks every dynamic caster:
+   * these, skinned and morphed slots, and slots that moved within `staticAfterFrames`.
+   */
+  Dynamic: 512,
 } as const
+
+/** Where a dynamic caster is marked in the record's flags word (0116). */
+export const DYNAMIC_BIT = 1 << 29
 
 /** Where `InstanceFlags.Cutaway` sits in the record's flags word (0070). */
 export const CUTAWAY_BIT = 1 << 28
@@ -257,6 +282,8 @@ export interface Batch {
   forwardCount: number
   /** The mesh version shadows last saw (cached shadows redraw when it changes, 0055). */
   meshVersion: number
+  /** The mesh bounds shadows last saw: where a rebuilt mesh used to cast (0116). */
+  shadowBounds: Float32Array
   /**
    * Instances that can land in this batch and are Cutaway (0070). While any are, a view whose
    * reveal points can cut one this frame draws it with the cutaway variant of its pipeline.
@@ -324,7 +351,31 @@ export interface CullParams {
   hidden?: Uint32Array | undefined
   /** Where those bits start in the GPU's hidden-set buffer, or NO_HIDDEN. */
   hiddenBase?: number
+  /**
+   * Shadow volumes (0116): 1 sweeps each sphere along the light (`sweep`: travel direction, then the
+   * light-space depth of the cascade's far side) and tests the capsule against `planes`; 2 sweeps it
+   * away from a local light (`sweep`: the light's position, then its range).
+   */
+  sweepMode?: number
+  sweep?: Float32Array
+  /** Grows swept spheres: the PCF footprint around a receiver, in meters. */
+  margin?: number
+  /** Spheres smaller than this radius are skipped (minCasterTexels). */
+  minRadius?: number
+  /** Which casters: 0 all, 1 static only, 2 dynamic only (the bit `DYNAMIC_BIT`). */
+  classes?: number
+  /** Camera views: skip what this occlusion buffer hides (0116). */
+  occlusion?: OcclusionTest | undefined
+  /**
+   * Shadow views swept along a sun: skip casters whose shadow, down to `receiverFloor`, falls where
+   * this camera's occlusion buffer hides it (0116).
+   */
+  receiver?: OcclusionTest | undefined
+  receiverFloor?: number
 }
+
+/** `CullParams.classes` values. */
+export const CasterClass = { all: 0, static: 1, dynamic: 2 } as const
 
 const halfToFloat = (h: number): number => {
   const s = h & 0x8000 ? -1 : 1
@@ -337,6 +388,7 @@ const halfToFloat = (h: number): number => {
 
 const f32 = Math.fround
 const scratchSphere = new Float32Array(4)
+const scratchBounds = new Float32Array(6)
 const halfScratch = new Float32Array(2)
 
 /**
@@ -389,6 +441,49 @@ function sphereOfSlot(
     }
   }
   return slotSphere(out, store.f32, slot * INSTANCE_FLOATS, bounds)
+}
+
+/**
+ * Whether a sphere's shadow can reach `planes` (CullParams.sweepMode 1 or 2). Mirrors `in_sweep`
+ * in the cull shader.
+ */
+export function sphereSweepIn(
+  planes: Float32Array,
+  mode: number,
+  sweep: Float32Array,
+  s: Float32Array,
+  margin: number,
+): boolean {
+  const cx = s[0]!
+  const cy = s[1]!
+  const cz = s[2]!
+  const r = s[3]!
+  if (mode === 1) return sweptInSlice(planes, 0, sweep, cx, cy, cz, f32(r + margin))
+  // Away from a local light at sweep.xyz, to its range sweep.w: a cone, bounded by a capsule as wide
+  // as the cone is at the range.
+  const dx = f32(cx - sweep[0]!)
+  const dy = f32(cy - sweep[1]!)
+  const dz = f32(cz - sweep[2]!)
+  const d = f32(Math.sqrt(f32(f32(dx * dx + dy * dy) + dz * dz)))
+  const range = sweep[3]!
+  // Out of the light's reach: it casts nothing.
+  if (f32(d - r) > range) return false
+  if (d <= r) return sphereInFrustum(planes, s)
+  const k = f32(Math.sqrt(f32(f32(d * d) - f32(r * r))))
+  const grown = f32(f32(f32(range * r) / k) + margin)
+  const rr = grown > r ? grown : r
+  return capsuleInPlanes(
+    planes,
+    0,
+    cx,
+    cy,
+    cz,
+    rr,
+    f32(dx / d),
+    f32(dy / d),
+    f32(dz / d),
+    f32(range - d),
+  )
 }
 
 /** Sphere against six planes (inside where n·p + d ≥ 0). */
@@ -482,6 +577,26 @@ export class InstanceStore {
   private lastMoved = new Uint32Array(64)
   private lastMovedCount = 0
   private frame = 1
+  /**
+   * Slots dynamic because they moved within `staticAfterFrames` (0116), listed so settling them
+   * walks only movers.
+   */
+  private moving = new Uint8Array(0)
+  private movers = new Uint32Array(64)
+  private moverCount = 0
+  /** Frames a moved caster stays dynamic before it settles into cached static layers (0116). */
+  staticAfterFrames = 60
+  /**
+   * Spheres (x, y, z, r) where static shadow casters changed this frame: appeared, left, changed
+   * class or mesh. Cached static layers redraw only there (0116).
+   */
+  staticChanges = new Float32Array(64)
+  staticChangeCount = 0
+  /** Slots that are dynamic shadow casters now (DYNAMIC_BIT and casting), listed. */
+  dynamicCasters = 0
+  private dynCast = new Uint8Array(0)
+  private dynSlots = new Uint32Array(64)
+  private dynIndex = new Int32Array(0)
   readonly prevBuffer: DataStore
   private readonly free: number[] = []
   /** Slots waiting for their mesh or material to load. */
@@ -517,6 +632,8 @@ export class InstanceStore {
   structureVersion = 0
   /** Bumps when a slot is allocated or freed (hidden sets resolve again, 0070). */
   slotEpoch = 0
+  /** Bumps when any slot's flags or layers change (occlusion buffers raster again, 0116). */
+  flagsEpoch = 0
   /**
    * Bumps when what casts shadows changes other than by moving: a slot's batch, its caster or
    * visible flag, or a batch's mesh data. Cached shadow maps (0055) redraw when it moves.
@@ -585,6 +702,15 @@ export class InstanceStore {
     const movedFrame = new Uint32Array(capacity)
     movedFrame.set(this.movedFrame)
     this.movedFrame = movedFrame
+    const moving = new Uint8Array(capacity)
+    moving.set(this.moving)
+    this.moving = moving
+    const dynCast = new Uint8Array(capacity)
+    dynCast.set(this.dynCast)
+    this.dynCast = dynCast
+    const dynIndex = new Int32Array(capacity).fill(-1)
+    dynIndex.set(this.dynIndex)
+    this.dynIndex = dynIndex
     const layers = new Uint16Array(capacity).fill(1)
     layers.set(this.layers)
     this.layers = layers
@@ -621,6 +747,7 @@ export class InstanceStore {
     const m = mask & 0xffff
     if (this.layers[slot] === m) return
     this.layers[slot] = m
+    this.flagsEpoch++
     const o = slot * INSTANCE_FLOATS + 13
     this.u32[o] = ((this.u32[o]! & ~LAYER_BITS) | (m << LAYER_SHIFT)) >>> 0
     this.markDirty(slot)
@@ -642,6 +769,7 @@ export class InstanceStore {
     this.assign(slot, -1)
     this.u32[slot * INSTANCE_FLOATS + 13] = 0
     this.flags[slot] = 0
+    this.noteDynamic(slot)
     this.meshRefs[slot] = null
     this.materialRefs[slot] = null
     this.lods[slot] = null
@@ -654,6 +782,16 @@ export class InstanceStore {
 
   private boundsDirty = true
   private readonly cachedBounds = new Float32Array(6)
+  private cachedFloor = 0
+
+  /**
+   * Where shadows stop falling, for the receiver test (0116): the lowest center of a static caster
+   * (flat ground's height). Cached with `casterBounds`.
+   */
+  casterFloor(): number {
+    if (this.boundsDirty) this.casterBounds(scratchBounds)
+    return this.cachedFloor
+  }
 
   /**
    * The world bounds of every shadow caster (spheres), cached until an instance changes. GPU
@@ -665,18 +803,22 @@ export class InstanceStore {
       const b = this.cachedBounds
       b[0] = b[1] = b[2] = Number.POSITIVE_INFINITY
       b[3] = b[4] = b[5] = Number.NEGATIVE_INFINITY
+      let floor = Number.POSITIVE_INFINITY
       const sphere = scratchSphere
       for (let s = 0; s < this.high; s++) {
         const a = this.batchOf[s]!
         if (a === -1 || !casts(this.u32[s * INSTANCE_FLOATS + 13]!)) continue
         const batch = this.batches[a >= 0 ? a : this.lodSets[-2 - a]!.batches[0]!]!
         if (batch.transparent || batch.ground) continue
-        sphereOfSlot(sphere, this, s, this.u32[s * INSTANCE_FLOATS + 13]!, batch.mesh.bounds)
+        const word = this.u32[s * INSTANCE_FLOATS + 13]!
+        sphereOfSlot(sphere, this, s, word, batch.mesh.bounds)
         for (let k = 0; k < 3; k++) {
           if (sphere[k]! - sphere[3]! < b[k]!) b[k] = sphere[k]! - sphere[3]!
           if (sphere[k]! + sphere[3]! > b[k + 3]!) b[k + 3] = sphere[k]! + sphere[3]!
         }
+        if ((word & DYNAMIC_BIT) === 0 && sphere[1]! < floor) floor = sphere[1]!
       }
+      this.cachedFloor = Number.isFinite(floor) ? floor : 0
     }
     out.set(this.cachedBounds)
     return out
@@ -699,6 +841,18 @@ export class InstanceStore {
     const p = this.prev
     const o = slot * INSTANCE_FLOATS
     const q = slot * 12
+    // A static caster that starts moving leaves the cached static layers where it was (0116).
+    if (!fresh && this.moving[slot] === 0) {
+      this.pushStatic(slot, this.u32[o + 13]!)
+      this.moving[slot] = 1
+      if (this.moverCount >= this.movers.length) {
+        const grown = new Uint32Array(this.movers.length * 2)
+        grown.set(this.movers)
+        this.movers = grown
+      }
+      this.movers[this.moverCount++] = slot
+      this.syncDynamic(slot)
+    }
     for (let k = 0; k < 12; k++) {
       p[q + k] = fresh ? g[offset + k]! : f[o + k]!
       f[o + k] = g[offset + k]!
@@ -776,7 +930,8 @@ export class InstanceStore {
   assign(slot: number, assignment: number): void {
     const old = this.batchOf[slot]!
     if (old === assignment) return
-    this.shadowEpoch++
+    // Cached static layers redraw where it was and where it is (0116).
+    this.pushStatic(slot, this.u32[slot * INSTANCE_FLOATS + 13]!)
     const cut = this.flags[slot]! & InstanceFlags.Cutaway
     if (cut) this.countCutaway(slot, -1)
     if (old >= 0) {
@@ -804,6 +959,141 @@ export class InstanceStore {
           : NO_BATCH
     if (cut) this.countCutaway(slot, 1)
     this.markDirty(slot)
+    this.syncDynamic(slot)
+    this.pushStatic(slot, this.u32[slot * INSTANCE_FLOATS + 13]!)
+  }
+
+  /**
+   * Records where a slot casts into cached static layers, if its flags word `word` makes it a static
+   * caster there: visible or shadow-only, a caster, not dynamic, in an opaque batch (0116).
+   */
+  pushStatic(slot: number, word: number): void {
+    if (word & DYNAMIC_BIT || !casts(word)) return
+    const a = this.batchOf[slot]!
+    if (a === -1) return
+    const batch = this.batches[a >= 0 ? a : this.lodSets[-2 - a]!.batches[0]!]!
+    if (batch.transparent || batch.ground) return
+    this.pushStaticSphere(
+      slotSphere(scratchSphere, this.f32, slot * INSTANCE_FLOATS, batch.mesh.bounds),
+    )
+  }
+
+  private pushStaticSphere(sphere: Float32Array): void {
+    const n = this.staticChangeCount * 4
+    if (n + 4 > this.staticChanges.length) {
+      const grown = new Float32Array(this.staticChanges.length * 2)
+      grown.set(this.staticChanges)
+      this.staticChanges = grown
+    }
+    this.staticChanges[n] = sphere[0]!
+    this.staticChanges[n + 1] = sphere[1]!
+    this.staticChanges[n + 2] = sphere[2]!
+    this.staticChanges[n + 3] = sphere[3]!
+    this.staticChangeCount++
+  }
+
+  /**
+   * Sets or clears a slot's DYNAMIC_BIT from its flags, its batch's material type and whether it
+   * moved lately (0116). Returns whether it changed.
+   */
+  syncDynamic(slot: number): boolean {
+    const o = slot * INSTANCE_FLOATS + 13
+    const word = this.u32[o]!
+    const flags = this.flags[slot]!
+    let dynamic =
+      this.moving[slot] !== 0 ||
+      (flags & (InstanceFlags.Dynamic | InstanceFlags.Skinned | InstanceFlags.Morph)) !== 0
+    if (!dynamic) {
+      const a = this.batchOf[slot]!
+      if (a >= 0) dynamic = this.batches[a]!.material.type.animatesVertices
+      else if (a <= -2)
+        dynamic = this.batches[this.lodSets[-2 - a]!.batches[0]!]!.material.type.animatesVertices
+    }
+    if (dynamic === ((word & DYNAMIC_BIT) !== 0)) {
+      this.noteDynamic(slot)
+      return false
+    }
+    this.u32[o] = (dynamic ? word | DYNAMIC_BIT : word & ~DYNAMIC_BIT) >>> 0
+    this.markDirty(slot)
+    this.noteDynamic(slot)
+    return true
+  }
+
+  /** Keeps `dynamicCasters` current after a slot's flags word changed. */
+  noteDynamic(slot: number): void {
+    const w = this.u32[slot * INSTANCE_FLOATS + 13]!
+    const d = w & DYNAMIC_BIT && casts(w) ? 1 : 0
+    if (this.dynCast[slot] === d) return
+    this.dynCast[slot] = d
+    if (d) {
+      if (this.dynamicCasters >= this.dynSlots.length) {
+        const grown = new Uint32Array(this.dynSlots.length * 2)
+        grown.set(this.dynSlots)
+        this.dynSlots = grown
+      }
+      this.dynIndex[slot] = this.dynamicCasters
+      this.dynSlots[this.dynamicCasters++] = slot
+    } else {
+      const at = this.dynIndex[slot]!
+      const last = this.dynSlots[--this.dynamicCasters]!
+      this.dynSlots[at] = last
+      this.dynIndex[last] = at
+      this.dynIndex[slot] = -1
+    }
+  }
+
+  /**
+   * Whether any dynamic caster passes a shadow view's tests (CullParams' planes, sweep and size):
+   * so a cached light's dynamic layer is drawn, and sampled, only when something casts into it
+   * (0116). Dynamic casters are few (characters, movers), so this walks them on the CPU.
+   */
+  anyDynamicIn(
+    planes: Float32Array,
+    sweepMode: number,
+    sweep: Float32Array,
+    margin: number,
+    minRadius: number,
+  ): boolean {
+    const sphere = scratchSphere
+    for (let k = 0; k < this.dynamicCasters; k++) {
+      const slot = this.dynSlots[k]!
+      const a = this.batchOf[slot]!
+      if (a === -1) continue
+      const batch = this.batches[a >= 0 ? a : this.lodSets[-2 - a]!.batches[0]!]!
+      if (batch.transparent || batch.ground) continue
+      const word = this.u32[slot * INSTANCE_FLOATS + 13]!
+      sphereOfSlot(sphere, this, slot, word, batch.mesh.bounds)
+      if (sphere[3]! < minRadius) continue
+      if (
+        sweepMode !== 0
+          ? sphereSweepIn(planes, sweepMode, sweep, sphere, margin)
+          : sphereInFrustum(planes, sphere)
+      )
+        return true
+    }
+    return false
+  }
+
+  /**
+   * Settles movers that have been still for `staticAfterFrames` into the static class: cached static
+   * layers draw them again where they stopped (0116). Walks only movers. Call once per frame, after
+   * prepare.
+   */
+  settleStatic(): void {
+    let n = this.moverCount
+    for (let i = 0; i < n; ) {
+      const slot = this.movers[i]!
+      const freed = slot >= this.high || this.batchOf[slot] === -1
+      if (freed || this.frame - this.movedFrame[slot]! >= this.staticAfterFrames) {
+        this.moving[slot] = 0
+        this.movers[i] = this.movers[--n]!
+        if (!freed && this.syncDynamic(slot))
+          this.pushStatic(slot, this.u32[slot * INSTANCE_FLOATS + 13]!)
+        continue
+      }
+      i++
+    }
+    this.moverCount = n
   }
 
   /** Adds `delta` to the cutaway count of every batch the slot can land in (0070). */
@@ -824,8 +1114,22 @@ export class InstanceStore {
       const b = batches[i]!
       if (b.meshVersion !== b.mesh.version) {
         b.meshVersion = b.mesh.version
-        this.shadowEpoch++
+        // A batch of few direct members redraws cached static layers where its old and new
+        // bounds reach (0116); a large or LOD-shared one, everywhere.
+        if (b.memberCount <= 64 && b.memberCount === b.count) {
+          for (let m = 0; m < b.memberCount; m++) {
+            const slot = b.members[m]!
+            const word = this.u32[slot * INSTANCE_FLOATS + 13]!
+            if (word & DYNAMIC_BIT || !casts(word) || b.transparent || b.ground) continue
+            const o = slot * INSTANCE_FLOATS
+            this.pushStaticSphere(slotSphere(scratchSphere, this.f32, o, b.shadowBounds))
+            this.pushStaticSphere(slotSphere(scratchSphere, this.f32, o, b.mesh.bounds))
+          }
+        } else {
+          this.shadowEpoch++
+        }
       }
+      b.shadowBounds.set(b.mesh.bounds)
     }
   }
 
@@ -913,6 +1217,7 @@ export class InstanceStore {
         forwardScratch: new Uint32Array(16),
         forwardCount: 0,
         meshVersion: mesh.version,
+        shadowBounds: new Float32Array(mesh.bounds),
         cutaway: 0,
         ground,
       }
@@ -1073,6 +1378,7 @@ export class InstanceStore {
 
   beginFrame(): void {
     this.visibleCount = 0
+    this.staticChangeCount = 0
   }
 
   // Transparent instances this cull: slot, batch, and view depth, sorted back to front.
@@ -1134,12 +1440,25 @@ export class InstanceStore {
     const shadowOnly = (params.require & InstanceFlags.Caster) !== 0 ? InstanceFlags.ShadowOnly : 0
     const eye = params.eye
     const sphere = scratchSphere
+    const classes = params.classes ?? CasterClass.all
+    const sweepMode = params.sweepMode ?? 0
+    const sweep = params.sweep
+    const margin = params.margin ?? 0
+    const minRadius = params.minRadius ?? 0
+    const occlusion = params.occlusion
+    const receiver = sweepMode === 1 ? params.receiver : undefined
+    const floor = params.receiverFloor ?? 0
     for (let s = 0; s < this.high; s++) {
       const assignment = this.batchOf[s]!
       if (assignment === -1) continue
       const flags = u32[s * INSTANCE_FLOATS + 13]!
       if (((flags & shadowOnly ? flags | InstanceFlags.Visible : flags) & mask) !== mask) {
         if ((flags & InstanceFlags.Visible) === 0) list.hidden++
+        continue
+      }
+      // Cached shadow layers draw one class of caster each (0116).
+      if (classes !== CasterClass.all && ((flags & DYNAMIC_BIT) !== 0) !== (classes === 2)) {
+        list.culled++
         continue
       }
       if ((layers[s]! & viewLayers) === 0) {
@@ -1168,9 +1487,34 @@ export class InstanceStore {
       if (batch.transparent && (params.require !== 0 || !transparent)) continue
       if (flags & InstanceFlags.Skinned) sphereOfSlot(sphere, this, s, flags, batch.mesh.bounds)
       else slotSphere(sphere, f, s * INSTANCE_FLOATS, batch.mesh.bounds)
-      if (params.planes && !sphereInFrustum(params.planes, sphere)) {
+      if (
+        params.planes &&
+        (sweepMode !== 0
+          ? !sphereSweepIn(params.planes, sweepMode, sweep!, sphere, margin)
+          : !sphereInFrustum(params.planes, sphere))
+      ) {
         list.culled++
         continue
+      }
+      if (sphere[3]! < minRadius) {
+        list.culled++
+        continue
+      }
+      // Occlusion (0116): hidden from the camera (its mesh's box, or a skinned pose's sphere), or a
+      // shadow falling where nobody sees it.
+      const skinned = (flags & InstanceFlags.Skinned) !== 0
+      if (occlusion?.hidesInstance(f, s * INSTANCE_FLOATS, batch.mesh.bounds, sphere, skinned)) {
+        occlusion.culledInstances++
+        list.culled++
+        continue
+      }
+      if (receiver) {
+        const o = s * INSTANCE_FLOATS
+        if (receiver.hidesShadow(f, o, batch.mesh.bounds, sphere, skinned, sweep!, margin, floor)) {
+          receiver.culledInstances++
+          list.culled++
+          continue
+        }
       }
       let distance = 0
       if (eye) {
@@ -1536,6 +1880,44 @@ export class InstanceStore {
     return false
   }
 
+  /**
+   * Whether a batch can draw into a shadow view: a member casts, of the view's class (0116). Small
+   * batches are walked (every structure chunk is one); bigger ones are assumed to. So shadow views
+   * issue no draws for meshes that don't cast there (chunk meshes a proxy stands for, static
+   * batches in a dynamic layer).
+   */
+  anyCaster(batch: Batch, classes: number): boolean {
+    const n = batch.memberCount
+    if (n === 0 || n !== batch.count || n > 8) return true
+    for (let i = 0; i < n; i++) {
+      const flags = this.u32[batch.members[i]! * INSTANCE_FLOATS + 13]!
+      if (!casts(flags)) continue
+      if (classes === CasterClass.all || ((flags & DYNAMIC_BIT) !== 0) === (classes === 2))
+        return true
+    }
+    return false
+  }
+
+  /**
+   * Whether an occlusion buffer leaves any member of a small batch visible (0116): a camera view
+   * then skips the draw of a batch it hides whole, as it does a hidden one. Bigger batches and LOD
+   * sets are left to the per-instance test.
+   */
+  anyUnoccluded(batch: Batch, buffer: OcclusionTest): boolean {
+    const n = batch.memberCount
+    if (n === 0 || n !== batch.count || n > 8) return true
+    const sphere = scratchSphere
+    for (let i = 0; i < n; i++) {
+      const slot = batch.members[i]!
+      const word = this.u32[slot * INSTANCE_FLOATS + 13]!
+      const skinned = (word & InstanceFlags.Skinned) !== 0
+      if (skinned) sphereOfSlot(sphere, this, slot, word, batch.mesh.bounds)
+      const o = slot * INSTANCE_FLOATS
+      if (!buffer.hidesInstance(this.f32, o, batch.mesh.bounds, sphere, skinned)) return true
+    }
+    return false
+  }
+
   private nearKeys = new Float64Array(0)
   private nearItems: DrawItem[] = []
 
@@ -1559,11 +1941,11 @@ export class InstanceStore {
       const batch = items[i]!.batch
       if (i > 0) {
         const prev = items[i - 1]!.batch
-        // Runs also break between shared vertex buffers (GPU mesh arenas, like terrain chunks'):
-        // near first within each, so reordering never costs more buffer binds. Meshes with their
-        // own buffers bind per draw in any order.
-        const a = prev.mesh.gpu?.share
-        const b = batch.mesh.gpu?.share
+        // Runs also break between shared vertex buffers (GPU meshes sharing terrain chunks', and
+        // Mesh.arena, 0116): near first within each, so reordering never costs more buffer binds.
+        // Meshes with their own buffers bind per draw in any order.
+        const a = prev.mesh.gpu?.share ?? prev.mesh.arena
+        const b = batch.mesh.gpu?.share ?? batch.mesh.arena
         if (
           prev.material !== batch.material ||
           this.batchKey(prev) !== this.batchKey(batch) ||
@@ -1802,6 +2184,7 @@ export const prepareInstances = defineSystem({
       const dataY = hasData ? table.column(InstanceData, 'y') : undefined
       const dataChanged = hasData ? table.changedTicks(InstanceData) : zeroTicks(n)
       const vis = table.column(ComputedVisibility, 'visible')
+      const shadowOnly = table.column(ComputedVisibility, 'shadowOnly')
       const hiddenFlag = table.has(ShadowWhenHidden) ? InstanceFlags.ShadowOnly : 0
       const layerMasks = table.has(RenderLayers) ? table.column(RenderLayers, 'mask') : undefined
       const hasGround = table.has(GroundLayer)
@@ -1824,6 +2207,7 @@ export const prepareInstances = defineSystem({
         (deforms && table.has(SkinnedMesh) ? InstanceFlags.Skinned : 0) |
         (deforms && table.has(MorphWeights) ? InstanceFlags.Morph : 0) |
         (table.has(NotShadowCaster) ? 0 : InstanceFlags.Caster) |
+        (table.has(DynamicCaster) ? InstanceFlags.Dynamic : 0) |
         (table.has(NotShadowReceiver) ? 0 : InstanceFlags.Receiver) |
         (hasRange ? InstanceFlags.Range : 0) |
         (hasLod ? InstanceFlags.Lod : 0)
@@ -1844,7 +2228,14 @@ export const prepareInstances = defineSystem({
         const o = slot * INSTANCE_FLOATS
         const visible = vis[i] !== 0
         if (!visible) hidden++
-        const flags = tableFlags | (visible ? InstanceFlags.Visible : hiddenFlag)
+        // Shadow-only (Visibility, 0116), or hidden with ShadowWhenHidden (0067): shadow views only.
+        const flags =
+          tableFlags |
+          (visible
+            ? InstanceFlags.Visible
+            : shadowOnly[i] !== 0
+              ? InstanceFlags.ShadowOnly
+              : hiddenFlag)
         const oldFlags = slotFlags[slot]!
         if (fresh || gChanged[i]! > since) store.moveSlot(slot, g, i * 12, fresh)
         store.setLayers(slot, layerMasks ? layerMasks[i]! : 1)
@@ -1872,16 +2263,27 @@ export const prepareInstances = defineSystem({
           resolveSlot(store, slot, meshes, materials)
         }
         if (oldFlags !== flags) {
-          u32[o + 13] = recordFlags(flags, store.layers[slot]!)
+          const oldWord = u32[o + 13]!
+          u32[o + 13] = (recordFlags(flags, store.layers[slot]!) | (oldWord & DYNAMIC_BIT)) >>> 0
           slotFlags[slot] = flags
+          store.flagsEpoch++
           if ((oldFlags ^ flags) & InstanceFlags.Cutaway)
             store.countCutaway(slot, flags & InstanceFlags.Cutaway ? 1 : -1)
           store.markDirty(slot)
+          store.syncDynamic(slot)
+          // What cached static layers hold changed only where this caster is (0116).
           if (
             (oldFlags ^ flags) &
-            (InstanceFlags.Visible | InstanceFlags.Caster | InstanceFlags.ShadowOnly)
-          )
-            store.shadowEpoch++
+            (InstanceFlags.Visible |
+              InstanceFlags.Caster |
+              InstanceFlags.ShadowOnly |
+              InstanceFlags.Dynamic |
+              InstanceFlags.Skinned |
+              InstanceFlags.Morph)
+          ) {
+            store.pushStatic(slot, oldWord)
+            store.pushStatic(slot, u32[o + 13]!)
+          }
         }
         if (fresh || rangeChanged[i]! > since) {
           if (hasRange) store.setRange(slot, rangeStart![i]!, rangeEnd![i]!)
@@ -1892,6 +2294,7 @@ export const prepareInstances = defineSystem({
       tableHidden[table.id] = hidden - hiddenBefore
       rows += n
     }
+    store.settleStatic()
     store.settleMoved()
     store.hiddenCount = hidden
     store.drawableCount = rows - store.pending.size

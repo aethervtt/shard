@@ -1319,3 +1319,115 @@ export function ringsOverlap(a: Float64Array, b: Float64Array): boolean {
     insideRing(a, 0, a.length / 2, b[0]!, b[1]!, true)
   )
 }
+
+/** Triangles an occluder is built from (0116): positions and indices, reused between builds. */
+export class OccluderBuilder {
+  positions: number[] = []
+  indices: number[] = []
+
+  reset(): void {
+    this.positions.length = 0
+    this.indices.length = 0
+  }
+
+  get empty(): boolean {
+    return this.indices.length === 0
+  }
+
+  /** A vertical quad from (ax, az) to (bx, bz), y0 to y1: two triangles sharing a diagonal. */
+  quad(ax: number, az: number, bx: number, bz: number, y0: number, y1: number): void {
+    const v = this.positions.length / 3
+    this.positions.push(ax, y0, az, bx, y0, bz, bx, y1, bz, ax, y1, az)
+    this.indices.push(v, v + 1, v + 2, v, v + 2, v + 3)
+  }
+}
+
+const occluderAt = new Float64Array(4)
+
+/**
+ * A wall's occluder in one chunk square (0116): each solid piece (frames left out, openings are
+ * gaps) as quads on its centreline, inside the wall whatever its thickness, clipped to the square.
+ * `builder(i)` is where piece i goes (by its material). What it hides, it surely hides.
+ */
+export function emitOccluder(
+  w: WallShape,
+  pieces: readonly Piece[],
+  count: number,
+  minX: number,
+  minZ: number,
+  maxX: number,
+  maxZ: number,
+  builder: (piece: number) => OccluderBuilder | undefined,
+): void {
+  const line = w.line
+  if (line.length < 1e-6) return
+  for (let i = 0; i < count; i++) {
+    const p = pieces[i]!
+    if (p.frame || p.y1 <= p.y0) continue
+    const b = builder(i)
+    if (!b) continue
+    // The centreline from s0 to s1: its samples in between, and the two ends.
+    pointAt(line, p.s0, occluderAt)
+    let px = occluderAt[0]!
+    let pz = occluderAt[1]!
+    for (let k = 0; k <= line.count; k++) {
+      const s = k < line.count ? line.s[k]! : p.s1
+      if (k < line.count && (s <= p.s0 || s >= p.s1)) continue
+      let qx: number
+      let qz: number
+      if (k < line.count) {
+        qx = line.x[k]!
+        qz = line.z[k]!
+      } else {
+        pointAt(line, p.s1, occluderAt)
+        qx = occluderAt[0]!
+        qz = occluderAt[1]!
+      }
+      clipOccluder(b, px, pz, qx, qz, minX, minZ, maxX, maxZ, p.y0, p.y1)
+      px = qx
+      pz = qz
+    }
+  }
+}
+
+/** A segment's part inside the square (Liang-Barsky), as an occluder quad. */
+function clipOccluder(
+  b: OccluderBuilder,
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  minX: number,
+  minZ: number,
+  maxX: number,
+  maxZ: number,
+  y0: number,
+  y1: number,
+): void {
+  const dx = bx - ax
+  const dz = bz - az
+  let t0 = 0
+  let t1 = 1
+  const edges = [
+    [-dx, ax - minX],
+    [dx, maxX - ax],
+    [-dz, az - minZ],
+    [dz, maxZ - az],
+  ] as const
+  for (const [p, q] of edges) {
+    if (p === 0) {
+      if (q < 0) return
+      continue
+    }
+    const r = q / p
+    if (p < 0) {
+      if (r > t1) return
+      if (r > t0) t0 = r
+    } else {
+      if (r < t0) return
+      if (r < t1) t1 = r
+    }
+  }
+  if (t1 - t0 < 1e-9) return
+  b.quad(ax + dx * t0, az + dz * t0, ax + dx * t1, az + dz * t1, y0, y1)
+}

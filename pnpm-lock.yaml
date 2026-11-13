@@ -1447,6 +1447,12 @@ importers:
         specifier: workspace:*
         version: link:../transform
     devDependencies:
+      '@aethervtt/shard-gpu':
+        specifier: workspace:*
+        version: link:../gpu
+      '@aethervtt/shard-mesh':
+        specifier: workspace:*
+        version: link:../mesh
       '@aethervtt/shard-nav':
         specifier: workspace:*
         version: link:../nav
@@ -1462,6 +1468,9 @@ importers:
       '@aethervtt/shard-project':
         specifier: workspace:*
         version: link:../project
+      '@aethervtt/shard-render':
+        specifier: workspace:*
+        version: link:../render
       '@aethervtt/shard-structure':
         specifier: workspace:*
         version: link:../structure
