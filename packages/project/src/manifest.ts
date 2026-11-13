@@ -200,7 +200,7 @@ export const BUILTIN_PLUGINS = {
   'nav/grid':
     'navigation on NavGrids only, without loading the Recast WASM (includes core/transform)',
   structure:
-    'walls (straight, arc, Bézier), doors, windows, floors, roofs, cutouts and levels (0055, 0066, 0067); with render/forward it draws them, with physics3d (0112) they collide: static colliders for walls, floors and roofs, and door, window and hatch colliders that follow their state. Runs headless (includes core/transform)',
+    'walls (straight, arc, Bézier), doors, windows, floors, roofs, cutouts and levels (0055, 0066, 0067); with render/forward it draws them, with physics3d (0112) they collide: static colliders for walls, floors and roofs, and door, window and hatch colliders that follow their state; with nav they feed navmeshes directly, doors and hatches as gates whose flags follow their state and passable windows as links, so a door toggle re-bakes nothing and nav/Filters decide who passes. Runs headless (includes core/transform)',
   terrain:
     'planets: Planet cube-sphere terrain from noise graphs with LOD, geomorphing, oceans, biomes, collider chunks around characters, navmeshes on the surface; terrain.* methods (includes core/transform; add render/forward to draw it, physics3d for colliders)',
   scatter:

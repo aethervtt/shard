@@ -1,6 +1,7 @@
 import { ShardError } from '@aethervtt/shard-core'
 import type * as RecastModule from 'recast-navigation'
 import type { TriangleSoup } from './geometry'
+import type { NavGate } from './sources'
 
 export type Recast = typeof RecastModule
 
@@ -30,9 +31,21 @@ export interface BakeSettings {
 /** Recast's walkable area code; Detour sees it as area 0. */
 const WALKABLE = 63
 
-/** Poly flags for an area: one bit per area 0–14, so filters can exclude areas exactly. */
+/**
+ * Poly flags (0112): bits 0–11 are areas 0–11, one each, so a filter excludes those exactly; bit
+ * 12 is shared by areas 12–62; bits 13–15 are gate state, set at runtime on a gate's polygons.
+ */
+export const EXACT_AREAS = 12
+export const GATE_CLOSED = 1 << 13
+export const GATE_LOCKED = 1 << 14
+export const GATE_CUSTOM = 1 << 15
+/** Gate state bits by name, as filters exclude them. */
+export const GATE_BITS = { closed: GATE_CLOSED, locked: GATE_LOCKED, custom: GATE_CUSTOM } as const
+export type GateState = keyof typeof GATE_BITS
+
+/** Poly flags for an area: its own bit for areas 0–11, the shared bit 12 for the rest. */
 export function areaFlags(area: number): number {
-  return 1 << (area < 15 ? area : 15)
+  return 1 << (area < EXACT_AREAS ? area : EXACT_AREAS)
 }
 
 export interface OffMeshLinkParams {
@@ -75,6 +88,7 @@ export function buildTile(
   triangles: Int32Array,
   count: number,
   links: readonly OffMeshLinkParams[],
+  gates: readonly NavGate[] = [],
 ): Uint8Array | null {
   const v = voxelSettings(s)
   const cs = s.cellSize
@@ -146,6 +160,23 @@ export function buildTile(
     R.freeHeightfield(hf)
     hf = undefined
     if (!R.erodeWalkableArea(ctx, v.walkableRadius, chf)) fail('erode the walkable area')
+    // Area gates (0112), after erosion as Recast's convex volumes are: their cells take the gate's
+    // area, so its polygons are its own (regions never merge across areas).
+    for (const gate of gates) {
+      const p = gate.points
+      if (!p || p.length < 6) continue
+      const n = p.length / 2
+      const verts = new R.FloatArray()
+      const flat = new Float32Array(n * 3)
+      for (let i = 0; i < n; i++) {
+        flat[i * 3] = p[i * 2]!
+        flat[i * 3 + 1] = gate.yMin
+        flat[i * 3 + 2] = p[i * 2 + 1]!
+      }
+      verts.copy(flat)
+      R.markConvexPolyArea(ctx, verts, n, gate.yMin, gate.yMax, gate.area, chf)
+      verts.destroy()
+    }
     if (!R.buildDistanceField(ctx, chf)) fail('build the distance field')
     if (!R.buildRegions(ctx, chf, border, 8 * 8, 20 * 20)) fail('build regions')
     cset = R.allocContourSet()

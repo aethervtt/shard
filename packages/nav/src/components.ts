@@ -217,6 +217,10 @@ export const NavAgent = defineComponent(
     nav: t.entity({
       description: 'The NavGrid or NavMesh to walk on (default: the one the agent stands in).',
     }),
+    filter: t.string({
+      description:
+        'Navmeshes: the nav/Filters entry it paths with (0112), such as "zombie"; empty is the default filter (nav/Areas costs, every gate passable).',
+    }),
   },
   {
     description:
@@ -244,6 +248,26 @@ export const NavAreas = defineResource<NavAreasValue>('nav/Areas', {
   description:
     'Navmesh area costs by area code (NavSource.area, OffMeshLink.area): { "1": 3 } makes area 1 three times as costly. 0 excludes an area. Unlisted areas cost 1.',
   init: () => ({ 0: 1 }),
+})
+
+/**
+ * A named query filter (0112): area costs over nav/Areas (0 excludes areas 0–11), and the gate
+ * states it won't pass (`closed`, `locked`, `custom`).
+ */
+export interface NavFilterValue {
+  areas?: Record<number, number>
+  exclude?: ('closed' | 'locked' | 'custom')[]
+}
+
+export type NavFiltersValue = Record<string, NavFilterValue>
+
+/** At most this many named filters: Detour's crowd has 16 filter slots and the default takes one. */
+export const MAX_NAV_FILTERS = 15
+
+export const NavFilters = defineResource<NavFiltersValue>('nav/Filters', {
+  description:
+    'Named navmesh query filters (0112), up to 15: { "zombie": { "exclude": ["closed", "locked"] } }. NavAgent.filter, findPath and nav.path pick one by name. Each takes nav/Areas costs, overridden by its own `areas` (0 excludes an area 0–11), and passes no gate polygon flagged with a state in `exclude`. Write it with insertResource or patchResource.',
+  init: () => ({}),
 })
 
 // --- grid data asset ---------------------------------------------------------------

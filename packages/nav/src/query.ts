@@ -3,7 +3,7 @@ import { GlobalTransform } from '@aethervtt/shard-transform'
 import { NavAgent } from './components'
 import { type GridHit, nearestWalkable, smoothGridPath, traceSegment } from './grid'
 import type { NavMeshRuntime } from './navmesh'
-import type { Recast } from './recast'
+import { areaFlags, EXACT_AREAS, type Recast } from './recast'
 import { type GridRecord, type NavState, navState } from './state'
 
 export const PATH_STATUSES = ['complete', 'partial', 'none'] as const
@@ -33,8 +33,13 @@ export interface FindPathOptions {
   nav?: Entity | null
   /** Plan as this NavAgent: its `nav`, if set. */
   agent?: Entity | null
-  /** Navmesh area costs for this query only, over nav/Areas (0 excludes an area). */
+  /** Navmesh area costs for this query only, over nav/Areas and the filter's (0 excludes an area). */
   areas?: Record<number, number>
+  /**
+   * Navmeshes: the nav/Filters entry to path with (0112), such as "zombie". Empty: the default
+   * filter. Throws `nav/unknown-filter` for a name nav/Filters doesn't have.
+   */
+  filter?: string
 }
 
 /** Which grid or navmesh a point is in. */
@@ -169,12 +174,12 @@ export function findPath(
   } else {
     out.nav = foundMesh!.entity
     const m = foundMesh!
-    if (m.frame === null) meshPath(m, from, to, out, options.areas)
+    if (m.frame === null) meshPath(m, from, to, out, options.areas, options.filter)
     else {
       // In the navmesh's frame, then the corners back to world space.
       m.pointIn(from[0]!, from[1]!, from[2] ?? 0, fromLocal)
       m.pointIn(to[0]!, to[1]!, to[2] ?? 0, toLocal)
-      meshPath(m, fromLocal, toLocal, out, options.areas)
+      meshPath(m, fromLocal, toLocal, out, options.areas, options.filter)
       const c = out.corners
       for (let i = 0; i < out.count; i++) {
         m.pointOut(c[i * 3]!, c[i * 3 + 1]!, c[i * 3 + 2]!, inFrame)
@@ -200,9 +205,10 @@ export function meshPathLocal(
   to: ArrayLike<number>,
   out: NavPath,
   areas?: Record<number, number>,
+  filter?: string,
 ): void {
   out.nav = m.entity
-  meshPath(m, from, to, out, areas)
+  meshPath(m, from, to, out, areas, filter)
 }
 
 function gridPath(
@@ -293,19 +299,21 @@ function queryExtents(m: NavMeshRuntime) {
 
 type RFilter = InstanceType<Recast['QueryFilter']>
 
-/** A filter with `areas` applied over the navmesh's own costs. Destroy it after use. */
-function areaFilter(m: NavMeshRuntime, areas: Record<number, number>): RFilter {
+/** A filter with `areas` applied over `base`'s costs and flags. Destroy it after use. */
+function areaFilter(m: NavMeshRuntime, base: RFilter, areas: Record<number, number>): RFilter {
   const f = new m.R.QueryFilter()
-  for (let a = 0; a < 63; a++) f.setAreaCost(a, m.filter.getAreaCost(a))
-  let exclude = ~m.filter.includeFlags & 0xffff
+  for (let a = 0; a < 63; a++) f.setAreaCost(a, base.getAreaCost(a))
+  let include = base.includeFlags
   for (const key of Object.keys(areas)) {
     const area = Number(key)
     const cost = areas[area]!
     if (!(area >= 0 && area < 63)) continue
-    if (cost <= 0) exclude |= area < 15 ? 1 << area : 1 << 15
-    else f.setAreaCost(area, cost)
+    if (cost <= 0) {
+      if (area < EXACT_AREAS) include &= ~areaFlags(area)
+    } else f.setAreaCost(area, cost)
   }
-  f.includeFlags = 0xffff & ~exclude
+  f.includeFlags = include
+  f.excludeFlags = base.excludeFlags
   return f
 }
 
@@ -315,11 +323,13 @@ function meshPath(
   to: ArrayLike<number>,
   out: NavPath,
   areas: Record<number, number> | undefined,
+  name?: string,
 ): void {
   out.count = 0
   out.length = 0
   out.status = 'none'
-  const filter = areas ? areaFilter(m, areas) : m.filter
+  const base = m.queryFilter(name)
+  const filter = areas ? areaFilter(m, base, areas) : base
   try {
     const q = m.query
     const halfExtents = queryExtents(m)
@@ -393,7 +403,7 @@ function meshPath(
       polys.destroy()
     }
   } finally {
-    if (filter !== m.filter) m.R.Raw.destroy(filter.raw)
+    if (filter !== base) m.R.Raw.destroy(filter.raw)
   }
 }
 

@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./planar": "./src/planar.ts",
     "./physics": "./src/physics.ts",
+    "./nav": "./src/nav.ts",
     "./fixtures": "./src/fixtures.ts",
     "./bench": "./src/bench.ts"
   },
@@ -20,6 +21,7 @@
     "@aethervtt/shard-core": "workspace:*",
     "@aethervtt/shard-mesh": "workspace:*",
     "@aethervtt/shard-mirror": "workspace:*",
+    "@aethervtt/shard-nav": "workspace:*",
     "@aethervtt/shard-physics": "workspace:*",
     "@aethervtt/shard-render": "workspace:*",
     "@aethervtt/shard-runtime": "workspace:*",

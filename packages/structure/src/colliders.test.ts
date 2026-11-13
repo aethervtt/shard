@@ -268,9 +268,12 @@ describe('structure colliders', () => {
     expect(r).toMatchObject({ built: 0, toggled: 1, removed: 0 })
     expect(physics.isStaticEnabled(other)).toBe(false)
     expect(sets()).toBe(before)
-    // Its leaf's look (no geometry, no state) changes nothing.
-    r = edit(() => world.set(other, Opening, { swing: 'right', frameWidth: 0.12 }))
-    expect(r).toMatchObject({ built: 0, toggled: 0, removed: 0 })
+    // Its leaf's look (no geometry, no state) gives colliders no work: `last` is still the toggle.
+    const log = world.resource(StructureModel).log.length
+    const toggle = { ...c.last }
+    edit(() => world.set(other, Opening, { swing: 'right', frameWidth: 0.12 }))
+    expect(world.resource(StructureModel).log.length).toBe(log)
+    expect(c.last).toEqual(toggle)
   })
 
   it('stops a character at a wall, a closed door and a window; an open door lets it through', async () => {

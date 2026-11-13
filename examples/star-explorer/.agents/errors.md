@@ -211,10 +211,14 @@ Every engine error is a `ShardError` with one of these codes.
 | `nature/too-big` | @aethervtt/shard-nature | Fewer children per branch, fewer leaves per twig, or fewer sections and segments. |
 | `nav/bad-cache` | @aethervtt/shard-nav |  |
 | `nav/bake-failed` | @aethervtt/shard-nav | Check the NavSource geometry has upward faces flatter than maxSlope, wide enough for agentRadius. |
+| `nav/gate-unmatched` | @aethervtt/shard-nav | The opening may be too narrow for the agent radius and cell size, or off the walkable surface. |
+| `nav/invalid-gate` | @aethervtt/shard-nav | Area 0 is the ground every source bakes with: a gate's polygons need an area of their own. |
 | `nav/invalid-grid` | @aethervtt/shard-nav |  |
 | `nav/no-navmesh` | @aethervtt/shard-nav | Check nav.describe: the grid may be waiting for data, or the navmesh for sources. |
 | `nav/not-ready` | @aethervtt/shard-nav | Add the nav plugin (or nav/grid for grids only) and await app.init(). |
 | `nav/out-of-bounds` | @aethervtt/shard-nav | nav.describe lists each grid and navmesh with its bounds. |
+| `nav/too-many-filters` | @aethervtt/shard-nav | Detour's crowd has 16 filter slots, and the default filter takes one. |
+| `nav/unknown-filter` | @aethervtt/shard-nav | Add it to nav/Filters, or clear NavAgent.filter. It paths with the default. |
 | `net/address-in-use` | @aethervtt/shard-net |  |
 | `net/bad-message` | @aethervtt/shard-net | Both sides must run the same build; the connection is closed. |
 | `net/cannot-listen` | @aethervtt/shard-net | Servers need a transport with listen(), such as webSocketServer() or loopback(). |
@@ -472,6 +476,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `sprite/unknown-tile` | @aethervtt/shard-sprite | Rename it to a region the atlas has, or add the region to the atlas. |
 | `sprite/unknown-tilemap` | @aethervtt/shard-sprite | Name a *.tilemap.json asset by path or guid that a Tilemap in the world uses. |
 | `sprite/unsupported-image` | @aethervtt/shard-sprite |  |
+| `structure/door-too-narrow` | @aethervtt/shard-structure | Widen the door, or give the NavMesh a smaller agentRadius or cellSize: an opening needs 2·⌈r/cs⌉·cs + 4·cs to pass at any alignment. |
 | `structure/too-many-blocked-lights` | @aethervtt/shard-structure | Raise StructureSettings.interior.maxBlockedLights, or block fewer lights (each row costs one texture row). |
 | `terrain/bad-direction` | @aethervtt/shard-terrain | Pass a direction from the planet’s center in its frame, e.g. the position of a point on it. |
 | `terrain/bad-edit` | @aethervtt/shard-terrain | e.g. { "edit": { "shape": { "circle": { "at": [300, 300], "radius": 10 } }, "raise": 2 } } or { "stroke": { "brush": "smooth", "radius": 8, "strength": 0.5, "points": [[300, 300], [340, 310]] } }. |
