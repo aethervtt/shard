@@ -30,6 +30,7 @@ export {
   GRID_SOURCES,
   type GridSource,
   MAX_NAV_FILTERS,
+  NAV_TIERS,
   NavAgent,
   type NavAgentEventData,
   NavAgentState,
@@ -43,6 +44,7 @@ export {
   NavFilters,
   type NavFiltersValue,
   type NavFilterValue,
+  NavFlowField,
   NavGateAhead,
   type NavGateAheadData,
   NavGateBlocked,
@@ -55,12 +57,24 @@ export {
   NavGridDatas,
   NavMesh,
   NavSource,
+  NavTier,
+  type NavTierName,
   NavUnreachable,
   NavWorkers,
   navGridFromJson,
   navGridToJson,
   OffMeshLink,
 } from './components'
+export {
+  FlowData,
+  FlowField,
+  flowAim,
+  NavFlowState,
+  NavGraph,
+  navFlow,
+  planFilter,
+} from './flow'
+export { flowGoal, flowOf, NavFlows } from './flow-state'
 export {
   DIAGONAL_MODES,
   type DiagonalMode,
@@ -123,6 +137,9 @@ export {
   NavShapes,
 } from './sources'
 export { type AgentRecord, type GridRecord, LINKS, Nav, NavState, navState } from './state'
+export { Mover, NavMoverState, navSteer, navTiers } from './steer'
+export { NavMovers, navMoverTier } from './steer-state'
+export { navTiersPlugin } from './tiers-plugin'
 
 /** Replaces the navmesh area costs; agents and queries use them from the next frame. */
 export function setNavAreas(world: World, areas: NavAreasValue): void {

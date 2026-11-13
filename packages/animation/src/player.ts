@@ -28,6 +28,7 @@ import {
   type AnimationMaskAsset,
   AnimationMasks,
   AnimationPlayer,
+  AnimationSampling,
   maskWeight,
   ROOT_MOTION_MODES,
   RootMotion,
@@ -46,14 +47,20 @@ import {
 
 // --- binding ---------------------------------------------------------------------------------
 
-/** One animated value: a component field of a bound entity, with its cached column. */
-interface Slot {
+/**
+ * One animated value: a component field of a bound entity, with its cached column. A flat pose's
+ * slots (see flat.ts) are a joint's translation, rotation or scale lane instead: no entity, and
+ * nothing cached (the blend code only reads path, width, quat, scale and offset).
+ */
+export interface Slot {
   entity: Entity
   path: string
   def: ComponentDef
   field: string
   width: number
   quat: boolean
+  /** Transform.scale: additive layers multiply it. */
+  scale: boolean
   /** An object column holding number[] (morph weights). */
   list: boolean
   /** Where this slot's floats sit in the binding's pose and rest arrays. */
@@ -67,7 +74,7 @@ interface Slot {
   stride: number
 }
 
-interface ClipBinding {
+export interface ClipBinding {
   channels: AnimationChannel[]
   /** Slot per channel, or -1 for a target that isn't there. */
   slotOf: Int32Array
@@ -95,8 +102,25 @@ interface MaskBinding {
   weights: Float32Array
 }
 
-interface Binding {
+/**
+ * A flat pose's skeleton as the blend code sees it (flat.ts builds it): joint indices by path, and
+ * what root motion needs to place the root joint's parent.
+ */
+export interface FlatLayout {
+  /** Joint index by path. */
+  index: Map<string, number>
+  parents: Int16Array
+  /** 12 floats per joint: a top joint's non-joint ancestors (affine rows). */
+  pre: Float32Array
+}
+
+/**
+ * What a player's layers blend into: the entity sampler's binding (slots on entities), or a flat
+ * pose's (slots on joint lanes, `flat` set). Both are made by newBinding, so they share a shape.
+ */
+export interface Binding {
   root: Entity
+  /** Entities by path; a flat pose's joint indices by path (and -1 for their ancestors). */
   paths: Map<string, Entity>
   slots: Slot[]
   byKey: Map<string, number>
@@ -118,6 +142,10 @@ interface Binding {
   plans: Map<AnimationClipAsset, RetargetPlan>
   /** Clips whose retarget problem was logged, so it logs once while it lasts. */
   reported: Set<AnimationClipAsset>
+  /** A flat pose's skeleton, or null for entities. */
+  flat: FlatLayout | null
+  /** Flat: which lanes a clip has bound (root motion picks among them). */
+  bound: Uint8Array | null
 }
 
 interface RetargetConfig {
@@ -168,14 +196,37 @@ export const AnimationStateResource = defineResource<AnimationState>('animation/
 })
 
 function createBinding(world: World, root: Entity): Binding {
+  return newBinding(
+    root,
+    descendantPaths(world, root),
+    [],
+    new Map(),
+    new Float32Array(64),
+    new Float32Array(64),
+    new Uint8Array(16),
+    null,
+  )
+}
+
+/** A binding over the given slots and pose arrays (flat.ts passes a skeleton's fixed lanes). */
+export function newBinding(
+  root: Entity,
+  paths: Map<string, Entity>,
+  slots: Slot[],
+  byKey: Map<string, number>,
+  pose: Float32Array,
+  rest: Float32Array,
+  active: Uint8Array,
+  flat: FlatLayout | null,
+): Binding {
   return {
     root,
-    paths: descendantPaths(world, root),
-    slots: [],
-    byKey: new Map(),
-    pose: new Float32Array(64),
-    rest: new Float32Array(64),
-    active: new Uint8Array(16),
+    paths,
+    slots,
+    byKey,
+    pose,
+    rest,
+    active,
     clips: new Map(),
     masks: new Map(),
     scratch: new Float32Array(16),
@@ -185,6 +236,8 @@ function createBinding(world: World, root: Entity): Binding {
     retarget: null,
     plans: new Map(),
     reported: new Set(),
+    flat,
+    bound: flat ? new Uint8Array(slots.length) : null,
   }
 }
 
@@ -211,6 +264,7 @@ function slotFor(
   c: AnimationChannel,
   target: string = c.target,
 ): number | string {
+  if (b.flat !== null) return flatSlotFor(b, b.flat, c, target)
   const entity = b.paths.get(target)
   if (entity === undefined || !world.isAlive(entity)) return 'no entity at this path'
   const key = `${target}|${c.component}|${c.field}`
@@ -225,22 +279,17 @@ function slotFor(
   if (!list && !animatableKinds.has(layout.field.kind)) return 'field is not numeric'
   const width = list ? c.width : layout.stride
   const offset = b.slots.length === 0 ? 0 : slotEnd(b.slots[b.slots.length - 1]!)
-  const slot: Slot = {
+  const slot = makeSlot(
     entity,
-    path: target,
+    target,
     def,
-    field: c.field,
+    c.field,
     width,
-    quat: layout.field.kind === 'quat',
+    layout.field.kind === 'quat',
     list,
     offset,
-    table: undefined,
-    capacity: 0,
-    row: 0,
-    storage: undefined,
-    column: undefined,
-    stride: layout.stride,
-  }
+    layout.stride,
+  )
   const index = b.slots.length
   b.slots.push(slot)
   b.byKey.set(key, index)
@@ -266,6 +315,55 @@ function slotFor(
   readSlot(slot, b.rest, offset)
   b.masks.clear()
   return index
+}
+
+/** A slot, one shape for entity fields and flat lanes alike (so the blend loop stays monomorphic). */
+export function makeSlot(
+  entity: Entity,
+  path: string,
+  def: ComponentDef,
+  field: string,
+  width: number,
+  quat: boolean,
+  list: boolean,
+  offset: number,
+  stride: number,
+): Slot {
+  return {
+    entity,
+    path,
+    def,
+    field,
+    width,
+    quat,
+    scale: field === 'scale' && def.name === TRANSFORM,
+    list,
+    offset,
+    table: undefined,
+    capacity: 0,
+    row: 0,
+    storage: undefined,
+    column: undefined,
+    stride,
+  }
+}
+
+/** A flat pose's lane for a joint Transform channel; anything else isn't sampled there. */
+function flatSlotFor(
+  b: Binding,
+  flat: FlatLayout,
+  c: AnimationChannel,
+  target: string,
+): number | string {
+  const j = flat.index.get(target)
+  if (j === undefined) return 'no joint at this path'
+  if (c.component !== TRANSFORM) return 'not a joint transform (flat poses sample joints only)'
+  const lane =
+    c.field === 'translation' ? 0 : c.field === 'rotation' ? 1 : c.field === 'scale' ? 2 : -1
+  if (lane < 0) return 'no such field'
+  const k = j * 3 + lane
+  b.bound![k] = 1
+  return k
 }
 
 function slotEnd(s: Slot): number {
@@ -319,7 +417,12 @@ function writeSlot(s: Slot, from: Float32Array, o: number, tick: number): void {
   storage.lastChanged = tick
 }
 
-function bindClip(world: World, b: Binding, clip: AnimationClipAsset, frame: number): ClipBinding {
+export function bindClip(
+  world: World,
+  b: Binding,
+  clip: AnimationClipAsset,
+  frame: number,
+): ClipBinding {
   const channels = clip.channels
   const cb: ClipBinding = {
     channels,
@@ -355,7 +458,21 @@ function bindClip(world: World, b: Binding, clip: AnimationClipAsset, frame: num
 /** Plans how a clip lands on this model through its Retarget (cold: when the clip binds). */
 function retargetPlan(world: World, b: Binding, clip: AnimationClipAsset): RetargetPlan {
   const cfg = b.retarget!
+  const flat = b.flat
   const restOf = (path: string) => {
+    if (flat !== null) {
+      // A flat pose's rest: its joints' lanes, and its top joints' ancestors as the parent of each.
+      const j = flat.index.get(path)
+      if (j !== undefined) {
+        const o = j * 10
+        return {
+          t: [b.rest[o]!, b.rest[o + 1]!, b.rest[o + 2]!],
+          r: [b.rest[o + 3]!, b.rest[o + 4]!, b.rest[o + 5]!, b.rest[o + 6]!],
+          s: [b.rest[o + 7]!, b.rest[o + 8]!, b.rest[o + 9]!],
+        }
+      }
+      return ancestorRest(flat, path)
+    }
     const entity = b.paths.get(path)
     if (entity === undefined || !world.isAlive(entity) || !world.has(entity, Transform))
       return undefined
@@ -388,7 +505,7 @@ function retargetPlan(world: World, b: Binding, clip: AnimationClipAsset): Retar
  * Brings a binding's Retarget up to date with the player's (none, or before its skin loads, is
  * none). A change rebinds every clip. Allocates only when it changes.
  */
-function syncRetarget(
+export function syncRetarget(
   world: World,
   b: Binding,
   table: Table,
@@ -406,6 +523,17 @@ function syncRetarget(
     mode = table.column(Retarget, 'mode')[i]!
     align = table.column(Retarget, 'align')[i] !== 0
   }
+  setRetarget(b, skin, map, RETARGET_MODES[mode]!, align)
+}
+
+/** Sets a binding's Retarget (skin undefined: none); a change rebinds every clip. */
+export function setRetarget(
+  b: Binding,
+  skin: SkinAsset | undefined,
+  map: JointMapAsset | undefined,
+  mode: (typeof RETARGET_MODES)[number],
+  align: boolean,
+): void {
   const was = b.retarget
   const same =
     skin === undefined
@@ -413,10 +541,10 @@ function syncRetarget(
       : was !== null &&
         was.skin === skin &&
         was.map === map &&
-        was.mode === RETARGET_MODES[mode] &&
+        was.mode === mode &&
         was.align === align
   if (same) return
-  b.retarget = skin ? { skin, map, mode: RETARGET_MODES[mode]!, align } : null
+  b.retarget = skin ? { skin, map, mode, align } : null
   b.clips.clear()
   b.plans.clear()
   b.reported.clear()
@@ -672,21 +800,30 @@ function fireEvents(
 
 const TRANSFORM = 'core/Transform'
 
-/** Picks the root joint's slots and computes its parent's model-space transform. */
-function prepareRoot(world: World, b: Binding, wanted: string): boolean {
+/**
+ * Picks the root joint's slots and computes its parent's model-space transform. A flat pose's
+ * parent is its rest pose (and `pre`), computed when the root is picked.
+ */
+export function prepareRoot(world: World, b: Binding, wanted: string): boolean {
   const r = b.root_
+  const flat = b.flat
   if (r.path === undefined || (wanted && r.path !== wanted)) {
     let best: Slot | undefined
-    for (const s of b.slots) {
+    const slots = b.slots
+    for (let k = 0; k < slots.length; k++) {
+      const s = slots[k]!
       if (s.def.name !== TRANSFORM || s.field !== 'translation' || s.path === '') continue
+      if (flat !== null && b.bound![k] === 0) continue
       if (wanted ? s.path !== wanted : best && depth(s.path) >= depth(best.path)) continue
       best = s
     }
     r.path = best?.path ?? ''
     r.translation = best ? (b.byKey.get(`${best.path}|${TRANSFORM}|translation`) ?? -1) : -1
     r.rotation = best ? (b.byKey.get(`${best.path}|${TRANSFORM}|rotation`) ?? -1) : -1
+    if (flat !== null && best) flatRootParent(b, flat, flat.index.get(best.path)!)
   }
   if (r.translation < 0 && r.rotation < 0) return false
+  if (flat !== null) return true
   // The chain from the player (exclusive) down to the root's parent, as affine rows.
   const joint = b.slots[r.translation >= 0 ? r.translation : r.rotation]!.entity
   identityRows(r.parent)
@@ -715,6 +852,127 @@ function prepareRoot(world: World, b: Binding, wanted: string): boolean {
   }
   invertRows(r.parentInverse, r.parent)
   return true
+}
+
+/** A flat root joint's parent in model space: `pre` times its joint ancestors' rest poses. */
+function flatRootParent(b: Binding, flat: FlatLayout, j: number): void {
+  const r = b.root_
+  identityRows(r.parent)
+  r.parentRotation[0] = 0
+  r.parentRotation[1] = 0
+  r.parentRotation[2] = 0
+  r.parentRotation[3] = 1
+  // Left-multiplied going up: parent = pre(top) · rest(top) · … · rest(parent of j).
+  let top = j
+  for (let p = flat.parents[j]!; p >= 0; p = flat.parents[p]!) {
+    restRows(local, b.rest, p * 10)
+    mulRows(r.parent, local, r.parent)
+    quatMulInto(r.parentRotation, b.rest, p * 10 + 3, r.parentRotation, 0)
+    top = p
+  }
+  for (let k = 0; k < 12; k++) local[k] = flat.pre[top * 12 + k]!
+  mulRows(r.parent, local, r.parent)
+  rowsToQuat(qm, local)
+  quatMulInto(r.parentRotation, qm, 0, r.parentRotation, 0)
+  invertRows(r.parentInverse, r.parent)
+}
+
+/**
+ * A non-joint ancestor's local rest for retargeting a flat pose: the parent of a top joint holds
+ * that joint's whole `pre`, the ones above it nothing (so they compose to `pre`).
+ */
+function ancestorRest(
+  flat: FlatLayout,
+  path: string,
+): { t: number[]; r: number[]; s: number[] } | undefined {
+  for (const [joint, j] of flat.index) {
+    if (flat.parents[j]! >= 0) continue
+    const slash = joint.lastIndexOf('/')
+    if ((slash === -1 ? '' : joint.slice(0, slash)) !== path) continue
+    const m = flat.pre.subarray(j * 12, j * 12 + 12)
+    const q = new Float32Array(4)
+    rowsToQuat(q, m)
+    return {
+      t: [m[3]!, m[7]!, m[11]!],
+      r: [...q],
+      s: [0, 1, 2].map((c) => Math.sqrt(m[c]! ** 2 + m[4 + c]! ** 2 + m[8 + c]! ** 2)),
+    }
+  }
+  return undefined
+}
+
+/** Affine rows of a TRS stored as 10 floats (t xyz, r xyzw, s xyz) at `o`. */
+export function restRows(out: Float32Array, src: Float32Array, o: number): void {
+  const x = src[o + 3]!
+  const y = src[o + 4]!
+  const z = src[o + 5]!
+  const w = src[o + 6]!
+  const sx = src[o + 7]!
+  const sy = src[o + 8]!
+  const sz = src[o + 9]!
+  out[0] = (1 - 2 * (y * y + z * z)) * sx
+  out[1] = 2 * (x * y - w * z) * sy
+  out[2] = 2 * (x * z + w * y) * sz
+  out[3] = src[o]!
+  out[4] = 2 * (x * y + w * z) * sx
+  out[5] = (1 - 2 * (x * x + z * z)) * sy
+  out[6] = 2 * (y * z - w * x) * sz
+  out[7] = src[o + 1]!
+  out[8] = 2 * (x * z - w * y) * sx
+  out[9] = 2 * (y * z + w * x) * sy
+  out[10] = (1 - 2 * (x * x + y * y)) * sz
+  out[11] = src[o + 2]!
+}
+
+/** The rotation of affine rows (columns normalized, so scale drops out). Cold path. */
+function rowsToQuat(out: Float32Array, m: ArrayLike<number>): void {
+  const lx = Math.sqrt(m[0]! * m[0]! + m[4]! * m[4]! + m[8]! * m[8]!) || 1
+  const ly = Math.sqrt(m[1]! * m[1]! + m[5]! * m[5]! + m[9]! * m[9]!) || 1
+  const lz = Math.sqrt(m[2]! * m[2]! + m[6]! * m[6]! + m[10]! * m[10]!) || 1
+  const m00 = m[0]! / lx
+  const m01 = m[1]! / ly
+  const m02 = m[2]! / lz
+  const m10 = m[4]! / lx
+  const m11 = m[5]! / ly
+  const m12 = m[6]! / lz
+  const m20 = m[8]! / lx
+  const m21 = m[9]! / ly
+  const m22 = m[10]! / lz
+  const trace = m00 + m11 + m22
+  let x: number
+  let y: number
+  let z: number
+  let w: number
+  if (trace > 0) {
+    const s = 0.5 / Math.sqrt(trace + 1)
+    x = (m21 - m12) * s
+    y = (m02 - m20) * s
+    z = (m10 - m01) * s
+    w = 0.25 / s
+  } else if (m00 > m11 && m00 > m22) {
+    const s = 2 * Math.sqrt(1 + m00 - m11 - m22)
+    x = 0.25 * s
+    y = (m01 + m10) / s
+    z = (m02 + m20) / s
+    w = (m21 - m12) / s
+  } else if (m11 > m22) {
+    const s = 2 * Math.sqrt(1 + m11 - m00 - m22)
+    x = (m01 + m10) / s
+    y = 0.25 * s
+    z = (m12 + m21) / s
+    w = (m02 - m20) / s
+  } else {
+    const s = 2 * Math.sqrt(1 + m22 - m00 - m11)
+    x = (m02 + m20) / s
+    y = (m12 + m21) / s
+    z = 0.25 * s
+    w = (m10 - m01) / s
+  }
+  const len = Math.sqrt(x * x + y * y + z * z + w * w) || 1
+  out[0] = x / len
+  out[1] = y / len
+  out[2] = z / len
+  out[3] = w / len
 }
 
 function depth(path: string): number {
@@ -768,7 +1026,7 @@ function trsRows(
 
 const mulScratch = new Float32Array(12)
 /** out = a × b (affine rows); out may alias either. */
-function mulRows(out: Float32Array, a: Float32Array, b: Float32Array): void {
+export function mulRows(out: Float32Array, a: Float32Array, b: Float32Array): void {
   const m = mulScratch
   for (let r = 0; r < 3; r++) {
     for (let c = 0; c < 4; c++) {
@@ -1116,16 +1374,26 @@ export const sampleAnimations = defineSystem({
       const layerLists = table.column(AnimationPlayer, 'layers') as AnimationLayerValue[][]
       const modes = table.column(AnimationPlayer, 'rootMotion')
       const roots = table.column(AnimationPlayer, 'rootJoint') as string[]
+      // Time-only players (AnimationSampling 'none', mode 1): no binding, nothing written.
+      const sampling = table.has(AnimationSampling)
+        ? table.column(AnimationSampling, 'mode')
+        : undefined
       for (let i = 0; i < n; i++) {
         const entity = table.entities[i]!
         const layers = layerLists[i]!
-        let b = state.bindings.get(entity)
-        if (b && !bindingLive(world, b)) b = undefined
-        if (!b) {
-          b = createBinding(world, entity)
-          state.bindings.set(entity, b)
+        let b: Binding | undefined
+        if (sampling !== undefined && sampling[i] === 1) {
+          // A binding kept from when it sampled could point at joints given to another player.
+          if (state.bindings.size > 0) state.bindings.delete(entity)
+        } else {
+          b = state.bindings.get(entity)
+          if (b && !bindingLive(world, b)) b = undefined
+          if (!b) {
+            b = createBinding(world, entity)
+            state.bindings.set(entity, b)
+          }
+          syncRetarget(world, b, table, i, skins)
         }
-        syncRetarget(world, b, table, i, skins)
         // Time, fades, events.
         removals.length = 0
         if (prevTimes.length < layers.length) prevTimes = new Float64Array(layers.length * 2)
@@ -1154,120 +1422,8 @@ export const sampleAnimations = defineSystem({
             if (!ended) moving = true
           }
         }
-        // Bind every layer's clip first: root motion picks its joint among the bound slots.
-        for (let li = 0; li < layers.length; li++) {
-          const clip = clips.get(layers[li]!.clip)
-          if (!clip) continue
-          const cb: ClipBinding | undefined = b.clips.get(clip)
-          if (!cb || cb.channels !== clip.channels) bindClip(world, b, clip, frame)
-          else if ((cb.unbound.length > 0 || cb.unmapped) && frame >= cb.retryAt) {
-            // Targets that weren't there (an instance still spawning) may be now. Retargeting
-            // replans only when the paths changed: unmapped joints may simply not exist.
-            const paths = descendantPaths(world, entity)
-            if (cb.unbound.length === 0 && paths.size === cb.pathCount)
-              cb.retryAt = frame + (paths.size > 1 ? 30 : 1)
-            else {
-              b.paths = paths
-              bindClip(world, b, clip, frame)
-            }
-          }
-        }
-        // Blend.
-        const mode = ROOT_MOTION_MODES[modes[i]!]!
-        const rootOn = mode !== 'none' && prepareRoot(world, b, roots[i]!)
-        const r = b.root_
-        r.motion[0] = 0
-        r.motion[2] = 0
-        r.yaw = 0
-        if (rootOn) rootWeights(b, layers, clips, masks)
-        b.active.fill(0)
-        const pose = b.pose
-        const rest = b.rest
-        for (let li = 0; li < layers.length; li++) {
-          const layer = layers[li]!
-          const clip = clips.get(layer.clip)
-          if (!clip || layer.weight <= 0) continue
-          const cb: ClipBinding = b.clips.get(clip)!
-          const mask = layer.mask ? masks?.get(layer.mask) : undefined
-          const mw = mask ? maskFor(b, mask) : undefined
-          // Sample times, inlined: a double returned from a call V8 doesn't inline is boxed.
-          const d = clip.duration
-          const d2 = d * 2
-          const pingPong = layer.loop === 'ping-pong' && d > 0
-          let t = layer.time
-          const before = prevTimes[li]!
-          let prevTime = before
-          if (pingPong) {
-            t %= d2
-            if (t < 0) t += d2
-            if (t > d) t = d2 - t
-            prevTime %= d2
-            if (prevTime < 0) prevTime += d2
-            if (prevTime > d) prevTime = d2 - prevTime
-          }
-          const additive = layer.blend === 'additive'
-          // A loop that wrapped this frame: root travel goes to the end and on from the start.
-          const wrapped =
-            layer.loop !== 'loop'
-              ? 0
-              : layer.speed > 0 && layer.time < before
-                ? 1
-                : layer.speed < 0 && layer.time > before
-                  ? -1
-                  : 0
-          b.root_.turn = 0
-          timeArg[0] = t
-          prevArg[0] = prevTime
-          rootWeightArg[0] = rootOn ? b.layerWeights[li]! : 0
-          const channels = clip.channels
-          // Rotation before translation for the root, so travel can turn with the pinned yaw.
-          for (let pass = 0; pass < 2; pass++) {
-            for (let c = 0; c < channels.length; c++) {
-              const k = cb.slotOf[c]!
-              if (k < 0) continue
-              const isRootRot = rootOn && k === r.rotation
-              const isRootPos = rootOn && k === r.translation
-              if (pass === 0 ? !isRootRot : isRootRot) continue
-              const w = layer.weight * (mw ? mw[k]! : 1)
-              if (w <= 0) continue
-              weightArg[0] = w
-              const slot = b.slots[k]!
-              const channel = channels[c]!
-              const o = slot.offset
-              if (b.active[k] === 0) {
-                for (let x = 0; x < slot.width; x++) pose[o + x] = rest[o + x]!
-                b.active[k] = 1
-              }
-              const value = b.scratch
-              cb.cursors[c] = sampleChannelAt(channel, timeArg, cb.cursors[c]!, slot.quat, value)
-              if (cb.rtKinds !== null) correct(cb.rtKinds, cb.rtCorr!, c, value)
-              if ((isRootRot || isRootPos) && !additive) {
-                rootKinds = cb.rtKinds
-                rootCorr = cb.rtCorr
-                rootChannel = c
-                if (isRootRot) rootRotation(b, channel, value, wrapped)
-                else rootTranslation(b, channel, value, wrapped)
-                rootKinds = null
-                rootCorr = null
-              }
-              if (additive) {
-                const scale = slot.field === 'scale' && slot.def.name === TRANSFORM
-                blendAdditive(pose, o, value, channel, slot.quat, scale)
-              } else {
-                blendOverride(pose, o, value, slot.width, slot.quat)
-              }
-            }
-          }
-        }
-        // Write.
-        const slots = b.slots
-        for (let k = 0; k < slots.length; k++) {
-          if (b.active[k] === 0) continue
-          const slot = slots[k]!
-          if (slot.quat) normalizeAt(pose, slot.offset)
-          writeSlot(slot, pose, slot.offset, tick)
-        }
-        if (rootOn) applyRootMotion(world, entity, b, mode)
+        if (b !== undefined)
+          sampleInto(world, b, entity, layers, modes[i]!, roots[i]!, clips, masks, frame, tick)
         // Layers faded out to 0 go away (after blending, so indices held while it ran).
         for (let k = removals.length - 1; k >= 0; k--) layers.splice(removals[k]!, 1)
         if (removals.length > 0) table.markChanged(AnimationPlayer, i)
@@ -1278,8 +1434,165 @@ export const sampleAnimations = defineSystem({
   },
 })
 
+/** Binds, blends and writes one player's layers into its entities, and applies root motion. */
+function sampleInto(
+  world: World,
+  b: Binding,
+  entity: Entity,
+  layers: AnimationLayerValue[],
+  rootMode: number,
+  rootJoint: string,
+  clips: ClipLookup,
+  masks: MaskLookup | undefined,
+  frame: number,
+  tick: number,
+): void {
+  // Bind every layer's clip first: root motion picks its joint among the bound slots.
+  for (let li = 0; li < layers.length; li++) {
+    const clip = clips.get(layers[li]!.clip)
+    if (!clip) continue
+    const cb: ClipBinding | undefined = b.clips.get(clip)
+    if (!cb || cb.channels !== clip.channels) bindClip(world, b, clip, frame)
+    else if ((cb.unbound.length > 0 || cb.unmapped) && frame >= cb.retryAt) {
+      // Targets that weren't there (an instance still spawning) may be now. Retargeting
+      // replans only when the paths changed: unmapped joints may simply not exist.
+      const paths = descendantPaths(world, entity)
+      if (cb.unbound.length === 0 && paths.size === cb.pathCount)
+        cb.retryAt = frame + (paths.size > 1 ? 30 : 1)
+      else {
+        b.paths = paths
+        bindClip(world, b, clip, frame)
+      }
+    }
+  }
+  // Blend.
+  const mode = ROOT_MOTION_MODES[rootMode]!
+  const rootOn = mode !== 'none' && prepareRoot(world, b, rootJoint)
+  const r = b.root_
+  r.motion[0] = 0
+  r.motion[2] = 0
+  r.yaw = 0
+  if (rootOn) rootWeights(b, layers, clips, masks)
+  blendLayers(b, layers, clips, masks, rootOn, rootOn)
+  const pose = b.pose
+  // Write.
+  const slots = b.slots
+  for (let k = 0; k < slots.length; k++) {
+    if (b.active[k] === 0) continue
+    const slot = slots[k]!
+    if (slot.quat) normalizeAt(pose, slot.offset)
+    writeSlot(slot, pose, slot.offset, tick)
+  }
+  if (rootOn) applyRootMotion(world, entity, b, mode)
+}
+
 /** Each layer's time before this frame's advance (root motion samples both ends). */
 let prevTimes = new Float64Array(16)
+
+/** Sets every layer's previous time to its current one (flat poses don't advance time). */
+export function holdTimes(layers: AnimationLayerValue[]): void {
+  if (prevTimes.length < layers.length) prevTimes = new Float64Array(layers.length * 2)
+  for (let li = 0; li < layers.length; li++) prevTimes[li] = layers[li]!.time
+}
+
+export type ClipLookup = { get(ref: AssetRef | null): AnimationClipAsset | undefined }
+export type MaskLookup = { get(ref: AssetRef | null): AnimationMaskAsset | undefined }
+
+/**
+ * Blends a player's layers, in order, into the binding's pose: each slot a layer touches starts
+ * from its rest value (`active` marks them), override layers blend toward their values, additive
+ * ones add their change, masks scale both, and with `rootOn` the root joint is pinned in place
+ * (its travel and turn added to the root motion when `travel`). Shared by the entity sampler and
+ * flat poses. prevTimes holds each layer's time before this frame's advance.
+ */
+export function blendLayers(
+  b: Binding,
+  layers: AnimationLayerValue[],
+  clips: ClipLookup,
+  masks: MaskLookup | undefined,
+  rootOn: boolean,
+  travel: boolean,
+): void {
+  const r = b.root_
+  b.active.fill(0)
+  const pose = b.pose
+  const rest = b.rest
+  for (let li = 0; li < layers.length; li++) {
+    const layer = layers[li]!
+    const clip = clips.get(layer.clip)
+    if (!clip || layer.weight <= 0) continue
+    const cb: ClipBinding = b.clips.get(clip)!
+    const mask = layer.mask ? masks?.get(layer.mask) : undefined
+    const mw = mask ? maskFor(b, mask) : undefined
+    // Sample times, inlined: a double returned from a call V8 doesn't inline is boxed.
+    const d = clip.duration
+    const d2 = d * 2
+    const pingPong = layer.loop === 'ping-pong' && d > 0
+    let t = layer.time
+    const before = prevTimes[li]!
+    let prevTime = before
+    if (pingPong) {
+      t %= d2
+      if (t < 0) t += d2
+      if (t > d) t = d2 - t
+      prevTime %= d2
+      if (prevTime < 0) prevTime += d2
+      if (prevTime > d) prevTime = d2 - prevTime
+    }
+    const additive = layer.blend === 'additive'
+    // A loop that wrapped this frame: root travel goes to the end and on from the start.
+    const wrapped =
+      layer.loop !== 'loop'
+        ? 0
+        : layer.speed > 0 && layer.time < before
+          ? 1
+          : layer.speed < 0 && layer.time > before
+            ? -1
+            : 0
+    b.root_.turn = 0
+    timeArg[0] = t
+    prevArg[0] = prevTime
+    rootWeightArg[0] = travel ? b.layerWeights[li]! : 0
+    const channels = clip.channels
+    // Rotation before translation for the root, so travel can turn with the pinned yaw.
+    for (let pass = 0; pass < 2; pass++) {
+      for (let c = 0; c < channels.length; c++) {
+        const k = cb.slotOf[c]!
+        if (k < 0) continue
+        const isRootRot = rootOn && k === r.rotation
+        const isRootPos = rootOn && k === r.translation
+        if (pass === 0 ? !isRootRot : isRootRot) continue
+        const w = layer.weight * (mw ? mw[k]! : 1)
+        if (w <= 0) continue
+        weightArg[0] = w
+        const slot = b.slots[k]!
+        const channel = channels[c]!
+        const o = slot.offset
+        if (b.active[k] === 0) {
+          for (let x = 0; x < slot.width; x++) pose[o + x] = rest[o + x]!
+          b.active[k] = 1
+        }
+        const value = b.scratch
+        cb.cursors[c] = sampleChannelAt(channel, timeArg, cb.cursors[c]!, slot.quat, value)
+        if (cb.rtKinds !== null) correct(cb.rtKinds, cb.rtCorr!, c, value)
+        if ((isRootRot || isRootPos) && !additive) {
+          rootKinds = cb.rtKinds
+          rootCorr = cb.rtCorr
+          rootChannel = c
+          if (isRootRot) rootRotation(b, channel, value, wrapped)
+          else rootTranslation(b, channel, value, wrapped)
+          rootKinds = null
+          rootCorr = null
+        }
+        if (additive) {
+          blendAdditive(pose, o, value, channel, slot.quat, slot.scale)
+        } else {
+          blendOverride(pose, o, value, slot.width, slot.quat)
+        }
+      }
+    }
+  }
+}
 
 /**
  * Root motion weight per layer: an override layer's weight on the root joint, times what the
@@ -1307,7 +1620,7 @@ function rootWeights(
   }
 }
 
-function normalizeAt(p: Float32Array, o: number): void {
+export function normalizeAt(p: Float32Array, o: number): void {
   const len = Math.sqrt(
     p[o]! * p[o]! + p[o + 1]! * p[o + 1]! + p[o + 2]! * p[o + 2]! + p[o + 3]! * p[o + 3]!,
   )

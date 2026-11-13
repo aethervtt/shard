@@ -35,6 +35,9 @@ importers:
       '@aethervtt/shard-audio-preview':
         specifier: workspace:*
         version: link:../../packages/audio-preview
+      '@aethervtt/shard-characters':
+        specifier: workspace:*
+        version: link:../../packages/characters
       '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -802,6 +805,70 @@ importers:
         specifier: workspace:*
         version: link:../transform
     devDependencies:
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+      '@webgpu/types':
+        specifier: ^0.1.74
+        version: 0.1.74
+
+  packages/characters:
+    dependencies:
+      '@aethervtt/shard-animation':
+        specifier: workspace:*
+        version: link:../animation
+      '@aethervtt/shard-assets':
+        specifier: workspace:*
+        version: link:../assets
+      '@aethervtt/shard-core':
+        specifier: workspace:*
+        version: link:../core
+      '@aethervtt/shard-mesh':
+        specifier: workspace:*
+        version: link:../mesh
+      '@aethervtt/shard-net':
+        specifier: workspace:*
+        version: link:../net
+      '@aethervtt/shard-partition':
+        specifier: workspace:*
+        version: link:../partition
+      '@aethervtt/shard-render':
+        specifier: workspace:*
+        version: link:../render
+      '@aethervtt/shard-runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@aethervtt/shard-save':
+        specifier: workspace:*
+        version: link:../save
+      '@aethervtt/shard-scene':
+        specifier: workspace:*
+        version: link:../scene
+      '@aethervtt/shard-transform':
+        specifier: workspace:*
+        version: link:../transform
+    devDependencies:
+      '@aethervtt/shard-gltf':
+        specifier: workspace:*
+        version: link:../gltf
+      '@aethervtt/shard-gpu':
+        specifier: workspace:*
+        version: link:../gpu
+      '@aethervtt/shard-nav':
+        specifier: workspace:*
+        version: link:../nav
+      '@aethervtt/shard-physics':
+        specifier: workspace:*
+        version: link:../physics
+      '@aethervtt/shard-platform-node':
+        specifier: workspace:*
+        version: link:../platform-node
+      '@aethervtt/shard-procgen':
+        specifier: workspace:*
+        version: link:../procgen
+      '@aethervtt/shard-testing':
+        specifier: workspace:*
+        version: link:../testing
       '@types/node':
         specifier: ^26.6.2
         version: 26.6.2

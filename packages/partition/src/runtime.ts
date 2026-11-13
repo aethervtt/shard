@@ -750,6 +750,7 @@ function wakeDormant(world: World, rt: InstanceRuntime, cell: Cell): void {
   const s = state(world)
   const list = delta.dormant
   delta.dormant = []
+  delta.dormantRev++
   s.suppress++
   const spawned = list.map(() => world.spawn())
   for (let i = 0; i < list.length; i++) fillSaved(world, cell, spawned[i]!, list[i]!, ++delta.next)
@@ -824,6 +825,7 @@ function sleepDynamic(
     out.push(saved)
     if (snapshot) continue
     delta.dormant.push(saved)
+    delta.dormantRev++
     s.suppress++
     world.despawn(e)
     s.suppress--
@@ -1254,8 +1256,10 @@ function moveTo(world: World, rt: InstanceRuntime, e: Entity): void {
     const delta = deltaOf(world, rt, target)
     const saved = savedEntity(world, target, e)
     delete saved.parent
-    if (dynamic) delta.dormant.push(saved)
-    else delta.set(`+${++delta.next}`, saved as never)
+    if (dynamic) {
+      delta.dormant.push(saved)
+      delta.dormantRev++
+    } else delta.set(`+${++delta.next}`, saved as never)
     s.suppress++
     world.despawn(e)
     s.suppress--
@@ -1324,7 +1328,10 @@ export function moveDormant(
     })
   }
   source.dormant.splice(index, 1)
-  deltaOf(world, rt, dest ?? newCell(g, to.x, to.z, rt.frame)).dormant.push(saved)
+  source.dormantRev++
+  const target = deltaOf(world, rt, dest ?? newCell(g, to.x, to.z, rt.frame))
+  target.dormant.push(saved)
+  target.dormantRev++
 }
 
 /** The generator a grid's cells are made with, as clients compare it at join. */

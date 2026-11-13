@@ -7,6 +7,7 @@ import {
   CharacterGroundEvent,
   CharacterIntent,
   CharacterState,
+  CharacterSuspended,
   GravitySource,
 } from './components'
 import { createGravitySources, gatherGravitySources, sampleGravity } from './gravity'
@@ -139,9 +140,13 @@ export const characterSystem = defineSystem({
     for (let t = 0; t < s.query.tables.length; t++) {
       const table = s.query.tables[t]!
       columns(table, s.cols)
+      // Suspended (0115): the capsule only follows the Transform.
+      const suspended = table.has(CharacterSuspended)
       for (let row = 0; row < table.count; row++) {
         const record = p.characters.get(table.entities[row]!)
-        if (record && !record.body.parked) stepCharacter(s, world, p, table, row, record, dt)
+        if (!record || record.body.parked) continue
+        if (suspended) followTransform(s, world, p, record)
+        else stepCharacter(s, world, p, table, row, record, dt)
       }
       table.markChanged(CharacterState)
       table.markChanged(Transform)
@@ -150,6 +155,13 @@ export const characterSystem = defineSystem({
 })
 
 type State = ReturnType<NonNullable<typeof characterSystem.setup>>
+
+/** Puts a suspended character's capsule where its Transform is, as a kinematic move. */
+function followTransform(s: State, world: World, p: PhysicsWorld, record: CharacterRecord): void {
+  const pose = poseOf(world, record.entity, s.pose)
+  record.body.body.setNextKinematicTranslation(p.vec(pose[0]!, pose[1]!, pose[2]!))
+  record.body.body.setNextKinematicRotation(p.rotation(pose, 3))
+}
 
 function stepCharacter(
   s: State,

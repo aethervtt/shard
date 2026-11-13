@@ -1,4 +1,4 @@
-import { type AssetRef, type Entity, ShardError } from '@aethervtt/shard-core'
+import { type AssetRef, ChildOf, Children, type Entity, ShardError } from '@aethervtt/shard-core'
 import { App, Log, LogResource } from '@aethervtt/shard-runtime'
 import {
   findEntityByPath,
@@ -209,6 +209,67 @@ describe('two-bone IK', () => {
     registerPrefab(w, MODEL, model(0.6))
     app.update(1 / 60)
     expect(dist(tip(), [0.3, 1.3, 0.2])).toBeLessThan(0.001)
+  })
+
+  it('at weight 0 resolves nothing; a rig swapped in meanwhile is solved once weight returns', async () => {
+    const app = await start()
+    const w = app.world
+    // Two rigs with the same paths: one under the character, one parked in a pool.
+    const { entities } = loadScene(
+      w,
+      {
+        version: 1,
+        entities: [
+          {
+            name: 'hero',
+            components: {
+              ...T([0, 2, 0]),
+              'animation/TwoBoneIk': {
+                root: 'Upper/j0',
+                mid: 'Upper/j0/j1',
+                tip: 'Upper/j0/j1/j2',
+                target: 'target',
+              },
+            },
+            children: [chain('Upper', [0, 0, 0], 3, 0.5)],
+          },
+          { name: 'pool', components: T([5, 0, 0]), children: [chain('Upper', [0, 0, 0], 3, 0.5)] },
+          { name: 'target', components: T([0.3, 1.3, 0.2]) },
+        ],
+      },
+      { id: 'main' },
+    )
+    const hero = entities.get('hero')!
+    const pool = entities.get('pool')!
+    const rigA = entities.get('hero/Upper')!
+    const rigB = entities.get('pool/Upper')!
+    const ik = hero
+    const joints = (rig: Entity) => {
+      const j0 = w.get(rig, Children).entities[0]!
+      const j1 = w.get(j0, Children).entities[0]!
+      return [j0, j1, w.get(j1, Children).entities[0]!]
+    }
+    const rotations = (rig: Entity) => joints(rig).flatMap((j) => [...w.get(j, Transform).rotation])
+    const rest = [0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]
+    app.update(1 / 60)
+    expect(dist(worldPosition(w, joints(rigA)[2]!), [0.3, 1.3, 0.2])).toBeLessThan(0.001)
+    // Fade out: rig A gets its pose back. Then it's taken away, and for a frame there's no rig.
+    w.set(ik, TwoBoneIk, { weight: 0 })
+    app.update(1 / 60)
+    expect(rotations(rigA)).toEqual(rest)
+    w.set(rigA, ChildOf, { parent: pool })
+    app.update(1 / 60)
+    w.set(rigB, ChildOf, { parent: hero })
+    for (let i = 0; i < 40; i++) app.update(1 / 60)
+    expect(w.resource(LogResource).tail(10, 'error')).toEqual([])
+    expect(rotations(rigA)).toEqual(rest)
+    expect(rotations(rigB)).toEqual(rest)
+    // Weight back: it solves on rig B, and leaves rig A alone.
+    w.set(ik, TwoBoneIk, { weight: 1 })
+    app.update(1 / 60)
+    expect(dist(worldPosition(w, joints(rigB)[2]!), [0.3, 1.3, 0.2])).toBeLessThan(0.001)
+    expect(rotations(rigA)).toEqual(rest)
+    expect(describeIk(w)[0]).toMatchObject({ solved: true, problem: null })
   })
 
   it('reports ik/not-a-chain and ik/unknown-joint', async () => {

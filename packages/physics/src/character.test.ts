@@ -9,6 +9,7 @@ import {
   type CharacterGroundEventData,
   CharacterIntent,
   CharacterState,
+  CharacterSuspended,
   Collider,
   GravitySource,
   Mass,
@@ -325,6 +326,37 @@ describe('character controller 3d', () => {
     frames(a, 1)
     expect(p.describe().characters).toBe(0)
     expect(p.colliders.has(c)).toBe(false)
+  })
+
+  it('suspended, follows its Transform without falling or walking; resumes where it is', async () => {
+    const a = await app()
+    const w = a.world
+    ground(w)
+    const c = character(w, [0, 3, 0])
+    w.add(c, CharacterSuspended)
+    walk(w, c, [4, 0, 0])
+    frames(a, 30)
+    // No gravity, no walking: it stays where its Transform says.
+    expect(pos(w, c)).toEqual([0, 3, 0])
+    // Moved by its Transform (a cheap mover), the capsule goes with it: a ray finds it there.
+    w.set(c, Transform, { translation: [5, 3, 5] })
+    frames(a, 2)
+    const p = w.resource(Physics)
+    const hit = {
+      entity: -1,
+      body: -1,
+      distance: 0,
+      point: new Float32Array(3),
+      normal: new Float32Array(3),
+    }
+    expect(p.raycast([5, 6, 5], [0, -1, 0], { maxDistance: 10 }, hit as never)).toBe(true)
+    expect(hit.entity).toBe(c)
+    // Back to the controller: it falls to the ground and walks.
+    w.remove(c, CharacterSuspended)
+    frames(a, 90)
+    const [x, y] = pos(w, c)
+    expect(y).toBeCloseTo(HALF, 1)
+    expect(x).toBeGreaterThan(5)
   })
 
   it('steps 100 controllers within 1.5 ms', async () => {

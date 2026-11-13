@@ -238,11 +238,58 @@ export const NavAgent = defineComponent(
       description:
         'Navmeshes: the nav/Filters entry it paths with (0112), such as "zombie"; empty is the default filter (nav/Areas costs, every gate passable).',
     }),
+    flow: t.entity({
+      description:
+        "Follow this NavFlowField to its goal instead of destination or target (0115). Below the crowd (NavTier steer or coarse) it makes no findPath call while inside the field; in the crowd it paths to the field's goal as usual.",
+    }),
   },
   {
     description:
       'Walks to a destination or follows a target along navigation paths: arrives, avoids other agents, repaths. Status in NavAgentState; NavArrived and NavUnreachable on changes.',
     requires: [Transform, NavAgentState],
+  },
+)
+
+export const NAV_TIERS = ['crowd', 'steer', 'coarse'] as const
+export type NavTierName = (typeof NAV_TIERS)[number]
+
+export const NavTier = defineComponent(
+  'nav/NavTier',
+  {
+    tier: t.enum(NAV_TIERS, {
+      description:
+        "crowd: Detour's crowd with avoidance (joins at most NavBudget.joins a frame, up to NavBudget.crowd agents). steer: nav's own mover at NavBudget.steerHz, seek and separation, moving the Transform. coarse: the same at NavBudget.coarseHz without separation.",
+    }),
+  },
+  {
+    description:
+      'How a navmesh NavAgent is moved (0115). Absent: crowd. Below the crowd the Transform is the drive, and a CharacterController gets physics/CharacterSuspended. Characters set it from the sim tier; games without characters set it themselves.',
+  },
+)
+
+export const NavFlowField = defineComponent(
+  'nav/NavFlowField',
+  {
+    goal: t.vec3({ unit: 'm', description: 'Where the field leads (world space).' }),
+    target: t.entity({
+      description:
+        "Lead to this entity's position instead; the field rebuilds when it moves more than 2 m.",
+    }),
+    filter: t.string({
+      description: 'The nav/Filters entry that prices and excludes polygons (empty: the default).',
+    }),
+    range: t.f32({
+      default: 300,
+      min: 1,
+      unit: 'm',
+      description:
+        'How far from the goal the field reaches. Agents outside it fall back to findPath.',
+    }),
+    nav: t.entity({ description: 'The NavMesh (default: the one containing the goal).' }),
+  },
+  {
+    description:
+      'A flow field over navmesh polygons (0115): a Dijkstra from the goal out to range, priced by the filter, built in slices of NavBudget.flowMs. Many agents with NavAgent.flow follow it to one goal without a path each.',
   },
 )
 
@@ -336,12 +383,31 @@ export interface NavBudgetValue {
   /** false builds on the main thread even with a pool. */
   workers: boolean
   replans: number
+  /** 0115: agents a navmesh's crowd holds (NavTier crowd beyond it keeps steering). 128. */
+  crowd?: number
+  /** 0115: agents that join a crowd a frame; the rest keep steering until admitted. 8. */
+  joins?: number
+  /** 0115: how often steer and coarse agents decide (Hz), staggered by entity. 10 and 2. */
+  steerHz?: number
+  coarseHz?: number
+  /** 0115: ms of flow field building a frame. 1. */
+  flowMs?: number
 }
 
 export const NavBudget = defineResource<NavBudgetValue>('nav/Budget', {
   description:
-    "How much navmesh work a frame may do (0112): ms of main-thread bake work with a worker pool, tiles built a frame without one (frame-exact), and agents replanned a frame. A navmesh's first bake ignores the bake limits.",
-  init: () => ({ ms: 1.5, tiles: 4, workers: true, replans: 6 }),
+    "How much navmesh work a frame may do (0112): ms of main-thread bake work with a worker pool, tiles built a frame without one (frame-exact), and agents replanned a frame. A navmesh's first bake ignores the bake limits. Movement tiers (0115): crowd size, crowd joins a frame, steer and coarse decision rates (Hz), and ms of flow field building a frame.",
+  init: () => ({
+    ms: 1.5,
+    tiles: 4,
+    workers: true,
+    replans: 6,
+    crowd: 128,
+    joins: 8,
+    steerHz: 10,
+    coarseHz: 2,
+    flowMs: 1,
+  }),
   hostWritable: true,
 })
 

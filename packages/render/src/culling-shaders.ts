@@ -89,7 +89,10 @@ struct Params {
 @group(0) @binding(7) var<uniform> params: Params;
 
 
-/** Skinned slots' world spheres (the rest of the deform record is for the vertex stage). */
+/**
+ * Skinned slots' world spheres (the rest of the deform record is for the vertex stage; rest0.y,
+ * the joint count, carries BAKED_BIT for baked playback and isn't read here).
+ */
 struct Deform {
   sphere: vec4f,
   rest0: vec4u,

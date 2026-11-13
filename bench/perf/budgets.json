@@ -99,6 +99,44 @@
       "desktop": 0.8,
       "note": "0076 initial package: mean CPU update of 1,000 settled cards over 600 frames after warmup. Proposed 10% of an 8 ms frame; separate from the deferred cards-table GPU scenario."
     },
+    "characters/bake": {
+      "kind": "target",
+      "laptop": 5,
+      "desktop": 5,
+      "note": "0115 proposed: baking the horde fixture's 3 clips (walk, idle, attack) for one 53-joint skin at 30 fps when its CharacterModel loads. Not yet measured. characters/src/bake.test.ts."
+    },
+    "characters/hordes": {
+      "kind": "target",
+      "laptop": 0.3,
+      "desktop": 0.3,
+      "note": "0115 proposed: the server's characters/hordes system, mean per fixed tick, with 2,000 horde members (500 live, 1,500 dormant) in range of two players. Measured 0.025 ms mean on an Apple M5 Max (not a named machine, 2026-11-13). characters/src/net/hordes.test.ts."
+    },
+    "characters/sample": {
+      "kind": "unit",
+      "per": "joint",
+      "laptop": 7.5e-5,
+      "desktop": 7.5e-5,
+      "note": "0115 proposed: the flat sampler (mid tier), per joint resampled, layers blended into a persistent pose range. Measured 67-71 ns a joint on an Apple M5 Max (not a named machine, 2026-11-13, under load), where the entity sampler takes about 70 ns a joint too: about 49 ns is the blend both share (30 ns of it sampleChannelAt), 15 ns the matrices. Neither named machine has run it. animation/src/flat.test.ts."
+    },
+    "characters/select": {
+      "kind": "unit",
+      "per": "character",
+      "laptop": 5e-5,
+      "desktop": 5e-5,
+      "note": "0115 proposed: tier selection per character (screen size against every viewer, frustum test, caps, sim tier and simTick). Not yet measured. characters/src/perf.test.ts."
+    },
+    "characters/server-tick": {
+      "kind": "target",
+      "laptop": 4,
+      "desktop": 4,
+      "note": "0115 proposed: one 60 Hz fixed tick of nav/agents plus the characters systems on a headless server: 0112's town, 4 players, 1,000 agents (up to 128 in the crowd, 200 on a flow field), p95. Scaled from nav/mesh-agents (1.5 ms for 100 crowd agents) plus about 0.3 ms of steer and coarse following. Not yet measured. characters/src/server.test.ts."
+    },
+    "characters/swap": {
+      "kind": "target",
+      "laptop": 0.3,
+      "desktop": 0.3,
+      "note": "0115 proposed: a frame's tier swaps with joinsPerFrame (4) characters entering near (rig from the pool, joint poses written, subtree propagated, player rebound) and any number leaving, worst frame of a dolly through the 500 fixture. Not yet measured. characters/src/swap.test.ts."
+    },
     "fog/redraw": {
       "kind": "target",
       "laptop": 50,
@@ -197,6 +235,12 @@
       "laptop": 2.5,
       "desktop": 2.5,
       "note": "0087 proposed: a client applying one state message of 10,000 Transform updates, median. Measured 1.6 ms on an Apple M5 Max (2026-10-28), not a named machine. net/src/bench.test.ts."
+    },
+    "nav/flow-build": {
+      "kind": "target",
+      "laptop": 4,
+      "desktop": 4,
+      "note": "0115 proposed: building one 300 m NavFlowField on 0112's town fixture (Dijkstra over the polygons in range), main-thread time summed over its slices at NavBudget.flowMs. Not yet measured. nav/src/flow.test.ts."
     },
     "nav/grid-agents": {
       "kind": "target",
@@ -891,6 +935,74 @@
           }
         }
       }
+    },
+    "horde-walk": {
+      "what": "0115's horde fixture: 500 MakeHuman characters (40 at 2-15 m, 160 at 15-60 m, 300 at 60-300 m) walking paths, the camera on a fixed path",
+      "resolution": [1920, 1080],
+      "renderScale": 1,
+      "fps": 60,
+      "frame": {
+        "gpu": {
+          "laptop": 16.6,
+          "desktop": 8.3
+        },
+        "cpu": {
+          "laptop": 8,
+          "desktop": 6
+        }
+      },
+      "slices": {
+        "gpu": {
+          "gpu:forward-opaque": 0.6,
+          "gpu:tonemap": 0.02,
+          "headroom": 0.38
+        },
+        "cpu": {
+          "render": 0.35,
+          "characters/select": 0.01,
+          "animation/sample": 0.04,
+          "characters/sample": 0.08,
+          "animation/ik": 0.04,
+          "core/transform-propagate": 0.05,
+          "nav/agents": 0.2,
+          "headroom": 0.23
+        }
+      },
+      "note": "0115 proposed, not yet measured. Shadows off until 0116 says how characters cast. Expected tiers: up to 16 near, up to 160 mid, the rest far or off. CPU slices: animation/sample is near only (16 x 53 joints at 0032's 83 ns a joint is about 0.07 ms); characters/sample is mid at its reduced rates (about 0.3 ms at 60 ns a joint); nav/agents is 64 crowd agents plus steer and coarse following."
+    },
+    "horde-far": {
+      "what": "0115's horde fixture: 2,000 MakeHuman characters (40 at 2-15 m, 160 at 15-60 m, 1,800 at 60-500 m) walking paths, the camera on a fixed path",
+      "resolution": [1920, 1080],
+      "renderScale": 1,
+      "fps": 60,
+      "frame": {
+        "gpu": {
+          "laptop": 16.6,
+          "desktop": 8.3
+        },
+        "cpu": {
+          "laptop": 8,
+          "desktop": 6
+        }
+      },
+      "slices": {
+        "gpu": {
+          "gpu:forward-opaque": 0.7,
+          "gpu:tonemap": 0.02,
+          "headroom": 0.28
+        },
+        "cpu": {
+          "render": 0.4,
+          "characters/select": 0.02,
+          "animation/sample": 0.04,
+          "characters/sample": 0.08,
+          "animation/ik": 0.04,
+          "core/transform-propagate": 0.06,
+          "nav/agents": 0.2,
+          "headroom": 0.16
+        }
+      },
+      "note": "0115 proposed, not yet measured. Shadows off until 0116 says how characters cast. Far characters cost no sampling; their CPU is selection (2,000 x 50 ns) and a moving instance transform each. GPU: about 1,800 far characters at 0103's last level (5% of the triangles) with baked playback's extra matrix fetches, plus near and mid as in horde-walk."
     },
     "tabletop-max": {
       "what": "0055's max structure fixture",

@@ -12,13 +12,16 @@ import {
   NavFilters,
   type NavFiltersValue,
   type NavFilterValue,
+  NavFlowField,
   NavGateBlocked,
   type NavGateBlockedData,
   NavMesh,
   type NavMeshRuntime,
+  NavTier,
   navAgentRecord,
   navPlugin,
   navReady,
+  navTiersPlugin,
   setNavMover,
 } from '@aethervtt/shard-nav'
 import { CharacterController, Physics, physics3dPlugin } from '@aethervtt/shard-physics'
@@ -502,6 +505,61 @@ describe('breaching', () => {
     expect(nav.replans).toBe(replans)
   }, 60_000)
 
+  // 0115's criterion: a horde on a flow field, all in steer (no crowd), queues at a shut door its
+  // filter breaches, then walks on along the field without a findPath call.
+  it('queues a flow-field horde in steer at a shut door, then lets it in with no findPath', async () => {
+    const app = new App().addPlugin(
+      TransformPlugin,
+      physics3dPlugin(),
+      navPlugin,
+      navTiersPlugin,
+      structurePhysicsPlugin,
+      structureNavPlugin,
+    )
+    await app.init()
+    const world = app.world
+    world.insertResource(NavFilters, FILTERS)
+    const h = breachHouse(world)
+    await bake(app)
+    const flow = world.spawn([NavFlowField, { goal: h.westRoom, filter: 'zombie', range: 40 }])
+    const agents = arc(2, -0.1, 15).map((p) =>
+      world.spawn(
+        [NavAgent, { flow, filter: 'zombie', drive: 'transform', speed: 3, radius: R }],
+        [NavTier, { tier: 'steer' }],
+        [Transform, { translation: p }],
+      ),
+    )
+    const gate = world.resource(Nav).gates.byOwner.get(h.door)!
+    const inGate = (e: Entity) => {
+      const p = at(world, e)
+      return insideConvex(gate.points!, p[0]!, p[2]!)
+    }
+    let entered = 0
+    const events: NavGateBlockedData[] = []
+    const reader = world.reader(NavGateBlocked)
+    for (let i = 0; i < 1800 && !agents.every((e) => status(world, e) === 'blocked'); i++) {
+      frames(app)
+      for (const e of reader.read()) events.push(e)
+      for (const e of agents) if (inGate(e)) entered++
+    }
+    expect(agents.map((e) => status(world, e))).toEqual(agents.map(() => 'blocked'))
+    expect(entered).toBe(0)
+    const slots = agents.map((e) => navAgentRecord(world, e)!.slot)
+    expect(new Set(slots).size).toBe(30)
+    expect(new Set(events.map((e) => e.entity)).size).toBe(30)
+    expect(agents.every((e) => navAgentRecord(world, e)!.crowdIndex === -1)).toBe(true)
+    // The door opens: on along the field, no findPath for any of them.
+    world.set(h.door, Opening, { state: 'open' })
+    // One goal for 30: they arrive as a crowd in the room around it, not all on it.
+    const inRoom = (e: Entity) => {
+      const p = at(world, e)
+      return p[0]! > 0.2 && p[0]! < 4.8 && p[2]! > 0.2 && p[2]! < 5.8
+    }
+    for (let i = 0; i < 3600 && !agents.every(inRoom); i++) frames(app)
+    expect(agents.filter((e) => !inRoom(e))).toEqual([])
+    expect(agents.reduce((n, e) => n + navAgentRecord(world, e)!.paths, 0)).toBe(0)
+  }, 120_000)
+
   it('replans only the agents whose paths cross a gate that changed, and builds no tile', async () => {
     const app = await headless({
       ...FILTERS,
@@ -762,3 +820,21 @@ describe('breaching budgets', () => {
     expect(p95(times)).toBeLessThan(budget('nav/town-agents'))
   }, 120_000)
 })
+
+/** Whether (x, z) lies inside a convex polygon of (x, z) pairs. */
+function insideConvex(points: Float64Array, x: number, z: number): boolean {
+  const n = points.length / 2
+  let sign = 0
+  for (let i = 0; i < n; i++) {
+    const ax = points[i * 2]!
+    const az = points[i * 2 + 1]!
+    const bx = points[((i + 1) % n) * 2]!
+    const bz = points[((i + 1) % n) * 2 + 1]!
+    const cross = (bx - ax) * (z - az) - (bz - az) * (x - ax)
+    if (cross === 0) continue
+    const s = cross > 0 ? 1 : -1
+    if (sign === 0) sign = s
+    else if (s !== sign) return false
+  }
+  return true
+}

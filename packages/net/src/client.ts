@@ -120,7 +120,7 @@ export class NetClient {
     }
     const m = config.manifest
     this.codecs = m.components.map((c) =>
-      createRowCodec(c.def, { quantize: c.quantize, entities: mapping }),
+      (c.codec ?? createRowCodec)(c.def, { quantize: c.quantize, entities: mapping }),
     )
     this.commandCodecs = m.commands.map((c) => createRowCodec(c.schema, { entities: mapping }))
     this.eventCodecs = m.events.map((e) => createRowCodec(e.schema, { entities: mapping }))

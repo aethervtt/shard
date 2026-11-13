@@ -10,6 +10,7 @@ import {
   audioMusicMethods,
   audioPreviewMethods,
 } from '@aethervtt/shard-audio'
+import { characterMethods } from '@aethervtt/shard-characters'
 import { allComponents, findComponent, type JsonSchema, ShardError } from '@aethervtt/shard-core'
 import { effectMethods } from '@aethervtt/shard-effects'
 import { navMethods } from '@aethervtt/shard-nav'
@@ -75,6 +76,7 @@ const PLUGIN_METHODS = [
   ...physicsMethods,
   ...effectMethods,
   ...animationMethods,
+  ...characterMethods,
   ...audioMethods,
   ...audioEventMethods,
   ...audioMixMethods,
@@ -629,6 +631,11 @@ export const TOOLS: Tool[] = [
     'metrics_reset',
     'metrics.reset',
     'Starts a new measurement window for metrics_record: frame times, traces and long tasks so far stop counting.',
+  ),
+  forward(
+    'characters_describe',
+    'characters.describe',
+    'Character tiers (characters plugin, 0115): how many characters are near (joint rigs), mid (sampled pose buffers), far (baked clips on the GPU) and off, by sim tier too; pinned characters, swaps this frame, joints sampled, rigs in use and pooled, joint entities, bake bytes per build, and ms. With an entity: its rig, build, tier, sim tier, parts and pose source.',
   ),
   forward(
     'animation_describe',

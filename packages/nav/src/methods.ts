@@ -4,11 +4,13 @@ import { bakeNavigation, liveTileKeys, NO_RECAST } from './bake'
 import { blockedAt } from './breach'
 import { NavCache, saveNavCache } from './cache'
 import { AGENT_STATUSES, DRIVES, NavAgent, NavAgentState, NavFilters, NavMesh } from './components'
+import { NavFlows } from './flow-state'
 import { DIAGONAL_MODES } from './grid'
 import { DEFAULT_BREACH_COST } from './navmesh'
 import { findPath } from './query'
 import { GATE_BITS } from './recast'
 import { Nav, type NavState, navState } from './state'
+import { NavMovers, navMoverTier } from './steer-state'
 
 const round = (x: number, digits = 3) => Math.round(x * 10 ** digits) / 10 ** digits
 const r3 = (v: ArrayLike<number>) => [round(v[0]!), round(v[1]!), round(v[2]!)]
@@ -144,6 +146,9 @@ export function describeNav(world: World) {
           path: scenePath(world, a.entity),
           on: a.nav >= 0 ? { entity: a.nav, path: scenePath(world, a.nav), kind: a.kind } : null,
           filter: a.filter || null,
+          tier: navMoverTier(world, a.entity),
+          flow: a.flow >= 0 ? a.flow : null,
+          paths: a.paths,
           replans: a.replans,
           status: state.status,
           ...(state.status === 'blocked' ? { gate: state.gate, row: state.row } : {}),
@@ -168,6 +173,35 @@ export function describeNav(world: World) {
         }
       }),
     statuses: AGENT_STATUSES,
+    movers: (() => {
+      const m = world.tryResource(NavMovers)
+      return m ? { crowdJoins: m.joins, crowdLeaves: m.leaves, fallbackPaths: m.fallbacks } : null
+    })(),
+    flows: (world.tryResource(NavFlows)?.list ?? []).map((f) => ({
+      entity: f.entity,
+      path: scenePath(world, f.entity),
+      nav: f.rt?.entity ?? null,
+      goal: r3(f.cur?.goal ?? f.want),
+      filter: f.filter || null,
+      range: f.range,
+      polygons: f.cur?.reached ?? 0,
+      builds: f.builds,
+      lastBuild: { ms: round(f.lastMs, 2), slices: f.lastSlices },
+      building: f.building
+        ? { polygons: f.building.reached, ms: round(f.ms, 2), slices: f.slices }
+        : f.dirty
+          ? { polygons: 0, ms: 0, slices: 0 }
+          : null,
+      agents: f.agents,
+      fallbackPaths: f.fallbacks,
+      graph: f.graph
+        ? {
+            polygons: f.graph.nodes - f.graph.garbage,
+            tilesRead: f.graph.reads,
+            readMs: round(f.graph.readMs, 2),
+          }
+        : null,
+    })),
   }
 }
 
@@ -218,7 +252,7 @@ export const navMethods: AppMethod[] = [
   {
     name: 'nav.describe',
     description:
-      'Navigation state: every NavGrid (source, size, cell size, walkable cells, problem), NavMesh (tiles, polygons, bounds, last bake: ms, tiles built by Recast, from cache, kept; totals, meshes still loading), the triangles and off-mesh links baked from, the tile cache, and every NavAgent (status, remaining distance, velocity, destination or target, drive, route corners).',
+      'Navigation state: every NavGrid (source, size, cell size, walkable cells, problem), NavMesh (tiles, polygons, bounds, last bake: ms, tiles built by Recast, from cache, kept; totals, meshes still loading), the triangles and off-mesh links baked from, the tile cache, every NavAgent (status, movement tier, flow field, findPath calls, remaining distance, velocity, destination or target, drive, route corners), and every NavFlowField (goal, polygons, build progress, agents).',
     params: defineSchema('nav/DescribeParams', {}),
     handler: ({ world }) => describeNav(world),
   },

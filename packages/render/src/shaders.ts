@@ -180,13 +180,16 @@ fn vertex_world(p: vec3f) -> vec3f {
 }
 
 /**
- * Skinned and morphed slots (see deform.ts). Records per slot; poses hold this frame's joint
- * matrices (three affine rows each) and morph (target, weight) pairs; deform_data holds each mesh's
- * joints and weights (6 words per vertex) and morph deltas (9 floats per vertex per target).
+ * Skinned and morphed slots (see deform.ts). Records per slot; poses hold joint matrices (three
+ * affine rows each), morph (target, weight) pairs, baked clips and their playback headers, with
+ * the clock in poses[0].x; deform_data holds each mesh's joints and weights (6 words per vertex)
+ * and morph deltas (9 floats per vertex per target).
  */
 struct Deform {
   sphere: vec4f,
+  /** First joint row in poses, or with BAKED_BIT the baked playback header. */
   joint_base: u32,
+  /** Joint count, with BAKED_BIT for baked playback: mask it (JOINT_COUNT_MASK) to read. */
   joint_count: u32,
   skin_base: u32,
   morph_base: u32,
@@ -202,6 +205,9 @@ const NO_SKIN: u32 = 0xffffffffu;
 
 const FLAG_SKINNED: u32 = 32u;
 const FLAG_MORPH: u32 = 64u;
+/** Deform.joint_count's flag: the slot plays baked clips (spec 0115). */
+const BAKED_BIT: u32 = 0x80000000u;
+const JOINT_COUNT_MASK: u32 = 0x7fffffffu;
 
 @data @group(2) @binding(3) var<storage, read> deforms: array<Deform>;
 @data @group(2) @binding(4) var<storage, read> poses: array<vec4f>;
@@ -219,6 +225,70 @@ fn deform_f32(i: u32) -> f32 {
 
 fn deform_vec3(i: u32) -> vec3f {
   return vec3f(deform_f32(i), deform_f32(i + 1u), deform_f32(i + 2u));
+}
+
+/**
+ * Baked playback (spec 0115): the frames a slot's header picks at the clock. A joint's row at
+ * offset o (joint * 3 + row) is mix(mix(A0, A1, ka), mix(B0, B1, kb), wb), each a vec4 index in
+ * poses. The header is 3 vec4s: (base, frames, start, speed) for clips A and B (B absent when its
+ * frames is 0), then (fps, fade start, fade duration, flags: 1 = A plays once, 2 = B once).
+ */
+struct BakedFrames {
+  a0: u32,
+  a1: u32,
+  b0: u32,
+  b1: u32,
+  ka: f32,
+  kb: f32,
+  wb: f32,
+}
+
+/** A clip's frame position at the clock, (first frame, blend to the next): looped or clamped. */
+fn baked_clip_frame(h: vec4f, fps: f32, once: bool, clock: f32) -> vec2f {
+  let last = max(h.y - 1.0, 0.0);
+  // Clip time is start + clock × speed, so a paused clip (speed 0) holds any time.
+  let x = (h.z + clock * h.w) * fps;
+  var p = clamp(x, 0.0, last);
+  if (!once) {
+    // Looping clips end on their first frame: wrap over frames - 1.
+    let span = max(last, 1.0);
+    p = x - span * floor(x / span);
+  }
+  let f0 = min(floor(p), last);
+  return vec2f(f0, p - f0);
+}
+
+fn baked_frames(header: u32, joint_count: u32) -> BakedFrames {
+  let clock = poses[0].x;
+  let h0 = poses[header];
+  let h1 = poses[header + 1u];
+  let h2 = poses[header + 2u];
+  let flags = u32(h2.w);
+  let stride = joint_count * 3u;
+  var f: BakedFrames;
+  let a = baked_clip_frame(h0, h2.x, (flags & 1u) != 0u, clock);
+  f.a0 = u32(h0.x) + u32(a.x) * stride;
+  f.a1 = u32(h0.x) + u32(min(a.x + 1.0, max(h0.y - 1.0, 0.0))) * stride;
+  f.ka = a.y;
+  f.b0 = f.a0;
+  f.b1 = f.a1;
+  f.kb = 0.0;
+  f.wb = 0.0;
+  if (h1.y > 0.0) {
+    let b = baked_clip_frame(h1, h2.x, (flags & 2u) != 0u, clock);
+    f.b0 = u32(h1.x) + u32(b.x) * stride;
+    f.b1 = u32(h1.x) + u32(min(b.x + 1.0, max(h1.y - 1.0, 0.0))) * stride;
+    f.kb = b.y;
+    f.wb = select(clamp((clock - h2.y) / h2.z, 0.0, 1.0), 1.0, h2.z <= 0.0);
+  }
+  return f;
+}
+
+fn baked_row(f: BakedFrames, o: u32) -> vec4f {
+  if (f.wb >= 1.0) { return mix(poses[f.b0 + o], poses[f.b1 + o], f.kb); }
+  let a = mix(poses[f.a0 + o], poses[f.a1 + o], f.ka);
+  if (f.wb <= 0.0) { return a; }
+  return mix(a, mix(poses[f.b0 + o], poses[f.b1 + o], f.kb), f.wb);
 }
 
 /** Morph targets, then skinning (linear blend, 4 influences), in the mesh's object space. */
@@ -257,7 +327,8 @@ fn deform_vertex(instance_index: u32, vertex_index: u32, position: vec3f, normal
     out.normal += deform_vec3(o + 3u) * w;
     out.tangent = vec4f(out.tangent.xyz + deform_vec3(o + 6u) * w, out.tangent.w);
   }
-  if ((flags & FLAG_SKINNED) != 0u && d.joint_count > 0u && skin_base != NO_SKIN) {
+  let joint_count = d.joint_count & JOINT_COUNT_MASK;
+  if ((flags & FLAG_SKINNED) != 0u && joint_count > 0u && skin_base != NO_SKIN) {
     let s = skin_base + vertex_index * 6u;
     let j01 = deform_data[s];
     let j23 = deform_data[s + 1u];
@@ -266,11 +337,22 @@ fn deform_vertex(instance_index: u32, vertex_index: u32, position: vec3f, normal
     var r0 = vec4f(0.0);
     var r1 = vec4f(0.0);
     var r2 = vec4f(0.0);
-    for (var i = 0u; i < 4u; i++) {
-      let m = d.joint_base + min(joints[i], d.joint_count - 1u) * 3u;
-      r0 += poses[m] * weights[i];
-      r1 += poses[m + 1u] * weights[i];
-      r2 += poses[m + 2u] * weights[i];
+    if ((d.joint_count & BAKED_BIT) != 0u) {
+      let f = baked_frames(d.joint_base, joint_count);
+      for (var i = 0u; i < 4u; i++) {
+        if (weights[i] == 0.0) { continue; }
+        let o = min(joints[i], joint_count - 1u) * 3u;
+        r0 += baked_row(f, o) * weights[i];
+        r1 += baked_row(f, o + 1u) * weights[i];
+        r2 += baked_row(f, o + 2u) * weights[i];
+      }
+    } else {
+      for (var i = 0u; i < 4u; i++) {
+        let m = d.joint_base + min(joints[i], joint_count - 1u) * 3u;
+        r0 += poses[m] * weights[i];
+        r1 += poses[m + 1u] * weights[i];
+        r2 += poses[m + 2u] * weights[i];
+      }
     }
     let p = vec4f(out.position, 1.0);
     out.position = vec3f(dot(r0, p), dot(r1, p), dot(r2, p));

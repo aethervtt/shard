@@ -14,6 +14,16 @@ Brings along: `core/Transform`, `animation/RootMotion`.
 | `rootMotion` | `"none"` \| `"transform"` \| `"character"` | `"none"` |  | none: the root joint moves as authored. transform: its ground-plane travel and yaw move this entity instead. character: they feed physics/CharacterIntent.move, so walking collides. |
 | `rootJoint` | string | `""` |  | Path of the joint root motion comes from. Empty: the highest joint a translation channel animates. |
 
+## `animation/AnimationSampling`
+
+How animation/sample treats this entity's AnimationPlayer: sampled onto entities, or time only (a character drawn from a flat pose or a bake, 0115).
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `mode` | `"entities"` \| `"none"` | `"entities"` |  | entities: animation/sample blends the layers into the joints and fields under the player (as without this component). none: it only runs the player's time (fades, events, AnimationFinished); nothing is bound, blended or written, and root motion doesn't move it. samplePose samples such a player into a flat pose. |
+
 ## `animation/Animator`
 
 Plays an animation graph: each frame it reads parameters (bound ones from components), takes transitions, and writes the AnimationPlayer's layers. animation.describe shows the states.
@@ -189,6 +199,59 @@ Brings along: `core/Transform`.
 | `wet` | number | `1` | ≥ 0, ≤ 1 |  |
 | `priority` | integer | `0` | ≥ -2147483648, ≤ 2147483647 |  |
 | `indoor` | boolean | `false` |  |  |
+
+## `characters/Character`
+
+A character composed of parts on a shared skeleton (0115). Spawned by spawnCharacter; its parts are children with CharacterPart.
+
+Brings along: `core/Transform`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `rig` | string | `""` |  | The CharacterRig this character is built on, by name. |
+| `build` | integer | `0` | ≥ 0, ≤ 65535 | Index of the rig's build (palette entry); 0 is the plain skeleton. |
+| `look` | integer | `65535` | ≥ 0, ≤ 65535 | Index of a registered look (characterLooks) it was spawned from, or 65535 for none. A replicated root with a look is composed on arrival. |
+
+## `characters/CharacterPart`
+
+One skinned mesh of a character.
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `name` | string | `""` |  | The part's node name in its model (body-head, eyes, a worn item). |
+| `minTier` | `"near"` \| `"mid"` \| `"far"` \| `"off"` | `"off"` |  | The coarsest tier that draws this part (eyelashes: near). |
+| `merged` | boolean | `false` |  | The rig's merged far body (drawn at far instead of far.merge parts). |
+
+## `characters/CharacterTier`
+
+A character's representation and simulation tiers (0115).
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `tier` | `"near"` \| `"mid"` \| `"far"` \| `"off"` | `"near"` |  | near: joint entities, graph, IK. mid: pose sampled into a pose buffer, no joints. far: baked clips played on the GPU. off: not drawn or sampled. |
+| `sim` | `"near"` \| `"mid"` \| `"far"` | `"near"` |  | By distance to the nearest player (TierSource.player): what game AI and movement use. |
+| `simTick` | boolean | `false` |  | True on frames this character's sim period comes due (staggered). Tick game AI on it. |
+| `pin` | boolean | `false` |  | Keep it near whatever the caps say (a player: first person needs its rig and IK). Pinned characters never count toward maxNear. |
+| `screen` | number | `0` |  | Largest screen size over the viewers: the sphere's diameter over the viewport height. |
+
+## `characters/HordeProxy`
+
+A far-tier horde proxy (0115): tier selection never makes it finer than far.
+
+Tag (no fields).
+
+## `characters/TierSource`
+
+What tiers are measured from (0115): viewer cameras and players.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `viewer` | boolean | `false` |  | A camera whose view chooses representation tiers. |
+| `player` | boolean | `false` |  | A player whose distance chooses simulation tiers. |
 
 ## `controls/MapControls`
 
@@ -539,6 +602,7 @@ Brings along: `core/Transform`, `nav/NavAgentState`.
 | `stopped` | boolean | `false` |  | Hold position (status idle) until cleared. |
 | `nav` | null or integer or string | `null` |  | The NavGrid or NavMesh to walk on (default: the one the agent stands in). |
 | `filter` | string | `""` |  | Navmeshes: the nav/Filters entry it paths with (0112), such as "zombie"; empty is the default filter (nav/Areas costs, every gate passable). |
+| `flow` | null or integer or string | `null` |  | Follow this NavFlowField to its goal instead of destination or target (0115). Below the crowd (NavTier steer or coarse) it makes no findPath call while inside the field; in the crowd it paths to the field's goal as usual. |
 
 ## `nav/NavAgentState`
 
@@ -552,6 +616,18 @@ What a NavAgent is doing. Written by navigation; read-only.
 | `velocity` | number[3] | `[0,0,0]` | m/s | Steering velocity. |
 | `gate` | null or integer or string | `null` |  | The gate it waits at while blocked (0114): a door, window or Breach. |
 | `row` | integer | `0` | ≥ 0, ≤ 255 | While blocked: its slot row at the gate, 0 against it, more behind; 255 while it waits for a slot (0114). |
+
+## `nav/NavFlowField`
+
+A flow field over navmesh polygons (0115): a Dijkstra from the goal out to range, priced by the filter, built in slices of NavBudget.flowMs. Many agents with NavAgent.flow follow it to one goal without a path each.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `goal` | number[3] | `[0,0,0]` | m | Where the field leads (world space). |
+| `target` | null or integer or string | `null` |  | Lead to this entity's position instead; the field rebuilds when it moves more than 2 m. |
+| `filter` | string | `""` |  | The nav/Filters entry that prices and excludes polygons (empty: the default). |
+| `range` | number | `300` | ≥ 1, m | How far from the goal the field reaches. Agents outside it fall back to findPath. |
+| `nav` | null or integer or string | `null` |  | The NavMesh (default: the one containing the goal). |
 
 ## `nav/NavGrid`
 
@@ -598,6 +674,14 @@ This entity's colliders (or, without a Collider, its Mesh3d) and those of descen
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `area` | integer | `0` | ≥ 0, ≤ 62 | Area code the triangles bake as (0: ground). Costs per area are in nav/Areas; paths prefer cheap areas. |
+
+## `nav/NavTier`
+
+How a navmesh NavAgent is moved (0115). Absent: crowd. Below the crowd the Transform is the drive, and a CharacterController gets physics/CharacterSuspended. Characters set it from the sim tier; games without characters set it themselves.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `tier` | `"crowd"` \| `"steer"` \| `"coarse"` | `"crowd"` |  | crowd: Detour's crowd with avoidance (joins at most NavBudget.joins a frame, up to NavBudget.crowd agents). steer: nav's own mover at NavBudget.steerHz, seek and separation, moving the Transform. coarse: the same at NavBudget.coarseHz without separation. |
 
 ## `nav/OffMeshLink`
 
@@ -784,6 +868,12 @@ What the character controller did at the last step. Read-only.
 | `velocity` | number[3] | `[0,0,0]` | m/s | World-space velocity. |
 | `up` | number[3] | `[0,1,0]` |  | The character’s up. |
 | `airTime` | number | `0` | s | Seconds since last grounded. |
+
+## `physics/CharacterSuspended`
+
+A CharacterController that skips its move; the capsule follows the Transform.
+
+Tag (no fields).
 
 ## `physics/Collider`
 
@@ -1443,6 +1533,23 @@ Brings along: `render/Mesh3d`.
 |---|---|---|---|---|
 | `skin` | null or Skin ref | `null` |  | The skin: joint paths and inverse bind matrices (imported from glTF). |
 | `joints` | null or integer or string[] | `[]` |  | The joint entities, in the skin's order. Resolved from the skin's joint paths when empty (the model's instance spawns them); set it to drive a mesh with other entities. |
+
+## `render/SkinPose`
+
+A skinned mesh's pose source: its joint entities, rows kept in the deform store, or baked clips played on the GPU.
+
+_Computed by the engine; never written in scene files._
+
+Brings along: `render/SkinnedMesh`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `source` | `"joints"` \| `"pose"` \| `"baked"` | `"joints"` |  | joints: SkinnedMesh.joints' transforms. pose: 3 rows per joint at `base`. baked: the playback header at `base`. |
+| `base` | integer | `0` | ≥ 0, ≤ 4294967295 | pose: vec4 index (DeformStore.poses) of joint 0's first row; each joint has 3 rows of `jointModel × inverseBind` in the mesh entity's space. baked: vec4 index of the 3-vec4 playback header. |
+| `joints` | integer | `0` | ≥ 0, ≤ 4294967295 | Joint count. |
+| `morphBase` | integer | `0` | ≥ 0, ≤ 4294967295 | vec4 index of a persistent block of 8 (target, weight) pairs; 0 uses MorphWeights each frame. |
+| `morphCount` | integer | `0` | ≥ 0, ≤ 4294967295 | Active pairs in the morph block (at most 8). |
+| `sphere` | number[4] | `[0,0,0,0]` |  | Bounding sphere of every pose in the mesh entity's space: center xyz, radius w (0: the mesh bounds). |
 
 ## `render/Skybox`
 

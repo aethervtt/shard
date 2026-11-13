@@ -53,6 +53,11 @@ export class DeltaState {
   /** The override keys of each generated path (the path itself, and its component removals). */
   readonly byPath = new Map<string, Set<string>>()
   dormant: SavedCellEntity[] = []
+  /**
+   * Bumped whenever `dormant` changes (unload, an entity walking in, `moveDormant`, wake), so a
+   * hordes system re-reads a cell's dormant entities only then (0115). Not saved.
+   */
+  dormantRev = 0
   rev = 0
   next = 0
 

@@ -20,6 +20,12 @@ import { captureView, Gpu, Shaders } from './plugin'
 import { Skins } from './skin-asset'
 
 export {
+  type BakedFramesMirror,
+  bakedFrames,
+  bakedRow,
+  deformedPositions,
+} from './deform-mirror'
+export {
   expectScenario,
   measureScenario,
   type ScenarioOptions,
