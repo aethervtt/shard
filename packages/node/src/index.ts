@@ -401,8 +401,11 @@ export interface EnginePackage {
   name: string
   /** The package folder. */
   root: string
-  /** Absolute path of its main entry: `src/index.ts` in the repository, `dist/index.js` published. */
-  entry: string | undefined
+  /**
+   * Absolute path of each entry in its `exports`, by subpath (`.`, `./net`): `src/*.ts` in the
+   * repository, `dist/*.js` published. Resolved for a page: the `browser` condition first.
+   */
+  exports: Record<string, string>
   /** Where its code is: `src` in the repository, `dist` published. */
   code: string
 }
@@ -418,9 +421,17 @@ function packageRoot(path: string): string {
   return dir
 }
 
+type ExportTarget = string | { browser?: ExportTarget; default?: ExportTarget }
+
+/** The file an `exports` entry names for a page. */
+function exportFile(target: ExportTarget | undefined): string | undefined {
+  if (typeof target !== 'object') return target
+  return exportFile(target.browser ?? target.default)
+}
+
 interface PackageJson {
   name?: string
-  exports?: Record<string, string | { default?: string }>
+  exports?: Record<string, ExportTarget>
   dependencies?: Record<string, string>
 }
 
@@ -437,12 +448,15 @@ export function enginePackages(from: readonly string[] = []): EnginePackage[] {
   const add = (root: string): PackageJson | undefined => {
     const pkg = readJson(join(root, 'package.json'))
     if (!pkg.name?.startsWith('@aethervtt/shard-') || found.has(pkg.name)) return undefined
-    const main = pkg.exports?.['.']
-    const entry = typeof main === 'string' ? main : main?.default
+    const exports: Record<string, string> = {}
+    for (const [subpath, target] of Object.entries(pkg.exports ?? {})) {
+      const file = exportFile(target)
+      if (file) exports[subpath] = resolve(root, file)
+    }
     found.set(pkg.name, {
       name: pkg.name,
       root,
-      entry: entry ? resolve(root, entry) : undefined,
+      exports,
       code: existsSync(join(root, 'src')) ? join(root, 'src') : join(root, 'dist'),
     })
     return pkg

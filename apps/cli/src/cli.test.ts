@@ -9,17 +9,18 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { hottestFromCpuProfile } from '@aethervtt/shard-core/capture'
 import { timeout } from '@aethervtt/shard-core/test-env'
 import { parseGltf } from '@aethervtt/shard-gltf'
-import { openProject } from '@aethervtt/shard-node'
+import { enginePackages, openProject } from '@aethervtt/shard-node'
 import { connectToHub, createProtocolServer, decodePng } from '@aethervtt/shard-protocol'
 import { encodePng, sha256 } from '@aethervtt/shard-verify/node'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { afterAll, beforeAll, describe, expect, it, onTestFinished } from 'vitest'
+import { engineImportMap } from './dev'
 import { Hub, localTarget } from './hub'
 import { createMcpServer } from './mcp'
 
@@ -607,6 +608,9 @@ describe('commands', () => {
       expect(map.imports['@aethervtt/shard-core']).toMatch(
         /^\/@fs\/.*\/packages\/core\/src\/index\.ts$/,
       )
+      expect(map.imports['@aethervtt/shard-partition/net']).toMatch(
+        /^\/@fs\/.*\/packages\/partition\/src\/net\.ts$/,
+      )
       const project = await (
         await fetch(new URL('/@aethervtt/shard-project.json', info.url))
       ).json()
@@ -623,6 +627,21 @@ describe('commands', () => {
     } finally {
       child.kill('SIGINT')
     }
+  })
+
+  it("dev's import map has every engine package's subpath exports", () => {
+    const map = engineImportMap(enginePackages([example]))
+    const partition = resolve(here, '../../../packages/partition')
+    const { exports } = JSON.parse(readFileSync(join(partition, 'package.json'), 'utf8'))
+    const net = resolve(partition, exports['./net']).split(sep).join('/')
+    expect(map['@aethervtt/shard-partition/net']).toBe(
+      `/@fs${net.startsWith('/') ? '' : '/'}${net}`,
+    )
+    expect(map['@aethervtt/shard-structure/physics']).toMatch(
+      /\/packages\/structure\/src\/physics\.ts$/,
+    )
+    // A conditional export resolves to its browser file.
+    expect(map['@aethervtt/shard-platform-node/codecs']).toMatch(/\/codecs-browser\.ts$/)
   })
 
   it('uses the documented exit codes and --json errors', () => {
