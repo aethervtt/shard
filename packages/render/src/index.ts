@@ -627,4 +627,4 @@ export {
   resolveViewVisibility,
   viewVisibilityPlugin,
 } from './view-visibility-plugin'
-export { ComputedVisibility, computeVisibility, Visibility } from './visibility'
+export { ComputedVisibility, computeVisibility, DrawnByProxy, Visibility } from './visibility'

@@ -283,6 +283,28 @@ export const StructureShadowProxy = defineComponent(
   },
 )
 
+/**
+ * On each camera region mesh structure spawns (`cameraRegions`, 0073): one group's chunk meshes of
+ * one material over one region, drawn in their place.
+ */
+export const StructureCameraRegion = defineComponent(
+  'structure/CameraRegion',
+  {
+    group: t.entity({
+      readonly: true,
+      description: 'The group it belongs to: a Level, a Roof, or a ground level.',
+    }),
+    x: t.i32({ readonly: true, description: 'Region column (x / shadowRegion).' }),
+    z: t.i32({ readonly: true, description: 'Region row (z / shadowRegion).' }),
+  },
+  {
+    description:
+      "One group's structure of one material over one region, merged: camera and shadow views draw it instead of the region's chunk meshes (0073).",
+    serialize: false,
+    save: false,
+  },
+)
+
 export const StructureChunk = defineComponent(
   'structure/Chunk',
   {
@@ -488,6 +510,18 @@ export interface StructureSettingsValue {
    */
   shadowRegion: number
   /**
+   * Where pieces with no Level draw (0067): one ground group for the world (`'global'`), or one per
+   * root entity, a child of that root (`'root'`), so a streamed cell's ground hides and is drawn by
+   * its HLOD proxy with the cell (0073). Pieces with no parent use the world's ground either way.
+   */
+  groundGroups: 'global' | 'root'
+  /**
+   * Region meshes (0073): camera views draw one mesh per region (`shadowRegion`, or 32 m when that
+   * is 0), group and material instead of each chunk mesh, which stays the unit of rebuild and keeps
+   * its occluder. A rebuilt chunk rebuilds its region in the same compile. hlodPlugin turns it on.
+   */
+  cameraRegions: boolean
+  /**
    * Occluders (0116): each chunk mesh gets its walls' solid spans, and each door leaf its box, as an
    * Occluder for cameras with OcclusionCulling. A change rebuilds every chunk with walls.
    */
@@ -508,6 +542,8 @@ export const StructureSettings = defineResource<StructureSettingsValue>('structu
     colliders: defaultColliders(),
     nav: defaultStructureNav(),
     shadowRegion: 32,
+    groundGroups: 'global',
+    cameraRegions: false,
     occluders: true,
   }),
   hostWritable: true,

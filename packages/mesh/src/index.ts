@@ -22,6 +22,14 @@ export {
   torus,
 } from './primitives'
 export {
+  buildProxy,
+  type ProxyInput,
+  type ProxyLevel,
+  type ProxyOccluder,
+  type ProxyOutput,
+  type ProxyPart,
+} from './proxy'
+export {
   type GeneratedLod,
   generateLods,
   loadMeshSimplifier,

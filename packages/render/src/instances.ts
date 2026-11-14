@@ -597,6 +597,8 @@ export class InstanceStore {
   flags = new Uint16Array(0)
   /** Hidden instances per ECS table id, from the last time prepare visited the table. */
   readonly tableHidden: number[] = []
+  /** Rows per table drawn by a proxy (0073) at the last visit: they hold no slot. */
+  readonly tableProxied: number[] = []
   /** Batch index (>= 0), LOD set (-2 - index), or -1 (none), per slot. */
   batchOf = new Int32Array(0)
   /** Index of the slot in its batch's member list, or -1. */
@@ -2222,6 +2224,7 @@ export const prepareInstances = defineSystem({
     let hidden = 0
     let rows = 0
     const tableHidden = store.tableHidden
+    const tableAway = store.tableProxied
     for (const table of q.tables) {
       const n = table.count
       if (n === 0) continue
@@ -2229,7 +2232,7 @@ export const prepareInstances = defineSystem({
       const cached = tableHidden[table.id]
       if (cached !== undefined && cached >= 0 && !tableChanged(table, since)) {
         hidden += cached
-        rows += n
+        rows += n - (tableAway[table.id] ?? 0)
         continue
       }
       const hiddenBefore = hidden
@@ -2254,6 +2257,7 @@ export const prepareInstances = defineSystem({
       const dataChanged = hasData ? table.changedTicks(InstanceData) : zeroTicks(n)
       const vis = table.column(ComputedVisibility, 'visible')
       const shadowOnly = table.column(ComputedVisibility, 'shadowOnly')
+      const proxied = table.column(ComputedVisibility, 'proxied')
       const hiddenFlag = table.has(ShadowWhenHidden) ? InstanceFlags.ShadowOnly : 0
       const layerMasks = table.has(RenderLayers) ? table.column(RenderLayers, 'mask') : undefined
       const hasGround = table.has(GroundLayer)
@@ -2284,8 +2288,18 @@ export const prepareInstances = defineSystem({
       // a few tick compares.
       let u32 = store.u32
       let slotFlags = store.flags
+      let away = 0
       for (let i = 0; i < n; i++) {
         let slot = slots[i]! - 1
+        // Drawn by a proxy (0073): no slot at all, so it costs no queueing, culling or upload.
+        if (proxied[i] !== 0) {
+          if (slot >= 0) {
+            store.release(slot)
+            slots[i] = 0
+          }
+          away++
+          continue
+        }
         let fresh = false
         if (slot < 0) {
           slot = store.alloc(table.entities[i]!)
@@ -2361,7 +2375,8 @@ export const prepareInstances = defineSystem({
           store.setRange(slot, dataX![i]!, dataY![i]!)
       }
       tableHidden[table.id] = hidden - hiddenBefore
-      rows += n
+      rows += n - away
+      tableAway[table.id] = away
     }
     store.settleStatic()
     store.settleMoved()

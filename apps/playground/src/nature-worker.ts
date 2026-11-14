@@ -2,4 +2,4 @@
 // (its generator and species type) plus the procgen job runner.
 import '@aethervtt/shard-nature'
 
-export { runGeneratorJob, warmUp } from '@aethervtt/shard-procgen/worker'
+export { buildProxy, runGeneratorJob, warmUp } from '@aethervtt/shard-procgen/worker'

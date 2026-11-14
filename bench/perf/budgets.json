@@ -1126,18 +1126,18 @@
         "gpu": {
           "gpu:forward-opaque": 0.5,
           "gpu:shadows": 0.2,
-          "gpu:tonemap": 0.05,
-          "headroom": 0.25
+          "gpu:tonemap": 0.1,
+          "headroom": 0.2
         },
         "cpu": {
-          "render": 0.6,
-          "hlod": 0.06,
-          "structure": 0.03,
+          "render": 0.9,
+          "hlod/select": 0.03,
+          "structure": 0.01,
           "partition": 0.03,
-          "headroom": 0.28
+          "headroom": 0.03
         }
       },
-      "note": "0073 proposed, not measured on either machine. The CPU frame is the target Risen asked for (a frame under 16.7 ms on the laptop). Measured before HLOD on an Apple M5 Max (not a named machine, 2026-11-13), in Risen's town (16 full, 80 far cells) in headless Chromium at 1920x1080: CPU frame 16.5 ms p50 (17.2 p95), 18,736 mesh slots in 16,650 batches, 3,391 camera draws; far houses 4,158 slots, 247 draws, 2.5 ms; full houses 5,053 slots, 1,075 draws, 2.9-4.9 ms; ground chunks 8,107 slots, 2,057 draws, 2.8-4.6 ms; everything hidden 6.5 ms. Projected with proxies: about 8.5 ms there, about 14 ms on the laptop in a browser. Keys cover the spans the walk records, none twice: gpu:forward-opaque, gpu:shadows, gpu:tonemap. CPU: render (render systems, render/occlusion and node encodes), hlod (hlod/select, hlod/gather, hlod/commit), structure (structure/compile), partition (partition/stream); the rest falls in headroom. partition/src/hlod.test.ts."
+      "note": "0073 proposed, not measured on either machine. The CPU frame is the target Risen asked for (a frame under 16.7 ms on the laptop). Measured before HLOD on an Apple M5 Max (not a named machine, 2026-11-13), in Risen's town (16 full, 80 far cells) in headless Chromium at 1920x1080: CPU frame 16.5 ms p50 (17.2 p95), 18,736 mesh slots in 16,650 batches, 3,391 camera draws; far houses 4,158 slots, 247 draws, 2.5 ms; full houses 5,053 slots, 1,075 draws, 2.9-4.9 ms; ground chunks 8,107 slots, 2,057 draws, 2.8-4.6 ms; everything hidden 6.5 ms. Projected with proxies: about 8.5 ms there, about 14 ms on the laptop in a browser. Keys cover the spans the walk records, none twice: gpu:forward-opaque, gpu:shadows, gpu:tonemap. CPU: render (render systems, render/occlusion and node encodes), hlod/select (gathers and commits run inside it), structure (structure/compile), partition (partition/stream); the rest falls in headroom. partition/src/hlod.test.ts."
     }
   }
 }

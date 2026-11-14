@@ -36,7 +36,7 @@ export interface ProxyHost {
       group: Entity
       x: number
       z: number
-      meshes: Map<string, { entity: Entity; mesh: Mesh }>
+      meshes: Map<string, { entity: Entity; mesh: Mesh; ref: AssetRef<'Mesh'> }>
     }
   >
   chunkSize: number

@@ -112,7 +112,7 @@ export async function buildGeneratorWorker(options: {
     result = await esbuild.build({
       absWorkingDir: root,
       stdin: {
-        contents: `import ${JSON.stringify(entry)}\nexport { runGeneratorJob, warmUp } from ${JSON.stringify(worker)}\n`,
+        contents: `import ${JSON.stringify(entry)}\nexport { buildProxy, runGeneratorJob, warmUp } from ${JSON.stringify(worker)}\n`,
         resolveDir: root,
         sourcefile: 'procgen-worker.ts',
         loader: 'ts',

@@ -13,6 +13,7 @@ import {
 import { characterMethods } from '@aethervtt/shard-characters'
 import { allComponents, findComponent, type JsonSchema, ShardError } from '@aethervtt/shard-core'
 import { effectMethods } from '@aethervtt/shard-effects'
+import { hlodMethods } from '@aethervtt/shard-hlod'
 import { navMethods } from '@aethervtt/shard-nav'
 import { listScenes } from '@aethervtt/shard-node'
 import { noiseMethods } from '@aethervtt/shard-noise'
@@ -91,6 +92,7 @@ const PLUGIN_METHODS = [
   ...terrainMethods,
   ...scatterMethods,
   ...partitionMethods,
+  ...hlodMethods,
   ...atmosphereMethods,
   ...metricsMethods,
   ...tilemapMethods,
@@ -419,6 +421,11 @@ export const TOOLS: Tool[] = [
     'partition_cell',
     'partition.cell',
     'One partition cell: unloaded, generating or loaded and at which level, entity and added-entity counts, the hash of every level’s generated fragment (what every machine must produce), and its delta (changes against the generated baseline). Example: { "x": 3, "z": -2 } (grid defaults to the first).',
+  ),
+  forward(
+    'describe_hlod',
+    'hlod.describe',
+    'HLOD proxies (spec 0073) as data: per cell level, cells loaded, covered by a proxy, still drawn as shells, building and stale; proxies, their triangles, builds so far, jobs in flight and last frame’s ms. Use it to check that far cells draw as proxies.',
   ),
   forward(
     'describe_scatter',
