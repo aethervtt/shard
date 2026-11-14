@@ -175,7 +175,7 @@ export class InteriorState {
 
   /** The layer pieces on `group` (a Level, or the ground level's group) draw into; -1 for none. */
   layerOfGroup(structure: StructureState, group: Entity): number {
-    if (group === structure.ground) return 0
+    if (structure.isGround(group)) return 0
     return this.levelLayer.get(group) ?? -1
   }
 
@@ -399,7 +399,7 @@ function slabCover(
   } else {
     // A floor covers every level below it: the ground level, and levels lower than its own.
     const elevation = structure.baseOf(levelGroup)
-    if (levelGroup !== structure.ground) {
+    if (!structure.isGround(levelGroup)) {
       if (elevation > 1e-6) layers.push(0)
       for (let i = 0; i < state.levels.length && i < INTERIOR_LEVELS; i++)
         if (state.levels[i]!.elevation < elevation - 1e-6) layers.push(i + 1)

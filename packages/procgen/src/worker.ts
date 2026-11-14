@@ -5,6 +5,12 @@ import { executeJob, type GenJob } from './job'
 import { encodeRecord } from './record'
 
 /**
+ * HLOD proxies (0073) merge on the same pool, in the same module: it's the one every host already
+ * bundles self-contained for its workers.
+ */
+export { buildProxy } from '@aethervtt/shard-mesh'
+
+/**
  * Runs one generator job with the clock and Math.random guarded for all of it. The result is one
  * packed record (`encodeRecord`), so its bytes move back to the caller instead of being copied.
  */

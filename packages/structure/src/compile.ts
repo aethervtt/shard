@@ -25,6 +25,7 @@ import {
 } from '@aethervtt/shard-render'
 import { FrameDemand, LogResource, Time } from '@aethervtt/shard-runtime'
 import { Transform } from '@aethervtt/shard-transform'
+import { CameraRegions } from './camera-regions'
 import {
   ContactMesh,
   type ContactSettings,
@@ -240,6 +241,10 @@ export class StructureState {
   readonly moving = new Set<Entity>()
   /** The ground level's group: pieces without a Level draw under it. */
   ground: Entity = -1 as Entity
+  /** `groundGroups: 'root'` (0073): each root entity's own ground group, and the set of them. */
+  rootGround = false
+  readonly rootGrounds = new Map<Entity, Entity>()
+  readonly grounds = new Set<Entity>()
   chunkSize = 0
   curveTolerance = 0
   /** The shape each wall last reported a too-tight curve for (reported once per shape). */
@@ -292,6 +297,12 @@ export class StructureState {
   describeInterior: (() => unknown) | undefined
   /** Merged shadow-only meshes per region and group (0116). */
   readonly proxies = new ShadowProxies()
+  readonly regions = new CameraRegions()
+
+  /** Camera regions' size: the shadow proxies' grid, or 32 m when shadow proxies are off. */
+  regionSize(): number {
+    return this.proxies.size > 0 ? this.proxies.size : 32
+  }
   /** Wall occluders per builder key while a chunk rebuilds, and whether walls occlude (0116). */
   readonly occluderBuilders = new Map<string, OccluderBuilder>()
   occluders = true
@@ -365,15 +376,37 @@ export class StructureState {
     return c
   }
 
-  /** Where a piece on `level` draws: the Level, or the ground level when it has none. */
-  groupOf(level: Entity | null): Entity {
+  /**
+   * Where a piece on `level` draws: the Level, or the ground level when it has none. With
+   * `groundGroups: 'root'`, a `piece` under a root entity draws on that root's own ground group.
+   */
+  groupOf(level: Entity | null, piece?: Entity): Entity {
     const world = this.world
-    return level !== null && world.isAlive(level) && world.has(level, Level) ? level : this.ground
+    if (level !== null && world.isAlive(level) && world.has(level, Level)) return level
+    if (!this.rootGround || piece === undefined) return this.ground
+    let root = piece
+    for (let p = world.tryGet(root, ChildOf)?.parent; p != null; ) {
+      root = p as Entity
+      p = world.tryGet(root, ChildOf)?.parent
+    }
+    if (root === piece) return this.ground
+    let group = this.rootGrounds.get(root)
+    if (group === undefined || !world.isAlive(group)) {
+      group = world.spawn(Transform, Derived, [ChildOf, { parent: root }])
+      this.rootGrounds.set(root, group)
+      this.grounds.add(group)
+    }
+    return group
+  }
+
+  /** Whether a group is a ground level: the world's, or a root's (`groundGroups: 'root'`). */
+  isGround(group: Entity): boolean {
+    return group === this.ground || this.grounds.has(group)
   }
 
   /** A group's elevation: its Level's, or 0. */
   baseOf(group: Entity): number {
-    return group === this.ground ? 0 : (this.world.tryGet(group, Level)?.elevation ?? 0)
+    return this.isGround(group) ? 0 : (this.world.tryGet(group, Level)?.elevation ?? 0)
   }
 
   /** Curved walls and how finely each is sampled (0066). */
@@ -407,12 +440,12 @@ export class StructureState {
     }
     for (const group of this.groups) {
       const n = counts.get(group)
-      if (!n && group !== this.ground) continue
+      if (!n && !this.isGround(group)) continue
       const roof = this.slabs.get(group)?.kind === 'roof'
       const level = world.isAlive(group) ? world.tryGet(group, Level) : undefined
       out.push({
         group,
-        kind: group === this.ground ? 'ground' : roof ? 'roof' : 'level',
+        kind: this.isGround(group) ? 'ground' : roof ? 'roof' : 'level',
         index: level?.index ?? 0,
         chunks: n?.chunks ?? 0,
         meshes: n?.meshes ?? 0,
@@ -607,7 +640,7 @@ function evaluateWall(state: StructureState, entity: Entity): void {
     return
   }
   const level = (value.level ?? null) as Entity | null
-  const group = state.groupOf(level)
+  const group = state.groupOf(level, entity)
   const shape = wallShape(value, state.baseOf(group), state.curveTolerance)
   if (!checkCurve(state, entity, value, shape)) {
     state.walls.delete(entity)
@@ -723,7 +756,7 @@ function evaluateSlab(state: StructureState, entity: Entity): void {
     return
   }
   const level = (value.level ?? null) as Entity | null
-  const levelGroup = state.groupOf(level)
+  const levelGroup = state.groupOf(level, entity)
   // A roof is its own group, so it hides alone; a floor draws with its level.
   const group = roof ? entity : levelGroup
   const base = state.baseOf(levelGroup)
@@ -1772,6 +1805,7 @@ function applyCutawayWalls(state: StructureState, on: boolean): void {
 /** Every chunk mesh goes, and every wall and slab is placed again (the chunk size changed). */
 function resetChunks(state: StructureState): void {
   state.proxies.reset(state)
+  state.regions.reset(state, state.regions.on)
   for (const chunk of state.chunks.values()) {
     for (const cm of chunk.meshes.values()) dropChunkMesh(state.world, cm)
     if (chunk.contact) dropChunkMesh(state.world, chunk.contact)
@@ -1838,7 +1872,10 @@ export const compileStructure = defineSystem({
       settings.shadowRegion !== state.proxies.size ||
       settings.occluders !== state.occluders ||
       size !== state.chunkSize ||
-      tolerance !== state.curveTolerance
+      tolerance !== state.curveTolerance ||
+      (settings.groundGroups === 'root') !== state.rootGround ||
+      settings.cameraRegions !== state.regions.on ||
+      state.regions.dirty.size > 0
     if (!any) {
       for (let t = 0; t < walls.tables.length && !any; t++)
         if (walls.tables[t]!.lastChanged(Wall) > since) any = true
@@ -1857,9 +1894,15 @@ export const compileStructure = defineSystem({
     const start = performance.now()
     if (contact) applyContactSettings(state, settings.contact)
     if (cutawayWalls !== state.cutawayWalls) applyCutawayWalls(state, cutawayWalls)
-    if (size !== state.chunkSize || tolerance !== state.curveTolerance) {
+    const rootGround = settings.groundGroups === 'root'
+    if (
+      size !== state.chunkSize ||
+      tolerance !== state.curveTolerance ||
+      rootGround !== state.rootGround
+    ) {
       state.chunkSize = size
       state.curveTolerance = tolerance
+      state.rootGround = rootGround
       resetChunks(state)
     }
     if (settings.occluders !== state.occluders) {
@@ -1869,7 +1912,17 @@ export const compileStructure = defineSystem({
     if (settings.shadowRegion !== state.proxies.size) {
       state.proxies.size = settings.shadowRegion
       state.proxies.reset(state)
+      if (state.regions.on) state.regions.reset(state, true)
     }
+    if (settings.cameraRegions !== state.regions.on)
+      state.regions.reset(state, settings.cameraRegions)
+    // Roots that went away (a streamed cell unloading) took their ground groups with them.
+    if (state.rootGrounds.size > 0 && state.removedWalls.length + state.removedSlabs.length > 0)
+      for (const [root, group] of state.rootGrounds)
+        if (!world.isAlive(group)) {
+          state.rootGrounds.delete(root)
+          state.grounds.delete(group)
+        }
     // Despawns first: an entity removed and added back this frame reads as new below.
     for (const e of state.removedOpenings) forgetOpening(state, e)
     state.removedOpenings.length = 0
@@ -1955,6 +2008,7 @@ export const compileStructure = defineSystem({
     updateContacts(state)
     if (state.dirtyChunks.size === 0 && state.dirtyContact.size === 0) {
       state.proxies.update(state)
+      state.regions.update(state)
       return
     }
     const dirty: [number, number][] = []
@@ -1965,6 +2019,7 @@ export const compileStructure = defineSystem({
       const group = state.groups[Math.floor(key / GROUP_STRIDE)]!
       meshes += rebuildChunk(state, key)
       state.proxies.mark(state, key)
+      state.regions.mark(state, key)
       const plain = key % GROUP_STRIDE
       dirty.push([chunkX(plain), chunkZ(plain)])
       groups.push(group)
@@ -1982,6 +2037,7 @@ export const compileStructure = defineSystem({
     state.dirtyContact.clear()
     state.dirtyChunks.clear()
     state.proxies.update(state)
+    state.regions.update(state)
     state.last = {
       dirtyChunks: dirty,
       dirtyGroups: groups,

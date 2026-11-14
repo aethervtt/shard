@@ -169,7 +169,7 @@ import {
   observeViewVisibilityWithoutPlugin,
   ViewVisibility,
 } from './view-visibility'
-import { ComputedVisibility, computeVisibility, Visibility } from './visibility'
+import { ComputedVisibility, computeVisibility, DrawnByProxy, Visibility } from './visibility'
 
 export { Mesh3d, MeshMaterial }
 
@@ -1981,6 +1981,7 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       NotShadowCaster,
       NotShadowReceiver,
       ShadowWhenHidden,
+      DrawnByProxy,
       DynamicCaster,
       OcclusionCulling,
       Occluder,

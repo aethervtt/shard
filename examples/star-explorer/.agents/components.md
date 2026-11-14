@@ -553,6 +553,26 @@ Solid dice: an opaque body, optional flecks.
 | `fleckColor` | string or number[4] | `"#ffffff"` |  | Fleck color (linear). |
 | `fleckScale` | number | `16` | ≥ 1 | Fleck density, per unit of die radius. |
 
+## `hlod/Exclude`
+
+This entity and its subtree are never merged into an HLOD proxy (0073).
+
+Tag (no fields).
+
+## `hlod/Proxy`
+
+An HLOD proxy (0073): one cell's drawn meshes merged, with levels inside it.
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `grid` | integer | `0` | ≥ 0, ≤ 255 |  |
+| `x` | integer | `0` | ≥ -2147483648, ≤ 2147483647 |  |
+| `z` | integer | `0` | ≥ -2147483648, ≤ 2147483647 |  |
+| `triangles` | integer | `0` | ≥ 0, ≤ 4294967295 | Level 0's triangles. |
+| `levels` | integer | `0` | ≥ 0, ≤ 255 | Levels of detail it has. |
+
 ## `nature/Tree`
 
 Trees grown by nature/Tree (experimental): bark from the standard texture slots (baseColor, normal, metallicRoughness), leaves from leafTexture, swaying in the wind. Use alphaMode "mask" and doubleSided true.
@@ -1155,6 +1175,7 @@ _Computed by the engine; never written in scene files._
 |---|---|---|---|---|
 | `visible` | boolean | `true` |  | Final visibility after inheritance. |
 | `shadowOnly` | boolean | `false` |  | Not visible, but drawn in shadow views (shadow-only after inheritance). |
+| `proxied` | boolean | `false` |  | Drawn by a proxy (DrawnByProxy on this entity or an ancestor, 0073): no instance slot at all. |
 
 ## `render/Cutaway`
 
@@ -1239,6 +1260,14 @@ Brings along: `core/Transform`.
 | `minCasterTexels` | number | `1` | ≥ 0 | Casters whose bounding sphere spans fewer texels than this in a cascade are left out of it (0116). 0 keeps every caster. |
 | `shadowAngleStep` | number | `0` | ≥ 0, ≤ 10, deg | The shadows' direction moves in steps of this many degrees (elevation and azimuth), so a turning sun redraws cached shadows in steps (0116). 0 follows it exactly. |
 | `angularDiameter` | number | `0.53` | ≥ 0, ≤ 30, deg | The sun disk's size in an atmosphere's sky (the Sun 0.53°). 0: no disk. Illuminance is at the top of the atmosphere. |
+
+## `render/DrawnByProxy`
+
+Drawn by a proxy (HLOD, 0073): this subtree gives up its instance slots and occludes nothing.
+
+_Computed by the engine; never written in scene files._
+
+Tag (no fields).
 
 ## `render/DrivesView`
 
@@ -2037,6 +2066,18 @@ A span of a wall that agents can breach (0114): a player-built wall or a barrica
 | `wall` | null or integer or string | `null` |  | The wall it's a span of. Empty: this entity's own Wall. |
 | `offset` | number | `0` | ≥ 0, m | Distance from the wall's start to the span. |
 | `width` | number | `0` | ≥ 0, m | Width along the wall. 0: to the wall's end. |
+
+## `structure/CameraRegion`
+
+One group's structure of one material over one region, merged: camera and shadow views draw it instead of the region's chunk meshes (0073).
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `group` | null or integer or string | `null` |  | The group it belongs to: a Level, a Roof, or a ground level. |
+| `x` | integer | `0` | ≥ -2147483648, ≤ 2147483647 | Region column (x / shadowRegion). |
+| `z` | integer | `0` | ≥ -2147483648, ≤ 2147483647 | Region row (z / shadowRegion). |
 
 ## `structure/Chunk`
 

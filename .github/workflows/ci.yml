@@ -206,6 +206,7 @@ jobs:
             @aethervtt/shard-texture @aethervtt/shard-gpu-webgl2 @aethervtt/shard-partition
             @aethervtt/shard-gltf @aethervtt/shard-noise
             @aethervtt/shard-nav @aethervtt/shard-structure @aethervtt/shard-characters
+            @aethervtt/shard-hlod
 
       - uses: actions/cache/save@v4
         if: always()

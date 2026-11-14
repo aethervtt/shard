@@ -41,6 +41,7 @@ export {
   OPENING_KINDS,
   Opening,
   Roof,
+  StructureCameraRegion,
   StructureChunk,
   type StructureNavSettings,
   StructureSettings,

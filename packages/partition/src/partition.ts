@@ -7,6 +7,11 @@ export interface LevelConfig {
   name: string
   /** Metres from a source to the nearest point of the cell within which this level loads. */
   range: number
+  /**
+   * HLOD (0073): cells at this level are drawn by proxies (`hlodPlugin`), built from what they
+   * draw. They still commit and take deltas. Never the first level.
+   */
+  proxy?: boolean
 }
 
 export interface ReplicateBand {
@@ -101,6 +106,7 @@ function checkConfig(name: string, config: PartitionConfig): void {
       if (g.levels[k]!.range <= g.levels[k - 1]!.range) throw bad('ranges must increase')
     }
     if (g.simulate < g.levels[0]!.range) throw bad('simulate is below the first level range')
+    if (g.levels[0]!.proxy) throw bad('the first level is never drawn by proxies')
     if (!(g.cellSize > 0)) throw bad('cellSize must be positive')
   })
 }

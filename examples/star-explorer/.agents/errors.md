@@ -211,6 +211,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `locale/missing-key` | @aethervtt/shard-text |  |
 | `locale/param-mismatch` | @aethervtt/shard-text | Every locale gets the same params: use the same {placeholders} in each. |
 | `mesh/bad-lod` | @aethervtt/shard-mesh | lods: [0.5, 0.2] keeps about half, then a fifth, of the triangles. |
+| `mesh/bad-proxy` | @aethervtt/shard-mesh | levelSizes starts with 0 and increases. |
 | `mesh/bad-shape` | @aethervtt/shard-mesh | Detail 6 is already 40 962 vertices. |
 | `mesh/invalid` | @aethervtt/shard-mesh | positions/normals: 3 per vertex, uvs/uvs1: 2, colors/tangents/joints/weights: 4; indices must be < vertex count. |
 | `mesh/invalid-artifact` | @aethervtt/shard-mesh | Re-import the source (`shard import --force`). |

@@ -82,6 +82,7 @@
     "packages/nav/src/perf.test.ts": 5,
     "packages/sprite/src/picking.test.ts": 5,
     "packages/structure/src/structure.test.ts": 240,
+    "packages/hlod/src/hlod.test.ts": 300,
     "packages/render/src/tabletop.test.ts": 60,
     "packages/grid/src/grid.test.ts": 90,
     "packages/scenes/src/parity.test.ts": 60,
@@ -94,6 +95,7 @@
   },
   "windows": {
     "packages/structure/src/interior-max.test.ts": 1642,
+    "packages/hlod/src/hlod.test.ts": 900,
     "packages/terrain/src/morph.test.ts": 1556,
     "packages/terrain/src/heightfield/flight.test.ts": 1100,
     "packages/terrain/src/heightfield/baseline.test.ts": 700,

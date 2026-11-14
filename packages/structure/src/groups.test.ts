@@ -1,11 +1,12 @@
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { type AssetRef, Children, type Entity, polygon, Rng } from '@aethervtt/shard-core'
+import { type AssetRef, ChildOf, Children, type Entity, polygon, Rng } from '@aethervtt/shard-core'
 import { timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import type { Mesh } from '@aethervtt/shard-mesh'
 import {
+  ComputedVisibility,
   Gpu,
   MaterialAsset,
   Materials,
@@ -20,7 +21,16 @@ import { LogResource } from '@aethervtt/shard-runtime'
 import { Transform } from '@aethervtt/shard-transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { roofAt, Structure } from './compile'
-import { Cutout, DoorLeaf, Floor, Level, Roof, StructureShadowProxy, Wall } from './components'
+import {
+  Cutout,
+  DoorLeaf,
+  Floor,
+  Level,
+  Roof,
+  StructureSettings,
+  StructureShadowProxy,
+  Wall,
+} from './components'
 import { chunkKey, insideRing } from './geometry'
 import { type Rig, rig } from './harness'
 import { planarBarriers } from './planar'
@@ -139,6 +149,57 @@ describe('levels and roofs', () => {
     expect(described.levels).toBe(1)
     expect(described.roofs).toBe(1)
     expect(described.groups.map((g) => g.kind).sort()).toEqual(['ground', 'level', 'roof'])
+    expect(world.resource(Gpu).errors).toEqual([])
+    await r.dispose()
+  })
+
+  it("with groundGroups 'root', a root's ground pieces draw under that root and go with it (0073)", {
+    timeout: timeout(60_000),
+  }, async () => {
+    const r = await rig(gpu)
+    const world = r.app.world
+    world.resource(StructureSettings).groundGroups = 'root'
+    const cells = [0, 1].map((i) => world.spawn([Transform, { translation: [i * 64, 0, 0] }]))
+    const pieces = cells.map((cell, i) => {
+      const { walls, floor } = room(world, i * 64 + 4, 4, 10, null)
+      for (const e of [...walls, floor]) world.add(e, ChildOf, { parent: cell })
+      return { walls, floor }
+    })
+    const loose = room(world, 200, 4, 10, null)
+    r.look([70, 40, 60], [70, 0, 0])
+    await still(r)
+    const state = world.resource(Structure)
+    const groundOf = (cell: Entity) =>
+      (world.tryGet(cell, Children)?.entities ?? []).filter(
+        (e): e is Entity => e !== null && state.grounds.has(e),
+      )
+    for (const cell of cells) {
+      const grounds = groundOf(cell)
+      expect(grounds).toHaveLength(1)
+      expect(groupMeshes(world, grounds[0]!).length).toBeGreaterThan(1)
+      expect(state.isGround(grounds[0]!)).toBe(true)
+    }
+    // A piece with no parent stays on the world's ground.
+    expect(groupMeshes(world, state.ground).length).toBeGreaterThan(1)
+    expect(state.describe().groups.filter((g) => g.kind === 'ground')).toHaveLength(3)
+    // Hiding a cell hides its ground with it; the other cell's stays.
+    world.add(cells[0]!, Visibility, { mode: 'hidden' })
+    r.frame()
+    const shownOf = (cell: Entity) =>
+      groupMeshes(world, groundOf(cell)[0]!)
+        .filter((e) => !world.has(e, StructureShadowProxy))
+        .map((e) => world.get(e, ComputedVisibility).visible)
+    expect(shownOf(cells[0]!).every((v) => !v)).toBe(true)
+    expect(shownOf(cells[1]!).every((v) => v)).toBe(true)
+    // A cell that goes takes its ground group and chunks; the rest rebuild nothing.
+    const rebuilt = state.chunksRebuilt
+    world.despawn(cells[0]!)
+    for (const e of [...pieces[0]!.walls, pieces[0]!.floor]) if (world.isAlive(e)) world.despawn(e)
+    r.frame()
+    expect(state.rootGrounds.has(cells[0]!)).toBe(false)
+    expect(state.chunksRebuilt - rebuilt).toBeLessThanOrEqual(state.last.chunksRebuilt)
+    expect(groupMeshes(world, groundOf(cells[1]!)[0]!).length).toBeGreaterThan(1)
+    void loose
     expect(world.resource(Gpu).errors).toEqual([])
     await r.dispose()
   })

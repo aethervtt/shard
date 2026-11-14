@@ -126,7 +126,7 @@ acceptance evidence are mapped in [the implementation checklist](research/audio-
 | [0105](0105-terrain-normal-maps.md) | Terrain layer normal maps (planar and triplanar, one table texture so baseline keeps 16) | draft (built) |
 | [0106](0106-view-camera.md) | The view camera (one rule for the camera terrain, water, particles and shadows follow; offscreen cameras opt in) | draft (built) |
 | [0072](0072-world-partition.md) | World partition and streaming (cells as scene files, streaming sources, diffs for unloaded cells) | accepted |
-| [0073](0073-hlod.md) | HLOD (runtime merged proxies for streamed cells with part-size LODs, region meshes for near structure; offline merged and baked proxies for file cells, after 0072's importer) | draft |
+| [0073](0073-hlod.md) | HLOD (runtime merged proxies for streamed cells with part-size LODs, region meshes for near structure; offline merged and baked proxies for file cells, after 0072's importer) | accepted (part 1 built) |
 | [0113](0113-streamed-generated-worlds.md) | Streamed generated worlds (cells from generators, per-cell deltas, server-driven loading, detail levels, replication by cell) | accepted (built) |
 | [0116](0116-shadow-casters-occlusion.md) | Shadow casters that matter, occlusion culling, and shadow-only visibility (per-cascade caster culling, cached static layers under dynamic casters, structure shadow proxies and arena, CPU occluders on both tiers) | accepted (built) |
 | [0095](0095-procedural-trees.md) | Procedural trees (EZ-Tree port in an experimental `nature` package, species assets, GLB export) | implemented |

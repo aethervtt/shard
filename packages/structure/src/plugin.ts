@@ -14,6 +14,7 @@ import {
 import {
   ContactMesh,
   DoorLeaf,
+  StructureCameraRegion,
   StructureChunk,
   StructureSettings,
   StructureShadowProxy,
@@ -46,7 +47,15 @@ function leafBox() {
 export const structurePlugin = definePlugin({
   name: 'structure',
   dependencies: ['render/forward', 'core/transform'],
-  provides: [StructureChunk, StructureShadowProxy, DoorLeaf, WindowPane, ContactMesh, ContactShade],
+  provides: [
+    StructureChunk,
+    StructureShadowProxy,
+    StructureCameraRegion,
+    DoorLeaf,
+    WindowPane,
+    ContactMesh,
+    ContactShade,
+  ],
   build(app) {
     if (!app.hasPlugin('structure/model')) app.addPlugin(structureModelPlugin)
     const world = app.world

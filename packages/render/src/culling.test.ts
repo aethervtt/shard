@@ -36,7 +36,7 @@ import { forwardPlugin } from './standard'
 import { OffscreenTarget } from './target'
 import { compareGolden, pixel, renderView, settle } from './testing'
 import { cameraOf } from './view'
-import { ComputedVisibility, Visibility } from './visibility'
+import { ComputedVisibility, DrawnByProxy, Visibility } from './visibility'
 
 let gpu: GpuContext
 beforeAll(async () => {
@@ -478,7 +478,11 @@ describe('GPU culling', () => {
         part: shadowOnly,
         shown: both,
       })
-      expect(world.get(part, ComputedVisibility)).toEqual({ visible: false, shadowOnly: true })
+      expect(world.get(part, ComputedVisibility)).toEqual({
+        visible: false,
+        shadowOnly: true,
+        proxied: false,
+      })
       world.set(group, Visibility, { mode: 'hidden' })
       expect(await drawn(), 'a hidden parent hides shadow-only').toEqual({
         body: none,
@@ -489,6 +493,50 @@ describe('GPU culling', () => {
       world.set(body, Visibility, { mode: 'inherit' })
       expect(await drawn(), 'shown again').toEqual({ body: both, part: both, shown: both })
     }
+  })
+
+  it('gives a DrawnByProxy subtree no slots, whatever its modes, and its slots back after (0073)', async () => {
+    const { app, world, material, cameraAt } = await scene(48, 32)
+    const mesh = world.resource(Meshes).add(cube({ size: 1 }))
+    // With a mode of its own: the tag wins over it, and over 'visible' below.
+    const cell = world.spawn([Transform, {}], [Visibility, {}])
+    const wall = world.spawn(
+      [Mesh3d, { mesh }],
+      [MeshMaterial, { material }],
+      [Transform, {}],
+      [ChildOf, { parent: cell }],
+    )
+    const shown = world.spawn(
+      [Mesh3d, { mesh }],
+      [MeshMaterial, { material }],
+      [Transform, { translation: [2, 0, 0] }],
+      [Visibility, { mode: 'visible' }],
+      [ChildOf, { parent: wall }],
+    )
+    const other = world.spawn([Mesh3d, { mesh }], [MeshMaterial, { material }], [Transform, {}])
+    world.spawn(
+      [DirectionalLight, { illuminance: 2000, shadows: true }],
+      [Transform, { rotation: q(-0.9, 0.6, 0) }],
+    )
+    cameraAt([1, 2, 8], [1, 0, 0])
+    const store = world.resource(Instances)
+    const slots = () => [wall, shown, other].map((e) => world.get(e, InstanceSlot).slot > 0)
+    await settle(app, 2)
+    expect(slots()).toEqual([true, true, true])
+    const drawable = store.drawableCount
+    world.add(cell, DrawnByProxy, {})
+    await settle(app, 2)
+    expect(slots(), "proxied, 'visible' included").toEqual([false, false, true])
+    expect(store.drawableCount).toBe(drawable - 2)
+    expect(world.get(shown, ComputedVisibility)).toEqual({
+      visible: false,
+      shadowOnly: false,
+      proxied: true,
+    })
+    world.remove(cell, DrawnByProxy)
+    await settle(app, 2)
+    expect(slots(), 'slots back').toEqual([true, true, true])
+    expect(world.get(shown, ComputedVisibility).proxied).toBe(false)
   })
 
   it("shows LOD levels as tints, and freezes the camera's cull for inspection", async () => {
