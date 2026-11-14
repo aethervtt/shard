@@ -49,6 +49,26 @@ describe('polygon', () => {
     }
   })
 
+  it('bridges holes that lie at different heights, or against the outline', () => {
+    // A long floor with a stairwell at each end, off to opposite sides: the second hole's bridge
+    // has to pass the first's (Risen's apartment floors lost two thirds of their area).
+    const outer = [26.6, 38, 26.6, 9, 11.4, 9, 11.4, 38]
+    const a = [12.59, 24.65, 12.59, 21.08, 11.46, 21.08, 11.46, 24.65]
+    const b = [26.54, 36.75, 26.54, 33.18, 25.41, 33.18, 25.41, 36.75]
+    const c = [22, 30, 23, 30, 23, 25, 22, 25]
+    const area = (h: number[]) => Math.abs(signedArea(h))
+    for (const holes of [
+      [a, b],
+      [a, c],
+      [[14, 20, 15, 20, 15, 15, 14, 15], c],
+    ]) {
+      const points = [...outer, ...holes.flat()]
+      const starts = [4, 4 + holes[0]!.length / 2]
+      const expected = area(outer) - area(holes[0]!) - area(holes[1]!)
+      expect(trianglesArea(points, triangulate(points, starts))).toBeCloseTo(expected, 6)
+    }
+  })
+
   it('clips a triangle to a rectangle', () => {
     const out = new Float64Array(16)
     const scratch = new Float64Array(16)
