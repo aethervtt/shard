@@ -143,6 +143,8 @@ export interface CharacterState {
   /** The NavTier last written (-1: none). */
   navTier: number
   pinned: boolean
+  /** Model-space joint rows (12 per joint) of a fixed pose (0117), or null. */
+  frozen: Float32Array | null
   /** Entered near this frame: parts draw the flat pose until the player has sampled the rig. */
   joining: boolean
   /** Far playback: what the header shows, to rewrite only on change. */
@@ -306,6 +308,7 @@ export function spawnCharacter(
     simTier: 2,
     navTier: -1,
     pinned: options.pin ?? false,
+    frozen: null,
     joining: false,
     farClipA: -1,
     farClipB: -1,

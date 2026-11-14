@@ -365,7 +365,7 @@ function stepCharacter(
     false,
     undefined,
     p.R.QueryFilterFlags.EXCLUDE_SENSORS,
-    ((c.layers[row]! & 0xffff) << 16) | (c.mask[row]! & 0xffff),
+    ((c.layers[row]! & 0xffff) << 16) | (c.mask[row]! & ~p.config.characterIgnores & 0xffff),
     undefined,
   )
   const mv = record.kcc.computedMovement(s.moved as RAPIER.Vector)
@@ -377,7 +377,8 @@ function stepCharacter(
   pos[0] = Math.fround(px + mvx)
   pos[1] = Math.fround(py + mvy)
   pos[2] = Math.fround(pz + mvz)
-  const groups = ((c.layers[row]! & 0xffff) << 16) | (c.mask[row]! & 0xffff)
+  const groups =
+    ((c.layers[row]! & 0xffff) << 16) | (c.mask[row]! & ~p.config.characterIgnores & 0xffff)
 
   // 4. State: the walkable ground touched, and what the move ran into.
   let groundDot = -2

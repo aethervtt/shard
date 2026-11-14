@@ -276,6 +276,12 @@ Files: `*.water.json`
 
 No import settings.
 
+## `data/ragdoll`
+
+Files: `*.ragdoll.json`
+
+No import settings.
+
 # Project data types
 
 Defined in `scripts/` with `project.dataAsset`. Write one JSON file per value, anywhere under an

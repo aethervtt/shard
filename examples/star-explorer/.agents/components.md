@@ -236,6 +236,8 @@ _Computed by the engine; never written in scene files._
 | `sim` | `"near"` \| `"mid"` \| `"far"` | `"near"` |  | By distance to the nearest player (TierSource.player): what game AI and movement use. |
 | `simTick` | boolean | `false` |  | True on frames this character's sim period comes due (staggered). Tick game AI on it. |
 | `pin` | boolean | `false` |  | Keep it near whatever the caps say (a player: first person needs its rig and IK). Pinned characters never count toward maxNear. |
+| `claim` | boolean | `false` |  | Held near by a reaction (0117): like pin while it lasts, written by the ragdoll. Claimed characters never count toward maxNear. |
+| `frozen` | boolean | `false` |  | Drawn in a fixed pose on every tier (a corpse, 0117): never sampled, no rig, outside the mid cap. |
 | `screen` | number | `0` |  | Largest screen size over the viewers: the sphere's diameter over the viewport height. |
 
 ## `characters/HordeProxy`
@@ -956,7 +958,7 @@ Connects this entity’s body to another body.
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `kind` | `"fixed"` \| `"revolute"` \| `"prismatic"` \| `"spherical"` \| `"rope"` | `"fixed"` |  |  |
+| `kind` | `"fixed"` \| `"revolute"` \| `"prismatic"` \| `"spherical"` \| `"rope"` \| `"hinge"` | `"fixed"` |  | hinge (3D): turns only about its frame’s z, set by frame and otherFrame, within swingZ (elbows, knees). The rest as named. |
 | `other` | null or integer or string | `null` |  | The body this one is jointed to. |
 | `anchor` | number[3] | `[0,0,0]` | m | Joint point in this body’s local space. |
 | `otherAnchor` | number[3] | `[0,0,0]` | m | Joint point in the other body’s local space. |
@@ -964,6 +966,12 @@ Connects this entity’s body to another body.
 | `limits` | number[2] | `[0,0]` |  | revolute (rad), prismatic (m): [min, max], off when equal. rope: [_, max length]. |
 | `motorVelocity` | number | `0` |  | revolute, prismatic: drive at this speed (0: off). |
 | `motorFactor` | number | `1` | ≥ 0 | How hard the motor drives. |
+| `frame` | number[4] | `[0,0,0,1]` |  | spherical, hinge: the joint frame in this body’s space (quaternion). Its x is the twist axis; y and z swing. |
+| `otherFrame` | number[4] | `[0,0,0,1]` |  | spherical: the joint frame in the other body’s space. The limits are angles between the two frames. |
+| `twist` | number[2] | `[0,0]` | rad | spherical: [min, max] about the frame’s x; off when equal. |
+| `swingY` | number[2] | `[0,0]` | rad | spherical: [min, max] about the frame’s y; off when equal. |
+| `swingZ` | number[2] | `[0,0]` | rad | spherical: [min, max] about the frame’s z (a hinge’s bend); off when equal. |
+| `contacts` | boolean | `true` |  | Whether the two bodies collide with each other. |
 
 ## `physics/Mass`
 
@@ -972,6 +980,12 @@ Sets a body’s mass directly instead of from collider density.
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `mass` | number | `1` | ≥ 0, kg | The body’s total mass. |
+
+## `physics/PhysicsDisabled`
+
+A body set aside: not simulated, not colliding, not in queries.
+
+Tag (no fields).
 
 ## `physics/PhysicsParked`
 
@@ -996,6 +1010,7 @@ Brings along: `core/Transform`.
 | `angularDamping` | number | `0` | ≥ 0 | Slows rotation over time (1/s). |
 | `ccd` | boolean | `false` |  | Continuous collision detection: fast bodies (bullets) do not tunnel. |
 | `canSleep` | boolean | `true` |  | Stops simulating the body while it rests. |
+| `solverIterations` | integer | `0` | ≥ 0, ≤ 255 | Extra solver iterations for the island this body is in: joint chains (ragdolls, 0117) hold their limits. |
 | `dominance` | integer | `0` | ≥ -127, ≤ 127 | Higher dominance pushes lower without being pushed back. |
 | `lockTranslation` | number[3] | `[0,0,0]` |  | Per axis: 1 locks movement along that world axis. |
 | `lockRotation` | number[3] | `[0,0,0]` |  | Per axis: 1 locks rotation around that axis. In 2D, z locks rotation. |
@@ -1027,6 +1042,43 @@ Spawns an entities generator's output as children (procgen/Generated). Patching 
 | `seed` | integer | `0` | ≥ 0, ≤ 4294967295 | The seed. 0 uses the generator file's seed (0 for a generator by name). |
 | `params` | any | `{}` |  | Params, checked against the generator's schema; missing ones take the file's or the defaults. |
 | `overrides` | any | `{}` |  | Changes to generated entities by path relative to this entity, as in scene/PrefabInstance. Saves write the children's runtime changes here. |
+
+## `ragdoll/Ragdoll`
+
+Makes a root take hits and react (0117): any root, a Shard character or a plain replicated entity whose model exists only on clients.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `asset` | null or Ragdoll ref | `null` |  | The *.ragdoll.json: bodies, limits, rests, roles. |
+| `drive` | `"auto"` \| `"game"` | `"auto"` |  | auto: the reaction plays role clips, the rest pose and the get-up, and moves the root along their travel. game: it stops at rested, plays no clip and moves no root; the game does, and calls stand(). |
+| `profile` | string | `"default"` |  | The drive profile partial reactions use. |
+
+## `ragdoll/RagdollBody`
+
+A ragdoll’s rigid body (0117).
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `root` | null or integer or string | `null` |  | The root it is simulating for, or none while pooled. |
+| `body` | integer | `0` | ≥ 0, ≤ 255 | Its index in the asset. |
+
+## `ragdoll/Reaction`
+
+What a ragdoll root is going through (0117). Game AI reads it.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `state` | `"none"` \| `"partial"` \| `"down"` \| `"rested"` \| `"getting-up"` \| `"dead"` | `"none"` |  | none; partial (nearby bones react, the rest animates); down (falling, full ragdoll); rested (lying in its rest); getting-up; dead. |
+| `since` | number | `0` | s | Time the state began (Time.elapsed). |
+| `stagger` | number | `0` |  | Accumulated hits toward a knockdown: 1 knocks it down. Decays over time. |
+| `bone` | integer | `0` | ≥ 0, ≤ 255 | The body last hit (index in the asset). |
+| `rest` | integer | `0` | ≥ 0, ≤ 255 | The rest it lies in (index in the asset’s rests). |
+| `role` | integer | `0` | ≥ 0, ≤ 255 | The clip role the last hit picked (index in the asset’s sorted roles), 255 none. |
+| `impulse` | number[3] | `[0,0,0]` | N·s | The last hit’s impulse, or its launch velocity (m/s) when launch is set. |
+| `launch` | boolean | `false` |  | The last hit was a launch (a car). |
+| `seq` | integer | `0` | ≥ 0, ≤ 65535 | Counts hits: a client starts a reaction when it changes. |
 
 ## `render/Antialiasing`
 

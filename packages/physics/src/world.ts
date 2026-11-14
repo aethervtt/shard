@@ -4,6 +4,7 @@ import {
   Children,
   defineResource,
   type Entity,
+  type Infer,
   ShardError,
   type World,
 } from '@aethervtt/shard-core'
@@ -19,6 +20,7 @@ import {
   Joint,
   Mass,
   type PhysicsConfigValue,
+  PhysicsDisabled,
   PhysicsParked,
   RigidBody,
   type Shape,
@@ -60,6 +62,8 @@ export interface BodyRecord {
   index: number
   /** Out of PhysicsRange: disabled in Rapier, the entity has PhysicsParked. */
   parked: boolean
+  /** Set aside by PhysicsDisabled: disabled in Rapier, and range parking leaves it alone. */
+  held: boolean
 }
 
 /** A character's Rapier controller and the body and capsule it moves. */
@@ -170,6 +174,10 @@ export interface PhysicsStats {
 const KIND_DYNAMIC = 0
 const KIND_FIXED = 1
 const KIND_KINEMATIC_POSITION = 2
+/** Rapier's RawJointAxis angular axes. */
+const AXIS_ANG_X = 3
+const AXIS_ANG_Y = 4
+const AXIS_ANG_Z = 5
 
 /**
  * The Rapier world for one app, plus the maps between Rapier handles and entities. Systems in
@@ -327,6 +335,7 @@ export class PhysicsWorld {
     desc.setCcdEnabled(rb.ccd)
     desc.setCanSleep(rb.canSleep)
     desc.setDominanceGroup(rb.dominance)
+    if (rb.solverIterations > 0) desc.setAdditionalSolverIterations(rb.solverIterations)
     const [lx, ly, lz] = rb.lockTranslation
     const [rx, ry, rz] = rb.lockRotation
     if (this.dim === 3) {
@@ -349,6 +358,10 @@ export class PhysicsWorld {
       else (desc as unknown as { setAngvel(a: number): void }).setAngvel(az)
     }
     const record = this.addBody(entity, this.raw.createRigidBody(desc), kind)
+    if (world.has(entity, PhysicsDisabled)) {
+      record.body.setEnabled(false)
+      record.held = true
+    }
     // Parked when saved or rebuilt: it stays parked (and keeps its stored velocity) until the
     // range check finds it near the origin.
     if (world.has(entity, PhysicsParked)) {
@@ -379,6 +392,7 @@ export class PhysicsWorld {
       slot: this.allocSlot(),
       index: this.list.length,
       parked: false,
+      held: false,
     }
     this.list.push(record)
     this.bodies.set(entity, record)
@@ -424,6 +438,57 @@ export class PhysicsWorld {
     this.bodies.delete(entity)
     this.bodyByHandle.delete(record.handle)
     this.freeSlots.push(record.slot)
+  }
+
+  /**
+   * Takes a body out of the simulation (PhysicsDisabled was added): it keeps its place and stops
+   * colliding and showing in queries until released.
+   */
+  hold(entity: Entity): void {
+    const record = this.bodies.get(entity)
+    if (!record || record.held) return
+    record.held = true
+    record.body.setEnabled(false)
+  }
+
+  /** Puts a held body back at its Transform, at rest (PhysicsDisabled was removed). */
+  release(world: World, entity: Entity): void {
+    const record = this.bodies.get(entity)
+    if (!record?.held) return
+    record.held = false
+    if (record.parked) return
+    record.body.setEnabled(true)
+    this.moveBody(world, record, false)
+    if (record.kind !== KIND_FIXED && record.kind !== KIND_KINEMATIC_POSITION) {
+      record.body.setLinvel(this.vec(0, 0, 0), false)
+      if (this.dim === 3) record.body.setAngvel(this.vec(0, 0, 0), false)
+      else
+        (record.body as unknown as { setAngvel(a: number, w: boolean): void }).setAngvel(0, false)
+    }
+    record.body.wakeUp()
+  }
+
+  /**
+   * Switches a body between dynamic and kinematic in Rapier without rebuilding it (a ragdoll's
+   * partial reaction, 0117). Its RigidBody component isn't changed: rebuilding goes back to that.
+   */
+  setKind(entity: Entity, kind: (typeof BODY_KINDS)[number]): void {
+    const record = this.bodies.get(entity)
+    if (!record) return
+    const k = BODY_KINDS.indexOf(kind)
+    if (record.kind === k) return
+    const T = this.R.RigidBodyType
+    record.body.setBodyType(
+      k === KIND_DYNAMIC
+        ? T.Dynamic
+        : k === KIND_FIXED
+          ? T.Fixed
+          : k === KIND_KINEMATIC_POSITION
+            ? T.KinematicPositionBased
+            : T.KinematicVelocityBased,
+      true,
+    )
+    record.kind = k
   }
 
   /** Copies a body's current pose into `curr` at its slot. */
@@ -586,6 +651,7 @@ export class PhysicsWorld {
     }
     for (let i = 0; i < this.list.length; i++) {
       const r = this.list[i]!
+      if (r.held) continue
       if (!r.parked) {
         const o = r.slot * 7
         const x = curr[o]! - cx
@@ -649,7 +715,7 @@ export class PhysicsWorld {
   unparkAll(world: World): void {
     for (let i = 0; i < this.list.length; i++) {
       const r = this.list[i]!
-      if (r.parked && world.isAlive(r.entity)) this.unpark(world, r)
+      if (r.parked && !r.held && world.isAlive(r.entity)) this.unpark(world, r)
     }
   }
 
@@ -688,7 +754,8 @@ export class PhysicsWorld {
     const cdesc =
       halfHeight > 0 ? R.ColliderDesc.capsule(halfHeight, radius) : R.ColliderDesc.ball(radius)
     cdesc.setFriction(0)
-    cdesc.setCollisionGroups(((c.layers & 0xffff) << 16) | (c.mask & 0xffff))
+    const mask = c.mask & ~this.config.characterIgnores
+    cdesc.setCollisionGroups(((c.layers & 0xffff) << 16) | (mask & 0xffff))
     const collider = this.raw.createCollider(cdesc, record.body)
     this.colliders.set(entity, collider)
     this.colliderEntity.set(collider.handle, entity)
@@ -1149,6 +1216,14 @@ export class PhysicsWorld {
         }
         data = J.spherical!(anchorA, anchorB)
         break
+      case 'hinge':
+        if (is2d) {
+          this.report(world, entity, unsupported('hinge joint'))
+          return
+        }
+        // Linear axes and the frame's x and y locked: it turns about z only.
+        data = J.generic!(anchorA, anchorB, { x: 1, y: 0, z: 0 }, 1 | 2 | 4 | 8 | 16)
+        break
       case 'rope': {
         let length = j.limits[1]
         if (!(length > 0)) {
@@ -1163,6 +1238,9 @@ export class PhysicsWorld {
       }
     }
     const joint = this.raw.createImpulseJoint(data, a.body, b.body, true)
+    if (!j.contacts) joint.setContactsEnabled(false)
+    if (j.kind === 'spherical' || j.kind === 'hinge')
+      this.limitSpherical(joint, j, j.kind === 'hinge')
     const limited = joint as unknown as {
       setLimits?(min: number, max: number): void
       configureMotorVelocity?(v: number, f: number): void
@@ -1174,6 +1252,35 @@ export class PhysicsWorld {
       limited.configureMotorVelocity?.(j.motorVelocity, j.motorFactor)
     }
     this.joints.set(entity, { joint, a: entity, b: other as Entity })
+  }
+
+  /**
+   * A spherical joint's frames and twist and swing limits (0117), through Rapier's raw joint set:
+   * its JS wrapper sets limits on unit joints only, but the raw set takes any angular axis.
+   */
+  private limitSpherical(joint: RJoint, j: Infer<typeof Joint>, always = false): void {
+    const raw = this.raw.impulseJoints.raw as unknown as {
+      jointSetFrameX1(h: number, q: unknown): void
+      jointSetFrameX2(h: number, q: unknown): void
+      jointSetLimits(h: number, axis: number, min: number, max: number): void
+    }
+    const h = joint.handle
+    const setFrame = (q: readonly number[], second: boolean) => {
+      // A hinge's generic joint built its own frame from the axis: always set ours.
+      if (!always && q[0] === 0 && q[1] === 0 && q[2] === 0 && q[3] === 1) return
+      const rot = this.R.RotationOps.intoRaw({ x: q[0]!, y: q[1]!, z: q[2]!, w: q[3]! })
+      if (second) raw.jointSetFrameX2(h, rot)
+      else raw.jointSetFrameX1(h, rot)
+      rot.free()
+    }
+    setFrame(j.frame, false)
+    setFrame(j.otherFrame, true)
+    const [t0, t1] = j.twist
+    if (t0 < t1) raw.jointSetLimits(h, AXIS_ANG_X, t0, t1)
+    const [y0, y1] = j.swingY
+    if (y0 < y1) raw.jointSetLimits(h, AXIS_ANG_Y, y0, y1)
+    const [z0, z1] = j.swingZ
+    if (z0 < z1) raw.jointSetLimits(h, AXIS_ANG_Z, z0, z1)
   }
 
   // --- stepping --------------------------------------------------------------

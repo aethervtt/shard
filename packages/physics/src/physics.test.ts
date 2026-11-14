@@ -16,6 +16,7 @@ import {
   Joint,
   Mass,
   PhysicsConfig,
+  PhysicsDisabled,
   RigidBody,
   Velocity,
 } from './components'
@@ -606,6 +607,86 @@ describe.each(VARIANTS)('physics 2d (%s)', (v) => {
     expect(lowest).toBeLessThan(3.1)
     const [hx, hy] = pos(a.world, hanging)
     expect(Math.hypot(hx! - 10, hy! - 5)).toBeCloseTo(3, 1) // fell until the rope went taut
+  })
+
+  it('holds a spherical joint within its swing and twist limits (0117)', async () => {
+    const a = await app(3)
+    const pivot = a.world.spawn(
+      [RigidBody, { kind: 'fixed' }],
+      [Transform, { translation: [0, 5, 0] }],
+    )
+    // Level along +x from the pivot: gravity swings it about z, which a 0.5 rad swing stops.
+    const limited = ball(a.world, [1, 5, 0], { radius: 0.2 })
+    a.world.add(limited, Joint, {
+      kind: 'spherical',
+      other: pivot,
+      anchor: [-1, 0, 0],
+      swingY: [-0.5, 0.5],
+      swingZ: [-0.5, 0.5],
+      twist: [-0.2, 0.2],
+    })
+    const pivot2 = a.world.spawn(
+      [RigidBody, { kind: 'fixed' }],
+      [Transform, { translation: [10, 5, 0] }],
+    )
+    const free = ball(a.world, [11, 5, 0], { radius: 0.2 })
+    a.world.add(free, Joint, { kind: 'spherical', other: pivot2, anchor: [-1, 0, 0] })
+    frames(a, 180)
+    const [lx, ly] = pos(a.world, limited)
+    const [fx, fy] = pos(a.world, free)
+    const angle = Math.atan2(5 - ly!, lx!)
+    expect(angle).toBeGreaterThan(0.35)
+    expect(angle).toBeLessThan(0.6)
+    expect(Math.atan2(5 - fy!, fx! - 10)).toBeGreaterThan(1.2) // unlimited: hangs down
+  })
+
+  it('measures a spherical swing as the other body turning against the joint body (0117)', async () => {
+    const a = await app(3)
+    // Rapier measures the other body's frame against this one's: falling from level along +x
+    // turns this body by -θ about +z, which reads as +θ. A [-1, 0] range holds it level; a [0, 1]
+    // range lets it fall to 1 rad.
+    const fall = (range: [number, number], x: number) => {
+      const pivot = a.world.spawn(
+        [RigidBody, { kind: 'fixed' }],
+        [Transform, { translation: [x, 5, 0] }],
+      )
+      const b = ball(a.world, [x + 1, 5, 0], { radius: 0.2 })
+      a.world.add(b, Joint, {
+        kind: 'spherical',
+        other: pivot,
+        anchor: [-1, 0, 0],
+        swingZ: range,
+        swingY: [-0.01, 0.01],
+        twist: [-0.01, 0.01],
+      })
+      return b
+    }
+    const held = fall([-1, 0], 0)
+    const falls = fall([0, 1], 10)
+    frames(a, 180)
+    const [hx, hy] = pos(a.world, held)
+    const [fx, fy] = pos(a.world, falls)
+    expect(Math.atan2(5 - hy!, hx!)).toBeLessThan(0.15)
+    expect(Math.atan2(5 - fy!, fx! - 10)).toBeGreaterThan(0.8)
+  })
+
+  it('sets a PhysicsDisabled body aside, and puts it back at its Transform (0117)', async () => {
+    const a = await app(3)
+    ground(a.world)
+    const b = ball(a.world, [0, 5, 0])
+    a.world.add(b, PhysicsDisabled)
+    frames(a, 30)
+    expect(pos(a.world, b)[1]).toBeCloseTo(5, 5)
+    const hit = createRayHit()
+    const p = a.world.resource(Physics)
+    expect(p.raycast([0, 10, 0], [0, -1, 0], {}, hit)).toBe(true)
+    expect(hit.entity).not.toBe(b) // not in queries
+    a.world.set(b, Transform, { translation: [3, 4, 0] })
+    a.world.remove(b, PhysicsDisabled)
+    frames(a, 2)
+    const [x, y] = pos(a.world, b)
+    expect(x).toBeCloseTo(3, 3)
+    expect(y).toBeLessThan(4)
   })
 
   it('pulls bodies toward a GravitySource from every side', async () => {

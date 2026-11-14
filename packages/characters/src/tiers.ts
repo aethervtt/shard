@@ -273,13 +273,15 @@ export const selectTiers = defineSystem({
       const table = s.chars.tables[t]!
       const g = table.column(GlobalTransform, 'matrix')
       const pin = table.column(CharacterTier, 'pin')
+      const claim = table.column(CharacterTier, 'claim')
       const proxy = table.has(HordeProxy)
       for (let i = 0; i < table.count; i++) {
         const st = states.get(table.entities[i]!)
         if (!st) continue
         if (n >= s.screen.length) grow(s)
         list[n] = st
-        st.pinned = pin[i] !== 0
+        const held = pin[i] !== 0 || (claim[i] !== 0 && st.frozen === null)
+        st.pinned = held
         worldSphere(st, g, i * 12)
         // Sim tier: distance to the nearest player.
         let best = Number.POSITIVE_INFINITY
@@ -323,9 +325,9 @@ export const selectTiers = defineSystem({
         const rig = st.rig
         if (headless) {
           // A server gives out rigs only with serverRigs, pinned or not; near acts as mid.
-          const sim = pin[i] !== 0 ? 0 : st.simTier
+          const sim = held ? 0 : st.simTier
           want = sim === 0 ? (budget.serverRigs ? NEAR : MID) : sim
-        } else if (pin[i] !== 0) want = NEAR
+        } else if (held) want = NEAR
         else if (!visible || nearest > rig.farDistance || size < rig.farScreen) want = OFF
         else {
           const cur = st.tier
@@ -334,6 +336,8 @@ export const selectTiers = defineSystem({
           want = size >= nearAt ? NEAR : size >= midAt ? MID : FAR
         }
         if (proxy && want < FAR) want = FAR
+        // A fixed pose needs no rig: near draws it as mid.
+        if (st.frozen !== null && want === NEAR) want = MID
         s.want[n] = want
         n++
       }
@@ -389,11 +393,13 @@ export const selectTiers = defineSystem({
       const tick = table.column(CharacterTier, 'simTick')
       const screen = table.column(CharacterTier, 'screen')
       const pin = table.column(CharacterTier, 'pin')
+      const frozen = table.column(CharacterTier, 'frozen')
       for (let i = 0; i < table.count; i++) {
         // Same order as pass 1, which listed every character with a state.
         const st = list[k]
         if (st === undefined || st.entity !== table.entities[i]) continue
         tier[i] = st.tier
+        frozen[i] = st.frozen !== null ? 1 : 0
         if (navTier && st.navTier !== st.simTier) {
           setNavTier(world, table.entities[i]!, navTier, st.simTier)
         }
@@ -493,6 +499,7 @@ function capTier(
     if (s.want[k] !== tier) continue
     const st = list[k]!
     if (tier === NEAR && st.pinned) continue
+    if (tier === MID && st.frozen !== null) continue
     s.score[m] = s.screen[k]! * (st.tier === tier ? 1 + h : 1)
     s.order[n + m] = k
     m++
@@ -641,10 +648,12 @@ function changeTier(world: World, st: CharacterState, to: number, now: number): 
     st.ik = 0
     setIkWeights(world, st, 0)
   }
-  // Far needs a bake to draw; headless, nothing draws, so far stays far.
-  if (to === FAR && store && !farReady(world, st)) to = MID
+  if (st.frozen !== null && to === NEAR) to = MID
+  // Far needs a bake to draw; headless, nothing draws, so far stays far. A fixed pose needs none.
+  if (to === FAR && store && st.frozen === null && !farReady(world, st)) to = MID
   st.joining = false
-  if (to !== MID && to !== NEAR && store && st.poseBase >= 0) {
+  const keepPose = st.frozen !== null && to === FAR
+  if (to !== MID && to !== NEAR && !keepPose && store && st.poseBase >= 0) {
     store.freePersistent(st.poseBase, st.rig.skeleton.paths.length * ROWS)
     st.poseBase = -1
   }
@@ -668,6 +677,18 @@ function changeTier(world: World, st: CharacterState, to: number, now: number): 
         setSource(world, st, part, SOURCE_POSE, st.poseBase)
         setSphere(world, part, st.sphere)
       } else setSource(world, st, part, SOURCE_JOINTS, 0)
+    }
+  } else if (st.frozen !== null && (to === MID || to === FAR)) {
+    if (store) {
+      writeFrozen(store, st)
+      for (const part of st.parts) {
+        setSource(world, st, part, SOURCE_POSE, st.poseBase)
+        setSphere(world, part, st.sphere)
+      }
+      if (st.merged !== null) {
+        setSource(world, st, st.merged, SOURCE_POSE, st.poseBase)
+        setSphere(world, st.merged, st.sphere)
+      }
     }
   } else if (to === MID) {
     if (store) {
@@ -704,6 +725,88 @@ function changeTier(world: World, st: CharacterState, to: number, now: number): 
     setVisible(world, st.parts[p]!, drawn)
   }
   if (st.merged !== null) setVisible(world, st.merged, to === FAR)
+}
+
+/** Writes a frozen character's rows (model × inverseBind) into its pose range. */
+function writeFrozen(store: DeformStore, st: CharacterState): void {
+  const joints = st.rig.skeleton.paths.length
+  if (st.poseBase < 0) st.poseBase = store.allocPersistent(joints * ROWS)
+  store.poses.set(st.frozen!.subarray(0, joints * 12), st.poseBase * 4)
+  store.markPersistent(st.poseBase, joints * ROWS)
+}
+
+/**
+ * Draws a character in a fixed pose from now on (a corpse, 0117), on every tier: `model` holds
+ * 12 floats per joint, its model-space rows (relative to the root). It gives back its rig, is never
+ * sampled again, and stays out of the mid cap until thawed. Cold path.
+ */
+export function freezeCharacter(world: World, entity: Entity, model: Float32Array): void {
+  const st = world.tryResource(CharacterStates)?.get(entity)
+  if (!st) return
+  const n = st.rig.skeleton.paths.length
+  const rows = new Float32Array(n * 12)
+  const ib = st.rig.skeleton.inverseBind
+  let minX = Number.POSITIVE_INFINITY
+  let minY = Number.POSITIVE_INFINITY
+  let minZ = Number.POSITIVE_INFINITY
+  let maxX = Number.NEGATIVE_INFINITY
+  let maxY = Number.NEGATIVE_INFINITY
+  let maxZ = Number.NEGATIVE_INFINITY
+  for (let j = 0; j < n; j++) {
+    const m = j * 12
+    const b = j * 16
+    // rows = model × inverseBind (column-major 4x4 → rows).
+    for (let r = 0; r < 3; r++) {
+      const a0 = model[m + r * 4]!
+      const a1 = model[m + r * 4 + 1]!
+      const a2 = model[m + r * 4 + 2]!
+      const a3 = model[m + r * 4 + 3]!
+      for (let c = 0; c < 4; c++) {
+        rows[m + r * 4 + c] =
+          a0 * ib[b + c * 4]! +
+          a1 * ib[b + c * 4 + 1]! +
+          a2 * ib[b + c * 4 + 2]! +
+          (c === 3 ? a3 : 0)
+      }
+    }
+    const radius = st.radii[j]!
+    if (radius < 0) continue
+    const x = model[m + 3]!
+    const y = model[m + 7]!
+    const z = model[m + 11]!
+    if (x - radius < minX) minX = x - radius
+    if (y - radius < minY) minY = y - radius
+    if (z - radius < minZ) minZ = z - radius
+    if (x + radius > maxX) maxX = x + radius
+    if (y + radius > maxY) maxY = y + radius
+    if (z + radius > maxZ) maxZ = z + radius
+  }
+  if (minX <= maxX) {
+    const ex = (maxX - minX) / 2
+    const ey = (maxY - minY) / 2
+    const ez = (maxZ - minZ) / 2
+    st.sphere[0] = minX + ex
+    st.sphere[1] = minY + ey
+    st.sphere[2] = minZ + ez
+    st.sphere[3] = Math.sqrt(ex * ex + ey * ey + ez * ez)
+  }
+  st.frozen = rows
+  const now = world.resource(Time).elapsed
+  const to = st.tier === OFF ? OFF : st.tier === FAR ? FAR : MID
+  changeTier(world, st, to, now)
+}
+
+/** Lets a frozen character animate again (a downed one getting up, 0117). */
+export function thawCharacter(world: World, entity: Entity): void {
+  const st = world.tryResource(CharacterStates)?.get(entity)
+  if (!st || st.frozen === null) return
+  st.frozen = null
+  // Resampled at its tier from the next selection (far rewrites its header).
+  if (st.tier === MID) st.wait = 0
+  else if (st.tier === FAR) {
+    const store = world.tryResource(Instances)?.deform
+    if (store) changeTier(world, st, FAR, world.resource(Time).elapsed)
+  }
 }
 
 /** A character that entered near last frame: its player has sampled the rig, so parts skin by it. */
@@ -773,6 +876,7 @@ export const sampleTiers = defineSystem({
         if (st.tier !== OFF && (moved[i]! > ctx.lastRunTick || st.since === time.elapsed)) {
           followRoot(world, st, g, i * 12)
         }
+        if (st.frozen !== null) continue
         if (st.tier === MID) {
           if (st.wait > 0) {
             st.wait--

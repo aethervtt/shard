@@ -380,6 +380,12 @@ Every engine error is a `ShardError` with one of these codes.
 | `protocol/unknown-owner` | @aethervtt/shard-protocol | owners.describe with no name lists every live owner. |
 | `protocol/unknown-resource` | @aethervtt/shard-protocol |  |
 | `protocol/unsettable-resource` | @aethervtt/shard-protocol | Only resources that are plain JSON objects can be set. |
+| `ragdoll/bad-hit` | @aethervtt/shard-ragdoll |  |
+| `ragdoll/bad-limit` | @aethervtt/shard-ragdoll |  |
+| `ragdoll/invalid-asset` | @aethervtt/shard-ragdoll |  |
+| `ragdoll/no-asset` | @aethervtt/shard-ragdoll | ragdoll.describe without an entity lists every simulated ragdoll. |
+| `ragdoll/skeleton-mismatch` | @aethervtt/shard-ragdoll | Every body but one needs a body among its joint’s ancestors (or a declared parent). |
+| `ragdoll/unknown-joint` | @aethervtt/shard-ragdoll | Body names are joint names (the last segment of the skin’s joint paths). |
 | `render/atmosphere-inside-ground` | @aethervtt/shard-render | Give it a positive thickness (Earth 60 000 m). |
 | `render/bad-vector` | @aethervtt/shard-render |  |
 | `render/capture-format` | @aethervtt/shard-render |  |

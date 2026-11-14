@@ -33,6 +33,7 @@ import {
   GravitySource,
   Joint,
   PhysicsConfig,
+  PhysicsDisabled,
   PhysicsRange,
   RigidBody,
   Velocity,
@@ -297,7 +298,7 @@ function restorePoses(world: World, p: PhysicsWorld): void {
   const rootIdentity = rootIsOrigin(world)
   for (let i = 0; i < p.list.length; i++) {
     const r = p.list[i]!
-    if (r.kind === KIND_FIXED || r.kind === KIND_KINEMATIC_POSITION || r.parked) continue
+    if (r.kind === KIND_FIXED || r.kind === KIND_KINEMATIC_POSITION || r.parked || r.held) continue
     const table = world.entityTableUnchecked(r.entity)
     const row = world.entityRowUnchecked(r.entity)
     // Only poses interpolation wrote (and nobody changed since).
@@ -584,7 +585,8 @@ const interpolate = defineSystem({
     const rot = scratchRot
     for (let i = 0; i < p.list.length; i++) {
       const r = p.list[i]!
-      if (r.kind === KIND_FIXED || r.kind === KIND_KINEMATIC_POSITION || r.parked) continue
+      if (r.kind === KIND_FIXED || r.kind === KIND_KINEMATIC_POSITION || r.parked || r.held)
+        continue
       const table = world.entityTableUnchecked(r.entity)
       const row = world.entityRowUnchecked(r.entity)
       // Skip bodies a game moved since the step (a teleport pending), and ones parented to an
@@ -655,6 +657,8 @@ function observe(world: World): void {
     p?.removeCollider(e.entity)
     p?.pendingMesh.delete(e.entity)
   })
+  world.observe(onAdd(PhysicsDisabled), (e) => get()?.hold(e.entity))
+  world.observe(onRemove(PhysicsDisabled), (e) => get()?.release(world, e.entity))
   world.observe(onRemove(Joint), (e) => {
     const p = get()
     p?.removeJoint(e.entity)

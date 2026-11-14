@@ -276,6 +276,7 @@ Shard app running the game's scripts; transports and lobby services are swappabl
 | [0112](0112-structure-blocking.md) | Structure that blocks (headless structure model, colliders, structure as a nav source, door gates and filters, budgeted incremental rebakes, targeted replans) | implemented |
 | [0114](0114-breaching.md) | Breaching (filters that plan through shut gates at a cost, NavGateBlocked, breachable walls and barricades, slots for hordes at a gate) | implemented |
 | [0115](0115-representation-tiers.md) | Representation tiers (near, mid, far and off characters; composed characters and builds; flat and baked poses; movement tiers and flow fields; hordes past replication) | accepted |
+| [0117](0117-ragdolls-physical-animation.md) | Ragdolls and physical animation (ragdoll assets, partial hit reactions, knockdowns and get-ups, frozen corpses, bone hit tests, capped for crowds) | accepted |
 
 Phase 1 is 0086, 0087 and 0089 (built; `host` and a few items each spec marks as not built
 wait): enough for turn-based card games and MMO-style state sync. 0088 follows. Later specs, designed for but not drafted: WebRTC transport and host migration, a world

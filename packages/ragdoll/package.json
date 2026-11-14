@@ -1,0 +1,37 @@
+{
+  "name": "@aethervtt/shard-ragdoll",
+  "version": "0.0.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@aethervtt/shard-animation": "workspace:*",
+    "@aethervtt/shard-assets": "workspace:*",
+    "@aethervtt/shard-characters": "workspace:*",
+    "@aethervtt/shard-core": "workspace:*",
+    "@aethervtt/shard-mesh": "workspace:*",
+    "@aethervtt/shard-nav": "workspace:*",
+    "@aethervtt/shard-net": "workspace:*",
+    "@aethervtt/shard-physics": "workspace:*",
+    "@aethervtt/shard-render": "workspace:*",
+    "@aethervtt/shard-runtime": "workspace:*",
+    "@aethervtt/shard-transform": "workspace:*"
+  },
+  "devDependencies": {
+    "@aethervtt/shard-gltf": "workspace:*",
+    "@aethervtt/shard-gpu": "workspace:*",
+    "@aethervtt/shard-platform-node": "workspace:*",
+    "@aethervtt/shard-scene": "workspace:*",
+    "@types/node": "^26.6.2",
+    "@webgpu/types": "^0.1.74"
+  }
+}

@@ -43,6 +43,7 @@
     "@aethervtt/shard-procgen": "workspace:*",
     "@aethervtt/shard-project": "workspace:*",
     "@aethervtt/shard-protocol": "workspace:*",
+    "@aethervtt/shard-ragdoll": "workspace:*",
     "@aethervtt/shard-render": "workspace:*",
     "@aethervtt/shard-runtime": "workspace:*",
     "@aethervtt/shard-save": "workspace:*",
