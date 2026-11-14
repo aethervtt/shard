@@ -21,6 +21,7 @@ export {
   Mass,
   PhysicsConfig,
   type PhysicsConfigValue,
+  PhysicsDisabled,
   PhysicsParked,
   PhysicsRange,
   type PhysicsRangeValue,

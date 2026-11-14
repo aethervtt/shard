@@ -107,6 +107,9 @@ importers:
       '@aethervtt/shard-protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@aethervtt/shard-ragdoll':
+        specifier: workspace:*
+        version: link:../../packages/ragdoll
       '@aethervtt/shard-render':
         specifier: workspace:*
         version: link:../../packages/render
@@ -201,6 +204,9 @@ importers:
       '@aethervtt/shard-cards':
         specifier: workspace:*
         version: link:../../packages/cards
+      '@aethervtt/shard-characters':
+        specifier: workspace:*
+        version: link:../../packages/characters
       '@aethervtt/shard-controls':
         specifier: workspace:*
         version: link:../../packages/controls
@@ -267,6 +273,9 @@ importers:
       '@aethervtt/shard-protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@aethervtt/shard-ragdoll':
+        specifier: workspace:*
+        version: link:../../packages/ragdoll
       '@aethervtt/shard-render':
         specifier: workspace:*
         version: link:../../packages/render
@@ -1943,6 +1952,61 @@ importers:
       ws:
         specifier: ^8.21.3
         version: 8.21.3
+
+  packages/ragdoll:
+    dependencies:
+      '@aethervtt/shard-animation':
+        specifier: workspace:*
+        version: link:../animation
+      '@aethervtt/shard-assets':
+        specifier: workspace:*
+        version: link:../assets
+      '@aethervtt/shard-characters':
+        specifier: workspace:*
+        version: link:../characters
+      '@aethervtt/shard-core':
+        specifier: workspace:*
+        version: link:../core
+      '@aethervtt/shard-mesh':
+        specifier: workspace:*
+        version: link:../mesh
+      '@aethervtt/shard-nav':
+        specifier: workspace:*
+        version: link:../nav
+      '@aethervtt/shard-net':
+        specifier: workspace:*
+        version: link:../net
+      '@aethervtt/shard-physics':
+        specifier: workspace:*
+        version: link:../physics
+      '@aethervtt/shard-render':
+        specifier: workspace:*
+        version: link:../render
+      '@aethervtt/shard-runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@aethervtt/shard-transform':
+        specifier: workspace:*
+        version: link:../transform
+    devDependencies:
+      '@aethervtt/shard-gltf':
+        specifier: workspace:*
+        version: link:../gltf
+      '@aethervtt/shard-gpu':
+        specifier: workspace:*
+        version: link:../gpu
+      '@aethervtt/shard-platform-node':
+        specifier: workspace:*
+        version: link:../platform-node
+      '@aethervtt/shard-scene':
+        specifier: workspace:*
+        version: link:../scene
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+      '@webgpu/types':
+        specifier: ^0.1.74
+        version: 0.1.74
 
   packages/render:
     dependencies:

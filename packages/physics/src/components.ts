@@ -28,6 +28,10 @@ export const RigidBody = defineComponent(
       default: true,
       description: 'Stops simulating the body while it rests.',
     }),
+    solverIterations: t.u8({
+      description:
+        'Extra solver iterations for the island this body is in: joint chains (ragdolls, 0117) hold their limits.',
+    }),
     dominance: t.i8({
       min: -127,
       max: 127,
@@ -214,12 +218,15 @@ export const GravitySource = defineComponent(
   },
 )
 
-export const JOINT_KINDS = ['fixed', 'revolute', 'prismatic', 'spherical', 'rope'] as const
+export const JOINT_KINDS = ['fixed', 'revolute', 'prismatic', 'spherical', 'rope', 'hinge'] as const
 
 export const Joint = defineComponent(
   'physics/Joint',
   {
-    kind: t.enum(JOINT_KINDS),
+    kind: t.enum(JOINT_KINDS, {
+      description:
+        'hinge (3D): turns only about its frame’s z, set by frame and otherFrame, within swingZ (elbows, knees). The rest as named.',
+    }),
     other: t.entity({ description: 'The body this one is jointed to.' }),
     anchor: t.vec3({ unit: 'm', description: 'Joint point in this body’s local space.' }),
     otherAnchor: t.vec3({ unit: 'm', description: 'Joint point in the other body’s local space.' }),
@@ -233,6 +240,32 @@ export const Joint = defineComponent(
     }),
     motorVelocity: t.f32({ description: 'revolute, prismatic: drive at this speed (0: off).' }),
     motorFactor: t.f32({ default: 1, min: 0, description: 'How hard the motor drives.' }),
+    frame: t.vec4({
+      default: [0, 0, 0, 1],
+      description:
+        'spherical, hinge: the joint frame in this body’s space (quaternion). Its x is the twist axis; y and z swing.',
+    }),
+    otherFrame: t.vec4({
+      default: [0, 0, 0, 1],
+      description:
+        'spherical: the joint frame in the other body’s space. The limits are angles between the two frames.',
+    }),
+    twist: t.vec2({
+      unit: 'rad',
+      description: 'spherical: [min, max] about the frame’s x; off when equal.',
+    }),
+    swingY: t.vec2({
+      unit: 'rad',
+      description: 'spherical: [min, max] about the frame’s y; off when equal.',
+    }),
+    swingZ: t.vec2({
+      unit: 'rad',
+      description: 'spherical: [min, max] about the frame’s z (a hinge’s bend); off when equal.',
+    }),
+    contacts: t.bool({
+      default: true,
+      description: 'Whether the two bodies collide with each other.',
+    }),
   },
   { description: 'Connects this entity’s body to another body.' },
 )
@@ -356,6 +389,15 @@ export interface CharacterGroundEventData {
   grounded: boolean
 }
 
+/**
+ * A body out of the simulation by choice: a pooled ragdoll body (0117). It isn't in Rapier's
+ * solver or queries and doesn't move. Removing the tag puts it back where its Transform says, at
+ * rest; range parking (0040) leaves it alone.
+ */
+export const PhysicsDisabled = defineTag('physics/PhysicsDisabled', {
+  description: 'A body set aside: not simulated, not colliding, not in queries.',
+})
+
 export const CharacterGroundEvent = defineEvent<CharacterGroundEventData>(
   'physics/CharacterGroundEvent',
   { description: 'A character landed or left the ground.' },
@@ -370,6 +412,7 @@ export const PhysicsConfig = defineResource<PhysicsConfigValue>('physics/Config'
     iterations: 4,
     interpolate: false,
     paused: false,
+    characterIgnores: 0,
   }),
 })
 
@@ -398,6 +441,11 @@ export interface PhysicsConfigValue {
   interpolate: boolean
   /** Skip stepping (bodies keep their state). */
   paused: boolean
+  /**
+   * Collision layers character controllers pass through: their capsules neither touch nor are
+   * blocked by colliders in these layers (ragdoll bodies, 0117). Set before characters spawn.
+   */
+  characterIgnores: number
 }
 
 export interface CollisionEventData {

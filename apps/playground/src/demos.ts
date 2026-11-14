@@ -22,6 +22,7 @@ export const DEMOS = [
   'animation',
   'animgraph',
   'ik',
+  'ragdoll',
   'audio',
   'ui',
   'nav',
@@ -93,6 +94,7 @@ export const DEMO_GROUPS: readonly { name: string; demos: readonly (readonly [De
         ['animation', 'glTF clips'],
         ['animgraph', 'Animation graph'],
         ['ik', 'IK and retargeting'],
+        ['ragdoll', 'Ragdolls and hit reactions'],
       ],
     },
     {

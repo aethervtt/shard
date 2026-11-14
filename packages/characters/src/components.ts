@@ -57,6 +57,15 @@ export const CharacterTier = defineComponent(
       description:
         'Keep it near whatever the caps say (a player: first person needs its rig and IK). Pinned characters never count toward maxNear.',
     }),
+    claim: t.bool({
+      description:
+        'Held near by a reaction (0117): like pin while it lasts, written by the ragdoll. Claimed characters never count toward maxNear.',
+    }),
+    frozen: t.bool({
+      readonly: true,
+      description:
+        'Drawn in a fixed pose on every tier (a corpse, 0117): never sampled, no rig, outside the mid cap.',
+    }),
     screen: t.f32({
       readonly: true,
       description:

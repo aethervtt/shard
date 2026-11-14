@@ -29,6 +29,7 @@ import { lobby, server } from './net-command'
 import { createOutput, EXIT, errorJson, formatError } from './output'
 import { partition } from './partition-command'
 import { profile } from './profile'
+import { ragdoll } from './ragdoll-command'
 import { shaders } from './shaders-command'
 import { terrain } from './terrain-command'
 import { approve, capture, compare, perfCheck } from './verify'
@@ -98,6 +99,10 @@ const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; 
   partition: {
     run: partition,
     help: 'partition gen [grid] --cell x,z [--level l] [--seed N] [--compare]   hash one generated cell (0113)',
+  },
+  ragdoll: {
+    run: ragdoll,
+    help: 'ragdoll gen <model> [--bodies humanoid|all] [--clips] | ragdoll check <asset> [--impulses 100]   ragdolls (0117): fit bodies to a skinned model; random hits headless',
   },
   terrain: {
     run: terrain,
@@ -222,6 +227,12 @@ export async function main(argv: string[]): Promise<number> {
         sidecar: { type: 'boolean' },
         app: { type: 'string' },
         sourcemap: { type: 'boolean' },
+        bodies: { type: 'string' },
+        mass: { type: 'string' },
+        clips: { type: 'boolean' },
+        retarget: { type: 'string' },
+        map: { type: 'string' },
+        impulses: { type: 'string' },
         help: { type: 'boolean', short: 'h' },
       },
     })

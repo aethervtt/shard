@@ -66,7 +66,10 @@ function makeRig(world: World, rig: CharacterRig): RigInstance {
 export function checkoutRig(world: World, s: CharacterState): RigInstance {
   const pool = world.resource(RigPool)
   const list = pool.free.get(s.rig)
-  const inst = list?.pop() ?? makeRig(world, s.rig)
+  let inst = list?.pop()
+  // A pooled rig whose entities were despawned since (a scene unloaded under it) is dropped.
+  while (inst && !inst.entities.every((e) => world.isAlive(e))) inst = discard(world, inst, list)
+  inst ??= makeRig(world, s.rig)
   pool.inUse++
   // The build's rest pose: what the player's binding reads as rest.
   const local = s.rig.builds[s.build]!.rest
@@ -113,12 +116,30 @@ export function returnRig(world: World, s: CharacterState): void {
   world.tryResource(AnimationStateResource)?.bindings.delete(s.entity)
   const pool = world.resource(RigPool)
   pool.inUse--
+  // Despawning a near character despawns its rig with it (the rig hangs under its root): such a
+  // rig can't go back in the pool.
+  if (!inst.entities.every((e) => world.isAlive(e))) {
+    discard(world, inst, undefined)
+    return
+  }
   let list = pool.free.get(s.rig)
   if (!list) {
     list = []
     pool.free.set(s.rig, list)
   }
   list.push(inst)
+}
+
+/** Despawns what's left of a rig and forgets it was made; returns the next pooled one, if any. */
+function discard(
+  world: World,
+  inst: RigInstance,
+  list: RigInstance[] | undefined,
+): RigInstance | undefined {
+  for (const e of inst.entities) if (world.isAlive(e)) world.despawn(e)
+  const pool = world.resource(RigPool)
+  pool.made.set(inst.rig, Math.max(0, (pool.made.get(inst.rig) ?? 1) - 1))
+  return list?.pop()
 }
 
 /** Joint entities that exist (in use and pooled), for the joint-count criterion. */

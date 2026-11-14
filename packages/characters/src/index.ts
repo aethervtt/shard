@@ -44,4 +44,11 @@ export {
   type SpawnCharacterOptions,
   spawnCharacter,
 } from './spawn'
-export { HordeProxy, sampleTiers, selectTiers, TierRunResource } from './tiers'
+export {
+  freezeCharacter,
+  HordeProxy,
+  sampleTiers,
+  selectTiers,
+  TierRunResource,
+  thawCharacter,
+} from './tiers'

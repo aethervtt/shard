@@ -185,10 +185,11 @@ function intersects(p1: Node, q1: Node, p2: Node, q2: Node): boolean {
   return o1 !== o2 && o3 !== o4
 }
 
+/** Whether the diagonal a → b leaves a into the polygon's inside (between a's two edges). */
 function locallyInside(a: Node, b: Node): boolean {
-  return area2(a.prev, a, a.next) < 0
-    ? area2(a, b, a.next) >= 0 && area2(a, a.prev, b) >= 0
-    : area2(a, b, a.prev) < 0 || area2(a, a.next, b) < 0
+  return area2(a.prev, a, a.next) > 0
+    ? area2(a, b, a.next) <= 0 && area2(a, a.prev, b) <= 0
+    : area2(a, b, a.prev) > 0 || area2(a, a.next, b) > 0
 }
 
 /** Cuts ears whose two neighbours cross (a self-touching ring after bridging). */
@@ -377,7 +378,7 @@ function findHoleBridge(hole: Node, outer: Node): Node | undefined {
 }
 
 function sectorContainsSector(m: Node, p: Node): boolean {
-  return area2(m.prev, m, p.prev) < 0 && area2(p.next, m, m.next) < 0
+  return area2(m.prev, m, p.prev) > 0 && area2(p.next, m, m.next) > 0
 }
 
 /**

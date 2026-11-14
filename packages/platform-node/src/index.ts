@@ -10,7 +10,7 @@ import {
   stat,
   writeFile,
 } from 'node:fs/promises'
-import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { ShardError } from '@aethervtt/shard-core'
 import type { FileChangeEvent, KeyValueStorage, Platform, Workers } from '@aethervtt/shard-platform'
 import { createNodePerformance } from './performance'
@@ -149,12 +149,14 @@ export function createNodePlatform(options: NodePlatformOptions): Platform {
       list: async (dir) => {
         try {
           const entries = await readdir(abs(dir), { withFileTypes: true })
-          return entries
-            .filter((e) => e.isFile() || e.isDirectory())
-            .map((e) => ({
-              name: e.name,
-              kind: e.isDirectory() ? ('dir' as const) : ('file' as const),
-            }))
+          const out: { name: string; kind: 'dir' | 'file' }[] = []
+          for (const e of entries) {
+            // A symlink lists as what it points at (an asset folder shared between projects).
+            const s = e.isSymbolicLink() ? await stat(join(abs(dir), e.name)).catch(() => null) : e
+            if (s?.isDirectory()) out.push({ name: e.name, kind: 'dir' })
+            else if (s?.isFile()) out.push({ name: e.name, kind: 'file' })
+          }
+          return out
         } catch {
           return []
         }

@@ -96,6 +96,26 @@ describe('character tiers (0115)', () => {
     expect(jointEntityCount(c.world)).toBe(joints)
   })
 
+  it('despawning a near character takes its rig with it; the next near one gets a fresh rig', {
+    timeout: timeout(120_000),
+  }, async () => {
+    if (!gpu) return
+    const c = await start()
+    const first = zombie(c, 3)
+    for (let f = 0; f < 3; f++) c.app.update(1 / 60)
+    expect(tierOf(c, first)).toBe('near')
+    // Under a parent that goes, as a game's character hangs under its actor.
+    const actor = c.world.spawn([Transform, {}])
+    c.world.add(first, ChildOf, { parent: actor })
+    c.world.despawn(actor)
+    const next = zombie(c, 3)
+    expect(() => {
+      for (let f = 0; f < 3; f++) c.app.update(1 / 60)
+    }).not.toThrow()
+    expect(tierOf(c, next)).toBe('near')
+    expect(jointEntityCount(c.world)).toBe(53)
+  })
+
   it('keeps the skinned vertices across every swap, both ways', {
     timeout: timeout(120_000),
   }, async () => {

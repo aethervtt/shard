@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ShardError } from '@aethervtt/shard-core'
@@ -19,5 +19,22 @@ describe('node file service', () => {
     await expect(fs.readRange!('cache/missing.pack', 0, 4)).rejects.toSatisfy(
       (err: ShardError) => err.code === 'platform/fs-not-found',
     )
+  })
+
+  it('lists a symlinked folder or file as what it points at (assets shared between projects)', async () => {
+    const shared = mkdtempSync(join(tmpdir(), 'shard-fs-shared-'))
+    mkdirSync(join(shared, 'items'))
+    writeFileSync(join(shared, 'items', 'hat.glb'), 'x')
+    mkdirSync(join(dir, 'assets'), { recursive: true })
+    symlinkSync(join(shared, 'items'), join(dir, 'assets', 'items'))
+    symlinkSync(join(shared, 'items', 'hat.glb'), join(dir, 'assets', 'hat.glb'))
+    symlinkSync(join(shared, 'gone'), join(dir, 'assets', 'broken'))
+    const listed = (await fs.list!('assets')).sort((a, b) => a.name.localeCompare(b.name))
+    expect(listed).toEqual([
+      { name: 'hat.glb', kind: 'file' },
+      { name: 'items', kind: 'dir' },
+    ])
+    expect(await fs.list!('assets/items')).toEqual([{ name: 'hat.glb', kind: 'file' }])
+    rmSync(shared, { recursive: true, force: true })
   })
 })

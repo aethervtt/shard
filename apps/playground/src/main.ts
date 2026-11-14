@@ -1,5 +1,6 @@
 import { animationPlugin } from '@aethervtt/shard-animation'
 import { audioPlugin } from '@aethervtt/shard-audio'
+import { charactersPlugin } from '@aethervtt/shard-characters'
 import { controlsPlugin } from '@aethervtt/shard-controls'
 import { ShardError } from '@aethervtt/shard-core'
 import { fogPlugin } from '@aethervtt/shard-fog'
@@ -17,6 +18,7 @@ import {
 } from '@aethervtt/shard-platform-web'
 import { procgenPlugin } from '@aethervtt/shard-procgen'
 import { connectToHub, createProtocolServer, DEFAULT_HUB_PORT } from '@aethervtt/shard-protocol'
+import { ragdollPlugin, reactionsPlugin } from '@aethervtt/shard-ragdoll'
 import {
   ablatePasses,
   describeRender,
@@ -81,6 +83,7 @@ import { addDemoPicker } from './picker'
 import { postPlugin } from './post'
 import { prefabsDemoPlugin } from './prefabs'
 import { procgenDemoPlugin } from './procgen'
+import { ragdollDemoPlugin } from './ragdoll'
 import { saveDemoPlugin } from './save'
 import { scatterDemoPlugin } from './scatter'
 import { scenePlugin } from './scene'
@@ -232,6 +235,21 @@ if (demo === 'galaxy') {
     animationPlugin,
     hudPlugin,
     ikDemoPlugin,
+  )
+} else if (demo === 'ragdoll') {
+  app.addPlugin(
+    TransformPlugin,
+    forwardPlugin(),
+    ScenePlugin,
+    gltfPlugin,
+    animationPlugin,
+    charactersPlugin({ maxNear: 24, dwell: 0.2 }),
+    physics3dPlugin(),
+    reactionsPlugin(),
+    ragdollPlugin(),
+    ...controls(),
+    hudPlugin,
+    ragdollDemoPlugin,
   )
 } else if (demo === 'audio') {
   app.addPlugin(
