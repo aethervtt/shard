@@ -26,6 +26,7 @@ import {
 import { Gpu } from './plugin'
 import { type CameraData, Cameras } from './view'
 import { HiddenSetsResource } from './view-visibility'
+import { ComputedVisibility } from './visibility'
 
 // Occlusion culling's raster (0116), loaded with import() the first time a world has an occlusion
 // camera or an occluder: the occluder registry, the CPU rasterizer, and the GPU upload. Each frame,
@@ -150,28 +151,48 @@ function link(state: OcclusionState, rec: OccluderRecord): void {
   }
 }
 
-/** Keeps the occluder registry current: changed meshes or transforms place again. */
+/**
+ * Keeps the occluder registry current: changed meshes or transforms place again, and whether each
+ * occludes (its slot, its entity's visibility) follows its entity. Any of these changing bumps the
+ * version, so a still camera's buffer rasterizes again: a slot given up (a cell going to its proxy,
+ * 0073) is written in place, with no change a still buffer would otherwise see.
+ */
 export function sync(world: World, occluders: Query, since: number): void {
   {
     const state = world.resource(OcclusionStateResource)
     const meshes = world.resource(Meshes)
+    const store = world.resource(Instances)
+    // Slots came or went: an occluder's may have, with no change tick on its row.
+    const slotsMoved = store.slotEpoch !== state.slotEpoch
+    state.slotEpoch = store.slotEpoch
     for (const table of occluders.tables) {
+      const hasSlot = table.has(InstanceSlot)
+      const hasShown = table.has(ComputedVisibility)
       const fresh =
         table.lastChanged(Occluder) > since ||
         table.lastChanged(GlobalTransform) > since ||
         table.lastStructural > since
-      if (!fresh && state.pending.size === 0) continue
+      const recheck =
+        (slotsMoved && hasSlot) || (hasShown && table.lastChanged(ComputedVisibility) > since)
+      if (!fresh && !recheck && state.pending.size === 0) continue
       const refs = table.column(Occluder, 'mesh')
       const g = table.column(GlobalTransform, 'matrix')
       const changedG = table.changedTicks(GlobalTransform)
       const changedO = table.changedTicks(Occluder)
-      const slots = table.has(InstanceSlot) ? table.column(InstanceSlot, 'slot') : undefined
+      const slots = hasSlot ? table.column(InstanceSlot, 'slot') : undefined
+      const visible = hasShown ? table.column(ComputedVisibility, 'visible') : undefined
       for (let i = 0; i < table.count; i++) {
         const entity = table.entities[i]! as Entity
         let rec = state.occluders.get(entity)
         const pending = state.pending.has(entity)
+        const slot = slots ? slots[i]! - 1 : -1
+        const shown = visible ? visible[i] !== 0 : true
         if (rec && !pending && changedG[i]! <= since && changedO[i]! <= since) {
-          rec.slot = slots ? slots[i]! - 1 : -1
+          if (rec.slot !== slot || rec.shown !== shown) {
+            rec.slot = slot
+            rec.shown = shown
+            state.version++
+          }
           continue
         }
         const ref = refs[i]
@@ -195,6 +216,7 @@ export function sync(world: World, occluders: Query, since: number): void {
             cells: [],
             stamp: -1,
             slot: -1,
+            shown: true,
           }
           state.occluders.set(entity, rec)
         } else unlink(state, rec)
@@ -214,7 +236,8 @@ export function sync(world: World, occluders: Query, since: number): void {
             )
         }
         placeOccluder(rec, mesh, g, i * 12)
-        rec.slot = slots ? slots[i]! - 1 : -1
+        rec.slot = slot
+        rec.shown = shown
         link(state, rec)
         state.version++
       }
@@ -222,7 +245,10 @@ export function sync(world: World, occluders: Query, since: number): void {
   }
 }
 
-/** Whether an occluder hides for `camera`: visible to it (not shadow-only), on its layers. */
+/**
+ * Whether an occluder hides for `camera`: drawn (not hidden, shadow-only or proxied), and with a
+ * slot, visible to it and on its layers.
+ */
 function occludes(
   rec: OccluderRecord,
   store: InstanceStore,
@@ -230,6 +256,7 @@ function occludes(
   hidden: Uint32Array | undefined,
   cutting: boolean,
 ): boolean {
+  if (!rec.shown) return false
   const s = rec.slot
   if (s < 0) return true
   if (s >= store.high) return false
@@ -506,7 +533,7 @@ export function rasterizeCameras(world: World, cameras: Query): void {
         // A still camera over still occluders keeps its raster.
         let sig = state.drawn.get(entity)
         if (!sig) {
-          sig = new Float64Array(16 + 8).fill(Number.NaN)
+          sig = new Float64Array(16 + 9).fill(Number.NaN)
           state.drawn.set(entity, sig)
         }
         let same = sig[16] === state.version && sig[17] === store.flagsEpoch && sig[18] === b.width
@@ -514,7 +541,8 @@ export function rasterizeCameras(world: World, cameras: Query): void {
           same && sig[19] === b.height && sig[20] === ranges[i] && sig[21] === (cutting ? 1 : 0)
         same = same && sig[22] === (hiddenSets?.resolves ?? -1)
         for (let k = 0; k < 16 && same; k++) if (sig[k] !== b.view[k]) same = false
-        if (same && sig[23] === b.sx) {
+        // What it sees (render layers) decides which occluders hide for it.
+        if (same && sig[23] === b.sx && sig[24] === cam.layers) {
           b.valid = true
           continue
         }
@@ -528,6 +556,7 @@ export function rasterizeCameras(world: World, cameras: Query): void {
         sig[21] = cutting ? 1 : 0
         sig[22] = hiddenSets?.resolves ?? -1
         sig[23] = b.sx
+        sig[24] = cam.layers
       }
     }
     // Cameras that lost OcclusionCulling or went away keep no buffer.

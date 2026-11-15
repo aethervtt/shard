@@ -1,4 +1,4 @@
-import type { Entity } from '@aethervtt/shard-core'
+import { ChildOf, type Entity } from '@aethervtt/shard-core'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { cube, Mesh, plane } from '@aethervtt/shard-mesh'
@@ -19,7 +19,7 @@ import { OffscreenTarget } from './target'
 import { settle } from './testing'
 import { cameraOf } from './view'
 import { ViewVisibility } from './view-visibility'
-import { Visibility } from './visibility'
+import { DrawnByProxy, Visibility } from './visibility'
 
 // Occlusion culling (0116).
 
@@ -246,4 +246,81 @@ describe('occlusion culling (0116)', () => {
       s.target.destroy()
     })
   }
+
+  /** Runs a few frames with the camera still; the camera view's visible slots after them. */
+  async function stillFrames(s: Street, gpuCull: boolean, frames = 3) {
+    for (let i = 0; i < frames; i++) s.app.update(1 / 60)
+    await gpu.device.queue.onSubmittedWorkDone()
+    return cameraSet(s, gpuCull)
+  }
+
+  for (const gpuCull of [true, false]) {
+    const how = gpuCull ? 'GPU' : 'CPU'
+    it(`ground that streams in under a still camera draws within a few frames (${how})`, async () => {
+      const s = await street(gpuCull, true)
+      await settle(s.app)
+      const meshes = s.world.resource(Meshes)
+      const material = s.world.get(s.wall, MeshMaterial).material
+      // A street's ground arrives in front of the wall and behind it, the camera never moving.
+      const before = s.world.spawn(
+        [Mesh3d, { mesh: meshes.add(plane({ size: 6 })) }],
+        [MeshMaterial, { material }],
+        [Transform, { translation: [0, 0.05, -5] }],
+      )
+      const behind = s.world.spawn(
+        [Mesh3d, { mesh: meshes.add(plane({ size: 4 })) }],
+        [MeshMaterial, { material }],
+        [Transform, { translation: [0, 0.05, -20] }],
+      )
+      let set = await stillFrames(s, gpuCull)
+      expect(set.has(slotOf(s, before)), 'in front of the wall').toBe(true)
+      expect(set.has(slotOf(s, behind)), 'behind the wall').toBe(false)
+      // The wall's cell goes to a proxy (0073): it gives up its slot and hides nothing, so what
+      // streamed in behind it draws, though the camera hasn't moved.
+      s.world.add(s.wall, DrawnByProxy, {})
+      set = await stillFrames(s, gpuCull)
+      expect(set.has(slotOf(s, behind)), 'behind the proxied wall').toBe(true)
+      for (const e of s.behind) expect(set.has(slotOf(s, e)), `box ${e}`).toBe(true)
+      // Back: it hides again.
+      s.world.remove(s.wall, DrawnByProxy)
+      set = await stillFrames(s, gpuCull)
+      expect(set.has(slotOf(s, behind)), 'behind the wall again').toBe(false)
+      await s.app.dispose()
+      s.target.destroy()
+    })
+  }
+
+  it('an occluder without a mesh follows its visibility: hidden or proxied, it hides nothing', async () => {
+    // HLOD's proxy occluders and region-drawn structure chunks (0073) carry an Occluder and no
+    // Mesh3d, so no instance slot says whether they're drawn.
+    const s = await street(false, true)
+    s.world.remove(s.wall, Occluder)
+    const quad = s.world.resource(Meshes).add(
+      Mesh.create({
+        positions: new Float32Array([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0]),
+        indices: new Uint16Array([0, 1, 2, 0, 2, 3]),
+      }),
+    )
+    const cell = s.world.spawn(Transform, Visibility)
+    const occluder = s.world.spawn(
+      [Occluder, { mesh: quad }],
+      [Transform, { translation: [0, 3, -10], scale: [12, 6, 1] }],
+      Visibility,
+      [ChildOf, { parent: cell }],
+    )
+    await settle(s.app)
+    let set = await stillFrames(s, false)
+    for (const e of s.behind) expect(set.has(slotOf(s, e)), `behind ${e}`).toBe(false)
+    s.world.add(cell, DrawnByProxy, {})
+    set = await stillFrames(s, false)
+    for (const e of s.behind) expect(set.has(slotOf(s, e)), `proxied: behind ${e}`).toBe(true)
+    s.world.remove(cell, DrawnByProxy)
+    set = await stillFrames(s, false)
+    for (const e of s.behind) expect(set.has(slotOf(s, e)), `back: behind ${e}`).toBe(false)
+    s.world.set(occluder, Visibility, { mode: 'hidden' })
+    set = await stillFrames(s, false)
+    for (const e of s.behind) expect(set.has(slotOf(s, e)), `hidden: behind ${e}`).toBe(true)
+    await s.app.dispose()
+    s.target.destroy()
+  })
 })

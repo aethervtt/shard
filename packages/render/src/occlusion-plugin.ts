@@ -48,6 +48,11 @@ export interface OccluderRecord {
   stamp: number
   /** Its instance slot, when it has one: visibility and layers come from the slot's flags. */
   slot: number
+  /**
+   * Whether its entity is drawn (ComputedVisibility: not hidden, shadow-only or proxied). An
+   * occluder without a mesh has no slot to say so: HLOD's proxy occluders, region-drawn chunks.
+   */
+  shown: boolean
 }
 
 export class OcclusionState {
@@ -60,6 +65,8 @@ export class OcclusionState {
   loaded = false
   stamp = 0
   readonly pending = new Set<Entity>()
+  /** The instance store's slotEpoch at the last sync: slots came or went since when it differs. */
+  slotEpoch = -1
   warned = false
   // GPU copy.
   texture: GPUTexture | undefined

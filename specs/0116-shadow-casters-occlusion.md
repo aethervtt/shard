@@ -197,10 +197,12 @@ without (measured), and the layers are bit-identical either way.
     gone (0114), is a hole. Floors and roofs give none: from street level walls do the hiding, and
     a large slab's farthest corner is too far for its depth to hide anything.
   - An occluder follows its entity's `ComputedVisibility`, render layers, and each camera's
-    `ViewVisibility`. A shadow-only or hidden entity occludes nothing. A `Cutaway` occluder
-    doesn't occlude for a camera with `CutawayView` points.
-- **Raster, per camera, per frame** (skipped while the camera, every occluder, and every slot's
-  flags are still). The raster code loads with `import()` the first time a world has an occlusion
+    `ViewVisibility`. A shadow-only, hidden or proxied (0073) entity occludes nothing, with a mesh
+    or without one (a proxy's occluders, region-drawn chunks). A `Cutaway` occluder doesn't
+    occlude for a camera with `CutawayView` points.
+- **Raster, per camera, per frame** (skipped while the camera and its layers, every occluder,
+  its slot and visibility, and every slot's flags are still: a slot given up or taken counts, so
+  ground that streams in behind an occluder that stopped hiding draws without the camera moving). The raster code loads with `import()` the first time a world has an occlusion
   camera or an occluder:
   1. Gather occluders from a uniform 16 m grid within `range` (200 m) and the frustum. Skip any
      whose projected size is under 4 pixels.
