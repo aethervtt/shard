@@ -27,6 +27,9 @@ mesh with `Outline` hit three faults of its own:
   (standard and extended), forward and deferred, skinned meshes included.
 - Ink per camera: lines where depth or surface direction jumps (silhouettes, creases, occlusion
   edges), with width, color and thresholds; stable as the camera moves, orthographic included.
+- Far ground stays clean: lines inside silhouettes fade out with distance on perspective cameras,
+  while silhouettes (a ridge against the sky, a house against a hill) keep theirs. Near ink and
+  orthographic ink don't change.
 - A skinned or morphed mesh's outline follows its drawn pose.
 - `Outline` rings draw outside their own silhouette, over other outlined objects; a stated rule
   for nested Outlines; selection and hover draw on top of ink.
@@ -81,6 +84,9 @@ Ink {
   color: color = [0.02, 0.02, 0.03, 1]  // linear; mixed in before tonemapping
   depthThreshold: f32 = 0.1  // m: how far a surface must jump back from the plane of its neighbours
   normalThreshold: f32 = 35  // degrees between neighbouring surface directions
+  fade: vec2 = [60, 250]     // m along the view: lines inside silhouettes fade out between them
+  silhouette: f32 = 0.1      // past the fade, a depth line stays when what's behind lies this
+                             // fraction of the distance farther
 }
 ```
 
@@ -93,9 +99,16 @@ turns on; the G-buffer in deferred ones):
    normal turns by more than `normalThreshold` and no depth jump separates them. Device depth is
    affine across a plane in screen space for both projections, so planes, at any slant, never
    draw lines and don't shimmer as the camera moves. Depth lines sit on the nearer surface only.
-2. **Rows.** Distance to the nearest edge pixel along the row, within the line's radius.
+   Each edge has a strength. Within `fade[0]` (and always on orthographic cameras, or with
+   `fade[1]` 0) it is 1, so near ink is exactly as before. Past it, a depth edge whose gap is at
+   least `silhouette × distance` stays 1 (the sky's always is); everything else takes the fade, 1
+   to 0 between `fade[0]` and `fade[1]`, and a depth edge between half that gap and all of it
+   takes the larger of the fade and a smoothstep over the gap, so lines don't pop.
+2. **Rows.** Along the row, within the line's radius: the distance to the nearest full edge, and
+   to the nearest fading edge with its strength.
 3. **Composite.** The Euclidean distance from the rows (separable), turned into coverage of a line
-   `width` wide, mixes `color` over the input.
+   `width` wide (a fading edge's scaled by its strength, the larger of the two), mixes `color`
+   over the input.
 
 ### Outlines
 
@@ -138,6 +151,15 @@ effects with its GPU time. Without `toonPlugin`, `Toon` and `Ink` log `render/fe
 - **Ink before the HDR chain.** TAA resolves jittered lines into stable antialiased ones, and fog
   hazes distant lines; colored ink is graded and tonemapped like the scene (black stays black).
 - **Planarity from device depth.** No grazing-angle lines, at any slant or projection.
+- **Far ink: a fade by distance and a silhouette gap relative to it.** A fold's fall-back grows
+  with the pixel's footprint (proportional to distance) and with 1/sin² of the grazing angle, so
+  a threshold scaled by footprint alone still inks hills near the horizon. Real occlusions fall
+  back by a large fraction of their distance (a house 300 m out in front of a hill 30 m behind
+  it); gentle folds by well under 1%. So interior lines fade by distance and depth lines past the
+  fade must clear `silhouette × distance`. Fading the line's strength rather than raising the
+  threshold keeps lines from popping as the camera moves. Orthographic footprints don't grow
+  with distance, so the fade is perspective-only. A per-material opt-out (terrain) would need a
+  bit in the prepass and G-buffer; the fade covers every far surface without one.
 - **Precedence by priority, then nearness.** Deterministic; hover on a root outlines the whole
   model while a child keeps its own Outline otherwise.
 
@@ -153,6 +175,10 @@ effects with its GPU time. Without `toonPlugin`, `Toon` and `Ink` log `render/fe
   edge facing the camera draw lines; the ground plane draws none at any angle; moving the camera
   moves the lines with the boxes and adds none.
 - [x] A skinned mesh's ink and outline follow its pose, LOD levels and several styles included.
+- [x] Heightfield terrain seen at a grazing angle out to 2.7 km: the far half of the frame has
+  under 40% of the ink it had without the fade, and under 30% of its ground inked; a 10 m box
+  300 m away keeps its silhouette. Within the fade's near distance (perspective) and on an
+  orthographic camera 400 m away, the image is byte-identical with and without the fade.
 - [x] An outlined box on an outlined ground keeps its ring; nested Outlines follow priority, then
   nearness; a hover outline over an inked object draws on top, and removing it restores the image.
 

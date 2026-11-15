@@ -23,6 +23,8 @@ import { cameraOf } from './view'
 // Toon shading and ink (0108). Toon is the lighting stage's TOON variant, linked from shard::toon
 // for the views whose camera has one. Ink is the HDR chain's first effect: edges from depth and
 // normals, a row pass, and a composite that turns the distance to the nearest edge into a line.
+// Edges are full (silhouettes, anything within the fade's near distance) or fading (lines inside
+// silhouettes past it); the rows and the composite keep the nearest of each.
 
 export const TOON_SHADERS: Record<string, string> = {
   'shard::toon': `
@@ -76,6 +78,8 @@ struct InkParams {
   params: vec4f,
   /** Near, far (orthographic), 1 when orthographic. */
   projection: vec4f,
+  /** Fade near and far (m; far 0: none), the silhouette fraction of the distance. */
+  fade: vec4f,
 }
 
 @group(0) @binding(0) var<uniform> ink: InkParams;
@@ -113,6 +117,12 @@ fn fall_back(a: f32, c: f32, b: f32) -> f32 {
   return linear_depth(b) - linear_depth(clamp(2.0 * c - a, 1e-9, 1.0));
 }
 
+/** How strongly lines inside silhouettes draw at a distance: 1, fading to 0 over the fade. */
+fn fade_at(z: f32) -> f32 {
+  if (ink.projection.z > 0.5 || ink.fade.y <= 0.0) { return 1.0; }
+  return 1.0 - smoothstep(ink.fade.x, max(ink.fade.y, ink.fade.x + 1e-3), z);
+}
+
 /** Whether the surface at q turns away from n by more than the threshold, with no jump between. */
 fn turns(n: vec3f, q: vec2i, dq: f32, zc: f32) -> bool {
   if (dq <= 0.0 || abs(linear_depth(dq) - zc) > ink.params.x) { return false; }
@@ -120,8 +130,11 @@ fn turns(n: vec3f, q: vec2i, dq: f32, zc: f32) -> bool {
 }
 
 /**
- * 1 on an edge: a neighbour falls back behind this pixel's plane (the line sits on the nearer
- * surface), or the right or lower neighbour's surface turns (creases, edges facing the camera).
+ * An edge's strength (0: none): a neighbour falls back behind this pixel's plane (the line sits on
+ * the nearer surface), or the right or lower neighbour's surface turns (creases, edges facing the
+ * camera). 1 within the fade's near distance; past it, a depth edge stays 1 where the surface
+ * behind lies the silhouette fraction of the distance back (half that: none of its own), and
+ * everything else takes the fade.
  */
 @fragment fn edges(@builtin(position) frag: vec4f) -> @location(0) vec4f {
   let p = vec2i(frag.xy);
@@ -132,25 +145,43 @@ fn turns(n: vec3f, q: vec2i, dq: f32, zc: f32) -> bool {
   let u = device_at(p + vec2i(0, -1));
   let d = device_at(p + vec2i(0, 1));
   let gap = max(max(fall_back(l, c, r), fall_back(r, c, l)), max(fall_back(u, c, d), fall_back(d, c, u)));
-  if (gap > ink.params.x) { return vec4f(1.0); }
-  let n = normal_at(p);
   let zc = linear_depth(c);
-  if (turns(n, p + vec2i(1, 0), r, zc) || turns(n, p + vec2i(0, 1), d, zc)) { return vec4f(1.0); }
+  let w = fade_at(zc);
+  if (gap > ink.params.x) {
+    let s = ink.fade.z * zc;
+    if (w >= 1.0 || gap >= s) { return vec4f(1.0); }
+    return vec4f(max(w, smoothstep(0.5 * s, s, gap)));
+  }
+  if (w <= 0.0) { return vec4f(0.0); }
+  let n = normal_at(p);
+  if (turns(n, p + vec2i(1, 0), r, zc) || turns(n, p + vec2i(0, 1), d, zc)) { return vec4f(w); }
   return vec4f(0.0);
 }
 
-/** The distance to the nearest edge along this row, within the radius (255: none), over 255. */
+/**
+ * Along this row, within the radius: the distance to the nearest full edge and to the nearest
+ * fading one (255: none), over 255, then that fading edge's strength.
+ */
 @fragment fn rows(@builtin(position) frag: vec4f) -> @location(0) vec4f {
   let p = vec2i(frag.xy);
   let width = i32(textureDimensions(source).x);
   let radius = i32(ink.params.w);
-  var best = 255.0;
+  var full = 255.0;
+  var fading = 255.0;
+  var strength = 0.0;
   for (var dx = -radius; dx <= radius; dx++) {
     let x = p.x + dx;
     if (x < 0 || x >= width) { continue; }
-    if (textureLoad(source, vec2i(x, p.y), 0).x > 0.5) { best = min(best, f32(abs(dx))); }
+    let e = textureLoad(source, vec2i(x, p.y), 0).x;
+    let a = f32(abs(dx));
+    if (e > 254.5 / 255.0) {
+      full = min(full, a);
+    } else if (e > 0.0 && (a < fading || (a == fading && e > strength))) {
+      fading = a;
+      strength = e;
+    }
   }
-  return vec4f(best / 255.0, 0.0, 0.0, 0.0);
+  return vec4f(full / 255.0, fading / 255.0, strength, 0.0);
 }
 
 /** The line: coverage from the distance to the nearest edge pixel, mixed over the image. */
@@ -159,21 +190,30 @@ fn turns(n: vec3f, q: vec2i, dq: f32, zc: f32) -> bool {
   let c = textureLoad(input, p, 0);
   let height = i32(textureDimensions(source).y);
   let radius = i32(ink.params.w);
+  let reach = ink.params.z + 0.5;
   var d2 = 1e9;
+  var fading = 0.0;
   for (var dy = -radius; dy <= radius; dy++) {
     let y = p.y + dy;
     if (y < 0 || y >= height) { continue; }
-    let dx = round(textureLoad(source, vec2i(p.x, y), 0).x * 255.0);
+    let s = textureLoad(source, vec2i(p.x, y), 0);
+    let dx = round(s.x * 255.0);
     if (dx < 255.0) { d2 = min(d2, dx * dx + f32(dy * dy)); }
+    let fx = round(s.y * 255.0);
+    if (fx < 255.0) {
+      fading = max(fading, clamp(reach - sqrt(fx * fx + f32(dy * dy)), 0.0, 1.0) * s.z);
+    }
   }
-  let k = clamp(ink.params.z + 0.5 - sqrt(d2), 0.0, 1.0) * ink.color.a;
+  let k = max(clamp(reach - sqrt(d2), 0.0, 1.0), fading) * ink.color.a;
   return post_out(vec4f(c.rgb * (1.0 - k) + ink.color.rgb * k, c.a * (1.0 - k) + k));
 }`,
 }
 
 const EDGE_FORMAT: GPUTextureFormat = 'r8unorm'
 const EDGE_TARGETS: GPUColorTargetState[] = [{ format: EDGE_FORMAT }]
-const INK_FLOATS = 12
+const ROW_FORMAT: GPUTextureFormat = 'rgba8unorm'
+const ROW_TARGETS: GPUColorTargetState[] = [{ format: ROW_FORMAT }]
+const INK_FLOATS = 16
 
 /** post/ink: edges, rows, then the composite into the chain's next texture. */
 function inkNode(): NodeDescriptor {
@@ -216,7 +256,7 @@ function inkNode(): NodeDescriptor {
         [layout],
         EDGE_TARGETS,
       )
-      const rows = cache.render(ctx, 'ink/rows', 'shard::post::ink', 'rows', [layout], EDGE_TARGETS)
+      const rows = cache.render(ctx, 'ink/rows', 'shard::post::ink', 'rows', [layout], ROW_TARGETS)
       const composite = cache.render(
         ctx,
         `ink/composite/${out.format}${rg11 ? '/round' : ''}`,
@@ -241,6 +281,10 @@ function inkNode(): NodeDescriptor {
       data[9] = cam.far
       data[10] = cam.orthographic ? 1 : 0
       data[11] = 0
+      data[12] = ink.fade[0]!
+      data[13] = ink.fade[1]!
+      data[14] = ink.silhouette
+      data[15] = 0
       const params = cache.buffer(gpu, `${ctx.view.name}/ink`, INK_FLOATS * 4)
       params.write(data)
       const input = ctx.texture('ink-in')
@@ -309,7 +353,7 @@ export const toonPlugin = definePlugin({
     app.world.initResource(RenderDescribers).set('toon', describeToon)
     const graph = app.world.resource(Graph)
     graph.declare({ name: 'ink-edges', format: EDGE_FORMAT })
-    graph.declare({ name: 'ink-rows', format: EDGE_FORMAT })
+    graph.declare({ name: 'ink-rows', format: ROW_FORMAT })
     addRenderFeatures(app.world, {
       name: 'render/toon',
       description: 'Toon shading (a lighting variant) and ink lines from depth and normals.',

@@ -354,6 +354,10 @@ export interface PostSettings {
     depthThreshold: number
     /** Degrees. */
     normalThreshold: number
+    /** m: where lines inside silhouettes start and finish fading out (perspective). */
+    fade: Float32Array
+    /** Fraction of the distance a depth line needs to keep full strength past the fade. */
+    silhouette: number
   }
   /** TAA: this frame's sub-pixel jitter in pixels, and the frame index it came from. */
   jitter: Float32Array
@@ -386,7 +390,14 @@ export function createPostSettings(): PostSettings {
       lut: null,
     },
     vignette: { intensity: 0, smoothness: 0.5 },
-    ink: { width: 1.5, color: new Float32Array(4), depthThreshold: 0.1, normalThreshold: 35 },
+    ink: {
+      width: 1.5,
+      color: new Float32Array(4),
+      depthThreshold: 0.1,
+      normalThreshold: 35,
+      fade: new Float32Array(2),
+      silhouette: 0.1,
+    },
     jitter: new Float32Array(2),
   }
 }
@@ -494,6 +505,8 @@ export function extractPost(
     vec(k.color, table.column(Ink, 'color'), row, 4)
     k.depthThreshold = table.column(Ink, 'depthThreshold')[row]!
     k.normalThreshold = table.column(Ink, 'normalThreshold')[row]!
+    vec(k.fade, table.column(Ink, 'fade'), row, 2)
+    k.silhouette = table.column(Ink, 'silhouette')[row]!
   }
   const aa = antialiasingOf(table, row)
   if (aa === 1) effects |= PostEffect.Fxaa

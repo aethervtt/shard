@@ -374,6 +374,27 @@ describe('ink', () => {
     await app.dispose()
   })
 
+  it('leaves lines within the fade as they were, and orthographic ones at any distance', {
+    timeout: timeout(120_000),
+  }, async () => {
+    const { app, world, pair } = await inkScene()
+    // Perspective about 10 m from the boxes, inside the fade's 60 m; orthographic 400 m away.
+    for (const [projection, eye] of [
+      ['perspective', [6, 5, 7]],
+      ['orthographic', [240, 200, 280]],
+    ] as [string, Vec3][]) {
+      const [inked] = pair(eye, [0, 0.5, 0], { projection, orthoHeight: 6, fovY: 50 })
+      const faded = await renderView(app, `camera:${inked}`)
+      world.set(inked, Ink, { fade: [0, 0] })
+      const all = await renderView(app, `camera:${inked}`)
+      expect(inkCount(faded), projection).toBeGreaterThan(20)
+      let differ = 0
+      for (let i = 0; i < all.data.length; i++) if (faded.data[i] !== all.data[i]) differ++
+      expect(differ, projection).toBe(0)
+    }
+    await app.dispose()
+  })
+
   it("follows a skinned mesh's pose", { timeout: timeout(60_000) }, async () => {
     const { app, world, meshes, white, camera } = await scene(96)
     world.resource(AmbientLight).brightness = 1.5

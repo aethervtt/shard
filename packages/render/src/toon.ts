@@ -79,6 +79,19 @@ export const Ink = defineComponent(
       description:
         'How sharply surface direction must turn between neighbouring pixels to draw a line (creases, a box edge facing the camera).',
     }),
+    fade: t.vec2({
+      default: [60, 250],
+      min: 0,
+      unit: 'm',
+      description:
+        "Distances (along the view) between which lines inside silhouettes fade out: creases and folds, such as a distant hillside's. Silhouettes keep their line. Perspective cameras only; a far distance of 0 keeps every line at every distance.",
+    }),
+    silhouette: t.f32({
+      default: 0.1,
+      min: 0,
+      description:
+        'Past the fade, how far the surface behind must lie, as a fraction of the distance, for a depth line to keep full strength (a house against a hill, a ridge against another). The sky always does.',
+    }),
   },
   {
     description:
