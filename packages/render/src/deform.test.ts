@@ -1,8 +1,18 @@
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
+import type { Mesh } from '@aethervtt/shard-mesh'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { loadDataTextures } from './data-store'
-import { DeformStore } from './deform'
+import {
+  DeformStore,
+  fromHalf,
+  MORPH_TANGENT_WORDS,
+  MORPH_WORDS,
+  morphWord,
+  morphWords,
+  TANGENT_BIT,
+  toHalf,
+} from './deform'
 
 // The deform store's persistent pose region (spec 0115): blocks callers own, before the per-frame
 // region, uploaded in dirty ranges, with the clock in vec4 0.
@@ -126,5 +136,47 @@ describe('DeformStore persistent poses', () => {
     // The GPU buffer can't hold it: a new one, so the whole region goes up with this frame's.
     expect(uploads(store)).toEqual([[0, store.persistentEnd + 3]])
     expect(store.poseBuffer.byteLength).toBeGreaterThanOrEqual(store.poseCount * 16)
+  })
+})
+
+describe('DeformStore morph deltas', () => {
+  it('rounds to the nearest half float and back', () => {
+    for (const v of [0, 1, -1, 0.1, -0.00731, 0.25, 1e-6, 65504, 0.333]) {
+      const back = fromHalf(toHalf(v))
+      expect(Math.abs(back - v)).toBeLessThanOrEqual(Math.max(Math.abs(v) / 2048, 2 ** -24))
+    }
+    expect(fromHalf(toHalf(1e6))).toBe(Number.POSITIVE_INFINITY)
+  })
+
+  it('packs position and normal deltas in 3 words a vertex, tangents in 2 more', () => {
+    const store = new DeformStore(gpu)
+    const positions = new Float32Array([0, 0, 0, 1, 0, 0])
+    const delta = new Float32Array([0.01, -0.02, 0.03, 0.04, 0.05, -0.06])
+    const plain = {
+      positions,
+      vertexCount: 2,
+      version: 1,
+      targets: [{ positions: delta, normals: delta }],
+    }
+    const md = store.meshData(plain as unknown as Mesh)
+    expect(md.morphTangents).toBe(false)
+    expect(morphWord(md) & TANGENT_BIT).toBe(0)
+    const u = store.vertexData
+    const o = md.morphBase + 3
+    // Vertex 1: x y, z nx, ny nz.
+    expect(fromHalf(u[o]! & 0xffff)).toBeCloseTo(0.04, 4)
+    expect(fromHalf(u[o]! >>> 16)).toBeCloseTo(0.05, 4)
+    expect(fromHalf(u[o + 1]! & 0xffff)).toBeCloseTo(-0.06, 4)
+    expect(fromHalf(u[o + 2]! >>> 16)).toBeCloseTo(-0.06, 4)
+    const tangent = {
+      ...plain,
+      targets: [{ positions: delta, normals: delta, tangents: delta }],
+    }
+    const mt = store.meshData(tangent as unknown as Mesh)
+    expect(mt.morphTangents).toBe(true)
+    expect(morphWord(mt) & TANGENT_BIT).not.toBe(0)
+    expect(fromHalf(store.vertexData[mt.morphBase + 5 + 3]! & 0xffff)).toBeCloseTo(0.04, 4)
+    expect(morphWords(true)).toBe(MORPH_TANGENT_WORDS)
+    expect(morphWords(false)).toBe(MORPH_WORDS)
   })
 })

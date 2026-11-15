@@ -682,7 +682,26 @@ async function requestDevice(adapter: GPUAdapter, options: CreateGpuContextOptio
       ...(options.compressedTextures === false ? [] : COMPRESSED_TEXTURE_FEATURES),
     ].filter((f, i, all) => all.indexOf(f) === i && adapter.features.has(f)),
   ]
-  return adapter.requestDevice({ label: 'shard', requiredFeatures })
+  return adapter.requestDevice({
+    label: 'shard',
+    requiredFeatures,
+    requiredLimits: bufferLimits(adapter),
+  })
+}
+
+/**
+ * The adapter's largest buffers rather than WebGPU's defaults (256 MB buffers, 128 MB storage
+ * bindings): skinned and morphed meshes share one storage buffer (render's deform store), which a
+ * crowd in many different clothes outgrows.
+ */
+function bufferLimits(adapter: GPUAdapter): Record<string, number> {
+  const limits = adapter.limits as unknown as Record<string, number | undefined>
+  const out: Record<string, number> = {}
+  for (const key of ['maxBufferSize', 'maxStorageBufferBindingSize']) {
+    const value = limits[key]
+    if (typeof value === 'number' && value > 0) out[key] = value
+  }
+  return out
 }
 
 /**

@@ -9,7 +9,7 @@ import {
 import type { Mesh } from '@aethervtt/shard-mesh'
 import { LogResource } from '@aethervtt/shard-runtime'
 import { GlobalTransform } from '@aethervtt/shard-transform'
-import { BAKED_BIT, DEFORM_WORDS, type DeformStore, type MeshDeform } from './deform'
+import { BAKED_BIT, DEFORM_WORDS, type DeformStore, type MeshDeform, morphWord } from './deform'
 import {
   InstanceSlot,
   type InstanceStore,
@@ -404,7 +404,7 @@ function writeLevels(store: InstanceStore, slot: number, o: number): void {
 
 function writeMeshFields(records: Uint32Array, o: number, md: MeshDeform): void {
   records[o + 6] = md.skinBase >= 0 ? md.skinBase : 0
-  records[o + 7] = md.morphBase >= 0 ? md.morphBase : 0
+  records[o + 7] = morphWord(md)
   records[o + 8] = md.vertexCount
 }
 
