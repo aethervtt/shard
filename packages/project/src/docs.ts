@@ -1179,6 +1179,10 @@ other camera renders as before (a menu, a card table, a minimap). Nothing on the
   (a wall's edge, the crease where a wall meets the floor). Raise \`depthThreshold\` (m) if small
   steps draw lines, raise \`normalThreshold\` (degrees) if bevels or normal maps do. Flat ground
   never draws lines, at any angle. Lines go into the image before tonemapping, so TAA smooths them.
+  On a perspective camera, lines inside silhouettes (folds of distant hills, creases) fade out
+  between \`fade\` [60, 250] m; silhouettes keep their line where what's behind lies at least
+  \`silhouette\` (0.1) of the distance farther, and always against the sky. Lower \`fade\` if far
+  ground still scribbles; \`"fade": [0, 0]\` keeps every line at every distance.
 - Hover and selection: an \`Outline\` on the entity (a model's root covers its meshes). Its ring
   draws over the ink and over other outlined things behind it. When an entity and a descendant
   both have one, the higher \`priority\` wins, then the nearer; give hover \`"priority": 1\`.

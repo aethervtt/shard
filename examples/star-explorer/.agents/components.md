@@ -1403,6 +1403,8 @@ Brings along: `render/Camera3d`.
 | `color` | string or number[4] | `[0.02,0.02,0.03,1]` |  | Line color (linear), with alpha. Mixed in before tonemapping, so it is graded with the scene; black stays black. |
 | `depthThreshold` | number | `0.1` | ≥ 0, m | How far a surface must fall back behind the plane of its neighbours to draw a line (silhouettes, an arm across a body). Planes never draw one, at any slant. |
 | `normalThreshold` | number | `35` | ≥ 0, ≤ 180, ° | How sharply surface direction must turn between neighbouring pixels to draw a line (creases, a box edge facing the camera). |
+| `fade` | number[2] | `[60,250]` | m | Distances (along the view) between which lines inside silhouettes fade out: creases and folds, such as a distant hillside's. Silhouettes keep their line. Perspective cameras only; a far distance of 0 keeps every line at every distance. |
+| `silhouette` | number | `0.1` | ≥ 0 | Past the fade, how far the surface behind must lie, as a fraction of the distance, for a depth line to keep full strength (a house against a hill, a ridge against another). The sky always does. |
 
 ## `render/InstanceData`
 
