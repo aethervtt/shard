@@ -1,4 +1,10 @@
-export { MeshBuilder, perpendicular } from './builder'
+export {
+  MeshBuilder,
+  perpendicular,
+  type SweepFrames,
+  type SweepOptions,
+  sweepFrames,
+} from './builder'
 export { decodeMesh, encodeMesh } from './codec'
 export {
   type GpuMeshDescriptor,

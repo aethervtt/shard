@@ -33,6 +33,7 @@
   "devDependencies": {
     "@aethervtt/shard-mesh": "workspace:*",
     "@aethervtt/shard-save": "workspace:*",
+    "@aethervtt/shard-terrain": "workspace:*",
     "@aethervtt/shard-transform": "workspace:*",
     "@types/node": "^26.6.2",
     "@webgpu/types": "^0.1.74"

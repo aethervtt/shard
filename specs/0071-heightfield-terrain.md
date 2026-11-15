@@ -44,7 +44,8 @@ chunk), how they stream, and how the ground is authored.
 - Brush sculpting and painting: 0104 adds them at runtime, as delta layers in the stack.
 - Unbounded flat terrain generated as you walk. Planets cover that case.
 - Water. Rivers and lakes need their own spec.
-- Holes for cave mouths. The control page reserves a bit for them, but nothing reads it yet.
+- Holes for cave mouths. The control page reserves a bit for them; 0120 uses it for a terrain
+  generator's holes.
 
 ## Design
 

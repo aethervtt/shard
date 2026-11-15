@@ -75,6 +75,7 @@ function describeSurface(world: World, ss: SurfaceScatter) {
       range: rule.range,
       cellsPerChunk: surface.cells[rule.index],
     }
+    if (rule.field) out.field = rule.field
     if (rule.kind === FOLIAGE) {
       const f = ss.foliage.get(rule.index)
       let drawn = 0

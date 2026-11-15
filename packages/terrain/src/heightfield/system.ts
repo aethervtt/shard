@@ -13,7 +13,7 @@ import { GlobalTransform } from '@aethervtt/shard-transform'
 import { type AnchorQueries, anchorQueries } from '../colliders'
 import { TerrainAnchor, TerrainBudget } from '../components'
 import { TerrainWorld } from '../heights'
-import { updateHeightfieldColliders } from './colliders'
+import { prefetchNearLeaves, updateHeightfieldColliders } from './colliders'
 import { Terrain } from './component'
 import { HEIGHTFIELD_SHADERS } from './material'
 import { enqueueResident, type HeightfieldRender } from './render'
@@ -127,6 +127,7 @@ export const updateHeightfields = defineSystem({
       rt.frame.update(world, rt.entity)
       if (!rt.ready) continue
       gatherHeightfieldAnchors(world, rt, s.anchors)
+      prefetchNearLeaves(rt)
       updateHeightfieldColliders(world, rt, frame, colliderCache)
       for (const update of heightfieldUpdates) update(world, rt, frame)
       // Once streaming, the coarse levels go to the GPU pool (the render side made).

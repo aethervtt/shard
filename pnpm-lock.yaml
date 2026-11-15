@@ -1470,6 +1470,9 @@ importers:
       '@aethervtt/shard-save':
         specifier: workspace:*
         version: link:../save
+      '@aethervtt/shard-terrain':
+        specifier: workspace:*
+        version: link:../terrain
       '@aethervtt/shard-transform':
         specifier: workspace:*
         version: link:../transform
@@ -2423,6 +2426,9 @@ importers:
       '@aethervtt/shard-platform':
         specifier: workspace:*
         version: link:../platform
+      '@aethervtt/shard-procgen':
+        specifier: workspace:*
+        version: link:../procgen
       '@aethervtt/shard-protocol':
         specifier: workspace:*
         version: link:../protocol

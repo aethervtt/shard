@@ -181,6 +181,12 @@ NavAgentState { status: 'idle' | 'moving' | 'arrived' | 'unreachable', remaining
 - `NavMesh.frame` (0043): an entity whose local space the navmesh bakes, queries, and steers agents
   in (world positions go in and come out; Recast works in the frame). Planets keep a navmesh in a
   tangent frame this way.
+- Agents in a large-world `Grid` (0040): navmeshes and grids are in the origin frame, and an agent's
+  `Transform` is in its cell's, so the agent system reads and writes positions through the agent's
+  parent frame (`parentFrame64`, from the grid frames the last propagation solved). Before
+  2026-11-15 it used the translation as is, and an agent outside the floating origin's cell never
+  found its navmesh (found measuring Risen's regions; `terrain/src/heightfield/nav.test.ts` covers
+  it).
 
 ## Open questions
 

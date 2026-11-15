@@ -90,3 +90,4 @@ export {
 } from './runtime'
 export { genFileSchema } from './schema'
 export { contactSheet, drawLabel, parseSeeds } from './sheet'
+export { defineWorkerTask, runTask, runWorkerTask, workerTasksPooled } from './tasks'

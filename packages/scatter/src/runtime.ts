@@ -261,6 +261,22 @@ export function refreshSurface(
     let rules: CompiledRule[]
     try {
       rules = compileRules(sources, seed)
+      for (const rule of rules) {
+        if (rule.field && !ss.surface.resolveField?.(rule.field)) {
+          const names = ss.surface.fieldNames?.() ?? []
+          throw new ShardError(
+            'scatter/unknown-field',
+            `Rule "${rule.name}" masks by field "${rule.field}", which ${ss.surface.kind === 'heightfield' ? 'none of the terrain’s generators has' : `a ${ss.surface.kind} surface can't have`}`,
+            {
+              path: `${rule.id}/masks/field`,
+              hint:
+                ss.surface.kind === 'heightfield'
+                  ? `Fields here: ${names.join(', ') || '(none: the terrain’s generators define no fields)'}.`
+                  : 'Fields come from a heightfield terrain’s generator (0119, 0121).',
+            },
+          )
+        }
+      }
     } catch (err) {
       ss.problem = err as ShardError
       world.tryResource(LogResource)?.error(err as ShardError)

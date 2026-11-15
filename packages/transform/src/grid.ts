@@ -673,6 +673,47 @@ export function originMatrix64(world: World, e: Entity, out: Float64Array): Floa
   return out
 }
 
+const parentCell = new Int32Array(3)
+
+/**
+ * The f64 affine from `e`'s parent frame (where its `Transform` lives) to the origin frame, from the
+ * grid frames the last propagation solved: for a root or a direct child of a grid, its grid's frame
+ * at its cell. Cheap and allocation-free, for per-frame code that moves entities in origin-space
+ * coordinates (nav agents on a navmesh). Returns false, leaving `out` alone, for anything deeper
+ * in a hierarchy or a grid propagation hasn't solved yet; the caller decides what that means.
+ */
+export function parentFrame64(world: World, e: Entity, out: Float64Array): boolean {
+  const frames = world.tryResource(GridFramesResource)
+  const parent = parentOf(world, e)
+  if (!frames?.active) {
+    if (parent !== ROOT) return false
+    affine64.identity(out)
+    return true
+  }
+  let s = 0
+  if (parent === ROOT) {
+    parentCell[0] = parentCell[1] = parentCell[2] = 0
+  } else {
+    if (!isGrid(world, parent)) return false
+    const slot = frames.slotOf.get(parent)
+    if (slot === undefined) return false
+    s = slot
+    readCell(world, e, parentCell)
+  }
+  const cs = frames.cellSize[s]!
+  const r = s * 3
+  affine64.translateAt(
+    out,
+    0,
+    frames.a,
+    s * 12,
+    (parentCell[0]! - frames.ref[r]!) * cs,
+    (parentCell[1]! - frames.ref[r + 1]!) * cs,
+    (parentCell[2]! - frames.ref[r + 2]!) * cs,
+  )
+  return true
+}
+
 const m64 = new Float64Array(12)
 const frameInv = new Float64Array(12)
 const p3 = new Float64Array(3)

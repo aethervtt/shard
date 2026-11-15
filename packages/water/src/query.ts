@@ -1,7 +1,16 @@
 import type { Entity, World } from '@aethervtt/shard-core'
 import { finestPage, type HeightfieldRuntime, pageHeight } from '@aethervtt/shard-terrain'
-import { insideShape, WaterBodies, type WaterBodiesState, type WaterBodyRecord } from './bodies'
+import {
+  BODY_CELL,
+  bodyBounds,
+  cellKey,
+  insideShape,
+  WaterBodies,
+  type WaterBodiesState,
+  type WaterBodyRecord,
+} from './bodies'
 import type { WaterOpticsValue } from './optics'
+import { type RiverPoint, riverAt } from './rivers'
 import { seaAt, seaSample, WaveSets, waveTick, waveTime } from './waves/sea'
 
 /** What `waterAt` writes. */
@@ -14,7 +23,7 @@ export interface WaterSample {
   depth: number
   /** The ground's height under the point (−Infinity where there's none known). */
   groundHeight: number
-  /** Water velocity (m/s); rivers bring it in 0097 part 2, so zero for now. */
+  /** Water velocity (m/s): a river's flow there (0123), horizontal; zero elsewhere. */
   flow: [number, number, number]
   /** The surface normal, waves included (0098). */
   normal: [number, number, number]
@@ -67,13 +76,36 @@ export function heightfieldGround(rt: HeightfieldRuntime, x: number, y: number, 
   return m[4]! * tx + m[5]! * h + m[6]! * tz + m[7]!
 }
 
-/** The body whose water covers world (x, z): the last drawn that contains it, or undefined. */
+const NO_CELL: number[] = []
+
+/** A river point `bodyAt` found (its surface, flow and depth), when the body is a river. */
+export const riverHit: RiverPoint = { surface: 0, flowX: 0, flowZ: 0, depth: 0 }
+
+function covers(r: WaterBodyRecord, x: number, z: number): boolean {
+  if (r.river) return riverAt(r.river, x, z, riverHit)
+  if (r.shape) return insideShape(r.shape, x, z)
+  return true
+}
+
+/**
+ * The body whose water covers world (x, z): the highest priority of every valid body there (drawn
+ * or not, 0123), from the grid of their bounds, or undefined. For a river, `riverHit` holds its
+ * surface, flow and depth at the point. No allocation.
+ */
 export function bodyAt(state: WaterBodiesState, x: number, z: number): WaterBodyRecord | undefined {
-  // Drawn lowest priority first, so the last that covers the point is on top (the info texture's
-  // raster agrees: later bodies overwrite earlier ones).
-  for (let i = state.count - 1; i >= 0; i--) {
-    const r = state.sorted[i]!
-    if (r.shape === null || insideShape(r.shape, x, z)) return r
+  const cell =
+    state.grid.get(cellKey(Math.floor(x / BODY_CELL), Math.floor(z / BODY_CELL))) ?? NO_CELL
+  const wide = state.wide
+  // Both lists ascend by priority: walk them down together, highest first (later bodies overwrite
+  // earlier ones in the info texture's raster too).
+  let a = cell.length - 1
+  let b = wide.length - 1
+  while (a >= 0 || b >= 0) {
+    const i = b < 0 || (a >= 0 && cell[a]! > wide[b]!) ? cell[a--]! : wide[b--]!
+    const r = state.all[i]!
+    const bounds = bodyBounds(r)
+    if (bounds && (x < bounds[0]! || z < bounds[1]! || x > bounds[2]! || z > bounds[3]!)) continue
+    if (covers(r, x, z)) return r
   }
   return undefined
 }
@@ -104,9 +136,11 @@ export function waterAt(world: World, position: ArrayLike<number>, out: WaterSam
     out.optics = null
     return out
   }
-  const ground = groundAt(state, x, y, z)
-  out.groundHeight = ground
+  let ground = groundAt(state, x, y, z)
   const r = bodyAt(state, x, z)
+  // A river's bed where there's no terrain (0123).
+  if (r?.river && ground === Number.NEGATIVE_INFINITY) ground = riverHit.surface - riverHit.depth
+  out.groundHeight = ground
   if (!r) {
     out.body = null
     out.surfaceHeight = Number.NaN
@@ -115,7 +149,11 @@ export function waterAt(world: World, position: ArrayLike<number>, out: WaterSam
     out.optics = null
     return out
   }
-  let surface = r.level
+  let surface = r.river ? riverHit.surface : r.level
+  if (r.river) {
+    out.flow[0] = riverHit.flowX
+    out.flow[2] = riverHit.flowZ
+  }
   // Waves (0098), at the tick: the CPU evaluator, attenuated by the water's depth here.
   const set = world.tryResource(WaveSets)?.sets.get(r.entity)
   if (set && !set.problem) {

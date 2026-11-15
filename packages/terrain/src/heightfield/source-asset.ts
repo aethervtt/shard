@@ -1,11 +1,20 @@
 import {
+  AssetServerResource,
   AssetStore,
   defineAssetSchema,
   defineAssetType,
   defineImporter,
   sha256Hex,
 } from '@aethervtt/shard-assets'
-import { defineResource, defineSchema, type JsonValue, ShardError } from '@aethervtt/shard-core'
+import {
+  type AssetRef,
+  defineResource,
+  defineSchema,
+  type JsonValue,
+  ShardError,
+  type World,
+} from '@aethervtt/shard-core'
+import { hashString } from '@aethervtt/shard-procgen'
 import {
   parseTerrainSource,
   type SourceRef,
@@ -31,6 +40,83 @@ export interface TerrainSourceArtifact {
   deps: Record<string, SourceDependency>
   /** SHA-256 of the source and its dependencies' hashes: changes with anything a bake reads. */
   hash: string
+}
+
+/**
+ * A terrain source made in code (spec 0119): validated as a `*.terrain.json` would be, its noise
+ * graphs and heightmaps found by path through the asset server (they must be imported), and
+ * registered as `mem:<name>`. Again with the same name, it's updated in place (terrains using it
+ * rebake). Returns its handle for `Terrain.source`.
+ */
+export function terrainSource(
+  world: World,
+  json: unknown,
+  options: { name?: string } = {},
+): AssetRef<'terrain/TerrainSource'> {
+  const source = parseTerrainSource(json)
+  const layout = terrainLayout(source)
+  const deps: Record<string, SourceDependency> = {}
+  const lists = sourceDependencies(source)
+  const server = world.tryResource(AssetServerResource)
+  for (const [kind, paths] of Object.entries(lists)) {
+    for (const path of paths) {
+      const entry = server?.entry({ path })
+      if (!entry) {
+        throw new ShardError('terrain/bad-source', `${path} isn't an asset this project has`, {
+          path,
+          hint: 'A source made in code finds its noise graphs, heightmaps and textures by path in the asset server: import them first.',
+        })
+      }
+      if (entry.type !== EXPECTED[kind]) {
+        throw new ShardError(
+          'terrain/bad-source',
+          `${path} is a ${entry.type}, not a ${EXPECTED[kind]}`,
+          {
+            path,
+          },
+        )
+      }
+      deps[path] = { guid: entry.guid, type: entry.type, hash: entry.guid }
+      void server!.request(entry.guid).catch(() => {})
+    }
+  }
+  fillGuids(source, deps)
+  const name = options.name ?? 'terrain'
+  const guid = `mem:${name}`
+  const artifact: TerrainSourceArtifact = {
+    format: 1,
+    source,
+    layout,
+    deps,
+    hash: hashString(JSON.stringify({ source, deps: Object.entries(deps).sort() })),
+  }
+  const store = world.initResource(TerrainSources)
+  const existing = store.get({ guid })
+  if (existing) {
+    if (existing.hash !== artifact.hash)
+      TerrainSourceAssetType.update!(existing, new TerrainSourceAsset(artifact))
+  } else {
+    store.set(guid, new TerrainSourceAsset(artifact))
+  }
+  return { type: 'terrain/TerrainSource', guid, path: `${name}.terrain.json` }
+}
+
+/** Fills each reference's guid from the resolved dependencies. */
+function fillGuids(source: TerrainSource, deps: Record<string, SourceDependency>): void {
+  const fill = (r: SourceRef | null) => {
+    if (r && deps[r.path]) r.guid = deps[r.path]!.guid
+  }
+  for (const l of source.height) {
+    if (l.kind === 'noise') fill(l.noise)
+    if (l.kind === 'image') fill(l.image)
+  }
+  for (const p of source.paint) {
+    fill(p.noise?.ref ?? null)
+    fill(p.mask?.ref ?? null)
+  }
+  fill(source.textures.albedo)
+  fill(source.textures.normal)
+  fill(source.textures.orm)
 }
 
 /** A loaded terrain source: what a `Terrain` entity bakes and streams. */
@@ -128,20 +214,7 @@ export const TerrainSourceImporter = defineImporter({
         deps[path] = { guid: dep.guid, type: dep.type, hash: dep.hash }
       }
     }
-    const fill = (r: SourceRef | null) => {
-      if (r && deps[r.path]) r.guid = deps[r.path]!.guid
-    }
-    for (const l of source.height) {
-      if (l.kind === 'noise') fill(l.noise)
-      if (l.kind === 'image') fill(l.image)
-    }
-    for (const p of source.paint) {
-      fill(p.noise?.ref ?? null)
-      fill(p.mask?.ref ?? null)
-    }
-    fill(source.textures.albedo)
-    fill(source.textures.normal)
-    fill(source.textures.orm)
+    fillGuids(source, deps)
     const hash = await sha256Hex(
       new TextEncoder().encode(JSON.stringify({ source, deps: Object.entries(deps).sort() })),
     )
@@ -230,6 +303,25 @@ export function terrainJsonSchema(): Record<string, unknown> {
       seed: num('Mixed into every noise layer and mask: the same graphs make another terrain.', {
         examples: [7],
       }),
+      holes: {
+        type: 'object',
+        description:
+          'Where the ground is open (0120): a terrain generator’s holes() mask, for basements under building pads. Open cells don’t draw and aren’t solid; tiles with one become trimesh colliders.',
+        properties: {
+          generator: { type: 'string', examples: ['risen/Ground'] },
+          params: {
+            type: 'object',
+            description: 'Default: those of the height layer naming the same generator.',
+          },
+        },
+        required: ['generator'],
+        additionalProperties: false,
+      },
+      bake: {
+        enum: ['ahead', 'near'],
+        description:
+          'When pages are made: "ahead" bakes packs into .shard/cache before streaming (0071); "near" makes them where the camera and anchors need them and stores nothing (0119). Default "near" with a generator layer, else "ahead".',
+      },
       splines: {
         type: 'object',
         description:
@@ -319,6 +411,25 @@ export function terrainJsonSchema(): Record<string, unknown> {
                 falloff: num('Overrides the spline’s falloff for this layer.'),
               },
               required: ['spline'],
+              additionalProperties: false,
+            },
+            {
+              type: 'object',
+              description:
+                'Heights from a terrain generator (spec 0119): code the project registers with defineTerrainGenerator, run on the worker pool. Covers the whole terrain; later layers apply on top.',
+              properties: {
+                generator: {
+                  type: 'string',
+                  description: 'The generator’s name.',
+                  examples: ['risen/Ground'],
+                },
+                params: {
+                  type: 'object',
+                  description: 'Its parameters (its schema validates and defaults them).',
+                },
+                blend: { ...blend, description: 'Default replace.' },
+              },
+              required: ['generator'],
               additionalProperties: false,
             },
             {
@@ -422,6 +533,20 @@ export function terrainJsonSchema(): Record<string, unknown> {
                 ),
               },
               required: ['layer'],
+              additionalProperties: false,
+            },
+            {
+              type: 'object',
+              description:
+                'A terrain generator’s material weights (spec 0119): each of its layers paints over what’s below by its weight.',
+              properties: {
+                generator: { type: 'string', description: 'The generator’s name.' },
+                params: {
+                  type: 'object',
+                  description: 'Default: those of the height layer naming the same generator.',
+                },
+              },
+              required: ['generator'],
               additionalProperties: false,
             },
             {

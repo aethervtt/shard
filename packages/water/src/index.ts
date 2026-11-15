@@ -1,9 +1,13 @@
 export {
+  BODY_CELL,
+  bodyBounds,
   buildShape,
+  CHOOSE_DISTANCE,
   gatherWaterBodies,
   insideShape,
   MAX_OUTLINE_POINTS,
   MAX_WATER_BODIES,
+  unboundedBody,
   WaterBodies,
   WaterBodiesState,
   type WaterBodyRecord,
@@ -54,6 +58,15 @@ export {
   waterRenderOf,
 } from './render'
 export { bakeRipples, RIPPLE_SIZE } from './ripples'
+export {
+  blendMouth,
+  buildRiver,
+  MAX_RIVER_SAMPLES,
+  RIVER_STRIDE,
+  type RiverPoint,
+  type RiverShape,
+  riverAt,
+} from './rivers'
 export {
   HORIZON,
   INFO_LEVELS,

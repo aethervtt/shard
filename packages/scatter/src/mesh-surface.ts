@@ -24,6 +24,7 @@ import {
 } from './rules'
 import {
   type ChunkPlacements,
+  type FieldSampler,
   type FoliagePatch,
   P_CELL,
   P_ITEM,
@@ -214,6 +215,8 @@ export class MeshSurface implements Surface {
   readonly entity: Entity
   rules: CompiledRule[] = []
   masks: (NoiseGraph | undefined)[] = []
+  /** Each rule's field (0121), resolved when the rules are configured. */
+  fields: (FieldSampler | undefined)[] = []
   version = 0
   index: HeightIndex | undefined
   /** The entity's uniform scale: local units to metres. */
@@ -254,9 +257,19 @@ export class MeshSurface implements Surface {
   private mesh: Mesh | undefined
   private meshVersion = -1
 
+  /** Fields come from a heightfield's generator (0121): a mesh has none. */
+  resolveField(_name: string): FieldSampler | undefined {
+    return undefined
+  }
+
+  fieldNames(): string[] {
+    return []
+  }
+
   configure(rules: CompiledRule[], masks: (NoiseGraph | undefined)[], version: number): void {
     this.rules = rules
     this.masks = masks
+    this.fields = rules.map((r) => (r.field ? this.resolveField(r.field) : undefined))
     this.version = version
     this.cells = rules.map((r) => {
       if (!Number.isFinite(r.cell)) return 1
@@ -435,6 +448,18 @@ export class MeshSurface implements Surface {
         density[k] = w
       }
     }
+    // A field (0121) scales the density at every vertex.
+    const field = this.fields[rule.index]
+    if (field) {
+      const xz = new Float64Array(count * 2)
+      for (let v = 0; v < count; v++) {
+        xz[v * 2] = positions[v * 3]! + chunk.center[0]!
+        xz[v * 2 + 1] = positions[v * 3 + 2]! + chunk.center[2]!
+      }
+      const f = new Float32Array(count)
+      field(xz, count, f)
+      for (let v = 0; v < count; v++) density[v]! *= f[v]!
+    }
     const k = this.cells[rule.index]!
     const cell = size / k
     return {
@@ -478,12 +503,16 @@ export class MeshSurface implements Surface {
     const cosHi = dcos(Math.min(90, rule.slopeHi) * DEG)
     const slopeMask = rule.slopeLo < rule.slopeHi
     const mask = this.masks[rule.index]
+    const field = this.fields[rule.index]
+    const density = field ? fieldDensity(rule, chunk, k, cell, accept, jitter, field) : undefined
     let n = 0
     for (let j = 0; j < k; j++) {
       for (let i = 0; i < k; i++) {
         const gi = chunk.x * k + i
         const gj = chunk.y * k + j
-        if (cellRandom(rule.seed, gi, gj, 0, STREAM_ACCEPT) >= accept) continue
+        // A field (0121) lowers the threshold the same draw is held to: it only removes items.
+        const u = cellRandom(rule.seed, gi, gj, 0, STREAM_ACCEPT)
+        if (u >= (density ? accept * density[i + j * k]! : accept)) continue
         const x = (gi + lo + jitter * cellRandom(rule.seed, gi, gj, 0, STREAM_X)) * cell
         const z = (gj + lo + jitter * cellRandom(rule.seed, gi, gj, 0, STREAM_Y)) * cell
         if (!index.heightAt(x, z, hit)) continue
@@ -533,4 +562,38 @@ export class MeshSurface implements Surface {
     }
     return { chunk, count: n, data: out, candidates: k * k }
   }
+}
+
+/**
+ * A chunk's field densities per cell (0121): one call for the jittered points of every cell that
+ * passed the plain accept draw (the others are rejected anyway and stay 0).
+ */
+function fieldDensity(
+  rule: CompiledRule,
+  chunk: SurfaceChunk,
+  k: number,
+  cell: number,
+  accept: number,
+  jitter: number,
+  field: FieldSampler,
+): Float32Array {
+  const lo = (1 - jitter) / 2
+  const at = new Int32Array(k * k)
+  const xz = new Float64Array(k * k * 2)
+  let n = 0
+  for (let j = 0; j < k; j++) {
+    for (let i = 0; i < k; i++) {
+      const gi = chunk.x * k + i
+      const gj = chunk.y * k + j
+      if (cellRandom(rule.seed, gi, gj, 0, STREAM_ACCEPT) >= accept) continue
+      xz[n * 2] = (gi + lo + jitter * cellRandom(rule.seed, gi, gj, 0, STREAM_X)) * cell
+      xz[n * 2 + 1] = (gj + lo + jitter * cellRandom(rule.seed, gi, gj, 0, STREAM_Y)) * cell
+      at[n++] = i + j * k
+    }
+  }
+  const values = new Float32Array(n)
+  if (n > 0) field(xz, n, values)
+  const density = new Float32Array(k * k)
+  for (let c = 0; c < n; c++) density[at[c]!] = values[c]!
+  return density
 }

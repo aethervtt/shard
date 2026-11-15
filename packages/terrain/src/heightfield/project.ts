@@ -2,7 +2,7 @@ import type { AssetServer } from '@aethervtt/shard-assets'
 import { ShardError, type World } from '@aethervtt/shard-core'
 import { NoiseGraphs } from '@aethervtt/shard-noise'
 import type { PlatformFileSystem, Workers } from '@aethervtt/shard-platform'
-import { type BakeReport, bakeTerrain, readManifest } from './bake'
+import { type BakeReport, bakeSourceHash, bakeTerrain, readManifest } from './bake'
 import { Heightmaps } from './heightmap'
 import type { Stack, StackMap } from './kernel'
 import { fsPackStore, type PackStore } from './pack'
@@ -37,10 +37,18 @@ export function stackFor(world: World, asset: TerrainSourceAsset): Stack {
   })
 }
 
-/** Whether a terrain's packs match its source (a bake would rebake nothing it can't see). */
-export async function bakeIsCurrent(store: PackStore, asset: TerrainSourceAsset): Promise<boolean> {
+/**
+ * Whether a terrain's packs match its source (a bake would rebake nothing it can't see). With
+ * generator layers (spec 0119), `stack` says which versions and params they're at.
+ */
+export async function bakeIsCurrent(
+  store: PackStore,
+  asset: TerrainSourceAsset,
+  stack?: Stack,
+): Promise<boolean> {
   const manifest = await readManifest(store)
-  return manifest?.sourceHash === asset.hash
+  const hash = stack ? await bakeSourceHash(asset.hash, stack) : asset.hash
+  return manifest?.sourceHash === hash
 }
 
 /** What baking needs of a host: its file service and, where it has one, its worker pool. */
@@ -72,6 +80,8 @@ export async function bakeProjectTerrains(
     warn?: (problem: ShardError, path: string) => void
     /** Bake even when the packs already match the source. */
     always?: boolean
+    /** Hears each near source (spec 0119), which has nothing to bake ahead. */
+    near?: (path: string) => void
   } = {},
 ): Promise<ProjectBake[]> {
   const out: ProjectBake[] = []
@@ -80,10 +90,15 @@ export async function bakeProjectTerrains(
     await server.load(entry.guid)
     const asset = server.item(entry.guid)
     if (!(asset instanceof TerrainSourceAsset)) continue
+    if (asset.source.bake === 'near') {
+      options.near?.(entry.path)
+      continue
+    }
     const store = fsPackStore(fs, terrainCacheDir(entry.guid))
-    if (!options.force && !options.always && (await bakeIsCurrent(store, asset))) continue
     const stack = stackFor(world, asset)
-    const report = await bakeTerrain(asset, stack, store, {
+    if (!options.force && !options.always && (await bakeIsCurrent(store, asset, stack))) continue
+    const hash = await bakeSourceHash(asset.hash, stack)
+    const report = await bakeTerrain({ ...asset, hash }, stack, store, {
       force: options.force === true,
       ...(options.workers ? { workers: options.workers } : {}),
       warn: (problem) => options.warn?.(problem, entry.path),

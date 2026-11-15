@@ -1,9 +1,15 @@
 import type { Entity, Query, World } from '@aethervtt/shard-core'
 import type { HeightfieldRuntime } from '@aethervtt/shard-terrain'
-import { mainNoise, pageHeight } from '@aethervtt/shard-terrain'
+import {
+  mainNoise,
+  pageHeight,
+  pageOpen,
+  stackField,
+  stackFieldNames,
+} from '@aethervtt/shard-terrain'
 import { placeInGrid } from '@aethervtt/shard-transform'
 import { type HeightIndex, MeshSurface } from './mesh-surface'
-import type { SurfaceChunk } from './surface'
+import type { FieldSampler, SurfaceChunk } from './surface'
 
 /**
  * A heightfield's ground for scatter (0045 on 0071): heights and face normals from its leaf pages,
@@ -28,7 +34,10 @@ export class HeightfieldIndex {
     this.maxY = rt.hi
   }
 
-  /** The ground under (x, z): writes [height, nx, ny, nz] (up-facing) and returns true on the terrain. */
+  /**
+   * The ground under (x, z): writes [height, nx, ny, nz] (up-facing) and returns true on the
+   * terrain, false off it or over a hole.
+   */
   heightAt(x: number, z: number, out: Float64Array): boolean {
     const rt = this.rt
     const l = rt.layout!
@@ -37,6 +46,8 @@ export class HeightfieldIndex {
     const px = Math.min(l.leavesX - 1, Math.floor(x / size))
     const pz = Math.min(l.leavesZ - 1, Math.floor(z / size))
     const page = rt.pages!.leafNow(mainNoise(), rt.stack!, px, pz)
+    // A hole (spec 0120): no ground to stand on.
+    if (pageOpen(rt, page, x, z)) return false
     const e = 0.05
     const h = pageHeight(rt, page, x, z)
     // The face normal from heights a little either side (within the same triangle in most cases).
@@ -71,6 +82,15 @@ export class HeightfieldSurface extends MeshSurface {
   /** Takes the terrain's pages (again after a rebake). */
   setTerrain(): void {
     this.index = new HeightfieldIndex(this.rt) as unknown as HeightIndex
+  }
+
+  /** A field (0121) of the terrain's generators, with their params from its source. */
+  override resolveField(name: string): FieldSampler | undefined {
+    return this.rt.stack ? stackField(this.rt.stack, name) : undefined
+  }
+
+  override fieldNames(): string[] {
+    return this.rt.stack ? stackFieldNames(this.rt.stack) : []
   }
 
   override placeChunkRoot(world: World, root: Entity, chunk: SurfaceChunk): void {

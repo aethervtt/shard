@@ -194,9 +194,9 @@ describe.skipIf(skip)('playground demos on WebGPU', () => {
   }
 })
 
-describe.skipIf(skip)('#heightfield in Chrome against Node (0071)', () => {
+describe.skipIf(skip)('#heightfield in Chrome against Node (0071, 0119)', () => {
   it(
-    'bakes the same pack bytes and walks to the same checksum as Node',
+    'bakes the same pack bytes, walks to the same checksum and makes the same generated leaves as Node',
     async () => {
       const context = await browser.newContext({ viewport: { width: 640, height: 360 } })
       try {
@@ -205,15 +205,23 @@ describe.skipIf(skip)('#heightfield in Chrome against Node (0071)', () => {
         // The page compares both with the values Node pins and says = Node ✓ or ≠ Node.
         const result = await page.waitForFunction(
           () => {
-            const h = (globalThis as { heightfield?: { hash: string; walk: string } }).heightfield
-            return h?.hash.includes('Node') && h.walk.includes('Node') ? { ...h } : null
+            const h = (globalThis as { heightfield?: { hash: string; walk: string; near: string } })
+              .heightfield
+            return h?.hash.includes('Node') && h.walk.includes('Node') && h.near.includes('Node')
+              ? { ...h }
+              : null
           },
           undefined,
           { timeout: timeout(120_000), polling: 500 },
         )
-        const { hash, walk } = (await result.jsonValue()) as { hash: string; walk: string }
+        const { hash, walk, near } = (await result.jsonValue()) as {
+          hash: string
+          walk: string
+          near: string
+        }
         expect(hash).toContain('= Node ✓')
         expect(walk).toContain('= Node ✓')
+        expect(near).toContain('= Node ✓')
       } finally {
         await context.close()
       }

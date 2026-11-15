@@ -44,6 +44,8 @@ export interface CompiledRule {
   heightHi: number
   noise: AssetRef | null
   noiseAbove: number
+  /** A terrain generator's field (0121), '' for none. */
+  field: string
   align: number
   scaleMin: number
   scaleMax: number
@@ -163,6 +165,7 @@ export function compileRules(sources: readonly SetSource[], surfaceSeed: number)
         heightHi: rule.masks.height[1]!,
         noise: rule.masks.noise.graph,
         noiseAbove: rule.masks.noise.above,
+        field: rule.masks.field,
         align: rule.align,
         scaleMin: Math.min(rule.scale[0]!, rule.scale[1]!),
         scaleMax: Math.max(rule.scale[0]!, rule.scale[1]!),

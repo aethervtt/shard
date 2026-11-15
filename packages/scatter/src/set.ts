@@ -87,6 +87,10 @@ const rule = t.struct({
         },
         { description: 'Patches: items only where a noise graph is above a threshold.' },
       ),
+      field: t.string({
+        description:
+          'A heightfield terrain generator’s field (0121): a density 0–1 from the game’s own plan that thins the rule, 0 keeping it out (roads, building pads, water). Empty: none.',
+      }),
     },
     { description: 'Where items may go, on top of the biome the set belongs to.' },
   ),

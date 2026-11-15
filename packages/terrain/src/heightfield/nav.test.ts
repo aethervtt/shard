@@ -126,4 +126,89 @@ describe('navigation on a heightfield (0071)', () => {
     },
     timeout(300_000),
   )
+
+  it(
+    'moves NavAgents in every grid cell, not only the floating origin’s (0040)',
+    async () => {
+      // A player at x, z = 1 024: the 2 km grid's cells are centred, so the line between cells 0
+      // and 1 runs at 1 000 m, through a ring of agents 60 m around the player.
+      const p = await heightfieldApp(undefined, {
+        ...valleySource(),
+        noise: { hills },
+        workers,
+        physics: true,
+        extra: [navPlugin],
+      })
+      await untilStreaming(p)
+      const w = p.world
+      const rt = p.runtime()
+      const size = rt.layout!.leafSize
+      const ground = (x: number, z: number) =>
+        pageHeight(
+          rt,
+          rt.pages!.leafNow(mainNoise(), rt.stack!, Math.floor(x / size), Math.floor(z / size)),
+          x,
+          z,
+        )
+      const centre = [1024, 1024] as const
+      const player = w.spawn(Transform, FloatingOrigin)
+      placeInGrid(w, player, p.terrain, [centre[0], ground(centre[0], centre[1]) + 1, centre[1]])
+      const anchor = w.spawn([TerrainAnchor, { radius: 120 }], Transform)
+      placeInGrid(w, anchor, p.terrain, [centre[0], ground(centre[0], centre[1]), centre[1]])
+      const agents = []
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2 + 0.3
+        const x = centre[0] + 60 * Math.cos(a)
+        const z = centre[1] + 60 * Math.sin(a)
+        const e = w.spawn(
+          [CharacterController, { radius: 0.35, height: 1.8 }],
+          [CharacterIntent, {}],
+          [CharacterState, {}],
+          [NavAgent, { speed: 4, stoppingDistance: 1.5, drive: 'character' }],
+          [NavAgentState, {}],
+          Transform,
+        )
+        placeInGrid(w, e, p.terrain, [x, ground(x, z) + 1.2, z])
+        agents.push(e)
+      }
+      for (let f = 0; f < 10; f++) p.app.update(1 / 60)
+      const lo = new Float64Array(3)
+      const hi = new Float64Array(3)
+      rt.frame.pointToOrigin(centre[0] - 110, -200, centre[1] - 110, lo)
+      rt.frame.pointToOrigin(centre[0] + 110, 400, centre[1] + 110, hi)
+      w.spawn([
+        NavMesh,
+        {
+          agentRadius: 0.4,
+          agentHeight: 1.8,
+          maxSlope: 40,
+          maxClimb: 0.5,
+          cellSize: 0.3,
+          cellHeight: 0.15,
+          tileSize: 64,
+          boundsMin: [lo[0]!, lo[1]!, lo[2]!],
+          boundsMax: [hi[0]!, hi[1]!, hi[2]!],
+        },
+      ])
+      for (let f = 0; f < 120; f++) p.app.update(1 / 60)
+      const goal = new Float64Array(3)
+      rt.frame.pointToOrigin(centre[0], ground(centre[0], centre[1]), centre[1], goal)
+      // Agents on both sides of the cell line.
+      const at = new Float64Array(3)
+      const sides = new Set(
+        agents.map((e) => Math.round(worldPosition64(w, e, at, p.terrain)[0]! / 2000)),
+      )
+      expect(sides.size).toBe(2)
+      for (const e of agents)
+        w.set(e, NavAgent, { ...w.get(e, NavAgent), destination: [goal[0]!, goal[1]!, goal[2]!] })
+      let frames = 0
+      while (frames < 60 * 60 && agents.some((e) => w.get(e, NavAgentState).status !== 'arrived')) {
+        p.app.update(1 / 60)
+        frames++
+      }
+      expect(agents.map((e) => w.get(e, NavAgentState).status)).toEqual(agents.map(() => 'arrived'))
+      await p.app.dispose()
+    },
+    timeout(300_000),
+  )
 })

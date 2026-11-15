@@ -67,6 +67,7 @@ export async function terrain(ctx: CommandContext): Promise<number> {
   try {
     if (mode === 'bake') {
       const warnings: string[] = []
+      const near: string[] = []
       const baked = await bakeProjectTerrains(server, world, platform.fs, {
         force: ctx.flags.force === true,
         always: true,
@@ -74,12 +75,17 @@ export async function terrain(ctx: CommandContext): Promise<number> {
         ...(platform.workers ? { workers: platform.workers } : {}),
         warn: (problem, path) =>
           warnings.push(`  warning ${path}: [${problem.code}] ${problem.message}`),
+        near: (path) => near.push(path),
       })
+      const nearLines = near.map(
+        (path) =>
+          `  terrain ${path}: "bake": "near", nothing to bake ahead (pages bake where needed)`,
+      )
       ctx.out.result(
-        { baked },
-        baked.length === 0
+        { baked, near },
+        baked.length === 0 && near.length === 0
           ? 'No terrain sources to bake.'
-          : [...baked.map(bakeLine), ...warnings].join('\n'),
+          : [...baked.map(bakeLine), ...nearLines, ...warnings].join('\n'),
       )
       return EXIT.ok
     }
@@ -88,6 +94,10 @@ export async function terrain(ctx: CommandContext): Promise<number> {
       await server.load(entry.guid)
       const asset = server.item(entry.guid)
       if (!(asset instanceof TerrainSourceAsset)) continue
+      if (asset.source.bake === 'near') {
+        stats.push({ path: entry.path, near: true, size: asset.source.size })
+        continue
+      }
       const store = fsPackStore(platform.fs, terrainCacheDir(entry.guid))
       const manifest = await readManifest(store)
       stats.push({ path: entry.path, ...(await terrainStats(asset, store, manifest)) })
@@ -96,9 +106,11 @@ export async function terrain(ctx: CommandContext): Promise<number> {
       { terrains: stats },
       stats
         .map((s) =>
-          s.baked
-            ? `${s.path}: ${s.size[0]} × ${s.size[1]} m at ${s.spacing} m, ${s.roots} roots, depth ${s.depth}; ${s.blocks} blocks (${s.current ? 'current' : 'stale: run shard terrain bake'}), ${s.pages} pages, ${(s.bytesOnDisk / 1e6).toFixed(1)} MB on disk (${s.bytesPerSample.toFixed(2)} B/sample before deflate, ${s.diskBytesPerSample.toFixed(2)} after); ${s.msPerBlock.toFixed(0)} ms per block (slowest ${s.slowestBlockMs.toFixed(0)} ms)`
-            : `${s.path}: not baked yet (shard terrain bake)`,
+          'near' in s
+            ? `${s.path}: ${s.size[0]} × ${s.size[1]} m, "bake": "near": pages bake where needed, nothing on disk`
+            : s.baked
+              ? `${s.path}: ${s.size[0]} × ${s.size[1]} m at ${s.spacing} m, ${s.roots} roots, depth ${s.depth}; ${s.blocks} blocks (${s.current ? 'current' : 'stale: run shard terrain bake'}), ${s.pages} pages, ${(s.bytesOnDisk / 1e6).toFixed(1)} MB on disk (${s.bytesPerSample.toFixed(2)} B/sample before deflate, ${s.diskBytesPerSample.toFixed(2)} after); ${s.msPerBlock.toFixed(0)} ms per block (slowest ${s.slowestBlockMs.toFixed(0)} ms)`
+              : `${s.path}: not baked yet (shard terrain bake)`,
         )
         .join('\n') || 'No terrain sources.',
     )

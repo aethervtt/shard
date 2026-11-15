@@ -1,5 +1,5 @@
 import type { Entity, World } from '@aethervtt/shard-core'
-import { dequantize, PAGE } from './kernel'
+import { cellOpen, dequantize, PAGE } from './kernel'
 import { finestPage, heightfieldRuntime, pageSample } from './queries'
 import type { HeightfieldRuntime } from './runtime'
 
@@ -132,8 +132,11 @@ function hitPage(
   const s = size / PAGE
   const px0 = page.x * size
   const pz0 = page.z * size
+  const layout = rt.layout!
   walkCells(px0, pz0, s, ta, tb, (i, j) => {
     if (i < 0 || j < 0 || i >= PAGE || j >= PAGE) return false
+    // An open cell (spec 0120) has nothing to hit.
+    if (page.leaf && cellOpen(page.control, layout.cells, layout.paintStep, i, j)) return false
     const x0 = px0 + i * s
     const z0 = pz0 + j * s
     const h00 = pageSample(rt, page, i, j)

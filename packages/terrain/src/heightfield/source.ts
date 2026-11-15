@@ -1,4 +1,4 @@
-import { isPlainObject, pointer, ShardError } from '@aethervtt/shard-core'
+import { isPlainObject, type JsonValue, pointer, ShardError } from '@aethervtt/shard-core'
 import { BLOCK, PAGE } from './kernel'
 
 /** Most material layers a terrain may have (the control page stores a layer in a byte; 0043's arrays hold 32). */
@@ -65,6 +65,14 @@ export type SourceHeightLayer =
       /** The spline's falloff unless set here. */
       falloff: number
     }
+  | {
+      /** Heights from a registered terrain generator (spec 0119), over the whole terrain. */
+      kind: 'generator'
+      generator: string
+      /** As written; validated against the generator's schema when the stack compiles. */
+      params: Record<string, JsonValue>
+      blend: BlendOp
+    }
 
 export interface SourceMaterialLayer {
   name: string
@@ -98,8 +106,13 @@ export const LAYER_TINTS: [number, number, number][] = [
 ]
 
 export interface SourcePaint {
-  /** Material layer name. */
+  /** Material layer name ('' for a generator entry). */
   layer: string
+  /**
+   * A generator's weights (spec 0119): its name, and params (null: those of the height layer
+   * naming it).
+   */
+  generator: { name: string; params: Record<string, JsonValue> | null } | null
   height: [number, number] | null
   slope: [number, number] | null
   noise: { ref: SourceRef; above: number } | null
@@ -121,6 +134,17 @@ export interface TerrainSource {
   layers: SourceMaterialLayer[]
   textures: { albedo: SourceRef | null; normal: SourceRef | null; orm: SourceRef | null }
   paint: SourcePaint[]
+  /**
+   * When pages are made (spec 0119): `ahead`, 0071's bake into packs before streaming, or `near`,
+   * on demand where the camera and anchors need them, nothing stored. Default `near` with a
+   * generator layer, else `ahead`.
+   */
+  bake: 'ahead' | 'near'
+  /**
+   * Where the ground is open (spec 0120): a generator's `holes`, with its params (null: those of
+   * the height layer naming it). Null: no holes.
+   */
+  holes: { generator: string; params: Record<string, JsonValue> | null } | null
   /**
    * Where the edit layers apply (spec 0104): the `height` index the sculpt layer goes before, and
    * the `paint` index the paint layer goes before (a list's length: after its last entry). From an
@@ -198,6 +222,19 @@ function rectOf(o: Record<string, unknown>, path: string): SourceRect {
   }
 }
 
+function generatorName(v: unknown, path: string): string {
+  if (typeof v !== 'string' || !/^[a-z][a-z0-9-]*\/[A-Za-z][A-Za-z0-9]*$/.test(v)) {
+    throw shape(path, 'generator is a terrain generator name', 'e.g. "risen/Ground".')
+  }
+  return v
+}
+
+function paramsOf(v: unknown, path: string): Record<string, JsonValue> {
+  if (v === undefined) return {}
+  if (!isPlainObject(v)) throw shape(path, 'params is an object of the generator’s parameters')
+  return v as Record<string, JsonValue>
+}
+
 function known(o: Record<string, unknown>, keys: readonly string[], path: string): void {
   for (const k of Object.keys(o)) {
     if (k === '$schema' || keys.includes(k)) continue
@@ -250,6 +287,8 @@ export function parseTerrainSource(json: unknown): TerrainSource {
       'layers',
       'textures',
       'paint',
+      'bake',
+      'holes',
     ],
     '',
   )
@@ -337,13 +376,22 @@ export function parseTerrainSource(json: unknown): TerrainSource {
   const height = heightEdits.rest.map((value, i): SourceHeightLayer => {
     const path = pointer('/height', heightIndex(i))
     if (!isPlainObject(value)) throw shape(path, 'A height layer is an object')
-    const kinds = ['noise', 'image', 'spline'].filter((k) => value[k] !== undefined)
+    const kinds = ['noise', 'image', 'spline', 'generator'].filter((k) => value[k] !== undefined)
     if (kinds.length !== 1) {
       throw shape(
         path,
-        'A height layer has exactly one of "noise", "image" or "spline"',
-        'Noise: { "noise": { "path": … }, "scale": 200 }. Image: { "image": { "path": … }, "at", "size", "range" }. Spline: { "spline": "road", "mode": "flatten" }.',
+        'A height layer has exactly one of "noise", "image", "spline" or "generator"',
+        'Noise: { "noise": { "path": … }, "scale": 200 }. Image: { "image": { "path": … }, "at", "size", "range" }. Spline: { "spline": "road", "mode": "flatten" }. Generator: { "generator": "risen/Ground", "params": { … } }.',
       )
+    }
+    if (value.generator !== undefined) {
+      known(value, ['generator', 'params', 'blend'], path)
+      return {
+        kind: 'generator',
+        generator: generatorName(value.generator, pointer(path, 'generator')),
+        params: paramsOf(value.params, pointer(path, 'params')),
+        blend: blendOf(value.blend, 'replace', pointer(path, 'blend')),
+      }
     }
     const falloff = opt(value.falloff, 0, pointer(path, 'falloff'), 'falloff')
     if (falloff < 0) throw shape(pointer(path, 'falloff'), 'falloff must be ≥ 0')
@@ -450,6 +498,31 @@ export function parseTerrainSource(json: unknown): TerrainSource {
   const paint = paintEdits.rest.map((value, i): SourcePaint => {
     const path = pointer('/paint', paintIndex(i))
     if (!isPlainObject(value)) throw shape(path, 'A paint layer is an object')
+    if (value.generator !== undefined) {
+      known(value, ['generator', 'params'], path)
+      const name = generatorName(value.generator, pointer(path, 'generator'))
+      const named = height.some((l) => l.kind === 'generator' && l.generator === name)
+      if (!named && value.params === undefined) {
+        throw shape(
+          pointer(path, 'params'),
+          `No height layer uses ${name}, so this entry needs its own "params"`,
+        )
+      }
+      return {
+        layer: '',
+        generator: {
+          name,
+          params:
+            value.params === undefined ? null : paramsOf(value.params, pointer(path, 'params')),
+        },
+        height: null,
+        slope: null,
+        noise: null,
+        mask: null,
+        spline: null,
+        blend: 0,
+      }
+    }
     known(value, ['layer', 'height', 'slope', 'noise', 'mask', 'spline', 'blend'], path)
     if (typeof value.layer !== 'string' || !names.has(value.layer)) {
       throw new ShardError(
@@ -481,6 +554,7 @@ export function parseTerrainSource(json: unknown): TerrainSource {
     if (blend < 0) throw shape(pointer(path, 'blend'), 'blend must be ≥ 0')
     return {
       layer: value.layer,
+      generator: null,
       height:
         value.height === undefined ? null : pair(value.height, pointer(path, 'height'), 'height'),
       slope: value.slope === undefined ? null : pair(value.slope, pointer(path, 'slope'), 'slope'),
@@ -496,6 +570,34 @@ export function parseTerrainSource(json: unknown): TerrainSource {
     const i = list.findIndex((l) => l.kind === 'spline' || (l.kind === undefined && l.spline))
     return i >= 0 ? i : list.length
   }
+  const bake = json.bake ?? (height.some((l) => l.kind === 'generator') ? 'near' : 'ahead')
+  if (bake !== 'ahead' && bake !== 'near') {
+    throw shape(
+      '/bake',
+      'bake is "ahead" or "near"',
+      '"ahead" bakes packs before streaming (0071); "near" makes pages where they are needed (0119).',
+    )
+  }
+  let holes: TerrainSource['holes'] = null
+  if (json.holes !== undefined) {
+    if (!isPlainObject(json.holes))
+      throw shape(
+        '/holes',
+        'holes is { "generator": "…" }',
+        'e.g. { "generator": "risen/Ground" }.',
+      )
+    known(json.holes, ['generator', 'params'], '/holes')
+    const name = generatorName(json.holes.generator, '/holes/generator')
+    if (
+      json.holes.params === undefined &&
+      !height.some((l) => l.kind === 'generator' && l.generator === name)
+    )
+      throw shape('/holes/params', `No height layer uses ${name}, so holes need their own "params"`)
+    holes = {
+      generator: name,
+      params: json.holes.params === undefined ? null : paramsOf(json.holes.params, '/holes/params'),
+    }
+  }
   const source: TerrainSource = {
     size,
     spacing,
@@ -507,6 +609,8 @@ export function parseTerrainSource(json: unknown): TerrainSource {
     layers,
     textures,
     paint,
+    bake,
+    holes,
     edits: {
       height: firstSpline(heightEdits.at, height),
       paint: firstSpline(paintEdits.at, paint),

@@ -1,6 +1,7 @@
 import { ShardError } from '@aethervtt/shard-core'
 import { sampleCatmullRom } from '@aethervtt/shard-mesh'
 import { computeOrigins, evalProgram, type NoiseGraph, noiseKernel } from '@aethervtt/shard-noise'
+import { findTerrainGenerator, generatorAccess, stackGenerator } from './generator'
 import {
   BLEND_ADD,
   BLEND_MAX,
@@ -8,6 +9,7 @@ import {
   BLEND_REPLACE,
   buildSpline,
   evalHeightPoints,
+  LAYER_GENERATED,
   LAYER_IMAGE,
   LAYER_NOISE,
   LAYER_SPLINE,
@@ -17,6 +19,7 @@ import {
   type NoiseAccess,
   type Stack,
   type StackEdits,
+  type StackGenerator,
   type StackHeightLayer,
   type StackMap,
   type StackPaint,
@@ -31,13 +34,32 @@ export interface StackAssets {
   heightmap(path: string): StackMap
 }
 
-/** This thread's noise kernel, as the bake kernel reads it (it must be loaded). */
+/**
+ * This thread's noise kernel and terrain generators, as the bake kernel reads them (the kernel must
+ * be loaded).
+ */
 export function mainNoise(): NoiseAccess {
   return {
     state: noiseKernel().state,
     computeOrigins: computeOrigins as NoiseAccess['computeOrigins'],
     evalProgram: evalProgram as NoiseAccess['evalProgram'],
+    generator: generatorAccess,
   }
+}
+
+/**
+ * The generator a source names, from this thread's registry. Throws `terrain/unknown-generator`
+ * until the project's code defines it.
+ */
+function requireGenerator(name: string, path: string) {
+  const gen = findTerrainGenerator(name)
+  if (!gen) {
+    throw new ShardError('terrain/unknown-generator', `No terrain generator named "${name}"`, {
+      path,
+      hint: 'Define it with defineTerrainGenerator in the project’s scripts; the terrain waits for it.',
+    })
+  }
+  return gen
 }
 
 const BLENDS = { add: BLEND_ADD, max: BLEND_MAX, min: BLEND_MIN, replace: BLEND_REPLACE } as const
@@ -103,6 +125,8 @@ export function compileStack(
     layerCount: Math.max(1, source.layers.length),
     height,
     paint: [] as StackPaint[],
+    generators: [] as StackGenerator[],
+    holes: null as { gen: number } | null,
     // The runtime attaches its edit layers' tiles (heightfield/edits.ts).
     edits: {
       at: source.edits.height,
@@ -137,8 +161,26 @@ export function compileStack(
     }
     return buildSpline(tessellate(s, ys, step), s.width, s.falloff, reach(s))
   }
+  const generatorIndex = new Map<string, number>()
+  const addGenerator = (name: string, params: unknown, path: string): number => {
+    const spec = stackGenerator(requireGenerator(name, path), params, `${path}/params`)
+    const key = `${name}\u0000${JSON.stringify(spec.params)}`
+    let i = generatorIndex.get(key)
+    if (i === undefined) {
+      i = stack.generators.length
+      stack.generators.push(spec)
+      generatorIndex.set(key, i)
+    }
+    return i
+  }
   source.height.forEach((l, index) => {
-    if (l.kind === 'noise') {
+    if (l.kind === 'generator') {
+      height.push({
+        kind: LAYER_GENERATED,
+        gen: addGenerator(l.generator, l.params, `/height/${index}`),
+        blend: BLENDS[l.blend],
+      })
+    } else if (l.kind === 'noise') {
       height.push({
         kind: LAYER_NOISE,
         program: assets.noise(l.noise.path).program as never,
@@ -169,9 +211,69 @@ export function compileStack(
       })
     }
   })
+  if (source.holes) {
+    const h = source.holes
+    const def = requireGenerator(h.generator, '/holes/generator')
+    if (!def.options.holes) {
+      throw new ShardError('terrain/bad-generator', `${def.name} has no holes()`, {
+        path: '/holes/generator',
+        hint: 'Give the generator holes(state, area, out), or drop "holes" from the source.',
+      })
+    }
+    const params =
+      h.params ??
+      source.height.find(
+        (l): l is Extract<typeof l, { kind: 'generator' }> =>
+          l.kind === 'generator' && l.generator === h.generator,
+      )?.params
+    stack.holes = { gen: addGenerator(h.generator, params, '/holes') }
+  }
   const names = new Map(source.layers.map((l, i) => [l.name, i]))
-  for (const p of source.paint) {
+  for (const [i, p] of source.paint.entries()) {
+    if (p.generator) {
+      const path = `/paint/${i}`
+      const params =
+        p.generator.params ??
+        source.height.find(
+          (l): l is Extract<typeof l, { kind: 'generator' }> =>
+            l.kind === 'generator' && l.generator === p.generator!.name,
+        )?.params
+      const gen = addGenerator(p.generator.name, params, path)
+      const def = findTerrainGenerator(p.generator.name)!
+      const layers = def.layers.map((name) => {
+        const l = names.get(name)
+        if (l === undefined) {
+          throw new ShardError(
+            'terrain/unknown-layer',
+            `${def.name} weights a layer named "${name}" the terrain doesn't have`,
+            {
+              path: `${path}/generator`,
+              hint: `Add it to "layers", or drop it from the generator's layers. Terrain layers: ${[...names.keys()].join(', ') || '(none)'}.`,
+            },
+          )
+        }
+        return l
+      })
+      if (layers.length === 0) {
+        throw new ShardError('terrain/bad-source', `${def.name} paints no layers`, {
+          path: `${path}/generator`,
+          hint: 'Give the generator `layers` and `weights`, or drop this paint entry.',
+        })
+      }
+      stack.paint.push({
+        layer: 0,
+        height: null,
+        slope: null,
+        noise: null,
+        mask: null,
+        spline: null,
+        generated: { gen, layers },
+        blend: 0,
+      })
+      continue
+    }
     stack.paint.push({
+      generated: null,
       layer: names.get(p.layer) ?? 0,
       height: p.height,
       slope: p.slope,

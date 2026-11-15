@@ -26,6 +26,7 @@ import {
 } from '@aethervtt/shard-terrain'
 import {
   heightfieldWalk,
+  nearLeavesHash,
   sourceAsset,
   VALLEY_HILLS,
   valleySource,
@@ -39,13 +40,15 @@ import { hudExtras } from './hud'
  * and streamed through the quadtree, under a procedural sky and a shadowed sun. W/S change speed,
  * A/D turn, R/F pitch, L shades by depth, P by page, O toggles the post stack (`?post=0` starts
  * without it). The HUD prints the pack hash Node pins (packages/terrain heightfield tests), so the
- * bake is byte-identical in Chrome.
+ * bake is byte-identical in Chrome, and the same for leaves a terrain generator makes (0119).
  */
 
 /** The pack hash Node bakes for this terrain (packages/terrain heightfield/determinism.test.ts). */
 export const NODE_PACK_HASH = 'ec848bdc3cf63b92'
 /** What heightfieldWalk() prints in Node (packages/terrain heightfield/walk.test.ts). */
 export const NODE_WALK = '4e53476b'
+/** What nearLeavesHash() prints in Node (packages/terrain heightfield/generated.test.ts, 0119). */
+export const NODE_NEAR_LEAVES = '63a7910f'
 const SPEEDS = [0, 5, 20, 80, 300, 1000]
 
 /**
@@ -80,6 +83,7 @@ interface Demo {
   keys: Set<string>
   hash: string
   walk: string
+  near: string
   post: boolean
 }
 
@@ -172,6 +176,7 @@ export const heightfieldDemoPlugin = definePlugin({
         `bake      ${rt.lastBake ? `${rt.lastBake.blocks} blocks in ${Math.round(rt.lastBake.ms)} ms` : rt.bake}`,
         `packs     ${d.hash || 'hashing…'}`,
         `walk      ${d.walk || 'running headless walk…'}`,
+        `near      ${d.near || 'baking near leaves…'}`,
         'w/s speed  a/d turn  r/f pitch',
         `l lod ${o['terrain-lod'] ? 'on' : 'off'}  p pages ${o['terrain-pages'] ? 'on' : 'off'}  o post ${d.post ? 'on' : 'off'}`,
       ]
@@ -215,6 +220,7 @@ export const heightfieldDemoPlugin = definePlugin({
       keys: new Set(),
       hash: '',
       walk: '',
+      near: '',
       post: false,
     }
     setPost(world, demo, new URLSearchParams(location.search).get('post') !== '0')
@@ -243,6 +249,17 @@ export const heightfieldDemoPlugin = definePlugin({
         (err) => {
           console.error(err)
           if (demo) demo.walk = 'failed'
+        },
+      )
+      // Spec 0119: leaves a terrain generator makes, baked here, against Node's bytes.
+      nearLeavesHash().then(
+        (h) => {
+          if (demo)
+            demo.near = `${h} ${h === NODE_NEAR_LEAVES ? '= Node ✓' : `≠ Node ${NODE_NEAR_LEAVES} ✗`}`
+        },
+        (err) => {
+          console.error(err)
+          if (demo) demo.near = 'failed'
         },
       )
     }, 500)

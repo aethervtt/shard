@@ -3,6 +3,7 @@ import { TerrainWorld } from '../heights'
 import { tilesOf } from './colliders'
 import { type HeightfieldEditor, terrainEditor } from './editor'
 import type { EditChange, ShapeEdit, StrokeOptions } from './edits'
+import type { NearBake } from './near'
 import { keyX, keyZ } from './pages'
 import { finestPage, heightfieldSample, loadTerrainRegion, pageHeight } from './queries'
 import type { HeightfieldRender } from './render'
@@ -59,6 +60,22 @@ function usable(rt: HeightfieldRuntime): void {
   }
 }
 
+/** A near terrain's bake (spec 0119): what's baked, queued and running, and what it cost. */
+function nearDescription(rt: HeightfieldRuntime, near: NearBake) {
+  const s = near.stats
+  return {
+    state: rt.bake,
+    mode: 'near' as const,
+    baked: { leaves: s.leaves, parents: s.parents },
+    queued: near.queued,
+    queuedPeak: s.queuedPeak,
+    running: near.active,
+    bakedInline: s.bakedInline,
+    msPerLeaf: s.leaves > 0 ? round(s.leafMs / s.leaves) : null,
+    msPerParent: s.parents > 0 ? round(s.parentMs / s.parents) : null,
+  }
+}
+
 /** `terrain.describe` for one heightfield (spec 0071). */
 export function describeHeightfield(world: World, rt: HeightfieldRuntime) {
   const layout = rt.layout
@@ -93,22 +110,27 @@ export function describeHeightfield(world: World, rt: HeightfieldRuntime) {
     roots: layout ? { x: layout.rootsX, z: layout.rootsZ, size: layout.rootSize } : null,
     depths: layout ? layout.depth + 1 : 0,
     version: rt.version,
-    bake: {
-      state: rt.bake,
-      blocks,
-      current,
-      stale: rt.bake === 'current' ? blocks - current : blocks,
-      baking: rt.bake === 'baking' ? blocks : 0,
-      lastBake: rt.lastBake
-        ? {
-            rebaked: rt.lastBake.rebaked,
-            pages: rt.lastBake.pages,
-            ms: Math.round(rt.lastBake.ms),
-            msPerBlock: Math.round(rt.lastBake.msPerBlock),
-            outOfRange: rt.lastBake.outOfRange,
-          }
-        : null,
-    },
+    bake: rt.pages?.near
+      ? nearDescription(rt, rt.pages.near)
+      : {
+          state: rt.bake,
+          blocks,
+          current,
+          stale: rt.bake === 'current' ? blocks - current : blocks,
+          baking: rt.bake === 'baking' ? blocks : 0,
+          lastBake: rt.lastBake
+            ? {
+                rebaked: rt.lastBake.rebaked,
+                pages: rt.lastBake.pages,
+                ms: Math.round(rt.lastBake.ms),
+                msPerBlock: Math.round(rt.lastBake.msPerBlock),
+                outOfRange: rt.lastBake.outOfRange,
+              }
+            : null,
+        },
+    generators:
+      rt.stack?.generators.map((g) => ({ name: g.name, version: g.version, params: g.params })) ??
+      [],
     detail: {
       errorPixels: rt.settings?.errorPixels ?? null,
       vertexPixels: rt.settings?.vertexPixels ?? null,
@@ -147,6 +169,7 @@ export function describeHeightfield(world: World, rt: HeightfieldRuntime) {
       pending: tiles.due.size,
       fromPages: tiles.fromPages,
       bakedInline: tiles.bakedInline,
+      withHoles: tiles.withHoles,
       anchors: rt.anchors,
     },
     edits: describeEdits(rt),
@@ -258,6 +281,7 @@ export async function sampleHeightfield(world: World, rt: HeightfieldRuntime, po
       layers: s.layers,
       share: round(s.share, 3),
       depth: s.depth,
+      open: s.open,
     }
   })
 }

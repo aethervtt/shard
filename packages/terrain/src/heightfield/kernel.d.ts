@@ -20,12 +20,47 @@ export declare const MODE_CARVE: 2
 export declare const LAYER_NOISE: 0
 export declare const LAYER_IMAGE: 1
 export declare const LAYER_SPLINE: 2
+export declare const LAYER_GENERATED: 3
 export declare const EDIT_TILE: number
 export declare const EDIT_KEY: number
 export declare const PAINT_ONE: number
 
-/** The noise kernel a bake samples with: this thread's instance and its functions. */
+/**
+ * A terrain generator as the kernel calls it on this thread (spec 0119, heightfield/generator.ts):
+ * grids of samples at (x0 + a × step, z0 + b × step) metres, row by row.
+ */
+export interface KernelGenerator {
+  /** Material layers `weights` writes per sample. */
+  readonly layers: number
+  heights(x0: number, z0: number, step: number, nx: number, nz: number, out: Float64Array): void
+  weights(
+    x0: number,
+    z0: number,
+    step: number,
+    nx: number,
+    nz: number,
+    heights: Float64Array,
+    out: Float32Array,
+  ): void
+  /** 1 where the ground is open (spec 0120). */
+  holes(x0: number, z0: number, step: number, nx: number, nz: number, out: Uint8Array): void
+  /** A scatter field's density 0–1 at points (spec 0121), clamped. */
+  field(name: string, xz: Float64Array, count: number, out: Float32Array): void
+}
+
+/** A stack's generator: name, version and canonical params (structured-cloneable). */
+export interface StackGenerator {
+  readonly name: string
+  readonly version: number
+  readonly params: Readonly<Record<string, unknown>>
+}
+
+/**
+ * The noise kernel a bake samples with: this thread's instance and its functions, and this
+ * thread's terrain generators (stacks with generator layers need them).
+ */
 export interface NoiseAccess {
+  readonly generator?: (spec: StackGenerator) => KernelGenerator
   readonly state: unknown
   computeOrigins(terms: unknown, origin: ArrayLike<number>, out: Int32Array): Int32Array
   evalProgram(
@@ -110,6 +145,12 @@ export type StackHeightLayer =
       readonly offset: number
       readonly falloff: number
     }
+  | {
+      readonly kind: 3
+      /** Index in `Stack.generators`. */
+      readonly gen: number
+      readonly blend: number
+    }
 
 export interface StackPaint {
   /** Material layer index. */
@@ -119,6 +160,8 @@ export interface StackPaint {
   readonly noise: { readonly program: StackProgram; readonly above: number } | null
   readonly mask: { readonly map: StackMap; readonly rect: StackRect } | null
   readonly spline: StackSpline | null
+  /** A generator's weights (spec 0119): its index in `Stack.generators`, and its layers' indices. */
+  readonly generated: { readonly gen: number; readonly layers: readonly number[] } | null
   /** Edge softness: metres for height, masks and splines, degrees for slope. */
   readonly blend: number
 }
@@ -147,6 +190,10 @@ export interface Stack {
   readonly height: readonly StackHeightLayer[]
   readonly paint: readonly StackPaint[]
   readonly edits: StackEdits
+  /** Generators the layers name (spec 0119). */
+  readonly generators: readonly StackGenerator[]
+  /** The generator giving holes (spec 0120): its index in `generators`. */
+  readonly holes: { readonly gen: number } | null
 }
 
 /** What bakeBlock needs of the terrain's grid (heightfield/source.ts TerrainLayout). */
@@ -245,7 +292,23 @@ export declare function evalControl(
   hx: number,
   h0: number,
   out: Uint8Array,
+  hk?: number,
+  hs?: number,
+  pk?: number,
 ): Uint8Array
+/**
+ * Whether leaf cell (i, j) of a page (0 to PAGE − 1 each) is open (spec 0120): the quadrant bit of
+ * the control texel owning it, with `k` leaf samples per paint texel.
+ */
+export declare function cellOpen(
+  control: Uint8Array,
+  cells: number,
+  k: number,
+  i: number,
+  j: number,
+): boolean
+/** Whether any leaf cell of a page is open (spec 0120). */
+export declare function pageHasHoles(control: Uint8Array, cells: number): boolean
 export declare function quantize(h: number, lo: number, hi: number): number
 export declare function dequantize(q: number, lo: number, hi: number): number
 export declare function normalByte(v: number): number
@@ -282,7 +345,55 @@ export declare function bakeLeaf(
   layout: KernelLayout,
   x: number,
   z: number,
-): { page: DecodedPage; min: number; max: number }
+): {
+  page: DecodedPage
+  min: number
+  max: number
+  clipped: number
+  lowest: number
+  highest: number
+}
+
+/** A page of a near bake (spec 0119): decoded, with its pool texels and stats. */
+export interface NearPage {
+  heights: Uint16Array
+  normals: Uint8Array
+  control: Uint8Array
+  texels: Uint8Array
+  min: number
+  max: number
+  /** Measured against the next level (parents); 0 for leaves. */
+  error: number
+  clipped: number
+  lowest: number
+  highest: number
+  ms: number
+}
+
+export declare function bakeParent(
+  noise: NoiseAccess,
+  stack: Stack,
+  layout: KernelLayout,
+  depth: number,
+  x: number,
+  z: number,
+): {
+  page: DecodedPage & { normals: Uint8Array }
+  min: number
+  max: number
+  error: number
+  clipped: number
+  lowest: number
+  highest: number
+}
+export declare function bakeNearPage(
+  noise: NoiseAccess,
+  stack: Stack,
+  layout: KernelLayout,
+  depth: number,
+  x: number,
+  z: number,
+): NearPage
 export declare function patchLeaf(
   noise: NoiseAccess,
   stack: Stack,

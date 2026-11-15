@@ -97,4 +97,3 @@ queues unbounded work. The terrain tests left 25 s of it for their cleanup to dr
 Vulkan, and `shard run --frames 600` on a slow machine would pile up the same way. Browsers pace
 frames with `requestAnimationFrame`. Belongs with 0052's frame pacing: cap frames in flight (2 or 3)
 in the headless runner.
-

@@ -12,6 +12,7 @@ import { MAX_WATER_BODIES, WaterBodies, WaterBodiesState, type WaterBodyRecord }
 import { levelTexel } from './clipmap'
 import { waterAt, waterSample } from './query'
 import { WaterRender } from './render'
+import { RIVER_STRIDE, type RiverShape } from './rivers'
 import { INFO_LEVELS, INFO_SIZE } from './shaders'
 
 function scenePath(world: World, entity: Entity): string | null {
@@ -22,7 +23,31 @@ function scenePath(world: World, entity: Entity): string | null {
 
 const finite = (n: number) => (Number.isFinite(n) ? n : null)
 
-function describeBody(world: World, r: WaterBodyRecord) {
+/** A river's extent as describe shows it (0123): length, and its ranges of width and flow. */
+function describeRiver(r: RiverShape) {
+  let w0 = Infinity
+  let w1 = -Infinity
+  let f0 = Infinity
+  let f1 = -Infinity
+  for (let i = 0; i < r.count; i++) {
+    const w = r.samples[i * RIVER_STRIDE + 3]! * 2
+    const f = r.flows[i]!
+    w0 = Math.min(w0, w)
+    w1 = Math.max(w1, w)
+    f0 = Math.min(f0, f)
+    f1 = Math.max(f1, f)
+  }
+  const round = (v: number) => Math.round(v * 100) / 100
+  return {
+    samples: r.count,
+    length: round(r.length),
+    width: [round(w0), round(w1)],
+    flow: [round(f0), round(f1)],
+    bounds: [...r.bounds],
+  }
+}
+
+function describeBody(world: World, r: WaterBodyRecord, drawn: boolean) {
   const s = r.shape
   return {
     entity: r.entity,
@@ -37,6 +62,8 @@ function describeBody(world: World, r: WaterBodyRecord) {
           triangles: s.triangles.length / 6,
         }
       : null,
+    river: r.river ? describeRiver(r.river) : null,
+    drawn,
     optics: {
       asset: r.opticsRef?.path ?? r.opticsRef?.guid ?? null,
       fallback: r.missingOptics
@@ -68,10 +95,13 @@ export function describeWater(world: World) {
     a.priority !== b.priority ? a.priority - b.priority : a.entity - b.entity,
   )
   const clip = render?.clip
+  const drawn = new Set(state.sorted.slice(0, state.count))
   return {
-    bodies: bodies.map((r) => describeBody(world, r)),
+    bodies: bodies.map((r) => describeBody(world, r, drawn.has(r))),
+    /** Valid bodies (no problem): what waterAt finds, drawn or not (0123). */
+    valid: state.all.length,
     drawn: state.count,
-    /** Bodies past MAX_WATER_BODIES that don't draw (lowest priorities). */
+    /** Valid bodies past MAX_WATER_BODIES that don't draw: the farthest from the camera (0123). */
     skipped: state.skipped,
     maxBodies: MAX_WATER_BODIES,
     unbounded: state.unbounded,
@@ -109,7 +139,7 @@ export const waterMethods: AppMethod[] = [
   {
     name: 'water.describe',
     description:
-      'Water (0097) as data: every body (kind, level, priority, outline points and bounds, optics and whether it fell back to clear, its wind, any water/bad-spline problem), the zone’s info clipmap levels (texel size, corner, extent) and redraws, and the water pass’s GPU time.',
+      'Water (0097) as data: every body (kind, level, priority, outline points and bounds, a river’s length and width and flow ranges, whether it draws, optics and whether it fell back to clear, its wind, any water/bad-spline problem), how many are valid and drawn (the 64 nearest the camera, 0123), the zone’s info clipmap levels (texel size, corner, extent) and redraws, and the water pass’s GPU time.',
     params: defineSchema('water/DescribeParams', {}),
     handler: ({ world }) => describeWater(world),
   },

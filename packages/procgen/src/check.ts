@@ -39,7 +39,7 @@ export const NONDETERMINISTIC_MATH: Readonly<Record<string, string>> = {
   hypot: 'Use Math.sqrt(x * x + y * y).',
 }
 
-const DEFINES = /\.generator\s*\(|\bdefineGenerator\s*\(/
+const DEFINES = /\.generator\s*\(|\bdefineGenerator\s*\(|\bdefineTerrainGenerator\s*\(/
 const DETERMINISTIC = /\bdeterministicMath\s*:\s*true\b/
 const CALLS = /\b(Math\.random|Date\.now|performance\.now)\s*\(/g
 const MATH = new RegExp(`\\bMath\\.(${Object.keys(NONDETERMINISTIC_MATH).join('|')})\\b`, 'g')
@@ -52,7 +52,7 @@ const INTEGER = /^\s*\d+(?![\w.])/
 
 /**
  * Finds `Math.random()`, `Date.now()`, and `performance.now()` in modules that define generators
- * (`project.generator(` or `defineGenerator(`), for `shard check`. Comments and strings are
+ * (`project.generator(`, `defineGenerator(`, or a terrain's `defineTerrainGenerator(`), for `shard check`. Comments and strings are
  * skipped. In a module whose generator has `deterministicMath: true`, it also finds the
  * transcendental `Math` functions (`NONDETERMINISTIC_MATH`) and `**`, which the runtime guard
  * can't trap. `**` is left alone when the result is exact or one rounding in every engine: an
