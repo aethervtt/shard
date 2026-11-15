@@ -41,7 +41,7 @@ import { createView, perspectiveView } from '../view'
 import { TerrainChunk } from './component'
 import { LEAF_SIDE, PAGE } from './kernel'
 import { CHUNK_TABLE_WIDTH, TerrainSurfaceMaterial } from './material'
-import { keyDepth, keyX, keyZ, type LoadedPage, nodeKey } from './pages'
+import { BAND_CAMERA, keyDepth, keyX, keyZ, type LoadedPage, nodeKey } from './pages'
 import type { PreviewState } from './preview'
 import type { HeightfieldRuntime } from './runtime'
 
@@ -506,6 +506,7 @@ function requestPages(rt: HeightfieldRuntime, r: HeightfieldRender): void {
     let best = 0
     for (let k = 1; k < count; k++) if (wantPriority[k]! > wantPriority[best]!) best = k
     const key = wantKeys[best]!
+    const priority = wantPriority[best]!
     wantKeys[best] = wantKeys[count - 1]!
     wantPriority[best] = wantPriority[count - 1]!
     count--
@@ -513,7 +514,7 @@ function requestPages(rt: HeightfieldRuntime, r: HeightfieldRender): void {
     r.stats.requested++
     inflight++
     const version = rt.version
-    void pages.load(keyDepth(key), keyX(key), keyZ(key)).then(
+    void pages.load(keyDepth(key), keyX(key), keyZ(key), BAND_CAMERA, priority).then(
       (page) => {
         if (page && rt.version === version) r.arrived.push(page)
         else r.pending.delete(key)
@@ -877,6 +878,9 @@ function updateMaterial(world: World, rt: HeightfieldRuntime, r: HeightfieldRend
     v.albedoArray = ref(source.textures.albedo)
     v.ormArray = ref(source.textures.orm)
     v.normalArray = ref(source.textures.normal)
+    // Holes (0120) need the mask blend mode; terrains without them stay opaque.
+    v.alphaMode = source.holes ? 'mask' : 'opaque'
+    v.alphaCutoff = 0.5
     r.material.version++
   }
   // Per frame: the terrain's frame against the origin, the camera, the pool, errors and skirts.
@@ -911,7 +915,14 @@ function updateMaterial(world: World, rt: HeightfieldRuntime, r: HeightfieldRend
     r.material.version++
   }
   // Normal maps (0105) where the source has an array, unless turned off; and edit previews (0104).
-  set4(v, 'maps', HeightfieldDebug.normalMaps && v.normalArray && debug === 0 ? 1 : 0, 0, 0, 0)
+  set4(
+    v,
+    'maps',
+    HeightfieldDebug.normalMaps && v.normalArray && debug === 0 ? 1 : 0,
+    layout.depth,
+    source.holes ? 1 : 0,
+    layout.paintStep,
+  )
   const pv = rt.parts.get('preview') as PreviewState | undefined
   if (pv && pv.version !== r.previewVersion) {
     r.previewVersion = pv.version

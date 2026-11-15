@@ -64,24 +64,34 @@ struct InfoOut {
 
 struct BodyVertex {
   @builtin(position) clip: vec4f,
-  @location(0) @interpolate(flat) value: vec2f,
+  /** Surface height and flow (x, z): a river's vary across its ribbon (0123). */
+  @location(0) surface: vec3f,
+  @location(1) @interpolate(flat) slot: f32,
 }
 
-/** A body's triangles (world x, z; its level and draw slot), over the level's square. */
-@vertex fn body_vs(@location(0) xz: vec2f, @location(1) value: vec2f) -> BodyVertex {
+/**
+ * A body's triangles (world x, z; its surface height, draw slot and flow), over the level's
+ * square.
+ */
+@vertex fn body_vs(@location(0) xz: vec2f, @location(1) value: vec4f) -> BodyVertex {
   let extent = level.origin.z * f32(SIZE);
   let uv = (xz - level.origin.xy) / extent;
   var out: BodyVertex;
   // Texel rows run along +z: row 0 at the level's min z, the top of the target.
   out.clip = vec4f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 0.5, 1.0);
-  out.value = value;
+  out.surface = vec3f(value.x, value.z, value.w);
+  out.slot = value.y;
   return out;
 }
 
+/** The surface height, the ground (as the level's first draw copied it) and the flow; the slot. */
 @fragment fn body_fs(in: BodyVertex) -> InfoOut {
+  let t = vec2i(in.clip.xy);
+  let w = vec2i(level.wrap.xy);
+  let g = vec2i((t.x + w.x) % SIZE, (t.y + w.y) % SIZE);
   var out: InfoOut;
-  out.info = vec4f(in.value.x, 0.0, 0.0, 0.0);
-  out.body = vec4f((in.value.y + 1.0) / 255.0, 0.0, 0.0, 0.0);
+  out.info = vec4f(in.surface.x, textureLoad(ground, g, i32(level.origin.w), 0).r, in.surface.yz);
+  out.body = vec4f((in.slot + 1.0) / 255.0, 0.0, 0.0, 0.0);
   return out;
 }`,
 
@@ -96,6 +106,8 @@ ${COMMON}
 const RINGS: u32 = ${MAX_RINGS}u;
 const BODIES: u32 = ${MAX_WATER_BODIES}u;
 const MORPH_START: f32 = ${MORPH_START};
+/** Seconds a flow-carried ripple copy runs before it resets (0123). */
+const FLOW_PERIOD: f32 = 4.0;
 const HORIZON: f32 = ${HORIZON.toExponential()};
 /** Fresnel at normal incidence for water (n = 1.333): ((1 − n) / (1 + n))². */
 const F0: f32 = 0.0204;
@@ -184,6 +196,28 @@ fn level_of(xz: vec2f, first: u32) -> u32 {
 
 fn texel(l: u32, t: vec2i) -> vec4f {
   return textureLoad(info, clamp(t, vec2i(0), vec2i(SIZE - 1)), i32(l), 0);
+}
+
+/** The water's flow (m/s, xz) at xz: the finest info level's, bilinear over its wet texels (0123). */
+fn flow_at(xz: vec2f) -> vec2f {
+  let l = level_of(xz, 0u);
+  if (l >= LEVELS) { return vec2f(0.0); }
+  let o = water.levels[l].origin;
+  let uv = (xz - o.xy) * o.w - 0.5;
+  let base = vec2i(floor(uv));
+  let f = uv - floor(uv);
+  var flow = vec2f(0.0);
+  var sum = 0.0;
+  for (var k = 0; k < 4; k++) {
+    let d = vec2i(k & 1, k >> 1);
+    let w = mix(1.0 - f.x, f.x, f32(d.x)) * mix(1.0 - f.y, f.y, f32(d.y));
+    let t = texel(l, base + d);
+    if (t.x > WET) {
+      flow += t.zw * w;
+      sum += w;
+    }
+  }
+  return flow / max(sum, 1e-6);
 }
 
 /**
@@ -514,8 +548,24 @@ fn ripple_slope(xz: vec2f, wind: vec2f, strength: f32, dx: vec2f, dy: vec2f) -> 
   var wind = optics.wind.xyz;
   if (optics.wind.w < 0.5) { wind = wind_at(p, wind_time()).xyz; }
   let speed = length(wind.xz);
-  let strength = optics.params.x * clamp(speed / 10.0, 0.0, 1.0) * 0.16;
-  let slope = ripple_slope(p.xz, wind.xz, strength, dx, dy);
+  var strength = optics.params.x * clamp(speed / 10.0, 0.0, 1.0) * 0.16;
+  // Flow (0123): two copies of the ripples carried downstream half a period apart, each faded out
+  // as it resets (Vlachos' two-phase flow map), and a river ripples with no wind.
+  let flow = flow_at(p.xz);
+  let current = length(flow);
+  var slope: vec2f;
+  if (current > 0.01) {
+    strength = max(strength, optics.params.x * clamp(current / 2.0, 0.0, 1.0) * 0.12);
+    let phase = wind_time() / FLOW_PERIOD;
+    let p0 = fract(phase);
+    let p1 = fract(phase + 0.5);
+    let w0 = 1.0 - abs(2.0 * p0 - 1.0);
+    let s0 = ripple_slope(p.xz - flow * (p0 * FLOW_PERIOD), wind.xz, strength, dx, dy);
+    let s1 = ripple_slope(p.xz - flow * (p1 * FLOW_PERIOD) + vec2f(17.3, 9.1), wind.xz, strength, dx, dy);
+    slope = s0 * w0 + s1 * (1.0 - w0);
+  } else {
+    slope = ripple_slope(p.xz, wind.xz, strength, dx, dy);
+  }
   @if(!WAVES) let n = normalize(vec3f(-slope.x, 1.0, -slope.y));
   @if(WAVES) let ground = ground_at(in.grid);
   @if(WAVES) let wave = wave_surface(in.grid, select(1e4, p.y - ground, ground > WET), distance(view.cameraPosition, p), max(length(dx), length(dy)));

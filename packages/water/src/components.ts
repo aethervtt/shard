@@ -1,7 +1,7 @@
 import { defineComponent, t } from '@aethervtt/shard-core'
 
-/** Body kinds part 1 of 0097 builds; rivers and volumes come with part 2. */
-export const WATER_KINDS = ['ocean', 'lake'] as const
+/** Body kinds: 0097 part 1's oceans and lakes, 0123's rivers; volumes come with 0097 part 2. */
+export const WATER_KINDS = ['ocean', 'lake', 'river'] as const
 export type WaterKind = (typeof WATER_KINDS)[number]
 
 export const WaterBody = defineComponent(
@@ -10,7 +10,7 @@ export const WaterBody = defineComponent(
     kind: t.enum(WATER_KINDS, {
       default: 'ocean',
       description:
-        'ocean: a level (the entity’s y) everywhere, or inside a closed WaterSpline when it has one. lake: water inside a closed WaterSpline at the entity’s y.',
+        'ocean: a level (the entity’s y) everywhere, or inside a closed WaterSpline when it has one. lake: water inside a closed WaterSpline at the entity’s y. river: along an open WaterSpline, each point its surface height (y), width, depth and flow (0123).',
     }),
     optics: t.handle('water/WaterOptics', {
       description:
@@ -48,24 +48,43 @@ export const WaterSpline = defineComponent(
   {
     points: t.list(
       t.struct({
-        position: t.vec3({ description: 'In the entity’s frame (metres). y is unused for lakes.' }),
-        width: t.f32({ default: 0, min: 0, unit: 'm', description: 'Rivers (unused for lakes).' }),
-        depth: t.f32({ default: 0, min: 0, unit: 'm', description: 'Rivers (unused for lakes).' }),
-        flow: t.f32({ default: 0, unit: 'm/s', description: 'Rivers (unused for lakes).' }),
+        position: t.vec3({
+          description:
+            'In the entity’s frame (metres). A river’s y is its surface height there; unused for lakes.',
+        }),
+        width: t.f32({
+          default: 0,
+          min: 0,
+          unit: 'm',
+          description: 'Rivers: the water’s width there, bank to bank (unused for lakes).',
+        }),
+        depth: t.f32({
+          default: 0,
+          min: 0,
+          unit: 'm',
+          description:
+            'Rivers: the bed below the surface where there’s no terrain under it (unused for lakes).',
+        }),
+        flow: t.f32({
+          default: 0,
+          unit: 'm/s',
+          description:
+            'Rivers: downstream speed there (negative flows upstream); ripples follow it (unused for lakes).',
+        }),
       }),
       {
         description:
-          'Points a uniform Catmull-Rom spline passes through: a lake’s or a bounded ocean’s shore, at least 3, in the entity’s frame.',
+          'Points a uniform Catmull-Rom spline passes through, in the entity’s frame: a lake’s or a bounded ocean’s shore (at least 3, closed), or a river’s course from source to mouth (at least 2, open).',
       },
     ),
     closed: t.bool({
       default: true,
       description:
-        'Lakes and bounded oceans are closed: the outline wraps back to its first point.',
+        'Lakes and bounded oceans are closed: the outline wraps back to its first point. Rivers are open.',
     }),
   },
   {
     description:
-      'The outline of a water body (0097): a lake, or the shore that bounds an ocean so it doesn’t flood inland basins.',
+      'The outline of a water body (0097): a lake, the shore that bounds an ocean so it doesn’t flood inland basins, or a river’s course (0123).',
   },
 )

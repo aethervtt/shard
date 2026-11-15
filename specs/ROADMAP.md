@@ -116,6 +116,7 @@ acceptance evidence are mapped in [the implementation checklist](research/audio-
 | [0043](0043-planet-terrain.md) | Planet terrain (cube-sphere, quadtree LOD, GPU chunks, biomes, streaming) | implemented |
 | [0044](0044-atmosphere.md) | Atmosphere scattering (Hillaire LUTs, aerial perspective, any altitude) | implemented |
 | [0045](0045-scatter-foliage-procedural-meshes.md) | Scatter, foliage, and procedural meshes | implemented |
+| [0122](0122-profile-sweep.md) | A profile swept along a spline (`MeshBuilder.sweep`: roads, kerbs, fences, rails, decks on 0071's curve) | draft (built) |
 | [0046](0046-star-systems-galaxy.md) | Star systems and galaxy generation | accepted |
 | [0047](0047-small-bodies.md) | Small bodies (asteroids, belts, rings, comets) | accepted |
 | [0048](0048-creatures.md) | Creatures (body plans, procedural locomotion, behavior, fauna) | accepted |
@@ -124,6 +125,9 @@ acceptance evidence are mapped in [the implementation checklist](research/audio-
 | [0051](0051-render-scale.md) | Render scale and dynamic resolution (high-DPI displays) | implemented |
 | [0071](0071-heightfield-terrain.md) | Heightfield terrain (layer stack baked to pages, shared quadtree, streamed pages, heightfield colliders) | accepted |
 | [0104](0104-terrain-editing.md) | Terrain editing at runtime (sculpt and paint delta layers, brushes and shapes, undo, saves, leaf rebakes, events, ray cast, preview) | draft (built) |
+| [0119](0119-generated-terrain.md) | Terrain from code, baked near players (registered generators for heights and weights on the worker pool; near bakes: pages where the camera and anchors need them, coarse levels from the generator; `terrainSource`) | draft (built) |
+| [0120](0120-terrain-holes.md) | Terrain holes (a generator's mask in the control pages' hole bits; masked drawing, trimesh collider tiles, nav gaps, queries) | draft (built) |
+| [0121](0121-scatter-fields.md) | Scatter fields from code (a terrain generator's density and exclusion fields thin props and foliage) | draft (built) |
 | [0105](0105-terrain-normal-maps.md) | Terrain layer normal maps (planar and triplanar, one table texture so baseline keeps 16) | draft (built) |
 | [0106](0106-view-camera.md) | The view camera (one rule for the camera terrain, water, particles and shadows follow; offscreen cameras opt in) | draft (built) |
 | [0072](0072-world-partition.md) | World partition and streaming (cells as scene files, streaming sources, diffs for unloaded cells) | accepted |
@@ -132,7 +136,8 @@ acceptance evidence are mapped in [the implementation checklist](research/audio-
 | [0116](0116-shadow-casters-occlusion.md) | Shadow casters that matter, occlusion culling, and shadow-only visibility (per-cascade caster culling, cached static layers under dynamic casters, structure shadow proxies and arena, CPU occluders on both tiers) | accepted (built) |
 | [0095](0095-procedural-trees.md) | Procedural trees (EZ-Tree port in an experimental `nature` package, species assets, GLB export) | implemented |
 | [0096](0096-shared-wind.md) | Shared wind (`Wind` in m/s, `windAt` on CPU and GPU, zones, synced changes) | implemented |
-| [0097](0097-water-bodies.md) | Water bodies and surface (ocean, lakes, spline rivers, tanks; water as a volume; masks; `waterAt`) | draft (part 1 built) |
+| [0097](0097-water-bodies.md) | Water bodies and surface (ocean, lakes, spline rivers, tanks; water as a volume; masks; `waterAt`) | draft (part 1 built; rivers as 0123) |
+| [0123](0123-rivers-near-bodies.md) | Rivers and water bodies chosen by distance (open-spline rivers with flow and mouths, flow-advected ripples, every body in `waterAt`, the 64 nearest drawn) | draft (built) |
 | [0098](0098-ocean-waves.md) | Ocean waves (JONSWAP FFT cascades on both tiers, foam, shores, CPU evaluator, tick-synced) | implemented (shoaling open) |
 | [0099](0099-underwater.md) | Underwater and water optics (per-pixel waterline, fog, Snell's window, caustics, light shafts, aquariums) | draft |
 | [0100](0100-water-interaction.md) | Water interaction (buoyancy, Kelvin wakes, interaction foam, spray) | draft |
@@ -140,6 +145,12 @@ acceptance evidence are mapped in [the implementation checklist](research/audio-
 Water lands in order: 0096 (wind, which trees and grass read too), 0097 part 1 (oceans and lakes,
 the opaque copy it adds to the renderer, `waterAt`; built), 0098 (built), 0097 part 2 (rivers, volumes and
 sides, masks, shore foam), then 0100 and 0099, each an opt-in plugin of `@aethervtt/shard-water`. 0099 and 0100 only need 0097; with 0098 they also use its waves and foam.
+
+Generated regions (Risen's ADR 0009) land in the order they block it: 0119 (terrain from a
+generator, baked near players), 0120 (holes for basements, from the same generator), 0121 (scatter
+kept off roads, pads and water by its fields), 0122 (road and fence meshes swept along the same
+splines), 0123 (rivers, and any number of lakes). Their measurements at 20 × 16 km are in
+[research/regions-terrain-2026-11-15.md](research/regions-terrain-2026-11-15.md).
 
 Open worlds land in order: 0071 (terrain), 0072 (partition, its always scene holds the terrain),
 then 0073 (HLOD over the partition's cells). 0113 builds 0072's runtime first, for generated cells

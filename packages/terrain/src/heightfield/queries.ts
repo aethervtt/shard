@@ -1,6 +1,6 @@
 import { type Entity, ShardError, type World } from '@aethervtt/shard-core'
 import { TerrainWorld } from '../heights'
-import { dequantize, LEAF_SIDE, PAGE, SIDE } from './kernel'
+import { cellOpen, dequantize, LEAF_SIDE, PAGE, SIDE } from './kernel'
 import { type LoadedPage, nodeKey } from './pages'
 import type { HeightfieldRuntime } from './runtime'
 
@@ -12,6 +12,8 @@ export interface TerrainHeight {
   depth: number
   /** Whether that's the leaf depth: the collider's own surface. */
   exact: boolean
+  /** Whether the ground is open there (spec 0120): a hole in a leaf page. False on coarse pages. */
+  open: boolean
 }
 
 /** The heightfield runtime of a Terrain entity, ready for queries, or a `terrain/*` error. */
@@ -91,7 +93,7 @@ export function terrainHeightAt(
   terrain: Entity,
   x: number,
   z: number,
-  out: TerrainHeight = { height: 0, depth: 0, exact: false },
+  out: TerrainHeight = { height: 0, depth: 0, exact: false, open: false },
 ): TerrainHeight {
   const rt = heightfieldRuntime(world, terrain)
   const page = finestPage(rt, x, z)
@@ -113,7 +115,17 @@ export function terrainHeightAt(
   out.height = pageHeight(rt, page, x, z)
   out.depth = page.depth
   out.exact = page.depth === rt.layout!.depth
+  out.open = pageOpen(rt, page, x, z)
   return out
+}
+
+/** Whether (x, z) is over an open cell of a leaf page (spec 0120); false on coarse pages. */
+export function pageOpen(rt: HeightfieldRuntime, page: LoadedPage, x: number, z: number): boolean {
+  if (!page.leaf) return false
+  const l = rt.layout!
+  const i = Math.min(PAGE - 1, Math.max(0, Math.floor((x - page.x * l.leafSize) / l.spacing)))
+  const j = Math.min(PAGE - 1, Math.max(0, Math.floor((z - page.z * l.leafSize) / l.spacing)))
+  return cellOpen(page.control, l.cells, l.paintStep, i, j)
 }
 
 /**
@@ -156,6 +168,8 @@ export interface HeightfieldSample {
   layers: [string, string]
   share: number
   depth: number
+  /** Over an open cell of a leaf page (spec 0120). */
+  open: boolean
 }
 
 /** The ground at (x, z) from the finest page held (leaf pages after `loadTerrainRegion`). */
@@ -204,5 +218,6 @@ export function heightfieldSample(rt: HeightfieldRuntime, x: number, z: number):
     layers: [names[a] ?? '', names[b] ?? ''],
     share: page.control[o + 2]! / 255,
     depth: page.depth,
+    open: pageOpen(rt, page, x, z),
   }
 }

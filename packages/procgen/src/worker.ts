@@ -10,6 +10,9 @@ import { encodeRecord } from './record'
  */
 export { buildProxy } from '@aethervtt/shard-mesh'
 
+/** Other packages' tasks (0119): terrain generators' pages, registered by the project's code. */
+export { runTask } from './tasks'
+
 /**
  * Runs one generator job with the clock and Math.random guarded for all of it. The result is one
  * packed record (`encodeRecord`), so its bytes move back to the caller instead of being copied.

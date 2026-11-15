@@ -1,6 +1,175 @@
-import { ShardError } from '@aethervtt/shard-core'
+import { polygon, ShardError } from '@aethervtt/shard-core'
 import type { MeshData } from './mesh'
+import { sampleCatmullRom } from './spline'
 import { sinCos } from './trig'
+
+/** How `MeshBuilder.sweep` pulls a profile along a curve (spec 0122). */
+export interface SweepOptions {
+  /** The profile's last point joins its first. Default false. */
+  closed?: boolean
+  /** The curve loops through its first point again (a ring road). Default false. */
+  loop?: boolean
+  /** Most metres (horizontally) between rings along the curve: `sampleCatmullRom`'s step. Default 1. */
+  step?: number
+  /** The direction a profile's y keeps to. Default [0, 1, 0]. */
+  up?: readonly [number, number, number]
+  /** Roll about the curve per control point, radians (banking), interpolated as the points are. */
+  roll?: number | ArrayLike<number>
+  /** u per profile point. Default its length along the profile from the first point, 0 to 1. */
+  u?: ArrayLike<number>
+  /** v per metre along the curve, and v at its start. Defaults 1 and 0. */
+  vScale?: number
+  v0?: number
+  /** Profile corners sharper than this (degrees) get a normal per side. Default 30. */
+  smoothAngle?: number
+  /** Closed profiles: caps over the two ends (not on a loop). Default false. */
+  caps?: boolean
+}
+
+/** The rings of a sweep (spec 0122): where each is, its frame, and its length along the curve. */
+export interface SweepFrames {
+  count: number
+  /** xyz per ring. */
+  centres: Float64Array
+  /** Unit tangent, right (t × up) and normal (right × t), xyz per ring. */
+  tangents: Float64Array
+  rights: Float64Array
+  normals: Float64Array
+  /** Metres along the curve to each ring. */
+  lengths: Float64Array
+}
+
+/**
+ * The rings a sweep puts along a Catmull-Rom curve through `curve` (xyz control points): 0071's
+ * sampler (`sampleCatmullRom`, as terrain splines and water rivers use), frames that keep their
+ * normal toward `up` (a road doesn't roll on a bend) turned by `roll`, and arc lengths. A loop gets
+ * a last ring on its first point. For posts and lamps along the same curve as a sweep.
+ */
+export function sweepFrames(
+  curve: ArrayLike<number>,
+  options: Pick<SweepOptions, 'loop' | 'step' | 'up' | 'roll'> = {},
+): SweepFrames {
+  const n = Math.floor(curve.length / 3)
+  if (n < 2) {
+    throw new ShardError('mesh/bad-shape', 'sweep needs a curve of at least 2 points', {
+      hint: 'curve: [x0, y0, z0, x1, y1, z1, …].',
+    })
+  }
+  const loop = options.loop === true
+  const step = options.step ?? 1
+  const samples = sampleCatmullRom(curve, loop, step)
+  // Roll rides in y of a copy with the same x and z, so it gets the same pieces.
+  let rolls: number[] | undefined
+  if (options.roll !== undefined) {
+    const r = options.roll
+    const copy = new Float64Array(n * 3)
+    for (let i = 0; i < n; i++) {
+      copy[i * 3] = curve[i * 3]!
+      copy[i * 3 + 1] = typeof r === 'number' ? r : (r[i] ?? 0)
+      copy[i * 3 + 2] = curve[i * 3 + 2]!
+    }
+    rolls = sampleCatmullRom(copy, loop, step)
+  }
+  const m = samples.length / 3
+  const count = loop ? m + 1 : m
+  const at = (i: number) => (loop ? i % m : i) * 3
+  const out: SweepFrames = {
+    count,
+    centres: new Float64Array(count * 3),
+    tangents: new Float64Array(count * 3),
+    rights: new Float64Array(count * 3),
+    normals: new Float64Array(count * 3),
+    lengths: new Float64Array(count),
+  }
+  const [ux, uy, uz] = options.up ?? [0, 1, 0]
+  let rx = 0
+  let ry = 0
+  let rz = 0
+  let length = 0
+  for (let i = 0; i < count; i++) {
+    const o = at(i)
+    const px = samples[o]!
+    const py = samples[o + 1]!
+    const pz = samples[o + 2]!
+    if (i > 0) {
+      const q = at(i - 1)
+      const dx = px - samples[q]!
+      const dy = py - samples[q + 1]!
+      const dz = pz - samples[q + 2]!
+      length += Math.sqrt(dx * dx + dy * dy + dz * dz)
+    }
+    // Tangent by central differences (one-sided at an open curve's ends).
+    const a = loop ? at(i - 1 + m) : at(Math.max(0, i - 1))
+    const b = loop ? at(i + 1) : at(Math.min(m - 1, i + 1))
+    let tx = samples[b]! - samples[a]!
+    let ty = samples[b + 1]! - samples[a + 1]!
+    let tz = samples[b + 2]! - samples[a + 2]!
+    const tl = Math.sqrt(tx * tx + ty * ty + tz * tz) || 1
+    tx /= tl
+    ty /= tl
+    tz /= tl
+    // right = t × up; along up, the previous ring's right (or any perpendicular, the first).
+    let x = ty * uz - tz * uy
+    let y = tz * ux - tx * uz
+    let z = tx * uy - ty * ux
+    let l = Math.sqrt(x * x + y * y + z * z)
+    if (l < 1e-9) {
+      if (i === 0) {
+        perpendicular(tx, ty, tz, scratch3)
+        x = scratch3[0]!
+        y = scratch3[1]!
+        z = scratch3[2]!
+      } else {
+        x = rx
+        y = ry
+        z = rz
+      }
+      l = Math.sqrt(x * x + y * y + z * z) || 1
+    }
+    rx = x / l
+    ry = y / l
+    rz = z / l
+    // normal = right × t
+    let nx = ry * tz - rz * ty
+    let ny = rz * tx - rx * tz
+    let nz = rx * ty - ry * tx
+    let fx = rx
+    let fy = ry
+    let fz = rz
+    const roll = rolls ? rolls[o + 1]! : 0
+    if (roll !== 0) {
+      sinCos(roll, sc)
+      const s = sc[0]!
+      const c = sc[1]!
+      fx = rx * c + nx * s
+      fy = ry * c + ny * s
+      fz = rz * c + nz * s
+      const gx = nx * c - rx * s
+      const gy = ny * c - ry * s
+      const gz = nz * c - rz * s
+      nx = gx
+      ny = gy
+      nz = gz
+    }
+    const k = i * 3
+    out.centres[k] = px
+    out.centres[k + 1] = py
+    out.centres[k + 2] = pz
+    out.tangents[k] = tx
+    out.tangents[k + 1] = ty
+    out.tangents[k + 2] = tz
+    out.rights[k] = fx
+    out.rights[k + 1] = fy
+    out.rights[k + 2] = fz
+    out.normals[k] = nx
+    out.normals[k + 1] = ny
+    out.normals[k + 2] = nz
+    out.lengths[i] = length
+  }
+  return out
+}
+
+const scratch3 = new Float64Array(3)
 
 /**
  * A procedural modelling toolkit (spec 0045): append shapes, deform them, and finish into
@@ -463,6 +632,181 @@ export class MeshBuilder {
         for (let s = 0; s < sides; s++) {
           if (dir > 0) this.triangle(center, row + s, row + s + 1)
           else this.triangle(center, row + s + 1, row + s)
+        }
+      }
+    }
+    return this
+  }
+
+  /**
+   * A profile swept along a curve (spec 0122): `profile` is [x, y] pairs in the cross-section (x to
+   * the right of travel, y up, metres), pulled through the rings of `sweepFrames(curve)` (0071's
+   * Catmull-Rom sampler, frames level to `up`). Each profile segment faces its left as you walk it:
+   * a surface listed from its left edge to its right faces up; a closed profile listed clockwise
+   * faces out. Corners sharper than `smoothAngle` get a normal per side. u runs across the profile
+   * (0–1 by length, or `u`), v along the curve in metres × `vScale` + `v0`.
+   */
+  sweep(profile: ArrayLike<number>, curve: ArrayLike<number>, options: SweepOptions = {}): this {
+    const points = profile.length >> 1
+    const closed = options.closed === true
+    if (points < 2 || (closed && points < 3)) {
+      throw new ShardError(
+        'mesh/bad-shape',
+        `sweep needs a profile of at least ${closed ? 3 : 2} points`,
+        { hint: 'profile: [x0, y0, x1, y1, …], x to the right of travel, y up.' },
+      )
+    }
+    if (options.u && options.u.length < points + (closed ? 1 : 0)) {
+      throw new ShardError('mesh/bad-shape', 'sweep needs a u per profile point', {
+        hint: closed ? 'A closed profile takes one more: the u where it ends again.' : undefined,
+      })
+    }
+    const frames = sweepFrames(curve, options)
+    // The profile's points, its first again at the end when closed.
+    const P = closed ? points + 1 : points
+    const px = (j: number) => profile[(j % points) * 2]!
+    const py = (j: number) => profile[(j % points) * 2 + 1]!
+    // Each segment's normal in the profile plane: its left, (−dy, dx).
+    const segs = P - 1
+    const snx = new Float64Array(segs)
+    const sny = new Float64Array(segs)
+    for (let s = 0; s < segs; s++) {
+      const dx = px(s + 1) - px(s)
+      const dy = py(s + 1) - py(s)
+      const l = Math.sqrt(dx * dx + dy * dy) || 1
+      snx[s] = -dy / l
+      sny[s] = dx / l
+    }
+    // u: by length (0–1) unless given.
+    const us = new Float64Array(P)
+    if (options.u) for (let j = 0; j < P; j++) us[j] = options.u[j]!
+    else {
+      let total = 0
+      for (let j = 1; j < P; j++) {
+        const dx = px(j) - px(j - 1)
+        const dy = py(j) - py(j - 1)
+        total += Math.sqrt(dx * dx + dy * dy)
+        us[j] = total
+      }
+      for (let j = 1; j < P; j++) us[j] = total > 0 ? us[j]! / total : j / (P - 1)
+    }
+    // Columns: one per profile point, two where its corner is sharp (or at a closed profile's seam,
+    // whose u jumps). A segment runs from its start point's out column to its end point's in column.
+    const cosLimit = cosDegrees(options.smoothAngle ?? 30)
+    const colX: number[] = []
+    const colY: number[] = []
+    const colNX: number[] = []
+    const colNY: number[] = []
+    const colU: number[] = []
+    const inCol = new Int32Array(P)
+    const outCol = new Int32Array(P)
+    const column = (j: number, nx: number, ny: number) => {
+      colX.push(px(j))
+      colY.push(py(j))
+      colNX.push(nx)
+      colNY.push(ny)
+      colU.push(us[j]!)
+      return colX.length - 1
+    }
+    for (let j = 0; j < P; j++) {
+      // The segments before and after point j (a closed profile wraps at its seam).
+      const before = j > 0 ? j - 1 : closed ? segs - 1 : -1
+      const after = j < segs ? j : closed ? 0 : -1
+      if (before < 0 || after < 0) {
+        const s = before < 0 ? after : before
+        inCol[j] = outCol[j] = column(j, snx[s]!, sny[s]!)
+        continue
+      }
+      const dot = snx[before]! * snx[after]! + sny[before]! * sny[after]!
+      if (dot >= cosLimit) {
+        // A closed profile's seam is two points (u 0 and 1) that get the same normal here.
+        const nx = snx[before]! + snx[after]!
+        const ny = sny[before]! + sny[after]!
+        const l = Math.sqrt(nx * nx + ny * ny) || 1
+        inCol[j] = outCol[j] = column(j, nx / l, ny / l)
+      } else {
+        inCol[j] = column(j, snx[before]!, sny[before]!)
+        outCol[j] = column(j, snx[after]!, sny[after]!)
+      }
+    }
+    const cols = colX.length
+    const first = this.vertexCount
+    const vScale = options.vScale ?? 1
+    const v0 = options.v0 ?? 0
+    const R = frames.count
+    this.reserve(R * cols, (R - 1) * segs * 6)
+    for (let i = 0; i < R; i++) {
+      const k = i * 3
+      const cx = frames.centres[k]!
+      const cy = frames.centres[k + 1]!
+      const cz = frames.centres[k + 2]!
+      const rx = frames.rights[k]!
+      const ry = frames.rights[k + 1]!
+      const rz = frames.rights[k + 2]!
+      const nx = frames.normals[k]!
+      const ny = frames.normals[k + 1]!
+      const nz = frames.normals[k + 2]!
+      const v = v0 + frames.lengths[i]! * vScale
+      for (let c = 0; c < cols; c++) {
+        const x = colX[c]!
+        const y = colY[c]!
+        const a = colNX[c]!
+        const b = colNY[c]!
+        this.vertex(
+          cx + rx * x + nx * y,
+          cy + ry * x + ny * y,
+          cz + rz * x + nz * y,
+          rx * a + nx * b,
+          ry * a + ny * b,
+          rz * a + nz * b,
+          colU[c]!,
+          v,
+        )
+      }
+    }
+    for (let i = 0; i < R - 1; i++) {
+      const row = first + i * cols
+      for (let s = 0; s < segs; s++) {
+        const a = row + outCol[s]!
+        const b = row + inCol[s + 1]!
+        this.quad(a, b, b + cols, a + cols)
+      }
+    }
+    if (closed && options.caps && !options.loop) {
+      const flat = new Float64Array(points * 2)
+      for (let j = 0; j < points; j++) {
+        flat[j * 2] = px(j)
+        flat[j * 2 + 1] = py(j)
+      }
+      const tris = polygon.triangulate(flat)
+      for (const end of [0, R - 1]) {
+        const k = end * 3
+        // Counter-clockwise in (x, y) faces right × normal = −t: right for the start cap.
+        const dir = end === 0 ? -1 : 1
+        const tx = frames.tangents[k]! * dir
+        const ty = frames.tangents[k + 1]! * dir
+        const tz = frames.tangents[k + 2]! * dir
+        const base = this.vertexCount
+        for (let j = 0; j < points; j++) {
+          const x = px(j)
+          const y = py(j)
+          this.vertex(
+            frames.centres[k]! + frames.rights[k]! * x + frames.normals[k]! * y,
+            frames.centres[k + 1]! + frames.rights[k + 1]! * x + frames.normals[k + 1]! * y,
+            frames.centres[k + 2]! + frames.rights[k + 2]! * x + frames.normals[k + 2]! * y,
+            tx,
+            ty,
+            tz,
+            x,
+            y,
+          )
+        }
+        for (let t = 0; t < tris.length; t += 3) {
+          const a = base + tris[t]!
+          const b = base + tris[t + 1]!
+          const c = base + tris[t + 2]!
+          if (dir < 0) this.triangle(a, b, c)
+          else this.triangle(a, c, b)
         }
       }
     }
@@ -1063,6 +1407,12 @@ export class MeshBuilder {
 }
 
 const TAU = Math.PI * 2
+
+/** cos of an angle in degrees, through the deterministic sinCos. */
+function cosDegrees(degrees: number): number {
+  sinCos((degrees * Math.PI) / 180, sc)
+  return sc[1]!
+}
 const DEG = Math.PI / 180
 const WHITE = [1, 1, 1, 1]
 const sc = new Float64Array(2)

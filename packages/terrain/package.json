@@ -22,6 +22,7 @@
     "@aethervtt/shard-noise": "workspace:*",
     "@aethervtt/shard-physics": "workspace:*",
     "@aethervtt/shard-platform": "workspace:*",
+    "@aethervtt/shard-procgen": "workspace:*",
     "@aethervtt/shard-protocol": "workspace:*",
     "@aethervtt/shard-render": "workspace:*",
     "@aethervtt/shard-runtime": "workspace:*",

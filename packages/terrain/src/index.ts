@@ -110,6 +110,17 @@ export {
   type TerrainEditsData,
 } from './heightfield/edits'
 export {
+  canonicalTerrainParams,
+  defineTerrainGenerator,
+  findTerrainGenerator,
+  generatorAccess,
+  stackField,
+  stackFieldNames,
+  type TerrainArea,
+  type TerrainGenerator,
+  type TerrainGeneratorOptions,
+} from './heightfield/generator'
+export {
   decodeHeightPng,
   type Heightmap,
   HeightmapAssetType,
@@ -119,15 +130,21 @@ export {
 export {
   BAKE_VERSION,
   BLOCK,
+  bakeNearPage,
+  cellOpen,
   type DecodedPage,
   deflate,
   inflate,
+  type KernelGenerator,
   LEAF_SIDE,
+  type NearPage,
   PAGE,
   SIDE,
   type Stack,
+  type StackGenerator,
 } from './heightfield/kernel'
 export { TerrainSurfaceMaterial } from './heightfield/material'
+export { NearBake, type NearStats } from './heightfield/near'
 export {
   fsPackStore,
   memoryPackStore,
@@ -139,6 +156,7 @@ export {
   readIndex,
   writePack,
 } from './heightfield/pack'
+export { BAND_ANCHOR, BAND_CAMERA, BAND_RESIDENT, PageStore } from './heightfield/pages'
 export { type TerrainPreview, terrainPreview } from './heightfield/preview'
 export {
   type BakeHost,
@@ -155,6 +173,7 @@ export {
   heightfieldSample,
   loadTerrainRegion,
   pageHeight,
+  pageOpen,
   pageSample,
   type TerrainHeight,
   terrainHeightAt,
@@ -181,6 +200,7 @@ export {
   TerrainSourceImporter,
   TerrainSources,
   terrainJsonSchema,
+  terrainSource,
 } from './heightfield/source-asset'
 export { compileStack, mainNoise, type StackAssets } from './heightfield/stack'
 export {

@@ -213,7 +213,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `locale/param-mismatch` | @aethervtt/shard-text | Every locale gets the same params: use the same {placeholders} in each. |
 | `mesh/bad-lod` | @aethervtt/shard-mesh | lods: [0.5, 0.2] keeps about half, then a fifth, of the triangles. |
 | `mesh/bad-proxy` | @aethervtt/shard-mesh | levelSizes starts with 0 and increases. |
-| `mesh/bad-shape` | @aethervtt/shard-mesh | Detail 6 is already 40 962 vertices. |
+| `mesh/bad-shape` | @aethervtt/shard-mesh | curve: [x0, y0, z0, x1, y1, z1, …]. |
 | `mesh/invalid` | @aethervtt/shard-mesh | positions/normals: 3 per vertex, uvs/uvs1: 2, colors/tangents/joints/weights: 4; indices must be < vertex count. |
 | `mesh/invalid-artifact` | @aethervtt/shard-mesh | Re-import the source (`shard import --force`). |
 | `mesh/not-gpu` | @aethervtt/shard-mesh | Change a CPU mesh with update(). |
@@ -351,6 +351,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `procgen/output-mismatch` | @aethervtt/shard-procgen | Use its output as a handle instead (a mesh: render/Mesh3d { "mesh": { "path": "procedural:…" } }). |
 | `procgen/undeclared-dependency` | @aethervtt/shard-procgen | ctx.load takes the handles in the params (declare a t.handle param and pass the asset in). |
 | `procgen/unknown-generator` | @aethervtt/shard-procgen | Name a generator ("star-explorer/StarSystem") or a *.gen.json#Generator. |
+| `procgen/unknown-task` | @aethervtt/shard-procgen | The worker module runs the project code that registers it: rebuild it (`shard dev` does on save), or check the host bundles `@aethervtt/shard-procgen/worker`’s runTask. |
 | `procgen/worker-bundle-failed` | @aethervtt/shard-node | The project code has to bundle for browsers (no Node built-ins). |
 | `project/bundle-failed` | @aethervtt/shard-node |  |
 | `project/entry-failed` | @aethervtt/shard-node | The entry must be a module whose default export is defineProject({...}). |
@@ -451,6 +452,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `scatter/no-surface` | @aethervtt/shard-scatter | Give a Planet (or a Biome) a scatter set, or add scatter/ScatterSurface to a mesh entity; and add the scatter plugin. |
 | `scatter/not-a-surface` | @aethervtt/shard-scatter | scatter.describe lists every surface with its entity and scene path. |
 | `scatter/not-ready` | @aethervtt/shard-scatter | Sets and item meshes load asynchronously; step a frame and ask again. |
+| `scatter/unknown-field` | @aethervtt/shard-scatter |  |
 | `scatter/unknown-rule` | @aethervtt/shard-scatter |  |
 | `scatter/which-surface` | @aethervtt/shard-scatter | Pass surface: an entity id or a scene path (scatter.describe lists them). |
 | `scene/already-loaded` | @aethervtt/shard-scene | Use reloadScene to replace it, or pass a different id. |
@@ -527,15 +529,18 @@ Every engine error is a `ShardError` with one of these codes.
 | `structure/too-many-blocked-lights` | @aethervtt/shard-structure | Raise StructureSettings.interior.maxBlockedLights, or block fewer lights (each row costs one texture row). |
 | `terrain/bad-direction` | @aethervtt/shard-terrain | Pass a direction from the planet’s center in its frame, e.g. the position of a point on it. |
 | `terrain/bad-edit` | @aethervtt/shard-terrain | e.g. { "edit": { "shape": { "circle": { "at": [300, 300], "radius": 10 } }, "raise": 2 } } or { "stroke": { "brush": "smooth", "radius": 8, "strength": 0.5, "points": [[300, 300], [340, 310]] } }. |
+| `terrain/bad-generator` | @aethervtt/shard-terrain | Names are "<namespace>/<Name>", e.g. "risen/Ground". |
+| `terrain/bad-generator-output` | @aethervtt/shard-terrain | Heights are metres and weights 0–1, for every sample of the area it was asked for. |
 | `terrain/bad-points` | @aethervtt/shard-terrain | Points are metres from the terrain’s corner, e.g. { "points": [[120, 300]] }. |
 | `terrain/bad-resolution` | @aethervtt/shard-terrain | Use 17, 33 (the default), 65, or 129 vertices per chunk edge. |
 | `terrain/bad-size` | @aethervtt/shard-terrain | Terrains run from 256 m to 64 km a side. Bigger worlds are planets (0043). |
-| `terrain/bad-source` | @aethervtt/shard-terrain |  |
+| `terrain/bad-source` | @aethervtt/shard-terrain | A source made in code finds its noise graphs, heightmaps and textures by path in the asset server: import them first. |
 | `terrain/bad-spacing` | @aethervtt/shard-terrain | Sample spacing is the leaf vertex spacing: 1 m for most open worlds, 0.5 m for detailed ground. |
 | `terrain/bake-failed` | @aethervtt/shard-terrain | Check the project cache is writable (.shard/cache/terrain), then run `shard terrain bake --force`. |
 | `terrain/climate-outputs` | @aethervtt/shard-terrain | Name the two climate layers "temperature" and "moisture"; each should stay in [−1, 1]. |
 | `terrain/corrupt-pack` | @aethervtt/shard-terrain | The pack is damaged or from another bake: `shard terrain bake --force` rewrites it. |
 | `terrain/edits-mismatch` | @aethervtt/shard-terrain | Edits load into the terrain they were saved from; its size and spacings must match. |
+| `terrain/generator-failed` | @aethervtt/shard-terrain | Terrain generators run on workers and the main thread; they must not throw for any (x, z). |
 | `terrain/heightmap-format` | @aethervtt/shard-terrain | Heightmaps are 16-bit grayscale PNGs, or .r16/.r32 raw files with "width" and "height" in their .meta settings. An 8-bit PNG is a texture, not a heightmap. |
 | `terrain/missing-pack` | @aethervtt/shard-terrain | The terrain isn’t baked (or was baked for another grid): `shard terrain bake`. |
 | `terrain/no-planet` | @aethervtt/shard-terrain | Add terrain/Planet (with a Grid) to an entity, and the terrain plugin to the app. |
@@ -547,8 +552,11 @@ Every engine error is a `ShardError` with one of these codes.
 | `terrain/out-of-bounds` | @aethervtt/shard-terrain | Points are metres from the terrain’s corner in its frame. |
 | `terrain/out-of-range` | @aethervtt/shard-terrain | Widen heightRange to cover them (heights are 16-bit over it), or lower the layers that push past it. |
 | `terrain/radius-too-large` | @aethervtt/shard-terrain | Rocky planets go up to about 16 000 km; gas giants have no surface (spec 0046 renders them). |
+| `terrain/stale-page` | @aethervtt/shard-terrain | Nothing to do: the page bakes again from the new stack when it is wanted. |
 | `terrain/too-many-biomes` | @aethervtt/shard-terrain | Merge similar biomes, or split the planet’s surface into fewer, broader ones. |
 | `terrain/too-many-layers` | @aethervtt/shard-terrain | Merge layers that look alike, or share texture array layers between them. |
+| `terrain/unknown-field` | @aethervtt/shard-terrain |  |
+| `terrain/unknown-generator` | @aethervtt/shard-terrain | Define it with defineTerrainGenerator in the project’s scripts, which run before the terrain bakes (and in the worker module). |
 | `terrain/unknown-layer` | @aethervtt/shard-terrain |  |
 | `terrain/unknown-spline` | @aethervtt/shard-terrain | Define it under "splines". |
 | `terrain/which-planet` | @aethervtt/shard-terrain | Pass planet: an entity id or a scene path (terrain.describe lists them). |

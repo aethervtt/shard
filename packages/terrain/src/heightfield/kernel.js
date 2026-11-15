@@ -35,6 +35,7 @@ export const MODE_CARVE = 2
 export const LAYER_NOISE = 0
 export const LAYER_IMAGE = 1
 export const LAYER_SPLINE = 2
+export const LAYER_GENERATED = 3
 /** Lattice points per side of an edit tile (spec 0104): sculpt tiles hold leaf samples, paint tiles paint texels. */
 export const EDIT_TILE = 64
 /** An edit tile's key: tz × EDIT_KEY + tx. */
@@ -403,6 +404,14 @@ export function evalHeights(noise, stack, gi0, gj0, step, nx, nz, upTo, out, edi
           out[k] = blend(out[k], v, m, layer.blend)
         }
       }
+    } else if (layer.kind === LAYER_GENERATED) {
+      // Spec 0119: the generator fills the grid in metres; it covers the terrain.
+      noise
+        .generator(stack.generators[layer.gen])
+        .heights(gi0 * sp, gj0 * sp, step * sp, nx, nz, values.subarray(0, n))
+      // Replace writes the generator's number itself (not h + (v − h), which can round).
+      if (layer.blend === BLEND_REPLACE) for (let k = 0; k < n; k++) out[k] = values[k]
+      else for (let k = 0; k < n; k++) out[k] = blend(out[k], values[k], 1, layer.blend)
     } else {
       const spline = layer.spline
       const half = spline.width / 2
@@ -443,6 +452,15 @@ export function evalHeightPoints(noise, stack, xz, count, upTo, out) {
     const layer = layers[l]
     if (layer.kind === LAYER_NOISE)
       noisePoints(noise, layer.program, stack.seed, xz, count, layer.scale, layer.offset, v)
+    if (layer.kind === LAYER_GENERATED) {
+      const g = noise.generator(stack.generators[layer.gen])
+      const one = new Float64Array(1)
+      for (let i = 0; i < count; i++) {
+        g.heights(xz[i * 2], xz[i * 2 + 1], 1, 1, 1, one)
+        out[i] = layer.blend === BLEND_REPLACE ? one[0] : blend(out[i], one[0], 1, layer.blend)
+      }
+      continue
+    }
     for (let i = 0; i < count; i++) {
       const x = xz[i * 2]
       const z = xz[i * 2 + 1]
@@ -563,11 +581,29 @@ function addPaint(tiles, pi, pj, w, layers) {
 
 /**
  * Control texels for paint samples: paint sample (a, b) is leaf sample (gi0 + a × k, gj0 + b × k),
- * whose height and slope come from `hq` (dequantized leaf heights, `hx` wide, with sample (gi0,
- * gj0) at index `h0`, one sample of margin all round). Writes four bytes per texel: the heaviest
- * layer, the second, the second's share of their weight (0–255), and the hole bit (0).
+ * whose height and slope come from `hq` (dequantized heights, `hx` wide, with sample (gi0, gj0) at
+ * index `h0`, one sample of margin all round). `hq` holds leaf samples unless `hk` and `hs` say
+ * otherwise (a near parent's finer grid, spec 0119): texels are `hk` of its samples apart and its
+ * samples `hs` metres. `pk` is the leaf samples per paint texel of the paint edit lattice (0104).
+ * Writes four bytes per texel: the heaviest layer, the second, the second's share of their weight
+ * (0–255), and the hole bit (0).
  */
-export function evalControl(noise, stack, gi0, gj0, k, nx, nz, hq, hx, h0, out) {
+export function evalControl(
+  noise,
+  stack,
+  gi0,
+  gj0,
+  k,
+  nx,
+  nz,
+  hq,
+  hx,
+  h0,
+  out,
+  hk = k,
+  hs = stack.spacing,
+  pk = k,
+) {
   const layers = stack.layerCount
   const w = new Float64Array(layers)
   const paint = stack.paint
@@ -582,16 +618,55 @@ export function evalControl(noise, stack, gi0, gj0, k, nx, nz, hq, hx, h0, out) 
     noiseGrid(noise, entry.noise.program, stack.seed, sp, gi0, gj0, k, nx, nz, 1, 0, v)
     return v
   })
+  // Generators' weights for the whole grid (spec 0119), at the texels' heights.
+  let texelHeights = null
+  const generated = paint.map((entry) => {
+    if (!entry.generated) return null
+    if (!texelHeights) {
+      texelHeights = new Float64Array(nx * nz)
+      for (let b = 0; b < nz; b++)
+        for (let a = 0; a < nx; a++) texelHeights[b * nx + a] = hq[h0 + b * hk * hx + a * hk]
+    }
+    const g = noise.generator(stack.generators[entry.generated.gen])
+    const v = new Float32Array(nx * nz * g.layers)
+    g.weights(gi0 * sp, gj0 * sp, k * sp, nx, nz, texelHeights, v)
+    return v
+  })
+  // Holes (spec 0120), on the leaf lattice only: each texel's quadrants, one generator call.
+  const q = k > 1 ? 2 : 1
+  let open = null
+  if (stack.holes && pk === k) {
+    const u = k / q
+    open = new Uint8Array(nx * q * nz * q)
+    noise
+      .generator(stack.generators[stack.holes.gen])
+      .holes((gi0 + u / 2) * sp, (gj0 + u / 2) * sp, u * sp, nx * q, nz * q, open)
+  }
   for (let b = 0; b < nz; b++) {
     for (let a = 0; a < nx; a++) {
       const x = (gi0 + a * k) * sp
       const z = (gj0 + b * k) * sp
-      const hk = h0 + b * k * hx + a * k
-      const height = hq[hk]
-      const slope = slopeAt(hq, hx, hk, sp)
+      const hi = h0 + b * hk * hx + a * hk
+      const height = hq[hi]
+      const slope = slopeAt(hq, hx, hi, hs)
       w.fill(0)
       for (let e = 0; e < paint.length; e++) {
         const entry = paint[e]
+        if (entry.generated) {
+          if (e === paintAt) addPaint(painted, (gi0 + a * k) / pk, (gj0 + b * k) / pk, w, layers)
+          // 0104's rule: everything scales by (1 − the weights' sum), then each layer gains its own.
+          const map = entry.generated.layers
+          const v = generated[e]
+          const o = (b * nx + a) * map.length
+          let cover = 0
+          for (let l = 0; l < map.length; l++) cover += Math.max(0, v[o + l])
+          if (cover <= 0) continue
+          const scale = cover > 1 ? 1 / cover : 1
+          const keep = 1 - Math.min(1, cover)
+          for (let l = 0; l < layers; l++) w[l] *= keep
+          for (let l = 0; l < map.length; l++) w[map[l]] += Math.max(0, v[o + l]) * scale
+          continue
+        }
         let m = 1
         if (entry.height) m *= windowWeight(height, entry.height[0], entry.height[1], entry.blend)
         if (m > 0 && entry.slope)
@@ -608,14 +683,15 @@ export function evalControl(noise, stack, gi0, gj0, k, nx, nz, hq, hx, h0, out) 
           const d = nearestOnSpline(entry.spline, x, z, near)
           m *= d === Infinity ? 0 : fade(d - entry.spline.width / 2, entry.blend)
         }
-        if (e === paintAt) addPaint(painted, gi0 / k + a, gj0 / k + b, w, layers)
+        if (e === paintAt) addPaint(painted, (gi0 + a * k) / pk, (gj0 + b * k) / pk, w, layers)
         if (m <= 0) continue
         if (m > 1) m = 1
         // Paints over what's below: every weight scales by (1 − m), this layer gains m.
         for (let l = 0; l < layers; l++) w[l] *= 1 - m
         w[entry.layer] += m
       }
-      if (paintAt >= paint.length) addPaint(painted, gi0 / k + a, gj0 / k + b, w, layers)
+      if (paintAt >= paint.length)
+        addPaint(painted, (gi0 + a * k) / pk, (gj0 + b * k) / pk, w, layers)
       let a0 = 0
       let a1 = -1
       for (let l = 1; l < layers; l++) if (w[l] > w[a0]) a0 = l
@@ -629,10 +705,38 @@ export function evalControl(noise, stack, gi0, gj0, k, nx, nz, hq, hx, h0, out) 
       out[o] = a0
       out[o + 1] = a1 >= 0 && wb > 0 ? a1 : a0
       out[o + 2] = wa + wb > 0 ? Math.round((wb / (wa + wb)) * 255) : 0
-      out[o + 3] = 0
+      let bits = 0
+      if (open) {
+        for (let qb = 0; qb < q; qb++)
+          for (let qa = 0; qa < q; qa++)
+            if (open[(b * q + qb) * nx * q + a * q + qa]) bits |= 1 << (qb * 2 + qa)
+      }
+      out[o + 3] = bits
     }
   }
   return out
+}
+
+/**
+ * Whether leaf cell (i, j) of a page is open (spec 0120): texel (a, b) owns cells [a·k, a·k + k)
+ * and its fourth byte holds a bit per quadrant of them (bit 2·qz + qx; one bit when k is 1).
+ */
+export function cellOpen(control, cells, k, i, j) {
+  const a = Math.floor(i / k)
+  const b = Math.floor(j / k)
+  const bits = control[(b * (cells + 1) + a) * 4 + 3]
+  if (bits === 0) return false
+  if (k === 1) return (bits & 1) !== 0
+  const qx = i - a * k >= k / 2 ? 1 : 0
+  const qz = j - b * k >= k / 2 ? 1 : 0
+  return ((bits >> (qz * 2 + qx)) & 1) !== 0
+}
+
+/** Whether any cell of a page is open: a hole bit in any texel but the last row and column. */
+export function pageHasHoles(control, cells) {
+  for (let b = 0; b < cells; b++)
+    for (let a = 0; a < cells; a++) if (control[(b * (cells + 1) + a) * 4 + 3] !== 0) return true
+  return false
 }
 
 // --- pages -------------------------------------------------------------------------------------
@@ -958,7 +1062,10 @@ export function bakeBlock(noise, stack, layout, bx, bz) {
         for (let b = 0; b <= cells; b++) {
           for (let a = 0; a <= cells; a++) {
             const src = ((z * cells + b) * s * pnx + (x * cells + a) * s) * 4
-            control.set(C.subarray(src, src + 4), (b * (cells + 1) + a) * 4)
+            const o = (b * (cells + 1) + a) * 4
+            control.set(C.subarray(src, src + 3), o)
+            // Holes are the leaves' alone (spec 0120).
+            control[o + 3] = 0
           }
         }
         // Exact error: every leaf sample under it against its own surface.
@@ -1013,20 +1120,157 @@ export function bakeLeaf(noise, stack, layout, X, Z) {
   const Hq = new Float64Array(n * n)
   let qmin = 65535
   let qmax = 0
+  let clipped = 0
+  let lowest = Infinity
+  let highest = -Infinity
   for (let j = 0; j < n; j++) {
     for (let i = 0; i < n; i++) {
-      const q = quantize(H[j * n + i], stack.lo, stack.hi)
+      const h = H[j * n + i]
+      const q = quantize(h, stack.lo, stack.hi)
       heights[j * n + i] = q
       Hq[j * n + i] = dequantize(q, stack.lo, stack.hi)
       if (i > 0 && j > 0 && i < n - 1 && j < n - 1) {
         if (q < qmin) qmin = q
         if (q > qmax) qmax = q
+        if (h < stack.lo || h > stack.hi) clipped++
+        if (h < lowest) lowest = h
+        if (h > highest) highest = h
       }
     }
   }
   const control = new Uint8Array((cells + 1) * (cells + 1) * 4)
   evalControl(noise, stack, X * PAGE, Z * PAGE, k, cells + 1, cells + 1, Hq, n, n + 1, control)
-  return { page: { heights, normals: null, control }, min: qmin, max: qmax }
+  return {
+    page: { heights, normals: null, control },
+    min: qmin,
+    max: qmax,
+    clipped,
+    lowest,
+    highest,
+  }
+}
+
+/**
+ * A parent page made from the stack directly (spec 0119), without its children: the layers at
+ * twice the page's resolution with a sample of margin (131 × 131), the page's heights at its own
+ * samples (the ahead bake's point samples, so the same heights), normals by central differences
+ * on the finer grid, control at the page's texels with slopes from that grid, and the page's error
+ * against the finer grid. `depth` is above the leaves.
+ */
+export function bakeParent(noise, stack, layout, depth, X, Z) {
+  const L = layout.depth - depth
+  const s = 2 ** L
+  const h = s / 2
+  const sp = layout.spacing
+  const lo = stack.lo
+  const hi = stack.hi
+  const cells = layout.cells
+  const n = 2 * PAGE + 3
+  const gi0 = X * PAGE * s - h
+  const gj0 = Z * PAGE * s - h
+  const F = new Float64Array(n * n)
+  evalHeights(noise, stack, gi0, gj0, h, n, n, stack.height.length, F)
+  const Q = new Uint16Array(n * n)
+  const Fq = new Float64Array(n * n)
+  let qmin = 65535
+  let qmax = 0
+  let clipped = 0
+  let lowest = Infinity
+  let highest = -Infinity
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) {
+      const idx = j * n + i
+      const v = F[idx]
+      const q = quantize(v, lo, hi)
+      Q[idx] = q
+      Fq[idx] = dequantize(q, lo, hi)
+      if (i > 0 && j > 0 && i < n - 1 && j < n - 1) {
+        if (q < qmin) qmin = q
+        if (q > qmax) qmax = q
+        if (v < lo || v > hi) clipped++
+        if (v < lowest) lowest = v
+        if (v > highest) highest = v
+      }
+    }
+  }
+  const heights = new Uint16Array(SIDE * SIDE)
+  const normals = new Uint8Array(SIDE * SIDE * 2)
+  for (let j = 0; j < SIDE; j++) {
+    for (let i = 0; i < SIDE; i++) {
+      const k = (1 + 2 * j) * n + 1 + 2 * i
+      heights[j * SIDE + i] = Q[k]
+      centralNormal(Fq, n, k, h * sp, nrm)
+      normals[j * SIDE + i] = normalByte(nrm[0])
+      normals[SIDE * SIDE + j * SIDE + i] = normalByte(nrm[2])
+    }
+  }
+  const pk = layout.paintStep
+  const control = new Uint8Array((cells + 1) * (cells + 1) * 4)
+  evalControl(
+    noise,
+    stack,
+    X * PAGE * s,
+    Z * PAGE * s,
+    pk * s,
+    cells + 1,
+    cells + 1,
+    Fq,
+    n,
+    n + 1,
+    control,
+    2 * pk,
+    h * sp,
+    pk,
+  )
+  const error = levelError(Fq, n, 1, 1, 1 + 2 * PAGE, 1 + 2 * PAGE, 2)
+  return {
+    page: { heights, normals, control },
+    min: qmin,
+    max: qmax,
+    error,
+    clipped,
+    lowest,
+    highest,
+  }
+}
+
+/**
+ * A page of a near bake (spec 0119), ready to stream: a leaf by bakeLeaf (the ahead bake's bytes)
+ * with its normals, or a parent by bakeParent, and the pool's texels for either. Its error is the
+ * measured one (the caller estimates the subtree's from it).
+ */
+export function bakeNearPage(noise, stack, layout, depth, X, Z) {
+  const t0 = performance.now()
+  const leaf = depth === layout.depth
+  const baked = leaf
+    ? bakeLeaf(noise, stack, layout, X, Z)
+    : bakeParent(noise, stack, layout, depth, X, Z)
+  const heights = baked.page.heights
+  const normals = leaf
+    ? leafNormals(heights, stack.lo, stack.hi, layout.spacing, new Uint8Array(SIDE * SIDE * 2))
+    : baked.page.normals
+  const control = baked.page.control
+  const texels = pageTexels(
+    { heights, normals, control },
+    leaf,
+    stack.lo,
+    stack.hi,
+    layout.spacing,
+    new Uint8Array(LEAF_SIDE * LEAF_SIDE * 4),
+  )
+  return {
+    heights,
+    normals,
+    control,
+    texels,
+    min: baked.min,
+    max: baked.max,
+    error: leaf ? 0 : baked.error,
+    clipped: baked.clipped,
+    lowest: baked.lowest === Infinity ? 0 : baked.lowest,
+    highest: baked.highest === -Infinity ? 0 : baked.highest,
+    ms: performance.now() - t0,
+  }
 }
 
 /**
@@ -1139,7 +1383,8 @@ export function parentPage(children, cells, normalAt) {
       const c = children[cz * 2 + cx]
       if (!c) continue
       const src = ((cb - cz * cells) * (cells + 1) + (ca - cx * cells)) * 4
-      control.set(c.control.subarray(src, src + 4), (b * (cells + 1) + a) * 4)
+      // Layers and share; holes are the leaves' alone (spec 0120).
+      control.set(c.control.subarray(src, src + 3), (b * (cells + 1) + a) * 4)
     }
   }
   return { heights, normals, control }

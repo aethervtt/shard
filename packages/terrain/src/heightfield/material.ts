@@ -71,7 +71,9 @@ export const TerrainSurfaceMaterial = defineMaterial('terrain/TerrainSurface', {
     debug: hidden(
       'Set by the terrain: debug mode (0 off, 1 layers, 2 seams, 3 levels, 4 normals, 5 pages), has albedo, has ORM, texture period.',
     ),
-    maps: hidden('Set by the terrain: normal maps on (x).'),
+    maps: hidden(
+      'Set by the terrain: normal maps on (x), the leaf depth (y), holes on (z), leaf samples per paint texel (w).',
+    ),
     previewShape: hidden(
       'Set by the terrain: preview kind (0 none, 1 circle, 2 polygon, 3 path), points, radius or half width, second ring offset (m).',
     ),
@@ -414,6 +416,13 @@ override fn pbr_input(in: VertexOutput) -> PbrInput {
   let t1 = textureLoad(${S}_control, base + vec2i(1, 0), cell.z, 0);
   let t2 = textureLoad(${S}_control, base + vec2i(0, 1), cell.z, 0);
   let t3 = textureLoad(${S}_control, base + vec2i(1, 1), cell.z, 0);
+  // Holes (0120): an open cell of a leaf page has alpha 0, which the mask blend mode discards in
+  // the forward pass, the depth prepass and shadows. Texel c0 owns the cell; its quadrant is f's.
+  // No early return: the texture sampling below needs uniform control flow.
+  let hole_bits = u32(t0.a * 255.0 + 0.5);
+  let hole_q = select(0u, u32(f.x >= 0.5) + 2u * u32(f.y >= 0.5), ${S}.maps.w > 1.5);
+  let leaf = depth == u32(${S}.maps.y + 0.5);
+  p.alpha = select(1.0, 0.0, ${S}.maps.z > 0.5 && leaf && ((hole_bits >> hole_q) & 1u) != 0u);
   let bw = vec4f((1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y);
   let sh = vec4f(t0.b, t1.b, t2.b, t3.b);
   let la = vec4u(vec4f(t0.r, t1.r, t2.r, t3.r) * 255.0 + 0.5);

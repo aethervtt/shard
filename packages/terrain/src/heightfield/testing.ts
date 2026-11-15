@@ -47,14 +47,14 @@ import { Terrain } from './component'
 import { loadTerrainEdits } from './editor'
 import type { TerrainEditsData } from './edits'
 import { type Heightmap, Heightmaps } from './heightmap'
-import { dequantize, LEAF_SIDE, PAGE, SIDE } from './kernel'
+import { bakeNearPage, dequantize, LEAF_SIDE, PAGE, SIDE } from './kernel'
 import { nodeKey } from './pages'
 import { pageHeight } from './queries'
 import type { HeightfieldRender } from './render'
 import type { HeightfieldRuntime } from './runtime'
 import { parseTerrainSource, terrainLayout } from './source'
 import { type SourceDependency, TerrainSourceAsset, TerrainSources } from './source-asset'
-import { mainNoise } from './stack'
+import { compileStack, mainNoise } from './stack'
 
 export interface HeightfieldOptions {
   /** A `*.terrain.json` object; asset paths name entries of `noise` and `heightmaps`. */
@@ -657,4 +657,69 @@ export function openWorldSource() {
   const height = v.source.height as Record<string, unknown>[]
   height[0] = { noise: { path: 'hills' }, scale: 260 }
   return { ...v, source: { ...v.source, heightRange: [-300, 700] } }
+}
+
+/**
+ * 0119's 2 km test source: the test generator (fixtures/ground.ts, which must be loaded), a little
+ * noise on top (`grain`, NEAR_GRAIN), and the generator's weights painted.
+ */
+export function groundSource(size = 2048, extra: Record<string, unknown> = {}) {
+  return {
+    size: [size, size],
+    spacing: 1,
+    heightRange: [-50, 450],
+    seed: 3,
+    height: [
+      { generator: 'shard-test/Ground', params: { seed: 9, relief: 70 } },
+      { noise: { path: 'grain' }, scale: 0.8 },
+    ],
+    layers: [{ name: 'grass' }, { name: 'rock' }, { name: 'gravel' }],
+    paint: [{ layer: 'grass' }, { generator: 'shard-test/Ground' }],
+    ...extra,
+  }
+}
+
+/** The noise groundSource layers over its generator. */
+export const NEAR_GRAIN = {
+  output: 'n',
+  nodes: { n: { fbm: { source: 'simplex', octaves: 3, frequency: 0.05, seed: 4 } } },
+}
+
+/** groundSource's stack, with its generator defined and its noise graph loaded. */
+export async function groundStack(json: unknown = groundSource()) {
+  await import('./fixtures/ground')
+  await loadNoiseKernel()
+  const grain = await NoiseGraph.create(NEAR_GRAIN)
+  const source = parseTerrainSource(json)
+  const stack = compileStack(source, {
+    noise: () => grain,
+    heightmap: () => {
+      throw new Error('groundSource has no heightmaps')
+    },
+  })
+  return { source, stack, grain }
+}
+
+/**
+ * FNV-1a over the heights and control of groundSource's first 500 near leaves (spec 0119), each
+ * baked on this thread: Node pins it (heightfield/generated.test.ts) and the playground's
+ * #heightfield page prints Chrome's.
+ */
+export async function nearLeavesHash(): Promise<string> {
+  const { source, stack } = await groundStack()
+  const layout = terrainLayout(source)
+  const noise = mainNoise()
+  let h = 0x811c9dc5
+  const add = (bytes: Uint8Array) => {
+    for (let i = 0; i < bytes.length; i++) h = Math.imul(h ^ bytes[i]!, 0x01000193)
+  }
+  let n = 0
+  for (let z = 0; z < layout.leavesZ && n < 500; z++) {
+    for (let x = 0; x < layout.leavesX && n < 500; x++, n++) {
+      const page = bakeNearPage(noise, stack, layout, layout.depth, x, z)
+      add(new Uint8Array(page.heights.buffer, page.heights.byteOffset, page.heights.byteLength))
+      add(page.control)
+    }
+  }
+  return (h >>> 0).toString(16).padStart(8, '0')
 }

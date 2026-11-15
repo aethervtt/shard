@@ -1,7 +1,15 @@
 // Pool jobs for heightfield terrain (spec 0071). Plain JavaScript: workers import it with no bundler
 // or loader. The noise kernel comes by URL with its compiled module, so a worker samples exactly as
 // the main thread does.
-import { bakeBlock as bake, LEAF_SIDE, leafNormals, pageTexels, readPage, SIDE } from './kernel.js'
+import {
+  bakeBlock as bake,
+  bakeNearPage,
+  LEAF_SIDE,
+  leafNormals,
+  pageTexels,
+  readPage,
+  SIDE,
+} from './kernel.js'
 
 const kernels = new Map()
 
@@ -25,6 +33,11 @@ function noiseFor(url, module) {
 /** Bakes one block (kernel.js bakeBlock) on this thread. */
 export async function bakeBlock(url, module, stack, layout, bx, bz) {
   return bake(await noiseFor(url, module), stack, layout, bx, bz)
+}
+
+/** Bakes one near page (spec 0119) of a stack without generators (theirs run in the procgen module). */
+export async function nearPage(url, module, stack, layout, depth, x, z) {
+  return bakeNearPage(await noiseFor(url, module), stack, layout, depth, x, z)
 }
 
 /**

@@ -1,4 +1,5 @@
 import {
+  affine64,
   defineSystem,
   type Entity,
   ShardError,
@@ -7,7 +8,7 @@ import {
 } from '@aethervtt/shard-core'
 import { CharacterController, CharacterIntent, Physics, Velocity } from '@aethervtt/shard-physics'
 import { FixedTime } from '@aethervtt/shard-runtime'
-import { GlobalTransform, Transform } from '@aethervtt/shard-transform'
+import { GlobalTransform, parentFrame64, Transform } from '@aethervtt/shard-transform'
 import {
   BLOCKED,
   blockedAt,
@@ -160,6 +161,68 @@ function newRecord(entity: Entity): AgentRecord {
 /** Scratch shared by one run of the system. */
 const pos = new Float64Array(3)
 const goal = new Float64Array(3)
+
+/**
+ * The agent being stepped: its parent frame to the origin frame and back (0040). Navmeshes and
+ * grids are in the origin frame, and an agent in a large-world Grid keeps its Transform in its
+ * cell's frame, so positions go through these. Identity outside grids (and deeper in a hierarchy,
+ * which framed navmeshes handle).
+ */
+const parent = affine64.create()
+const parentInv = affine64.create()
+let parentIdentity = true
+
+function loadParent(world: World, entity: Entity): void {
+  if (!parentFrame64(world, entity, parent)) affine64.identity(parent)
+  parentIdentity =
+    parent[0] === 1 &&
+    parent[5] === 1 &&
+    parent[10] === 1 &&
+    parent[1] === 0 &&
+    parent[2] === 0 &&
+    parent[4] === 0 &&
+    parent[6] === 0 &&
+    parent[8] === 0 &&
+    parent[9] === 0 &&
+    parent[3] === 0 &&
+    parent[7] === 0 &&
+    parent[11] === 0
+  if (!parentIdentity) affine64.invert(parentInv, parent)
+}
+
+/** The agent's Transform translation (row `o3`) in the origin frame, into `out`. */
+function translationIn(tr: Float32Array, o3: number, out: Float64Array): Float64Array {
+  const x = tr[o3]!
+  const y = tr[o3 + 1]!
+  const z = tr[o3 + 2]!
+  if (parentIdentity) {
+    out[0] = x
+    out[1] = y
+    out[2] = z
+    return out
+  }
+  const m = parent
+  out[0] = m[0]! * x + m[1]! * y + m[2]! * z + m[3]!
+  out[1] = m[4]! * x + m[5]! * y + m[6]! * z + m[7]!
+  out[2] = m[8]! * x + m[9]! * y + m[10]! * z + m[11]!
+  return out
+}
+
+/** Writes an origin-frame position into the agent's Transform translation (row `o3`). */
+function setTranslation(tr: Float32Array, o3: number, x: number, y: number, z: number): void {
+  if (parentIdentity) {
+    tr[o3] = x
+    tr[o3 + 1] = y
+    tr[o3 + 2] = z
+    return
+  }
+  const m = parentInv
+  tr[o3] = m[0]! * x + m[1]! * y + m[2]! * z + m[3]!
+  tr[o3 + 1] = m[4]! * x + m[5]! * y + m[6]! * z + m[7]!
+  tr[o3 + 2] = m[8]! * x + m[9]! * y + m[10]! * z + m[11]!
+}
+
+const here = new Float64Array(3)
 const seg = new Float64Array(4)
 const vec = { x: 0, y: 0, z: 0 }
 const place = { x: 0, y: 0, z: 0 }
@@ -211,7 +274,7 @@ export const navAgents = defineSystem({
     markReplans(nav)
     for (let i = 0; i < nav.meshList.length; i++) dropStaleSlots(nav, nav.meshList[i]!)
     // Pass 0: grid agents' positions into the spatial hash for separation.
-    buildHash(s, nav)
+    buildHash(s, world, nav)
     // Pass 1: navigation, repaths, grid steering, crowd requests.
     let crowds = false
     for (let t = 0; t < s.query.tables.length; t++) {
@@ -236,7 +299,7 @@ export const navAgents = defineSystem({
 
 type State = ReturnType<NonNullable<typeof navAgents.setup>>
 
-function buildHash(s: State, nav: NavState): void {
+function buildHash(s: State, world: World, nav: NavState): void {
   let n = 0
   let maxR = 0.1
   for (let t = 0; t < s.query.tables.length; t++) {
@@ -255,8 +318,10 @@ function buildHash(s: State, nav: NavState): void {
         next.set(s.next)
         s.next = next
       }
-      s.gx[n] = tr[row * 3]!
-      s.gy[n] = tr[row * 3 + 1]!
+      loadParent(world, table.entities[row]!)
+      translationIn(tr, row * 3, here)
+      s.gx[n] = here[0]!
+      s.gy[n] = here[1]!
       s.gr[n] = radius[row]!
       s.gnav[n] = rec.nav
       if (radius[row]! > maxR) maxR = radius[row]!
@@ -357,9 +422,9 @@ function stepAgent(
     nav.agents.set(entity, rec)
   }
   const o3 = row * 3
-  pos[0] = c.translation[o3]!
-  pos[1] = c.translation[o3 + 1]!
-  pos[2] = c.translation[o3 + 2]!
+  // In the origin frame, where navmeshes and grids are (an agent in a Grid keeps its cell's).
+  loadParent(world, entity)
+  translationIn(c.translation, o3, pos)
   // DRIVES order: character, transform, velocity.
   const drive = c.drive[row]!
   rec.drive =
@@ -372,9 +437,9 @@ function stepAgent(
   const navEntity = locate(
     nav,
     c.nav[row]!,
-    pos[0],
-    pos[1],
-    pos[2],
+    pos[0]!,
+    pos[1]!,
+    pos[2]!,
     c.global[g12 + 3]!,
     c.global[g12 + 7]!,
     c.global[g12 + 11]!,
@@ -746,9 +811,14 @@ function applyDrive(
   }
   if (dt > 0) {
     const tr = table.column(Transform, 'translation') as Float32Array
-    tr[row * 3] = tr[row * 3]! + vx * dt
-    tr[row * 3 + 1] = tr[row * 3 + 1]! + vy * dt
-    tr[row * 3 + 2] = tr[row * 3 + 2]! + vz * dt
+    // The step is in the origin frame: into the parent's by its inverse rotation.
+    const m = parentInv
+    const dx = parentIdentity ? vx * dt : (m[0]! * vx + m[1]! * vy + m[2]! * vz) * dt
+    const dy = parentIdentity ? vy * dt : (m[4]! * vx + m[5]! * vy + m[6]! * vz) * dt
+    const dz = parentIdentity ? vz * dt : (m[8]! * vx + m[9]! * vy + m[10]! * vz) * dt
+    tr[row * 3] = tr[row * 3]! + dx
+    tr[row * 3 + 1] = tr[row * 3 + 1]! + dy
+    tr[row * 3 + 2] = tr[row * 3 + 2]! + dz
     table.markChanged(Transform, row)
   }
 }
@@ -1064,20 +1134,22 @@ function readCrowd(
   dim: number,
 ): void {
   const c = s.cols
-  const rec = nav.agents.get(table.entities[row]!)
+  const entity = table.entities[row]!
+  const rec = nav.agents.get(entity)
   if (rec?.kind !== 'mesh' || rec.crowdIndex < 0 || c.stopped[row] === 1) return
   const rt = nav.meshes.get(rec.nav)
   const agent = rt?.crowd?.agents[rec.crowdIndex]
   if (!agent || rec.count === 0) return
   const raw = agent.raw
   const o3 = row * 3
+  loadParent(world, entity)
   if (rec.status === BLOCKED) {
     // Waiting at a gate (0114): it stands. Moving the transform, it gives way where the crowd
     // pushes it, so a queue packs without overlap; otherwise physics places it.
     halt(s, world, table, row, rec, BLOCKED, dim)
     if (rec.drive === DRIVE_TRANSFORM && !rec.framed) {
-      c.translation[o3] = raw.get_npos(0)
-      c.translation[o3 + 2] = raw.get_npos(2)
+      translationIn(c.translation, o3, here)
+      setTranslation(c.translation, o3, raw.get_npos(0), here[1]!, raw.get_npos(2))
       table.markChanged(Transform, row)
     }
     return
@@ -1088,10 +1160,11 @@ function readCrowd(
   let vx = raw.get_vel(0)
   let vy = raw.get_vel(1)
   let vz = raw.get_vel(2)
-  // Where it is, in the navmesh's space (a framed navmesh's own; the Transform's otherwise).
-  const hx = rec.framed ? rec.lpos[0]! : c.translation[o3]!
-  const hy = rec.framed ? rec.lpos[1]! : c.translation[o3 + 1]!
-  const hz = rec.framed ? rec.lpos[2]! : c.translation[o3 + 2]!
+  // Where it is, in the navmesh's space (a framed navmesh's own; the origin frame otherwise).
+  if (!rec.framed) translationIn(c.translation, o3, here)
+  const hx = rec.framed ? rec.lpos[0]! : here[0]!
+  const hy = rec.framed ? rec.lpos[1]! : here[1]!
+  const hz = rec.framed ? rec.lpos[2]! : here[2]!
   // Toward the leg's end (0114): the path's end, or a gate it has to breach.
   const end = rec.legEnd
   const ex = end[0]! - hx
@@ -1155,10 +1228,7 @@ function readCrowd(
       applyDrive(table, row, rec, vx, vy, vz, dt, dim, rt)
       rec.drive = drive
     } else {
-      const tr = c.translation
-      tr[o3] = px
-      tr[o3 + 1] = y
-      tr[o3 + 2] = pz
+      setTranslation(c.translation, o3, px, y, pz)
       table.markChanged(Transform, row)
     }
     if (rec.drive !== DRIVE_TRANSFORM) applyDrive(table, row, rec, 0, 0, 0, 0, dim, rt)

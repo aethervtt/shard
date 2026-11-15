@@ -12,6 +12,7 @@ export {
   type OriginShiftData,
   originMatrix64,
   type Placement,
+  parentFrame64,
   placeInGrid,
   placementOf,
   reparentToGrid,

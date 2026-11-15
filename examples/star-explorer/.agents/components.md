@@ -2498,7 +2498,7 @@ Heightfield terrain: vertex fetch from streamed pages, geomorphing between level
 | `skirts1` | number[4] | `[0,0,0,0]` |  | Set by the terrain: skirt depth per depth (4–7). |
 | `skirts2` | number[4] | `[0,0,0,0]` |  | Set by the terrain: skirt depth per depth (8–11). |
 | `debug` | number[4] | `[0,0,0,0]` |  | Set by the terrain: debug mode (0 off, 1 layers, 2 seams, 3 levels, 4 normals, 5 pages), has albedo, has ORM, texture period. |
-| `maps` | number[4] | `[0,0,0,0]` |  | Set by the terrain: normal maps on (x). |
+| `maps` | number[4] | `[0,0,0,0]` |  | Set by the terrain: normal maps on (x), the leaf depth (y), holes on (z), leaf samples per paint texel (w). |
 | `previewShape` | number[4] | `[0,0,0,0]` |  | Set by the terrain: preview kind (0 none, 1 circle, 2 polygon, 3 path), points, radius or half width, second ring offset (m). |
 | `previewColor` | number[4] | `[0,0,0,0]` |  | Set by the terrain: preview color (rgb) and fill opacity (a). |
 | `previewA` | number[16] | `[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]` |  | Set by the terrain: preview points 0–7. |
@@ -3030,7 +3030,7 @@ A body of water (0097): its surface joins the shared water surface, shaded in th
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `kind` | `"ocean"` \| `"lake"` | `"ocean"` |  | ocean: a level (the entity’s y) everywhere, or inside a closed WaterSpline when it has one. lake: water inside a closed WaterSpline at the entity’s y. |
+| `kind` | `"ocean"` \| `"lake"` \| `"river"` | `"ocean"` |  | ocean: a level (the entity’s y) everywhere, or inside a closed WaterSpline when it has one. lake: water inside a closed WaterSpline at the entity’s y. river: along an open WaterSpline, each point its surface height (y), width, depth and flow (0123). |
 | `optics` | null or water/WaterOptics ref | `null` |  | How the water absorbs and scatters light (*.water.json). Presets: water/clear, ocean, coastal, lake, river, murky and pool (.water.json). Without one: clear, and a water/no-optics warning. |
 | `priority` | integer | `0` | ≥ -2147483648, ≤ 2147483647 | Where bodies overlap, the highest priority is the water there (ties: the later entity). |
 | `wind` | `"global"` \| `"own"` | `"global"` |  | global: ripples follow wind/Wind and its WindZones at the surface. own: windSpeed and windDirection instead (a sheltered pond, a storm on one lake). |
@@ -3039,12 +3039,12 @@ A body of water (0097): its surface joins the shared water surface, shaded in th
 
 ## `water/WaterSpline`
 
-The outline of a water body (0097): a lake, or the shore that bounds an ocean so it doesn’t flood inland basins.
+The outline of a water body (0097): a lake, the shore that bounds an ocean so it doesn’t flood inland basins, or a river’s course (0123).
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `points` | object[] | `[]` |  | Points a uniform Catmull-Rom spline passes through: a lake’s or a bounded ocean’s shore, at least 3, in the entity’s frame. |
-| `closed` | boolean | `true` |  | Lakes and bounded oceans are closed: the outline wraps back to its first point. |
+| `points` | object[] | `[]` |  | Points a uniform Catmull-Rom spline passes through, in the entity’s frame: a lake’s or a bounded ocean’s shore (at least 3, closed), or a river’s course from source to mouth (at least 2, open). |
+| `closed` | boolean | `true` |  | Lakes and bounded oceans are closed: the outline wraps back to its first point. Rivers are open. |
 
 ## `wind/WindState`
 

@@ -67,7 +67,8 @@ optics (0099), and interaction (0100) are opt-in plugins on top of it.
   `water.sample`, `render.capture { debug: 'water-info' }`; `water/bad-spline`, `water/no-optics`.
   Of the goals, part 1 meets: oceans and lakes; shading except shore foam and river flow; `waterAt`
   except flow and masks; both tiers; opt-in.
-- **Part 2:** rivers and flow (two-phase flow maps, the river-to-lake blend), `WaterVolume` and
+- **Part 2:** rivers and flow (two-phase flow maps, the river-to-lake blend; built as 0123, with
+  bodies chosen by distance), `WaterVolume` and
   sides (back-face thickness, the meniscus, tanks, blobs), `WaterMask`s, shore distance and shore
   foam, the `WaterFloor` ground pass, `render.capture`'s `water-thickness` and `water-masks`, the
   `make-water.md` skill, and the errors that come with them (`water/not-convex`,

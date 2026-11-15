@@ -8,11 +8,13 @@ import {
   type World,
 } from '@aethervtt/shard-core'
 import { sampleCatmullRom } from '@aethervtt/shard-mesh'
+import { Camera3d, viewCamera } from '@aethervtt/shard-render'
 import { LogResource } from '@aethervtt/shard-runtime'
 import { type HeightfieldRuntime, TerrainWorld } from '@aethervtt/shard-terrain'
 import { GlobalTransform } from '@aethervtt/shard-transform'
 import { WaterBody, type WaterKind, WaterSpline } from './components'
 import { resolveOptics, WATER_OPTICS_PRESETS, type WaterOpticsValue } from './optics'
+import { blendMouth, buildRiver, RIVER_STRIDE, type RiverShape, resetMouths } from './rivers'
 
 /** Bodies the water surface draws at once (and the info texture's body index holds). */
 export const MAX_WATER_BODIES = 64
@@ -42,8 +44,10 @@ export interface WaterBodyRecord {
   /** The surface's height: the entity's world y. */
   level: number
   priority: number
-  /** null: an ocean with no outline, everywhere. */
+  /** null: an ocean with no outline, everywhere (or a river: see `river`). */
   shape: WaterShape | null
+  /** A river's centre line, banks, heights and flow (spec 0123). */
+  river: RiverShape | null
   optics: WaterOpticsValue
   opticsRef: AssetRef | null
   /** No optics asset: `clear` is used (water/no-optics). */
@@ -62,14 +66,37 @@ export interface WaterBodyRecord {
   problem: ShardError | null
 }
 
+/** Whether a body covers everything (an ocean with no outline). */
+export const unboundedBody = (r: WaterBodyRecord) => r.shape === null && r.river === null
+
+/** A body's bounds (minX, minZ, maxX, maxZ), or undefined when it covers everything. */
+export function bodyBounds(r: WaterBodyRecord): Float64Array | undefined {
+  return r.shape?.bounds ?? r.river?.bounds
+}
+
+/** Metres per cell of the grid `waterAt` finds bodies in (spec 0123). */
+export const BODY_CELL = 64
+/** A body covering more cells than this is tested everywhere instead (bounds first). */
+const MAX_BODY_CELLS = 4096
+/** The camera moves this far (m) before the drawn bodies are chosen again. */
+export const CHOOSE_DISTANCE = 32
+
 /** Every body this frame, in the order they draw: priority, then entity. */
 export class WaterBodiesState {
   readonly records = new Map<Entity, WaterBodyRecord>()
-  /** Drawn bodies (no problem), sorted; `count` are valid. */
+  /** Every valid body (no problem), in priority order: what `waterAt` finds (spec 0123). */
+  all: WaterBodyRecord[] = []
+  /** Grid cell → indices into `all`, ascending; `wide` holds those everywhere (oceans, huge ones). */
+  readonly grid = new Map<number, number[]>()
+  wide: number[] = []
+  /** Drawn bodies: at most MAX_WATER_BODIES of `all`, nearest the view camera, in priority order. */
   readonly sorted: WaterBodyRecord[] = []
   count = 0
-  /** Bodies past MAX_WATER_BODIES that don't draw (the lowest priorities). */
+  /** Valid bodies that don't draw: past MAX_WATER_BODIES, the farthest from the camera. */
   skipped = 0
+  /** The camera position the drawn bodies were chosen at (NaN: none). */
+  chosenX = Number.NaN
+  chosenZ = Number.NaN
   /** Bumps when anything the info texture holds changes: bodies, levels, outlines, order. */
   version = 0
   /** Whether a body without an outline (an unbounded ocean) is present, and the highest one's level. */
@@ -373,13 +400,27 @@ function refresh(
   record.shape = null
   const spline = world.tryGet(record.entity, WaterSpline)
   record.hasSpline = spline !== undefined
+  record.river = null
   try {
-    if (spline) {
+    if (record.kind === 'river') {
+      if (!spline || spline.closed) {
+        throw badSpline(
+          record.entity,
+          spline ? 'a river’s spline is closed' : 'a river needs a water/WaterSpline',
+          'Give it a water/WaterSpline with closed: false and points along its course (position, width, depth, flow).',
+        )
+      }
+      record.river = buildRiver(record.entity, spline.points, m)
+      let lowest = Infinity
+      for (let i = 0; i < record.river.count; i++)
+        lowest = Math.min(lowest, record.river.samples[i * RIVER_STRIDE + 2]!)
+      record.level = lowest
+    } else if (spline) {
       if (!spline.closed) {
         throw badSpline(
           record.entity,
           'its outline is open',
-          'Lakes and bounded oceans need closed: true (rivers come with 0097 part 2).',
+          'Lakes and bounded oceans need closed: true; a river is kind: river (0123).',
         )
       }
       record.shape = buildShape(record.entity, spline.points, m)
@@ -423,6 +464,7 @@ const zero = (): WaterBodyRecord => ({
   level: 0,
   priority: 0,
   shape: null,
+  river: null,
   optics: WATER_OPTICS_PRESETS.clear,
   opticsRef: null,
   missingOptics: false,
@@ -490,15 +532,17 @@ const before = (a: WaterBodyRecord, b: WaterBodyRecord) =>
 
 /**
  * Gathers WaterBody entities each frame (after transforms): re-reads a body when it or its outline
- * changed, sorts them by priority, and bumps `version` when what the info texture holds changes.
- * Allocates nothing while nothing changes.
+ * changed, sorts them by priority, chooses the ones that draw (nearest the view camera past
+ * MAX_WATER_BODIES, 0123), and bumps `version` when what the info texture holds changes. Allocates
+ * nothing while nothing changes.
  */
 export const gatherWaterBodies = defineSystem({
   name: 'water/bodies',
   description:
     'Gathers WaterBody entities after transforms: outlines (tessellated, triangulated) on change, optics, priority order, and the terrains under them.',
-  setup: (world): { bodies: Query } => ({
+  setup: (world): { bodies: Query; cameras: Query } => ({
     bodies: world.query({ with: [WaterBody, GlobalTransform] }),
+    cameras: world.query({ with: [Camera3d, GlobalTransform] }),
   }),
   run: (s, world, ctx) => {
     const state = world.resource(WaterBodies)
@@ -544,10 +588,28 @@ export const gatherWaterBodies = defineSystem({
         }
       }
     }
-    if (changed) {
-      sortBodies(state)
-      state.version++
+    if (changed) sortBodies(state)
+    // The drawn bodies: chosen again when the bodies change or the camera has moved (0123).
+    const camera = viewCamera(s.cameras)
+    let cx = Number.NaN
+    let cz = Number.NaN
+    if (camera !== undefined) {
+      const m = world.entityTable(camera).column(GlobalTransform, 'matrix')
+      const o = world.entityRow(camera) * 12
+      cx = m[o + 3]!
+      cz = m[o + 11]!
     }
+    const dx = cx - state.chosenX
+    const dz = cz - state.chosenZ
+    const moved =
+      Number.isNaN(cx) !== Number.isNaN(state.chosenX) ||
+      dx * dx + dz * dz > CHOOSE_DISTANCE * CHOOSE_DISTANCE
+    if (
+      (changed || (moved && state.all.length > MAX_WATER_BODIES)) &&
+      chooseBodies(state, cx, cz, changed)
+    )
+      changed = true
+    if (changed) state.version++
     // The terrains waterAt reads, and whether the ground under the water changed.
     const before = state.terrainVersion
     state.terrainCount = 0
@@ -562,14 +624,112 @@ export const gatherWaterBodies = defineSystem({
   },
 })
 
-/** Sorts drawn bodies (no problem) into `sorted`, and the summary fields. On change only. */
+/**
+ * Sorts every valid body (no problem) into `all` by priority, eases rivers into the bodies they
+ * run into, and grids them for `waterAt` (0123). On change only.
+ */
 function sortBodies(state: WaterBodiesState): void {
   const list: WaterBodyRecord[] = []
   for (const r of state.records.values()) if (!r.problem) list.push(r)
   list.sort((a, b) => (before(a, b) ? -1 : before(b, a) ? 1 : 0))
-  // Past MAX_WATER_BODIES, the highest priorities draw (describe reports how many didn't).
-  const drawn = list.slice(Math.max(0, list.length - MAX_WATER_BODIES))
-  state.skipped = list.length - drawn.length
+  state.all = list
+  blendMouths(list)
+  state.grid.clear()
+  state.wide = []
+  for (let i = 0; i < list.length; i++) {
+    const b = bodyBounds(list[i]!)
+    if (!b) {
+      state.wide.push(i)
+      continue
+    }
+    const c0 = Math.floor(b[0]! / BODY_CELL)
+    const c1 = Math.floor(b[2]! / BODY_CELL)
+    const r0 = Math.floor(b[1]! / BODY_CELL)
+    const r1 = Math.floor(b[3]! / BODY_CELL)
+    if ((c1 - c0 + 1) * (r1 - r0 + 1) > MAX_BODY_CELLS) {
+      state.wide.push(i)
+      continue
+    }
+    for (let r = r0; r <= r1; r++) {
+      for (let c = c0; c <= c1; c++) {
+        const key = cellKey(c, r)
+        let cell = state.grid.get(key)
+        if (!cell) {
+          cell = []
+          state.grid.set(key, cell)
+        }
+        cell.push(i)
+      }
+    }
+  }
+}
+
+/** A grid cell's key: exact for cells within ±2^25 of the origin (2 000 000 km). */
+export function cellKey(c: number, r: number): number {
+  return (c + 2 ** 25) * 2 ** 26 + (r + 2 ** 25)
+}
+
+/** Each river's ends, eased into the highest-priority lake or ocean they lie in (0123). */
+function blendMouths(all: WaterBodyRecord[]): void {
+  for (const river of all) {
+    const shape = river.river
+    if (!shape) continue
+    resetMouths(shape)
+    for (const end of [0, 1] as const) {
+      const o = (end === 0 ? 0 : shape.count - 1) * RIVER_STRIDE
+      const x = shape.samples[o]!
+      const z = shape.samples[o + 1]!
+      for (let i = all.length - 1; i >= 0; i--) {
+        const r = all[i]!
+        if (r === river || r.river) continue
+        if (r.shape === null || insideShape(r.shape, x, z)) {
+          blendMouth(shape, end, r.level)
+          break
+        }
+      }
+    }
+  }
+}
+
+const distances: number[] = []
+const order: number[] = []
+
+/**
+ * Chooses the drawn bodies (0123): every valid body when MAX_WATER_BODIES hold them, else those
+ * whose bounds are nearest the camera's (x, z) (unbounded ones at 0; without a camera, the highest
+ * priorities), in priority order, and the summary fields. Returns whether the set changed.
+ */
+function chooseBodies(state: WaterBodiesState, cx: number, cz: number, force: boolean): boolean {
+  state.chosenX = cx
+  state.chosenZ = cz
+  const all = state.all
+  order.length = 0
+  if (all.length <= MAX_WATER_BODIES) {
+    for (let i = 0; i < all.length; i++) order.push(i)
+  } else if (Number.isNaN(cx)) {
+    for (let i = all.length - MAX_WATER_BODIES; i < all.length; i++) order.push(i)
+  } else {
+    distances.length = all.length
+    for (let i = 0; i < all.length; i++) {
+      const b = bodyBounds(all[i]!)
+      if (!b) {
+        distances[i] = 0
+        continue
+      }
+      const dx = Math.max(b[0]! - cx, 0, cx - b[2]!)
+      const dz = Math.max(b[1]! - cz, 0, cz - b[3]!)
+      distances[i] = dx * dx + dz * dz
+    }
+    for (let i = 0; i < all.length; i++) order.push(i)
+    order.sort((a, b) => distances[a]! - distances[b]! || b - a)
+    order.length = MAX_WATER_BODIES
+    order.sort((a, b) => a - b)
+  }
+  let same = order.length === state.count
+  for (let i = 0; same && i < order.length; i++) same = state.sorted[i] === all[order[i]!]
+  state.skipped = all.length - order.length
+  if (same && !force) return false
+  const drawn = order.map((i) => all[i]!)
   state.sorted.length = 0
   state.sorted.push(...drawn)
   state.count = drawn.length
@@ -579,17 +739,18 @@ function sortBodies(state: WaterBodiesState): void {
   state.bounds.set([Infinity, Infinity, -Infinity, -Infinity])
   for (const r of drawn) {
     state.lowest = Math.min(state.lowest, r.level)
-    if (!r.shape) {
+    const b = bodyBounds(r)
+    if (!b) {
       // The last unbounded body drawn is the one on top far away.
       state.unbounded = true
       state.farLevel = r.level
       continue
     }
-    const b = r.shape.bounds
     state.bounds[0] = Math.min(state.bounds[0]!, b[0]!)
     state.bounds[1] = Math.min(state.bounds[1]!, b[1]!)
     state.bounds[2] = Math.max(state.bounds[2]!, b[2]!)
     state.bounds[3] = Math.max(state.bounds[3]!, b[3]!)
   }
   if (state.count === 0) state.lowest = 0
+  return true
 }

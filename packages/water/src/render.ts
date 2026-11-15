@@ -14,7 +14,7 @@ import {
   viewBindGroup,
 } from '@aethervtt/shard-render'
 import type { WaterBodiesState } from './bodies'
-import { MAX_WATER_BODIES } from './bodies'
+import { MAX_WATER_BODIES, unboundedBody } from './bodies'
 import {
   type InfoClipmap,
   levelTexel,
@@ -24,6 +24,7 @@ import {
   SurfaceRings,
 } from './clipmap'
 import { bakeRipples, RIPPLE_SIZE } from './ripples'
+import { riverFloats, riverTriangles } from './rivers'
 import {
   INFO_LEVELS,
   INFO_SIZE,
@@ -289,35 +290,38 @@ export class WaterGpu {
   uploadBodies(state: WaterBodiesState): void {
     if (state.version === this.bodyVersion) return
     this.bodyVersion = state.version
+    // Six floats a corner: x, z, surface height, draw slot, flow x, flow z (0123).
     let floats = 0
     for (let i = 0; i < state.count; i++) {
-      const s = state.sorted[i]!.shape
-      floats += s ? (s.triangles.length / 2) * 4 : 6 * 4
+      const r = state.sorted[i]!
+      floats += r.river ? riverFloats(r.river) : r.shape ? (r.shape.triangles.length / 2) * 6 : 36
     }
     if (this.bodyScratch.length < floats) this.bodyScratch = new Float32Array(floats * 2)
     const out = this.bodyScratch
     let o = 0
+    const corner = (x: number, z: number, level: number, slot: number) => {
+      out[o++] = x
+      out[o++] = z
+      out[o++] = level
+      out[o++] = slot
+      out[o++] = 0
+      out[o++] = 0
+    }
     for (let i = 0; i < state.count; i++) {
       const r = state.sorted[i]!
+      if (r.river) {
+        o = riverTriangles(r.river, i, out, o)
+        continue
+      }
       const t = r.shape?.triangles
       if (!t) {
         // An unbounded ocean covers everything: two triangles far past any level.
-        for (let k = 0; k < 12; k += 2) {
-          out[o++] = EVERYWHERE[k]!
-          out[o++] = EVERYWHERE[k + 1]!
-          out[o++] = r.level
-          out[o++] = i
-        }
+        for (let k = 0; k < 12; k += 2) corner(EVERYWHERE[k]!, EVERYWHERE[k + 1]!, r.level, i)
         continue
       }
-      for (let k = 0; k < t.length; k += 2) {
-        out[o++] = t[k]!
-        out[o++] = t[k + 1]!
-        out[o++] = r.level
-        out[o++] = i
-      }
+      for (let k = 0; k < t.length; k += 2) corner(t[k]!, t[k + 1]!, r.level, i)
     }
-    this.bodyVertexCount = o / 4
+    this.bodyVertexCount = o / 6
     if (o > 0) this.bodyVertices.write(out, 0, 0, o)
   }
 
@@ -412,10 +416,10 @@ function infoPipelines(ctx: NodeContext, water: WaterGpu) {
       entryPoint: 'body_vs',
       buffers: [
         {
-          arrayStride: 16,
+          arrayStride: 24,
           attributes: [
             { shaderLocation: 0, offset: 0, format: 'float32x2' },
-            { shaderLocation: 1, offset: 8, format: 'float32x2' },
+            { shaderLocation: 1, offset: 8, format: 'float32x4' },
           ],
         },
       ],
@@ -423,10 +427,9 @@ function infoPipelines(ctx: NodeContext, water: WaterGpu) {
     fragment: {
       module: fs,
       entryPoint: 'body_fs',
-      targets: [
-        { format: 'rgba32float', writeMask: GPUColorWrite.RED },
-        { format: 'rg8unorm', writeMask: GPUColorWrite.RED },
-      ],
+      // Both targets whole (one write mask for every target, as compatibility mode wants): the
+      // ground is read back from the level's copy.
+      targets: [{ format: 'rgba32float' }, { format: 'rg8unorm' }],
     },
   })
   if (ground) water.pipelines.set('info/ground', ground)
@@ -527,7 +530,7 @@ function writeUniform(
     o += 4
   }
   let far = -1
-  for (let i = 0; i < state.count; i++) if (!state.sorted[i]!.shape) far = i
+  for (let i = 0; i < state.count; i++) if (unboundedBody(state.sorted[i]!)) far = i
   d[o] = far >= 0 ? state.farLevel : NO_WATER
   d[o + 1] = state.lowest - 20
   d[o + 2] = RING_CELLS

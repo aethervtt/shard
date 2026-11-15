@@ -4,6 +4,7 @@ import {
   type DecodedPage,
   LEAF_SIDE,
   leafNormals,
+  type NearPage,
   type NoiseAccess,
   pageTexels,
   patchLeaf,
@@ -11,6 +12,7 @@ import {
   SIDE,
   type Stack,
 } from './kernel'
+import type { NearBake } from './near'
 import {
   PACK_INDEX_BYTES,
   type PackEntry,
@@ -39,6 +41,15 @@ export function keyX(key: number): number {
 export function keyZ(key: number): number {
   return Math.floor(key / 2 ** 20) % 2 ** 20
 }
+
+/**
+ * Who wants a page, for a near bake's queue (spec 0119), most urgent first: a collider tile or a
+ * query, the resident levels, the camera's selection, then prefetch around anchors.
+ */
+export const BAND_ANCHOR = 3
+export const BAND_RESIDENT = 2
+export const BAND_CAMERA = 1
+export const BAND_PREFETCH = 0
 
 /** A page as streaming and queries use it. */
 export interface LoadedPage {
@@ -71,6 +82,8 @@ export class PageStore {
   readonly lo: number
   readonly hi: number
   workers: Workers | undefined
+  /** A near terrain's page source (spec 0119): pages bake here instead of being read from packs. */
+  near: NearBake | undefined
   /** Extra milliseconds before every read resolves (tests: a slow disk). */
   delayMs = 0
   /** Pages kept decoded on the CPU, besides pinned ones. */
@@ -106,6 +119,7 @@ export class PageStore {
   entry(depth: number, x: number, z: number): PackEntry | undefined {
     const o = this.overrides.get(nodeKey(depth, x, z))
     if (o) return { offset: 0, length: 1, min: o.min, max: o.max, error: o.error }
+    if (this.near) return this.near.entry(depth, x, z)
     const { path, slot } = packOf(depth, x, z)
     const index = this.indexes.get(path)
     const e = index?.entries[slot]
@@ -139,6 +153,7 @@ export class PageStore {
 
   /** Whether a node's pack index is loaded (or known missing). */
   hasIndex(depth: number, x: number, z: number): boolean {
+    if (this.near) return true
     return this.indexes.has(packOf(depth, x, z).path)
   }
 
@@ -154,6 +169,11 @@ export class PageStore {
     return p
   }
 
+  /** Whether a page is decoded in the CPU cache (without marking it used). */
+  has(key: number): boolean {
+    return this.overrides.has(key) || this.cache.has(key)
+  }
+
   /** Whether a read for this page is under way. */
   loading(key: number): boolean {
     return this.inflight.has(key)
@@ -165,18 +185,53 @@ export class PageStore {
   }
 
   /**
-   * Reads, inflates and decodes a page (once, however many ask), into the CPU cache. Undefined
-   * past the terrain's edge or when the pack doesn't have it.
+   * Reads, inflates and decodes a page (once, however many ask), into the CPU cache; on a near
+   * terrain, bakes it, queued by `band` then `priority`. Undefined past the terrain's edge or when
+   * the pack doesn't have it.
    */
-  load(depth: number, x: number, z: number): Promise<LoadedPage | undefined> {
+  load(
+    depth: number,
+    x: number,
+    z: number,
+    band = BAND_CAMERA,
+    priority = 0,
+  ): Promise<LoadedPage | undefined> {
     const key = nodeKey(depth, x, z)
     const cached = this.overrides.get(key) ?? this.cache.get(key)
     if (cached) return Promise.resolve(cached)
     let p = this.inflight.get(key)
-    if (p) return p
-    p = this.read(depth, x, z, key).finally(() => this.inflight.delete(key))
+    if (p) {
+      this.near?.promote(key, band, priority)
+      return p
+    }
+    p = (
+      this.near ? this.bakeNear(depth, x, z, key, band, priority) : this.read(depth, x, z, key)
+    ).finally(() => this.inflight.delete(key))
     this.inflight.set(key, p)
     return p
+  }
+
+  /** A near page (spec 0119): baked by the near source, into the CPU cache. */
+  private async bakeNear(
+    depth: number,
+    x: number,
+    z: number,
+    key: number,
+    band: number,
+    priority: number,
+  ): Promise<LoadedPage | undefined> {
+    const [nx, nz] = this.nodesAt(depth)
+    if (x < 0 || z < 0 || x >= nx || z >= nz) return undefined
+    const near = this.near!
+    const baked = await near.request(depth, x, z, band, priority)
+    if (this.delayMs > 0) await new Promise((r) => setTimeout(r, this.delayMs))
+    // Edited, or baked inline for a tile that came due, while the job was out: that page stands.
+    const held = this.overrides.get(key) ?? this.cache.get(key)
+    if (held) return held
+    if (this.near !== near) return undefined
+    const page = nearLoaded(key, depth, x, z, depth === this.layout.depth, baked, near)
+    this.put(page)
+    return page
   }
 
   private async read(depth: number, x: number, z: number, key: number) {
@@ -243,6 +298,21 @@ export class PageStore {
     }
   }
 
+  /** Puts a page the near source baked into the CPU cache (spec 0119: the resident levels). */
+  adoptNear(depth: number, x: number, z: number, baked: NearPageData): LoadedPage {
+    const page = nearLoaded(
+      nodeKey(depth, x, z),
+      depth,
+      x,
+      z,
+      depth === this.layout.depth,
+      baked,
+      this.near!,
+    )
+    this.put(page)
+    return page
+  }
+
   /**
    * A leaf page now: from the cache, else baked on this thread from the stack (exactly the pack's
    * bytes, spec 0071). Colliders use it on the frame a tile is due, so when a read lands never
@@ -253,7 +323,10 @@ export class PageStore {
     const key = nodeKey(depth, x, z)
     const cached = this.get(key)
     if (cached) return cached
-    const page = this.bakeLeaf(noise, stack, x, z)
+    const near = this.near
+    const page = near
+      ? nearLoaded(key, depth, x, z, true, near.bakeNow(depth, x, z), near)
+      : this.bakeLeaf(noise, stack, x, z)
     this.stats.bakedInline++
     this.put(page)
     return page
@@ -389,6 +462,36 @@ export class PageStore {
     this.cache.clear()
     this.pinned.clear()
     this.overrides.clear()
+  }
+}
+
+/** What the cache takes of a near page (kernel.js NearPage). */
+type NearPageData = Pick<NearPage, 'heights' | 'normals' | 'control' | 'texels' | 'min' | 'max'>
+
+/** A near page (kernel.js NearPage) as the cache holds it, with its recorded entry. */
+function nearLoaded(
+  key: number,
+  depth: number,
+  x: number,
+  z: number,
+  leaf: boolean,
+  baked: NearPageData,
+  near: NearBake,
+): LoadedPage {
+  const e = near.entry(depth, x, z)
+  return {
+    key,
+    depth,
+    x,
+    z,
+    leaf,
+    heights: baked.heights,
+    normals: baked.normals,
+    control: baked.control,
+    texels: baked.texels,
+    min: e?.min ?? baked.min,
+    max: e?.max ?? baked.max,
+    error: e?.error ?? 0,
   }
 }
 

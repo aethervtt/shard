@@ -60,6 +60,9 @@ export interface PlacementJob {
  * and masks at candidate points. Planets (0043), meshes (`ScatterSurface`) and heightfield terrains
  * (0071, `Terrain.scatter`) implement it.
  */
+/** A field's density 0–1 at `count` points (x, z pairs), into `out` (0121). */
+export type FieldSampler = (xz: Float64Array, count: number, out: Float32Array) => void
+
 export interface Surface {
   readonly entity: Entity
   readonly kind: 'planet' | 'mesh' | 'heightfield'
@@ -72,6 +75,13 @@ export interface Surface {
   readonly masks: readonly (NoiseGraph | undefined)[]
   /** Takes new rules (and their loaded masks); bumps `version`. */
   configure(rules: CompiledRule[], masks: (NoiseGraph | undefined)[], version: number): void
+  /**
+   * A field (0121) by name, from the surface's terrain generator: density 0–1 at points (x, z
+   * pairs in the surface's frame). Only heightfields have them.
+   */
+  resolveField?(name: string): FieldSampler | undefined
+  /** The fields `resolveField` knows, for hints. */
+  fieldNames?(): string[]
   /** Whether the surface can place (its graphs and sets are loaded). */
   readonly ready: boolean
   /** Viewer positions in the surface's frame: cameras, then (for props) anchors. Returns the count of each. */

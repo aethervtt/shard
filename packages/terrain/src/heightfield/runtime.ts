@@ -1,18 +1,27 @@
 import { assetServer } from '@aethervtt/shard-assets'
 import { type AssetRef, type Entity, ShardError, type World } from '@aethervtt/shard-core'
+import { loadNoiseKernel } from '@aethervtt/shard-noise'
 import type { PlatformFileSystem, Workers } from '@aethervtt/shard-platform'
 import { LogResource } from '@aethervtt/shard-runtime'
 import { PlanetFrame } from '../frame'
 import { TerrainWorld } from '../heights'
 import { capErrors } from '../lod'
 import { createSelection, NODE_BOUNDS, NODE_READY, QuadTree } from '../quadtree'
-import { type BakeManifest, type BakeReport, bakeTerrain, editsDigest, readManifest } from './bake'
+import {
+  type BakeManifest,
+  type BakeReport,
+  bakeSourceHash,
+  bakeTerrain,
+  readManifest,
+} from './bake'
 import { Terrain } from './component'
 import { heightfieldEditorOf } from './editor'
 import { TerrainEdits } from './edits'
+import { findTerrainGenerator } from './generator'
 import { dequantize, LEAF_SIDE, PAGE, type Stack } from './kernel'
+import { NearBake } from './near'
 import { fsPackStore, memoryPackStore, type PackStore } from './pack'
-import { nodeKey, PageStore } from './pages'
+import { BAND_RESIDENT, nodeKey, PageStore } from './pages'
 import { stackFor, terrainCacheDir } from './project'
 import { RootGrid } from './root-grid'
 import type { TerrainLayout } from './source'
@@ -118,6 +127,13 @@ export class HeightfieldRuntime {
   /** The source hash the pages and manifest match. */
   private bakedHash = ''
   private generation = 0
+  /** The generators' revisions the stack was compiled with (spec 0119: a redefinition rebakes). */
+  private generatorRevisions: number[] = []
+  /** The near bake's error table version the selection errors are from. */
+  private nearErrors = -1
+  /** Generators this terrain is waiting for, already warned about. */
+  private readonly warnedGenerators = new Set<string>()
+  private clippedWarned = false
 
   constructor(entity: Entity) {
     this.entity = entity
@@ -197,7 +213,7 @@ export class HeightfieldRuntime {
       this.waiting = `terrain source ${ref.path ?? ref.guid}`
       return
     }
-    if (asset !== this.asset || asset.version !== this.assetVersion) {
+    if (asset !== this.asset || asset.version !== this.assetVersion || this.generatorsChanged()) {
       try {
         this.stack = stackFor(world, asset)
       } catch (err) {
@@ -206,9 +222,21 @@ export class HeightfieldRuntime {
           this.waiting = e.path ?? 'its assets'
           return
         }
+        if (e.code === 'terrain/unknown-generator') {
+          // The project's code may define it later (spec 0119): wait, and say so once.
+          this.waiting = `terrain generator ${e.message.match(/"(.*)"/)?.[1] ?? ''}`.trim()
+          if (!this.warnedGenerators.has(e.message)) {
+            this.warnedGenerators.add(e.message)
+            world.tryResource(LogResource)?.warn(e.message, { code: e.code, hint: e.hint })
+          }
+          return
+        }
         this.report(world, e)
         return
       }
+      this.generatorRevisions = this.stack.generators.map(
+        (g) => findTerrainGenerator(g.name)?.revision ?? -1,
+      )
       const layoutChanged = JSON.stringify(asset.layout) !== JSON.stringify(this.layout)
       this.asset = asset
       this.assetVersion = asset.version
@@ -252,7 +280,116 @@ export class HeightfieldRuntime {
       }
       void this.prepare(world, env)
     }
+    // A near bake's error table grows as deeper pages bake (spec 0119).
+    const near = this.pages?.near
+    if (near && this.streaming && near.errorsVersion !== this.nearErrors) {
+      this.nearErrors = near.errorsVersion
+      near.selectionErrors(this.rawErrors)
+      settingsChanged = true
+    }
     if (settingsChanged) this.capErrors()
+  }
+
+  /** Whether a generator the stack uses was defined again since it compiled (hot reload). */
+  private generatorsChanged(): boolean {
+    const gens = this.stack?.generators
+    if (!gens || gens.length === 0) return false
+    for (let i = 0; i < gens.length; i++)
+      if ((findTerrainGenerator(gens[i]!.name)?.revision ?? -1) !== this.generatorRevisions[i])
+        return true
+    return false
+  }
+
+  /** The coarse levels kept loaded: `residentDepth`, or the deepest whose pages fit RESIDENT_BYTES. */
+  private residentLevels(pages: PageStore): number {
+    const D = this.layout!.depth
+    const per = pageGpuBytes(this.layout!)
+    let resident = this.settings!.residentDepth
+    if (resident < 0) {
+      resident = 0
+      let bytes = 0
+      for (let d = 0; d <= D; d++) {
+        const [nx, nz] = pages.nodesAt(d)
+        bytes += nx * nz * per
+        if (bytes > RESIDENT_BYTES) break
+        resident = d
+      }
+    }
+    return Math.min(D, resident)
+  }
+
+  /**
+   * A near terrain (spec 0119): no packs; the pages of the resident levels bake (straight from
+   * the stack) and streaming starts. Every other page bakes when something wants it. Again after a
+   * source or generator change: pages already drawn are replaced as they bake again.
+   */
+  private async prepareNear(world: World, generation: number): Promise<void> {
+    const stack = this.stack!
+    const pages = this.pages!
+    this.bake = 'checking'
+    try {
+      await loadNoiseKernel()
+      if (generation !== this.generation) return
+      let near = pages.near
+      if (!near) {
+        near = new NearBake(stack, this.layout!, pages.workers)
+        near.onEntry = (d, x, z) => {
+          const n = this.nodeOf(d, x, z)
+          if (n >= 0) this.refreshBounds(n)
+        }
+        near.onClipped = (d, x, z, page) => {
+          if (this.clippedWarned) return
+          this.clippedWarned = true
+          const size = this.nodeSize(d)
+          world
+            .tryResource(LogResource)
+            ?.warn(
+              `${page.clipped} heights of page ${d}/${x}/${z} ([${x * size}, ${z * size}] +${size} m) fall outside heightRange [${this.lo}, ${this.hi}] (from ${page.lowest.toFixed(1)} to ${page.highest.toFixed(1)} m) and were clipped`,
+              { code: 'terrain/out-of-range' },
+            )
+        }
+        pages.near = near
+      } else {
+        // Again (a source or generator change): the old pages draw until the new levels are in.
+        near.reset(stack)
+      }
+      this.manifest = undefined
+      this.lastBake = undefined
+      this.bake = 'baking'
+      const D = this.layout!.depth
+      this.residentDepth = this.residentLevels(pages)
+      const nodes: [number, number, number][] = []
+      for (let d = 0; d <= this.residentDepth; d++) {
+        const [nx, nz] = pages.nodesAt(d)
+        for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++) nodes.push([d, x, z])
+      }
+      const baked = await Promise.all(
+        nodes.map(([d, x, z]) => near.request(d, x, z, BAND_RESIDENT, -d)),
+      )
+      if (generation !== this.generation) return
+      if (this.streaming) {
+        pages.clear()
+        this.version++
+      }
+      for (const [i, [d, x, z]] of nodes.entries()) {
+        pages.pin(nodeKey(d, x, z))
+        pages.adoptNear(d, x, z, baked[i]!)
+      }
+      this.rawErrors = near.selectionErrors(new Float32Array(D + 2))
+      this.nearErrors = near.errorsVersion
+      this.capErrors()
+      for (let n = 0; n < this.tree.count; n++) this.refreshBounds(n)
+      this.bakedHash = this.asset!.hash
+      this.bake = 'current'
+      this.streaming = true
+    } catch (err) {
+      if (generation !== this.generation) return
+      this.bake = 'failed'
+      this.report(
+        world,
+        err instanceof ShardError ? err : new ShardError('terrain/bake-failed', String(err)),
+      )
+    }
   }
 
   /** Loading saved edits ahead of a bake: the bake bakes them, so nothing is queued. */
@@ -329,15 +466,15 @@ export class HeightfieldRuntime {
     env: { fs: PlatformFileSystem | undefined; workers: Workers | undefined },
   ): Promise<void> {
     const generation = ++this.generation
+    if (this.asset!.source.bake === 'near') return this.prepareNear(world, generation)
     const asset = this.asset!
     const stack = this.stack!
     const pages = this.pages!
     let store = this.store!
     this.bake = 'checking'
     try {
-      // With edits, the packs are of the source and these edits (0104).
-      const digest = await editsDigest(stack.edits)
-      const hash = digest ? `${asset.hash}:${digest}` : asset.hash
+      // With edits, the packs are of the source and these edits (0104); and of its generators (0119).
+      const hash = await bakeSourceHash(asset.hash, stack, true)
       let manifest = await readManifest(store)
       if (manifest?.sourceHash !== hash) {
         if (!store.writable) {
@@ -379,19 +516,7 @@ export class HeightfieldRuntime {
       this.rawErrors = raw
       this.capErrors()
       // Coarse levels, pinned.
-      const per = pageGpuBytes(this.layout!)
-      let resident = this.settings!.residentDepth
-      if (resident < 0) {
-        resident = 0
-        let bytes = 0
-        for (let d = 0; d <= D; d++) {
-          const [nx, nz] = pages.nodesAt(d)
-          bytes += nx * nz * per
-          if (bytes > RESIDENT_BYTES) break
-          resident = d
-        }
-      }
-      this.residentDepth = Math.min(D, resident)
+      this.residentDepth = this.residentLevels(pages)
       const loads: Promise<unknown>[] = []
       for (let d = 0; d <= this.residentDepth; d++) {
         const [nx, nz] = pages.nodesAt(d)

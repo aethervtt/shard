@@ -2,6 +2,8 @@ import { sha256Hex } from '@aethervtt/shard-assets'
 import { ShardError } from '@aethervtt/shard-core'
 import { loadNoiseKernel, NOISE_KERNEL_MODULE } from '@aethervtt/shard-noise'
 import type { Workers } from '@aethervtt/shard-platform'
+import { runWorkerTask } from '@aethervtt/shard-procgen'
+import { BLOCK_TASK } from './generator'
 import {
   BAKE_VERSION,
   type BakedPage,
@@ -221,6 +223,26 @@ async function tilesDigest(edits: StackEdits, sculpt: number[], paint: number[])
   return sha256Hex(all)
 }
 
+/**
+ * The hash packs are baked against: the source's, its generators' names, versions and params
+ * (spec 0119), and with `edits`, a digest of every edit tile (0104). A source without either keeps
+ * its own hash.
+ */
+export async function bakeSourceHash(
+  sourceHash: string,
+  stack: Stack,
+  edits = false,
+): Promise<string> {
+  const parts = [sourceHash]
+  if (stack.generators.length > 0)
+    parts.push(await sha256Hex(encoder.encode(JSON.stringify(stack.generators))))
+  if (edits) {
+    const digest = await editsDigest(stack.edits)
+    if (digest) parts.push(digest)
+  }
+  return parts.join(':')
+}
+
 /** A digest of every edit tile: part of the packs' source hash when a terrain has edits (0104). */
 export function editsDigest(edits: StackEdits): Promise<string> {
   const all = (m: ReadonlyMap<number, unknown> | null) =>
@@ -282,6 +304,10 @@ export async function blockKeys(input: BakeInput, stack: Stack): Promise<string[
         box: rectBox(l, l.falloff),
         digest: await digest(['h', i, l, input.deps[l.image.path]?.hash ?? ''], undefined),
       })
+    } else if (l.kind === 'generator') {
+      // Spec 0119: keyed by the generator's name, version and canonical params; everywhere.
+      const g = stack.generators[(s as { gen: number }).gen]
+      parts.push({ box: undefined, digest: await digest(['h', i, l.blend, g], undefined) })
     } else {
       const sp = (
         s as {
@@ -293,6 +319,13 @@ export async function blockKeys(input: BakeInput, stack: Stack): Promise<string[
         digest: await digest(['h', i, l, source.splines[l.spline]], sp.pts),
       })
     }
+  }
+  if (stack.holes) {
+    // Spec 0120: the hole mask's generator, everywhere.
+    parts.push({
+      box: undefined,
+      digest: await digest(['holes', stack.generators[stack.holes.gen]], undefined),
+    })
   }
   for (let i = 0; i < source.paint.length; i++) {
     const p = source.paint[i]!
@@ -320,6 +353,7 @@ export async function blockKeys(input: BakeInput, stack: Stack): Promise<string[
           p.noise ? (input.deps[p.noise.ref.path]?.hash ?? '') : '',
           p.mask ? (input.deps[p.mask.ref.path]?.hash ?? '') : '',
           p.spline ? source.splines[p.spline] : null,
+          stack.paint[i]!.generated ? stack.generators[stack.paint[i]!.generated!.gen]! : null,
         ],
         sp?.pts,
       ),
@@ -540,14 +574,29 @@ export async function bakeTerrain(
   const blockSize = layout.block * layout.leafSize
   await Promise.all(
     stale.map(async ([bx, bz]) => {
-      const result: BlockResult = workers
-        ? await workers.run<BlockResult>(
-            WORKER,
-            'bakeBlock',
-            [NOISE_KERNEL_MODULE, kernel.module, blockStack(stack, layout, bx, bz), layout, bx, bz],
-            { kind: 'terrain/bake-block' },
-          )
-        : bakeBlock(mainNoise(), stack, layout, bx, bz)
+      // Generators are project code: their blocks bake in the generator worker module (0119).
+      const result: BlockResult =
+        stack.generators.length > 0
+          ? await runWorkerTask<BlockResult>(
+              BLOCK_TASK,
+              [kernel.module, kernel.simd, blockStack(stack, layout, bx, bz), layout, bx, bz],
+              { kind: 'terrain/bake-block' },
+            )
+          : workers
+            ? await workers.run<BlockResult>(
+                WORKER,
+                'bakeBlock',
+                [
+                  NOISE_KERNEL_MODULE,
+                  kernel.module,
+                  blockStack(stack, layout, bx, bz),
+                  layout,
+                  bx,
+                  bz,
+                ],
+                { kind: 'terrain/bake-block' },
+              )
+            : bakeBlock(mainNoise(), stack, layout, bx, bz)
       poolMs += result.ms
       const errors = new Array<number>(D + 1).fill(0)
       for (const p of result.pages) {
