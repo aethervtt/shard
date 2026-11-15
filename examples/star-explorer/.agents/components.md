@@ -738,6 +738,12 @@ _Computed by the engine; never written in scene files._
 |---|---|---|---|---|
 | `id` | integer | `0` | ≥ 0, ≤ 4294967295 | Session-wide id the server assigned. Never reused. |
 
+## `net/OwnerSimulated`
+
+Its owner client simulates it: server updates skip it on that client while it owns it (vehicles, 0118).
+
+Tag (no fields).
+
 ## `net/Relevance`
 
 Pins or raises an entity in interest management (0087).
@@ -920,6 +926,8 @@ Brings along: `core/Transform`.
 | `mask` | integer | `65535` | ≥ 0, ≤ 65535 | Bitmask: the layers it collides with. Both sides must accept each other. |
 | `events` | boolean | `false` |  | Send CollisionEvent when contacts start and stop. |
 | `forceThreshold` | number | `0` | ≥ 0, N | Send ContactForceEvent when the contact force exceeds this (0: never). |
+| `surface` | null or physics/Surface ref | `null` |  | What the ground is made of (a *.surface.json, or a preset such as physics/gravel.surface.json): tire grip, rolling resistance, sinkage. None: asphalt. |
+| `ignoreCharacters` | boolean | `false` |  | Character controllers can’t walk through it, but contacts with them aren’t solved: a character never stops or lifts it (vehicle chassis, 0118). |
 
 ## `physics/ExternalForce`
 
@@ -980,6 +988,9 @@ Sets a body’s mass directly instead of from collider density.
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `mass` | number | `1` | ≥ 0, kg | The body’s total mass. |
+| `center` | `"colliders"` \| `"authored"` | `"colliders"` |  | colliders: the center of mass and inertia come from the colliders’ shapes. authored: centerOfMass and inertiaScale set them (a car’s center sits low whatever its body collider says). |
+| `centerOfMass` | number[3] | `[0,0,0]` | m | authored: the center of mass in the body’s local frame. |
+| `inertiaScale` | number[3] | `[1,1,1]` |  | authored: scales the colliders’ principal inertia at this mass, per principal axis. |
 
 ## `physics/PhysicsDisabled`
 
@@ -2801,6 +2812,190 @@ Brings along: `ui/UiNode`, `ui/UiInteraction`.
 |---|---|---|---|---|
 | `on` | boolean | `false` |  | Checked. |
 | `disabled` | boolean | `false` |  | Ignores input. |
+
+## `vehicle/Vehicle`
+
+A wheeled vehicle’s chassis (0118): on a dynamic RigidBody with colliders and Mass; wheels are child entities with VehicleWheel.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `axles` | object[] | `[{"steer":1,"drive":0,"differential":"open","torqueBias":3,"preload":50,"antiRoll":0,"brakeTorque":1800,"handbrakeTorque":0},{"steer":0,"drive":1,"differential":"open","torqueBias":3,"preload":50,"antiRoll":0,"brakeTorque":1200,"handbrakeTorque":2500}]` |  | Axles, front to back by convention; wheels name theirs by index. Default: front steers, rear drives and has the handbrake. |
+| `centerDiff` | `"open"` \| `"limited-slip"` \| `"locked"` | `"open"` |  | Between driven axles (AWD): open, limited-slip or locked. |
+| `centerTorqueBias` | number | `3` | ≥ 1 | limited-slip center: the most torque one axle gets over the other. |
+| `steer` | object | `{"maxAngle":35,"ackermann":1,"speed":180,"returnSpeed":360,"atSpeed":[[0,1],[30,0.35]]}` |  | Steering geometry and rate. |
+| `aeroDrag` | number | `0.4` | ≥ 0, N·s²/m² | Air drag per (m/s)², ½ ρ Cd A: a sedan 0.4, a truck 1.2. Sets top speed with the engine. |
+| `substeps` | integer | `4` | ≥ 1, ≤ 16 | Drivetrain and tire integration per physics step. |
+| `iterations` | integer | `3` | ≥ 1, ≤ 16 | Solver passes over the wheels and drivetrain per substep. |
+| `probe` | `"ray"` \| `"cylinder"` | `"cylinder"` |  | How wheels find the ground: cylinder rides up curbs and steps; ray is cheaper and sees only the point under the hub. |
+| `mask` | integer | `65535` | ≥ 0, ≤ 65535 | Layers the wheels stand on. |
+
+## `vehicle/VehicleAssists`
+
+Driving aids (0118) on a Vehicle. All off by default.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `preset` | `"custom"` \| `"sim"` \| `"arcade"` | `"custom"` |  | sim or arcade writes the fields below once, then reads custom. sim: ABS, half TCS. arcade: everything on. |
+| `abs` | number | `0` | ≥ 0, ≤ 1 | Anti-lock brakes. |
+| `tcs` | number | `0` | ≥ 0, ≤ 1 | Traction control: cuts throttle, and brakes a wheel spinning past its partner. |
+| `esc` | number | `0` | ≥ 0, ≤ 1 | Stability control: brakes one wheel and cuts throttle against spins. |
+| `understeer` | number | `0.0015` | ≥ 0, s²/m | ESC’s yaw reference v·δ / (L (1 + K v²)): the car’s understeer. vehicle test measures it. |
+| `counterSteer` | number | `0` | ≥ 0, ≤ 1 | Steers into a slide. |
+| `driftGrip` | number | `1` | ≥ 0 | Rear lateral grip scale while the handbrake is held (arcade drifts: 0.6). |
+| `driftHold` | number | `0` | ≥ 0, ≤ 1 | Damps spins past 45° and keeps speed through a drift. |
+| `downforce` | number | `0` | ≥ 0, N·s²/m² | Down force per (m/s)². |
+| `airControl` | number[3] | `[0,0,0]` | N·m | Torque in the air: pitch (throttle − brake), yaw (steer), roll (steer). |
+| `selfRight` | boolean | `false` |  | Turns an upside-down, slow car upright after 2 s. |
+| `antiFlip` | number | `0` | ≥ 0, ≤ 1 | Damps roll while wheels lift on one side. |
+
+## `vehicle/VehicleAudio`
+
+Audio events for a vehicle’s engine, tires and moments (0118).
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `engine` | null or audio/AudioEvent ref | `null` |  | Sustained, at the chassis. Parameters it may declare: rpm (rpm), load (−1 engine braking … 1 full power: crossfade on-load and off-load loops on it), throttle (0–1), gear (−1…), vehicleSpeed (m/s). |
+| `tires` | null or audio/AudioEvent ref | `null` |  | Sustained, one per wheel. Parameters: slip (0 rolling … 1 sliding: the skid loop), rollSpeed (m/s: the rolling loop), sinkage (m), surface (a label: the ground’s surface name, e.g. asphalt, gravel, snow). |
+| `shift` | null or audio/AudioEvent ref | `null` |  | One-shot on a gear change. Parameters: gear (the new one). |
+| `start` | null or audio/AudioEvent ref | `null` |  | One-shot when the engine starts. |
+| `stop` | null or audio/AudioEvent ref | `null` |  | One-shot when the engine is switched off. |
+| `stall` | null or audio/AudioEvent ref | `null` |  | One-shot when the engine stalls. |
+| `backfire` | null or audio/AudioEvent ref | `null` |  | One-shot on a backfire (lifting off at high rpm). |
+| `bottomOut` | null or audio/AudioEvent ref | `null` |  | One-shot at a wheel hitting its bump stop. Parameters: impact (m/s). |
+| `land` | null or audio/AudioEvent ref | `null` |  | One-shot when the vehicle lands. Parameters: impact (m/s down), airTime (s). |
+| `hit` | null or audio/AudioEvent ref | `null` |  | One-shot when the vehicle hits a character. Parameters: impact (m/s closing). |
+
+## `vehicle/VehicleEffects`
+
+Wheel effects for a vehicle (0118): dust, smoke and tracks by surface.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `surfaces` | object[] | `[]` |  | Per surface: what the wheels throw up, and whether they leave tracks. |
+| `smoke` | null or ParticleEffect ref | `null` |  | Tire smoke, where wheels slide on a surface without its own particles. |
+| `skidMarks` | boolean | `true` |  | Trails where wheels slide. |
+| `skid` | number | `0.3` | ≥ 0, ≤ 1 | WheelState.skid above which a wheel smokes and marks. |
+| `track` | object | `{"lifetime":15,"color":[0.05,0.05,0.05,0.75],"width":0}` |  | How tracks and skid marks look. |
+
+## `vehicle/VehicleEngine`
+
+An engine (0118) on a Vehicle.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `torque` | number[2][] | `[[800,160],[2000,210],[4000,250],[5500,230],[6500,190]]` |  | Torque curve: (rpm, N·m) points, rpm increasing, linear between. |
+| `idleRpm` | number | `800` | ≥ 0, rpm |  |
+| `maxRpm` | number | `6500` | ≥ 1, rpm | The limiter. |
+| `stallRpm` | number | `500` | ≥ 0, rpm |  |
+| `stall` | boolean | `false` |  | Manual: the engine stops when the clutch drags it under stallRpm. |
+| `inertia` | number | `0.2` | ≥ 0.01, kg·m² |  |
+| `braking` | number | `60` | ≥ 0, N·m | Engine braking (friction) at maxRpm, proportional to rpm. |
+| `running` | boolean | `true` |  | Games: keys, fuel. Off gives no torque. |
+| `torqueScale` | number | `1` | ≥ 0 | Games: damage, fuel starvation. |
+
+## `vehicle/VehicleInput`
+
+What a vehicle’s driver does (0118): games, input maps, AI or a net input.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `throttle` | number | `0` | ≥ 0, ≤ 1 |  |
+| `brake` | number | `0` | ≥ 0, ≤ 1 |  |
+| `steer` | number | `0` | ≥ -1, ≤ 1 | −1 full left, 1 full right. |
+| `handbrake` | number | `0` | ≥ 0, ≤ 1 |  |
+| `clutch` | number | `0` | ≥ 0, ≤ 1 | Pedal mode: 1 fully pressed (disengaged). |
+| `shift` | integer | `0` | ≥ -1, ≤ 1 | Manual: −1 down, +1 up. Cleared when taken. |
+| `gear` | integer | `127` | ≥ -128, ≤ 127 | Manual: select this gear (−1 R, 0 N, 1…). 127: none. Cleared when taken. |
+
+## `vehicle/VehicleSeat`
+
+A seat (0118) on a child of a Vehicle.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `role` | `"driver"` \| `"passenger"` | `"driver"` |  |  |
+| `exit` | number[3] | `[-1.2,0,0]` | m | Where an occupant steps out, in the seat’s frame (mirrored if blocked). |
+| `occupant` | null or integer or string | `null` |  |  |
+
+## `vehicle/VehicleState`
+
+What a vehicle did at the last step (0118). Read-only.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `speed` | number | `0` | m/s | Forward speed (negative backing). |
+| `rpm` | number | `0` | rpm |  |
+| `gear` | integer | `0` | ≥ -128, ≤ 127 | −1 reverse, 0 neutral, 1… forward. |
+| `shifting` | boolean | `false` |  |  |
+| `clutch` | number | `0` |  | Engagement, 0 open … 1 locked. |
+| `throttle` | number | `0` |  | Throttle after traction control. |
+| `load` | number | `0` |  | Engine load: −1 engine braking … 1 full power (audio crossfades on it). |
+| `grounded` | integer | `0` | ≥ 0, ≤ 255 | Wheels on the ground. |
+| `airTime` | number | `0` | s |  |
+| `driftAngle` | number | `0` | rad | Between heading and travel, positive sliding left. |
+| `steer` | number | `0` | rad | Front steer angle now. |
+| `assists` | integer | `0` | ≥ 0, ≤ 255 | Assists acting: 1 ABS, 2 TCS, 4 ESC. |
+| `understeer` | number | `0` | s²/m | Measured understeer gradient (vehicle test fills it). |
+
+## `vehicle/VehicleTransmission`
+
+A gearbox and clutch (0118) on a Vehicle with an engine.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `mode` | `"automatic"` \| `"manual"` | `"automatic"` |  | automatic shifts by rpm; manual takes VehicleInput.shift and gear. |
+| `clutch` | `"auto"` \| `"pedal"` | `"auto"` |  | auto engages with rpm (launches, stops); pedal reads VehicleInput.clutch. |
+| `gears` | number[] | `[3.6,2.1,1.4,1,0.8]` |  | Forward ratios, first to top, descending. |
+| `reverse` | number | `3.4` | ≥ 0 | Reverse ratio (positive). |
+| `finalDrive` | number | `3.9` | ≥ 0.1 |  |
+| `efficiency` | number | `0.9` | ≥ 0, ≤ 1 |  |
+| `shiftTime` | number | `0.25` | ≥ 0, s | In neutral per shift. |
+| `clutchTorque` | number | `400` | ≥ 0, N·m | Most torque the clutch passes before it slips. |
+| `upshift` | number | `0.85` | ≥ 0, ≤ 1 | Automatic: upshift above this share of maxRpm at full throttle. |
+| `downshift` | number | `0.4` | ≥ 0, ≤ 1 | Automatic: downshift below this share of maxRpm at full throttle. |
+| `reverseOnBrake` | boolean | `true` |  | Automatic: holding brake at a stop selects reverse (and throttle, first). |
+
+## `vehicle/VehicleWheel`
+
+A wheel (0118) on a child of a Vehicle. Its position is the wheel center at ride height.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `axle` | integer | `0` | ≥ 0, ≤ 255 | Index into Vehicle.axles. |
+| `side` | `"left"` \| `"right"` \| `"center"` | `"left"` |  | Which side of its axle. |
+| `radius` | number | `0.33` | ≥ 0.01, m |  |
+| `width` | number | `0.22` | ≥ 0.01, m |  |
+| `mass` | number | `20` | ≥ 0.1, kg | Wheel and tire; spin inertia is ½ m r². |
+| `tire` | null or vehicle/Tire ref | `null` |  | The tire (*.tire.json, or vehicle/road\|sport\|offroad\|winter.tire.json). |
+| `frequency` | number | `1.6` | ≥ 0.1, Hz | Suspension natural frequency: 1–1.5 soft, 2–3 sporty. |
+| `damping` | number[2] | `[0.4,0.6]` |  | Damping ratio in bump (compressing) and rebound (extending). |
+| `travel` | number[2] | `[0.12,0.15]` | m | Suspension travel up and down from ride height. |
+| `camber` | number | `0` | deg | Static camber, for the visual. |
+| `forceHeight` | number | `0.3` | ≥ 0, ≤ 1 | Where tire forces push: 0 at the contact (real, rolls more), 1 at the center of mass height. |
+| `gripScale` | number | `1` | ≥ 0 | Games: a flat tire, damage. |
+| `visual` | null or integer or string | `null` |  | The entity drawn as this wheel: it spins, steers and follows the suspension. |
+| `visualName` | string | `""` |  | Without visual: the model node drawn as this wheel, found by name under the chassis once its model spawns (vehicle gen writes it). |
+
+## `vehicle/WheelState`
+
+What a wheel did at the last step (0118). Read-only.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `grounded` | boolean | `false` |  |  |
+| `compression` | number | `0` |  | 0 fully extended … 1 at the bump stop. |
+| `point` | number[3] | `[0,0,0]` |  | Contact point, world. |
+| `normal` | number[3] | `[0,1,0]` |  |  |
+| `ground` | null or integer or string | `null` |  | The collider under it. |
+| `surface` | integer | `0` | ≥ 0, ≤ 65535 | physics/Surfaces index of the ground (0: asphalt). |
+| `load` | number | `0` | N |  |
+| `slipRatio` | number | `0` |  |  |
+| `slipAngle` | number | `0` | rad |  |
+| `skid` | number | `0` |  | 0 rolling … 1 fully sliding: drives skid sounds and marks. |
+| `spin` | number | `0` | rad/s |  |
+| `angle` | number | `0` | rad | Accumulated spin, for visuals. |
+| `steer` | number | `0` | rad |  |
+| `sinkage` | number | `0` | m |  |
 
 ## `water/OceanWaves`
 

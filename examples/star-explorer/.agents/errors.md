@@ -116,6 +116,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `characters/unknown-build` | @aethervtt/shard-characters |  |
 | `characters/unknown-look` | @aethervtt/shard-characters | Register looks with characterLooks(world, [...]) first. |
 | `characters/unknown-rig` | @aethervtt/shard-characters | Load the model (assets.load) before createCharacterRig. |
+| `cli/exists` | @aethervtt/shard-cli | Pass --force to overwrite it, or --out another file. |
 | `cli/missing-playwright` | @aethervtt/shard-cli | Install it next to the CLI: npm install -D playwright && npx playwright install chromium. |
 | `cli/no-response` | @aethervtt/shard-cli |  |
 | `cli/no-target` | @aethervtt/shard-cli | Start the app (shard dev, Studio) with the hub address, then run this again. |
@@ -312,6 +313,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `physics/track-scene` | @aethervtt/shard-physics | See TrackScene in @aethervtt/shard-physics/track. |
 | `physics/track-version` | @aethervtt/shard-physics | Record it again with this build, or play it with the build that recorded it. |
 | `physics/unknown-settle-rule` | @aethervtt/shard-physics |  |
+| `physics/unknown-surface` | @aethervtt/shard-physics | Name a *.surface.json, or a preset such as physics/gravel.surface.json. |
 | `physics/unsupported-shape` | @aethervtt/shard-physics | 2D shapes: ball, cuboid, capsule, convex, trimesh, heightfield, segment, polyline. |
 | `physics/worker-crashed` | @aethervtt/shard-physics | The next recording starts a new worker. |
 | `platform/bad-storage-key` | @aethervtt/shard-platform-node | Keys are relative paths like "saves/slot1.json". |
@@ -581,6 +583,15 @@ Every engine error is a `ShardError` with one of these codes.
 | `ui/unknown-state` | @aethervtt/shard-ui |  |
 | `ui/unknown-style` | @aethervtt/shard-ui | Add it to the root's *.theme.json styles, or fix UiNode.style (ui.describe shows each node's). |
 | `vector/invalid-geometry` | @aethervtt/shard-vector | A region shape is { kind: 'rect' \| 'polygon' \| 'multipolygon' \| 'brush', ... } in world (x, z). |
+| `vehicle/bad-axle` | @aethervtt/shard-vehicle | VehicleWheel.axle indexes Vehicle.axles (0 is the first). |
+| `vehicle/bad-curve` | @aethervtt/shard-vehicle | VehicleEngine.torque: (rpm, N·m) points, rpm increasing. |
+| `vehicle/bad-gears` | @aethervtt/shard-vehicle | Forward ratios descend; raise upshift, lower downshift, or space the ratios closer. |
+| `vehicle/bad-sprung-mass` | @aethervtt/shard-vehicle | Move physics/Mass.centerOfMass between the wheels (or hitch a trailer with a Joint). |
+| `vehicle/no-wheels` | @aethervtt/shard-vehicle | Name wheel nodes wheel_fl, wheel_fr… (or tire_*), or keep them as separate round meshes at the bottom of the model. |
+| `vehicle/not-a-vehicle` | @aethervtt/shard-vehicle | vehicle.describe without an entity lists every vehicle. |
+| `vehicle/not-dynamic` | @aethervtt/shard-vehicle | A vehicle chassis is a RigidBody { kind: "dynamic" } with colliders and Mass. |
+| `vehicle/seat-taken` | @aethervtt/shard-vehicle | Pick another VehicleSeat, or exitVehicle the occupant first. |
+| `vehicle/unknown-tire` | @aethervtt/shard-vehicle |  |
 | `verify/approval-needs-reason` | @aethervtt/shard-verify | Say why it looks the way it does: shard approve <shot> --reason "Shadows are softer since 0058". |
 | `verify/idle-timeout` | @aethervtt/shard-verify | Holding nothing: it was slow, not stuck; raise the plan's timeoutMs. |
 | `verify/invalid-json` | @aethervtt/shard-verify |  |

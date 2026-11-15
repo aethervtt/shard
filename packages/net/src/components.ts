@@ -1,4 +1,4 @@
-import { defineComponent, defineEvent, defineResource, t } from '@aethervtt/shard-core'
+import { defineComponent, defineEvent, defineResource, defineTag, t } from '@aethervtt/shard-core'
 import type { PeerId } from './transport'
 
 export const NetId = defineComponent(
@@ -33,6 +33,16 @@ export const Replicated = defineComponent(
     serialize: false,
   },
 )
+
+/**
+ * The owning client simulates this entity itself (a vehicle its player drives, 0118): while
+ * `Replicated.owner` is that client, replication from the server doesn't write its components
+ * (only `Replicated`, so a change of owner still lands). Add it on both sides.
+ */
+export const OwnerSimulated = defineTag('net/OwnerSimulated', {
+  description:
+    'Its owner client simulates it: server updates skip it on that client while it owns it (vehicles, 0118).',
+})
 
 export const Relevance = defineComponent(
   'net/Relevance',

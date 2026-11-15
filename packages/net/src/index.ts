@@ -9,6 +9,7 @@ export {
   NetRole,
   type NetRoleData,
   type NetRoleName,
+  OwnerSimulated,
   type PeerInfo,
   PeerJoined,
   PeerLeft,

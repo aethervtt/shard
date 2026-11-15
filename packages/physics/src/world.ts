@@ -28,6 +28,7 @@ import {
 } from './components'
 import { createPose, mulQuat, parentOf, poseOf, rotate } from './pose'
 import type { Rapier, RapierVariant } from './rapier'
+import { Surfaces } from './surface'
 
 export { loadRapier, type Rapier, type RapierVariant } from './rapier'
 
@@ -84,6 +85,14 @@ export interface CharacterRecord {
 /** The gap Rapier keeps between a character and what it touches, m. */
 export const CHARACTER_OFFSET = 0.01
 
+/**
+ * Solver-group membership of character capsules. Colliders with `ignoreCharacters` leave it out
+ * of their solver filter: contacts are still detected (a character can't walk through a car), but
+ * not solved, so a kinematic capsule never stops or lifts the body (0118).
+ */
+export const CHARACTER_SOLVER_GROUP = 1 << 15
+const IGNORE_CHARACTERS_SOLVER = (0xffff << 16) | (0xffff & ~CHARACTER_SOLVER_GROUP)
+
 export interface RayHit {
   /** The collider's entity. */
   entity: Entity
@@ -118,7 +127,7 @@ export interface QueryOptions {
 }
 
 export interface QueryShape {
-  shape: 'ball' | 'cuboid' | 'capsule'
+  shape: 'ball' | 'cuboid' | 'capsule' | 'cylinder'
   radius?: number
   halfExtents?: ArrayLike<number>
   halfHeight?: number
@@ -237,6 +246,8 @@ export class PhysicsWorld {
   readonly v3 = { x: 0, y: 0, z: 0 }
   readonly q4 = { x: 0, y: 0, z: 0, w: 1 }
   readonly rawVec: unknown | undefined
+  /** A second raw vector, for calls that take two (impulse at a point). */
+  readonly rawVec2: unknown | undefined
   private readonly ray: InstanceType<Rapier['Ray']>
   private logged = new Set<string>()
 
@@ -257,6 +268,7 @@ export class PhysicsWorld {
     this.ray = new R.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 })
     const ops = (R as unknown as { VectorOps?: { intoRaw(v: unknown): unknown } }).VectorOps
     this.rawVec = ops?.intoRaw({ x: 0, y: 0, z: 0 }) as unknown
+    this.rawVec2 = ops?.intoRaw({ x: 0, y: 0, z: 0 }) as unknown
   }
 
   gravityVector(): { x: number; y: number; z: number } {
@@ -290,6 +302,101 @@ export class PhysicsWorld {
     if (this.logged.has(key)) return
     this.logged.add(key)
     world.tryResource(LogResource)?.error(err)
+  }
+
+  /**
+   * Applies an impulse (N·s, world space) at a world point of a dynamic body, before the next step.
+   * Allocates nothing. Returns false for a body that isn't dynamic or doesn't exist. 3D only.
+   */
+  applyImpulseAtPoint(
+    entity: Entity,
+    ix: number,
+    iy: number,
+    iz: number,
+    px: number,
+    py: number,
+    pz: number,
+    wake = true,
+  ): boolean {
+    const record = this.bodies.get(entity)
+    if (!record || record.kind !== KIND_DYNAMIC || record.parked || record.held) return false
+    const raw = this.raw.bodies.raw as unknown as {
+      rbApplyImpulseAtPoint(h: number, i: unknown, p: unknown, w: boolean): void
+    }
+    const a = this.rawVec as { x: number; y: number; z: number }
+    const b = this.rawVec2 as { x: number; y: number; z: number }
+    a.x = ix
+    a.y = iy
+    a.z = iz
+    b.x = px
+    b.y = py
+    b.z = pz
+    raw.rbApplyImpulseAtPoint(record.handle, a, b, wake)
+    return true
+  }
+
+  /** Bodies given a one-step force (`addStepForce`): sync-in clears them before the next step. */
+  readonly stepForced: BodyRecord[] = []
+  private stepStamp = 1
+  private stepStamps = new Uint32Array(64)
+
+  /**
+   * Adds a force (N) and torque (N·m), world space, about the center of mass, for the next step
+   * only: Rapier integrates it with gravity over its substeps, so a body held up by it rests
+   * exactly. Allocates nothing. Returns false for a body that isn't dynamic. 3D only.
+   */
+  addStepForce(
+    entity: Entity,
+    fx: number,
+    fy: number,
+    fz: number,
+    tx: number,
+    ty: number,
+    tz: number,
+    wake = true,
+  ): boolean {
+    const record = this.bodies.get(entity)
+    if (!record || record.kind !== KIND_DYNAMIC || record.parked || record.held) return false
+    const raw = this.raw.bodies.raw as unknown as {
+      rbAddForce(h: number, v: unknown, w: boolean): void
+      rbAddTorque(h: number, v: unknown, w: boolean): void
+    }
+    const a = this.rawVec as { x: number; y: number; z: number }
+    a.x = fx
+    a.y = fy
+    a.z = fz
+    raw.rbAddForce(record.handle, a, wake)
+    a.x = tx
+    a.y = ty
+    a.z = tz
+    raw.rbAddTorque(record.handle, a, wake)
+    if (this.stepStamps.length <= record.slot) {
+      const grown = new Uint32Array(Math.max(record.slot + 1, this.stepStamps.length * 2))
+      grown.set(this.stepStamps)
+      this.stepStamps = grown
+    }
+    if (this.stepStamps[record.slot] !== this.stepStamp) {
+      this.stepStamps[record.slot] = this.stepStamp
+      this.stepForced.push(record)
+    }
+    return true
+  }
+
+  /** Clears last step's `addStepForce` forces (sync-in, before ExternalForce and gravity sources). */
+  clearStepForces(): void {
+    if (this.stepForced.length === 0) return
+    const raw = this.raw.bodies.raw as unknown as {
+      rbResetForces(h: number, w: boolean): void
+      rbResetTorques(h: number, w: boolean): void
+    }
+    for (let i = 0; i < this.stepForced.length; i++) {
+      const r = this.stepForced[i]!
+      if (!this.bodyByHandle.has(r.handle)) continue
+      raw.rbResetForces(r.handle, false)
+      raw.rbResetTorques(r.handle, false)
+    }
+    this.stepForced.length = 0
+    this.stepStamp++
   }
 
   /** Slots the interpolation buffers hold. */
@@ -756,6 +863,7 @@ export class PhysicsWorld {
     cdesc.setFriction(0)
     const mask = c.mask & ~this.config.characterIgnores
     cdesc.setCollisionGroups(((c.layers & 0xffff) << 16) | (mask & 0xffff))
+    cdesc.setSolverGroups((CHARACTER_SOLVER_GROUP << 16) | 0xffff)
     const collider = this.raw.createCollider(cdesc, record.body)
     this.colliders.set(entity, collider)
     this.colliderEntity.set(collider.handle, entity)
@@ -914,6 +1022,8 @@ export class PhysicsWorld {
     desc.setDensity(c.density)
     desc.setSensor(c.sensor)
     desc.setCollisionGroups(((c.layers & 0xffff) << 16) | (c.mask & 0xffff))
+    if (c.ignoreCharacters) desc.setSolverGroups(IGNORE_CHARACTERS_SOLVER)
+    world.tryResource(Surfaces)?.colliders.delete(entity)
     const R = this.R
     let events = 0
     if (c.events) events |= R.ActiveEvents.COLLISION_EVENTS
@@ -954,23 +1064,62 @@ export class PhysicsWorld {
     return undefined
   }
 
-  /** Scales every collider's density so the body weighs exactly its Mass. */
+  /**
+   * Scales every collider's density so the body weighs exactly its Mass. With `center: 'authored'`
+   * the colliders weigh nothing and the body takes the whole mass, center and inertia: Rapier's
+   * additional mass properties only add to what dense colliders give.
+   */
   fixMass(world: World, owner: Entity): void {
     const record = this.bodies.get(owner)
     if (!record) return
-    const target = world.get(owner, Mass).mass
-    record.body.setAdditionalMass(0, false)
-    record.body.recomputeMassPropertiesFromColliders()
-    const current = record.body.mass()
+    const m = world.get(owner, Mass)
+    const target = m.mass
+    const body = record.body
+    const colliders = this.bodyColliders.get(owner)
+    if (m.center === 'authored') {
+      // Measure the colliders' inertia at their authored densities, scaled to the target mass.
+      if (colliders) {
+        for (const entity of colliders) {
+          const c = world.tryGet(entity, Collider)
+          this.colliders.get(entity)?.setDensity(c ? c.density : 1)
+        }
+      }
+      body.setAdditionalMass(0, false)
+      body.recomputeMassPropertiesFromColliders()
+      const current = body.mass()
+      const k = current > 1e-9 ? target / current : 0
+      const inertia = body.principalInertia()
+      const frame = body.principalInertiaLocalFrame()
+      const [cx, cy, cz] = m.centerOfMass
+      const [sx, sy, sz] = m.inertiaScale
+      // A body whose colliders have no volume gets a solid 1 m box's inertia at its mass.
+      const box = target / 6
+      const ix = (k > 0 ? inertia.x * k : box) * sx
+      const iy = (k > 0 ? inertia.y * k : box) * sy
+      const iz = (k > 0 ? (this.dim === 3 ? inertia.z : 0) * k : box) * sz
+      if (colliders) for (const entity of colliders) this.colliders.get(entity)?.setDensity(0)
+      body.recomputeMassPropertiesFromColliders()
+      body.setAdditionalMassProperties(
+        target,
+        { x: cx, y: cy, z: cz } as RAPIER.Vector,
+        { x: ix, y: iy, z: iz } as RAPIER.Vector,
+        frame,
+        true,
+      )
+      return
+    }
+    body.setAdditionalMass(0, false)
+    body.recomputeMassPropertiesFromColliders()
+    const current = body.mass()
     if (current > 1e-9) {
       const k = target / current
-      for (const entity of this.bodyColliders.get(owner) ?? []) {
+      for (const entity of colliders ?? []) {
         const collider = this.colliders.get(entity)!
         collider.setDensity(collider.density() * k)
       }
-      record.body.recomputeMassPropertiesFromColliders()
+      body.recomputeMassPropertiesFromColliders()
     } else {
-      record.body.setAdditionalMass(target, true)
+      body.setAdditionalMass(target, true)
     }
   }
 
@@ -1448,6 +1597,8 @@ export class PhysicsWorld {
           : new (R.Cuboid as unknown as new (x: number, y: number) => RShape)(he[0]!, he[1]!)
       case 'capsule':
         return new R.Capsule(q.halfHeight ?? 0.5, q.radius ?? 0.5)
+      case 'cylinder':
+        return new R.Cylinder(q.halfHeight ?? 0.5, q.radius ?? 0.5)
     }
   }
 

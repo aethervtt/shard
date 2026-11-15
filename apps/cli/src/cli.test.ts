@@ -13,9 +13,10 @@ import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { hottestFromCpuProfile } from '@aethervtt/shard-core/capture'
 import { timeout } from '@aethervtt/shard-core/test-env'
-import { parseGltf } from '@aethervtt/shard-gltf'
+import { parseGltf, writeGlb } from '@aethervtt/shard-gltf'
 import { enginePackages, openProject } from '@aethervtt/shard-node'
 import { connectToHub, createProtocolServer, decodePng } from '@aethervtt/shard-protocol'
+import { fixtureCarMeshes } from '@aethervtt/shard-vehicle/testing'
 import { encodePng, sha256 } from '@aethervtt/shard-verify/node'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
@@ -876,6 +877,38 @@ describe('MCP server', () => {
     disconnect()
     hub.close()
     live.close()
+  })
+})
+
+describe('shard vehicle (0118)', () => {
+  it('gen finds the fixture car’s wheels and writes a prefab that test drives', () => {
+    const model = 'assets/zz-car.glb'
+    const prefab = 'prefabs/zz-car.prefab.json'
+    onTestFinished(() => {
+      // The project's import writes .meta files beside them.
+      for (const f of [model, prefab, `${model}.meta`, `${prefab}.meta`])
+        rmSync(join(example, f), { force: true })
+    })
+    const glb = writeGlb({
+      nodes: fixtureCarMeshes().map((m) => ({ name: m.name, primitives: [{ mesh: m.mesh }] })),
+    })
+    writeFileSync(join(example, model), glb)
+    const gen = shard(['vehicle', 'gen', model, '--class', 'sedan', '--out', prefab, '--json'])
+    expect(gen.code).toBe(0)
+    const wheels = gen.json().wheels as { node: string; radius: number }[]
+    expect(wheels.map((w) => w.node).sort()).toEqual([
+      'wheel_fl',
+      'wheel_fr',
+      'wheel_rl',
+      'wheel_rr',
+    ])
+    for (const w of wheels) expect(Math.abs(w.radius - 0.33)).toBeLessThan(0.02)
+    const test = shard(['vehicle', 'test', prefab, '--maneuvers', 'accel,brake,step', '--json'])
+    expect(test.code).toBe(0)
+    const report = test.json()
+    expect(report.accel.to100).toBeLessThan(20)
+    expect(report.brake.distance).toBeLessThan(60)
+    expect(report.step.rolled).toBe(false)
   })
 })
 

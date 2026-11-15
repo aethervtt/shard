@@ -44,6 +44,9 @@ import { textPlugin } from '@aethervtt/shard-text'
 import { TransformPlugin } from '@aethervtt/shard-transform'
 // Also registers the theme importer and the UiTheme asset type for every project host.
 import { uiPlugin } from '@aethervtt/shard-ui'
+import { vehiclePlugin } from '@aethervtt/shard-vehicle'
+import { vehicleAudioPlugin } from '@aethervtt/shard-vehicle/audio'
+import { vehicleEffectsPlugin } from '@aethervtt/shard-vehicle/effects'
 import { oceanWavesPlugin, waterPlugin } from '@aethervtt/shard-water'
 import { windPlugin } from '@aethervtt/shard-wind'
 import type { ManifestValue } from './manifest'
@@ -152,6 +155,19 @@ export const enginePhysics3d: EnginePlugin = {
   name: 'physics3d',
   namespaces: ['physics'],
   add: (app) => app.addPlugin(physics3dPlugin()),
+}
+export const engineVehicle: EnginePlugin = {
+  name: 'vehicle',
+  namespaces: ['vehicle'],
+  add: (app) => app.addPlugin(vehiclePlugin()),
+}
+export const engineVehicleAudio: EnginePlugin = {
+  name: 'vehicle/audio',
+  add: (app) => app.addPlugin(vehicleAudioPlugin()),
+}
+export const engineVehicleEffects: EnginePlugin = {
+  name: 'vehicle/effects',
+  add: (app) => app.addPlugin(vehicleEffectsPlugin()),
 }
 export const enginePhysics2d: EnginePlugin = {
   name: 'physics2d',
@@ -320,6 +336,9 @@ export const enginePlugins: readonly EnginePlugin[] = [
   engineAudioMixer,
   engineAudioAcoustics,
   engineAudioMusic,
+  engineVehicle,
+  engineVehicleAudio,
+  engineVehicleEffects,
   engineUi,
   engineNav,
   engineNavGrid,
@@ -365,6 +384,8 @@ const DISPLAY_PLUGINS = [
   'ui',
   'scatter',
   'effects',
+  'vehicle/audio',
+  'vehicle/effects',
 ]
 
 /**
@@ -384,10 +405,16 @@ export function resolvePlugins(
     names.has('dice')
   )
     names.add('render/forward')
+  // Vehicles (0118): their sounds and effects need the vehicles, the audio events and particles.
+  if (names.has('vehicle/audio') || names.has('vehicle/effects')) names.add('vehicle')
+  if (names.has('vehicle/audio')) names.add('audio/events')
+  if (names.has('vehicle/effects')) names.add('particles')
+  if (names.has('vehicle')) names.add('physics3d')
   if (names.has('controls')) {
     names.add('gestures')
     names.add('render/forward')
   }
+  if (names.has('particles')) names.add('render/forward')
   if (names.has('audio/acoustics')) names.add('audio/mixer')
   if (names.has('audio/music') || names.has('audio/mixer')) names.add('audio/events')
   if (names.has('audio/events')) names.add('audio')

@@ -32,6 +32,7 @@ import {
   ExternalImpulse,
   GravitySource,
   Joint,
+  Mass,
   PhysicsConfig,
   PhysicsDisabled,
   PhysicsRange,
@@ -45,6 +46,8 @@ import { isGrid, parentOf, worldToLocal } from './pose'
 import { loadRapier } from './rapier'
 import * as renderModule from './render'
 import { rendererMeshes } from './render'
+import * as surfaceModule from './surface'
+import { RoadConditions, registerSurfacePresets, Surfaces } from './surface'
 import { type BodyRecord, Physics, PhysicsWorld } from './world'
 
 export { Physics }
@@ -80,6 +83,7 @@ const syncIn = defineSystem({
     bodies: world.query({ with: [RigidBody] }),
     colliders: world.query({ with: [Collider] }),
     joints: world.query({ with: [Joint] }),
+    masses: world.query({ with: [Mass, RigidBody] }),
     velocities: world.query({ with: [Velocity, RigidBody] }),
     impulses: world.query({ with: [ExternalImpulse] }),
     forces: world.query({ with: [ExternalForce] }),
@@ -150,6 +154,16 @@ const syncIn = defineSystem({
         if (world.isAlive(e) && world.has(e, Collider)) p.createCollider(world, e)
       }
       p.dirtyColliders.clear()
+    }
+
+    // Mass changed after its colliders were built.
+    for (let t = 0; t < s.masses.tables.length; t++) {
+      const table = s.masses.tables[t]!
+      if (table.lastChanged(Mass) <= since) continue
+      const ticks = table.changedTicks(Mass)
+      for (let row = 0; row < table.count; row++) {
+        if (ticks[row]! > since) p.fixMass(world, table.entities[row]!)
+      }
     }
 
     // Joints, once both bodies exist.
@@ -346,6 +360,8 @@ function applyForces(s: SyncState, p: PhysicsWorld, since: number): void {
     rbResetTorques(h: number, w: boolean): void
   }
   const rv = p.rawVec as unknown as { x: number; y: number; z: number }
+  // One-step forces (vehicles) go first: ExternalForce and gravity sources are added after.
+  p.clearStepForces()
   for (let i = 0; i < s.forcedLast.length; i++) {
     const r = s.forcedLast[i]!
     if (!p.bodyByHandle.has(r.handle)) continue
@@ -425,7 +441,11 @@ function applyForces(s: SyncState, p: PhysicsWorld, since: number): void {
 
 // --- step and sync out ---------------------------------------------------------
 
-const step = defineSystem({
+/**
+ * The Rapier step. Systems that push bodies after sync-in and before the step order against it
+ * (vehicles, 0118): `.after(characterSystem).before(physicsStep)`.
+ */
+export const physicsStep = defineSystem({
   name: 'physics/step',
   description: 'Steps Rapier by the fixed timestep and sends collision and contact force events.',
   setup: (world) => ({
@@ -694,7 +714,7 @@ function physicsPlugin(dim: 2 | 3, options: PhysicsPluginOptions | undefined): P
   const deterministic = options?.deterministic === true
   return {
     name: dim === 3 ? 'physics3d' : 'physics2d',
-    provides: [componentsModule, pluginModule, renderModule],
+    provides: [componentsModule, pluginModule, renderModule, surfaceModule],
     dependencies: ['core/transform'],
     build(app: App) {
       const other = dimensionOf.get(app.world)
@@ -708,6 +728,8 @@ function physicsPlugin(dim: 2 | 3, options: PhysicsPluginOptions | undefined): P
       dimensionOf.set(app.world, dim)
       app.world.initResource(PhysicsConfig)
       app.world.initResource(PhysicsRange)
+      app.world.initResource(Surfaces)
+      app.world.initResource(RoadConditions)
       if (dim === 2) {
         const config = app.world.resource(PhysicsConfig)
         config.gravity = [0, -9.81, 0]
@@ -717,13 +739,14 @@ function physicsPlugin(dim: 2 | 3, options: PhysicsPluginOptions | undefined): P
         FixedUpdate,
         syncIn.inSet(PhysicsSystems),
         characterSystem.after(syncIn).inSet(PhysicsSystems),
-        step.after(characterSystem).inSet(PhysicsSystems),
-        syncOut.after(step).inSet(PhysicsSystems),
+        physicsStep.after(characterSystem).inSet(PhysicsSystems),
+        syncOut.after(physicsStep).inSet(PhysicsSystems),
       )
       app.addSystems(PostUpdate, interpolate.before(TransformSystems))
       app.addMethod(...physicsMethods)
     },
     async ready(app: App) {
+      registerSurfacePresets(app.world)
       const R = await loadRapier(dim, { deterministic })
       const config = app.world.resource(PhysicsConfig)
       const variant = deterministic ? 'deterministic' : 'regular'

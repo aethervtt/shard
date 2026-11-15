@@ -162,6 +162,14 @@ export const Collider = defineComponent(
       unit: 'N',
       description: 'Send ContactForceEvent when the contact force exceeds this (0: never).',
     }),
+    surface: t.handle('physics/Surface', {
+      description:
+        'What the ground is made of (a *.surface.json, or a preset such as physics/gravel.surface.json): tire grip, rolling resistance, sinkage. None: asphalt.',
+    }),
+    ignoreCharacters: t.bool({
+      description:
+        'Character controllers can’t walk through it, but contacts with them aren’t solved: a character never stops or lifts it (vehicle chassis, 0118).',
+    }),
   },
   {
     description:
@@ -188,9 +196,27 @@ export const ExternalImpulse = defineComponent(
   { description: 'A one-off push: a jump, an explosion, a hit.' },
 )
 
+export const MASS_CENTERS = ['colliders', 'authored'] as const
+
 export const Mass = defineComponent(
   'physics/Mass',
-  { mass: t.f32({ default: 1, min: 0, unit: 'kg', description: 'The body’s total mass.' }) },
+  {
+    mass: t.f32({ default: 1, min: 0, unit: 'kg', description: 'The body’s total mass.' }),
+    center: t.enum(MASS_CENTERS, {
+      description:
+        'colliders: the center of mass and inertia come from the colliders’ shapes. authored: centerOfMass and inertiaScale set them (a car’s center sits low whatever its body collider says).',
+    }),
+    centerOfMass: t.vec3({
+      unit: 'm',
+      description: 'authored: the center of mass in the body’s local frame.',
+    }),
+    inertiaScale: t.vec3({
+      default: [1, 1, 1],
+      min: 0,
+      description:
+        'authored: scales the colliders’ principal inertia at this mass, per principal axis.',
+    }),
+  },
   { description: 'Sets a body’s mass directly instead of from collider density.' },
 )
 
