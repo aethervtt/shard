@@ -7,7 +7,7 @@ import {
   type SurfaceSample,
   Surfaces,
   surfacePreset,
-} from '@aethervtt/shard-physics'
+} from '@aethervtt/shard-physics/surface'
 import { TerrainWorld } from '../heights'
 import { TerrainChunk } from './component'
 import { PAGE } from './kernel'
