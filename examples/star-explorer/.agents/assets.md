@@ -122,6 +122,12 @@ Files: `*.navgrid.json`
 
 No import settings.
 
+## `data/surface`
+
+Files: `*.surface.json`
+
+No import settings.
+
 ## `data/atlas`
 
 Files: `*.atlas.json`
@@ -267,6 +273,12 @@ No import settings.
 ## `data/theme`
 
 Files: `*.theme.json`
+
+No import settings.
+
+## `data/tire`
+
+Files: `*.tire.json`
 
 No import settings.
 

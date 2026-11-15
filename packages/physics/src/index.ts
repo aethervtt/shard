@@ -18,6 +18,7 @@ export {
   GravitySource,
   JOINT_KINDS,
   Joint,
+  MASS_CENTERS,
   Mass,
   PhysicsConfig,
   type PhysicsConfigValue,
@@ -38,11 +39,29 @@ export {
   physics,
   physics2dPlugin,
   physics3dPlugin,
+  physicsStep,
 } from './plugin'
 export { type LoadRapierOptions, loadRapier, type Rapier, type RapierVariant } from './rapier'
 export {
+  createSurfaceSample,
+  RoadConditions,
+  registerSurfacePresets,
+  registerSurfaceResolver,
+  SURFACE_PRESETS,
+  Surface,
+  type SurfacePreset,
+  SurfaceRegistry,
+  type SurfaceResolver,
+  type SurfaceSample,
+  Surfaces,
+  type SurfaceValue,
+  surfaceAt,
+  surfacePreset,
+} from './surface'
+export {
   type BodyRecord,
   CHARACTER_OFFSET,
+  CHARACTER_SOLVER_GROUP,
   type CharacterRecord,
   createRayHit,
   type MeshLookup,

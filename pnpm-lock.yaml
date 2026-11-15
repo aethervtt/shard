@@ -143,6 +143,9 @@ importers:
       '@aethervtt/shard-ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@aethervtt/shard-vehicle':
+        specifier: workspace:*
+        version: link:../../packages/vehicle
       '@aethervtt/shard-verify':
         specifier: workspace:*
         version: link:../../packages/verify
@@ -315,6 +318,9 @@ importers:
       '@aethervtt/shard-vector':
         specifier: workspace:*
         version: link:../../packages/vector
+      '@aethervtt/shard-vehicle':
+        specifier: workspace:*
+        version: link:../../packages/vehicle
       '@aethervtt/shard-verify':
         specifier: workspace:*
         version: link:../../packages/verify
@@ -1866,6 +1872,9 @@ importers:
       '@aethervtt/shard-ui':
         specifier: workspace:*
         version: link:../ui
+      '@aethervtt/shard-vehicle':
+        specifier: workspace:*
+        version: link:../vehicle
       '@aethervtt/shard-verify':
         specifier: workspace:*
         version: link:../verify
@@ -2639,6 +2648,55 @@ importers:
       webgpu:
         specifier: 0.6.1
         version: 0.6.1
+
+  packages/vehicle:
+    dependencies:
+      '@aethervtt/shard-assets':
+        specifier: workspace:*
+        version: link:../assets
+      '@aethervtt/shard-audio':
+        specifier: workspace:*
+        version: link:../audio
+      '@aethervtt/shard-core':
+        specifier: workspace:*
+        version: link:../core
+      '@aethervtt/shard-mesh':
+        specifier: workspace:*
+        version: link:../mesh
+      '@aethervtt/shard-net':
+        specifier: workspace:*
+        version: link:../net
+      '@aethervtt/shard-particles':
+        specifier: workspace:*
+        version: link:../particles
+      '@aethervtt/shard-physics':
+        specifier: workspace:*
+        version: link:../physics
+      '@aethervtt/shard-render':
+        specifier: workspace:*
+        version: link:../render
+      '@aethervtt/shard-runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@aethervtt/shard-scene':
+        specifier: workspace:*
+        version: link:../scene
+      '@aethervtt/shard-transform':
+        specifier: workspace:*
+        version: link:../transform
+      '@dimforge/rapier3d-compat':
+        specifier: 0.20.0
+        version: 0.20.0
+    devDependencies:
+      '@aethervtt/shard-gltf':
+        specifier: workspace:*
+        version: link:../gltf
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+      '@webgpu/types':
+        specifier: ^0.1.74
+        version: 0.1.74
 
   packages/verify:
     dependencies:

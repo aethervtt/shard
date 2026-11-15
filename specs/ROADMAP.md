@@ -83,6 +83,7 @@ UI, navigation, and saves. Each one exposes its state to agents as data.
 |---|---|---|
 | [0028](0028-physics.md) | Physics 3D and 2D (Rapier) | implemented |
 | [0029](0029-character-controller.md) | Character controller (slopes, steps, spherical gravity) | implemented |
+| [0118](0118-vehicles.md) | Wheeled vehicles (suspension, slip-curve tires, drivetrain and gearboxes, surfaces, assists, audio and effect hooks, seats, driver-owned networking, `vehicle gen` and `vehicle test`) | draft (built) |
 | [0030](0030-prefabs.md) | Prefabs, overrides, and variants | implemented |
 | [0031](0031-data-assets.md) | Data assets (project-defined types, variants) | implemented |
 | [0032](0032-skeletal-animation.md) | Skeletal animation (skinning, clips, blending, masks, morph targets, root motion) | implemented |

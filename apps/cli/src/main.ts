@@ -32,6 +32,7 @@ import { profile } from './profile'
 import { ragdoll } from './ragdoll-command'
 import { shaders } from './shaders-command'
 import { terrain } from './terrain-command'
+import { vehicle } from './vehicle-command'
 import { approve, capture, compare, perfCheck } from './verify'
 
 const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; help: string }> = {
@@ -104,6 +105,11 @@ const COMMANDS: Record<string, { run: (ctx: CommandContext) => Promise<number>; 
     run: ragdoll,
     help: 'ragdoll gen <model> [--bodies humanoid|all] [--clips] | ragdoll check <asset> [--impulses 100]   ragdolls (0117): fit bodies to a skinned model; random hits headless',
   },
+  vehicle: {
+    run: vehicle,
+    help: 'vehicle gen <model> [--class sedan|sports|pickup|offroad|van|truck|bus] | vehicle test <prefab> [--surface asphalt] [--maneuvers accel,brake…]   vehicles (0118): a prefab from a car model; headless maneuvers',
+  },
+
   terrain: {
     run: terrain,
     help: 'terrain bake|stats [file] [--force]   bake heightfield terrains into .shard/cache/terrain; sizes and times',
@@ -233,6 +239,10 @@ export async function main(argv: string[]): Promise<number> {
         retarget: { type: 'string' },
         map: { type: 'string' },
         impulses: { type: 'string' },
+        class: { type: 'string' },
+        facing: { type: 'string' },
+        maneuvers: { type: 'string' },
+        surface: { type: 'string' },
         help: { type: 'boolean', short: 'h' },
       },
     })

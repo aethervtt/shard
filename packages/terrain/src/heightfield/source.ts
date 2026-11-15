@@ -78,6 +78,11 @@ export interface SourceMaterialLayer {
   triplanar: boolean
   /** Linear RGB multiplying the albedo; the whole color without texture arrays. */
   tint: [number, number, number]
+  /**
+   * The ground's physics surface (0118), a `*.surface.json` path. Null: the preset named like the
+   * layer (grass, gravel, sand, snow, mud, dirt, ice; soil is dirt, rock is concrete), else asphalt.
+   */
+  surface: string | null
 }
 
 /** Tints for layers that don't set one, by index: grass, rock, gravel, sand, snow, soil, … */
@@ -395,7 +400,9 @@ export function parseTerrainSource(json: unknown): TerrainSource {
   const layers = layerList.map((value, i): SourceMaterialLayer => {
     const path = pointer('/layers', i)
     if (!isPlainObject(value)) throw shape(path, 'A material layer is an object')
-    known(value, ['name', 'albedo', 'normal', 'orm', 'scale', 'triplanar', 'tint'], path)
+    known(value, ['name', 'albedo', 'normal', 'orm', 'scale', 'triplanar', 'tint', 'surface'], path)
+    if (value.surface !== undefined && (typeof value.surface !== 'string' || value.surface === ''))
+      throw shape(pointer(path, 'surface'), 'surface is a *.surface.json path')
     if (typeof value.name !== 'string' || value.name === '')
       throw shape(pointer(path, 'name'), 'A material layer needs a name')
     const albedo = opt(value.albedo, i, pointer(path, 'albedo'), 'albedo')
@@ -420,6 +427,7 @@ export function parseTerrainSource(json: unknown): TerrainSource {
       scale,
       triplanar: value.triplanar === true,
       tint,
+      surface: typeof value.surface === 'string' ? value.surface : null,
     }
   })
   const names = new Map(layers.map((l, i) => [l.name, i]))

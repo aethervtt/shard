@@ -1,5 +1,5 @@
 import { animationPlugin } from '@aethervtt/shard-animation'
-import { audioPlugin } from '@aethervtt/shard-audio'
+import { audioEventsPlugin, audioPlugin } from '@aethervtt/shard-audio'
 import { charactersPlugin } from '@aethervtt/shard-characters'
 import { controlsPlugin } from '@aethervtt/shard-controls'
 import { ShardError } from '@aethervtt/shard-core'
@@ -49,6 +49,9 @@ import { terrainPlugin } from '@aethervtt/shard-terrain'
 import { TransformPlugin } from '@aethervtt/shard-transform'
 import { uiPlugin } from '@aethervtt/shard-ui'
 import { vectorPlugin } from '@aethervtt/shard-vector'
+import { vehiclePlugin } from '@aethervtt/shard-vehicle'
+import { vehicleAudioPlugin } from '@aethervtt/shard-vehicle/audio'
+import { vehicleEffectsPlugin } from '@aethervtt/shard-vehicle/effects'
 import { metricsPlugin } from '@aethervtt/shard-verify/metrics'
 import { installCapturePage } from '@aethervtt/shard-verify/page'
 import { oceanWavesPlugin, waterPlugin } from '@aethervtt/shard-water'
@@ -91,6 +94,7 @@ import { spritesPlugin } from './sprites'
 import { tabletopDemoPlugin } from './tabletop'
 import { terrainDemoPlugin } from './terrain'
 import { uiDemoPlugin } from './ui'
+import { vehiclesDemoPlugin } from './vehicles'
 import { waterDemoPlugin } from './water'
 
 const canvas = document.getElementById('viewport') as HTMLCanvasElement
@@ -250,6 +254,21 @@ if (demo === 'galaxy') {
     ...controls(),
     hudPlugin,
     ragdollDemoPlugin,
+  )
+} else if (demo === 'vehicles') {
+  app.addPlugin(
+    TransformPlugin,
+    forwardPlugin(),
+    physics3dPlugin(),
+    vehiclePlugin(),
+    audioPlugin({ backend: webAudio() }),
+    audioEventsPlugin(),
+    vehicleAudioPlugin(),
+    particlesPlugin,
+    vehicleEffectsPlugin(),
+    ...controls(),
+    hudPlugin,
+    vehiclesDemoPlugin,
   )
 } else if (demo === 'audio') {
   app.addPlugin(

@@ -183,6 +183,11 @@ export {
   terrainJsonSchema,
 } from './heightfield/source-asset'
 export { compileStack, mainNoise, type StackAssets } from './heightfield/stack'
+export {
+  heightfieldSurfaceResolver,
+  layerSurfacePath,
+  registerTerrainSurfaces,
+} from './heightfield/surfaces'
 export { heightfieldUpdates, updateHeightfields } from './heightfield/system'
 export {
   heightAt,

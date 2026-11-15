@@ -1,6 +1,15 @@
 import { type Entity, ShardError, type World } from '@aethervtt/shard-core'
 import type { Mesh } from '@aethervtt/shard-mesh'
-import { BAKED_BIT, DEFORM_WORDS, type DeformStore, JOINT_COUNT_MASK, NO_SKIN } from './deform'
+import {
+  BAKED_BIT,
+  DEFORM_WORDS,
+  type DeformStore,
+  fromHalf,
+  JOINT_COUNT_MASK,
+  morphWords,
+  NO_SKIN,
+  TANGENT_BIT,
+} from './deform'
 import { INSTANCE_FLOATS, InstanceFlags, InstanceSlot, Instances } from './instances'
 
 // The CPU mirror of `deform_vertex` (shaders.ts) and the instance transform, for tests (spec 0115):
@@ -165,6 +174,8 @@ export function deformedPositions(
   const baked = (word5 & BAKED_BIT) !== 0
   const skinned = (flags & InstanceFlags.Skinned) !== 0 && jointCount > 0 && skinBase !== NO_SKIN
   const frames = skinned && baked ? bakedFrames(poses, jointBase, jointCount) : undefined
+  const morphFirst = (morphBase & ~TANGENT_BIT) >>> 0
+  const morphStride = morphWords((morphBase & TANGENT_BIT) !== 0)
   const morphCount = records[o + 9]!
   const weightsBase = records[o + 10]!
   const r = new Float64Array(12)
@@ -178,10 +189,10 @@ export function deformedPositions(
         const target = poses[pair]! >>> 0
         if (target >= targetCount) continue
         const w = poses[pair + 1]!
-        const m = morphBase + (target * vertexCount + v) * 9
-        px += wordF[m]! * w
-        py += wordF[m + 1]! * w
-        pz += wordF[m + 2]! * w
+        const m = morphFirst + (target * vertexCount + v) * morphStride
+        px += fromHalf(words[m]! & 0xffff) * w
+        py += fromHalf(words[m]! >>> 16) * w
+        pz += fromHalf(words[m + 1]! & 0xffff) * w
       }
       if (skinned) {
         const s = skinBase + v * 6

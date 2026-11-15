@@ -182,6 +182,12 @@ export const BUILTIN_PLUGINS = {
     'AnimationPlayer: glTF and .anim.json clips on joints and fields, blending, root motion; Animator graphs from .animgraph.json (includes render/forward)',
   physics3d: 'Rapier 3D rigid bodies, colliders, joints, raycasts (includes core/transform)',
   physics2d: 'Rapier 2D physics in the XY plane (includes core/transform)',
+  vehicle:
+    'wheeled vehicles (0118): vehicle/Vehicle chassis with VehicleWheel children, VehicleEngine and VehicleTransmission, VehicleAssists (ABS, TCS, ESC, drift), tires (*.tire.json, presets vehicle/<road|sport|offroad|winter>.tire.json) on physics/Surface ground, seats, character hits, vehicle.describe and vehicle.test; shard vehicle gen|test (includes physics3d)',
+  'vehicle/audio':
+    'vehicle/VehicleAudio: engine and per-wheel tire audio events driven by rpm, load, slip and surface, one-shots on shifts, stalls, landings and hits (includes vehicle, audio/events)',
+  'vehicle/effects':
+    'vehicle/VehicleEffects: wheel dust, spray and smoke by surface, skid marks and tire tracks as trails (includes vehicle, particles)',
   input: 'keyboard, mouse, gamepad, touch, action maps',
   gestures:
     'taps, long presses, drags, pinches, twists and the wheel as Gesture events, with claims and Escape to cancel (includes input)',

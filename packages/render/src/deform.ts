@@ -11,19 +11,29 @@ import { DataStore } from './data-store'
  *        baked playback header's (spec 0115)
  *   5    joint count, with BAKED_BIT for baked playback (readers mask it)
  *   6    first word of the mesh's skin data (joints, weights)           7  first morph delta word
+ *        (with TANGENT_BIT when the deltas carry tangents)
  *   8    vertex count      9  active morph targets (≤ 8)               10  their (index, weight)
  *                                                                          pairs (vec4 index)
  *  11    1 + first word of the slot's LOD level table, or 0 without Lod (spec 0103)
  *
  * Words 6-8 describe level 0's mesh. A LOD set's level table, in the vertex data, has a row of
- * `LEVEL_WORDS` per level: skin base (`NO_SKIN` without), morph base, vertex count, target count.
+ * `LEVEL_WORDS` per level: skin base (`NO_SKIN` without), morph base (with TANGENT_BIT),
+ * vertex count, target count.
  */
 export const DEFORM_WORDS = 12
 const DEFORM_BYTES = DEFORM_WORDS * 4
 /** Words of skin data per vertex: joints packed as two u16 pairs, then four f32 weights. */
 export const SKIN_WORDS = 6
-/** Floats per vertex per morph target: position, normal, and tangent deltas. */
-export const MORPH_WORDS = 9
+/**
+ * Words per vertex per morph target: position and normal deltas as six half floats
+ * (`pack2x16float`: x y, z nx, ny nz). Meshes whose targets have tangents add two words
+ * (tx ty, tz 0), marked by TANGENT_BIT on their morph base. Half floats keep a delta to 1/2048
+ * of its size: 0.05 mm on a 10 cm morph, and a third of the memory of full floats.
+ */
+export const MORPH_WORDS = 3
+export const MORPH_TANGENT_WORDS = 5
+/** On a morph base (record word 7, level table rows): the deltas carry tangents. */
+export const TANGENT_BIT = 0x80000000
 /** Words per level in a LOD set's level table. */
 export const LEVEL_WORDS = 4
 /** A level table's skin base for a level whose mesh has no joints and weights. */
@@ -46,6 +56,8 @@ export interface MeshDeform {
   skinBase: number
   /** First word of morph deltas, or -1 without targets. */
   morphBase: number
+  /** Whether its targets carry tangent deltas (MORPH_TANGENT_WORDS a vertex, not MORPH_WORDS). */
+  morphTangents: boolean
   vertexCount: number
   targetCount: number
   /** Per joint: the farthest vertex it mainly moves, in joint space (bounds padding); by skin. */
@@ -330,6 +342,7 @@ export class DeformStore {
       version: mesh.version,
       skinBase: -1,
       morphBase: -1,
+      morphTangents: false,
       vertexCount: n,
       targetCount: mesh.targets?.length ?? 0,
       radii: undefined,
@@ -362,7 +375,7 @@ export class DeformStore {
     const o = base + k * LEVEL_WORDS
     const u = this.vertexData
     const skin = md.skinBase >= 0 ? md.skinBase : NO_SKIN
-    const morph = md.morphBase >= 0 ? md.morphBase : 0
+    const morph = morphWord(md)
     if (
       u[o] === skin &&
       u[o + 1] === morph &&
@@ -381,7 +394,7 @@ export class DeformStore {
   private wordsOf(entry: MeshDeform): number {
     return (
       (entry.skinBase >= 0 ? entry.vertexCount * SKIN_WORDS : 0) +
-      entry.targetCount * entry.vertexCount * MORPH_WORDS
+      entry.targetCount * entry.vertexCount * morphWords(entry.morphTangents)
     )
   }
 
@@ -422,17 +435,26 @@ export class DeformStore {
     }
     const targets = mesh.targets
     if (targets?.length) {
-      const base = this.reserve(targets.length * n * MORPH_WORDS)
+      const tangents = targets.some((t) => t.tangents)
+      const words = morphWords(tangents)
+      const base = this.reserve(targets.length * n * words)
       entry.morphBase = base
-      const f = this.vertexF32
+      entry.morphTangents = tangents
+      const u = this.vertexData
       for (let t = 0; t < targets.length; t++) {
         const target = targets[t]!
+        const p = target.positions
+        const q = target.normals
+        const r = target.tangents
         for (let v = 0; v < n; v++) {
-          const o = base + (t * n + v) * MORPH_WORDS
-          for (let c = 0; c < 3; c++) {
-            f[o + c] = target.positions[v * 3 + c]!
-            f[o + 3 + c] = target.normals ? target.normals[v * 3 + c]! : 0
-            f[o + 6 + c] = target.tangents ? target.tangents[v * 3 + c]! : 0
+          const o = base + (t * n + v) * words
+          const i = v * 3
+          u[o] = pack2(p[i]!, p[i + 1]!)
+          u[o + 1] = pack2(p[i + 2]!, q ? q[i]! : 0)
+          u[o + 2] = q ? pack2(q[i + 1]!, q[i + 2]!) : 0
+          if (tangents) {
+            u[o + 3] = r ? pack2(r[i]!, r[i + 1]!) : 0
+            u[o + 4] = r ? pack2(r[i + 2]!, 0) : 0
           }
         }
       }
@@ -454,6 +476,7 @@ export class DeformStore {
       entry.targetCount = mesh.targets?.length ?? 0
       entry.skinBase = -1
       entry.morphBase = -1
+      entry.morphTangents = false
       entry.radii = undefined
       entry.radiiFor = undefined
       this.pack(mesh, entry)
@@ -513,3 +536,55 @@ export class DeformStore {
     return this.vertexWords * 4
   }
 }
+
+/** Words a vertex's deltas take in one morph target. */
+export const morphWords = (tangents: boolean): number =>
+  tangents ? MORPH_TANGENT_WORDS : MORPH_WORDS
+
+/** A mesh's morph base as records and level tables hold it (TANGENT_BIT when it has tangents). */
+export function morphWord(md: MeshDeform): number {
+  if (md.morphBase < 0) return 0
+  return (md.morphBase | (md.morphTangents ? TANGENT_BIT : 0)) >>> 0
+}
+
+const f32 = new Float32Array(1)
+const u32 = new Uint32Array(f32.buffer)
+
+/** A float as IEEE half bits (round to nearest even; overflow to infinity, tiny to zero). */
+export function toHalf(value: number): number {
+  f32[0] = value
+  const x = u32[0]!
+  const sign = (x >>> 16) & 0x8000
+  const exp = (x >>> 23) & 0xff
+  let mant = x & 0x7fffff
+  if (exp === 0xff) return sign | 0x7c00 | (mant ? 0x200 : 0)
+  const e = exp - 127 + 15
+  if (e >= 31) return sign | 0x7c00
+  if (e <= 0) {
+    if (e < -10) return sign
+    mant |= 0x800000
+    const shift = 14 - e
+    let half = mant >>> shift
+    const rest = mant & ((1 << shift) - 1)
+    const mid = 1 << (shift - 1)
+    if (rest > mid || (rest === mid && half & 1)) half++
+    return sign | half
+  }
+  let half = (e << 10) | (mant >>> 13)
+  const rest = mant & 0x1fff
+  if (rest > 0x1000 || (rest === 0x1000 && half & 1)) half++
+  return sign | half
+}
+
+/** Half bits as a float. */
+export function fromHalf(h: number): number {
+  const sign = h & 0x8000 ? -1 : 1
+  const exp = (h >>> 10) & 0x1f
+  const mant = h & 0x3ff
+  if (exp === 0) return sign * mant * 2 ** -24
+  if (exp === 31) return mant ? Number.NaN : sign * Number.POSITIVE_INFINITY
+  return sign * (1 + mant / 1024) * 2 ** (exp - 15)
+}
+
+/** Two floats as `pack2x16float` packs them (a in the low half). */
+const pack2 = (a: number, b: number): number => (toHalf(a) | (toHalf(b) << 16)) >>> 0

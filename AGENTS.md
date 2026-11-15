@@ -36,6 +36,7 @@ shard import / shard mv <from> <to>   # import changed asset files / move one, f
 shard tiles read|edit <asset>         # tilemap cells by name (0059); tiles <asset> --encoding rows|base64
 shard terrain bake|stats [file]       # heightfield terrains (0071): incremental bake, size and time per block
 shard ragdoll gen <model> / check <asset>  # ragdolls (0117): bodies fit to the skin; random hits headless
+shard vehicle gen <model> --class sedan / test <prefab>  # vehicles (0118): a prefab from a car; maneuvers
 shard partition gen --cell 3,-2 --level far --seed 7 --compare  # one generated cell's hash (0113)
 shard check                           # type-check the project's scripts
 shard dev                             # play it in a browser; saves hot reload in place

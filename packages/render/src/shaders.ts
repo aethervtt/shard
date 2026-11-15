@@ -183,7 +183,8 @@ fn vertex_world(p: vec3f) -> vec3f {
  * Skinned and morphed slots (see deform.ts). Records per slot; poses hold joint matrices (three
  * affine rows each), morph (target, weight) pairs, baked clips and their playback headers, with
  * the clock in poses[0].x; deform_data holds each mesh's joints and weights (6 words per vertex)
- * and morph deltas (9 floats per vertex per target).
+ * and morph deltas (half floats: 3 words per vertex per target, 5 with tangents, TANGENT_BIT on
+ * the morph base).
  */
 struct Deform {
   sphere: vec4f,
@@ -208,6 +209,8 @@ const FLAG_MORPH: u32 = 64u;
 /** Deform.joint_count's flag: the slot plays baked clips (spec 0115). */
 const BAKED_BIT: u32 = 0x80000000u;
 const JOINT_COUNT_MASK: u32 = 0x7fffffffu;
+/** On a morph base: its deltas carry tangents (5 words a vertex, not 3). */
+const TANGENT_BIT: u32 = 0x80000000u;
 
 @data @group(2) @binding(3) var<storage, read> deforms: array<Deform>;
 @data @group(2) @binding(4) var<storage, read> poses: array<vec4f>;
@@ -221,10 +224,6 @@ struct Deformed {
 
 fn deform_f32(i: u32) -> f32 {
   return bitcast<f32>(deform_data[i]);
-}
-
-fn deform_vec3(i: u32) -> vec3f {
-  return vec3f(deform_f32(i), deform_f32(i + 1u), deform_f32(i + 2u));
 }
 
 /**
@@ -316,16 +315,26 @@ fn deform_vertex(instance_index: u32, vertex_index: u32, position: vec3f, normal
     target_count = deform_data[row + 3u];
   }
   if (vertex_index >= vertex_count) { return out; }
+  let tangents = (morph_base & TANGENT_BIT) != 0u;
+  let words = select(3u, 5u, tangents);
+  let morph_first = morph_base & ~TANGENT_BIT;
   for (var k = 0u; k < d.morph_count; k++) {
     let pair = poses[d.weights_base + k / 2u];
     let odd = (k & 1u) == 1u;
     let target_index = u32(select(pair.x, pair.z, odd));
     if (target_index >= target_count) { continue; }
     let w = select(pair.y, pair.w, odd);
-    let o = morph_base + (target_index * vertex_count + vertex_index) * 9u;
-    out.position += deform_vec3(o) * w;
-    out.normal += deform_vec3(o + 3u) * w;
-    out.tangent = vec4f(out.tangent.xyz + deform_vec3(o + 6u) * w, out.tangent.w);
+    let o = morph_first + (target_index * vertex_count + vertex_index) * words;
+    let a = unpack2x16float(deform_data[o]);
+    let b = unpack2x16float(deform_data[o + 1u]);
+    let c = unpack2x16float(deform_data[o + 2u]);
+    out.position += vec3f(a.x, a.y, b.x) * w;
+    out.normal += vec3f(b.y, c.x, c.y) * w;
+    if (tangents) {
+      let t0 = unpack2x16float(deform_data[o + 3u]);
+      let t1 = unpack2x16float(deform_data[o + 4u]);
+      out.tangent = vec4f(out.tangent.xyz + vec3f(t0.x, t0.y, t1.x) * w, out.tangent.w);
+    }
   }
   let joint_count = d.joint_count & JOINT_COUNT_MASK;
   if ((flags & FLAG_SKINNED) != 0u && joint_count > 0u && skin_base != NO_SKIN) {

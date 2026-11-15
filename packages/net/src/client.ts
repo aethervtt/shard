@@ -11,7 +11,15 @@ import {
   type World,
 } from '@aethervtt/shard-core'
 import { FixedTime } from '@aethervtt/shard-runtime'
-import { Connected, Disconnected, NetClock, NetId, NetRole } from './components'
+import {
+  Connected,
+  Disconnected,
+  NetClock,
+  NetId,
+  NetRole,
+  OwnerSimulated,
+  Replicated,
+} from './components'
 import type { NetCommandDef } from './registry'
 import type { Channel, NetConnection } from './transport'
 import {
@@ -329,6 +337,15 @@ export class NetClient {
     clock.jitter = spread / this.rtts.length
   }
 
+  /** Whether this client owns the entity and simulates it itself (OwnerSimulated). */
+  private ownerSimulates(entity: Entity): boolean {
+    const world = this.world
+    const table = world.entityTable(entity)
+    if (!table.has(OwnerSimulated) || !table.has(Replicated)) return false
+    const peer = world.tryResource(NetRole)?.peer ?? 0
+    return peer !== 0 && table.column(Replicated, 'owner')[world.entityRow(entity)] === peer
+  }
+
   private stale(netId: number, comp: number, tick: number): boolean {
     let ticks = this.applied.get(netId)
     if (!ticks) {
@@ -356,6 +373,11 @@ export class NetClient {
       return true
     }
     const world = this.world
+    // An entity this client owns and simulates keeps its own values; only who owns it lands.
+    if (codec.def !== Replicated && this.ownerSimulates(entity)) {
+      codec.decode(r)
+      return true
+    }
     if (!world.has(entity, codec.def)) world.add(entity, codec.def)
     const ok = codec.decodeRow(r, world.entityTable(entity), world.entityRow(entity))
     if (this.widths[comp]! > 0) this.sample(netId, comp, entity, tick)
@@ -536,7 +558,7 @@ export class NetClient {
   private readonly interpolateEntity = (buffers: (InterpBuffer | undefined)[], netId: number) => {
     const world = this.world
     const entity = this.byNetId.get(netId)
-    if (entity === undefined || !world.isAlive(entity)) return
+    if (entity === undefined || !world.isAlive(entity) || this.ownerSimulates(entity)) return
     // An entity sent every `every` network ticks renders that far behind, so it moves between its
     // sparse samples instead of holding the newest one and jumping (0113).
     const every = this.rates.get(netId)

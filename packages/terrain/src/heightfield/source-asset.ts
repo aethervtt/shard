@@ -357,6 +357,12 @@ export function terrainJsonSchema(): Record<string, unknown> {
                 'Linear RGB multiplying the albedo, and the whole color when the terrain has no texture arrays (default: a palette by index: grass, rock, gravel, sand, snow…).',
               examples: [[0.16, 0.3, 0.08]],
             },
+            surface: {
+              type: 'string',
+              description:
+                'The ground’s physics surface (0118): tire grip, rolling resistance, sinkage. Default: the preset named like the layer (grass, gravel, sand, snow, mud, dirt, ice; soil is dirt, rock is concrete), else asphalt.',
+              examples: ['physics/gravel.surface.json'],
+            },
           },
           required: ['name'],
           additionalProperties: false,

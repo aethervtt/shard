@@ -54,6 +54,7 @@
     "@aethervtt/shard-transform": "workspace:*",
     "@aethervtt/shard-ui": "workspace:*",
     "@aethervtt/shard-vector": "workspace:*",
+    "@aethervtt/shard-vehicle": "workspace:*",
     "@aethervtt/shard-verify": "workspace:*",
     "@aethervtt/shard-water": "workspace:*",
     "@aethervtt/shard-wind": "workspace:*"

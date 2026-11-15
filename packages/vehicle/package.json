@@ -1,0 +1,38 @@
+{
+  "name": "@aethervtt/shard-vehicle",
+  "version": "0.0.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./audio": "./src/audio.ts",
+    "./effects": "./src/effects.ts",
+    "./testing": "./src/testing.ts",
+    "./net": "./src/net.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@aethervtt/shard-assets": "workspace:*",
+    "@aethervtt/shard-audio": "workspace:*",
+    "@aethervtt/shard-core": "workspace:*",
+    "@aethervtt/shard-mesh": "workspace:*",
+    "@aethervtt/shard-net": "workspace:*",
+    "@aethervtt/shard-particles": "workspace:*",
+    "@aethervtt/shard-physics": "workspace:*",
+    "@aethervtt/shard-render": "workspace:*",
+    "@aethervtt/shard-runtime": "workspace:*",
+    "@aethervtt/shard-scene": "workspace:*",
+    "@aethervtt/shard-transform": "workspace:*",
+    "@dimforge/rapier3d-compat": "0.20.0"
+  },
+  "devDependencies": {
+    "@aethervtt/shard-gltf": "workspace:*",
+    "@types/node": "^26.6.2",
+    "@webgpu/types": "^0.1.74"
+  }
+}

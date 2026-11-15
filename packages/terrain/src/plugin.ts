@@ -22,6 +22,7 @@ import {
 } from './heightfield/render'
 import type { HeightfieldRuntime } from './heightfield/runtime'
 import * as sourceModule from './heightfield/source-asset'
+import { registerTerrainSurfaces } from './heightfield/surfaces'
 import { registerHeightfield, updateHeightfields } from './heightfield/system'
 import * as heightsModule from './heights'
 import { TerrainWorld } from './heights'
@@ -149,6 +150,7 @@ export function terrainPlugin(options: TerrainPluginOptions = {}): Plugin {
     async ready(app) {
       registerNode(app)
       registerHeightfield(app)
+      registerTerrainSurfaces(app.world)
       for (const hook of terrainReadyHooks) await hook(app)
     },
   })
