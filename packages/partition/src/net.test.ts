@@ -1,6 +1,7 @@
 import type { Entity, World } from '@aethervtt/shard-core'
 import {
   anyOf,
+  type InterestPolicy,
   NetRole,
   netSession,
   ownerInterest,
@@ -57,6 +58,8 @@ interface Setup {
   clients?: number
   starts?: [number, number][]
   client?: PartitionNetOptions
+  /** The interest policy; a project's net config makes one and keeps it across server worlds. */
+  interest?: InterestPolicy
 }
 
 async function setup(options: Setup = {}): Promise<NetHarness> {
@@ -77,7 +80,7 @@ async function setup(options: Setup = {}): Promise<NetHarness> {
       ],
     }),
     serverNet: {
-      interest: anyOf(ownerInterest(), streamInterest()),
+      interest: anyOf(ownerInterest(), options.interest ?? streamInterest()),
       players: {
         spawn(world, { peer }) {
           const [x, z] = starts[(peer - 1) % starts.length]!
@@ -211,6 +214,25 @@ describe('server-driven streaming', () => {
       last = now
     }
     expect(still).toBeLessThanOrEqual(2)
+  })
+
+  it('keeps one policy’s cells apart across server worlds that reuse entity ids', async () => {
+    const interest = streamInterest()
+    h = await setup({ clients: 1, interest })
+    const first = zombie(h.server.world, 40, 40)
+    await run(h, 20)
+    await h.dispose()
+    // A new world: its ticks start again, and its entity ids are the first world's. This one takes
+    // the zombie's id, in its cell, not replicated, while the client's cells are still loading.
+    h = await setup({ clients: 1, interest })
+    const plain = h.server.world.spawn([Transform, { translation: [40, 0, 40] }])
+    expect(plain).toBe(first)
+    await run(h, 20)
+    const near = zombie(h.server.world, 44, 40)
+    await run(h, 30)
+    const peer = netSession(h.server.world).server!.peers.get(peerOf(h.clients[0]!))!
+    expect(peer.relevant.has(plain)).toBe(false)
+    expect(h.clientEntity(0, near)).toBeDefined()
   })
 
   it('keeps container contents server-side until the game reveals them', async () => {

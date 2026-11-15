@@ -405,19 +405,31 @@ const SPAN = 1 << 21
  * nearest focus (1.1 × for ones it has), each at its band's interval (0113). Uses the first grid.
  */
 export function streamInterest(): InterestPolicy {
-  const buckets = new Map<number, Entity[]>()
-  const cellOf = new Map<Entity, number>()
-  let lastTick = 0
-  let query: Query | undefined
-  let queryWorld: World | undefined
+  // Per world: a project's net config (and so this policy) outlives a server world, and a new
+  // world reuses entity ids, so one world's buckets must never answer for another's.
+  const worlds = new WeakMap<World, StreamState>()
   const focus: number[] = []
   const p = new Float64Array(3)
+
+  function stateOf(world: World): StreamState {
+    let s = worlds.get(world)
+    if (!s) {
+      s = {
+        buckets: new Map(),
+        cellOf: new Map(),
+        lastTick: 0,
+        query: world.query({ with: [Replicated, Transform] }),
+      }
+      worlds.set(world, s)
+    }
+    return s
+  }
 
   function bucketKey(x: number, z: number): number {
     return (x + BIAS) * SPAN + (z + BIAS)
   }
 
-  function place(e: Entity, key: number): void {
+  function place({ buckets, cellOf }: StreamState, e: Entity, key: number): void {
     const prev = cellOf.get(e)
     if (prev === key) return
     if (prev !== undefined) {
@@ -449,27 +461,25 @@ export function streamInterest(): InterestPolicy {
   return {
     name: 'partition/stream',
     prepare(world) {
-      if (queryWorld !== world || !query) {
-        queryWorld = world
-        query = world.query({ with: [Replicated, Transform] })
-      }
+      const s = stateOf(world)
       const grid = instance(world)?.partition.grids[0]
       if (!grid) return
-      for (const table of query.tables) {
+      for (const table of s.query.tables) {
         const moved =
-          table.lastStructural > lastTick ||
-          table.lastChanged(Transform) > lastTick ||
-          (table.has(GlobalTransform) && table.lastChanged(GlobalTransform) > lastTick)
+          table.lastStructural > s.lastTick ||
+          table.lastChanged(Transform) > s.lastTick ||
+          (table.has(GlobalTransform) && table.lastChanged(GlobalTransform) > s.lastTick)
         if (!moved) continue
         for (let row = 0; row < table.count; row++) {
           rowPosition(table, row, p)
           place(
+            s,
             table.entities[row]!,
             bucketKey(Math.floor(p[0]! / grid.cellSize), Math.floor(p[2]! / grid.cellSize)),
           )
         }
       }
-      lastTick = world.tick
+      s.lastTick = world.tick
     },
     update(world, peer, out) {
       const rt = instance(world)
@@ -481,6 +491,7 @@ export function streamInterest(): InterestPolicy {
         if (positionOf(world, f, pos)) focus.push(pos[0]!, pos[2]!)
       }
       if (focus.length === 0) return
+      const { buckets, cellOf } = stateOf(world)
       const range = grid.replicateRange
       for (const [key, reported] of cells) {
         const colon = key.indexOf(':')
@@ -517,6 +528,13 @@ export function streamInterest(): InterestPolicy {
       }
     },
   }
+}
+
+interface StreamState {
+  buckets: Map<number, Entity[]>
+  cellOf: Map<Entity, number>
+  lastTick: number
+  query: Query
 }
 
 function bandOf(grid: ResolvedGrid, d: number): number {
