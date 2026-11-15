@@ -54,3 +54,25 @@ describe('ranged reads on the web (0110)', () => {
     expect(requests).toHaveLength(2)
   })
 })
+
+describe('exists on the web', () => {
+  it("reads a host's exists header, so a miss needn't be a 404 the browser logs", async () => {
+    const urls: string[] = []
+    vi.stubGlobal('fetch', async (url: URL) => {
+      urls.push(String(url))
+      const hit = url.pathname.endsWith('/here')
+      return new Response(null, { status: 200, headers: { 'x-shard-exists': hit ? '1' : '0' } })
+    })
+    expect(await fs().exists('cache/here')).toBe(true)
+    expect(await fs().exists('cache/gone')).toBe(false)
+    expect(urls[0]).toBe('http://game.example/cache/here?exists=')
+  })
+
+  it('goes by status on a host without the header', async () => {
+    vi.stubGlobal('fetch', async (url: URL) =>
+      url.pathname.endsWith('/here') ? new Response(null) : new Response(null, { status: 404 }),
+    )
+    expect(await fs().exists('cache/here')).toBe(true)
+    expect(await fs().exists('cache/gone')).toBe(false)
+  })
+})

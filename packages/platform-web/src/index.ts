@@ -14,6 +14,9 @@ import { createWebPerformance } from './performance'
 import { createIndexedDbStorage } from './storage'
 import { createWebWorkers } from './workers'
 
+/** The header `shard dev` answers an `?exists` probe with: `1` or `0` (apps/cli `dev.ts`). */
+const EXISTS_HEADER = 'x-shard-exists'
+
 export interface WebPlatformOptions {
   /** Base URL that project paths resolve against. Defaults to the document base. */
   baseUrl?: string
@@ -103,7 +106,15 @@ export function createWebPlatform(options: WebPlatformOptions = {}): Platform {
     },
     writeText: async (path) => readOnly(path),
     writeBytes: async (path) => readOnly(path),
-    exists: async (path) => (await fetch(new URL(path, baseUrl), { method: 'HEAD' })).ok,
+    exists: async (path) => {
+      // `?exists` asks a host that knows it (shard dev) to answer in a header, so a miss isn't a
+      // 404 the browser logs as an error; any other host answers by status.
+      const url = new URL(path, baseUrl)
+      url.searchParams.set('exists', '')
+      const res = await fetch(url, { method: 'HEAD' })
+      const said = res.headers.get(EXISTS_HEADER)
+      return said === null ? res.ok : said === '1'
+    },
   }
 
   let audio: AudioBackend | undefined

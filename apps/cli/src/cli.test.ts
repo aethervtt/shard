@@ -625,6 +625,16 @@ describe('commands', () => {
         new URL('/@aethervtt/shard-files/%2e%2e%2f%2e%2e%2fpackage.json', info.url),
       )
       expect(outside.status).toBe(404)
+      // An exists probe answers in a header, never with a 404 the browser would log.
+      const probe = (path: string) =>
+        fetch(new URL(`/@aethervtt/shard-files/${path}?exists`, info.url), { method: 'HEAD' })
+      const hit = await probe('scenes/main.scene.json')
+      const miss = await probe('.shard/cache/generated/no/such')
+      const above = await probe('%2e%2e%2f%2e%2e%2fpackage.json')
+      expect([hit.status, miss.status, above.status]).toEqual([200, 200, 200])
+      expect(hit.headers.get('x-shard-exists')).toBe('1')
+      expect(miss.headers.get('x-shard-exists')).toBe('0')
+      expect(above.headers.get('x-shard-exists')).toBe('0')
     } finally {
       child.kill('SIGINT')
     }

@@ -233,7 +233,16 @@ export async function dev(ctx: CommandContext): Promise<number> {
         if (url.pathname.startsWith('/@aethervtt/shard-files/')) {
           const rel = decodeURIComponent(url.pathname.slice('/@aethervtt/shard-files/'.length))
           const file = resolve(root, rel)
-          if (!file.startsWith(root + sep) || !existsSync(file) || !statSync(file).isFile()) {
+          const found = file.startsWith(root + sep) && existsSync(file) && statSync(file).isFile()
+          // platform-web's `exists` probe: the answer in a header, so a miss (a generator's cache,
+          // every cell on a cold start) isn't a 404 the browser logs as an error.
+          if (url.searchParams.has('exists')) {
+            res.setHeader('x-shard-exists', found ? '1' : '0')
+            res.setHeader('cache-control', 'no-store')
+            res.end()
+            return
+          }
+          if (!found) {
             res.statusCode = 404
             res.end()
             return
