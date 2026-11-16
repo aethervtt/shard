@@ -10,9 +10,28 @@ function request<T>(req: IDBRequest<T>): Promise<T> {
   })
 }
 
+let persistAsked = false
+
+/**
+ * Asks the browser once per page to keep this origin's storage under pressure (and, in Safari,
+ * past seven idle days): only on a secure page's main thread, and only if it isn't kept already.
+ * Firefox may show a prompt; refusals and failures change nothing.
+ */
+function askToPersist(): void {
+  if (persistAsked) return
+  persistAsked = true
+  const storage = typeof navigator === 'undefined' ? undefined : navigator.storage
+  if (typeof document === 'undefined' || !globalThis.isSecureContext || !storage?.persist) return
+  void (async () => {
+    if (await storage.persisted?.()) return
+    await storage.persist()
+  })().catch(() => {})
+}
+
 /**
  * Storage in an IndexedDB database (one object store of key → bytes): saves and settings survive
- * reloads and aren't limited to localStorage's few megabytes of strings.
+ * reloads and aren't limited to localStorage's few megabytes of strings. Opening it asks for
+ * persistent storage once (`navigator.storage.persist()`), so the cache isn't evicted first.
  */
 export function createIndexedDbStorage(name = 'shard'): KeyValueStorage {
   let db: Promise<IDBDatabase> | undefined
@@ -26,6 +45,7 @@ export function createIndexedDbStorage(name = 'shard'): KeyValueStorage {
         )
         return
       }
+      askToPersist()
       const req = indexedDB.open(name, 1)
       req.onupgradeneeded = () => req.result.createObjectStore(STORE)
       req.onsuccess = () => resolve(req.result)
