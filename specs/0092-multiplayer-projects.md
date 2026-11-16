@@ -63,7 +63,9 @@ loads; nothing draws or plays it.
 
 `openProjectHeadless({ root, seed, code, extra })` (`@aethervtt/shard-node`) opens a project that
 way: manifest, project code, asset scan, no GPU, no start scene; `extra(project)` adds plugins
-(the net plugin) before init.
+(the net plugin) before init. `loadHeadlessCode({ workers: true })` runs generator jobs on the
+platform's worker pool, as the browser does; a game server wants it, so a streamed world's cells
+generate off its tick. Off by default, for tests that start many apps.
 
 ### `shard server`
 

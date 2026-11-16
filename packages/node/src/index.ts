@@ -270,6 +270,12 @@ export interface HeadlessCodeOptions {
   seed?: number
   /** Default 'bundle'. */
   code?: 'bundle' | 'source'
+  /**
+   * Run generator jobs on the platform's worker pool (one thread per core but one) instead of
+   * inline on the calling thread, as `shard dev` does in the browser. A game server wants this: a
+   * streamed world's cells are generated off its tick. Default false (tests that start many apps).
+   */
+  workers?: boolean
 }
 
 /** A project's manifest and code, loaded once, for building GPU-less apps (0092). */
@@ -300,8 +306,8 @@ export async function loadHeadlessCode(options: HeadlessCodeOptions): Promise<He
     root,
     namespace: manifest.name,
     entry: manifest.entry,
-    workers: platform.workers,
-    worker: false,
+    workers: options.workers ? platform.workers : undefined,
+    worker: options.workers === true,
     graph: bundler?.last?.graph,
   })
   return {
