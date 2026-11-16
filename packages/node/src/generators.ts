@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { dirname, join, relative, resolve } from 'node:path'
+import { join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { ShardError } from '@aethervtt/shard-core'
 import type { Workers } from '@aethervtt/shard-platform'
@@ -18,7 +18,8 @@ const ENGINE_GENERATOR = /\bdefineGenerator\(\s*['"]([a-z][a-z0-9-]*\/[A-Za-z][A
 
 /**
  * Each generator's code hash: the hash of the module that defines it and every project module it
- * imports (transitively), from the bundler's module graph. The entry and the module that calls
+ * imports (transitively), from the bundler's module graph. Workspace packages and data files the
+ * project imports (anything not under `node_modules`) count as its own. The entry and the module that calls
  * `defineProject` are left out (with what only they import), so editing game systems there never
  * regenerates outputs. Keys are generator names (`<namespace>/<Name>`).
  */
@@ -28,13 +29,9 @@ export async function generatorCodeHashes(
   entry: string,
   graph: ModuleGraph,
 ): Promise<Record<string, string>> {
-  const scriptsDir = relative(root, dirname(resolve(root, entry)))
-    .split('\\')
-    .join('/')
-  const own = (p: string) =>
-    !p.includes('node_modules/') &&
-    !p.startsWith('..') &&
-    (scriptsDir === '' || p.startsWith(`${scriptsDir}/`))
+  // Everything the project's code imports that isn't a dependency: its scripts, its data files,
+  // and its workspace's own packages (engine packages are external to the graph).
+  const own = (p: string) => !p.includes('node_modules/')
   const files = Object.keys(graph.inputs).filter(own)
   const text = new Map<string, string>()
   await Promise.all(files.map(async (f) => text.set(f, await readFile(resolve(root, f), 'utf8'))))

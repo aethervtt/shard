@@ -132,8 +132,9 @@ canonical(params), seed)`, and is registered as the virtual asset `gen:<identity
 `gen:<identity>/LOD1`). Code and dependency changes swap the content behind an identity in place,
 so everything holding the handle sees the new mesh.
 
-- `codeHash` is the hash of the generator's module and everything it imports inside `scripts/`,
-  taken from the bundler's module graph (0017). Editing a helper that `Rock` uses regenerates
+- `codeHash` is the hash of the generator's module and everything it imports that isn't a
+  dependency (scripts, data files, the workspace's own packages; not `node_modules` or engine
+  packages), taken from the bundler's module graph (0017). Editing a helper that `Rock` uses regenerates
   every rock; editing an unrelated script doesn't. The entry and the module that calls
   `defineProject` are left out (with what only they import), since every module reaches them
   through `project`. Hosts without a module graph fall back to hashing `run`'s source text.
