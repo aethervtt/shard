@@ -32,6 +32,8 @@ export interface GenJob extends GenRequest {
   guardAll?: boolean
   /** Check entities' components here (default true). Workers leave it to the main thread. */
   checkComponents?: boolean
+  /** Also gzip the packed record for the cache (`runGeneratorJob`'s `stored`, 0125). */
+  compress?: boolean
 }
 
 export interface GenResult {

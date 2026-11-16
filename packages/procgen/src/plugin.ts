@@ -15,8 +15,10 @@ export interface ProcgenPluginOptions {
   fs?: PlatformFileSystem
   /** Where outputs are cached on hosts that can't write files (IndexedDB in browsers). */
   storage?: KeyValueStorage
-  /** Bytes of outputs kept in memory (and in storage). Default 256 MB (`shard.json` procgen.cacheSize). */
+  /** Bytes of outputs kept in memory. Default 256 MB (`shard.json` procgen.cacheSize). */
   cacheSize?: number
+  /** Stored (gzipped) bytes kept in `storage`. Default 256 MB (`shard.json` procgen.storageSize). */
+  storageSize?: number
 }
 
 /** Generator outputs for an app: the runtime and its caches, GeneratorInstance, procgen.* methods. */
@@ -30,6 +32,7 @@ export function procgenPlugin(options: ProcgenPluginOptions = {}) {
         ...(options.fs ? { fs: options.fs } : {}),
         ...(options.storage ? { storage: options.storage } : {}),
         ...(options.cacheSize ? { cacheSize: options.cacheSize } : {}),
+        ...(options.storageSize ? { storageSize: options.storageSize } : {}),
       })
       // A generator file's defaults loading (or changing) respawns the instances that use it.
       runtime.server.onEvent((e) => {

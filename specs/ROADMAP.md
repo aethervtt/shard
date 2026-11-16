@@ -113,6 +113,7 @@ acceptance evidence are mapped in [the implementation checklist](research/audio-
 | [0040](0040-large-world-coordinates.md) | Large-world coordinates (grids, floating origin, f64 helpers) | implemented |
 | [0041](0041-noise.md) | Noise library (graphs as data, WASM kernel, WGSL codegen, worker pool) | implemented |
 | [0042](0042-generators.md) | Generators as assets (seeded, cached by input hash, previews) | implemented |
+| [0125](0125-procgen-record-store.md) | Generated records that keep (gzipped on disk and in storage, a storage ledger with LRU eviction across reloads, persistent browser storage) | draft (built) |
 | [0043](0043-planet-terrain.md) | Planet terrain (cube-sphere, quadtree LOD, GPU chunks, biomes, streaming) | implemented |
 | [0044](0044-atmosphere.md) | Atmosphere scattering (Hillaire LUTs, aerial perspective, any altitude) | implemented |
 | [0045](0045-scatter-foliage-procedural-meshes.md) | Scatter, foliage, and procedural meshes | implemented |

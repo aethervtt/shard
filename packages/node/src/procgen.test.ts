@@ -1,5 +1,13 @@
 import { createHash } from 'node:crypto'
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { join, resolve } from 'node:path'
 import { PerformanceObserver } from 'node:perf_hooks'
 import { fileURLToPath } from 'node:url'
@@ -10,12 +18,15 @@ import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
 import { encodeMesh } from '@aethervtt/shard-mesh'
 import {
+  decodeStored,
   executeJob,
   findGenerator,
   GeneratorInstance,
+  ProcgenRuntime,
   procgen,
   procgenHost,
   procgenMainThreadMs,
+  recordHash,
   requestOf,
   warmGeneratorWorkers,
 } from '@aethervtt/shard-procgen'
@@ -265,6 +276,23 @@ describe('generators in a project', () => {
       components: Record<string, { translation: number[] }>
     }
     expect(rock.components['core/Transform']!.translation).toEqual([1, 2, 3])
+  })
+
+  it('stores records made on the pool gzipped, and a new world reads them back (0125)', async () => {
+    const Rock = findGenerator('star-explorer/Rock')!
+    const first = procgen(project.app.world)
+    const ref = await first.generate(Rock, { detail: 3 }, 77)
+    const key = first.lastResult(ref.guid!)!.key!
+    const path = join(root, '.shard/cache/generated', key.slice(0, 2), key)
+    for (let i = 0; i < 200 && !existsSync(path); i++) await new Promise((r) => setTimeout(r, 10))
+    const stored = new Uint8Array(readFileSync(path))
+    expect([stored[0], stored[1]]).toEqual([0x1f, 0x8b])
+    const record = (await decodeStored(stored))!
+    expect(await recordHash(record)).toBe(await recordHash(first.recordOf(ref.guid!)!))
+    // A second runtime over the same catalog: an empty memory cache.
+    const second = new ProcgenRuntime(project.app.world, { fs: project.platform.fs })
+    expect((await second.outputRecord(ref)).key).toBe(key)
+    expect(second.stats).toMatchObject({ diskHits: 1, runs: 0 })
   })
 
   it('generates 200 rocks on the pool with under 2 ms of main-thread procgen work per frame', async () => {

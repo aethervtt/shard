@@ -2,7 +2,7 @@
 // are defined) into one self-contained module and hand its URL to `configureProcgenHost`.
 import { ENGINE_GENERATORS } from './engine/generators'
 import { executeJob, type GenJob } from './job'
-import { encodeRecord } from './record'
+import { compressRecord, encodeRecord } from './record'
 
 /**
  * HLOD proxies (0073) merge on the same pool, in the same module: it's the one every host already
@@ -16,10 +16,14 @@ export { runTask } from './tasks'
 /**
  * Runs one generator job with the clock and Math.random guarded for all of it. The result is one
  * packed record (`encodeRecord`), so its bytes move back to the caller instead of being copied.
+ * With `job.compress`, `stored` is that record gzipped for the cache, so the main thread doesn't.
  */
-export async function runGeneratorJob(job: GenJob): Promise<{ packed: Uint8Array }> {
+export async function runGeneratorJob(
+  job: GenJob,
+): Promise<{ packed: Uint8Array; stored?: Uint8Array }> {
   const result = await executeJob({ ...job, guardAll: true })
-  return { packed: encodeRecord({ key: '', ...result, bytes: 0 }) }
+  const packed = encodeRecord({ key: '', ...result, bytes: 0 })
+  return job.compress ? { packed, stored: await compressRecord(packed) } : { packed }
 }
 
 /** Nothing: loading this module (the engine's generators and the project's code) is the point. */

@@ -39,7 +39,14 @@ export const Manifest = defineSchema(
           default: 256,
           min: 1,
           unit: 'MB',
-          description: 'Generator outputs kept in memory (and in browser storage), in megabytes.',
+          description: 'Generator outputs kept in memory, in megabytes.',
+        }),
+        storageSize: t.u32({
+          default: 256,
+          min: 1,
+          unit: 'MB',
+          description:
+            'Generator outputs kept in browser storage (gzipped, across page loads), in megabytes.',
         }),
       },
       { description: 'Generators (0042): output cache limits.' },

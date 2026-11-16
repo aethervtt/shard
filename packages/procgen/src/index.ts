@@ -64,7 +64,14 @@ export {
 } from './methods'
 export { encodeOutput, type GenOutputAsset, toJson } from './outputs'
 export { type ProcgenPluginOptions, procgenPlugin } from './plugin'
-export { decodeRecord, encodeRecord, type OutputRecord, recordHash } from './record'
+export {
+  compressRecord,
+  decodeRecord,
+  decodeStored,
+  encodeRecord,
+  type OutputRecord,
+  recordHash,
+} from './record'
 export {
   type CacheResult,
   configureProcgenHost,

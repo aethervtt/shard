@@ -167,9 +167,10 @@ so everything holding the handle sees the new mesh.
 - **Runtime** `generate()` results are virtual assets (`gen:<identity>`) with the same store and
   reachability unloading as other assets (`collect` unloads unreachable ones, and they're made
   again on the next load). On hosts that can write the project, records are written to
-  `.shard/cache/generated/<2>/<key>` (one file: a JSON header and the artifacts' bytes). On
-  other hosts they go to platform storage (IndexedDB) with a size cap. An LRU of 256 MB
-  (`shard.json` `procgen.cacheSize`, in MB) bounds memory. Virtual assets may be made
+  `.shard/cache/generated/<2>/<key>` (one file: a JSON header and the artifacts' bytes, gzipped
+  since 0125). On other hosts they go to platform storage (IndexedDB) with a size cap that holds
+  across page loads (0125, `procgen.storageSize`). An LRU of 256 MB (`shard.json`
+  `procgen.cacheSize`, in MB) bounds memory. Virtual assets may be made
   asynchronously now: an async `create` leaves the entry `loading`, `load` waits for it, and a
   reload keeps the old object until the new one is ready.
 

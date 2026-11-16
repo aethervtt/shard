@@ -36,8 +36,17 @@ import {
   requireGenerator,
 } from './generator'
 import { executeJob, type GenJob, type GenResult, type JobDependency } from './job'
+import { STORED_PREFIX, StoredLedger } from './ledger'
 import { checkFragment, type GenOutputAsset } from './outputs'
-import { decodeRecord, encodeRecord, type OutputRecord, recordBytes, recordHash } from './record'
+import {
+  compressRecord,
+  decodeRecord,
+  decodeStored,
+  encodeRecord,
+  type OutputRecord,
+  recordBytes,
+  recordHash,
+} from './record'
 
 const encoder = new TextEncoder()
 
@@ -186,9 +195,13 @@ const queued: (() => void)[] = []
 /**
  * Runs a job: on the worker pool when the host gave a worker module and every dependency travels
  * as an artifact, otherwise inline (after an await, so callers never block on it). At most two
- * jobs per worker are posted at once; the rest wait their turn.
+ * jobs per worker are posted at once; the rest wait their turn. With `compress`, a worker also
+ * sends back the record gzipped for the cache (`stored`).
  */
-export async function runJob(job: GenJob): Promise<GenResult & { packed?: Uint8Array }> {
+export async function runJob(
+  job: GenJob,
+  options: { compress?: boolean } = {},
+): Promise<GenResult & { packed?: Uint8Array; stored?: Uint8Array }> {
   const pool = host.workers
   // A module still building (after a hot reload) is waited for: the old one runs old code.
   const workerModule = await host.workerModule
@@ -202,13 +215,16 @@ export async function runJob(job: GenJob): Promise<GenResult & { packed?: Uint8A
         ...job,
         // The worker bundle can be older than this thread's component schemas.
         checkComponents: false,
+        ...(options.compress ? { compress: true } : {}),
         deps: job.deps.map(({ object: _o, ...d }) => d),
         noise: kernel.module,
         noiseSimd: kernel.simd,
       }
-      const { packed } = await pool.run<{ packed: Uint8Array }>(workerModule, 'runGeneratorJob', [
-        posted,
-      ])
+      const { packed, stored } = await pool.run<{ packed: Uint8Array; stored?: Uint8Array }>(
+        workerModule,
+        'runGeneratorJob',
+        [posted],
+      )
       const record = decodeRecord(packed)
       if (!record) {
         throw new ShardError(
@@ -227,6 +243,7 @@ export async function runJob(job: GenJob): Promise<GenResult & { packed?: Uint8A
         warnings: record.warnings,
         ms: record.ms,
         packed,
+        ...(stored ? { stored } : {}),
       }
     } finally {
       running--
@@ -253,8 +270,10 @@ export interface ProcgenOptions {
   storage?: KeyValueStorage
   /** Default `.shard/cache`. */
   cacheDir?: string
-  /** Bytes of records kept in memory, and in `storage`. Default 256 MB. */
+  /** Bytes of decoded records kept in memory. Default 256 MB. */
   cacheSize?: number
+  /** Stored (gzipped) bytes of records kept in `storage`, across page loads. Default 256 MB. */
+  storageSize?: number
 }
 
 /** What happened to one output the last time it was made. */
@@ -318,12 +337,12 @@ export function paramHandles(
 export class ProcgenRuntime {
   readonly world: World
   readonly server: AssetServer
-  options: Required<Pick<ProcgenOptions, 'cacheDir' | 'cacheSize'>> & ProcgenOptions
+  options: Required<Pick<ProcgenOptions, 'cacheDir' | 'cacheSize' | 'storageSize'>> & ProcgenOptions
   readonly stats: ProcgenStats = { runs: 0, memoryHits: 0, diskHits: 0, failures: 0, mainMs: 0 }
   private readonly memory = new Map<string, OutputRecord>()
   private memoryBytes = 0
-  private readonly stored: { key: string; bytes: number }[] = []
-  private storedBytes = 0
+  /** The storage's records across page loads (0125), for the storage it was made for. */
+  private ledger: StoredLedger | undefined
   private readonly inflight = new Map<
     string,
     { promise: Promise<OutputRecord>; generator: string; started: number }
@@ -342,7 +361,12 @@ export class ProcgenRuntime {
   constructor(world: World, options: ProcgenOptions = {}) {
     this.world = world
     this.server = assetServer(world)
-    this.options = { cacheDir: '.shard/cache', cacheSize: 256 * 1024 * 1024, ...options }
+    this.options = {
+      cacheDir: '.shard/cache',
+      cacheSize: 256 * 1024 * 1024,
+      storageSize: 256 * 1024 * 1024,
+      ...options,
+    }
     this.server.onEvent((e) => {
       if (e.kind !== 'modified') return
       for (const live of this.live.values()) {
@@ -573,9 +597,10 @@ export class ProcgenRuntime {
         this.stats.diskHits++
         return stored
       }
-      let result: GenResult & { packed?: Uint8Array }
+      let result: GenResult & { packed?: Uint8Array; stored?: Uint8Array }
       try {
-        result = await runJob({ ...request, deps, chain: [] })
+        const compress = !!(this.options.fs?.writable || this.options.storage)
+        result = await runJob({ ...request, deps, chain: [] }, { compress })
       } catch (err) {
         this.stats.failures++
         throw err
@@ -589,7 +614,7 @@ export class ProcgenRuntime {
         ms: result.ms,
         bytes: recordBytes(result.assets),
       }
-      void this.writeStored(record, result.packed).catch((err) =>
+      void this.writeStored(record, result.packed, result.stored).catch((err) =>
         this.world.tryResource(LogResource)?.error(err),
       )
       return record
@@ -619,15 +644,25 @@ export class ProcgenRuntime {
     return `${this.options.cacheDir}/generated/${key.slice(0, 2)}/${key}`
   }
 
+  /** The ledger of `storage`'s records, made again when the storage changes. */
+  private storedLedger(storage: KeyValueStorage): StoredLedger {
+    if (this.ledger?.storage !== storage) {
+      this.ledger = new StoredLedger(storage, () => this.options.storageSize)
+    }
+    return this.ledger
+  }
+
   private async readStored(key: string): Promise<OutputRecord | undefined> {
-    const fs = this.options.fs
+    const { fs, storage } = this.options
     try {
       let record: OutputRecord | undefined
       if (fs && (await fs.exists(this.storedPath(key))))
-        record = decodeRecord(await fs.readBytes(this.storedPath(key)))
-      else {
-        const bytes = await this.options.storage?.read(`procgen/${key}`)
-        record = bytes ? decodeRecord(bytes) : undefined
+        record = await decodeStored(await fs.readBytes(this.storedPath(key)))
+      else if (storage) {
+        const bytes = await storage.read(STORED_PREFIX + key)
+        record = bytes ? await decodeStored(bytes) : undefined
+        const ledger = this.storedLedger(storage)
+        void (record ? ledger.touch(key) : ledger.forget(key)).catch(() => {})
       }
       // Packed on a worker before the key was known: the file name is the key.
       if (record) record.key = key
@@ -637,22 +672,25 @@ export class ProcgenRuntime {
     }
   }
 
-  private async writeStored(record: OutputRecord, packed?: Uint8Array): Promise<void> {
-    const fs = this.options.fs
+  private async writeStored(
+    record: OutputRecord,
+    packed?: Uint8Array,
+    stored?: Uint8Array,
+  ): Promise<void> {
+    const { fs, storage } = this.options
+    if (!fs?.writable && !storage) return
+    const bytes = stored ?? (await compressRecord(packed ?? encodeRecord(record)))
     if (fs?.writable) {
-      await fs.writeBytes(this.storedPath(record.key), packed ?? encodeRecord(record))
+      await fs.writeBytes(this.storedPath(record.key), bytes)
       return
     }
-    const storage = this.options.storage
-    if (!storage) return
-    await storage.write(`procgen/${record.key}`, packed ?? encodeRecord(record))
-    this.stored.push({ key: record.key, bytes: record.bytes })
-    this.storedBytes += record.bytes
-    while (this.storedBytes > this.options.cacheSize && this.stored.length > 1) {
-      const old = this.stored.shift()!
-      this.storedBytes -= old.bytes
-      await storage.delete(`procgen/${old.key}`)
-    }
+    await storage!.write(STORED_PREFIX + record.key, bytes)
+    await this.storedLedger(storage!).add(record.key, bytes.byteLength)
+  }
+
+  /** Writes the storage's index of records now (otherwise it's written soon after a change). */
+  async flushStorage(): Promise<void> {
+    await this.ledger?.flush()
   }
 
   // --- hot reload ------------------------------------------------------------------------------
@@ -720,12 +758,22 @@ export class ProcgenRuntime {
     }))
   }
 
-  cacheStats(): { records: number; bytes: number; limit: number; live: number } {
+  cacheStats(): {
+    records: number
+    bytes: number
+    limit: number
+    live: number
+    stored: { records: number; bytes: number; limit: number }
+  } {
     return {
       records: this.memory.size,
       bytes: this.memoryBytes,
       limit: this.options.cacheSize,
       live: this.live.size,
+      stored: {
+        ...(this.ledger?.stats() ?? { records: 0, bytes: 0 }),
+        limit: this.options.storageSize,
+      },
     }
   }
 }

@@ -299,6 +299,7 @@ export const engineProcgen: EnginePlugin = {
         fs: ctx.platform?.fs,
         storage: ctx.platform?.storage,
         cacheSize: (ctx.manifest.procgen?.cacheSize ?? 256) * 1024 * 1024,
+        storageSize: (ctx.manifest.procgen?.storageSize ?? 256) * 1024 * 1024,
       }),
     ),
 }

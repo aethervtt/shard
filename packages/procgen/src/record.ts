@@ -83,6 +83,35 @@ export function decodeRecord(data: Uint8Array): OutputRecord | undefined {
   return { ...json, assets, bytes: recordBytes(assets) }
 }
 
+/** Runs bytes through a (de)compression stream. Errors (a damaged record) reject the result. */
+async function pipeThrough(data: Uint8Array, stream: CompressionStream | DecompressionStream) {
+  const writer = stream.writable.getWriter()
+  // The readable side reports failures; these would only repeat them.
+  writer.write(data as Uint8Array<ArrayBuffer>).catch(() => {})
+  writer.close().catch(() => {})
+  return new Uint8Array(await new Response(stream.readable).arrayBuffer())
+}
+
+/**
+ * A record as stored on disk and in platform storage (0125): its encoded bytes, gzipped. Records
+ * gzip about 15 to 1; a 1.9 MB one takes a few ms. Workers do it for the records they make.
+ */
+export function compressRecord(packed: Uint8Array): Promise<Uint8Array> {
+  return pipeThrough(packed, new CompressionStream('gzip'))
+}
+
+/**
+ * Decodes a stored record: gunzipped first when it starts with gzip's header, else as encoded
+ * (records written before 0125). Undefined when it isn't a record.
+ */
+export async function decodeStored(data: Uint8Array): Promise<OutputRecord | undefined> {
+  if (data.byteLength >= 2 && data[0] === 0x1f && data[1] === 0x8b) {
+    // A fresh buffer at offset 0: asset bytes stay 4-aligned views into it.
+    data = await pipeThrough(data, new DecompressionStream('gzip'))
+  }
+  return decodeRecord(data)
+}
+
 /** JSON with object keys sorted and no whitespace: the same text for the same value anywhere. */
 function canonicalJson(value: JsonValue | undefined): string {
   if (value === undefined) return 'null'
