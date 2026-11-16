@@ -43,6 +43,11 @@ export interface Workers {
     args: readonly unknown[],
     options?: WorkerRunOptions,
   ): Promise<T>
+  /**
+   * Sends `value` to every worker thread once, before the next job posted to it, threads started
+   * later included (0124). Workers read it with `workerShared(key)`. Sharing again replaces it.
+   */
+  share?(key: string, value: unknown): void
   /** Stops every worker. Jobs still running or queued reject. */
   dispose(): void
   /**
@@ -86,6 +91,25 @@ interface Job {
 interface Slot {
   thread: WorkerThread | undefined
   job: Job | undefined
+  /** The version of each shared value this slot's thread has (0124). */
+  sent: Map<string, number>
+}
+
+const SHARED = Symbol.for('shard.workerShared')
+
+/** This thread's shared values (0124): set by the worker host, or by the inline pool. */
+function sharedValues(): Map<string, unknown> {
+  const g = globalThis as { [SHARED]?: Map<string, unknown> }
+  g[SHARED] ??= new Map()
+  return g[SHARED]
+}
+
+/**
+ * In a worker, the value last shared under `key` with `workers.share` (0124); inline, the one
+ * shared on this thread. `undefined` when nothing was shared under it.
+ */
+export function workerShared<T>(key: string): T | undefined {
+  return sharedValues().get(key) as T | undefined
 }
 
 interface Reply {
@@ -114,10 +138,12 @@ export function createWorkerPool(options: WorkerPoolOptions): Workers {
   const high: Job[] = []
   const normal: Job[] = []
   const observers = new Set<(timing: WorkerJobTiming) => void>()
+  const shared = new Map<string, { value: unknown; version: number }>()
   let nextId = 1
   let disposed = false
 
   const start = (slot: Slot) => {
+    slot.sent.clear()
     const index = slots.indexOf(slot)
     const events: WorkerThreadEvents = {
       message: (message) => {
@@ -175,6 +201,11 @@ export function createWorkerPool(options: WorkerPoolOptions): Workers {
       thread.idle?.(false)
       const { id, module, fn, args } = job
       try {
+        for (const [key, { value, version }] of shared) {
+          if (slot.sent.get(key) === version) continue
+          thread.post({ share: key, value }, [])
+          slot.sent.set(key, version)
+        }
         thread.post({ id, module, fn, args }, job.transfer)
       } catch (err) {
         slot.job = undefined
@@ -183,7 +214,8 @@ export function createWorkerPool(options: WorkerPoolOptions): Workers {
     }
   }
 
-  for (let i = 0; i < options.size; i++) slots.push({ thread: undefined, job: undefined })
+  for (let i = 0; i < options.size; i++)
+    slots.push({ thread: undefined, job: undefined, sent: new Map() })
 
   return {
     size: options.size,
@@ -209,6 +241,9 @@ export function createWorkerPool(options: WorkerPoolOptions): Workers {
     observe: (listener) => {
       observers.add(listener)
       return () => observers.delete(listener)
+    },
+    share: (key, value) => {
+      shared.set(key, { value, version: (shared.get(key)?.version ?? 0) + 1 })
     },
     dispose: () => {
       disposed = true
@@ -245,6 +280,9 @@ export function createInlineWorkers(): Workers {
     observe: (listener) => {
       observers.add(listener)
       return () => observers.delete(listener)
+    },
+    share: (key, value) => {
+      sharedValues().set(key, value)
     },
     run: async <T>(
       module: string,
@@ -315,7 +353,12 @@ const transfers = (value) => {
   if (value && typeof value === 'object' && !ArrayBuffer.isView(value)) for (const k of Object.keys(value)) add(value[k])
   return out
 }
+const shared = (globalThis[Symbol.for('shard.workerShared')] ??= new Map())
 const handle = async (msg, post) => {
+  if (msg.share !== undefined) {
+    shared.set(msg.share, msg.value)
+    return
+  }
   const { id, module, fn, args } = msg
   try {
     const mod = await load(module)

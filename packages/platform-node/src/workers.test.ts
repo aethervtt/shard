@@ -2,9 +2,17 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { Worker } from 'node:worker_threads'
 import { defineSpan, Profiler, type ShardError, TRACK } from '@aethervtt/shard-core'
 import { startCapture } from '@aethervtt/shard-core/capture'
-import { createInlineWorkers, defaultWorkerCount, workersOf } from '@aethervtt/shard-platform'
+import {
+  createInlineWorkers,
+  createWorkerPool,
+  defaultWorkerCount,
+  workerHostSource,
+  workerShared,
+  workersOf,
+} from '@aethervtt/shard-platform'
 import { afterAll, describe, expect, it } from 'vitest'
 import { createNodePlatform } from './index'
 import { createNodeWorkers } from './workers'
@@ -28,6 +36,9 @@ export async function slow(ms, tag) {
   return tag
 }
 export function thread() { return threadId }
+export function shared(key) {
+  return [threadId, globalThis[Symbol.for('shard.workerShared')]?.get(key)]
+}
 export function crash() { process.exit(3) }
 export function noise(ms) {
   const end = performance.now() + ms
@@ -150,5 +161,75 @@ describe('worker tracks (0074)', () => {
     } finally {
       pool.dispose()
     }
+  })
+})
+
+describe('shared values (0124)', () => {
+  /** A pool of two node workers that counts the shared values posted to each. */
+  const counted = () => {
+    const shares: number[] = []
+    const pool = createWorkerPool({
+      size: 2,
+      spawn: (events) => {
+        const worker = new Worker(workerHostSource('node'), { eval: true })
+        const at = shares.push(0) - 1
+        worker.on('message', (m) => events.message(m))
+        worker.on('error', (err: Error) => events.exit(err.message))
+        worker.on('exit', (code) => events.exit(`exit code ${code}`))
+        return {
+          post: (message, transfer) => {
+            if ((message as { share?: string }).share !== undefined) shares[at]!++
+            worker.postMessage(message, transfer as ArrayBuffer[])
+          },
+          terminate: () => void worker.terminate(),
+        }
+      },
+    })
+    return { pool, shares }
+  }
+
+  it('reaches every thread once, before its jobs; sharing again replaces it', async () => {
+    const { pool, shares } = counted()
+    try {
+      pool.share!('plan', { size: 14 })
+      const runs = () =>
+        Promise.all(
+          [0, 1, 2, 3, 4, 5].map(() => pool.run<[number, unknown]>(url, 'shared', ['plan'])),
+        )
+      const first = await runs()
+      expect(first.every(([, v]) => (v as { size: number }).size === 14)).toBe(true)
+      expect(new Set(first.map(([id]) => id)).size).toBe(2)
+      expect(shares).toEqual([1, 1])
+      pool.share!('plan', { size: 15 })
+      const second = await runs()
+      expect(second.every(([, v]) => (v as { size: number }).size === 15)).toBe(true)
+      expect(shares).toEqual([2, 2])
+    } finally {
+      pool.dispose()
+    }
+  })
+
+  it('a thread replacing a crashed one gets it before its first job', async () => {
+    const { pool, shares } = counted()
+    try {
+      pool.share!('plan', 'p')
+      await expect(pool.run(url, 'crash', [])).rejects.toMatchObject({
+        code: 'platform/worker-crashed',
+      })
+      const all = await Promise.all(
+        [0, 1, 2, 3].map(() => pool.run<[number, unknown]>(url, 'shared', ['plan'])),
+      )
+      expect(all.every(([, v]) => v === 'p')).toBe(true)
+      expect(shares.length).toBe(3)
+      expect(shares.every((n) => n === 1)).toBe(true)
+    } finally {
+      pool.dispose()
+    }
+  })
+
+  it('inline, the calling thread reads it', () => {
+    const pool = createInlineWorkers()
+    pool.share!('inline-plan', 7)
+    expect(workerShared('inline-plan')).toBe(7)
   })
 })
