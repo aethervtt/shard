@@ -21,6 +21,7 @@ import {
   Replicated,
 } from './components'
 import type { NetCommandDef } from './registry'
+import { RelativeComposer, RelativeTransform } from './relative'
 import type { Channel, NetConnection } from './transport'
 import {
   badMessage,
@@ -89,6 +90,8 @@ export class NetClient {
   /** Why the server refused or dropped this client, if it did. */
   lastError: ShardError | undefined
   readonly pending = new Map<number, PendingCommand>()
+  /** Draws entities with RelativeTransform on their anchors (0126). */
+  readonly relative: RelativeComposer
   private readonly fragmenter = new Fragmenter()
   private readonly inbox: { channel: Channel; bytes: Uint8Array }[] = []
   private readonly applied = new Map<number, Float64Array>()
@@ -151,6 +154,7 @@ export class NetClient {
       this.widths.push(offset)
     }
     world.insertResource(NetClock, { serverTick: 0, offsetTicks: 0, rtt: 0, jitter: 0 })
+    this.relative = new RelativeComposer(world, (e) => this.ownerSimulates(e))
     this.unsubscribe = world.observe(onRemove(NetId), (event) => {
       const table = world.entityTable(event.entity)
       const id = table.column(NetId, 'id')[world.entityRow(event.entity)]!
@@ -338,7 +342,7 @@ export class NetClient {
   }
 
   /** Whether this client owns the entity and simulates it itself (OwnerSimulated). */
-  private ownerSimulates(entity: Entity): boolean {
+  ownerSimulates(entity: Entity): boolean {
     const world = this.world
     const table = world.entityTable(entity)
     if (!table.has(OwnerSimulated) || !table.has(Replicated)) return false
@@ -378,8 +382,22 @@ export class NetClient {
       codec.decode(r)
       return true
     }
-    if (!world.has(entity, codec.def)) world.add(entity, codec.def)
-    const ok = codec.decodeRow(r, world.entityTable(entity), world.entityRow(entity))
+    const had = world.has(entity, codec.def)
+    if (!had) world.add(entity, codec.def)
+    const table = world.entityTable(entity)
+    const row = world.entityRow(entity)
+    // A pose in another anchor's space, or after a spell in world space, doesn't interpolate from
+    // the old samples (0126).
+    const anchor =
+      codec.def === RelativeTransform ? table.column(RelativeTransform, 'anchor')[row] : ''
+    const ok = codec.decodeRow(r, table, row)
+    if (
+      codec.def === RelativeTransform &&
+      (!had || table.column(RelativeTransform, 'anchor')[row] !== anchor)
+    ) {
+      const buffers = this.interp.get(netId)
+      if (buffers) buffers[comp] = undefined
+    }
     if (this.widths[comp]! > 0) this.sample(netId, comp, entity, tick)
     return ok
   }

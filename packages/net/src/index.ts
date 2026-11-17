@@ -71,6 +71,13 @@ export {
   replicate,
 } from './registry'
 export {
+  Anchor,
+  RelativeComposer,
+  RelativeTo,
+  RelativeTransform,
+  SETTLE_SECONDS,
+} from './relative'
+export {
   type AcceptResult,
   type JoinContext,
   type LeaveContext,

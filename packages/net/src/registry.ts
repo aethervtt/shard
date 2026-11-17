@@ -42,12 +42,15 @@ export interface ReplicationEntry {
   readonly codec: ((def: ComponentDef, options: RowCodecOptions) => RowCodec) | undefined
 }
 
+/** Net's own components, derived on the server and replicated anyway. */
+const NET_OWNED = new Set(['net/Replicated', 'net/RelativeTransform'])
+
 /** A component to replicate, and how (0087). Pass the result to `netPlugin({ replicate })`. */
 export function replicate<F extends Fields>(
   def: ComponentDef<F>,
   options: ReplicateOptions<F> = {},
 ): ReplicationEntry {
-  if (!def.serializable && def.name !== 'net/Replicated') {
+  if (!def.serializable && !NET_OWNED.has(def.name)) {
     // Derived components rebuild themselves on every machine; replicating them fights that.
     throw new ShardError('net/not-replicable', `${def.name} is derived and can't replicate`, {
       hint: 'Replicate the components it is computed from.',

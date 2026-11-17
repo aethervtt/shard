@@ -10,6 +10,7 @@ import {
   type InferFields,
   type JsonObject,
   Last,
+  PostUpdate,
   PreUpdate,
   ShardError,
   t,
@@ -22,12 +23,14 @@ import {
   type Plugin,
   Time,
 } from '@aethervtt/shard-runtime'
+import { TransformSystems } from '@aethervtt/shard-transform'
 import { NetClient, PendingCommand } from './client'
 import * as components from './components'
 import { NetClock, NetRole, type NetRoleName, Replicated } from './components'
 import { isConditioned, type NetConditions } from './conditions'
 import { alwaysInterest, type InterestPolicy } from './interest'
 import { type NetCommandDef, type NetEventDef, type ReplicationEntry, replicate } from './registry'
+import { Anchor, RelativeTo, RelativeTransform, relate } from './relative'
 import {
   type AcceptResult,
   NetServer,
@@ -119,6 +122,23 @@ const interpolate = defineSystem({
   },
 })
 
+const compose = defineSystem({
+  name: 'net/compose',
+  description:
+    'Client: draws entities with RelativeTransform on their anchors as posed now (0126).',
+  run(_, world) {
+    world.resource(NetSession).client?.relative.compose()
+  },
+})
+
+const recompose = defineSystem({
+  name: 'net/recompose',
+  description: 'Client: composes again with anchors posed later in the frame, before propagation.',
+  run(_, world) {
+    world.resource(NetSession).client?.relative.recompose()
+  },
+})
+
 const send = defineSystem({
   name: 'net/send',
   description:
@@ -130,8 +150,11 @@ const send = defineSystem({
   },
 })
 
-/** The net plugin's systems, to order game systems around them. */
-export const NetSystems = { receive, interpolate, send } as const
+/**
+ * The net plugin's systems, to order game systems around them. A client that poses anchors itself
+ * (0126) does it before `compose` (PreUpdate) or, at the latest, before `recompose` (PostUpdate).
+ */
+export const NetSystems = { receive, interpolate, compose, recompose, relate, send } as const
 
 /** Multiplayer (0086, 0087, 0089): one plugin per app, as server or client. */
 export function netPlugin<U = unknown, L = unknown, S = unknown>(
@@ -140,7 +163,7 @@ export function netPlugin<U = unknown, L = unknown, S = unknown>(
   let session: NetSessionData | undefined
   return definePlugin({
     name: 'net',
-    provides: [components],
+    provides: [components, { Anchor, RelativeTo, RelativeTransform }],
     build(app) {
       const fixedHz = app.fixedHz
       const tickRate = options.tickRate ?? Math.min(30, fixedHz)
@@ -155,7 +178,14 @@ export function netPlugin<U = unknown, L = unknown, S = unknown>(
         )
       }
       const manifest = buildManifest(
-        [replicate(Replicated, { channel: 'reliable' }), ...(options.replicate ?? [])],
+        [
+          replicate(Replicated, { channel: 'reliable' }),
+          replicate(RelativeTransform, {
+            mode: 'interpolate',
+            quantize: { translation: { step: 0.0005 } },
+          }),
+          ...(options.replicate ?? []),
+        ],
         options.commands ?? [],
         options.events ?? [],
       )
@@ -211,6 +241,9 @@ export function netPlugin<U = unknown, L = unknown, S = unknown>(
       world.insertResource(NetSession, session)
       app.addSystems(First, receive)
       app.addSystems(PreUpdate, interpolate.runIf(onClient))
+      app.addSystems(PreUpdate, compose.runIf(onClient).after(interpolate))
+      app.addSystems(PostUpdate, recompose.runIf(onClient).before(TransformSystems))
+      app.addSystems(Last, relate.runIf(onServer).before(send))
       app.addSystems(Last, send)
       app.addMethod(...netMethods)
     },

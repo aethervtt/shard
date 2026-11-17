@@ -718,6 +718,14 @@ Brings along: `core/Transform`.
 | `radius` | number | `0.5` | ≥ 0.01, m | How close to either end counts as on it. |
 | `area` | integer | `0` | ≥ 0, ≤ 62 | Area code (costs in nav/Areas). |
 
+## `net/Anchor`
+
+Names this entity on every machine so replicated Transforms can be sent in its space (0126).
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `key` | string | `""` |  | The same on every machine, and unique on each: what replicated poses name it by. |
+
 ## `net/Focus`
 
 An extra point of interest for a peer, besides the entities it owns (0087).
@@ -743,6 +751,26 @@ _Computed by the engine; never written in scene files._
 Its owner client simulates it: server updates skip it on that client while it owns it (vehicles, 0118).
 
 Tag (no fields).
+
+## `net/RelativeTo`
+
+Server: clients draw this entity on the parent as they pose it, from its pose in the parent's space (0126).
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `parent` | null or integer or string | `null` |  | An entity with net/Anchor and a Transform: a platform it stands on, say. |
+
+## `net/RelativeTransform`
+
+The entity's pose in its anchor's space, from net/RelativeTo; clients compose it with the anchor (0126).
+
+_Computed by the engine; never written in scene files._
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `anchor` | string | `""` |  | The anchor's key (net/Anchor). |
+| `translation` | number[3] | `[0,0,0]` | m | Position in the anchor's space. |
+| `rotation` | number[4] | `[0,0,0,1]` |  | Rotation in the anchor's space. |
 
 ## `net/Relevance`
 

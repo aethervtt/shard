@@ -175,6 +175,9 @@ earlier: the value held still until then, so a body setting off from a rest move
 frame instead of crawling across the whole rest and then waiting for the next update. (Snapping on a teleport is not
 built yet.)
 
+Something standing on a platform each client poses itself replicates its pose in the platform's
+space instead, composed with the platform as the client has it (0126).
+
 ### Animation
 
 Poses never replicate. A character replicates the state its graph is bound to (`CharacterState`,
