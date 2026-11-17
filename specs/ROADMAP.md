@@ -72,6 +72,7 @@ agent needs to see what's on screen.
 | [0101](0101-screen-space-reflections.md) | Screen-space reflections (Hi-Z trace, stochastic GGX, fed into lighting; shared Hi-Z; water uses it) | draft |
 | [0102](0102-reflection-probes-planar.md) | Reflection probes (baked and realtime, box-projected, local ambient) and planar reflections | draft |
 | [0108](0108-toon-ink.md) | Toon shading and ink (banded lighting and comic lines per camera; skinned and nested outlines) | draft (built) |
+| [0135](0135-mesh-blend.md) | Mesh blending (seams between intersecting meshes and terrain blended in the G-buffer before lighting; IDs by overlap colouring; deferred cameras) | draft |
 | [0109](0109-parameter-time-and-speed.md) | Graph states placed by a parameter (distance-matched locomotion; parameter playback rate) | draft (built) |
 
 ## M6 — Gameplay systems
@@ -190,7 +191,7 @@ standard material. Each spec's "As built" lists what's still to come, chiefly:
 - Static, voxel and volumetric-aurora cloud modes (0131); the `space` mode and `gradient` color
   mode (0130); the WebGL2 paths of all five.
 - The GPU top-down weather mask and 0069 sky visibility for shelter (0133, 0134), and the
-  per-material `weather` field, terrain layers and deferred surfaces (0134).
+  per-material `weather` field and terrain layers (0134).
 
 ## M8 — Proof project: No Man's Sky-style explorer
 
