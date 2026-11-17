@@ -795,6 +795,7 @@ import shard::pbr::environment::environment_light;
 @if(SKY_VISIBILITY) import shard::interior::interior_ambient;
 @if(BLOCKED_LIGHTS) import shard::interior::{ wall_visibility, interior_receiver };
 @if(TOON) import shard::toon::{ toon_light, toon_environment };
+@if(SKY_OCCLUSION) import shard::sky_occlusion::sky_occlusion;
 
 const FLAG_RECEIVER: u32 = 4u;
 
@@ -874,6 +875,8 @@ fn apply_lighting(p: PbrInput, world_position: vec3f, frag_coord: vec4f, flags: 
     if (receives && light.shadowed != 0u) {
       shadow = directional_shadow(world_position, n, view_depth, frag_coord.xy);
     }
+    // Cloud shadows (0131): what the sky plugin says reaches this point from the light.
+    @if(SKY_OCCLUSION) shadow *= sky_occlusion(world_position, l);
     @if(!TOON) color += brdf(n, v, l, a, diffuse_color, f0, 1.0) * light.color * view.sunTransmittance[i].rgb * shadow;
     @if(TOON) color += toon_light(n, l, shadow, diffuse_color) * light.color * view.sunTransmittance[i].rgb;
   }

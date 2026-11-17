@@ -43,6 +43,7 @@ import {
 import { savePlugin } from '@aethervtt/shard-save'
 import { scatterPlugin } from '@aethervtt/shard-scatter'
 import { ScenePlugin } from '@aethervtt/shard-scene'
+import { skyPlugin as skyFeaturePlugin } from '@aethervtt/shard-sky'
 import { spritePlugin } from '@aethervtt/shard-sprite'
 import { interiorLightingPlugin, structurePlugin } from '@aethervtt/shard-structure'
 import { terrainPlugin } from '@aethervtt/shard-terrain'
@@ -55,6 +56,7 @@ import { vehicleEffectsPlugin } from '@aethervtt/shard-vehicle/effects'
 import { metricsPlugin } from '@aethervtt/shard-verify/metrics'
 import { installCapturePage } from '@aethervtt/shard-verify/page'
 import { oceanWavesPlugin, waterPlugin } from '@aethervtt/shard-water'
+import { windPlugin } from '@aethervtt/shard-wind'
 import { animationDemoPlugin } from './animation'
 import { animgraphDemoPlugin } from './animgraph'
 import { atmosphereDemoPlugin } from './atmosphere'
@@ -96,6 +98,7 @@ import { terrainDemoPlugin } from './terrain'
 import { uiDemoPlugin } from './ui'
 import { vehiclesDemoPlugin } from './vehicles'
 import { waterDemoPlugin } from './water'
+import { weatherDemoPlugin } from './weather'
 
 const canvas = document.getElementById('viewport') as HTMLCanvasElement
 const hud = document.getElementById('hud') as HTMLElement
@@ -409,6 +412,16 @@ if (demo === 'galaxy') {
     ...controls(),
     hudPlugin,
     interiorDemoPlugin,
+  )
+} else if (demo === 'weather') {
+  app.addPlugin(
+    TransformPlugin,
+    forwardPlugin(),
+    windPlugin,
+    skyFeaturePlugin,
+    ...controls(),
+    hudPlugin,
+    weatherDemoPlugin,
   )
 } else if (demo === 'sky') {
   app.addPlugin(TransformPlugin, forwardPlugin(), ...controls(), hudPlugin, skyPlugin)

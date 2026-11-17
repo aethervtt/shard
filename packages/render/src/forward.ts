@@ -145,6 +145,7 @@ import {
   shadowViewLayout,
 } from './shadows'
 import { SkinAssetType, Skins } from './skin-asset'
+import { SKY_OCCLUSION_BINDING, SkyOcclusion } from './sky-occlusion'
 import { GpuMemory, RenderCounters, RenderStats } from './stats'
 import { bindingDimension } from './tier'
 import { Ink, observeToonWithoutPlugin, Toon, ToonPath } from './toon'
@@ -250,6 +251,10 @@ export interface ForwardState {
   cullerActive: boolean
   /** Interior lighting's mode this frame (0069): INTERIOR_SKY | INTERIOR_BLOCKED, or 0. */
   interiorMode: number
+  /** Whether lit pipelines link `SKY_OCCLUSION` this frame (0131's cloud shadows). */
+  skyOcclusion: boolean
+  /** Whether the view layouts hold the sky occlusion map (SKY_OCCLUSION_BINDING). */
+  layoutSky: boolean
 }
 
 export const ForwardStateResource = defineResource<ForwardState>('render/ForwardState')
@@ -385,6 +390,12 @@ export const forwardQueue = defineSystem({
     const foliage = world.tryResource(FoliagePath)
     stats.clear()
     state.frame++
+    // The sky occlusion map (0131) is a view binding: on the full tier, while the hook is on.
+    const sky = gpu.tier === 'full' && world.tryResource(SkyOcclusion)?.enabled === true
+    if (sky !== state.layoutSky) {
+      state.layoutSky = sky
+      state.layoutGeneration = -1
+    }
     ensureLayouts(gpu, state, world.resource(GpuAssetsResource), store)
     chooseInterior(gpu, world, state)
     state.pipelines.beginFrame(state.frame, world.resource(Shaders).revision)
@@ -799,6 +810,8 @@ const CUT_KEY = 2 ** 40
 const INTERIOR_KEY = 2 ** 41
 /** Added to a pipeline key for a toon view's lit variant (0108). */
 const TOON_KEY = 2 ** 43
+/** Added to a pipeline key for the sky occlusion variant of lit slots (0131). */
+const SKY_OCCLUSION_KEY = 2 ** 45
 
 /** FORWARD_DEFINES with the cutaway test linked in (0070). */
 const CUTAWAY_DEFINES = FORWARD_DEFINES.map((d) => ({ ...d, CUTAWAY: true }))
@@ -1041,24 +1054,28 @@ function materialPipeline(
   const mode = gbuffer || prepass || pick ? 0 : state.interiorMode
   // Nor toon shading (0108), which a view's camera turns on.
   const toon = !gbuffer && !prepass && !pick && cam.toon.tones > 0
+  // Nor sky occlusion (0131): cloud shadows on directional lights.
+  const occluded = !gbuffer && !prepass && !pick && state.skyOcclusion
   // Cutaway variants (0070) key above every other pass's pipelines (shadows' included).
   const key =
     ((pass * 1024 + typeOrdinal(type)) * 16 + variant) * 8 +
     msaa +
     (cut ? CUT_KEY : 0) +
     mode * INTERIOR_KEY +
-    (toon ? TOON_KEY : 0)
+    (toon ? TOON_KEY : 0) +
+    (occluded ? SKY_OCCLUSION_KEY : 0)
   let pipeline = state.pipelines.cached(key)
   if (!pipeline) {
     const premultiply = blend === 'premultiplied'
     const mask = blend === 'mask'
     // Module slots: forward 0–7 (opaque 48–55), shadows 8, G-buffer 16–23, refraction 24–30
     // (0129), prepass 32–38, pick 40; the cutaway variant of each is 64 more (0070), the toon
-    // variant 128 more (0108).
+    // variant 128 more (0108), the sky occlusion variant 256 more (0131).
     const opaque = !gbuffer && !prepass && !pick && !isTransparent(blend)
     const slot =
       (cut ? 64 : 0) +
       (toon ? 128 : 0) +
+      (occluded ? 256 : 0) +
       (pick
         ? 40
         : prepass || refract
@@ -1088,15 +1105,18 @@ function materialPipeline(
                 ? 'shard::pbr::forward'
                 : 'shard::unlit::forward',
       // Only what the slot tells apart: the prepass, picking and refraction don't premultiply.
-      (refract ? REFRACT_DEFINES : LIT_DEFINES)[mode]![(cut ? 1 : 0) + (toon ? 2 : 0)]![
-        pick
-          ? 0
-          : prepass || refract
-            ? mask
-              ? 2
-              : 0
-            : (premultiply ? 1 : 0) | (mask ? 2 : 0) | (opaque ? 4 : 0)
-      ],
+      withSkyOcclusion(
+        (refract ? REFRACT_DEFINES : LIT_DEFINES)[mode]![(cut ? 1 : 0) + (toon ? 2 : 0)]![
+          pick
+            ? 0
+            : prepass || refract
+              ? mask
+                ? 2
+                : 0
+              : (premultiply ? 1 : 0) | (mask ? 2 : 0) | (opaque ? 4 : 0)
+        ],
+        occluded,
+      ),
     )
     if (!module) {
       // A draw waiting on its shader is a skipped draw too (one that just failed draws again,
@@ -1181,7 +1201,8 @@ function warmPipelines(
     cam.msaa +
     (cut ? CUT_KEY : 0) +
     state.interiorMode * INTERIOR_KEY +
-    (cam.toon.tones > 0 ? TOON_KEY : 0)
+    (cam.toon.tones > 0 ? TOON_KEY : 0) +
+    (state.skyOcclusion ? SKY_OCCLUSION_KEY : 0)
   if (state.pipelines.warmed(slot, store.structureVersion, ctx.gpu.generation)) return
   const ground = pass === PASS_GROUND || pass === PASS_PICK_GROUND
   const batches = store.batches
@@ -1263,9 +1284,9 @@ function emptyShadow(gpu: GpuContext, state: ForwardState): GPUTexture {
   return state.emptyShadow.texture
 }
 
-const textureIds = new WeakMap<GPUTexture, number>()
+const textureIds = new WeakMap<GPUTexture | GPUTextureView, number>()
 let nextTextureId = 1
-function idOf(t: GPUTexture): number {
+function idOf(t: GPUTexture | GPUTextureView): number {
   let id = textureIds.get(t)
   if (id === undefined) {
     id = nextTextureId++
@@ -1331,7 +1352,8 @@ export function viewBindGroup(
   const clustersVersion = b ? b.bits.version : pv.clusters!.clusters.version
   // Interior lighting (0069): its bindings exist only while a mode is on.
   const interior = state.interiorMode !== 0 ? world.tryResource(InteriorPath) : undefined
-  const key = `${idOf(ao)}/${gpu.generation}/${pv.uniform.version}/${lightsVersion}/${clustersVersion}/${lights.directional.version}/${pv.shadowData.version}/${idOf(cascades)}/${idOf(spots)}/${idOf(points)}/${baked ? idOf(baked.source) : 0}/${sh.version}/${state.globals.version}/${state.shaderData.version}${interior ? `/${state.interiorMode}/${interior.version}` : ''}${refract ? `/${idOf(color)}/${idOf(depth)}` : ''}`
+  const skyMap = state.layoutSky ? world.tryResource(SkyOcclusion)?.map : undefined
+  const key = `${skyMap ? idOf(skyMap) : 0}/${idOf(ao)}/${gpu.generation}/${pv.uniform.version}/${lightsVersion}/${clustersVersion}/${lights.directional.version}/${pv.shadowData.version}/${idOf(cascades)}/${idOf(spots)}/${idOf(points)}/${baked ? idOf(baked.source) : 0}/${sh.version}/${state.globals.version}/${state.shaderData.version}${interior ? `/${state.interiorMode}/${interior.version}` : ''}${refract ? `/${idOf(color)}/${idOf(depth)}` : ''}`
   const group = refract ? pv.refractBindGroup : pv.bindGroup
   if (group && (refract ? pv.refractBound : pv.bound) === key) return group
   const entries: GPUBindGroupEntry[] = [
@@ -1354,6 +1376,12 @@ export function viewBindGroup(
     { binding: SHADER_DATA_BINDING, resource: { buffer: state.shaderData.buffer } },
   ]
   if (interior) entries.push(...interior.entries(gpu))
+  if (state.layoutSky) {
+    entries.push({
+      binding: SKY_OCCLUSION_BINDING,
+      resource: skyMap ?? whiteTexture(gpu, state).createView(),
+    })
+  }
   if (!refract) {
     pv.bindGroup = gpu.device.createBindGroup({
       label: 'forward/view',
@@ -1953,8 +1981,11 @@ export interface ForwardPluginOptions {
 }
 
 /** Group 0's entries: view, lights, clusters, shadows, environment, globals, SSAO, shader data. */
-function viewEntries(gpu: GpuContext): GPUBindGroupLayoutEntry[] {
+function viewEntries(gpu: GpuContext, sky = false): GPUBindGroupLayoutEntry[] {
   const F = GPUShaderStage.FRAGMENT
+  const extra: GPUBindGroupLayoutEntry[] = sky
+    ? [{ binding: SKY_OCCLUSION_BINDING, visibility: F, texture: { sampleType: 'float' } }]
+    : []
   const depthArray = (binding: number) => ({
     binding,
     visibility: F,
@@ -1984,12 +2015,21 @@ function viewEntries(gpu: GpuContext): GPUBindGroupLayoutEntry[] {
       visibility: GPUShaderStage.VERTEX | F,
       buffer: { type: 'uniform' },
     },
+    ...extra,
   ]
 }
 
 /** Bind group and pipeline layouts, created per device (after a device loss they're rebuilt). */
-function createLayouts(gpu: GpuContext, assets: GpuAssets, store: InstanceStore): Layouts {
-  const view = gpu.layouts.bindGroupLayout({ label: 'forward/view', entries: viewEntries(gpu) })
+function createLayouts(
+  gpu: GpuContext,
+  assets: GpuAssets,
+  store: InstanceStore,
+  sky: boolean,
+): Layouts {
+  const view = gpu.layouts.bindGroupLayout({
+    label: 'forward/view',
+    entries: viewEntries(gpu, sky),
+  })
   const C = GPUShaderStage.COMPUTE
   const cluster = gpu.layouts.bindGroupLayout({
     label: 'light-clusters',
@@ -2033,7 +2073,7 @@ function interiorViewLayout(gpu: GpuContext, state: ForwardState): GPUBindGroupL
   if (layouts.viewInterior) return layouts.viewInterior
   layouts.viewInterior = gpu.layouts.bindGroupLayout({
     label: 'forward/view/interior',
-    entries: [...viewEntries(gpu), ...interiorEntries()],
+    entries: [...viewEntries(gpu, state.layoutSky), ...interiorEntries()],
   })
   return layouts.viewInterior
 }
@@ -2063,7 +2103,7 @@ function refractViewLayout(gpu: GpuContext, state: ForwardState): GPUBindGroupLa
   const layout = gpu.layouts.bindGroupLayout({
     label: k ? 'forward/view/interior/refraction' : 'forward/view/refraction',
     entries: [
-      ...viewEntries(gpu).filter((e) => e.binding !== AO_BINDING),
+      ...viewEntries(gpu, state.layoutSky).filter((e) => e.binding !== AO_BINDING),
       ...(k ? interiorEntries() : []),
       { binding: REFRACTION_BINDINGS.color, visibility: F, texture: { sampleType: 'float' } },
       {
@@ -2077,8 +2117,26 @@ function refractViewLayout(gpu: GpuContext, state: ForwardState): GPUBindGroupLa
   return layout
 }
 
+/** A define set with `SKY_OCCLUSION` (0131) linked in, made once per set. */
+const skyOcclusionDefines = new WeakMap<object, Readonly<Record<string, boolean>>>()
+function withSkyOcclusion(
+  defines: Readonly<Record<string, boolean>> | undefined,
+  on: boolean,
+): Readonly<Record<string, boolean>> | undefined {
+  if (!on) return defines
+  const base = defines ?? NO_DEFINES
+  let d = skyOcclusionDefines.get(base)
+  if (!d) {
+    d = { ...base, SKY_OCCLUSION: true }
+    skyOcclusionDefines.set(base, d)
+  }
+  return d
+}
+const NO_DEFINES: Readonly<Record<string, boolean>> = {}
+
 /** Picks this frame's interior mode (0069) and the view layout that goes with it. */
 function chooseInterior(gpu: GpuContext, world: World, state: ForwardState): void {
+  state.skyOcclusion = world.tryResource(SkyOcclusion)?.enabled === true
   const mode = world.tryResource(InteriorPath)?.mode ?? 0
   state.interiorMode = mode
   state.layouts.view = mode !== 0 ? interiorViewLayout(gpu, state) : state.layouts.viewBase
@@ -2092,7 +2150,7 @@ function ensureLayouts(
 ): void {
   if (state.layoutGeneration === gpu.generation) return
   state.layoutGeneration = gpu.generation
-  state.layouts = createLayouts(gpu, assets, store)
+  state.layouts = createLayouts(gpu, assets, store, state.layoutSky)
   for (const pv of state.views.values()) {
     pv.bindGroup = undefined
     pv.refractBindGroup = undefined
@@ -2315,7 +2373,7 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
           views: new Map(),
           viewBytes: new DataView(new ArrayBuffer(viewLayout.size)),
           shadowFloats: new Float32Array(SHADOW_DATA_FLOATS),
-          layouts: createLayouts(gpu, assets, store),
+          layouts: createLayouts(gpu, assets, store, false),
           layoutGeneration: gpu.generation,
           emptyShadow: undefined,
           white: undefined,
@@ -2338,6 +2396,8 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
           baseline,
           cullerActive: false,
           interiorMode: 0,
+          skyOcclusion: false,
+          layoutSky: false,
           gbufferTargets: [
             { format: 'rgba8unorm-srgb' },
             { format: 'rgba16float' },

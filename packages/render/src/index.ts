@@ -561,6 +561,7 @@ export {
 export { MAX_JOINTS, type SkinAsset, SkinAssetType, Skins, skinArtifact } from './skin-asset'
 export { prepareDeforms } from './skinning'
 export { skinningPlugin } from './skinning-plugin'
+export { SKY_OCCLUSION_BINDING, SkyOcclusion, type SkyOcclusionValue } from './sky-occlusion'
 export { forwardPlugin } from './standard'
 export {
   type FrameCounts,

@@ -122,7 +122,7 @@ acceptance evidence are mapped in [the implementation checklist](research/audio-
 | [0046](0046-star-systems-galaxy.md) | Star systems and galaxy generation | accepted |
 | [0047](0047-small-bodies.md) | Small bodies (asteroids, belts, rings, comets) | accepted |
 | [0048](0048-creatures.md) | Creatures (body plans, procedural locomotion, behavior, fauna) | accepted |
-| [0049](0049-clouds-weather.md) | Clouds and weather (volumetric clouds, timeline weather, precipitation) | accepted |
+| [0049](0049-clouds-weather.md) | Clouds and weather (volumetric clouds, timeline weather, precipitation) | superseded by 0130–0134 |
 | [0050](0050-soundscapes.md) | Soundscapes and procedural audio | accepted |
 | [0051](0051-render-scale.md) | Render scale and dynamic resolution (high-DPI displays) | implemented |
 | [0071](0071-heightfield-terrain.md) | Heightfield terrain (layer stack baked to pages, shared quadtree, streamed pages, heightfield colliders) | accepted |
@@ -164,6 +164,26 @@ affordable to draw: shadows that cost only what changes or shows, and occlusion 
 structure) first, then offline proxies for file cells once 0072's importer loads them; `baked`
 uses 0045's simplifier. 2D streaming (a metroidvania's rooms) is noted in
 0072's open questions and gets its own spec when a 2D project needs it.
+
+## Sky and weather
+
+A drop-in outdoor sky in the spirit of Unreal's Ultra Dynamic Sky: a clock, a sun and moon that
+light the scene, interchangeable cloud renderers, fog that light shafts through, and weather that
+drives all of it, down to wet roads and snowy roofs. It replaces 0049; planet-wide weather and
+clouds from orbit come later, on the same cloud field.
+
+| Spec | Title | Status |
+|---|---|---|
+| [0130](0130-sky-time-of-day.md) | Sky and time of day (a tick-derived clock, sun and moon lights with shadow handover, real sun and moon, stars, aurora, sky modes, gradient color mode, the `weather` demo) | draft |
+| [0131](0131-clouds.md) | Clouds (one cloud field drawn as volumetric, voxel, static, 2D or aurora; a cloud map for spatial coverage; cloud shadows; clouds in the IBL; Toon bands) | draft |
+| [0132](0132-volumetric-fog.md) | Volumetric fog (froxels lit by shadowed sun, moon and local lights; `FogVolume`; seamless with `Fog`; analytic baseline) | draft |
+| [0133](0133-weather.md) | Weather (channels and presets, schedules and random climates with seasons, deterministic commands, zones and storms, precipitation under cover, lightning, wind, audio parameters, shelter) | draft |
+| [0134](0134-surface-weather.md) | Surface weather (wetness, puddles and ripples, snow and dust on every built-in material through one field; `shard::weather` for custom ones) | draft |
+
+They land in order: 0130 (day and night is the biggest visible change), 0133's state, commands and
+drives without precipitation, 0134, 0131 starting with `2d` and `static` and then `volumetric` and
+`voxel`, then 0133's precipitation and lightning, and 0132. Each adds its controls to the
+playground's realistic `weather` demo.
 
 ## M8 — Proof project: No Man's Sky-style explorer
 

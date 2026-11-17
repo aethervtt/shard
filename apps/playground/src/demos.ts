@@ -41,6 +41,7 @@ export const DEMOS = [
   'atmosphere',
   'tabletop',
   'interior',
+  'weather',
 ] as const
 
 export type Demo = (typeof DEMOS)[number]
@@ -66,6 +67,7 @@ export const DEMO_GROUPS: readonly { name: string; demos: readonly (readonly [De
         ['post', 'Post effects'],
         ['lens', 'Lens fields'],
         ['atmosphere', 'Atmosphere'],
+        ['weather', 'Sky, time of day and clouds'],
         ['noise', 'Material noise'],
       ],
     },
