@@ -136,12 +136,14 @@ fn surface_weather(p0: PbrInput, in: VertexOutput) -> PbrInput {
   return p;
 }`,
 
-    // Rain and snow (0133): instanced streaks and flakes in a box that follows the camera,
-    // anchored to the world, lit like any surface, gone under cover.
+    // Rain, snow and splashes (0133): instanced streaks and flakes in a box that follows the
+    // camera, anchored to the world, and splashes on what the camera sees. Lit like any surface,
+    // plus the sky they refract; gone under cover.
     'shard::weather::precip': `
 import shard::view::view;
 import shard::pbr::types::PbrInput;
 import shard::pbr::lighting::apply_lighting;
+import shard::pbr::environment::env_irradiance;
 import shard::weather::common::weather_open;
 
 struct PrecipParams {
@@ -151,17 +153,21 @@ struct PrecipParams {
   box: vec4f,
   /** fall velocity xyz (m/s), streak seconds */
   vel: vec4f,
-  /** width (m), kind (0 rain, 1 snow), opacity, sway (m) */
+  /** width (m), kind (0 rain, 1 snow, 2 splash), opacity, sway (m) */
   look: vec4f,
 }
 
 @group(1) @binding(0) var<uniform> pp: PrecipParams;
+@if(SPLASH && MSAA) @group(1) @binding(1) var scene_depth: texture_depth_multisampled_2d;
+@if(SPLASH && !MSAA) @group(1) @binding(1) var scene_depth: texture_depth_2d;
 
 struct Out {
   @builtin(position) clip: vec4f,
   @location(0) world: vec3f,
   @location(1) uv: vec2f,
   @location(2) @interpolate(flat) alpha: f32,
+  /** 0 a streak, 1 a flake or droplet, 2 a ring */
+  @location(3) @interpolate(flat) shape: f32,
 }
 
 fn pcg(v: u32) -> u32 {
@@ -182,9 +188,15 @@ const CORNERS = array<vec2f, 6>(
   vec2f(0.0, 1.0), vec2f(1.0, 0.0), vec2f(1.0, 1.0),
 );
 
+fn hidden(out: ptr<function, Out>) {
+  (*out).clip = vec4f(2.0, 2.0, 2.0, 1.0);
+  (*out).alpha = 0.0;
+}
+
 @vertex fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> Out {
   var out: Out;
   let r = h3(ii);
+  let r2 = h3(ii + 0x9e3779b9u);
   let t = pp.a.w;
   let snow = pp.look.y > 0.5;
   let speed = 1.0 + (r.y - 0.5) * 0.35;
@@ -209,42 +221,115 @@ const CORNERS = array<vec2f, 6>(
     let side = normalize(cross(vec3f(0.0, 1.0, 0.0), to_cam)) * size;
     let up = normalize(cross(to_cam, side)) * size;
     world = center + side * (c.x * 2.0 - 1.0) + up * (c.y * 2.0 - 1.0);
+    out.shape = 1.0;
   } else {
+    // Mostly fine drops, a few heavy ones: thickness and streak length vary per drop.
     let v = pp.vel.xyz * speed;
     let axis = normalize(v);
-    let len = length(v) * pp.vel.w;
-    let side = normalize(cross(axis, to_cam)) * pp.look.x;
+    let heavy = pow(r2.x, 3.0);
+    let len = length(v) * pp.vel.w * (0.6 + 0.9 * r2.y);
+    let side = normalize(cross(axis, to_cam)) * pp.look.x * (0.45 + 1.4 * heavy);
     world = center + axis * (c.y - 0.5) * len + side * (c.x * 2.0 - 1.0);
+    out.shape = 0.0;
   }
   out.clip = view.viewProj * vec4f(world, 1.0);
   out.world = world;
   out.uv = c * 2.0 - 1.0;
-  out.alpha = pp.look.z * fade * open;
-  // Under cover, or past the box: no area at all.
-  if (out.alpha <= 0.002) { out.clip = vec4f(2.0, 2.0, 2.0, 1.0); }
+  out.alpha = pp.look.z * fade * open * select(0.55 + 0.45 * r2.z, 1.0, snow);
+  if (out.alpha <= 0.002) { hidden(&out); }
+  return out;
+}
+
+/** World position at a pixel of the scene depth. */
+@if(SPLASH) fn depth_world(px: vec2i, size: vec2f) -> vec4f {
+  let d = textureLoad(scene_depth, px, 0);
+  let uv = (vec2f(px) + 0.5) / size;
+  let h = view.invViewProj * vec4f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, d, 1.0);
+  return vec4f(h.xyz / h.w, d);
+}
+
+/**
+ * Splashes: each picks a random pixel of what the camera sees every cycle, and if that is open,
+ * near, and faces up, a ring spreads on it (part 0) while droplets jump out of it (parts 1, 2).
+ */
+@if(SPLASH) @vertex fn vs_splash(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> Out {
+  var out: Out;
+  let splash = ii / 3u;
+  let part = ii % 3u;
+  let cycle_len = 0.42;
+  let t = pp.a.w / cycle_len + h3(splash).x;
+  let cycle = u32(floor(t));
+  let age = fract(t);
+  let r = h3(splash * 7919u + cycle * 104729u);
+  let size = vec2f(textureDimensions(scene_depth));
+  let px = vec2i(r.xy * (size - 3.0));
+  let w0 = depth_world(px, size);
+  if (w0.w <= 0.0) { hidden(&out); return out; }
+  let wx = depth_world(px + vec2i(2, 0), size).xyz;
+  let wy = depth_world(px + vec2i(0, 2), size).xyz;
+  var n = normalize(cross(wx - w0.xyz, wy - w0.xyz));
+  if (n.y < 0.0) { n = -n; }
+  let dist = length(w0.xyz - view.cameraPosition);
+  if (n.y < 0.75 || dist > 30.0 || weather_open(w0.xyz) < 0.5) { hidden(&out); return out; }
+  let c = CORNERS[vi];
+  let fade = (1.0 - smoothstep(18.0, 30.0, dist));
+  if (part == 0u) {
+    // A ring on the surface, spreading.
+    let tangent = normalize(cross(n, vec3f(0.0, 0.0, 1.0)));
+    let bitangent = cross(n, tangent);
+    let radius = mix(0.01, 0.06, sqrt(age)) * (0.6 + 0.6 * r.z);
+    let o = (c * 2.0 - 1.0) * radius;
+    out.world = w0.xyz + n * 0.004 + tangent * o.x + bitangent * o.y;
+    out.alpha = pp.look.z * 0.35 * (1.0 - age) * (1.0 - age) * fade;
+    out.shape = 2.0;
+  } else {
+    // Droplets bouncing up and out, under gravity, over the first half of the cycle.
+    let s = age * 0.5 * cycle_len;
+    let angle = r.z * 6.2831853 + f32(part) * 3.14159;
+    let out_dir = vec3f(cos(angle), 0.0, sin(angle));
+    let pos = w0.xyz + out_dir * (0.55 * s) + n * (1.3 * s - 4.9 * s * s);
+    let to_cam = normalize(view.cameraPosition - pos);
+    let side = normalize(cross(vec3f(0.0, 1.0, 0.0), to_cam)) * 0.0045;
+    let up = normalize(cross(to_cam, side)) * 0.0045;
+    out.world = pos + side * (c.x * 2.0 - 1.0) + up * (c.y * 2.0 - 1.0);
+    out.alpha = pp.look.z * select(0.0, (1.0 - age * 2.0), age < 0.5) * fade;
+    out.shape = 1.0;
+  }
+  out.clip = view.viewProj * vec4f(out.world, 1.0);
+  out.uv = c * 2.0 - 1.0;
+  if (out.alpha <= 0.002) { hidden(&out); }
   return out;
 }
 
 @fragment fn fs(in: Out) -> @location(0) vec4f {
-  let snow = pp.look.y > 0.5;
   var a = 0.0;
-  if (snow) {
+  if (in.shape < 0.5) {
+    // A streak: thin across, soft at both ends.
+    a = (1.0 - abs(in.uv.x)) * (1.0 - in.uv.y * in.uv.y);
+  } else if (in.shape < 1.5) {
     a = 1.0 - smoothstep(0.35, 1.0, length(in.uv));
   } else {
-    a = (1.0 - abs(in.uv.x)) * (1.0 - in.uv.y * in.uv.y);
+    let l = length(in.uv);
+    a = exp(-((l - 0.8) * (l - 0.8)) / 0.02) * (1.0 - smoothstep(0.95, 1.0, l));
   }
   a *= in.alpha;
   if (a <= 0.002) { discard; }
+  let snow = pp.look.y > 0.5 && pp.look.y < 1.5;
   var p: PbrInput;
-  p.base_color = select(vec3f(0.55), vec3f(0.95), snow);
+  p.base_color = select(vec3f(0.6), vec3f(0.95), snow);
   p.alpha = 1.0;
   p.normal = normalize(view.cameraPosition - in.world);
   p.metallic = 0.0;
-  p.roughness = 0.6;
+  p.roughness = 0.5;
   p.emissive = vec3f(0.0);
   p.occlusion = 1.0;
-  let lit = apply_lighting(p, in.world, in.clip, 4u) * view.exposure;
-  return vec4f(lit * a, a);
+  var lit = apply_lighting(p, in.world, in.clip, 4u);
+  // Water refracts the sky behind it: drops are glints of sky light more than lit surfaces.
+  if (!snow && view.envParams.w > 0.5) {
+    lit = lit * 0.9 + env_irradiance(vec3f(0.0, 1.0, 0.0)) * view.envParams.x * 0.45;
+  }
+  let c = lit * view.exposure;
+  return vec4f(c * a, a);
 }`,
 
     // Lightning bolts: camera-facing ribbons along the bolt's segments, glowing.

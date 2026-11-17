@@ -18,9 +18,11 @@ import { CH, WeatherMaskBrush, WeatherState } from './components'
 import { LightningState, MAX_SEGMENTS, SEGMENT_FLOATS } from './lightning'
 import { MAX_BRUSHES } from './shaders'
 
-/** Most raindrops and snowflakes drawn at full intensity. */
-const MAX_RAIN = 22000
+/** Most raindrops, near drops, snowflakes and splashes drawn at full intensity. */
+const MAX_RAIN = 20000
+const MAX_NEAR_RAIN = 1800
 const MAX_SNOW = 14000
+const MAX_SPLASHES = 1400
 
 export class WeatherGpu {
   generation = -1
@@ -28,11 +30,17 @@ export class WeatherGpu {
   slot = -1
   layouts: Record<string, GPUBindGroupLayout> = {}
   rain: GpuBuffer | undefined
+  near: GpuBuffer | undefined
   snow: GpuBuffer | undefined
+  splash: GpuBuffer | undefined
   bolt: GpuBuffer | undefined
   segments: GpuBuffer | undefined
   rainGroup: GPUBindGroup | undefined
+  nearGroup: GPUBindGroup | undefined
   snowGroup: GPUBindGroup | undefined
+  /** Splashes read the scene's depth: a group per depth texture. */
+  splashGroup: GPUBindGroup | undefined
+  splashDepth: GPUTexture | undefined
   boltGroup: GPUBindGroup | undefined
   readonly pipelines = new Map<unknown, Map<string, GPURenderPipeline>>()
 
@@ -44,7 +52,11 @@ export class WeatherGpu {
     const uniform = (label: string) =>
       new GpuBuffer(gpu, { label, usage: GPUBufferUsage.UNIFORM, size: 64 })
     this.rain = uniform('weather/rain')
+    this.near = uniform('weather/rain-near')
     this.snow = uniform('weather/snow')
+    this.splash = uniform('weather/splash')
+    this.splashGroup = undefined
+    this.splashDepth = undefined
     this.bolt = uniform('weather/bolt')
     this.segments = new GpuBuffer(gpu, {
       label: 'weather/bolt-segments',
@@ -55,6 +67,14 @@ export class WeatherGpu {
       precip: gpu.layouts.bindGroupLayout({
         label: 'weather/precip',
         entries: [{ binding: 0, visibility: V, buffer: { type: 'uniform' } }],
+      }),
+      splash: gpu.layouts.bindGroupLayout({
+        label: 'weather/splash',
+        entries: splashEntries(V, false),
+      }),
+      splashMsaa: gpu.layouts.bindGroupLayout({
+        label: 'weather/splash-msaa',
+        entries: splashEntries(V, true),
       }),
       bolt: gpu.layouts.bindGroupLayout({
         label: 'weather/bolt',
@@ -71,6 +91,7 @@ export class WeatherGpu {
         entries: [{ binding: 0, resource: { buffer: buffer.buffer } }],
       })
     this.rainGroup = group(this.rain)
+    this.nearGroup = group(this.near)
     this.snowGroup = group(this.snow)
     this.boltGroup = gpu.device.createBindGroup({
       label: 'weather/bolt',
@@ -81,6 +102,17 @@ export class WeatherGpu {
       ],
     })
   }
+}
+
+function splashEntries(V: number, msaa: boolean): GPUBindGroupLayoutEntry[] {
+  return [
+    { binding: 0, visibility: V, buffer: { type: 'uniform' } },
+    {
+      binding: 1,
+      visibility: GPUShaderStage.VERTEX,
+      texture: { sampleType: 'depth', multisampled: msaa },
+    },
+  ]
 }
 
 export const WeatherGpuResource = defineResource<WeatherGpu>('weather/Gpu', {
@@ -145,18 +177,20 @@ function pipeline(
   msaa: number,
   sky: boolean,
   blend: GPUBlendState,
+  splash = false,
 ): GPURenderPipeline | undefined {
   let byLayout = s.pipelines.get(view)
   if (!byLayout) {
     byLayout = new Map()
     s.pipelines.set(view, byLayout)
   }
-  const key = `${root}/${msaa}/${sky ? 1 : 0}`
+  const key = `${root}/${msaa}/${sky ? 1 : 0}/${splash ? 1 : 0}`
   const cached = byLayout.get(key)
   if (cached) return cached
-  const module = ctx.world
-    .resource(Shaders)
-    .module(ctx.gpu, { root, defines: { SKY_OCCLUSION: sky } })
+  const module = ctx.world.resource(Shaders).module(ctx.gpu, {
+    root,
+    defines: { SKY_OCCLUSION: sky, SPLASH: splash, MSAA: msaa > 1 },
+  })
   if (!module) {
     ctx.gpu.pipelines.skipped++
     return undefined
@@ -167,7 +201,7 @@ function pipeline(
       label: root,
       bindGroupLayouts: [view, s.layouts[layout]!],
     }),
-    vertex: { module, entryPoint: 'vs' },
+    vertex: { module, entryPoint: splash ? 'vs_splash' : 'vs' },
     fragment: { module, entryPoint: 'fs', targets: [{ format: 'rgba16float', blend }] },
     // Reversed-Z: drawn only in front of the scene, never writing depth.
     depthStencil: { format: 'depth32float', depthWriteEnabled: false, depthCompare: 'greater' },
@@ -200,6 +234,8 @@ export function precipitationNode(world: World): NodeDescriptor {
   return {
     kind: 'render',
     phase: RenderPhase.Transparent + 5,
+    // Its own pass, with depth read-only: splashes sample the depth they're tested against.
+    ownPass: true,
     writes: ['scene-color', 'hdr'],
     color: (view) => sceneColor(view),
     depth: { resource: 'scene-depth', readOnly: true },
@@ -221,50 +257,87 @@ export function precipitationNode(world: World): NodeDescriptor {
       const sky = state.skyOcclusion
       const pass = ctx.renderPass!
       const group0 = viewBindGroup(gpu, ctx.world, pv, cam)
-      const draw = (
-        kind: 'rain' | 'snow',
+      const precip = () =>
+        pipeline(ctx, s, view, 'shard::weather::precip', 'precip', cam.msaa, sky, PREMULTIPLIED)
+      const layer = (
+        kind: 'rain' | 'near' | 'snow',
         amount: number,
         buffer: GpuBuffer,
         group: GPUBindGroup,
       ) => {
         if (amount <= 0.01) return
         const snow = kind === 'snow'
-        const count = Math.ceil((snow ? MAX_SNOW : MAX_RAIN) * Math.min(1, amount))
+        const near = kind === 'near'
+        const max = snow ? MAX_SNOW : near ? MAX_NEAR_RAIN : MAX_RAIN
+        const count = Math.ceil(max * Math.min(1, amount))
+        const box = snow ? 30 : near ? 9 : 40
         params[0] = cam.position[0]!
         params[1] = cam.position[1]!
         params[2] = cam.position[2]!
         params[3] = time
-        params[4] = snow ? 30 : 36
-        params[5] = snow ? 18 : 22
-        params[6] = snow ? 30 : 36
+        params[4] = box
+        params[5] = snow ? 18 : near ? 9 : 24
+        params[6] = box
         params[7] = count
-        params[8] = wx * (snow ? 0.7 : 0.5)
-        params[9] = snow ? -1.2 : -9
-        params[10] = wz * (snow ? 0.7 : 0.5)
-        params[11] = 0.035
-        params[12] = snow ? 0.022 : 0.012
+        params[8] = wx * (snow ? 0.7 : 0.45)
+        params[9] = snow ? -1.2 : -9.5
+        params[10] = wz * (snow ? 0.7 : 0.45)
+        // Near drops cross the frame fast: a longer streak is their motion blur.
+        params[11] = near ? 0.045 : 0.03
+        params[12] = snow ? 0.022 : near ? 0.004 : 0.0055
         params[13] = snow ? 1 : 0
-        params[14] = snow ? 0.9 : 0.6
+        params[14] = snow ? 0.9 : near ? 0.5 : 0.42
         params[15] = snow ? 0.35 : 0
         buffer.write(params)
-        const p = pipeline(
-          ctx,
-          s,
-          view,
-          'shard::weather::precip',
-          'precip',
-          cam.msaa,
-          sky,
-          PREMULTIPLIED,
-        )
+        const p = precip()
         if (!p) return
         pass.setPipeline(p)
         pass.setBindGroup(0, group0)
         pass.setBindGroup(1, group)
         pass.draw(6, count)
       }
-      draw('rain', weather.channels[CH.rain]!, s.rain!, s.rainGroup!)
-      draw('snow', weather.channels[CH.snow]!, s.snow!, s.snowGroup!)
+      const rain = weather.channels[CH.rain]!
+      layer('rain', rain, s.rain!, s.rainGroup!)
+      layer('near', rain, s.near!, s.nearGroup!)
+      layer('snow', weather.channels[CH.snow]!, s.snow!, s.snowGroup!)
+      if (rain > 0.01) {
+        const msaa = cam.msaa > 1
+        const p = pipeline(
+          ctx,
+          s,
+          view,
+          'shard::weather::precip',
+          msaa ? 'splashMsaa' : 'splash',
+          cam.msaa,
+          sky,
+          PREMULTIPLIED,
+          true,
+        )
+        const depth = ctx.texture('scene-depth')
+        if (p) {
+          if (!s.splashGroup || s.splashDepth !== depth) {
+            s.splashGroup = gpu.device.createBindGroup({
+              label: 'weather/splash',
+              layout: msaa ? s.layouts.splashMsaa! : s.layouts.splash!,
+              entries: [
+                { binding: 0, resource: { buffer: s.splash!.buffer } },
+                { binding: 1, resource: depth.createView() },
+              ],
+            })
+            s.splashDepth = depth
+          }
+          const count = Math.ceil(MAX_SPLASHES * Math.min(1, rain))
+          params[3] = time
+          params[7] = count
+          params[13] = 2
+          params[14] = 0.55
+          s.splash!.write(params)
+          pass.setPipeline(p)
+          pass.setBindGroup(0, group0)
+          pass.setBindGroup(1, s.splashGroup)
+          pass.draw(6, count * 3)
+        }
+      }
       const lightning = ctx.world.resource(LightningState)
       if (lightning.count > 0 && lightning.ground && lightning.bolt > 0.01) {
         const p = pipeline(ctx, s, view, 'shard::weather::bolt', 'bolt', cam.msaa, sky, ADDITIVE)
