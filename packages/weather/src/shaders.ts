@@ -126,7 +126,8 @@ fn surface_weather(p0: PbrInput, in: VertexOutput) -> PbrInput {
   if (snow_cover > 0.0) {
     let ns = weather_noise(world.xz * 1.9 + vec2f(world.y * 0.7));
     let reach = 1.15 - snow_cover * 1.25;
-    let s = smoothstep(reach, reach + 0.18, n.y * 0.75 + ns * 0.35) * open;
+    // Never on walls or overhangs: snow needs something to lie on.
+    let s = smoothstep(reach, reach + 0.18, n.y * 0.75 + ns * 0.35) * smoothstep(0.2, 0.45, n.y) * open;
     p.base_color = mix(p.base_color, vec3f(0.86, 0.88, 0.92), s);
     p.roughness = mix(p.roughness, 0.7, s);
     p.metallic = mix(p.metallic, 0.0, s);
