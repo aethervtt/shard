@@ -174,16 +174,23 @@ clouds from orbit come later, on the same cloud field.
 
 | Spec | Title | Status |
 |---|---|---|
-| [0130](0130-sky-time-of-day.md) | Sky and time of day (a tick-derived clock, sun and moon lights with shadow handover, real sun and moon, stars, aurora, sky modes, gradient color mode, the `weather` demo) | draft |
-| [0131](0131-clouds.md) | Clouds (one cloud field drawn as volumetric, voxel, static, 2D or aurora; a cloud map for spatial coverage; cloud shadows; clouds in the IBL; Toon bands) | draft |
-| [0132](0132-volumetric-fog.md) | Volumetric fog (froxels lit by shadowed sun, moon and local lights; `FogVolume`; seamless with `Fog`; analytic baseline) | draft |
-| [0133](0133-weather.md) | Weather (channels and presets, schedules and random climates with seasons, deterministic commands, zones and storms, precipitation under cover, lightning, wind, audio parameters, shelter) | draft |
-| [0134](0134-surface-weather.md) | Surface weather (wetness, puddles and ripples, snow and dust on every built-in material through one field; `shard::weather` for custom ones) | draft |
+| [0130](0130-sky-time-of-day.md) | Sky and time of day (a tick-derived clock, sun and moon lights with shadow handover, real sun and moon, stars, aurora, sky modes, gradient color mode, the `weather` demo) | draft (visual pass built) |
+| [0131](0131-clouds.md) | Clouds (one cloud field drawn as volumetric, voxel, static, 2D or aurora; a cloud map for spatial coverage; cloud shadows; clouds in the IBL; Toon bands) | draft (visual pass built) |
+| [0132](0132-volumetric-fog.md) | Volumetric fog (froxels lit by shadowed sun, moon and local lights; `FogVolume`; seamless with `Fog`; analytic baseline) | draft (visual pass built) |
+| [0133](0133-weather.md) | Weather (channels and presets, schedules and random climates with seasons, deterministic commands, zones and storms, precipitation under cover, lightning, wind, audio parameters, shelter) | draft (visual pass built) |
+| [0134](0134-surface-weather.md) | Surface weather (wetness, puddles and ripples, snow and dust on every built-in material through one field; `shard::weather` for custom ones) | draft (visual pass built) |
 
-They land in order: 0130 (day and night is the biggest visible change), 0133's state, commands and
-drives without precipitation, 0134, 0131 starting with `2d` and `static` and then `volumetric` and
-`voxel`, then 0133's precipitation and lightning, and 0132. Each adds its controls to the
-playground's realistic `weather` demo.
+The first visual pass of all five is built: clock, sun, moon and stars; volumetric and 2d clouds
+with cloud shadows; volumetric fog; weather with presets, climates, seasons, schedules, forecasts,
+zones, rain with splashes, snow, lightning and audio parameters; and surface weather on every
+standard material. Each spec's "As built" lists what's still to come, chiefly:
+
+- **Storms** (0133): moving storm cells with their own weather, seen from afar as a dark cell on
+  the horizon (they register in 0131's cloud map) before they arrive.
+- Static, voxel and volumetric-aurora cloud modes (0131); the `space` mode and `gradient` color
+  mode (0130); the WebGL2 paths of all five.
+- The GPU top-down weather mask and 0069 sky visibility for shelter (0133, 0134), and the
+  per-material `weather` field, terrain layers and deferred surfaces (0134).
 
 ## M8 — Proof project: No Man's Sky-style explorer
 
