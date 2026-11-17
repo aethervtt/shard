@@ -2,6 +2,7 @@ import { defineResource, frustum, mat4, type World } from '@aethervtt/shard-core
 import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
 import { Culler } from './culling'
 import type { FoliageSupport } from './foliage-path'
+import { SHADER_DATA_BINDING } from './globals'
 import { GpuAssetsResource } from './gpu-assets'
 import type { NodeContext } from './graph'
 import {
@@ -848,7 +849,7 @@ export class ShadowPassUniforms {
     return this.count++ * VIEW_STRIDE
   }
 
-  upload(layout: GPUBindGroupLayout, globals: GpuBuffer): void {
+  upload(layout: GPUBindGroupLayout, globals: GpuBuffer, data: GpuBuffer): void {
     const floats = (this.count * VIEW_STRIDE) / 4
     if (this.count > 0 && !this.unchanged(floats)) {
       this.buffer.write(this.data, 0, 0, floats)
@@ -858,7 +859,7 @@ export class ShadowPassUniforms {
       this.sentVersion = this.buffer.version
       this.sentGeneration = this.gpu.generation
     }
-    const key = `${this.buffer.version}/${globals.version}/${this.gpu.generation}`
+    const key = `${this.buffer.version}/${globals.version}/${data.version}/${this.gpu.generation}`
     if (!this.bindGroup || this.bound !== key) {
       this.bindGroup = this.gpu.device.createBindGroup({
         label: 'shadows/views',
@@ -866,6 +867,7 @@ export class ShadowPassUniforms {
         entries: [
           { binding: 0, resource: { buffer: this.buffer.buffer, size: 64 } },
           { binding: 14, resource: { buffer: globals.buffer } },
+          { binding: SHADER_DATA_BINDING, resource: { buffer: data.buffer } },
         ],
       })
       this.bound = key
@@ -894,6 +896,11 @@ export function shadowViewLayout(gpu: GpuContext): GPUBindGroupLayout {
       },
       {
         binding: 14,
+        visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+        buffer: { type: 'uniform' },
+      },
+      {
+        binding: SHADER_DATA_BINDING,
         visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
         buffer: { type: 'uniform' },
       },

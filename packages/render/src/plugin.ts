@@ -29,7 +29,7 @@ import { type ShaderBake, ShaderLibrary } from '@aethervtt/shard-shader'
 import { PassCosts } from './ablation'
 import { loadDataTextures, releaseDataStores } from './data-store'
 import { checkUnsupportedFeatures, describeFeatures, RenderFeatures } from './features'
-import { ShaderGlobals } from './globals'
+import { ShaderData, ShaderGlobals } from './globals'
 import { type CapturedBuffer, type CapturedImage, RenderGraph, type RenderView } from './graph'
 import {
   healthSystem,
@@ -279,6 +279,7 @@ export function renderPlugin(options: RenderPluginOptions = {}): Plugin {
       RenderHealthChanged,
       RenderHealthReports,
       RenderOptions,
+      ShaderData,
       ShaderGlobals,
       Shaders,
       Views,
@@ -308,6 +309,7 @@ export function renderPlugin(options: RenderPluginOptions = {}): Plugin {
         },
       })
       app.world.initResource(ShaderGlobals)
+      app.world.initResource(ShaderData)
       app
         .insertResource(Views, { list: [] })
         .insertResource(RenderOptions, {

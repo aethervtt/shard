@@ -218,7 +218,14 @@ export {
   packGizmoColor,
 } from './gizmos'
 export { gizmosPlugin } from './gizmos-plugin'
-export { GLOBALS_DATA_SLOTS, ShaderGlobals, ShaderGlobalsData } from './globals'
+export {
+  GLOBALS_DATA_SLOTS,
+  SHADER_DATA_SLOTS,
+  ShaderData,
+  ShaderDataBlock,
+  ShaderGlobals,
+  ShaderGlobalsData,
+} from './globals'
 export {
   GpuAssets,
   GpuAssetsResource,

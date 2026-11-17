@@ -2829,6 +2829,9 @@ importers:
       '@aethervtt/shard-gpu':
         specifier: workspace:*
         version: link:../gpu
+      '@aethervtt/shard-gpu-webgl2':
+        specifier: workspace:*
+        version: link:../gpu-webgl2
       '@aethervtt/shard-mesh':
         specifier: workspace:*
         version: link:../mesh

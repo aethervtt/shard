@@ -2,7 +2,7 @@ import { defineComponent, t } from '@aethervtt/shard-core'
 import { type ShaderLibrary, wgslLayout } from '@aethervtt/shard-shader'
 import { StandardMaterial } from './assets'
 import { CULLING_SHADERS } from './culling-shaders'
-import { GLOBALS_DATA_SLOTS } from './globals'
+import { GLOBALS_DATA_SLOTS, SHADER_DATA_BINDING, SHADER_DATA_SLOTS } from './globals'
 
 /** Per-view uniforms. A schema, so the WGSL struct and the CPU packing come from one place. */
 export const ViewUniform = defineComponent('render/ViewUniform', {
@@ -488,6 +488,13 @@ struct Globals {
 }
 
 @group(0) @binding(14) var<uniform> globals: Globals;`,
+
+  'shard::shader_data': `
+/**
+ * Slots a game reserves (ShaderData.reserve, 0127) and rewrites each frame, for its materials:
+ * bound in camera views and shadow views alike. A plain vec4 array, so WebGL2 reads it in place.
+ */
+@group(0) @binding(${SHADER_DATA_BINDING}) var<uniform> shader_data: array<vec4f, ${SHADER_DATA_SLOTS}>;`,
 
   'shard::unlit::shading': `
 import shard::pbr::types::VertexOutput;

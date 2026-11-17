@@ -507,6 +507,12 @@
       "desktop": 1,
       "note": "0022: CPU prep of a static 200k-instance frame (slots, culling submission, uploads), best of 10. render/src/culling.test.ts."
     },
+    "render/shader-data-upload": {
+      "kind": "target",
+      "laptop": 0.05,
+      "desktop": 0.05,
+      "note": "0127 proposed: what uploading all 1024 shard::shader_data slots (16 KiB, one writeBuffer) adds to render/forward-queue, best of 200 frames each with and without. render/src/shader-data.test.ts."
+    },
     "render/shadow-encode": {
       "kind": "target",
       "laptop": 1.5,

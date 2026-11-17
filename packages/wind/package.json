@@ -22,6 +22,7 @@
   },
   "devDependencies": {
     "@aethervtt/shard-gpu": "workspace:*",
+    "@aethervtt/shard-gpu-webgl2": "workspace:*",
     "@aethervtt/shard-mesh": "workspace:*",
     "@aethervtt/shard-shader": "workspace:*",
     "@types/node": "^26.6.2",

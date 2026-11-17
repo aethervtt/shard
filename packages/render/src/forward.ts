@@ -40,7 +40,13 @@ import { addDisplayNodes } from './display-nodes'
 import { Environments, environmentParams } from './environment-state'
 import { addRenderFeatures, warnFeatureMissing } from './features'
 import { FoliagePath, type FoliageSupport } from './foliage-path'
-import { ShaderGlobals, ShaderGlobalsData } from './globals'
+import {
+  SHADER_DATA_BINDING,
+  ShaderData,
+  ShaderDataBlock,
+  ShaderGlobals,
+  ShaderGlobalsData,
+} from './globals'
 import { GpuAssets, GpuAssetsResource } from './gpu-assets'
 import { type ColorAttachment, type NodeContext, RenderPhase, type RenderView } from './graph'
 import { clearHealthIssue, MaterialFallbacks, raiseHealthIssue } from './health'
@@ -227,6 +233,8 @@ export interface ForwardState {
   warned: { budget: string; overflow: string }
   /** Time, delta time, frame and plugin slots for shaders (`shard::globals`, ShaderGlobals). */
   globals: GpuBuffer
+  /** A game's slots for its materials (`shard::shader_data`, ShaderData, 0127). */
+  shaderData: GpuBuffer
   pipelines: MaterialPipelines
   /** The baseline tier's strategies (0064), loaded only on a baseline device. */
   baseline: typeof import('./baseline/lights') | undefined
@@ -384,6 +392,8 @@ export const forwardQueue = defineSystem({
     g.values[1] = time.delta
     g.bits[2] = time.frame
     state.globals.write(g.values, 0, 0, g.length)
+    const data = world.resource(ShaderData)
+    if (data.length > 0) state.shaderData.write(data.values, 0, 0, data.length)
 
     // Camera views first: they choose LOD levels, which their shadow views reuse.
     let main: CameraData | undefined
@@ -729,7 +739,9 @@ export const upload = defineSystem({
     }
     store.finishFrame()
     const state = world.resource(State)
-    world.resource(ShadowsResource).uniforms.upload(state.layouts.shadowView, state.globals)
+    world
+      .resource(ShadowsResource)
+      .uniforms.upload(state.layouts.shadowView, state.globals, state.shaderData)
   },
 })
 
@@ -1239,7 +1251,7 @@ export function viewBindGroup(
   const clustersVersion = b ? b.bits.version : pv.clusters!.clusters.version
   // Interior lighting (0069): its bindings exist only while a mode is on.
   const interior = state.interiorMode !== 0 ? world.tryResource(InteriorPath) : undefined
-  const key = `${idOf(ao)}/${gpu.generation}/${pv.uniform.version}/${lightsVersion}/${clustersVersion}/${lights.directional.version}/${pv.shadowData.version}/${idOf(cascades)}/${idOf(spots)}/${idOf(points)}/${baked ? idOf(baked.source) : 0}/${sh.version}/${state.globals.version}${interior ? `/${state.interiorMode}/${interior.version}` : ''}`
+  const key = `${idOf(ao)}/${gpu.generation}/${pv.uniform.version}/${lightsVersion}/${clustersVersion}/${lights.directional.version}/${pv.shadowData.version}/${idOf(cascades)}/${idOf(spots)}/${idOf(points)}/${baked ? idOf(baked.source) : 0}/${sh.version}/${state.globals.version}/${state.shaderData.version}${interior ? `/${state.interiorMode}/${interior.version}` : ''}`
   if (!pv.bindGroup || pv.bound !== key) {
     const entries: GPUBindGroupEntry[] = [
       { binding: 0, resource: { buffer: pv.uniform.buffer } },
@@ -1258,6 +1270,7 @@ export function viewBindGroup(
       { binding: 13, resource: source },
       { binding: 14, resource: { buffer: state.globals.buffer } },
       { binding: 15, resource: ao.createView() },
+      { binding: SHADER_DATA_BINDING, resource: { buffer: state.shaderData.buffer } },
     ]
     if (interior) entries.push(...interior.entries(gpu))
     pv.bindGroup = gpu.device.createBindGroup({
@@ -1829,7 +1842,7 @@ export interface ForwardPluginOptions {
   >
 }
 
-/** Group 0's entries: view, lights, clusters, shadows, environment, globals, SSAO. */
+/** Group 0's entries: view, lights, clusters, shadows, environment, globals, SSAO, shader data. */
 function viewEntries(gpu: GpuContext): GPUBindGroupLayoutEntry[] {
   const F = GPUShaderStage.FRAGMENT
   const depthArray = (binding: number) => ({
@@ -1856,6 +1869,11 @@ function viewEntries(gpu: GpuContext): GPUBindGroupLayoutEntry[] {
     { binding: 13, visibility: F, texture: { sampleType: 'float', viewDimension: 'cube' } },
     { binding: 14, visibility: GPUShaderStage.VERTEX | F, buffer: { type: 'uniform' } },
     { binding: 15, visibility: F, texture: { sampleType: 'float' } },
+    {
+      binding: SHADER_DATA_BINDING,
+      visibility: GPUShaderStage.VERTEX | F,
+      buffer: { type: 'uniform' },
+    },
   ]
 }
 
@@ -2166,6 +2184,11 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
             label: 'globals',
             usage: GPUBufferUsage.UNIFORM,
             size: new ShaderGlobalsData().values.byteLength,
+          }),
+          shaderData: new GpuBuffer(gpu, {
+            label: 'shader-data',
+            usage: GPUBufferUsage.UNIFORM,
+            size: new ShaderDataBlock().values.byteLength,
           }),
           pipelines: new MaterialPipelines(),
           baseline,

@@ -137,6 +137,7 @@ acceptance evidence are mapped in [the implementation checklist](research/audio-
 | [0116](0116-shadow-casters-occlusion.md) | Shadow casters that matter, occlusion culling, and shadow-only visibility (per-cascade caster culling, cached static layers under dynamic casters, structure shadow proxies and arena, CPU occluders on both tiers) | accepted (built) |
 | [0095](0095-procedural-trees.md) | Procedural trees (EZ-Tree port in an experimental `nature` package, species assets, GLB export) | implemented |
 | [0096](0096-shared-wind.md) | Shared wind (`Wind` in m/s, `windAt` on CPU and GPU, zones, synced changes) | implemented |
+| [0127](0127-shader-data.md) | Shader data (1024 vec4 slots a game rewrites each frame for its materials, beside wind's globals; every pass, both tiers) | implemented |
 | [0097](0097-water-bodies.md) | Water bodies and surface (ocean, lakes, spline rivers, tanks; water as a volume; masks; `waterAt`) | draft (part 1 built; rivers as 0123) |
 | [0123](0123-rivers-near-bodies.md) | Rivers and water bodies chosen by distance (open-spline rivers with flow and mouths, flow-advected ripples, every body in `waterAt`, the 64 nearest drawn) | draft (built) |
 | [0098](0098-ocean-waves.md) | Ocean waves (JONSWAP FFT cascades on both tiers, foam, shores, CPU evaluator, tick-synced) | implemented (shoaling open) |
