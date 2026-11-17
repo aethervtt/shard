@@ -1,6 +1,6 @@
 # 0128 — One-off particle bursts
 
-- **Status:** implemented
+- **Status:** draft (built 2026-11-16). Implemented once its criteria pass in CI.
 - **Packages:** `@aethervtt/shard-particles`, `@aethervtt/shard-project` (docs skill)
 - **Depends on:** 0026, 0064
 

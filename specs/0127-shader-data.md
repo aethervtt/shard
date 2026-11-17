@@ -1,6 +1,6 @@
 # 0127 — Shader data: room for per-frame arrays
 
-- **Status:** implemented
+- **Status:** draft (built 2026-11-16). Implemented once its criteria pass in CI.
 - **Packages:** `@aethervtt/shard-render`
 - **Depends on:** 0020, 0064, 0096
 
