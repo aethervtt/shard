@@ -354,7 +354,11 @@ keep working because the shader only changes the surface.
    go in \`shard::shader_data\`: \`world.resource(ShaderData).reserve('<project>/sea', 82)\` returns
    the first of 82 vec4 slots (\`values[slot * 4]\` to write), and the shader reads
    \`shader_data[slot + i]\` (\`import shard::shader_data::shader_data;\`), in every pass. The
-   block holds 1024 vec4s for the whole game.
+   block holds 1024 vec4s for the whole game. \`refraction: true\` (clear water, glass) draws the
+   type after the opaque scene and lets it see what's behind: \`shard::refraction\` gives
+   \`refraction_uv(in.clip)\`, \`refraction_color(uv, mip)\` (luminance, put it in \`emissive\`) and
+   \`refraction_thickness(uv, in.world_position)\` (meters to what's behind). It writes depth and
+   is inked as an opaque surface; it never blends and casts no shadow.
 
 3. Use it in a material file: \`{ "type": "<project>/Lava", "crackLuminance": 30000,
    "cracks": { "path": "assets/cracks.png" } }\`. Leaving out \`"type"\` means the standard material.

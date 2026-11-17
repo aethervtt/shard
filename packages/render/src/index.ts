@@ -505,6 +505,8 @@ export {
 } from './post-nodes'
 export { postPlugin } from './post-plugin'
 export { screenToPlane, screenToRay, worldToScreen } from './projection'
+export { REFRACTION_BINDINGS, RefractionPath } from './refraction'
+export { REFRACTION_PHASE, REFRACTION_SHADERS, refractionPlugin } from './refraction-plugin'
 export {
   describeRenderScale,
   RenderScale,

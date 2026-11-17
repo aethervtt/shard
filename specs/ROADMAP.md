@@ -141,6 +141,7 @@ acceptance evidence are mapped in [the implementation checklist](research/audio-
 | [0127](0127-shader-data.md) | Shader data (1024 vec4 slots a game rewrites each frame for its materials, beside wind's globals; every pass, both tiers) | implemented |
 | [0097](0097-water-bodies.md) | Water bodies and surface (ocean, lakes, spline rivers, tanks; water as a volume; masks; `waterAt`) | draft (part 1 built; rivers as 0123) |
 | [0123](0123-rivers-near-bodies.md) | Rivers and water bodies chosen by distance (open-spline rivers with flow and mouths, flow-advected ripples, every body in `waterAt`, the 64 nearest drawn) | draft (built) |
+| [0129](0129-refracting-materials.md) | Refracting material types (drawn after the opaque copy and reading it; in the depth and normals ink and SSAO read) | draft (built) |
 | [0098](0098-ocean-waves.md) | Ocean waves (JONSWAP FFT cascades on both tiers, foam, shores, CPU evaluator, tick-synced) | implemented (shoaling open) |
 | [0099](0099-underwater.md) | Underwater and water optics (per-pixel waterline, fog, Snell's window, caustics, light shafts, aquariums) | draft |
 | [0100](0100-water-interaction.md) | Water interaction (buoyancy, Kelvin wakes, interaction foam, spray) | draft |

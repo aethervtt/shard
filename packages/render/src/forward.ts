@@ -116,6 +116,7 @@ import {
   Ssao,
   Vignette,
 } from './post'
+import { REFRACTION_BINDINGS, RefractionPath } from './refraction'
 import { RenderScale, type RenderScaleValue } from './render-scale'
 import {
   describeScreenEffects,
@@ -196,6 +197,9 @@ export interface ViewGpu {
   cascades: Cascades
   bindGroup: GPUBindGroup | undefined
   bound: string
+  /** Group 0 of the refraction pass (0129): the opaque copy bound, and no SSAO. */
+  refractBindGroup: GPUBindGroup | undefined
+  refractBound: string
   clusterBindGroup: GPUBindGroup | undefined
   clusterBound: string
 }
@@ -206,6 +210,8 @@ interface Layouts {
   viewBase: GPUBindGroupLayout
   /** Made on first use: few apps turn interior lighting on. */
   viewInterior: GPUBindGroupLayout | undefined
+  /** The refraction pass's (0129), without and with the interior bindings: made on first use. */
+  viewRefract: [GPUBindGroupLayout | undefined, GPUBindGroupLayout | undefined]
   pipeline: GPUPipelineLayout
   cluster: GPUBindGroupLayout
   clusterPipeline: GPUPipelineLayout
@@ -426,6 +432,14 @@ export const forwardQueue = defineSystem({
       }
       // Nearest first within each pipeline and material: the depth test culls overdraw.
       store.orderNearFirst(cam.draws, cam.position)
+      cam.refraction = refractionDraws(cam.transparent)
+      if (cam.refraction > 0 && !world.hasResource(RefractionPath))
+        warnFeatureMissing(
+          world,
+          'A material type has refraction: true',
+          'refractionPlugin',
+          'its draws are skipped',
+        )
       if (view.order < mainOrder) {
         main = cam
         mainOrder = view.order
@@ -602,6 +616,13 @@ export const forwardQueue = defineSystem({
   },
 })
 
+/** Draws of refracting types (0129) in a camera's transparent list. */
+function refractionDraws(list: DrawList): number {
+  let n = 0
+  for (let d = 0; d < list.length; d++) if (list.items[d]!.batch.material.type.refraction) n++
+  return n
+}
+
 function viewGpu(gpu: GpuContext, state: ForwardState, name: string): ViewGpu {
   let pv = state.views.get(name)
   if (!pv) {
@@ -624,6 +645,8 @@ function viewGpu(gpu: GpuContext, state: ForwardState, name: string): ViewGpu {
       ao: undefined,
       bindGroup: undefined,
       bound: '',
+      refractBindGroup: undefined,
+      refractBound: '',
       clusterBindGroup: undefined,
       clusterBound: '',
     }
@@ -800,6 +823,11 @@ const LIT_DEFINES = INTERIOR_DEFINES.map((extra) =>
   ),
 )
 
+/** The refraction pass's (0129): the lit sets with the opaque copy's bindings linked in. */
+const REFRACT_DEFINES = LIT_DEFINES.map((sets) =>
+  sets.map((set) => set.map((d) => ({ ...d, REFRACTION: true }))),
+)
+
 /** Deferred lighting's defines (0021) by interior mode, then toon (0108). */
 export const DEFERRED_LIGHTING_DEFINES = INTERIOR_DEFINES.map((extra) => [
   extra,
@@ -807,8 +835,8 @@ export const DEFERRED_LIGHTING_DEFINES = INTERIOR_DEFINES.map((extra) => [
 ])
 
 /**
- * The pipeline layout of a pass drawing a material type: view, material, instances, and for the
- * cutaway variant (0070) the camera's reveal points.
+ * The pipeline layout of a pass drawing a material type: view (`view`: the refraction pass's,
+ * 0129), material, instances, and for the cutaway variant (0070) the camera's reveal points.
  */
 function materialLayout(
   gpu: GpuContext,
@@ -817,12 +845,13 @@ function materialLayout(
   type: MaterialType,
   store: InstanceStore,
   cut: GPUBindGroupLayout | undefined,
+  view = state.layouts.view,
 ) {
   return gpu.layouts.pipelineLayout({
     label: cut ? `forward/${type.name}/cutaway` : `forward/${type.name}`,
     bindGroupLayouts: cut
-      ? [state.layouts.view, assets.layoutOf(type), store.layout, cut]
-      : [state.layouts.view, assets.layoutOf(type), store.layout],
+      ? [view, assets.layoutOf(type), store.layout, cut]
+      : [view, assets.layoutOf(type), store.layout],
   })
 }
 
@@ -842,6 +871,12 @@ export const PASS_PICK_GROUND = 11
  * stands in for resolving multisampled depth, which GLSL ES 3.00 can't read.
  */
 export const PASS_DEPTH = 13
+/**
+ * Refracting types (0129): after the opaque copy, which group 0 binds, shaded like opaque surfaces
+ * and writing depth. The G-buffer variant also writes its normals into gbuffer1, for ink.
+ */
+export const PASS_REFRACT = 15
+export const PASS_REFRACT_GBUFFER = 17
 /** Depth bias of ground draws against the floor under them (float depth ULPs, and slope). */
 const GROUND_DEPTH_BIAS = 8
 const GROUND_SLOPE_BIAS = 2
@@ -857,10 +892,16 @@ export const PICK_TARGETS: GPUColorTargetState[] = [
 
 // Octahedral normal (xy) and screen velocity: two channels each.
 const PREPASS_TARGETS: GPUColorTargetState[] = [{ format: 'rg16float' }, { format: 'rg16float' }]
+// Deferred refraction (0129): the scene color, and its normals into gbuffer1 for ink.
+const REFRACT_GBUFFER_TARGETS: GPUColorTargetState[] = [
+  { format: 'rgba16float' },
+  { format: 'rgba16float' },
+]
 
 /**
  * Draws a list of batches with their material types' pipelines. Returns the pipeline switches, so
- * `render.describe` can show that sorting keeps them rare.
+ * `render.describe` can show that sorting keeps them rare. `refractive`: only refracting types'
+ * batches (0129), for the prepass and depth passes that add them after the opaque copy.
  */
 export function drawMaterials(
   ctx: NodeContext,
@@ -869,6 +910,7 @@ export function drawMaterials(
   cam: CameraData,
   draws: DrawList,
   pass: number,
+  refractive = false,
 ): number {
   const store = ctx.world.resource(Instances)
   const assets = ctx.world.resource(GpuAssetsResource)
@@ -877,7 +919,11 @@ export function drawMaterials(
   const instances = draws.cullView >= 0 ? store.gpuBindGroup : store.bindGroup
   if (!instances) return 0
   const args = ctx.world.resource(Culler).args.buffer
-  renderPass.setBindGroup(0, viewBindGroup(gpu, ctx.world, pv, cam))
+  const refract = pass === PASS_REFRACT || pass === PASS_REFRACT_GBUFFER
+  renderPass.setBindGroup(
+    0,
+    refract ? refractionViewGroup(ctx, pv, cam) : viewBindGroup(gpu, ctx.world, pv, cam),
+  )
   renderPass.setBindGroup(2, instances)
   // A camera with reveal points draws the batches its points can cut with the cutaway variant
   // (0070); the others, and every shadow pass, never link it.
@@ -893,7 +939,7 @@ export function drawMaterials(
   for (let d = 0; d < draws.length; d++) {
     const item = draws.items[d]!
     const own = item.batch.material
-    if (!inPass(own.type, pass)) continue
+    if (!inPass(own.type, pass) || (refractive && !own.type.refraction)) continue
     const cut =
       cutGroup !== undefined &&
       item.batch.cutaway > 0 &&
@@ -945,14 +991,21 @@ export function drawMaterials(
       renderPass.draw(gm.count, item.count, 0, item.first)
     }
   }
-  if (draws.cullView < 0) warmPipelines(ctx, state, cam, store, assets, pass, cutGroup && cutaway)
+  // The refracting types' prepass and depth draws are a handful that ask for their own pipelines.
+  if (draws.cullView < 0 && !refractive)
+    warmPipelines(ctx, state, cam, store, assets, pass, cutGroup && cutaway)
   return switches
 }
 
-/** Whether a material type draws in `pass`: the G-buffer takes standard lighting, picks pickable types. */
+/**
+ * Whether a material type draws in `pass`: the G-buffer takes standard lighting, picks pickable
+ * types; refracting types (0129) draw in the refraction passes instead of the transparent one.
+ */
 function inPass(type: MaterialType, pass: number): boolean {
   if (pass === PASS_GBUFFER) return type.standard
   if (pass === PASS_PICK || pass === PASS_PICK_GROUND) return type.pickable
+  if (pass === PASS_TRANSPARENT) return !type.refraction
+  if (pass === PASS_REFRACT || pass === PASS_REFRACT_GBUFFER) return type.refraction
   return true
 }
 
@@ -981,8 +1034,9 @@ function materialPipeline(
   const prepass = pass === PASS_PREPASS || depthOnly
   const pick = pass === PASS_PICK || pass === PASS_PICK_GROUND
   const ground = pass === PASS_GROUND || pass === PASS_PICK_GROUND
-  // The G-buffer, the prepass, and picking are always single-sampled.
-  const msaa = gbuffer || prepass || pick ? 1 : cam.msaa
+  const refract = pass === PASS_REFRACT || pass === PASS_REFRACT_GBUFFER
+  // The G-buffer, the prepass, and picking are always single-sampled (as deferred views are).
+  const msaa = gbuffer || prepass || pick || pass === PASS_REFRACT_GBUFFER ? 1 : cam.msaa
   // Only lit slots link interior lighting (0069): the G-buffer, prepass and picking don't light.
   const mode = gbuffer || prepass || pick ? 0 : state.interiorMode
   // Nor toon shading (0108), which a view's camera turns on.
@@ -998,16 +1052,17 @@ function materialPipeline(
   if (!pipeline) {
     const premultiply = blend === 'premultiplied'
     const mask = blend === 'mask'
-    // Module slots: forward 0–7 (opaque 48–55), shadows 8, G-buffer 16–23, prepass 32–38, pick 40;
-    // the cutaway variant of each is 64 more (0070), the toon variant 128 more (0108).
+    // Module slots: forward 0–7 (opaque 48–55), shadows 8, G-buffer 16–23, refraction 24–30
+    // (0129), prepass 32–38, pick 40; the cutaway variant of each is 64 more (0070), the toon
+    // variant 128 more (0108).
     const opaque = !gbuffer && !prepass && !pick && !isTransparent(blend)
     const slot =
       (cut ? 64 : 0) +
       (toon ? 128 : 0) +
       (pick
         ? 40
-        : prepass
-          ? 32 + (type.standard ? 0 : 4) + (mask ? 2 : 0)
+        : prepass || refract
+          ? (refract ? 24 : 32) + (type.standard ? 0 : 4) + (mask ? 2 : 0)
           : (gbuffer ? 16 : opaque ? 48 : 0) +
             (type.standard ? 0 : 4) +
             (premultiply ? 1 : 0) +
@@ -1025,14 +1080,18 @@ function materialPipeline(
             : 'shard::prepass::plain'
           : gbuffer
             ? 'shard::pbr::gbuffer_pass'
-            : type.standard
-              ? 'shard::pbr::forward'
-              : 'shard::unlit::forward',
-      // Only what the slot tells apart: the prepass and picking don't premultiply.
-      LIT_DEFINES[mode]![(cut ? 1 : 0) + (toon ? 2 : 0)]![
+            : refract
+              ? type.standard
+                ? 'shard::refraction::pbr'
+                : 'shard::refraction::unlit'
+              : type.standard
+                ? 'shard::pbr::forward'
+                : 'shard::unlit::forward',
+      // Only what the slot tells apart: the prepass, picking and refraction don't premultiply.
+      (refract ? REFRACT_DEFINES : LIT_DEFINES)[mode]![(cut ? 1 : 0) + (toon ? 2 : 0)]![
         pick
           ? 0
-          : prepass
+          : prepass || refract
             ? mask
               ? 2
               : 0
@@ -1050,12 +1109,20 @@ function materialPipeline(
       gpu,
       key,
       {
-        label: `${pick ? 'pick' : prepass ? 'prepass' : gbuffer ? 'gbuffer' : ground ? 'ground' : 'forward'}/${type.name}/${blend}/x${msaa}/${variantCull(variant)}${cut ? '/cutaway' : ''}`,
-        layout: materialLayout(gpu, state, assets, type, store, cut?.layout(gpu)),
+        label: `${pick ? 'pick' : prepass ? 'prepass' : gbuffer ? 'gbuffer' : ground ? 'ground' : refract ? 'refract' : 'forward'}/${type.name}/${blend}/x${msaa}/${variantCull(variant)}${cut ? '/cutaway' : ''}`,
+        layout: materialLayout(
+          gpu,
+          state,
+          assets,
+          type,
+          store,
+          cut?.layout(gpu),
+          refract ? refractViewLayout(gpu, state) : undefined,
+        ),
         vertex: { module, entryPoint: 'vs', buffers: VERTEX_BUFFERS },
         fragment: {
           module,
-          entryPoint: depthOnly ? 'fs_depth' : 'fs',
+          entryPoint: depthOnly ? 'fs_depth' : pass === PASS_REFRACT_GBUFFER ? 'fs_gbuffer' : 'fs',
           targets: pick
             ? PICK_TARGETS
             : depthOnly
@@ -1064,7 +1131,9 @@ function materialPipeline(
                 ? PREPASS_TARGETS
                 : gbuffer
                   ? state.gbufferTargets
-                  : [{ format: 'rgba16float', blend: blendState(blend) }],
+                  : pass === PASS_REFRACT_GBUFFER
+                    ? REFRACT_GBUFFER_TARGETS
+                    : [{ format: 'rgba16float', blend: blendState(blend) }],
         },
         primitive: {
           topology: 'triangle-list',
@@ -1119,9 +1188,9 @@ function warmPipelines(
   for (let i = 0; i < batches.length; i++) {
     const batch = batches[i]!
     if (batch.count === 0 || batch.ground !== ground) continue
-    if (pass === PASS_TRANSPARENT ? !batch.transparent : batch.transparent && pass !== PASS_PICK) {
-      continue
-    }
+    const after =
+      pass === PASS_TRANSPARENT || pass === PASS_REFRACT || pass === PASS_REFRACT_GBUFFER
+    if (after ? !batch.transparent : batch.transparent && pass !== PASS_PICK) continue
     // Deferred views draw forward only what the G-buffer can't take.
     if (pass === PASS_OPAQUE && cam.deferred && batch.deferrable) continue
     const own = batch.material
@@ -1205,12 +1274,21 @@ function idOf(t: GPUTexture): number {
   return id
 }
 
-/** The view bind group (group 0): uniforms, lights, clusters, shadows. Rebuilt when inputs change. */
+/** Group 0's SSAO texture, which the refraction pass's (0129) leaves out. */
+const AO_BINDING = 15
+
+/**
+ * The view bind group (group 0): uniforms, lights, clusters, shadows. Rebuilt when inputs change.
+ * With the opaque copy's `color` and `depth`, the refraction pass's (0129): no SSAO there, since
+ * the occlusion at a refracting surface's pixels is that of what's behind it.
+ */
 export function viewBindGroup(
   gpu: GpuContext,
   world: World,
   pv: ViewGpu,
   cam: CameraData,
+  color?: GPUTexture,
+  depth?: GPUTexture,
 ): GPUBindGroup {
   const state = world.resource(State)
   const lights = world.resource(Lights)
@@ -1244,43 +1322,71 @@ export function viewBindGroup(
   const specular = baked?.specularView ?? envs.emptyView!
   const source = baked?.sourceView ?? envs.emptyView!
   const sh = baked?.sh ?? envs.emptySh!
-  const ao = pv.ao ?? whiteTexture(gpu, state)
+  const refract = color !== undefined && depth !== undefined
+  // The refraction pass binds no SSAO: keyed on white, so its group doesn't follow it.
+  const ao = (!refract && pv.ao) || whiteTexture(gpu, state)
   // Lights and clusters: the store's buffer and GPU clusters, or (baseline) the view's packed ones.
   const b = pv.baseline
   const lightsVersion = b ? b.lights.version : lights.buffer.version
   const clustersVersion = b ? b.bits.version : pv.clusters!.clusters.version
   // Interior lighting (0069): its bindings exist only while a mode is on.
   const interior = state.interiorMode !== 0 ? world.tryResource(InteriorPath) : undefined
-  const key = `${idOf(ao)}/${gpu.generation}/${pv.uniform.version}/${lightsVersion}/${clustersVersion}/${lights.directional.version}/${pv.shadowData.version}/${idOf(cascades)}/${idOf(spots)}/${idOf(points)}/${baked ? idOf(baked.source) : 0}/${sh.version}/${state.globals.version}/${state.shaderData.version}${interior ? `/${state.interiorMode}/${interior.version}` : ''}`
-  if (!pv.bindGroup || pv.bound !== key) {
-    const entries: GPUBindGroupEntry[] = [
-      { binding: 0, resource: { buffer: pv.uniform.buffer } },
-      { binding: 1, resource: b ? b.lights.resource() : { buffer: lights.buffer.buffer } },
-      { binding: 2, resource: b ? b.bits.resource() : { buffer: pv.clusters!.clusters.buffer } },
-      { binding: 3, resource: lights.directional.resource() },
-      { binding: 4, resource: pv.shadowData.resource() },
-      { binding: 5, resource: cascades.createView({ dimension: '2d-array' }) },
-      { binding: 6, resource: spots.createView({ dimension: '2d-array' }) },
-      { binding: 7, resource: points.createView({ dimension: '2d-array' }) },
-      { binding: 8, resource: state.shadowSampler },
-      { binding: 9, resource: specular },
-      { binding: 10, resource: envs.lut!.createView() },
-      { binding: 11, resource: envs.sampler! },
-      { binding: 12, resource: sh.resource() },
-      { binding: 13, resource: source },
-      { binding: 14, resource: { buffer: state.globals.buffer } },
-      { binding: 15, resource: ao.createView() },
-      { binding: SHADER_DATA_BINDING, resource: { buffer: state.shaderData.buffer } },
-    ]
-    if (interior) entries.push(...interior.entries(gpu))
+  const key = `${idOf(ao)}/${gpu.generation}/${pv.uniform.version}/${lightsVersion}/${clustersVersion}/${lights.directional.version}/${pv.shadowData.version}/${idOf(cascades)}/${idOf(spots)}/${idOf(points)}/${baked ? idOf(baked.source) : 0}/${sh.version}/${state.globals.version}/${state.shaderData.version}${interior ? `/${state.interiorMode}/${interior.version}` : ''}${refract ? `/${idOf(color)}/${idOf(depth)}` : ''}`
+  const group = refract ? pv.refractBindGroup : pv.bindGroup
+  if (group && (refract ? pv.refractBound : pv.bound) === key) return group
+  const entries: GPUBindGroupEntry[] = [
+    { binding: 0, resource: { buffer: pv.uniform.buffer } },
+    { binding: 1, resource: b ? b.lights.resource() : { buffer: lights.buffer.buffer } },
+    { binding: 2, resource: b ? b.bits.resource() : { buffer: pv.clusters!.clusters.buffer } },
+    { binding: 3, resource: lights.directional.resource() },
+    { binding: 4, resource: pv.shadowData.resource() },
+    { binding: 5, resource: cascades.createView({ dimension: '2d-array' }) },
+    { binding: 6, resource: spots.createView({ dimension: '2d-array' }) },
+    { binding: 7, resource: points.createView({ dimension: '2d-array' }) },
+    { binding: 8, resource: state.shadowSampler },
+    { binding: 9, resource: specular },
+    { binding: 10, resource: envs.lut!.createView() },
+    { binding: 11, resource: envs.sampler! },
+    { binding: 12, resource: sh.resource() },
+    { binding: 13, resource: source },
+    { binding: 14, resource: { buffer: state.globals.buffer } },
+    { binding: 15, resource: ao.createView() },
+    { binding: SHADER_DATA_BINDING, resource: { buffer: state.shaderData.buffer } },
+  ]
+  if (interior) entries.push(...interior.entries(gpu))
+  if (!refract) {
     pv.bindGroup = gpu.device.createBindGroup({
       label: 'forward/view',
       layout: state.layouts.view,
       entries,
     })
     pv.bound = key
+    return pv.bindGroup
   }
-  return pv.bindGroup
+  entries.splice(AO_BINDING, 1)
+  entries.push(
+    { binding: REFRACTION_BINDINGS.color, resource: color.createView() },
+    { binding: REFRACTION_BINDINGS.depth, resource: depth.createView() },
+  )
+  pv.refractBindGroup = gpu.device.createBindGroup({
+    label: 'forward/view/refraction',
+    layout: refractViewLayout(gpu, state),
+    entries,
+  })
+  pv.refractBound = key
+  return pv.refractBindGroup
+}
+
+/** Group 0 of the refraction passes (0129): the view's, with this frame's opaque copy. */
+function refractionViewGroup(ctx: NodeContext, pv: ViewGpu, cam: CameraData): GPUBindGroup {
+  return viewBindGroup(
+    ctx.gpu,
+    ctx.world,
+    pv,
+    cam,
+    ctx.texture('opaque-color'),
+    ctx.texture('opaque-depth'),
+  )
 }
 
 function forwardNode(state: ForwardState) {
@@ -1351,7 +1457,11 @@ function transparentNode(state: ForwardState) {
   return {
     kind: 'render' as const,
     phase: RenderPhase.Transparent,
-    enabled: (view: RenderView) => (cameraOf(view)?.transparent.length ?? 0) > 0,
+    // Refracting draws (0129) share the list, and draw in the refraction pass.
+    enabled: (view: RenderView) => {
+      const cam = cameraOf(view)
+      return cam !== undefined && cam.transparent.length > cam.refraction
+    },
     reads: ['clusters', 'shadow-cascades', 'shadow-local', 'environment', 'culled', 'ssao'],
     writes: ['scene-color', 'hdr'],
     color: (view: RenderView) => sceneColor(view),
@@ -1896,6 +2006,7 @@ function createLayouts(gpu: GpuContext, assets: GpuAssets, store: InstanceStore)
     view,
     viewBase: view,
     viewInterior: undefined,
+    viewRefract: [undefined, undefined],
     pipeline: gpu.layouts.pipelineLayout({
       label: 'forward',
       bindGroupLayouts: [view, assets.materialLayout, store.layout],
@@ -1920,20 +2031,50 @@ function createLayouts(gpu: GpuContext, assets: GpuAssets, store: InstanceStore)
 function interiorViewLayout(gpu: GpuContext, state: ForwardState): GPUBindGroupLayout {
   const layouts = state.layouts
   if (layouts.viewInterior) return layouts.viewInterior
-  const F = GPUShaderStage.FRAGMENT
   layouts.viewInterior = gpu.layouts.bindGroupLayout({
     label: 'forward/view/interior',
-    entries: [
-      ...viewEntries(gpu),
-      {
-        binding: INTERIOR_BINDINGS.data,
-        visibility: F,
-        texture: { sampleType: 'uint', viewDimension: '2d-array' },
-      },
-      { binding: INTERIOR_BINDINGS.table, visibility: F, buffer: { type: 'uniform' } },
-    ],
+    entries: [...viewEntries(gpu), ...interiorEntries()],
   })
   return layouts.viewInterior
+}
+
+function interiorEntries(): GPUBindGroupLayoutEntry[] {
+  const F = GPUShaderStage.FRAGMENT
+  return [
+    {
+      binding: INTERIOR_BINDINGS.data,
+      visibility: F,
+      texture: { sampleType: 'uint', viewDimension: '2d-array' },
+    },
+    { binding: INTERIOR_BINDINGS.table, visibility: F, buffer: { type: 'uniform' } },
+  ]
+}
+
+/**
+ * Group 0 of the refraction pass (0129): this frame's view group with the opaque copy, its color
+ * (filtered, with mips) and its depth (r32float, loaded), in place of SSAO's texture, which keeps
+ * the baseline tier within its 16 sampled textures. Made on first use per interior state.
+ */
+function refractViewLayout(gpu: GpuContext, state: ForwardState): GPUBindGroupLayout {
+  const k = state.interiorMode !== 0 ? 1 : 0
+  const made = state.layouts.viewRefract[k]
+  if (made) return made
+  const F = GPUShaderStage.FRAGMENT
+  const layout = gpu.layouts.bindGroupLayout({
+    label: k ? 'forward/view/interior/refraction' : 'forward/view/refraction',
+    entries: [
+      ...viewEntries(gpu).filter((e) => e.binding !== AO_BINDING),
+      ...(k ? interiorEntries() : []),
+      { binding: REFRACTION_BINDINGS.color, visibility: F, texture: { sampleType: 'float' } },
+      {
+        binding: REFRACTION_BINDINGS.depth,
+        visibility: F,
+        texture: { sampleType: 'unfilterable-float' },
+      },
+    ],
+  })
+  state.layouts.viewRefract[k] = layout
+  return layout
 }
 
 /** Picks this frame's interior mode (0069) and the view layout that goes with it. */
@@ -1954,6 +2095,7 @@ function ensureLayouts(
   state.layouts = createLayouts(gpu, assets, store)
   for (const pv of state.views.values()) {
     pv.bindGroup = undefined
+    pv.refractBindGroup = undefined
     pv.clusterBindGroup = undefined
   }
 }
@@ -2022,6 +2164,8 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       OcclusionPath,
       // interior lighting (0069)
       InteriorPath,
+      // refracting material types (0129)
+      RefractionPath,
       Cameras,
       RenderPath,
       Tonemapping,

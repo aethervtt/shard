@@ -417,7 +417,9 @@ Every engine error is a `ShardError` with one of these codes.
 | `render/not-ready` | @aethervtt/shard-render | Await app.init() so the render plugin can create the GPU device. |
 | `render/out-too-small` | @aethervtt/shard-render |  |
 | `render/persistent-double-free` | @aethervtt/shard-render | Free each block once, with the size it was allocated with. |
+| `render/refraction-blend` | @aethervtt/shard-render | Leave blend out (or "mask"): mix in what is behind it in the shader, with shard::refraction. |
 | `render/registry-conflict` | @aethervtt/shard-render | Two definitions (two apps or bundles) share the name. Rename one, or share the definition. |
+| `render/shader-data-full` | @aethervtt/shard-render | A game’s materials share shard::shader_data’s 1024 slots; reserve fewer, or pack values tighter. |
 | `render/surface-device` | @aethervtt/shard-render | Pass the GpuContext the surface was added to (surface.gpu), or omit gpu. |
 | `render/texture-color-space-mismatch` | @aethervtt/shard-render | Set its usage to match the slot in its .meta, and the copy goes. |
 | `render/too-many-joints` | @aethervtt/shard-render | Split the mesh, or remove helper bones before exporting. It draws in bind pose. |

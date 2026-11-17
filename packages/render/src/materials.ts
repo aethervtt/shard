@@ -63,6 +63,15 @@ export interface MaterialTypeOptions<F extends Fields> {
    */
   animatesVertices?: boolean
   /**
+   * Draws after the opaque copy (0097, 0129) and can read it: `shard::refraction`'s helpers give
+   * what's behind each pixel (its color, its depth, the distance through the surface to it). It
+   * writes depth, and the depth and normals ink and SSAO read, so it's outlined like an opaque
+   * surface and what's seen through it isn't. Never blended: the shader mixes in what's behind
+   * (usually as `emissive`); `mask` still discards. Casts no shadows. Needs `refractionPlugin`
+   * (in forwardPlugin). Default false.
+   */
+  refraction?: boolean
+  /**
    * Where `shader` comes from when a plugin registers it, e.g. `surfacePlugin from
    * '@aethervtt/shard-render/surface'`: a draw without it logs `render/feature-missing` naming it.
    */
@@ -119,6 +128,8 @@ export class MaterialType {
   pickable = true
   /** Whether its vertex stage animates (MaterialTypeOptions.animatesVertices, 0116). */
   animatesVertices = false
+  /** Whether it draws after the opaque copy and reads it (MaterialTypeOptions.refraction, 0129). */
+  refraction = false
   /** The plugin that registers its shader (MaterialTypeOptions.plugin). */
   plugin: string | undefined
   /** Fields it no longer has, and what replaced them (MaterialTypeOptions.removed). */
@@ -169,6 +180,16 @@ export class MaterialType {
     this.standardTextures = options.standardTextures ?? true
     this.pickable = options.pickable ?? true
     this.animatesVertices = options.animatesVertices ?? false
+    this.refraction = options.refraction ?? false
+    if (this.refraction && options.blend && isTransparent(options.blend)) {
+      throw new ShardError(
+        'render/refraction-blend',
+        `Material ${this.name} refracts, so it can't blend ("${options.blend}")`,
+        {
+          hint: 'Leave blend out (or "mask"): mix in what is behind it in the shader, with shard::refraction.',
+        },
+      )
+    }
     this.plugin = options.plugin
     this.removed = options.removed ?? {}
     this.schema = schema
@@ -207,18 +228,19 @@ export class MaterialType {
     return this.standard ? STANDARD_BINDINGS : 0
   }
 
-  /** The blend mode for a material of this type. */
+  /** The blend mode for a material of this type. Refracting types (0129) only mask. */
   blendOf(value: { alphaMode?: string }): BlendMode {
     if (this.blend) return this.blend
     const mode = value.alphaMode
+    if (this.refraction) return mode === 'mask' ? mode : 'opaque'
     return mode === 'mask' || mode === 'alpha' || mode === 'premultiplied' || mode === 'additive'
       ? mode
       : 'opaque'
   }
 
-  /** Deferred shading only takes standard lighting, and never transparency. */
+  /** Deferred shading only takes standard lighting, and never transparency or refraction. */
   deferrable(value: { alphaMode?: string }): boolean {
-    return this.standard && !isTransparent(this.blendOf(value))
+    return this.standard && !this.refraction && !isTransparent(this.blendOf(value))
   }
 
   /**
@@ -351,6 +373,7 @@ function signatureOf(ext: string, options: MaterialTypeOptions<Fields>, fields: 
     standardTextures: options.standardTextures ?? true,
     pickable: options.pickable ?? true,
     animatesVertices: options.animatesVertices ?? false,
+    refraction: options.refraction ?? false,
     plugin: options.plugin ?? null,
     removed: options.removed ?? {},
     description: options.description ?? null,

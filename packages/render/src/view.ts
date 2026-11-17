@@ -145,8 +145,10 @@ export interface CameraData {
   dither: boolean
   /** Culled draws of this camera, rebuilt each frame. */
   draws: DrawList
-  /** Blended draws, back to front. */
+  /** Blended draws, back to front, and refracting ones (0129). */
   transparent: DrawList
+  /** Draws in `transparent` of refracting types (0129), counted each frame: theirs is the refraction pass. */
+  refraction: number
   /** Deferred views: opaque draws the G-buffer can't take (custom lighting), drawn forward. */
   forwardOnly: DrawList
   /** Ground draws (0057): coplanar bands in (band, order) order, after opaque geometry. */
@@ -379,6 +381,7 @@ export const extractCameras = defineSystem({
             dither: true,
             draws: createDrawList(),
             transparent: createDrawList(),
+            refraction: 0,
             forwardOnly: createDrawList(),
             ground: createDrawList(),
             overlay: createDrawList(),

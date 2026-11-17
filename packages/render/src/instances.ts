@@ -303,7 +303,10 @@ export interface Batch {
   count: number
   /** Whether the material's textures are ready this frame. */
   ready: boolean
-  /** Blended (alpha, additive, premultiplied): drawn after opaque, back to front, no shadows. */
+  /**
+   * Blended (alpha, additive, premultiplied) or refracting (0129): drawn after opaque, back to
+   * front, no shadows.
+   */
   transparent: boolean
   /** Can go through the G-buffer: standard lighting and not blended. */
   deferrable: boolean
@@ -2415,7 +2418,9 @@ export const prepareInstances = defineSystem({
     for (const batch of store.batches) {
       batch.ready = batch.count > 0 && assets.materialReady(world, batch.material)
       const material = batch.material
-      batch.transparent = isTransparent(material.type.blendOf(material.value))
+      // Refracting types (0129) draw after the opaque copy, culled and sorted with blended ones.
+      batch.transparent =
+        isTransparent(material.type.blendOf(material.value)) || material.type.refraction
       batch.deferrable = material.type.deferrable(material.value)
     }
     store.upload()

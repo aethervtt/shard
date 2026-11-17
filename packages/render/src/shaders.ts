@@ -799,7 +799,7 @@ import shard::pbr::environment::environment_light;
 const FLAG_RECEIVER: u32 = 4u;
 
 /** Screen-space ambient occlusion (Ssao), full resolution; 1×1 white without it. */
-@group(0) @binding(15) var ao_texture: texture_2d<f32>;
+@if(!REFRACTION) @group(0) @binding(15) var ao_texture: texture_2d<f32>;
 
 /** The cluster of a fragment, or -1 outside the clustered depth range. */
 fn cluster_of(frag_coord: vec4f, view_depth: f32) -> i32 {
@@ -839,7 +839,7 @@ fn heat(count: u32) -> vec3f {
  * nearest texels, weighted by how well their depth matches this pixel's. Without SSAO a white
  * 1×1 texture is bound, which gives 1.
  */
-fn ssao_at(frag: vec2f, z: f32) -> f32 {
+@if(!REFRACTION) fn ssao_at(frag: vec2f, z: f32) -> f32 {
   let half_size = vec2i(textureDimensions(ao_texture));
   let base = vec2i(floor((frag - 1.0) * 0.5));
   var sum = 0.0;
@@ -953,7 +953,7 @@ fn apply_lighting(p: PbrInput, world_position: vec3f, frag_coord: vec4f, flags: 
   // Ambient: image-based lighting from the environment, or the uniform AmbientLight (cd/m²).
   // SSAO darkens it on opaque surfaces (it measures the depth buffer, which blended ones aren't in).
   var surface = p;
-  if (p.alpha >= 0.999) { surface.occlusion *= ssao_at(frag_coord.xy, view_depth); }
+  @if(!REFRACTION) if (p.alpha >= 0.999) { surface.occlusion *= ssao_at(frag_coord.xy, view_depth); }
   if (view.envParams.w > 0.5) {
     @if(!SKY_VISIBILITY && !TOON) color += environment_light(surface, n, v);
     @if(SKY_VISIBILITY && !TOON) color += interior_ambient(environment_light(surface, n, v), diffuse_color * surface.occlusion, world_position, n);

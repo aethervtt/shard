@@ -18,6 +18,7 @@ import { outlinePlugin } from './outline-plugin'
 import { pickingPlugin } from './picking-plugin'
 import { pixelPerfectPlugin } from './pixel-perfect-plugin'
 import { postPlugin } from './post-plugin'
+import { refractionPlugin } from './refraction-plugin'
 import { ribbonsPlugin } from './ribbons-plugin'
 import { shadowCatcherPlugin } from './shadow-catcher'
 import { skinningPlugin } from './skinning-plugin'
@@ -56,6 +57,7 @@ export function forwardPlugin(options: ForwardPluginOptions = {}): Plugin {
         ribbonsPlugin,
         decalsPlugin,
         opaqueCopyPlugin,
+        refractionPlugin,
         renderDescribePlugin,
       )
     },
