@@ -1213,6 +1213,9 @@ validated against \`.shard/schemas/particle-effect.schema.json\` (errors point i
 - Use it: \`"particles/ParticleSystem": { "effect": { "path": "assets/fx/exhaust.particles.json" } }\`;
   \`space: "local"\` keeps particles attached. Drive it from gameplay with
   \`particles/ParticleEmitterOverrides\` (\`spawnScale\`). Saving the file updates the running effect.
+- One-off bursts (a splash, sparks off a hit): \`emitParticles(world, effect, { position, direction,
+  count })\` spawns \`count\` of each emitter there this frame, its shape pointing along \`direction\`.
+  No entity; every burst of an effect shares one simulation, and its rate doesn't run there.
 - Look: MCP \`preview_asset\` on the file shows it after one second; \`render.describe\` →
   \`particles\` gives alive counts.
 `,

@@ -66,6 +66,7 @@ agent needs to see what's on screen.
 | [0024](0024-2d.md) | 2D: sprites, atlases, tilemaps | implemented |
 | [0025](0025-text.md) | Text rendering (MSDF) | implemented |
 | [0026](0026-particles.md) | GPU particles | implemented |
+| [0128](0128-particle-bursts.md) | One-off particle bursts (`emitParticles` at a point along a direction; an effect's bursts share one simulation) | implemented |
 | [0027](0027-debug-draw-picking.md) | Debug drawing and picking | implemented |
 | [0039](0039-2d-lighting.md) | 2D lighting and shadows (normal maps, occluders, soft shadows) | implemented |
 | [0101](0101-screen-space-reflections.md) | Screen-space reflections (Hi-Z trace, stochastic GGX, fed into lighting; shared Hi-Z; water uses it) | draft |

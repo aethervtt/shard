@@ -17,9 +17,12 @@ export { MODULES, type ModuleDef } from './modules'
 export { particlesPlugin } from './plugin'
 export { PARTICLE_FLOATS, renderShader, simulationShader } from './shaders'
 export {
+  type BurstQueue,
   describeParticles,
   type EmitterState,
+  emitParticles,
   MAX_SORTED,
+  type ParticleBurst,
   ParticleStore,
   Particles,
   prepareParticles,

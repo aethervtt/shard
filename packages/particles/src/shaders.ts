@@ -43,6 +43,12 @@ struct Sim {
   origin_offset: vec4f,
 }`
 
+/** `Sim` for one-off bursts (0128): the same bytes, with the burst count in the last word. */
+const SIM_BURSTS = SIM.replace(
+  'origin_offset: vec4f,',
+  'origin_offset: vec3f,\n  /** Bursts this frame. */\n  bursts: u32,',
+)
+
 /** Module code of an emitter, with an id per module (so helper names don't clash). */
 function modules(def: EmitterDef) {
   return def.update.map((p, i) => ({ def: MODULES[p.module as string]!, p, id: `m${i}` }))
@@ -53,8 +59,30 @@ export function emitterKey(def: EmitterDef): string {
   return JSON.stringify([def.shape, def.init, def.update, def.render.mode, def.render.flipbook])
 }
 
-/** The compute module of an emitter: spawn (ring allocation), update (modules inlined), count. */
-export function simulationShader(def: EmitterDef): string {
+/** Bytes per queued burst (see `Burst` below). */
+export const BURST_BYTES = 48
+
+const BURST = `
+struct Burst {
+  /** Where (world). */
+  origin: vec3f,
+  /** Seeds its particles: the i-th one's random stream is pcg(seed ^ pcg(i)). */
+  seed: u32,
+  /** The shape's x axis (world). */
+  x: vec3f,
+  /** This frame's spawn index of its first particle. */
+  base: u32,
+  /** The shape's y axis (world): the burst's direction. */
+  y: vec3f,
+  count: u32,
+}`
+
+/**
+ * The compute module of an emitter: spawn (ring allocation), update (modules inlined), count.
+ * With `bursts` (0128), spawn reads one-off bursts instead: each thread finds its burst and
+ * spawns in that burst's frame, in world space.
+ */
+export function simulationShader(def: EmitterDef, bursts = false): string {
   const ms = modules(def)
   const s = def.shape
   const i = def.init
@@ -74,15 +102,45 @@ export function simulationShader(def: EmitterDef): string {
     }`,
     box: `p = (vec3f(rand(seed, 6u), rand(seed, 7u), rand(seed, 8u)) - 0.5) * vec3f(${s.size.map(f).join(', ')}); dir = vec3f(0.0, 1.0, 0.0);`,
   }[s.type]
+  const spawnOwn = `/** One thread per new particle: slot k mod capacity, so allocation is deterministic. */
+@compute @workgroup_size(64)
+fn spawn(@builtin(global_invocation_id) gid: vec3u) {
+  if (gid.x >= sim.spawn_count) { return; }
+  let k = sim.spawn_base + gid.x;
+  let slot = k % sim.capacity;
+  let seed = pcg(sim.seed ^ pcg(k));`
+  const spawnBursts = `/** One thread per new particle, over every burst of the frame; slots as for a system's own. */
+@compute @workgroup_size(64)
+fn spawn(@builtin(global_invocation_id) gid: vec3u) {
+  if (gid.x >= sim.spawn_count) { return; }
+  // The thread's burst: the last one whose first particle is at or before it.
+  var lo = 0u;
+  var hi = sim.bursts;
+  loop {
+    if (hi - lo <= 1u) { break; }
+    let mid = (lo + hi) / 2u;
+    if (bursts[mid].base <= gid.x) { lo = mid; } else { hi = mid; }
+  }
+  let burst = bursts[lo];
+  let k = sim.spawn_base + gid.x;
+  let slot = k % sim.capacity;
+  let seed = pcg(burst.seed ^ pcg(gid.x - burst.base));`
+  const placeOwn = `if (sim.local == 0u) {
+    pos = (sim.spawn * vec4f(pos, 1.0)).xyz;
+    vel = (sim.spawn * vec4f(vel, 0.0)).xyz;
+  }`
+  const placeBurst = `let z = cross(burst.x, burst.y);
+  pos = burst.origin + burst.x * pos.x + burst.y * pos.y + z * pos.z;
+  vel = burst.x * vel.x + burst.y * vel.y + z * vel.z;`
   return `${WGSL_RANDOM}
 ${PARTICLE}
-${SIM}
+${bursts ? SIM_BURSTS : SIM}
 
 @group(0) @binding(0) var<storage, read_write> particles: array<Particle>;
 @group(0) @binding(1) var<uniform> sim: Sim;
 @group(0) @binding(2) var depth_texture: texture_depth_2d;
 @group(0) @binding(3) var<storage, read_write> counter: array<atomic<u32>, 4>;
-
+${bursts ? `${BURST}\n@group(0) @binding(4) var<storage, read> bursts: array<Burst>;\n` : ''}
 fn random_dir(seed: u32, k: u32) -> vec3f {
   let z = rand(seed, k) * 2.0 - 1.0;
   let phi = 6.2831853 * rand(seed, k + 1u);
@@ -122,13 +180,7 @@ fn depth_collision(pos: vec3f, vel: vec3f, thickness: f32) -> vec4f {
 
 ${ms.map((m) => m.def.functions?.(m.p, m.id) ?? '').join('\n')}
 
-/** One thread per new particle: slot k mod capacity, so allocation is deterministic. */
-@compute @workgroup_size(64)
-fn spawn(@builtin(global_invocation_id) gid: vec3u) {
-  if (gid.x >= sim.spawn_count) { return; }
-  let k = sim.spawn_base + gid.x;
-  let slot = k % sim.capacity;
-  let seed = pcg(sim.seed ^ pcg(k));
+${bursts ? spawnBursts : spawnOwn}
   var p = vec3f(0.0);
   var dir = vec3f(0.0, 1.0, 0.0);
   ${shape}
@@ -140,10 +192,7 @@ fn spawn(@builtin(global_invocation_id) gid: vec3u) {
   let color = mix(${c0}, ${c1}, rand(seed, 5u));
   var rot_speed = 0.0;
   ${ms.map((m) => m.def.init?.(m.p) ?? '').join('\n  ')}
-  if (sim.local == 0u) {
-    pos = (sim.spawn * vec4f(pos, 1.0)).xyz;
-    vel = (sim.spawn * vec4f(vel, 0.0)).xyz;
-  }
+  ${bursts ? placeBurst : placeOwn}
   particles[slot] = Particle(vec4f(pos, 0.0), vec4f(vel, life), vec4f(size, rot, rot_speed, bitcast<f32>(seed)), color);
 }
 

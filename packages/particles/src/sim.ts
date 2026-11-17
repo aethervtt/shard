@@ -33,9 +33,15 @@ import { FrameDemand, Time } from '@aethervtt/shard-runtime'
 import { type Texture, Textures } from '@aethervtt/shard-texture'
 import { GlobalTransform } from '@aethervtt/shard-transform'
 import { ParticleEmitterOverrides, ParticleSystem } from './components'
-import { type EmitterDef, type ParticleEffect, ParticleEffects } from './effect'
+import {
+  type EmitterDef,
+  type ParticleEffect,
+  type ParticleEffectStore,
+  ParticleEffects,
+} from './effect'
 import { type CpuParticle, MODULES } from './modules'
 import {
+  BURST_BYTES,
   DRAW_BYTES,
   emitterKey,
   PARTICLE_FLOATS,
@@ -92,10 +98,38 @@ export interface EmitterState {
    * in the next update dispatch. Accumulates while the emitter isn't simulated.
    */
   originShift: Float64Array
+  /** An effect's bursts (0128): what spawns this frame instead of the rate. */
+  bursts: BurstQueue | undefined
+}
+
+/** Floats per queued burst. */
+const BURST_FLOATS = BURST_BYTES / 4
+
+/**
+ * One-off bursts of one emitter waiting for a dispatch (0128), `BURST_FLOATS` each: the origin and
+ * seed, the shape's x axis and first spawn index, its y axis (the direction) and count. The `Burst`
+ * struct in WGSL reads the same bytes. Grows by doubling, never shrinks.
+ */
+export interface BurstQueue {
+  data: Float32Array
+  bits: Uint32Array
+  /** Bursts queued. */
+  count: number
+  /** Their particles. */
+  total: number
+  /** The bursts prepare spawns this frame; ones emitted after it wait for the next. */
+  sent: number
+  /** The queue on the GPU (full tier only). */
+  buffer: GPUBuffer | undefined
+  /** The compute pipelines' cache key: the emitter's, for its burst variant. */
+  key: string
 }
 
 export interface SystemState {
-  entity: Entity
+  /** Undefined for an effect's bursts (0128), which no entity runs. */
+  entity: Entity | undefined
+  /** Names its cached bind groups: the entity, or the effect's bursts. */
+  slot: string
   effect: ParticleEffect
   version: number
   emitters: EmitterState[]
@@ -111,11 +145,16 @@ export interface SystemState {
   radius: number
   frame: number
   seen: number
+  /** An effect's bursts (0128): the effect, and bursts emitted so far (default seeds). */
+  pool: { guid: string; path: string | undefined; emitted: number } | undefined
 }
 
 /** Running particle systems by entity. */
 export class ParticleStore {
   readonly systems = new Map<Entity, SystemState>()
+  /** Each effect's one-off bursts (0128), by effect guid: one simulation per effect and backend. */
+  readonly bursts = new Map<string, SystemState>()
+  readonly cpuBursts = new Map<string, SystemState>()
   frame = 0
   /** The view whose camera simulation uses (depth collision, culling, sorting). */
   primary: string | undefined
@@ -178,89 +217,143 @@ const spawnDirection = new Float32Array(3)
 const cpuSteps: NonNullable<(typeof MODULES)[string]['cpu']>[] = []
 const cpuStepParams: Record<string, unknown>[] = []
 
+const burstModel = new Float32Array(16)
+
 /** Spawn and update in TypeScript, with the same formulas and random streams as the shaders. */
 function simulateCpu(e: EmitterState, sys: SystemState, dt: number): void {
   const d = e.cpu!
   if (!e.cpuBits || e.cpuBits.buffer !== d.buffer) e.cpuBits = new Uint32Array(d.buffer)
   const u = e.cpuBits
+  const q = e.bursts
+  if (q) {
+    // Each burst in its own frame, its i-th particle seeded pcg(seed ^ pcg(i)), as the shader does.
+    const m = burstModel
+    const f = q.data
+    for (let b = 0; b < q.count; b++) {
+      const o = b * BURST_FLOATS
+      m[0] = f[o + 4]!
+      m[1] = f[o + 5]!
+      m[2] = f[o + 6]!
+      m[4] = f[o + 8]!
+      m[5] = f[o + 9]!
+      m[6] = f[o + 10]!
+      // z = x × y
+      m[8] = m[1]! * m[6]! - m[2]! * m[5]!
+      m[9] = m[2]! * m[4]! - m[0]! * m[6]!
+      m[10] = m[0]! * m[5]! - m[1]! * m[4]!
+      m[12] = f[o]!
+      m[13] = f[o + 1]!
+      m[14] = f[o + 2]!
+      const seed = q.bits[o + 3]!
+      const base = q.bits[o + 7]!
+      const count = Math.min(q.bits[o + 11]!, e.spawnCount - base)
+      for (let i = 0; i < count; i++) {
+        const slot = (e.spawned + base + i) % e.capacity
+        spawnCpu(e, d, u, slot, pcg((seed ^ pcg(i)) >>> 0), m)
+      }
+    }
+  } else {
+    const model = sys.local ? undefined : sys.model
+    for (let i = 0; i < e.spawnCount; i++) {
+      const k = e.spawned + i
+      spawnCpu(e, d, u, k % e.capacity, pcg((sys.seed ^ pcg(k)) >>> 0), model)
+    }
+  }
+  updateCpu(e, d, u, sys, dt)
+}
+
+/** One new particle at `slot`: the shape in the emitter's space, then through `g` (a mat4) if any. */
+function spawnCpu(
+  e: EmitterState,
+  d: Float32Array,
+  u: Uint32Array,
+  slot: number,
+  seed: number,
+  g: Float32Array | undefined,
+): void {
   const def = e.def
   const s = def.shape
   const init = def.init
-  for (let i = 0; i < e.spawnCount; i++) {
-    const k = e.spawned + i
-    const slot = k % e.capacity
-    const seed = pcg((sys.seed ^ pcg(k)) >>> 0)
-    let px = 0
-    let py = 0
-    let pz = 0
-    let dx = 0
-    let dy = 1
-    let dz = 0
-    if (s.type === 'point' || s.type === 'sphere') {
-      randomDirection(seed, 6, spawnDirection)
-      dx = spawnDirection[0]!
-      dy = spawnDirection[1]!
-      dz = spawnDirection[2]!
-    }
-    if (s.type === 'point') {
-      // The direction alone.
-    } else if (s.type === 'sphere') {
-      const r = s.radius * rand(seed, 9) ** 0.3333333
-      px = dx * r
-      py = dy * r
-      pz = dz * r
-    } else if (s.type === 'cone') {
-      const a = ((s.angle * Math.PI) / 180) * Math.sqrt(rand(seed, 6))
-      const phi = 6.2831853 * rand(seed, 7)
-      dx = Math.sin(a) * Math.cos(phi)
-      dy = Math.cos(a)
-      dz = Math.sin(a) * Math.sin(phi)
-      const r = s.radius * Math.sqrt(rand(seed, 8))
-      px = Math.cos(phi) * r
-      pz = Math.sin(phi) * r
-    } else {
-      px = (rand(seed, 6) - 0.5) * s.size[0]
-      py = (rand(seed, 7) - 0.5) * s.size[1]
-      pz = (rand(seed, 8) - 0.5) * s.size[2]
-    }
-    const speed = mixRange(init.speed, rand(seed, 1))
-    const p = cpuParticle
-    p.pos[0] = px
-    p.pos[1] = py
-    p.pos[2] = pz
-    p.vel[0] = dx * speed
-    p.vel[1] = dy * speed
-    p.vel[2] = dz * speed
-    p.life = Math.max(mixRange(init.lifetime, rand(seed, 2)), 1e-3)
-    p.seed = seed
-    p.rotSpeed = 0
-    for (const m of def.update) MODULES[m.module as string]!.cpuInit?.(m, p)
-    if (!sys.local) {
-      const g = sys.model
-      const x = p.pos[0]!
-      const y = p.pos[1]!
-      const z = p.pos[2]!
-      for (let a = 0; a < 3; a++) {
-        p.pos[a] = g[a]! * x + g[4 + a]! * y + g[8 + a]! * z + g[12 + a]!
-      }
-      const vx = p.vel[0]!
-      const vy = p.vel[1]!
-      const vz = p.vel[2]!
-      for (let a = 0; a < 3; a++) p.vel[a] = g[a]! * vx + g[4 + a]! * vy + g[8 + a]! * vz
-    }
-    const o = slot * PARTICLE_FLOATS
-    d.set(p.pos, o)
-    d[o + 3] = 0
-    d.set(p.vel, o + 4)
-    d[o + 7] = p.life
-    d[o + 8] = mixRange(init.size, rand(seed, 3))
-    d[o + 9] = (mixRange(init.rotation, rand(seed, 4)) * Math.PI) / 180
-    d[o + 10] = p.rotSpeed
-    u[o + 11] = seed
-    const c = rand(seed, 5)
-    for (let a = 0; a < 4; a++)
-      d[o + 12 + a] = init.color[0][a]! + (init.color[1][a]! - init.color[0][a]!) * c
+  let px = 0
+  let py = 0
+  let pz = 0
+  let dx = 0
+  let dy = 1
+  let dz = 0
+  if (s.type === 'point' || s.type === 'sphere') {
+    randomDirection(seed, 6, spawnDirection)
+    dx = spawnDirection[0]!
+    dy = spawnDirection[1]!
+    dz = spawnDirection[2]!
   }
+  if (s.type === 'point') {
+    // The direction alone.
+  } else if (s.type === 'sphere') {
+    const r = s.radius * rand(seed, 9) ** 0.3333333
+    px = dx * r
+    py = dy * r
+    pz = dz * r
+  } else if (s.type === 'cone') {
+    const a = ((s.angle * Math.PI) / 180) * Math.sqrt(rand(seed, 6))
+    const phi = 6.2831853 * rand(seed, 7)
+    dx = Math.sin(a) * Math.cos(phi)
+    dy = Math.cos(a)
+    dz = Math.sin(a) * Math.sin(phi)
+    const r = s.radius * Math.sqrt(rand(seed, 8))
+    px = Math.cos(phi) * r
+    pz = Math.sin(phi) * r
+  } else {
+    px = (rand(seed, 6) - 0.5) * s.size[0]
+    py = (rand(seed, 7) - 0.5) * s.size[1]
+    pz = (rand(seed, 8) - 0.5) * s.size[2]
+  }
+  const speed = mixRange(init.speed, rand(seed, 1))
+  const p = cpuParticle
+  p.pos[0] = px
+  p.pos[1] = py
+  p.pos[2] = pz
+  p.vel[0] = dx * speed
+  p.vel[1] = dy * speed
+  p.vel[2] = dz * speed
+  p.life = Math.max(mixRange(init.lifetime, rand(seed, 2)), 1e-3)
+  p.seed = seed
+  p.rotSpeed = 0
+  for (const m of def.update) MODULES[m.module as string]!.cpuInit?.(m, p)
+  if (g) {
+    const x = p.pos[0]!
+    const y = p.pos[1]!
+    const z = p.pos[2]!
+    for (let a = 0; a < 3; a++) {
+      p.pos[a] = g[a]! * x + g[4 + a]! * y + g[8 + a]! * z + g[12 + a]!
+    }
+    const vx = p.vel[0]!
+    const vy = p.vel[1]!
+    const vz = p.vel[2]!
+    for (let a = 0; a < 3; a++) p.vel[a] = g[a]! * vx + g[4 + a]! * vy + g[8 + a]! * vz
+  }
+  const o = slot * PARTICLE_FLOATS
+  d.set(p.pos, o)
+  d[o + 3] = 0
+  d.set(p.vel, o + 4)
+  d[o + 7] = p.life
+  d[o + 8] = mixRange(init.size, rand(seed, 3))
+  d[o + 9] = (mixRange(init.rotation, rand(seed, 4)) * Math.PI) / 180
+  d[o + 10] = p.rotSpeed
+  u[o + 11] = seed
+  const c = rand(seed, 5)
+  for (let a = 0; a < 4; a++)
+    d[o + 12 + a] = init.color[0][a]! + (init.color[1][a]! - init.color[0][a]!) * c
+}
+
+/** Ages every living particle, runs the modules on it, and moves it. */
+function updateCpu(
+  e: EmitterState,
+  d: Float32Array,
+  u: Uint32Array,
+  sys: SystemState,
+  dt: number,
+): void {
+  const def = e.def
   let steps = 0
   for (const m of def.update) {
     const step = MODULES[m.module as string]!.cpu
@@ -317,16 +410,17 @@ const BLEND_INDEX = { additive: 0, alpha: 1, premultiplied: 2 } as const
 
 function createEmitter(
   gpu: GpuContext,
-  entity: Entity,
+  slot: string,
   def: EmitterDef,
   cpu: boolean,
-  previous?: EmitterState,
+  previous: EmitterState | undefined,
+  bursts = false,
 ): EmitterState {
   const keep = previous && previous.capacity === def.capacity
   const sortable = def.render.blend !== 'additive' && def.capacity <= MAX_SORTED
   const n = sortable ? 2 ** Math.ceil(Math.log2(Math.max(2, def.capacity))) : 0
   const steps = sortable ? (Math.log2(n) * (Math.log2(n) + 1)) / 2 : 0
-  const label = `particles/${entity}/${def.name}`
+  const label = `particles/${slot}/${def.name}`
   const state: EmitterState = {
     def,
     key: emitterKey(def),
@@ -400,9 +494,30 @@ function createEmitter(
     dt: 0,
     visible: true,
     originShift: keep ? previous.originShift : new Float64Array(3),
+    bursts: bursts
+      ? burstQueue(keep ? previous.bursts : undefined, `${emitterKey(def)}/bursts`)
+      : undefined,
   }
   if (state.sort) writeSortSteps(gpu, state.sort, def.capacity)
   return state
+}
+
+/** An emitter's burst queue: the previous one's (its bursts still to come), or a new one. */
+function burstQueue(previous: BurstQueue | undefined, key: string): BurstQueue {
+  if (previous) {
+    previous.key = key
+    return previous
+  }
+  const data = new Float32Array(16 * BURST_FLOATS)
+  return {
+    data,
+    bits: new Uint32Array(data.buffer),
+    count: 0,
+    total: 0,
+    sent: 0,
+    buffer: undefined,
+    key,
+  }
 }
 
 /** Bitonic step uniforms (j, k, n, capacity per 256-byte slot; slot 0 for the key pass). */
@@ -488,15 +603,17 @@ export const prepareParticles = defineSystem({
         let sys = store.systems.get(entity)
         if (!sys || sys.effect !== effect || sys.version !== effect.version || sys.cpu !== cpu) {
           const old = sys
+          const slot = `${entity}`
           sys = {
             entity,
+            slot,
             effect,
             version: effect.version,
             emitters: effect.emitters.map((def, k) => {
               const prev = old?.effect === effect ? old.emitters[k] : undefined
               return createEmitter(
                 gpu,
-                entity,
+                slot,
                 def,
                 cpu,
                 prev && prev.def.name === def.name ? prev : undefined,
@@ -512,6 +629,7 @@ export const prepareParticles = defineSystem({
             radius: reach(effect),
             frame: 0,
             seen: 0,
+            pool: undefined,
           }
           store.systems.set(entity, sys)
         }
@@ -586,10 +704,266 @@ export const prepareParticles = defineSystem({
     for (const [entity, sys] of store.systems) {
       if (sys.seen !== store.frame) store.systems.delete(entity)
     }
+    if (prepareBursts(store.bursts, effects, gpu, cam, time.delta)) live = true
+    if (prepareBursts(store.cpuBursts, effects, gpu, cam, time.delta)) live = true
     world.tryResource(FrameDemand)?.set('particles', live)
     if (gpu.tier === 'baseline') reportCpuOnly(world, store)
   },
 })
+
+// --- one-off bursts (0128) --------------------------------------------------------------------
+
+/** A one-off burst of an effect (`emitParticles`). */
+export interface ParticleBurst {
+  /** Where (world). */
+  position: ArrayLike<number>
+  /**
+   * Where the emitter's shape points (its +y: a cone's axis), in world space. Any length; default
+   * up, which spawns as a ParticleSystem with no rotation would.
+   */
+  direction?: ArrayLike<number>
+  /** Particles from each emitter (fewer if its capacity is full this frame). */
+  count: number
+  /** The same seed spawns the same particles. Default: one per burst of the effect, in call order. */
+  seed?: number
+  /** The emitter to spawn from (empty: every emitter of the effect). */
+  emitter?: string
+  /** As ParticleSystem.backend: 'cpu' simulates this effect's bursts in TypeScript. */
+  backend?: 'gpu' | 'cpu'
+}
+
+const burstAxes = new Float32Array(6)
+
+/**
+ * Spawns `count` particles of each of an effect's emitters at `position` this frame, the emitter's
+ * shape turned to point along `direction`, in world space (0128). No entity: every burst of an
+ * effect shares one simulation per backend, and a frame's bursts spawn in one dispatch per emitter.
+ * The effect's own rate and authored bursts don't run there. Returns the particles queued: 0 while
+ * the effect isn't loaded.
+ */
+export function emitParticles(
+  world: World,
+  effect: { readonly guid: string | undefined; readonly path?: string },
+  burst: ParticleBurst,
+): number {
+  const guid = effect.guid
+  if (guid === undefined) return 0
+  const store = world.resource(Particles)
+  const gpu = world.resource(Gpu)
+  // Baseline has no compute (0064): bursts run the CPU backend there too.
+  const forced = gpu.tier === 'baseline' && burst.backend !== 'cpu'
+  const cpu = burst.backend === 'cpu' || forced
+  const pools = cpu ? store.cpuBursts : store.bursts
+  let sys = pools.get(guid)
+  if (!sys) {
+    const asset = world.resource(ParticleEffects).byGuid(guid)
+    if (!asset) return 0
+    sys = createPool(gpu, guid, effect.path, asset, cpu, forced)
+    pools.set(guid, sys)
+  }
+  const pool = sys.pool!
+  const seed = burst.seed === undefined ? pcg(pool.emitted) : burst.seed >>> 0
+  pool.emitted++
+  turnUp(burst.direction, burstAxes)
+  const at = burst.position
+  let queued = 0
+  for (const e of sys.emitters) {
+    if (burst.emitter && burst.emitter !== e.def.name) continue
+    queued += queueBurst(e, at[0]!, at[1]!, at[2]!, seed, burst.count)
+  }
+  return queued
+}
+
+/**
+ * The rotation that turns +y onto `direction` by the shortest arc, as its x and y axes into
+ * `out` (z is x × y). Up, or no direction, is the identity.
+ */
+function turnUp(direction: ArrayLike<number> | undefined, out: Float32Array): void {
+  let dx = 0
+  let dy = 1
+  let dz = 0
+  if (direction) {
+    const l = Math.sqrt(direction[0]! ** 2 + direction[1]! ** 2 + direction[2]! ** 2)
+    if (l > 0) {
+      dx = direction[0]! / l
+      dy = direction[1]! / l
+      dz = direction[2]! / l
+    }
+  }
+  if (dy < -0.99999) {
+    // Straight down: half a turn about x.
+    out[0] = 1
+    out[1] = out[2] = 0
+  } else {
+    // Rodrigues' formula for the arc from +y to d: R = I + [v]× + [v]×² / (1 + d.y), v = y × d.
+    const k = 1 / (1 + dy)
+    out[0] = 1 - k * dx * dx
+    out[1] = -dx
+    out[2] = -k * dx * dz
+  }
+  out[3] = dx
+  out[4] = dy
+  out[5] = dz
+}
+
+/** Queues one burst on an emitter, as many particles as its capacity has room for this frame. */
+function queueBurst(
+  e: EmitterState,
+  x: number,
+  y: number,
+  z: number,
+  seed: number,
+  count: number,
+): number {
+  const q = e.bursts!
+  const n = Math.min(Math.floor(count), e.capacity - q.total)
+  if (!(n > 0)) return 0
+  if ((q.count + 1) * BURST_FLOATS > q.data.length) {
+    const data = new Float32Array(q.data.length * 2)
+    data.set(q.data)
+    q.data = data
+    q.bits = new Uint32Array(data.buffer)
+  }
+  const f = q.data
+  const o = q.count * BURST_FLOATS
+  const a = burstAxes
+  f[o] = x
+  f[o + 1] = y
+  f[o + 2] = z
+  q.bits[o + 3] = seed
+  f[o + 4] = a[0]!
+  f[o + 5] = a[1]!
+  f[o + 6] = a[2]!
+  q.bits[o + 7] = q.total
+  f[o + 8] = a[3]!
+  f[o + 9] = a[4]!
+  f[o + 10] = a[5]!
+  q.bits[o + 11] = n
+  q.count++
+  q.total += n
+  return n
+}
+
+/** An effect's bursts: a system no entity runs, in world space, with a burst queue per emitter. */
+function createPool(
+  gpu: GpuContext,
+  guid: string,
+  path: string | undefined,
+  effect: ParticleEffect,
+  cpu: boolean,
+  forced: boolean,
+): SystemState {
+  const slot = `bursts/${cpu ? 'cpu' : 'gpu'}/${guid}`
+  return {
+    entity: undefined,
+    slot,
+    effect,
+    version: effect.version,
+    emitters: effect.emitters.map((def) => createEmitter(gpu, slot, def, cpu, undefined, true)),
+    time: 0,
+    seed: 0,
+    local: false,
+    cpu,
+    forced,
+    model: mat4.create(),
+    center: new Float32Array(3),
+    // Bursts go anywhere: never culled as a whole.
+    radius: Number.POSITIVE_INFINITY,
+    frame: 0,
+    seen: 0,
+    pool: { guid, path, emitted: 0 },
+  }
+}
+
+/**
+ * Each effect's bursts for this frame: the spawn count is what was queued, and an emitter whose
+ * particles have all died neither simulates nor draws. Returns whether any is live (0052).
+ */
+function prepareBursts(
+  pools: Map<string, SystemState>,
+  effects: ParticleEffectStore,
+  gpu: GpuContext,
+  cam: CameraData | undefined,
+  delta: number,
+): boolean {
+  let live = false
+  for (const sys of pools.values()) {
+    const effect = effects.byGuid(sys.pool!.guid)
+    if (!effect) {
+      pools.delete(sys.pool!.guid)
+      continue
+    }
+    if (effect !== sys.effect || effect.version !== sys.version) {
+      // Hot reload: emitters that kept their name and capacity keep their particles and queue.
+      const old = sys.emitters
+      sys.emitters = effect.emitters.map((def, k) => {
+        const prev = sys.effect === effect ? old[k] : undefined
+        return createEmitter(
+          gpu,
+          sys.slot,
+          def,
+          sys.cpu,
+          prev && prev.def.name === def.name ? prev : undefined,
+          true,
+        )
+      })
+      sys.effect = effect
+      sys.version = effect.version
+    }
+    sys.frame++
+    if (delta > 0) sys.time += delta
+    for (const e of sys.emitters) {
+      const q = e.bursts!
+      e.spawnCount = Math.min(e.capacity, q.total)
+      q.sent = q.count
+      if (e.spawnCount > 0) e.lastSpawn = sys.time
+      const active = e.spawnCount > 0 || sys.time - e.lastSpawn <= e.def.init.lifetime[1]
+      e.simulate = e.visible = active
+      e.dt = active ? delta : 0
+      if (!active) continue
+      if (delta > 0) live = true
+      writeUniforms(e, sys, cam)
+      if (sys.cpu && e.cpu) {
+        simulateCpu(e, sys, e.dt)
+        e.particles.write(e.cpu)
+        e.spawned += e.spawnCount
+        takeBursts(q, e.spawnCount)
+        if (e.sort && e.cpuSort && cam) sortCpu(e, sys, cam.view)
+      } else if (q.count > 0) {
+        // Kept until a dispatch takes them: a frame the pipelines were compiling uploads them again.
+        gpu.device.queue.writeBuffer(burstBuffer(gpu, q), 0, q.data, 0, q.count * BURST_FLOATS)
+      }
+    }
+  }
+  return live
+}
+
+/**
+ * Drops the bursts this frame spawned (`sent`, `spawned` particles). Any emitted after prepare move
+ * to the front, for the next frame.
+ */
+function takeBursts(q: BurstQueue, spawned: number): void {
+  const rest = q.count - q.sent
+  if (rest > 0) {
+    q.data.copyWithin(0, q.sent * BURST_FLOATS, q.count * BURST_FLOATS)
+    for (let b = 0; b < rest; b++) q.bits[b * BURST_FLOATS + 7]! -= spawned
+  }
+  q.count = rest
+  q.total -= spawned
+  q.sent = 0
+}
+
+/** The queue's GPU buffer, as large as its CPU side. */
+function burstBuffer(gpu: GpuContext, q: BurstQueue): GPUBuffer {
+  if (!q.buffer || q.buffer.size < q.data.byteLength) {
+    q.buffer = gpu.device.createBuffer({
+      label: 'particles/bursts',
+      size: q.data.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    })
+  }
+  return q.buffer
+}
 
 const keyFloat = new Float32Array(1)
 const keyBits = new Uint32Array(keyFloat.buffer)
@@ -725,6 +1099,7 @@ function writeUniforms(e: EmitterState, sys: SystemState, cam: CameraData | unde
   s[80] = e.originShift[0]!
   s[81] = e.originShift[1]!
   s[82] = e.originShift[2]!
+  simU32[83] = e.bursts ? e.bursts.sent : 0
   e.sim.write(s)
   const d = drawScratch
   d.set(sys.model, 0)
@@ -748,6 +1123,7 @@ interface Caches {
   generation: number
   layouts?: {
     sim: GPUBindGroupLayout
+    simBursts: GPUBindGroupLayout
     sort: GPUBindGroupLayout
     data: GPUBindGroupLayout
     texture: GPUBindGroupLayout
@@ -804,6 +1180,16 @@ function caches(world: World, gpu: GpuContext): Caches {
           { binding: 1, visibility: C, buffer: { type: 'uniform' } },
           { binding: 2, visibility: C, texture: { sampleType: 'depth' } },
           { binding: 3, visibility: C, buffer: { type: 'storage' } },
+        ],
+      }),
+      simBursts: gpu.layouts.bindGroupLayout({
+        label: 'particles/sim-bursts',
+        entries: [
+          { binding: 0, visibility: C, buffer: { type: 'storage' } },
+          { binding: 1, visibility: C, buffer: { type: 'uniform' } },
+          { binding: 2, visibility: C, texture: { sampleType: 'depth' } },
+          { binding: 3, visibility: C, buffer: { type: 'storage' } },
+          { binding: 4, visibility: C, buffer: { type: 'read-only-storage' } },
         ],
       }),
       sort: gpu.layouts.bindGroupLayout({
@@ -886,21 +1272,24 @@ function group(
 }
 
 function computePipelines(ctx: NodeContext, c: Caches, e: EmitterState) {
-  const cached = c.compute.get(e.key)
+  const bursts = e.bursts !== undefined
+  const key = bursts ? e.bursts!.key : e.key
+  const cached = c.compute.get(key)
   if (cached) return cached
   const gpu = ctx.gpu
   const shaders = ctx.world.resource(Shaders)
-  const path = `particles::sim::e${idOf(e.def)}`
+  const path = `particles::${bursts ? 'bursts' : 'sim'}::e${idOf(e.def)}`
   // Registering again would relink it.
-  if (!shaders.has(path)) shaders.register(path, simulationShader(e.def), `particles:${e.def.name}`)
+  if (!shaders.has(path))
+    shaders.register(path, simulationShader(e.def, bursts), `particles:${e.def.name}`)
   const module = shaders.module(gpu, { root: path })
   if (!module) {
     gpu.pipelines.skipped++
     return undefined
   }
   const layout = gpu.layouts.pipelineLayout({
-    label: 'particles/sim',
-    bindGroupLayouts: [c.layouts!.sim],
+    label: bursts ? 'particles/sim-bursts' : 'particles/sim',
+    bindGroupLayouts: [bursts ? c.layouts!.simBursts : c.layouts!.sim],
   })
   const spawn = gpu.pipelines.compute({
     label: `${path}/spawn`,
@@ -914,7 +1303,7 @@ function computePipelines(ctx: NodeContext, c: Caches, e: EmitterState) {
   })
   if (!spawn || !update) return undefined
   const p = { spawn, update }
-  c.compute.set(e.key, p)
+  c.compute.set(key, p)
   return p
 }
 
@@ -957,72 +1346,104 @@ export function simulateNode(world: World): NodeDescriptor {
     sideEffects: true,
     run: (ctx) => {
       const store = ctx.world.resource(Particles)
-      if (ctx.view.name !== store.primary || store.systems.size === 0) return
-      const gpu = ctx.gpu
-      const c = caches(ctx.world, gpu)
+      if (ctx.view.name !== store.primary || (store.systems.size === 0 && store.bursts.size === 0))
+        return
+      const c = caches(ctx.world, ctx.gpu)
       const depth = ctx.texture('depth')
       const pv = ctx.world.resource(ForwardStateResource).views.get(ctx.view.name)
       const pass = ctx.encoder.beginComputePass({
         label: 'particles/simulate',
         timestampWrites: ctx.timestamps('particles/simulate'),
       })
-      for (const sys of store.systems.values()) {
-        for (const e of sys.emitters) {
-          if (!sys.cpu && e.simulate) {
-            const p = computePipelines(ctx, c, e)
-            if (!p) continue
-            gpu.device.queue.writeBuffer(e.counter, 0, zeros)
-            const g = group(
-              gpu,
-              c,
-              `sim/${sys.entity}/${e.def.name}`,
-              `${idOf(e.particles.gpuBuffer)}/${idOf(e.sim.buffer)}/${idOf(depth)}`,
-              c.layouts!.sim,
-              () => [
-                { binding: 0, resource: { buffer: e.particles.gpuBuffer } },
-                { binding: 1, resource: { buffer: e.sim.buffer } },
-                { binding: 2, resource: depth.createView() },
-                { binding: 3, resource: { buffer: e.counter } },
-              ],
-            )
-            pass.setBindGroup(0, g)
-            if (e.spawnCount > 0) {
-              pass.setPipeline(p.spawn)
-              pass.dispatchWorkgroups(Math.ceil(e.spawnCount / 64))
-            }
-            pass.setPipeline(p.update)
-            pass.dispatchWorkgroups(Math.ceil(e.capacity / 64))
-            e.originShift[0] = e.originShift[1] = e.originShift[2] = 0
-            e.spawned += e.spawnCount
-            e.backlog = 0
-          }
-          if (e.sort && pv) sortEmitter(ctx, c, pass, sys, e, pv.uniform.buffer)
-        }
-      }
+      for (const sys of store.systems.values()) simulateSystem(ctx, c, pass, depth, pv, sys)
+      for (const sys of store.bursts.values()) simulateSystem(ctx, c, pass, depth, pv, sys)
       pass.end()
       // Alive counts come back asynchronously, for describe.
-      for (const sys of store.systems.values()) {
-        if (sys.cpu) continue
-        for (const e of sys.emitters) {
-          const rb = e.readbacks.find((r) => !r.busy)
-          if (!rb) continue
-          ctx.encoder.copyBufferToBuffer(e.counter, 0, rb.buffer, 0, 16)
-          rb.busy = true
-          ctx.afterSubmit(() => {
-            rb.buffer.mapAsync(GPUMapMode.READ).then(
-              () => {
-                e.alive = new Uint32Array(rb.buffer.getMappedRange())[0]!
-                rb.buffer.unmap()
-                rb.busy = false
-              },
-              () => {
-                rb.busy = false
-              },
-            )
-          })
-        }
-      }
+      for (const sys of store.systems.values()) readAlive(ctx, sys)
+      for (const sys of store.bursts.values()) readAlive(ctx, sys)
     },
+  }
+}
+
+function simulateSystem(
+  ctx: NodeContext,
+  c: Caches,
+  pass: GPUComputePassEncoder,
+  depth: GPUTexture,
+  pv: { uniform: { buffer: GPUBuffer } } | undefined,
+  sys: SystemState,
+): void {
+  const gpu = ctx.gpu
+  for (const e of sys.emitters) {
+    if (!sys.cpu && e.simulate) {
+      const p = computePipelines(ctx, c, e)
+      if (!p) continue
+      gpu.device.queue.writeBuffer(e.counter, 0, zeros)
+      const q = e.bursts
+      const g = q
+        ? group(
+            gpu,
+            c,
+            `sim/${sys.slot}/${e.def.name}`,
+            `${idOf(e.particles.gpuBuffer)}/${idOf(e.sim.buffer)}/${idOf(depth)}/${idOf(burstBuffer(gpu, q))}`,
+            c.layouts!.simBursts,
+            () => [
+              { binding: 0, resource: { buffer: e.particles.gpuBuffer } },
+              { binding: 1, resource: { buffer: e.sim.buffer } },
+              { binding: 2, resource: depth.createView() },
+              { binding: 3, resource: { buffer: e.counter } },
+              { binding: 4, resource: { buffer: q.buffer! } },
+            ],
+          )
+        : group(
+            gpu,
+            c,
+            `sim/${sys.slot}/${e.def.name}`,
+            `${idOf(e.particles.gpuBuffer)}/${idOf(e.sim.buffer)}/${idOf(depth)}`,
+            c.layouts!.sim,
+            () => [
+              { binding: 0, resource: { buffer: e.particles.gpuBuffer } },
+              { binding: 1, resource: { buffer: e.sim.buffer } },
+              { binding: 2, resource: depth.createView() },
+              { binding: 3, resource: { buffer: e.counter } },
+            ],
+          )
+      pass.setBindGroup(0, g)
+      if (e.spawnCount > 0) {
+        pass.setPipeline(p.spawn)
+        pass.dispatchWorkgroups(Math.ceil(e.spawnCount / 64))
+      }
+      pass.setPipeline(p.update)
+      pass.dispatchWorkgroups(Math.ceil(e.capacity / 64))
+      e.originShift[0] = e.originShift[1] = e.originShift[2] = 0
+      e.spawned += e.spawnCount
+      e.backlog = 0
+      if (q) takeBursts(q, e.spawnCount)
+    }
+    if (e.sort && pv && (!sys.pool || e.visible))
+      sortEmitter(ctx, c, pass, sys, e, pv.uniform.buffer)
+  }
+}
+
+function readAlive(ctx: NodeContext, sys: SystemState): void {
+  if (sys.cpu) return
+  for (const e of sys.emitters) {
+    const rb = e.readbacks.find((r) => !r.busy)
+    if (!rb) continue
+    ctx.encoder.copyBufferToBuffer(e.counter, 0, rb.buffer, 0, 16)
+    rb.busy = true
+    ctx.afterSubmit(() => {
+      rb.buffer.mapAsync(GPUMapMode.READ).then(
+        () => {
+          e.alive = new Uint32Array(rb.buffer.getMappedRange())[0]!
+          rb.buffer.unmap()
+          rb.busy = false
+        },
+        () => {
+          rb.busy = false
+        },
+      )
+    })
   }
 }
 
@@ -1043,7 +1464,7 @@ function sortEmitter(
     group(
       gpu,
       c,
-      `sort/${sys.entity}/${e.def.name}/${i}`,
+      `sort/${sys.slot}/${e.def.name}/${i}`,
       `${idOf(e.particles.gpuBuffer)}/${idOf(viewBuffer)}/${idOf(s.keys)}`,
       c.layouts!.sort,
       () => [
@@ -1155,16 +1576,13 @@ export function drawNode(): NodeDescriptor {
     depth: { resource: 'depth', readOnly: true },
     run: (ctx) => {
       const store = ctx.world.resource(Particles)
-      if (store.systems.size === 0) return
+      if (store.systems.size === 0 && store.bursts.size === 0 && store.cpuBursts.size === 0) return
       const gpu = ctx.gpu
       const c = caches(ctx.world, gpu)
       const pv = ctx.world.resource(ForwardStateResource).views.get(ctx.view.name)
       if (!pv) return
       const pass = ctx.renderPass!
       const depth = ctx.texture('depth')
-      const assets = ctx.world.resource(GpuAssetsResource)
-      const textures = ctx.world.resource(Textures)
-      const meshes = ctx.world.resource(Meshes)
       const cam = cameraOf(ctx.view)!
       pass.setBindGroup(
         0,
@@ -1177,69 +1595,80 @@ export function drawNode(): NodeDescriptor {
           () => [{ binding: 0, resource: { buffer: pv.uniform.buffer } }],
         ),
       )
-      for (const sys of store.systems.values()) {
-        if (!sphereVisible(cam.frustum, sys.center, sys.radius)) continue
-        for (const e of sys.emitters) {
-          const p = renderPipeline(ctx, c, e)
-          if (!p) continue
-          const texture = e.def.render.texture
-            ? textures.get(e.def.render.texture as AssetRef<'Texture'>)
-            : undefined
-          const gt = texture ? assets.texture(texture as Texture) : undefined
-          const view = gt
-            ? texture!.usage === 'color'
-              ? gt.srgb
-              : gt.linear
-            : c.white!.createView()
-          const order = e.sort?.order ?? c.noOrder!
-          pass.setPipeline(p)
-          pass.setBindGroup(
-            1,
-            group(
-              gpu,
-              c,
-              `data/${sys.entity}/${e.def.name}`,
-              `${idOf(e.particles)}:${e.particles.version}/${idOf(e.draw.buffer)}/${idOf(order)}:${order.version}`,
-              c.layouts!.data,
-              () => [
-                { binding: 0, resource: e.particles.resource() },
-                { binding: 1, resource: { buffer: e.draw.buffer } },
-                { binding: 2, resource: order.resource() },
-              ],
-            ),
-          )
-          pass.setBindGroup(
-            2,
-            group(
-              gpu,
-              c,
-              `tex/${ctx.view.name}/${sys.entity}/${e.def.name}`,
-              `${gt ? idOf(gt.texture) : 0}/${idOf(depth)}`,
-              c.layouts!.texture,
-              () => [
-                { binding: 0, resource: view },
-                { binding: 1, resource: c.sampler! },
-                { binding: 2, resource: depth.createView() },
-              ],
-            ),
-          )
-          if (e.def.render.mode === 'mesh') {
-            const mesh = e.def.render.mesh
-              ? meshes.get(e.def.render.mesh as AssetRef<'Mesh'>)
-              : undefined
-            if (!mesh) continue
-            const gm = assets.mesh(mesh as Mesh)
-            pass.setVertexBuffer(0, gm.positions)
-            if (gm.indices) {
-              pass.setIndexBuffer(gm.indices, gm.indexFormat)
-              pass.drawIndexed(gm.count, e.capacity, gm.firstIndex, gm.baseVertex)
-            } else pass.draw(gm.count, e.capacity)
-          } else {
-            pass.draw(6, e.capacity)
-          }
-        }
-      }
+      for (const sys of store.systems.values()) drawSystem(ctx, c, cam, pass, depth, sys)
+      for (const sys of store.bursts.values()) drawSystem(ctx, c, cam, pass, depth, sys)
+      for (const sys of store.cpuBursts.values()) drawSystem(ctx, c, cam, pass, depth, sys)
     },
+  }
+}
+
+function drawSystem(
+  ctx: NodeContext,
+  c: Caches,
+  cam: CameraData,
+  pass: GPURenderPassEncoder,
+  depth: GPUTexture,
+  sys: SystemState,
+): void {
+  if (!sphereVisible(cam.frustum, sys.center, sys.radius)) return
+  const gpu = ctx.gpu
+  const assets = ctx.world.resource(GpuAssetsResource)
+  const textures = ctx.world.resource(Textures)
+  const meshes = ctx.world.resource(Meshes)
+  for (const e of sys.emitters) {
+    // An effect's bursts with nothing alive draw nothing.
+    if (sys.pool && !e.visible) continue
+    const p = renderPipeline(ctx, c, e)
+    if (!p) continue
+    const texture = e.def.render.texture
+      ? textures.get(e.def.render.texture as AssetRef<'Texture'>)
+      : undefined
+    const gt = texture ? assets.texture(texture as Texture) : undefined
+    const view = gt ? (texture!.usage === 'color' ? gt.srgb : gt.linear) : c.white!.createView()
+    const order = e.sort?.order ?? c.noOrder!
+    pass.setPipeline(p)
+    pass.setBindGroup(
+      1,
+      group(
+        gpu,
+        c,
+        `data/${sys.slot}/${e.def.name}`,
+        `${idOf(e.particles)}:${e.particles.version}/${idOf(e.draw.buffer)}/${idOf(order)}:${order.version}`,
+        c.layouts!.data,
+        () => [
+          { binding: 0, resource: e.particles.resource() },
+          { binding: 1, resource: { buffer: e.draw.buffer } },
+          { binding: 2, resource: order.resource() },
+        ],
+      ),
+    )
+    pass.setBindGroup(
+      2,
+      group(
+        gpu,
+        c,
+        `tex/${ctx.view.name}/${sys.slot}/${e.def.name}`,
+        `${gt ? idOf(gt.texture) : 0}/${idOf(depth)}`,
+        c.layouts!.texture,
+        () => [
+          { binding: 0, resource: view },
+          { binding: 1, resource: c.sampler! },
+          { binding: 2, resource: depth.createView() },
+        ],
+      ),
+    )
+    if (e.def.render.mode === 'mesh') {
+      const mesh = e.def.render.mesh ? meshes.get(e.def.render.mesh as AssetRef<'Mesh'>) : undefined
+      if (!mesh) continue
+      const gm = assets.mesh(mesh as Mesh)
+      pass.setVertexBuffer(0, gm.positions)
+      if (gm.indices) {
+        pass.setIndexBuffer(gm.indices, gm.indexFormat)
+        pass.drawIndexed(gm.count, e.capacity, gm.firstIndex, gm.baseVertex)
+      } else pass.draw(gm.count, e.capacity)
+    } else {
+      pass.draw(6, e.capacity)
+    }
   }
 }
 
@@ -1268,21 +1697,25 @@ export async function readParticles(gpu: GpuContext, e: EmitterState): Promise<F
  * update dispatch. Local-space systems move with their entity and need nothing.
  */
 export function shiftParticles(store: ParticleStore, x: number, y: number, z: number): void {
-  for (const sys of store.systems.values()) {
-    if (sys.local) continue
-    for (const e of sys.emitters) {
-      if (sys.cpu && e.cpu) {
-        const d = e.cpu
-        for (let o = 0; o < d.length; o += PARTICLE_FLOATS) {
-          d[o] = d[o]! + x
-          d[o + 1] = d[o + 1]! + y
-          d[o + 2] = d[o + 2]! + z
-        }
-      } else {
-        e.originShift[0] = e.originShift[0]! + x
-        e.originShift[1] = e.originShift[1]! + y
-        e.originShift[2] = e.originShift[2]! + z
+  for (const sys of store.systems.values()) shiftSystem(sys, x, y, z)
+  for (const sys of store.bursts.values()) shiftSystem(sys, x, y, z)
+  for (const sys of store.cpuBursts.values()) shiftSystem(sys, x, y, z)
+}
+
+function shiftSystem(sys: SystemState, x: number, y: number, z: number): void {
+  if (sys.local) return
+  for (const e of sys.emitters) {
+    if (sys.cpu && e.cpu) {
+      const d = e.cpu
+      for (let o = 0; o < d.length; o += PARTICLE_FLOATS) {
+        d[o] = d[o]! + x
+        d[o + 1] = d[o + 1]! + y
+        d[o + 2] = d[o + 2]! + z
       }
+    } else {
+      e.originShift[0] = e.originShift[0]! + x
+      e.originShift[1] = e.originShift[1]! + y
+      e.originShift[2] = e.originShift[2]! + z
     }
   }
 }
@@ -1292,21 +1725,33 @@ export function describeParticles(world: World) {
   const store = world.tryResource(Particles)
   if (!store) return undefined
   const gpuMs = world.tryResource(ProfilerResource)?.timing('gpu:particles/simulate')?.avg
+  const emitters = (sys: SystemState) =>
+    sys.emitters.map((e) => ({
+      name: e.def.name,
+      alive: e.alive,
+      capacity: e.capacity,
+      sorted: e.sort !== undefined,
+      visible: e.visible,
+      spawned: e.spawned,
+      unsortedAlpha: e.def.render.blend !== 'additive' && !e.sort,
+    }))
+  const backend = (sys: SystemState) => ({
+    backend: sys.cpu ? 'cpu' : 'gpu',
+    ...(sys.forced ? { backendReason: 'the baseline tier has no compute' } : {}),
+  })
   return {
     gpuMs,
     systems: [...store.systems.values()].map((sys) => ({
       entity: sys.entity,
-      backend: sys.cpu ? 'cpu' : 'gpu',
-      ...(sys.forced ? { backendReason: 'the baseline tier has no compute' } : {}),
-      emitters: sys.emitters.map((e) => ({
-        name: e.def.name,
-        alive: e.alive,
-        capacity: e.capacity,
-        sorted: e.sort !== undefined,
-        visible: e.visible,
-        spawned: e.spawned,
-        unsortedAlpha: e.def.render.blend !== 'additive' && !e.sort,
-      })),
+      ...backend(sys),
+      emitters: emitters(sys),
+    })),
+    // One-off bursts (0128): one simulation per effect and backend.
+    bursts: [...store.bursts.values(), ...store.cpuBursts.values()].map((sys) => ({
+      effect: sys.pool!.path ?? sys.pool!.guid,
+      ...backend(sys),
+      emitted: sys.pool!.emitted,
+      emitters: emitters(sys),
     })),
   }
 }

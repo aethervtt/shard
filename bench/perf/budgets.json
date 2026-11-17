@@ -372,6 +372,12 @@
       "desktop": 0.2,
       "note": "0041: the main thread's share of a 257\u00b2 sphere patch on the pool. noise/src/perf.test.ts."
     },
+    "particles/bursts": {
+      "kind": "target",
+      "laptop": 0.25,
+      "desktop": 0.25,
+      "note": "0128 proposed: 50 one-off bursts of 30 particles in one frame, GPU backend: the emitParticles calls plus particles/prepare, median frame. Measured 0.12 ms (one 1,500-particle burst: 0.11 ms) on an Apple M5 Max (not a named machine, 2026-11-16, under heavy load); neither named machine has run it. particles/src/bursts.test.ts."
+    },
     "partition/cell-commit": {
       "kind": "target",
       "laptop": 3,
