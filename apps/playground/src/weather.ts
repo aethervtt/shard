@@ -3,11 +3,13 @@ import { box, cone, cylinder, plane, sphere } from '@aethervtt/shard-mesh'
 import {
   AutoExposure,
   Camera3d,
+  Ink,
   MaterialAsset,
   Materials,
   Mesh3d,
   Meshes,
   MeshMaterial,
+  Toon,
 } from '@aethervtt/shard-render'
 import { definePlugin } from '@aethervtt/shard-runtime'
 import { CloudMotion, Clouds, Sky, SkyFrame, setTimeOfDay, TimeOfDay } from '@aethervtt/shard-sky'
@@ -20,7 +22,7 @@ import { hudExtras } from './hud'
  * Sky, time of day and clouds (specs 0130, 0131) in a realistic scene: a field with a house, a
  * few trees and props under a sky that runs through the day. The panel sets the time, its speed,
  * the sky mode, cloud coverage and type, and night brightness. URL parameters set the same things
- * (time, speed, mode, coverage, type, night, aurora, path, wind, look).
+ * (time, speed, mode, coverage, type, night, aurora, path, wind, look, toon, bands).
  */
 
 const query = new URLSearchParams(location.search)
@@ -31,6 +33,19 @@ const num = (key: string, fallback: number) => {
 
 type Vec3 = [number, number, number]
 let skyEntity: Entity | undefined
+let cameraEntity: Entity | undefined
+
+/** Toon shading and ink lines on the camera (0108), as a stylized game would set them. */
+function setToon(world: World, on: boolean): void {
+  if (cameraEntity === undefined) return
+  if (on) {
+    world.add(cameraEntity, Toon, { bands: num('bands', 3), softness: 0.05 })
+    world.add(cameraEntity, Ink, { fade: [80, 300] })
+  } else {
+    world.remove(cameraEntity, Toon)
+    world.remove(cameraEntity, Ink)
+  }
+}
 
 function material(world: World, color: [number, number, number], roughness = 0.8, metallic = 0) {
   return world
@@ -258,6 +273,11 @@ function addControls(world: World): void {
     world.set(skyEntity!, Clouds, { shadows: shadows.checked } as never),
   )
   row('cloud shadows', shadows)
+  const toon = document.createElement('input')
+  toon.type = 'checkbox'
+  toon.checked = query.get('toon') === '1'
+  toon.addEventListener('change', () => setToon(world, toon.checked))
+  row('toon + ink', toon)
 }
 
 function speedLabel(world: World): string {
@@ -303,7 +323,7 @@ export const weatherDemoPlugin = definePlugin({
     setTimeOfDay(world, query.get('time') ?? '10:00')
     // A low camera looking a little up, so most of the frame is sky.
     const look = (query.get('look') ?? '0,2,16,0,7,-20').split(',').map(Number) as number[]
-    world.spawn(
+    cameraEntity = world.spawn(
       [Camera3d, { fovY: num('fov', 60) }],
       [AutoExposure, { minEv: num('minEv', 3), maxEv: 15, speedUp: 6, speedDown: 4 }],
       Transform,
@@ -312,6 +332,7 @@ export const weatherDemoPlugin = definePlugin({
       }),
     )
     scene(world)
+    if (query.get('toon') === '1') setToon(world, true)
     if (!query.has('nopanel')) addControls(world)
     else document.getElementById('panel')?.remove()
     hudExtras.push((w) => {

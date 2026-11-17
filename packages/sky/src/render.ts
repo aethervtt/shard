@@ -204,7 +204,7 @@ export const SkyGpuResource = defineResource<SkyGpu>('sky/Gpu', {
   init: () => new SkyGpu(),
 })
 
-const PARAM_FLOATS = 36
+const PARAM_FLOATS = 40
 const RESOLVE_FLOATS = 40
 const CELESTIAL_FLOATS = 28
 const params = new Float32Array(PARAM_FLOATS)
@@ -428,7 +428,7 @@ export function cloudsMarchNode(): NodeDescriptor {
       params[23] = ca.skyViewSize[1]
       params[24] = cam.exposure
       params[25] = ca.primary && ca.inside ? 1 : 0
-      params[26] = clouds.bands
+      params[26] = 0
       params[27] = frame.mode === '2d' ? 1 : 0
       params[28] = motion.shadowCenter[0]!
       params[29] = motion.shadowCenter[1]!
@@ -439,6 +439,9 @@ export function cloudsMarchNode(): NodeDescriptor {
       params[33] = light[1]!
       params[34] = light[2]!
       params[35] = clouds.shadows && frame.shadows !== 'none' ? 1 : 0
+      // Toon (0108): the Clouds' own bands, or the camera's.
+      params[36] = clouds.bands > 0 ? clouds.bands : cam.toon.tones
+      params[37] = cam.toon.softness
       c.params.write(params)
       if (
         !c.marchGroup ||

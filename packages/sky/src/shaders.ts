@@ -191,6 +191,19 @@ struct CloudParams {
   shadow: vec4f,
   /** toward the light that casts cloud shadows; w: 1 when there is one */
   shadow_light: vec4f,
+  /** toon bands (0: smooth), softness */
+  toon: vec4f,
+}
+
+/**
+ * Toon (0108) for clouds: the lit fraction (direct light over what an unshadowed cloud would get)
+ * falls into the camera's bands, with Toon's edge softness.
+ */
+fn toon_level(ratio: f32) -> f32 {
+  let n = max(cp.toon.x - 1.0, 1.0);
+  let x = clamp(ratio, 0.0, 1.0) * n;
+  let s = max(cp.toon.y, 0.001) * 0.5;
+  return (floor(x) + smoothstep(0.5 - s, 0.5 + s, fract(x))) / n;
 }
 
 @group(0) @binding(0) var<uniform> cp: CloudParams;
@@ -340,10 +353,13 @@ fn planar(d: vec3f, alt0: f32) -> vec4f {
       let c = dot(d, l);
       let ph = mix(hg(c, 0.6), hg(c, -0.2), 0.3);
       // Thin layers scatter light nearly every way: a phase lifted toward isotropic.
-      S += E * (ph + 0.12) * (exp(-toward * 3.0) * 0.8 + 0.2);
+      var lit = exp(-toward * 3.0);
+      if (cp.toon.x > 0.5) { lit = toon_level(lit); }
+      S += E * (ph + 0.12) * (lit * 0.8 + 0.2);
     }
     S += zenith * 0.8;
-    let a = 1.0 - exp(-layer_d * 6.0);
+    var a = 1.0 - exp(-layer_d * 6.0);
+    if (cp.toon.x > 0.5) { a = smoothstep(0.3, 0.3 + max(cp.toon.y, 0.02) * 2.0, a); }
     // Far layers fade into the horizon haze.
     let fade = 1.0 - smoothstep(30000.0, 80000.0, t);
     let lit = S * cp.light.x;
@@ -434,6 +450,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let amb_bottom = ground + horizon * 0.3;
 
   var L = vec3f(0.0);
+  // Toon: direct light, and what it would be with no self-shadowing, kept apart.
+  var L_sun = vec3f(0.0);
+  var L_ref = vec3f(0.0);
   var T = 1.0;
   var weighted = 0.0;
   var weight = 0.0;
@@ -446,6 +465,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     if (sigma > 0.0) {
       let h = clamp((alt - bottom) / (top - bottom), 0.0, 1.0);
       var S = vec3f(0.0);
+      var S_ref = vec3f(0.0);
       for (var i = 0u; i < suns; i++) {
         let sun = atmo.suns[i];
         let l = sun.direction.xyz;
@@ -457,12 +477,14 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         let c = dot(d, l);
         // Multiple scattering as octaves (Wrenninge): each lets more light through, less forward.
         var ms = 0.0;
+        var ms_ref = 0.0;
         var ext = 1.0;
         var contrib = 1.0;
         var g = 1.0;
         for (var o = 0; o < 4; o++) {
           let ph = mix(hg(c, 0.8 * g), hg(c, -0.3 * g), 0.3);
           ms += contrib * exp(-od * ext) * ph;
+          ms_ref += contrib * ph;
           ext *= 0.3;
           contrib *= 0.65;
           g *= 0.5;
@@ -470,12 +492,15 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         // Beer-powder: darker where little cloud is in front of the light-facing side.
         let powder = 1.0 - exp(-sigma * 160.0);
         S += E * ms * mix(1.0, powder * 2.0, 0.4);
+        S_ref += E * ms_ref;
       }
       let amb = mix(amb_bottom, amb_top, h) * mix(0.55, 1.0, h);
-      S = (S + amb) * sigma * albedo;
       let e = exp(-sigma * dt);
-      let Sint = (S - S * e) / sigma;
-      L += T * Sint;
+      // ∫ over the step of scattering × transmittance, for a unit source: (1 − e) × albedo.
+      let w = T * (1.0 - e) * albedo;
+      L += (S + amb) * w;
+      L_sun += S * w;
+      L_ref += S_ref * w;
       weighted += T * (1.0 - e) * t;
       weight += T * (1.0 - e);
       T *= e;
@@ -484,6 +509,16 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     t += dt;
   }
   if (T < 0.01) { T = 0.0; }
+  if (cp.toon.x > 0.5 && T < 1.0) {
+    // Banded light, and a hard edge: toon clouds are shapes, not haze.
+    let lum = vec3f(0.2126, 0.7152, 0.0722);
+    let ratio = dot(L_sun, lum) / max(dot(L_ref, lum), 1e-6);
+    L = L - L_sun + L_ref * toon_level(ratio);
+    let a = 1.0 - T;
+    let crisp = smoothstep(0.25, 0.25 + max(cp.toon.y, 0.02) * 2.0, a);
+    L *= crisp / max(a, 1e-3);
+    T = 1.0 - crisp;
+  }
   // Aerial perspective to the clouds' weighted distance: dimmed, and hazed toward the sky.
   if (weight > 0.0 && cp.misc.y > 0.5) {
     let dist = weighted / weight;
