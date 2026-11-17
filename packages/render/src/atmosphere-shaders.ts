@@ -407,7 +407,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 }`,
 
   'shard::atmosphere::aerial': `
-import shard::atmosphere::{ AtmosphereView, KCD, integrate, froxel_distance, ray_at };
+import shard::atmosphere::{ AtmosphereView, KCD, integrate, froxel_distance, ray_at, ray_sphere };
 
 @group(0) @binding(0) var<uniform> atmo: AtmosphereView;
 @group(0) @binding(1) var tlut: texture_2d_array<f32>;
@@ -431,8 +431,12 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   var L = vec3f(0.0);
   var T = vec3f(1.0);
   var t_prev = 0.0;
+  // A column that dips below the horizon ends at the ground: marched on from there, each slice
+  // would start underground, where the density profile explodes (an orange line at twilight).
+  let ground = ray_sphere(o, d, a.radii.z);
+  let limit = select(1e9, ground.x, ground.x > 0.0);
   for (var k = 0u; k < size.z; k++) {
-    let t = froxel_distance(atmo.froxels, (f32(k) + 1.0) / f32(size.z));
+    let t = min(froxel_distance(atmo.froxels, (f32(k) + 1.0) / f32(size.z)), limit);
     // Two steps per slice, from where the last one ended.
     let seg = integrate(tlut, mlut, lut_sampler, a, atmo.suns[0], atmo.suns[1], u32(atmo.info.z), o + d * t_prev, d, t - t_prev, 2u, false);
     L += T * seg.luminance;
