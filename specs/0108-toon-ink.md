@@ -153,7 +153,7 @@ effects with its GPU time. Without `toonPlugin`, `Toon` and `Ink` log `render/fe
 - **Band the facing term, not the distance falloff.** Physical point lights have no top to band
   against; the facing term is 0–1 for every light type.
 - **Ink before the HDR chain.** TAA resolves jittered lines into stable antialiased ones, and fog
-  hazes distant lines; colored ink is graded and tonemapped like the scene (black stays black).
+  hazes distant lines; colored ink is graded and tonemapped like the scene (black stays black), and never shows brighter than what it covers, so lines don't glow in the dark.
 - **Planarity from device depth.** No grazing-angle lines, at any slant or projection.
 - **Curved surfaces: less the far surface's step, from its normal.** The plane test alone inked a
   rolling sea in dashes. Each facet kink (or bend between pixels) leaves a residual of about

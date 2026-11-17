@@ -62,7 +62,7 @@ export const Ink = defineComponent(
     color: t.color({
       default: [0.02, 0.02, 0.03, 1],
       description:
-        'Line color (linear), with alpha. Mixed in before tonemapping, so it is graded with the scene; black stays black.',
+        'Line color (linear), with alpha. Mixed in before tonemapping, so it is graded with the scene; black stays black. A line never shows brighter than what it covers (per channel), so in the dark it fades into the dark.',
     }),
     depthThreshold: t.f32({
       default: 0.1,

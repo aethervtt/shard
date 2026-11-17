@@ -251,7 +251,10 @@ fn turns(n: vec3f, q: vec2i, dq: f32, zc: f32) -> bool {
     }
   }
   let k = max(clamp(reach - sqrt(d2), 0.0, 1.0), fading) * ink.color.a;
-  return post_out(vec4f(c.rgb * (1.0 - k) + ink.color.rgb * k, c.a * (1.0 - k) + k));
+  // A line darkens what it covers and never lights it: in the dark, ink is no brighter than the
+  // dark around it, so silhouettes don't glow at night.
+  let line = min(ink.color.rgb, c.rgb);
+  return post_out(vec4f(c.rgb * (1.0 - k) + line * k, c.a * (1.0 - k) + k));
 }`,
 }
 
