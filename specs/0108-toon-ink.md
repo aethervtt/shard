@@ -76,7 +76,10 @@ before.
 ### Ink
 
 `Ink` on a `Camera3d` draws lines over the HDR image, first in the post chain (so fog, aerial
-perspective and TAA treat them like the scene):
+perspective and TAA treat them like the scene). Volumetric fog (0132) is over the image before
+the chain starts, so with it the composite fades each line by the fog's transmittance at the
+nearest surface within the line's reach: the integrated volume's, then the analytic Fog's past it.
+A line fades into the fog with what it outlines:
 
 ```ts
 Ink {

@@ -19,6 +19,7 @@ import {
 import { registerShaders } from './shaders'
 import { Ink, Toon, ToonPath } from './toon'
 import { cameraOf } from './view'
+import { volumetricFogOf } from './volumetric-fog-nodes'
 
 // Toon shading and ink (0108). Toon is the lighting stage's TOON variant, linked from shard::toon
 // for the views whose camera has one. Ink is the HDR chain's first effect: edges from depth and
@@ -86,6 +87,8 @@ struct InkParams {
   view_z: vec4f,
   /** One over the projection's x and y scales. */
   lens: vec4f,
+  /** The camera's world position. */
+  camera: vec4f,
 }
 
 @group(0) @binding(0) var<uniform> ink: InkParams;
@@ -94,6 +97,27 @@ struct InkParams {
 /** The edges (row pass), or each pixel's distance to one along its row (composite). */
 @group(0) @binding(3) var source: texture_2d<f32>;
 @group(0) @binding(4) var input: texture_2d<f32>;
+
+/** The camera's volumetric fog (0132): volumetric_fog's FogFrame and the analytic Fog past it. */
+@if(FOG) struct InkFogFrame {
+  grid: vec4f,
+  params: vec4f,
+  medium: vec4f,
+  albedo: vec4f,
+  misc: vec4f,
+  misc2: vec4f,
+}
+@if(FOG) struct InkFogFar {
+  color: vec4f,
+  density: f32,
+  falloff: f32,
+  start: f32,
+  sun: f32,
+}
+@if(FOG) @group(1) @binding(0) var<uniform> fog_frame: InkFogFrame;
+@if(FOG) @group(1) @binding(1) var fog_volume: texture_3d<f32>;
+@if(FOG) @group(1) @binding(2) var fog_sampler: sampler;
+@if(FOG) @group(1) @binding(3) var<uniform> fog_far: InkFogFar;
 
 fn device_at(p: vec2i) -> f32 {
   let size = vec2i(textureDimensions(depth_texture));
@@ -230,7 +254,49 @@ fn turns(n: vec3f, q: vec2i, dq: f32, zc: f32) -> bool {
   return vec4f(full / 255.0, fading / 255.0, strength, 0.0);
 }
 
-/** The line: coverage from the distance to the nearest edge pixel, mixed over the image. */
+/**
+ * How much of a surface at device depth d, under pixel p, shows through the camera's volumetric
+ * fog: the integrated volume's transmittance at its depth, then the analytic Fog past the volume,
+ * as volumetric_fog::apply composites them.
+ */
+@if(FOG) fn fog_transmittance(p: vec2i, d: f32) -> f32 {
+  let f = fog_frame;
+  let vd = select(1e9, linear_depth(d), d > 0.0);
+  let uv = (vec2f(p) + 0.5) / vec2f(textureDimensions(input));
+  let s = pow(clamp(vd / f.grid.w, 0.0, 1.0), 1.0 / f.params.x) * f.grid.z;
+  var t = textureSampleLevel(fog_volume, fog_sampler, vec3f(uv, max(s - 0.5, 0.5) / f.grid.z), 0.0).a;
+  if (s < 1.0) { t = mix(1.0, t, s); }
+  if (f.medium.w > 0.5 && vd > f.grid.w) {
+    // Height fog's optical depth along the ray, from where the volume ends.
+    var ray = vec3f(0.0, 0.0, -1.0);
+    if (ink.projection.z < 0.5) { ray = vec3f((uv * vec2f(2.0, -2.0) + vec2f(-1.0, 1.0)) * ink.lens.xy, -1.0); }
+    let len = length(ray);
+    let dir_y = (ink.view_x.y * ray.x + ink.view_y.y * ray.y + ink.view_z.y * ray.z) / len;
+    let t0 = fog_far.start;
+    let t1 = max(vd * len, t0);
+    let base = fog_far.density * exp(-fog_far.falloff * ink.camera.y);
+    let k = fog_far.falloff * dir_y;
+    var tau = base * (t1 - t0);
+    if (abs(k) >= 1e-5) { tau = base * (exp(-k * t0) - exp(-k * t1)) / k; }
+    t *= exp(-tau);
+  }
+  return t;
+}
+
+/**
+ * The nearest surface within r pixels across and down: a line sits on the nearer surface, so a
+ * pixel of it over the sky beside a silhouette fades with the silhouette.
+ */
+@if(FOG) fn line_depth(p: vec2i, r: i32) -> f32 {
+  let x = max(device_at(p + vec2i(r, 0)), device_at(p - vec2i(r, 0)));
+  let y = max(device_at(p + vec2i(0, r)), device_at(p - vec2i(0, r)));
+  return max(device_at(p), max(x, y));
+}
+
+/**
+ * The line: coverage from the distance to the nearest edge pixel, mixed over the image. With
+ * volumetric fog, which is already over the image, the line fades into it with its surface.
+ */
 @fragment fn composite(@builtin(position) frag: vec4f) -> @location(0) vec4f {
   let p = vec2i(frag.xy);
   let c = textureLoad(input, p, 0);
@@ -250,7 +316,8 @@ fn turns(n: vec3f, q: vec2i, dq: f32, zc: f32) -> bool {
       fading = max(fading, clamp(reach - sqrt(fx * fx + f32(dy * dy)), 0.0, 1.0) * s.z);
     }
   }
-  let k = max(clamp(reach - sqrt(d2), 0.0, 1.0), fading) * ink.color.a;
+  var k = max(clamp(reach - sqrt(d2), 0.0, 1.0), fading) * ink.color.a;
+  @if(FOG) k *= fog_transmittance(p, line_depth(p, i32(ceil(reach))));
   // A line darkens what it covers and never lights it: in the dark, ink is no brighter than the
   // dark around it, so silhouettes don't glow at night.
   let line = min(ink.color.rgb, c.rgb);
@@ -262,7 +329,7 @@ const EDGE_FORMAT: GPUTextureFormat = 'r8unorm'
 const EDGE_TARGETS: GPUColorTargetState[] = [{ format: EDGE_FORMAT }]
 const ROW_FORMAT: GPUTextureFormat = 'rgba8unorm'
 const ROW_TARGETS: GPUColorTargetState[] = [{ format: ROW_FORMAT }]
-const INK_FLOATS = 32
+const INK_FLOATS = 36
 
 /** post/ink: edges, rows, then the composite into the chain's next texture. */
 function inkNode(): NodeDescriptor {
@@ -270,6 +337,7 @@ function inkNode(): NodeDescriptor {
   const data = new Float32Array(INK_FLOATS)
   const scale = new Float32Array(4)
   let layout: GPUBindGroupLayout | undefined
+  let fogLayout: GPUBindGroupLayout | undefined
   let layoutGen = -1
   return {
     kind: 'raw',
@@ -294,7 +362,22 @@ function inkNode(): NodeDescriptor {
             tex(4, 'unfilterable-float'),
           ],
         })
+        const F = GPUShaderStage.FRAGMENT
+        fogLayout = gpu.layouts.bindGroupLayout({
+          label: 'ink/fog',
+          entries: [
+            uniform(0),
+            { binding: 1, visibility: F, texture: { sampleType: 'float', viewDimension: '3d' } },
+            { binding: 2, visibility: F, sampler: { type: 'filtering' } },
+            uniform(3),
+          ],
+        })
       }
+      // Volumetric fog (0132) is over the image already: the lines fade into it (FOG).
+      const fog =
+        ctx.view.data.volumetricFog !== undefined
+          ? volumetricFogOf(ctx.world, v.cam.entity)
+          : undefined
       const out = ctx.texture('ink-out')
       const rg11 = roundsRg11(gpu, out)
       const edges = cache.render(
@@ -308,12 +391,12 @@ function inkNode(): NodeDescriptor {
       const rows = cache.render(ctx, 'ink/rows', 'shard::post::ink', 'rows', [layout], ROW_TARGETS)
       const composite = cache.render(
         ctx,
-        `ink/composite/${out.format}${rg11 ? '/round' : ''}`,
+        `ink/composite/${out.format}${rg11 ? '/round' : ''}${fog ? '/fog' : ''}`,
         'shard::post::ink',
         'composite',
-        [layout],
+        fog ? [layout, fogLayout!] : [layout],
         targetsFor(out),
-        { RG11_ROUND: rg11 },
+        { RG11_ROUND: rg11, FOG: fog !== undefined },
       )
       if (!edges || !rows || !composite) return
       const cam = v.cam
@@ -342,6 +425,10 @@ function inkNode(): NodeDescriptor {
       data[28] = 1 / cam.proj[0]!
       data[29] = 1 / cam.proj[5]!
       data[30] = data[31] = 0
+      data[32] = cam.position[0]!
+      data[33] = cam.position[1]!
+      data[34] = cam.position[2]!
+      data[35] = 0
       const params = cache.buffer(gpu, `${ctx.view.name}/ink`, INK_FLOATS * 4)
       params.write(data)
       const input = ctx.texture('ink-in')
@@ -363,6 +450,14 @@ function inkNode(): NodeDescriptor {
             { binding: 4, resource: input.createView() },
           ],
         )
+      const fogGroup =
+        fog &&
+        cache.group(gpu, `${ctx.view.name}/ink/fog`, `${idOf(fog.volume)}`, fogLayout!, () => [
+          { binding: 0, resource: { buffer: fog.frame } },
+          { binding: 1, resource: fog.volume.createView() },
+          { binding: 2, resource: fog.sampler },
+          { binding: 3, resource: { buffer: fog.far } },
+        ])
       const pass = (
         name: string,
         pipeline: GPURenderPipeline,
@@ -372,6 +467,7 @@ function inkNode(): NodeDescriptor {
         const p = beginPass(ctx, name, target.createView())
         p.setPipeline(pipeline)
         p.setBindGroup(0, bind(name, source))
+        if (fogGroup && pipeline === composite) p.setBindGroup(1, fogGroup)
         p.draw(3)
         p.end()
       }

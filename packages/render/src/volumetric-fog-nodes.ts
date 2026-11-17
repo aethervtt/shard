@@ -1,4 +1,4 @@
-import { defineResource, type Entity } from '@aethervtt/shard-core'
+import { defineResource, type Entity, type World } from '@aethervtt/shard-core'
 import { GpuBuffer, type GpuContext } from '@aethervtt/shard-gpu'
 import { ForwardStateResource, sceneColor, viewBindGroup } from './forward'
 import { type NodeContext, type NodeDescriptor, RenderPhase, type RenderView } from './graph'
@@ -339,6 +339,22 @@ export function volumetricFogLightNode(): NodeDescriptor {
       c.far.write(farData)
     },
   }
+}
+
+/**
+ * A camera's integrated fog this frame, for passes after the apply that draw over the fogged scene
+ * and must fade into it as the surface under them did (ink, 0108): the volume (transmittance in
+ * alpha), its FogFrame, the analytic Fog past it (FogParams), and the volume's sampler. Undefined
+ * while the camera has no volumetric fog.
+ */
+export function volumetricFogOf(
+  world: World,
+  camera: Entity,
+): { volume: GPUTexture; frame: GPUBuffer; far: GPUBuffer; sampler: GPUSampler } | undefined {
+  const s = world.tryResource(VolumetricFogGpuResource)
+  const c = s?.cameras.get(camera)
+  if (!s || !c?.volume) return undefined
+  return { volume: c.volume, frame: c.frame.buffer, far: c.far.buffer, sampler: s.linear }
 }
 
 /** The fog over the scene, after transparent objects (they take the fog of what's behind them). */

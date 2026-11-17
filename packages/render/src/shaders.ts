@@ -876,10 +876,12 @@ fn apply_lighting(p: PbrInput, world_position: vec3f, frag_coord: vec4f, flags: 
     if (receives && light.shadowed != 0u) {
       shadow = directional_shadow(world_position, n, view_depth, frag_coord.xy);
     }
-    // Cloud shadows (0131): what the sky plugin says reaches this point from the light.
-    @if(SKY_OCCLUSION) shadow *= sky_occlusion(world_position, l);
+    // Cloud shadows (0131): what the sky plugin says reaches this point from the light. Toon bands
+    // received shadows; clouds dim the light itself, as overcast does, so they stay out of its ramp.
+    @if(SKY_OCCLUSION && !TOON) shadow *= sky_occlusion(world_position, l);
     @if(!TOON) color += brdf(n, v, l, a, diffuse_color, f0, 1.0) * light.color * view.sunTransmittance[i].rgb * shadow;
-    @if(TOON) color += toon_light(n, l, shadow, diffuse_color) * light.color * view.sunTransmittance[i].rgb;
+    @if(TOON && !SKY_OCCLUSION) color += toon_light(n, l, shadow, diffuse_color) * light.color * view.sunTransmittance[i].rgb;
+    @if(TOON && SKY_OCCLUSION) color += toon_light(n, l, shadow, diffuse_color) * light.color * view.sunTransmittance[i].rgb * sky_occlusion(world_position, l);
   }
 
   // Point and spot lights from this fragment's cluster: intensity (cd) / d² × window.

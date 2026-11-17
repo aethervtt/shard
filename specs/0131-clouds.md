@@ -156,7 +156,9 @@ before aerial perspective, which then hazes them at their own distance.
 
 - `shard::sky::cloud_shadow(world: vec3f) -> f32` is the transmittance from a point toward the
   shadow-casting celestial light, through the clouds. The forward and deferred lighting stages
-  multiply that light by it, as does volumetric fog (0132).
+  multiply that light by it, as does volumetric fog (0132). On a Toon camera (0108) it scales the
+  banded light rather than going into the ramp with received shadows: clouds dim the light, they
+  don't cast an edge.
 - It's backed by a **cloud shadow map**: 512² `r16float`, camera-centered and texel-snapped,
   covering `shadowRange`, holding optical depth along the light.
   - `volumetric` and `voxel` fill it by marching low-detail density, 16 samples per texel.
@@ -205,6 +207,10 @@ before aerial perspective, which then hazes them at their own distance.
   `2d` and says how to bake one).
 
 ## Decisions
+
+- **Cloud shadows dim Toon's light outside its ramp.** Through the ramp, any light at all reached
+  the first band, so a toon surface 90% under cloud kept most of its sun. In overcast fog it stayed
+  bright while everything lit physically dimmed, and the fog barely showed on it.
 
 - **Advection is a function of the tick, not an integral per tick.** Integrating per local tick
   gave each client its own clouds, depending on when it joined. Sampling the wind every 10 s since

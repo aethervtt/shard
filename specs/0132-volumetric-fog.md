@@ -163,6 +163,11 @@ It logs `render/feature-reduced volumetric-fog` once, naming what's missing.
 
 ## Decisions
 
+- **Ink reads the fog rather than running before it.** The apply pass sits before particles and
+  precipitation so they keep their own (unfogged) look, and ink can only run on the resolved image.
+  So ink takes the camera's volume and far Fog (`volumetricFogOf`) and fades its lines by their
+  transmittance (0108); without that, every outline drew at full strength over the fog.
+
 - **A sky-light scale per FogVolume.** Without 0069's sky visibility (a room not built with
   structure), fog inside a room scatters the full sky and washes out sunbeams; `ambient` lets a
   volume say how much sky reaches it. 0069's field replaces it where structure provides one.
