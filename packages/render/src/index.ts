@@ -638,3 +638,13 @@ export {
   viewVisibilityPlugin,
 } from './view-visibility-plugin'
 export { ComputedVisibility, computeVisibility, DrawnByProxy, Visibility } from './visibility'
+export {
+  extractVolumetricFog,
+  FogVolume,
+  FogVolumeData,
+  FogVolumes,
+  MAX_FOG_VOLUMES,
+  VolumetricFog,
+} from './volumetric-fog'
+export { VolumetricFogGpu, VolumetricFogGpuResource } from './volumetric-fog-nodes'
+export { volumetricFogPlugin } from './volumetric-fog-plugin'

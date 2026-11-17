@@ -1982,7 +1982,9 @@ export interface ForwardPluginOptions {
 
 /** Group 0's entries: view, lights, clusters, shadows, environment, globals, SSAO, shader data. */
 function viewEntries(gpu: GpuContext, sky = false): GPUBindGroupLayoutEntry[] {
-  const F = GPUShaderStage.FRAGMENT
+  // Compute reads the view group too on the full tier: volumetric fog (0132) lights its froxels
+  // with these lights, shadows and environment.
+  const F = GPUShaderStage.FRAGMENT | (gpu.tier === 'full' ? GPUShaderStage.COMPUTE : 0)
   const extra: GPUBindGroupLayoutEntry[] = sky
     ? [{ binding: SKY_OCCLUSION_BINDING, visibility: F, texture: { sampleType: 'float' } }]
     : []

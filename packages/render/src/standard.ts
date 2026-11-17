@@ -24,6 +24,7 @@ import { shadowCatcherPlugin } from './shadow-catcher'
 import { skinningPlugin } from './skinning-plugin'
 import { toonPlugin } from './toon-plugin'
 import { viewVisibilityPlugin } from './view-visibility-plugin'
+import { volumetricFogPlugin } from './volumetric-fog-plugin'
 
 /**
  * The whole 3D renderer: `forwardCorePlugin` and every render feature. Apps that want a smaller
@@ -38,6 +39,7 @@ export function forwardPlugin(options: ForwardPluginOptions = {}): Plugin {
         environmentPlugin,
         atmospherePlugin,
         postPlugin,
+        volumetricFogPlugin,
         fxaaPlugin,
         gizmosPlugin,
         pickingPlugin,

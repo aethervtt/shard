@@ -1,6 +1,6 @@
 # 0132 — Volumetric fog
 
-- **Status:** draft
+- **Status:** draft (visual pass built; tests to come)
 - **Packages:** `@aethervtt/shard-render`
 - **Depends on:** 0018, 0019, 0023, 0044, 0064, 0069, 0130, 0131
 
@@ -50,9 +50,10 @@ VolumetricFog {                        // on a camera, next to Fog
   distance: f32 = 96                   // metres the volume covers; analytic Fog continues beyond
   froxels: vec3 = [0, 0, 0]            // px per froxel in xy, and z slices; 0: from quality
   depthCurve: f32 = 2                  // slice distribution exponent (1 uniform, higher packs them near)
-  anisotropy: f32 = 0.6                // Henyey-Greenstein g for every medium unless a FogVolume sets its own
+  anisotropy: f32 = 0.3                // Henyey-Greenstein g for every medium unless a FogVolume sets its own
   temporal: f32 = 0.9                  // history weight
   lights: bool = true                  // point and spot lights scatter
+  ambient: f32 = 1                     // scale of the sky light the fog scatters
   quality: 'low' | 'medium' | 'high' = 'medium'   // 16 / 8 / 4 px froxels, 32 / 64 / 128 slices
 }
 FogVolume {                            // with a Transform
@@ -65,8 +66,8 @@ FogVolume {                            // with a Transform
   noise: f32 = 0.5, noiseScale: f32 = 0.2, noiseSpeed: vec3 = [0.3, 0, 0.1]
   blend: 'add' | 'max' = 'add'
   anisotropy: f32 = -1                 // -1: the camera's
+  ambient: f32 = 1                     // sky light reaching the fog inside: 0 in a closed room
 }
-PointLight / SpotLight gain volumetric: f32 = 1   // scattering scale; 0 leaves the light out of fog
 ```
 
 `Fog`'s fields (density, height falloff, start, color as albedo, sun scattering as the phase g
@@ -75,6 +76,12 @@ Weather (0133) changes `Fog.density` and `color`, and adds a global noise amount
 `fogNoise` (new, a `Fog` field, default 0).
 
 ### Passes
+
+On the full tier the forward view group (lights, clusters, shadow maps, environment, globals and
+the sky occlusion map) is visible to compute as well, so the passes bind the same group 0 the
+lighting stage does and call its functions (`directional_shadow`, `spot_shadow`, `point_shadow`,
+`env_irradiance`, `sky_occlusion`). Nothing about lights is copied or packed twice.
+
 
 The plugin is `render/volumetric-fog`. It's added to `forwardPlugin()` like other features and
 registers its WGSL, and nothing registers on import. All its passes are compute:
@@ -99,8 +106,10 @@ registers its WGSL, and nothing registers on import. All its passes are compute:
 4. **Integrate** (`volumetric-fog/integrate`). Marches each froxel column front to back,
    energy-conserving (Hillaire's integration), into in-scatter and transmittance per slice.
 
-The fog is applied in the pass that already applies `Fog` (`post/fog`), or in `post/atmosphere`
-when the camera has an atmosphere, so no fullscreen pass is added. A pixel inside `distance`
+The fog is applied by a fullscreen pass in the Fog phase, after transparent objects, blending
+premultiplied in-scattering and transmittance over scene color. Extraction takes a VolumetricFog
+camera's analytic `Fog` out of the post chain, and the apply pass draws it itself past the volume
+(`fog_apply` from `distance` on), so the two never double up. A pixel inside `distance`
 samples the integrated volume at its depth, with tricubic filtering in xy. A pixel beyond it takes
 the volume's value at `distance`, then the analytic Fog from `distance` on, starting from the
 volume's transmittance. The two meet at the same medium, so there's no step. Then 0044's aerial
@@ -153,6 +162,14 @@ It logs `render/feature-reduced volumetric-fog` once, naming what's missing.
   nothing to light).
 
 ## Decisions
+
+- **A sky-light scale per FogVolume.** Without 0069's sky visibility (a room not built with
+  structure), fog inside a room scatters the full sky and washes out sunbeams; `ambient` lets a
+  volume say how much sky reaches it. 0069's field replaces it where structure provides one.
+- **The view group visible to compute, not a copy of it.** The fog lights froxels with exactly the
+  lights, shadows and environment surfaces see, and shader changes to lighting reach it for free.
+- **Anisotropy 0.3 by default.** At 0.6, beams seen side-on (90°) scatter too little to read;
+  Unreal's default is 0.2.
 
 - **The global medium is `Fog`.** One set of parameters, read by both the volume and the analytic
   continuation, makes the boundary invisible by construction, and existing scenes switch on
