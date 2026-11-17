@@ -11,6 +11,7 @@ import {
   Meshes,
   MeshMaterial,
   OffscreenTarget,
+  RenderPath,
   RenderTargets,
   renderPlugin,
   Tonemapping,
@@ -27,7 +28,7 @@ import { skyPlugin } from './plugin'
 
 // Cloud shadows (0131) on Toon cameras (0108): overcast dims the light a toon surface gets, as it
 // dims a PBR one. Through the band ramp, a surface 90% under cloud kept a whole band of sun, so in
-// fog it stayed bright and the fog barely showed on it.
+// fog it stayed bright and the fog barely showed on it. Deferred cameras (0021) dim the same.
 
 let gpu: GpuContext
 beforeAll(async () => {
@@ -43,7 +44,7 @@ const EYE: Vec3 = [0, 1.6, 0]
 const BOX: Vec3 = [0, 1, -30]
 
 /** Linear luminance of the box's middle, under thick cloud with or without its shadows. */
-async function boxLight(toon: boolean, shadows: boolean): Promise<number> {
+async function boxLight(toon: boolean, shadows: boolean, deferred = false): Promise<number> {
   const app = new App().addPlugin(
     TransformPlugin,
     renderPlugin({ gpu, windowView: false }),
@@ -77,6 +78,7 @@ async function boxLight(toon: boolean, shadows: boolean): Promise<number> {
     [Transform, { translation: EYE, rotation: lookAt(EYE, BOX) }],
   )
   if (toon) world.add(cam, Toon, { bands: 3 })
+  if (deferred) world.add(cam, RenderPath, { mode: 'deferred' })
   await settle(app, 60)
   const image = await renderView(app, `camera:${cam}`)
   const s = new Float32Array(3)
@@ -95,5 +97,14 @@ describe('cloud shadows on Toon cameras (0108, 0131)', () => {
     expect(pbr).toBeLessThan(0.7)
     // …and a toon box keeps no more of its light than a PBR one does.
     expect(toon).toBeLessThan(pbr * 1.25)
+  }, 120_000)
+
+  it('dim a deferred surface as they dim a forward one', async () => {
+    const forward = (await boxLight(false, true)) / (await boxLight(false, false))
+    const deferred = (await boxLight(false, true, true)) / (await boxLight(false, false, true))
+    const toon = (await boxLight(true, true, true)) / (await boxLight(true, false, true))
+    expect(deferred).toBeLessThan(0.7)
+    expect(Math.abs(deferred - forward)).toBeLessThan(0.05)
+    expect(toon).toBeLessThan(deferred * 1.25)
   }, 120_000)
 })

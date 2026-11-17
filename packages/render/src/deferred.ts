@@ -12,6 +12,7 @@ import {
   PASS_OPAQUE,
   sceneColor,
   viewBindGroup,
+  withSkyOcclusion,
 } from './forward'
 import type { CapturedImage, NodeContext, RenderView } from './graph'
 import { RenderPhase } from './graph'
@@ -102,15 +103,20 @@ function lightingNode() {
       if (!pv) return
       const mode = state.interiorMode
       const toon = cam.toon.tones > 0
-      const module = ctx.world.resource(Shaders).module(
-        gpu,
-        mode !== 0 || toon
-          ? {
-              root: 'shard::pbr::deferred_lighting',
-              defines: DEFERRED_LIGHTING_DEFINES[mode]![toon ? 1 : 0],
-            }
-          : { root: 'shard::pbr::deferred_lighting' },
+      // Cloud shadows (0131) dim directional light here, as forward lighting does.
+      const defines = withSkyOcclusion(
+        DEFERRED_LIGHTING_DEFINES[mode]![toon ? 1 : 0],
+        state.skyOcclusion,
+        false,
       )
+      const module = ctx.world
+        .resource(Shaders)
+        .module(
+          gpu,
+          defines
+            ? { root: 'shard::pbr::deferred_lighting', defines }
+            : { root: 'shard::pbr::deferred_lighting' },
+        )
       if (!module) {
         gpu.pipelines.skipped++
         return

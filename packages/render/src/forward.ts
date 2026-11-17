@@ -1057,8 +1057,11 @@ function materialPipeline(
   const mode = gbuffer || prepass || pick ? 0 : state.interiorMode
   // Nor toon shading (0108), which a view's camera turns on.
   const toon = !gbuffer && !prepass && !pick && cam.toon.tones > 0
-  // Nor sky hooks: cloud shadows on directional lights (0131), surface weather (0134).
-  const occluded = !gbuffer && !prepass && !pick && (state.skyOcclusion || state.skySurface)
+  // Nor sky hooks: cloud shadows on directional lights (0131), surface weather (0134). The
+  // G-buffer takes surface weather alone; deferred lighting links the cloud shadows (0021).
+  const occluded = gbuffer
+    ? state.skySurface
+    : !prepass && !pick && (state.skyOcclusion || state.skySurface)
   // Cutaway variants (0070) key above every other pass's pipelines (shadows' included).
   const key =
     ((pass * 1024 + typeOrdinal(type)) * 16 + variant) * 8 +
@@ -1118,7 +1121,7 @@ function materialPipeline(
                 : 0
               : (premultiply ? 1 : 0) | (mask ? 2 : 0) | (opaque ? 4 : 0)
         ],
-        occluded && state.skyOcclusion,
+        occluded && !gbuffer && state.skyOcclusion,
         occluded && state.skySurface,
       ),
     )
@@ -2133,7 +2136,7 @@ function refractViewLayout(gpu: GpuContext, state: ForwardState): GPUBindGroupLa
 
 /** A define set with the sky hooks linked in: SKY_OCCLUSION (0131), SURFACE_WEATHER (0134). */
 const skyHookDefines = new WeakMap<object, (Readonly<Record<string, boolean>> | undefined)[]>()
-function withSkyOcclusion(
+export function withSkyOcclusion(
   defines: Readonly<Record<string, boolean>> | undefined,
   occlusion: boolean,
   surface: boolean,

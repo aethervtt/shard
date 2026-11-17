@@ -2887,6 +2887,9 @@ importers:
         specifier: workspace:*
         version: link:../wind
     devDependencies:
+      '@aethervtt/shard-mesh':
+        specifier: workspace:*
+        version: link:../mesh
       '@aethervtt/shard-net':
         specifier: workspace:*
         version: link:../net

@@ -223,8 +223,8 @@ glass, or ash that settles.
 - **Every standard surface gets weather; there's no per-material field yet.** The forward fragment
   passes its surface through `surface_weather` when the weather plugin sets `SkyOcclusion.surface`
   (one variant with cloud shadows, so no new pipeline keys). Puddles form on flat, non-metal
-  surfaces. The `weather` profile field, terrain layers, foliage and the deferred G-buffer pass are
-  still to come.
+  surfaces. Deferred views' G-buffer pass makes the same call, so their surfaces match. The
+  `weather` profile field, terrain layers and foliage are still to come.
 - **Data lives in shard::shader_data** (68 slots: state, and 16 mask brushes), not globals, which
   wind and the sky nearly fill.
 - **Covered surfaces come from WeatherMaskBrush boxes only**, as in 0133's visual pass.

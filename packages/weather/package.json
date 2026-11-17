@@ -24,6 +24,7 @@
     "@aethervtt/shard-wind": "workspace:*"
   },
   "devDependencies": {
+    "@aethervtt/shard-mesh": "workspace:*",
     "@aethervtt/shard-net": "workspace:*",
     "@aethervtt/shard-scene": "workspace:*",
     "@types/node": "^26.6.2",
