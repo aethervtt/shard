@@ -75,9 +75,14 @@ Clouds {                              // on the Sky entity
   Earth-sized sphere (6 360 km) centered under the world origin, positioned through 0040's
   floating origin. On a flat world, clouds converge at the horizon as they do in life, and the
   same code works on a planet.
-- **Advection.** The offset is integrated per fixed tick in f64 from `Wind` (0096) at cloud
-  altitude, scaled by `windInfluence`, plus `phase`. It's deterministic and identical on every
-  client, because Wind already is.
+- **Advection.** The offset is a function of the sky's tick (0130's `skyTick`: the server's on a
+  client), in f64. The velocity (`Wind` at cloud altitude, scaled by `windInfluence`) is sampled at
+  every `CLOUD_WINDOW` (10 s) of ticks since tick 0 and rises linearly between samples, so the
+  offset is the sum of the whole windows' mean rates plus the current window's integral, then
+  `phase`. A player who joins late sums the same windows and sees the same clouds, which needs the
+  wind's history: while 0133's weather drives the wind it supplies it (`CloudMotion.windAt`).
+  Otherwise the clouds read `Wind` now, which matches across late joiners only if it hasn't
+  changed.
 - **Density.** `shard::clouds::density(p, lod)` is Nubis's: a 128³ shape noise (Perlin-Worley and
   three Worley octaves), a height gradient for the local `type` from a 64×64 profile LUT, a
   coverage remap, then erosion by a 32³ detail noise. The noise volumes are generated once by 0041
@@ -200,6 +205,11 @@ before aerial perspective, which then hazes them at their own distance.
   `2d` and says how to bake one).
 
 ## Decisions
+
+- **Advection is a function of the tick, not an integral per tick.** Integrating per local tick
+  gave each client its own clouds, depending on when it joined. Sampling the wind every 10 s since
+  tick 0 makes the offset the same for anyone who can evaluate the wind's history. Catching up costs
+  one sample per window passed (360 an hour).
 
 - **One field, many renderers.** Weather, wind and coverage maps feed all five, so a game can
   change mode per platform or graphics setting without retuning anything. It's how UDS keeps its

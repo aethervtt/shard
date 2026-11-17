@@ -30,4 +30,4 @@ export {
   type Season,
   seasonWeights,
 } from './seasons'
-export { changeWeather, exposureAt, forecastWeather, presetValues } from './state'
+export { changeWeather, exposureAt, forecastWeather, presetValues, weatherWindAt } from './state'

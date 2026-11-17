@@ -1,4 +1,5 @@
 import { defineResource, ShardError } from '@aethervtt/shard-core'
+import { VIEW_BINDINGS } from './view-bindings'
 
 /** vec4 slots in `shard::globals`' `data` array, shared by every plugin that reserves some. */
 export const GLOBALS_DATA_SLOTS = 128
@@ -10,7 +11,7 @@ export const GLOBALS_DATA_SLOTS = 128
 export const SHADER_DATA_SLOTS = 1024
 
 /** Group-0 binding of `shard::shader_data`, in camera views and shadow views alike. */
-export const SHADER_DATA_BINDING = 18
+export const SHADER_DATA_BINDING = VIEW_BINDINGS.shaderData
 
 /** Named ranges of vec4 slots, handed out in order from one block. */
 class Slots {

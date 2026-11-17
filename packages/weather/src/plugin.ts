@@ -10,7 +10,14 @@ import {
 } from '@aethervtt/shard-render'
 import { definePlugin } from '@aethervtt/shard-runtime'
 import { TransformSystems } from '@aethervtt/shard-transform'
-import { Weather, WeatherMaskBrush, WeatherState, WeatherZone } from './components'
+import {
+  LightningStrike,
+  Weather,
+  WeatherChanged,
+  WeatherMaskBrush,
+  WeatherState,
+  WeatherZone,
+} from './components'
 import { LightningState, spawnFlashLight, updateLightning } from './lightning'
 import { precipitationNode, uploadWeather, WeatherGpuResource } from './render'
 import { WEATHER_SLOTS, weatherShaders } from './shaders'
@@ -31,6 +38,8 @@ export const weatherPlugin = definePlugin({
     WeatherState,
     LightningState,
     WeatherGpuResource,
+    WeatherChanged,
+    LightningStrike,
   ],
   build(app) {
     const world = app.world

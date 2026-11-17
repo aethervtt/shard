@@ -3,6 +3,7 @@ import { type ShaderLibrary, wgslLayout } from '@aethervtt/shard-shader'
 import { StandardMaterial } from './assets'
 import { CULLING_SHADERS } from './culling-shaders'
 import { GLOBALS_DATA_SLOTS, SHADER_DATA_BINDING, SHADER_DATA_SLOTS } from './globals'
+import { VIEW_BINDINGS } from './view-bindings'
 
 /** Per-view uniforms. A schema, so the WGSL struct and the CPU packing come from one place. */
 export const ViewUniform = defineComponent('render/ViewUniform', {
@@ -800,7 +801,7 @@ import shard::pbr::environment::environment_light;
 const FLAG_RECEIVER: u32 = 4u;
 
 /** Screen-space ambient occlusion (Ssao), full resolution; 1×1 white without it. */
-@if(!REFRACTION) @group(0) @binding(15) var ao_texture: texture_2d<f32>;
+@if(!REFRACTION) @group(0) @binding(${VIEW_BINDINGS.ao}) var ao_texture: texture_2d<f32>;
 
 /** The cluster of a fragment, or -1 outside the clustered depth range. */
 fn cluster_of(frag_coord: vec4f, view_depth: f32) -> i32 {

@@ -64,8 +64,8 @@ struct Interior {
 }
 
 /** The field's layers, then the light rows. */
-@group(0) @binding(16) var interior_data: texture_2d_array<u32>;
-@group(0) @binding(17) var<uniform> interior: Interior;
+@group(0) @binding(${INTERIOR_BINDINGS.data}) var interior_data: texture_2d_array<u32>;
+@group(0) @binding(${INTERIOR_BINDINGS.table}) var<uniform> interior: Interior;
 
 const INTERIOR_GROUND: u32 = 8u;
 /** How far a blocked light's receiver moves off its surface, so each face reads its own side. */

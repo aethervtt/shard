@@ -123,6 +123,11 @@ export const WeatherGpuResource = defineResource<WeatherGpu>('weather/Gpu', {
 const inverse = new Float32Array(12)
 const matrix = new Float32Array(12)
 
+/** A state value for the shaders: within 0..1, and 0 when it isn't a number. */
+function unit(v: number): number {
+  return v > 0 ? Math.min(1, v) : 0
+}
+
 /**
  * Writes the weather block of shard::shader_data (0134): the surfaces' state, rain and snow, and
  * the mask brushes, for surface weather and precipitation.
@@ -138,13 +143,14 @@ export const uploadWeather = defineSystem({
     const s = world.resource(WeatherState)
     const v = data.values
     const o = gpu.slot * 4
-    v[o] = s.wetness
-    v[o + 1] = s.snowCover
-    v[o + 2] = s.dustCover
-    v[o + 3] = s.channels[CH.rain]!
+    // Never a non-finite value: surface_weather would carry it into every surface it touches.
+    v[o] = unit(s.wetness)
+    v[o + 1] = unit(s.snowCover)
+    v[o + 2] = unit(s.dustCover)
+    v[o + 3] = unit(s.channels[CH.rain]!)
     v[o + 4] = world.tryResource(Time)?.elapsed ?? 0
-    v[o + 5] = s.channels[CH.snow]!
-    v[o + 6] = s.channels[CH.wind]!
+    v[o + 5] = unit(s.channels[CH.snow]!)
+    v[o + 6] = unit(s.channels[CH.wind]!)
     v[o + 8] = 0.55
     v[o + 9] = 0.45
     v[o + 10] = 0.3

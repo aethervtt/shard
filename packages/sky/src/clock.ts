@@ -1,10 +1,11 @@
 import { defineResource, defineSystem, ShardError, type World } from '@aethervtt/shard-core'
+import { NetClock, NetRole } from '@aethervtt/shard-net'
 import { FixedTime } from '@aethervtt/shard-runtime'
 import { HourChanged, TimeOfDay, type TimeOfDayValue } from './components'
 
 /**
- * The clock's anchor (0130): game hours since day 0 at a fixed tick. The clock is a function of the
- * tick from there, so every machine stepping the same ticks reads the same time, with no drift.
+ * The clock's anchor (0130): game hours since day 0 at a tick (`skyTick`'s). The clock is a function
+ * of the tick from there, so every machine at the same tick reads the same time, with no drift.
  */
 export interface ClockState {
   anchorTick: number
@@ -33,6 +34,30 @@ export const Clock = defineResource<ClockState>('sky/Clock', {
 })
 
 /**
+ * Real seconds the clock takes from `from` to `to` hours since day 0 (to ≥ from) at speed 1: the
+ * inverse of `advanceHours`.
+ */
+export function secondsBetween(c: TimeOfDayValue, from: number, to: number): number {
+  const dayHours = c.dusk - c.dawn
+  const nightHours = 24 - dayHours
+  const cycle = c.dayLength + c.nightLength
+  if (!(cycle > 0) || !(dayHours > 0) || !(nightHours > 0) || !(to > from)) return 0
+  const whole = Math.floor((to - from) / 24)
+  let seconds = whole * cycle
+  let h = from + whole * 24
+  for (let guard = 0; guard < 4 && h < to; guard++) {
+    const hod = h - Math.floor(h / 24) * 24
+    const day = hod >= c.dawn && hod < c.dusk
+    const rate = day ? dayHours / c.dayLength : nightHours / c.nightLength
+    const toEdge = day ? c.dusk - hod : hod >= c.dusk ? 24 - hod + c.dawn : c.dawn - hod
+    if (to - h <= toEdge) return seconds + (to - h) / rate
+    h += toEdge
+    seconds += toEdge / rate
+  }
+  return seconds
+}
+
+/**
  * Game hours after `seconds` of real time from `hours` (since day 0): hours between dawn and dusk
  * pass in dayLength, the rest in nightLength.
  */
@@ -57,9 +82,17 @@ export function advanceHours(c: TimeOfDayValue, hours: number, seconds: number):
   return h
 }
 
-function now(world: World): number {
+/**
+ * The tick the sky runs on (0130, 0131, 0133): the fixed tick and its fraction, or on a multiplayer
+ * client the server's (NetClock), so every player sees the same sky with nothing sent for it.
+ */
+export function skyTick(world: World): number {
   const fixed = world.tryResource(FixedTime)
-  return fixed ? fixed.tick + fixed.alpha : 0
+  if (!fixed) return 0
+  if (world.tryResource(NetRole)?.role === 'client') {
+    return world.tryResource(NetClock)?.serverTick ?? 0
+  }
+  return fixed.tick + fixed.alpha
 }
 
 function step(world: World): number {
@@ -77,8 +110,16 @@ function hoursAt(c: TimeOfDayValue, s: ClockState, tick: number, dt: number): nu
   return advanceHours(c, s.anchorHours, (tick - s.anchorTick) * dt * c.speed)
 }
 
+/** Game hours since day 0 at a tick (`skyTick`'s), past or future, from the anchor. */
+export function clockHoursAt(world: World, tick: number): number {
+  const c = world.resource(TimeOfDay)
+  const s = world.resource(Clock)
+  if (Number.isNaN(s.anchorHours)) return c.day * 24 + c.hours
+  return hoursAt(c, s, tick, step(world))
+}
+
 function reanchor(world: World, s: ClockState, hours: number): void {
-  s.anchorTick = now(world)
+  s.anchorTick = skyTick(world)
   s.anchorHours = hours
 }
 
@@ -122,7 +163,7 @@ export function transitionTimeOfDay(world: World, time: string | number, seconds
   const from = c.day * 24 + c.hours
   let to = c.day * 24 + parseTime(time)
   while (to < from) to += 24
-  const start = now(world)
+  const start = skyTick(world)
   s.transition = { startTick: start, endTick: start + seconds / step(world), from, to }
 }
 
@@ -134,10 +175,15 @@ export const updateClock = defineSystem({
   run: (_, world) => {
     const c = world.resource(TimeOfDay)
     const s = world.resource(Clock)
-    const tick = now(world)
+    const tick = skyTick(world)
     const dt = step(world)
     s.tick = tick
-    if (Number.isNaN(s.anchorHours)) reanchor(world, s, c.day * 24 + c.hours)
+    if (Number.isNaN(s.anchorHours)) {
+      // The clock starts at TimeOfDay's hours now, or on a client at the server's tick 0: where
+      // every player's clock started, whenever they joined.
+      reanchor(world, s, c.day * 24 + c.hours)
+      if (world.tryResource(NetRole)?.role === 'client') s.anchorTick = 0
+    }
     // Hours or day written directly, or new rates: re-anchor where the clock is now.
     const r = s.rates
     const changed =

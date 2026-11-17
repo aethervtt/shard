@@ -375,6 +375,24 @@ function writeModel(
   return changed
 }
 
+/**
+ * The model of the Earth atmosphere a procedural sky draws (a ProceduralSky camera's, or the
+ * default sky's), from its settings, defaults where they're missing; in km, the ground at
+ * `bottom`. For CPU questions about that sky, such as the sun's light reaching the ground (0130).
+ */
+export function proceduralSkyModel(
+  sky: Partial<{ turbidity: number; rayleigh: number; mie: number }>,
+  into: AtmosphereModel = createModel(),
+): AtmosphereModel {
+  const settings = {
+    turbidity: sky.turbidity ?? SKY_DEFAULTS.turbidity,
+    rayleigh: sky.rayleigh ?? SKY_DEFAULTS.rayleigh,
+    mie: sky.mie ?? SKY_DEFAULTS.mie,
+  }
+  writeModel(EARTH, EARTH_RADIUS, settings, into)
+  return into
+}
+
 /** The model of an atmosphere component's values (with bottomRadius already resolved), in km. */
 export function atmosphereModel(value: AtmosphereValue, bottomRadius: number): AtmosphereModel {
   const m = createModel()

@@ -1,4 +1,5 @@
 import { defineResource } from '@aethervtt/shard-core'
+import { VIEW_BINDINGS } from './view-bindings'
 
 /**
  * Sky occlusion (0131): while `enabled`, lit pipelines link `SKY_OCCLUSION`, and the lighting stage
@@ -22,7 +23,7 @@ export interface SkyOcclusionValue {
 }
 
 /** The view group's binding for SkyOcclusion.map, while the hook is on (full tier). */
-export const SKY_OCCLUSION_BINDING = 19
+export const SKY_OCCLUSION_BINDING = VIEW_BINDINGS.skyOcclusion
 
 export const SkyOcclusion = defineResource<SkyOcclusionValue>('render/SkyOcclusion', {
   description:

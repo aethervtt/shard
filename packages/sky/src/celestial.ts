@@ -1,9 +1,24 @@
 import { defineResource, defineSystem, type Entity, quat, type World } from '@aethervtt/shard-core'
-import { DefaultEnvironment, DirectionalLight } from '@aethervtt/shard-render'
-import { Time } from '@aethervtt/shard-runtime'
+import {
+  type AtmosphereModel,
+  DefaultEnvironment,
+  DirectionalLight,
+  proceduralSkyModel,
+  transmittanceToTop,
+} from '@aethervtt/shard-render'
+import { FixedTime } from '@aethervtt/shard-runtime'
 import { Transform } from '@aethervtt/shard-transform'
+import { skyTick } from './clock'
 import { Sky, Sunrise, Sunset, TimeOfDay } from './components'
 import { type CelestialState, computeCelestial, createCelestial } from './ephemeris'
+
+/** A light reaching the ground: `illuminance × color` is lux per channel. */
+export interface GroundLight {
+  /** Lux, luminance-weighted: 0 with the light below the horizon. */
+  illuminance: number
+  /** Linear rgb with a luminance of 1: the light's color reddened by the air. */
+  color: Float64Array
+}
 
 /** What `sky/update` worked out this frame, for the render nodes and describe. */
 export interface SkyFrameState {
@@ -15,6 +30,14 @@ export interface SkyFrameState {
   moonLight: Entity | -1
   /** Which light casts shadows: 'sun', 'moon' or 'none'. */
   shadows: 'sun' | 'moon' | 'none'
+  /**
+   * The sun's and the moon's light reaching open ground now, through the sky's atmosphere: what
+   * the renderer lights an unshadowed surface with, for game code that scales its own light by it
+   * (their lights keep their full illuminance; the atmosphere dims them as they're drawn). Cloud
+   * shadows aren't counted.
+   */
+  sunGround: GroundLight
+  moonGround: GroundLight
   nightBrightness: number
   stars: number
   twinkle: number
@@ -22,7 +45,7 @@ export interface SkyFrameState {
   aurora: number
   moonDisk: number
   moonSize: number
-  /** Seconds, for twinkle and aurora. */
+  /** Seconds on the sky tick, for twinkle and aurora: the same for every player. */
   time: number
 }
 
@@ -35,6 +58,8 @@ export const SkyFrame = defineResource<SkyFrameState>('sky/Frame', {
     sunLight: -1,
     moonLight: -1,
     shadows: 'none',
+    sunGround: { illuminance: 0, color: new Float64Array([1, 1, 1]) },
+    moonGround: { illuminance: 0, color: new Float64Array([1, 1, 1]) },
     nightBrightness: 1,
     stars: 1,
     twinkle: 1,
@@ -134,6 +159,9 @@ export const updateSky = defineSystem({
     const moonLux = sky.moonIlluminance * c.illuminated * night * smooth(-2, 4, c.moonElevation)
     writeLight(world, sun, c.sun, sky.sunIlluminance, sunShadows)
     writeLight(world, moon, c.moon, moonLux, moonShadows)
+    const model = skyModel(env?.sky)
+    groundLight(world, model, sun, c.sun, frame.sunGround)
+    groundLight(world, model, moon, c.moon, frame.moonGround)
 
     frame.nightBrightness = night
     frame.stars = sky.stars
@@ -142,7 +170,7 @@ export const updateSky = defineSystem({
     frame.aurora = sky.aurora
     frame.moonDisk = sky.moonDisk
     frame.moonSize = sky.moonSize
-    frame.time = world.tryResource(Time)?.elapsed ?? 0
+    frame.time = skyTick(world) * (world.tryResource(FixedTime)?.step ?? 1 / 60)
 
     if (!Number.isNaN(lastSunElevation)) {
       if (lastSunElevation < 0 && c.sunElevation >= 0) world.send(Sunrise, { day: clock.day })
@@ -151,6 +179,59 @@ export const updateSky = defineSystem({
     lastSunElevation = c.sunElevation
   },
 })
+
+let model: AtmosphereModel | undefined
+const modelSettings = new Float64Array(3).fill(Number.NaN)
+
+/** The atmosphere the default sky draws, remade when its settings change (the weather's haze). */
+function skyModel(
+  sky: Partial<{ turbidity: number; rayleigh: number; mie: number }> | null | undefined,
+): AtmosphereModel {
+  const turbidity = sky?.turbidity ?? 2
+  const rayleigh = sky?.rayleigh ?? 1
+  const mie = sky?.mie ?? 1
+  const s = modelSettings
+  if (!model || s[0] !== turbidity || s[1] !== rayleigh || s[2] !== mie) {
+    s[0] = turbidity
+    s[1] = rayleigh
+    s[2] = mie
+    model = proceduralSkyModel({ turbidity, rayleigh, mie }, model)
+  }
+  return model
+}
+
+/** sin of the sun disk's radius, 0.265°. */
+const DISK = Math.sin((0.265 * Math.PI) / 180)
+const transmittance = new Float64Array(3)
+
+/**
+ * A light's illuminance and color at open ground 10 m up (where the renderer measures it for a
+ * camera there) after the air along `dir`. The disk sets over its own width: light fades from full
+ * to none as it crosses the horizon, through the air just above it.
+ */
+function groundLight(
+  world: World,
+  m: AtmosphereModel,
+  light: Entity,
+  dir: Float64Array,
+  out: GroundLight,
+): void {
+  const l = world.get(light, DirectionalLight)!
+  const visible = smooth(-DISK, DISK, dir[1]!)
+  const y = Math.max(dir[1]!, DISK)
+  const flat = Math.sqrt(dir[0]! * dir[0]! + dir[2]! * dir[2]!) || 1
+  const k = Math.sqrt(1 - y * y) / flat
+  transmittanceToTop(m, 0, m.bottom + 0.01, 0, dir[0]! * k, y, dir[2]! * k, transmittance)
+  const r = l.color[0]! * transmittance[0]!
+  const g = l.color[1]! * transmittance[1]!
+  const b = l.color[2]! * transmittance[2]!
+  const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
+  out.illuminance = l.illuminance * luma * visible
+  const inv = luma > 0 ? 1 / luma : 0
+  out.color[0] = r * inv
+  out.color[1] = g * inv
+  out.color[2] = b * inv
+}
 
 function smooth(a: number, b: number, v: number): number {
   const t = Math.max(0, Math.min(1, (v - a) / (b - a)))

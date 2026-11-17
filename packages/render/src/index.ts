@@ -42,6 +42,7 @@ export {
   atmosphereModel,
   type CameraAtmosphere,
   describeAtmospheres,
+  proceduralSkyModel,
   sampleAtmosphere,
   selectAtmospheres,
   sunTransmittanceAt,
@@ -623,6 +624,7 @@ export {
   type ViewSettingsValue,
   viewAliases,
 } from './view'
+export { checkViewEntries, VIEW_BINDINGS } from './view-bindings'
 export {
   type HiddenSet,
   HiddenSetsResource,

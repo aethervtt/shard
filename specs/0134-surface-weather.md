@@ -173,6 +173,10 @@ glass, or ash that settles.
 
 ## Decisions
 
+- **The block is clamped on the CPU.** `weather/upload` writes the state within 0..1 and 0 for
+  anything that isn't a number. A non-finite state would carry into every surface it touches, and
+  a NaN check in WGSL isn't reliable (compilers may assume finite floats).
+
 - **On by default, through one field.** UDS's per-material wiring is its biggest integration cost,
   and a forgotten material breaks the look. Here, every built-in material gets weather by adding
   the plugin, and opting out is one field.

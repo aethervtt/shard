@@ -171,6 +171,7 @@ import {
   Tonemapping,
   ViewSettings,
 } from './view'
+import { checkViewEntries, VIEW_BINDINGS } from './view-bindings'
 import {
   HiddenSetsResource,
   NO_HIDDEN,
@@ -1299,7 +1300,7 @@ function idOf(t: GPUTexture | GPUTextureView): number {
 }
 
 /** Group 0's SSAO texture, which the refraction pass's (0129) leaves out. */
-const AO_BINDING = 15
+const AO_BINDING = VIEW_BINDINGS.ao
 
 /**
  * The view bind group (group 0): uniforms, lights, clusters, shadows. Rebuilt when inputs change.
@@ -2024,6 +2025,16 @@ function viewEntries(gpu: GpuContext, sky = false): GPUBindGroupLayoutEntry[] {
   ]
 }
 
+/** A view group layout (group 0), after checking no two of its entries share a binding. */
+function viewGroupLayout(
+  gpu: GpuContext,
+  label: string,
+  entries: GPUBindGroupLayoutEntry[],
+): GPUBindGroupLayout {
+  checkViewEntries(label, entries)
+  return gpu.layouts.bindGroupLayout({ label, entries })
+}
+
 /** Bind group and pipeline layouts, created per device (after a device loss they're rebuilt). */
 function createLayouts(
   gpu: GpuContext,
@@ -2031,10 +2042,7 @@ function createLayouts(
   store: InstanceStore,
   sky: boolean,
 ): Layouts {
-  const view = gpu.layouts.bindGroupLayout({
-    label: 'forward/view',
-    entries: viewEntries(gpu, sky),
-  })
+  const view = viewGroupLayout(gpu, 'forward/view', viewEntries(gpu, sky))
   const C = GPUShaderStage.COMPUTE
   const cluster = gpu.layouts.bindGroupLayout({
     label: 'light-clusters',
@@ -2076,10 +2084,10 @@ function createLayouts(
 function interiorViewLayout(gpu: GpuContext, state: ForwardState): GPUBindGroupLayout {
   const layouts = state.layouts
   if (layouts.viewInterior) return layouts.viewInterior
-  layouts.viewInterior = gpu.layouts.bindGroupLayout({
-    label: 'forward/view/interior',
-    entries: [...viewEntries(gpu, state.layoutSky), ...interiorEntries()],
-  })
+  layouts.viewInterior = viewGroupLayout(gpu, 'forward/view/interior', [
+    ...viewEntries(gpu, state.layoutSky),
+    ...interiorEntries(),
+  ])
   return layouts.viewInterior
 }
 
@@ -2105,9 +2113,10 @@ function refractViewLayout(gpu: GpuContext, state: ForwardState): GPUBindGroupLa
   const made = state.layouts.viewRefract[k]
   if (made) return made
   const F = GPUShaderStage.FRAGMENT
-  const layout = gpu.layouts.bindGroupLayout({
-    label: k ? 'forward/view/interior/refraction' : 'forward/view/refraction',
-    entries: [
+  const layout = viewGroupLayout(
+    gpu,
+    k ? 'forward/view/interior/refraction' : 'forward/view/refraction',
+    [
       ...viewEntries(gpu, state.layoutSky).filter((e) => e.binding !== AO_BINDING),
       ...(k ? interiorEntries() : []),
       { binding: REFRACTION_BINDINGS.color, visibility: F, texture: { sampleType: 'float' } },
@@ -2117,7 +2126,7 @@ function refractViewLayout(gpu: GpuContext, state: ForwardState): GPUBindGroupLa
         texture: { sampleType: 'unfilterable-float' },
       },
     ],
-  })
+  )
   state.layouts.viewRefract[k] = layout
   return layout
 }
@@ -2202,6 +2211,7 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
       PhysicalCamera,
       DrivesView,
       ForwardStateResource,
+      SkyOcclusion,
       Mesh3d,
       MeshMaterial,
       GpuAssetsResource,

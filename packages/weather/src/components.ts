@@ -310,7 +310,7 @@ export interface WeatherStateValue {
   /** The base weather (before zones): what a change starts from, and where it's going. */
   from: Float32Array
   to: Float32Array
-  /** The change in progress, in fixed ticks. */
+  /** The change in progress, in sky ticks (the server's on a client). */
   startTick: number
   endTick: number
   preset: string
@@ -325,6 +325,8 @@ export interface WeatherStateValue {
   wetness: number
   snowCover: number
   dustCover: number
+  /** simulate: whether the surface state has started (from the weather's direct values). */
+  surfacesStarted: boolean
   /** Where the listener is (the camera). */
   listener: Float64Array
   /** Random climate: the window being shown; schedule: the entry in force. */
@@ -354,6 +356,7 @@ export const WeatherState = defineResource<WeatherStateValue>('weather/State', {
     wetness: 0,
     snowCover: 0,
     dustCover: 0,
+    surfacesStarted: false,
     listener: new Float64Array(3),
     window: -1,
     seasons: new Float32Array([0, 1, 0, 0]),

@@ -2331,6 +2331,9 @@ importers:
       '@aethervtt/shard-gpu':
         specifier: workspace:*
         version: link:../gpu
+      '@aethervtt/shard-net':
+        specifier: workspace:*
+        version: link:../net
       '@aethervtt/shard-render':
         specifier: workspace:*
         version: link:../render
@@ -2344,12 +2347,21 @@ importers:
         specifier: workspace:*
         version: link:../wind
     devDependencies:
+      '@aethervtt/shard-mesh':
+        specifier: workspace:*
+        version: link:../mesh
+      '@aethervtt/shard-scene':
+        specifier: workspace:*
+        version: link:../scene
       '@types/node':
         specifier: ^26.6.2
         version: 26.6.2
       '@webgpu/types':
         specifier: ^0.1.74
         version: 0.1.74
+      webgpu:
+        specifier: 0.6.1
+        version: 0.6.1
 
   packages/sprite:
     dependencies:
@@ -2875,12 +2887,21 @@ importers:
         specifier: workspace:*
         version: link:../wind
     devDependencies:
+      '@aethervtt/shard-net':
+        specifier: workspace:*
+        version: link:../net
+      '@aethervtt/shard-scene':
+        specifier: workspace:*
+        version: link:../scene
       '@types/node':
         specifier: ^26.6.2
         version: 26.6.2
       '@webgpu/types':
         specifier: ^0.1.74
         version: 0.1.74
+      webgpu:
+        specifier: 0.6.1
+        version: 0.6.1
 
   packages/wind:
     dependencies:

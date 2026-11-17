@@ -1,5 +1,6 @@
 import { defineResource } from '@aethervtt/shard-core'
 import type { GpuContext } from '@aethervtt/shard-gpu'
+import { VIEW_BINDINGS } from './view-bindings'
 
 // Interior lighting (0069). Core owns the hooks: the lighting stage's `SKY_VISIBILITY` and
 // `BLOCKED_LIGHTS` defines, two view bindings that exist only while one is on, and the light
@@ -12,7 +13,10 @@ export const INTERIOR_SKY = 1
 export const INTERIOR_BLOCKED = 2
 
 /** The view group's bindings while a mode bit is on: the field and rows (one texture), the table. */
-export const INTERIOR_BINDINGS = { data: 16, table: 17 } as const
+export const INTERIOR_BINDINGS = {
+  data: VIEW_BINDINGS.interiorData,
+  table: VIEW_BINDINGS.interiorTable,
+} as const
 
 /**
  * Set by `interiorPlugin`: what forward needs to link and bind the interior variants. With mode 0

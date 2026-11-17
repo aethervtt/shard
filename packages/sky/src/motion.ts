@@ -1,13 +1,21 @@
-import { defineResource, defineSystem, type Entity } from '@aethervtt/shard-core'
+import { defineResource, defineSystem, type Entity, type World } from '@aethervtt/shard-core'
 import { Camera3d, ShaderGlobals } from '@aethervtt/shard-render'
 import { FixedTime } from '@aethervtt/shard-runtime'
 import { GlobalTransform } from '@aethervtt/shard-transform'
 import { Wind } from '@aethervtt/shard-wind'
 import { SkyFrame } from './celestial'
+import { skyTick } from './clock'
 import { Clouds } from './components'
 import { SHADOW_EXTENT, SHADOW_SIZE } from './shaders'
 
-/** How far the wind has carried the clouds (0131): integrated per fixed tick, so every machine agrees. */
+/** Seconds between the cloud velocity's samples: it changes linearly from one to the next. */
+export const CLOUD_WINDOW = 10
+
+/**
+ * How far the wind has carried the clouds (0131), a function of the sky's tick: the velocity is
+ * sampled at every CLOUD_WINDOW of ticks since tick 0 and integrated between the samples, so a
+ * player who joins late sums the same windows and sees the same clouds as everyone else.
+ */
 export interface CloudMotionState {
   /** Advection in world xz (m), plus the Clouds' phase. */
   offset: Float64Array
@@ -17,17 +25,71 @@ export interface CloudMotionState {
   slot: number
   /** The cloud shadow map's center (world xz, snapped to its texels) this frame. */
   shadowCenter: Float64Array
+  /**
+   * The wind at a tick (`skyTick`'s, past or future), for the clouds: writes direction x, z and
+   * speed (m/s at the ground) into `out`. Weather sets it while it drives the wind (0133), so the
+   * clouds' history is known on every machine; without it they read wind/Wind now.
+   */
+  windAt: ((world: World, tick: number, out: Float64Array) => void) | undefined
+  /** The window `base` starts: offset x, z and evolution there, and the rates at its ends. */
+  window: number
+  /** The `windAt` the windows were summed with: a new one sums them again from tick 0. */
+  summedWith: CloudMotionState['windAt']
+  base: Float64Array
+  rate0: Float64Array
+  rate1: Float64Array
 }
 
 export const CloudMotion = defineResource<CloudMotionState>('sky/CloudMotion', {
-  description: 'The clouds’ wind advection (m) and evolution, integrated per fixed tick (0131).',
+  description:
+    'The clouds’ wind advection (m) and evolution, a function of the sky tick (0131): the same on every machine.',
   init: () => ({
     offset: new Float64Array(2),
     evolution: 0,
     slot: -1,
     shadowCenter: new Float64Array(2),
+    windAt: undefined,
+    window: -1,
+    summedWith: undefined,
+    base: new Float64Array(3),
+    rate0: new Float64Array(3),
+    rate1: new Float64Array(3),
   }),
 })
+
+const wind3 = new Float64Array(3)
+
+const cloudsOf = (world: World, entity: Entity) => world.get(entity, Clouds)
+
+/** The clouds' velocity (m/s in x, z) and evolution rate at a tick, into `out`. */
+function rateAt(
+  world: World,
+  clouds: ReturnType<typeof cloudsOf>,
+  motion: CloudMotionState,
+  tick: number,
+  out: Float64Array,
+): void {
+  let dx = clouds.direction[0]
+  let dz = clouds.direction[2]
+  let speed = clouds.speed
+  if (clouds.windInfluence > 0) {
+    const wind = motion.windAt ? undefined : world.tryResource(Wind)
+    if (motion.windAt) {
+      motion.windAt(world, tick, wind3)
+      dx = wind3[0]!
+      dz = wind3[1]!
+      speed = wind3[2]! * clouds.windInfluence * clouds.windScale
+    } else if (wind) {
+      dx = wind.direction[0]
+      dz = wind.direction[2]
+      speed = wind.speed * clouds.windInfluence * clouds.windScale
+    }
+  }
+  const len = Math.sqrt(dx * dx + dz * dz) || 1
+  out[0] = (dx / len) * speed
+  out[1] = (dz / len) * speed
+  out[2] = clouds.evolution * 1000
+}
 
 /**
  * A flash inside the clouds this frame (0133's lightning): world position (m) and strength (the
@@ -43,29 +105,50 @@ export const SkyFlash = defineResource<SkyFlashValue>('sky/Flash', {
   init: () => ({ position: new Float64Array(3), strength: 0 }),
 })
 
-/** Carries the clouds along the wind (wind/Wind × windScale, or the Clouds' own speed). */
+/**
+ * Carries the clouds along the wind (wind/Wind × windScale, or the Clouds' own speed) to the sky's
+ * tick: whole windows since tick 0 at their mean rate, then the rate rising linearly through this
+ * one. A new window costs one rate sample; joining late, one per window passed.
+ */
 export const advectClouds = defineSystem({
   name: 'sky/advect-clouds',
-  description: 'Integrates the cloud offset from wind/Wind each fixed tick (0131).',
+  description:
+    'Sets the cloud offset and evolution at the sky tick (0131): the wind sampled every CLOUD_WINDOW seconds since tick 0, integrated between samples.',
   run: (_, world) => {
     const frame = world.resource(SkyFrame)
     if (frame.entity < 0 || !world.has(frame.entity as Entity, Clouds)) return
-    const clouds = world.get(frame.entity as Entity, Clouds)
+    const clouds = cloudsOf(world, frame.entity as Entity)
     const step = world.tryResource(FixedTime)?.step ?? 1 / 60
     const motion = world.resource(CloudMotion)
-    let dx = clouds.direction[0]
-    let dz = clouds.direction[2]
-    let speed = clouds.speed
-    const wind = clouds.windInfluence > 0 ? world.tryResource(Wind) : undefined
-    if (wind) {
-      dx = wind.direction[0]
-      dz = wind.direction[2]
-      speed = wind.speed * clouds.windInfluence * clouds.windScale
+    const ticks = Math.max(1, Math.round(CLOUD_WINDOW / step))
+    const seconds = ticks * step
+    const tick = Math.max(0, skyTick(world))
+    const window = Math.floor(tick / ticks)
+    const base = motion.base
+    const r0 = motion.rate0
+    const r1 = motion.rate1
+    if (motion.window < 0 || window < motion.window || motion.summedWith !== motion.windAt) {
+      // First run, the tick went back (a client reconnected), or the weather started driving the
+      // wind: from tick 0 again.
+      motion.summedWith = motion.windAt
+      motion.window = 0
+      base.fill(0)
+      rateAt(world, clouds, motion, 0, r0)
+      rateAt(world, clouds, motion, ticks, r1)
     }
-    const len = Math.sqrt(dx * dx + dz * dz) || 1
-    motion.offset[0] = motion.offset[0]! + (dx / len) * speed * step
-    motion.offset[1] = motion.offset[1]! + (dz / len) * speed * step
-    motion.evolution += clouds.evolution * step * 1000
+    while (motion.window < window) {
+      for (let c = 0; c < 3; c++) {
+        base[c] = base[c]! + (r0[c]! + r1[c]!) * 0.5 * seconds
+        r0[c] = r1[c]!
+      }
+      motion.window++
+      rateAt(world, clouds, motion, (motion.window + 1) * ticks, r1)
+    }
+    const u = (tick - window * ticks) * step
+    const k = (u * u) / (2 * seconds)
+    motion.offset[0] = base[0]! + r0[0]! * u + (r1[0]! - r0[0]!) * k
+    motion.offset[1] = base[1]! + r0[1]! * u + (r1[1]! - r0[1]!) * k
+    motion.evolution = base[2]! + r0[2]! * u + (r1[2]! - r0[2]!) * k
   },
 })
 

@@ -76,7 +76,6 @@ Sky {                                   // one per world (sky/two-skies otherwis
 }
 TimeOfDay (resource) { hours: f64, day: i32, date: { year, month, day }, dawn: f32 = 6, dusk: f32 = 18,
                        dayLength: f32 = 1200, nightLength: f32 = 600, /* real seconds */ paused: bool }
-TimeOfDayState { anchorHours: f64, anchorDay: i32, fromTick: u32, rate fields… }  // replicated singleton
 ```
 
 `SkyGradient` (`*.sky-gradient.json`) holds zenith, horizon and ground colors, plus sun and moon
@@ -84,14 +83,17 @@ light colors, keyed by sun elevation. It's 0019's studio gradient made data.
 
 ### The clock
 
-- Time comes from the fixed tick, not from accumulated deltas. `TimeOfDayState` holds an anchor
-  (hours and day at `fromTick`) and the rates. `hours` is a piecewise-linear function of
-  `tick - fromTick`: game hours between `dawn` and `dusk` take `dayLength` real seconds, and the
-  rest take `nightLength`. Every machine computes the same hours for the same tick, with no drift.
-- It uses 0096's pattern, since resources don't replicate (0087): the state lives on a singleton
-  entity, the server writes it when the game changes the time, and every machine applies it at
-  `fromTick`. A server that replicates `TimeOfDayState` keeps clients in step with no per-frame
-  traffic.
+- Time comes from the sky's tick (`skyTick`), not from accumulated deltas: the fixed tick, or on a
+  multiplayer client the server's (`NetClock.serverTick`), as 0098's waves read it. The `Clock`
+  resource holds an anchor (hours since day 0 at a tick) and the rates. `hours` is a
+  piecewise-linear function of `tick - anchorTick`: game hours between `dawn` and `dusk` take
+  `dayLength` real seconds, and the rest take `nightLength`. Every machine computes the same hours
+  for the same tick, with no drift and no traffic, and a server needn't run a sky at all.
+- The clock starts at `TimeOfDay`'s hours: at the first tick it runs, or on a client at the
+  server's tick 0, where every player's clock started however late they joined. A
+  `setTimeOfDay` or rate change re-anchors at the tick it's made on, so every client must make it
+  at the same server tick (from a replicated event, say). A server-side change that clients follow
+  by themselves needs the anchor replicated; that isn't built.
 - `setTimeOfDay(world, '18:30' | hours, { fromTick?, day? })` re-anchors.
   `transitionTimeOfDay(world, to, seconds)` sets a temporary rate that reaches `to` at a known
   tick, which makes a fast-forward to morning when sleeping deterministic. `paused` freezes the
@@ -119,6 +121,11 @@ light colors, keyed by sun elevation. It's 0019's studio gradient made data.
   - The moon's illuminance is `moonIlluminance × illuminated fraction × nightBrightness`.
   - The moon is the atmosphere's second sun. 0044 already scatters the two brightest
     DirectionalLights, so a moonlit sky comes for free.
+  - Since the lights keep their top-of-atmosphere illuminance, `SkyFrame.sunGround` and
+    `moonGround` report what reaches open ground (lux and a luminance-1 color, so
+    `illuminance × color` is lux per channel). They're computed on the CPU through the default
+    sky's atmosphere, from 10 m up, with the disk setting over its own width. Game code that scales
+    its own light by the sun's (a glint, unlit particles) reads them; cloud shadows aren't counted.
 - Shadows hand over at twilight. The sun casts while its elevation is above −2°. The moon casts
   once the sun is below −6° and the moon is above 2°. Each light's `illuminance` crossfades
   across the gap, and its `shadows` flag flips only while its contribution is under 5%, so the
@@ -228,8 +235,10 @@ curated set (`demos.test.ts`) and runs on both backends.
 - **The Sky drives lights; it doesn't replace them.** Shadows, Toon, 0069 and 0044 already read
   DirectionalLights, so they keep working with no new code.
 - **Time from ticks, not deltas.** Deterministic hashes in `shard run`, identical clocks on every
-  client, and scrubbing all come from one function of the tick. It's 0096's pattern, so it costs
-  no new net machinery.
+  client, and scrubbing all come from one function of the tick.
+- **Clients read the server's tick instead of a replicated clock.** The clock is a function of the
+  tick, so the server's tick is all a client needs, and a server that doesn't draw needn't install
+  the sky. `TimeOfDayState` was planned for that and isn't needed for it.
 - **Separate day and night lengths.** Games want short nights, as UDS does. A single `dayLength`
   can't express that.
 - **The moon is the atmosphere's second sun.** 0044 already scatters two lights, so a moonlit sky

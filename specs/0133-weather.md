@@ -103,6 +103,11 @@ singleton below:
 - **`preset`**: the preset's channels.
 - **`schedule`**: a list of entries sorted by `at`. The state at time t is the previous entry's
   preset, transitioning to the next over its `over`.
+
+Changes are timed on the clock: a schedule entry's or a climate window's change has come
+`secondsBetween(start, now)` real seconds (at clock speed 1) of its `over`. So the state at a time
+needs nothing remembered, and a player who joins mid-change sees what everyone else does. The
+weather reads 0130's `skyTick`, the server's on a client, as does the wind's slow drift.
 - **`random`**: game time is cut into windows whose lengths come from
   `hash(seed, window index)` within the season's `interval`. Each window picks a preset by the
   season's weights from the same hash, and transitions into it over a hashed `transition`.
@@ -163,7 +168,9 @@ feels. The cloud map is what the sky shows everywhere.
 - **Material state.** `wetness` rises with `rain` and falls with drying (faster with wind and
   warmth). `snowCover` accumulates while `snow > 0` and the temperature is below 1 °C, and melts
   above it. `dustCover` follows `dust`. Rates are per preset, with defaults. `materialState:
-  'direct'` makes them equal the channels (for cinematics and tests). The server writes
+  'direct'` makes them equal the channels (for cinematics and tests). `'simulate'` starts from the
+  direct values (a player who joins in the rain finds the ground wet), and starts again from them if
+  the state ever stops being a number, since it's integrated from its last value. The server writes
   `materialSnapshot` every 10 s, clients ease to it, and saves keep it.
 - **Temperature.** The season's range mapped by a diurnal curve (lagged sun elevation, peaking
   around 15:00), plus the preset's bias, plus slow hashed noise. `temperatureAt(world, pos)`
@@ -261,6 +268,11 @@ the rain), and 0134 can read it per entity. It updates in round-robin, 64 entiti
     `TimeOfDay` alone).
 
 ## Decisions
+
+- **Transitions run on the clock, not on remembered ticks.** A schedule's or climate's change was
+  started on the tick a machine saw its window begin, so a player who joined mid-change jumped
+  straight to the new preset. Timing it from the window's start on the clock makes the state at any
+  time a pure function, which a late joiner and the clouds' history (0131) both need.
 
 - **Deterministic from time and replicated commands.** It's 0049's best idea and UDW's
   replication model in one. Clients compute their own weather, saves store a command and a

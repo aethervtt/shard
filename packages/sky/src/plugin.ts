@@ -1,4 +1,4 @@
-import { FixedUpdate, PostUpdate, PreUpdate } from '@aethervtt/shard-core'
+import { PostUpdate, PreUpdate } from '@aethervtt/shard-core'
 import {
   addRenderFeatures,
   Gpu,
@@ -12,7 +12,7 @@ import { definePlugin } from '@aethervtt/shard-runtime'
 import { TransformSystems } from '@aethervtt/shard-transform'
 import { SkyFrame, updateSky } from './celestial'
 import { Clock, updateClock } from './clock'
-import { Clouds, Sky, TimeOfDay } from './components'
+import { Clouds, HourChanged, Sky, Sunrise, Sunset, TimeOfDay } from './components'
 import { advectClouds, CloudMotion, SkyFlash, uploadOcclusion } from './motion'
 import {
   bindActivity,
@@ -31,7 +31,19 @@ import { OCCLUSION_SLOTS, occlusionShaders, SKY_SHADERS } from './shaders'
 export const skyPlugin = definePlugin({
   name: 'sky',
   dependencies: ['render/forward'],
-  provides: [Sky, Clouds, TimeOfDay, Clock, SkyFrame, CloudMotion, SkyGpuResource],
+  provides: [
+    Sky,
+    Clouds,
+    TimeOfDay,
+    Clock,
+    SkyFrame,
+    CloudMotion,
+    SkyFlash,
+    SkyGpuResource,
+    Sunrise,
+    Sunset,
+    HourChanged,
+  ],
   build(app) {
     const world = app.world
     world.initResource(TimeOfDay)
@@ -41,8 +53,8 @@ export const skyPlugin = definePlugin({
     world.initResource(SkyFlash)
     world.initResource(SkyGpuResource)
     app.addSystems(PreUpdate, updateClock)
-    app.addSystems(FixedUpdate, advectClouds)
-    app.addSystems(PostUpdate, updateSky.before(TransformSystems), uploadOcclusion)
+    app.addSystems(PostUpdate, updateSky.before(TransformSystems), advectClouds.after(updateSky))
+    app.addSystems(PostUpdate, uploadOcclusion.after(advectClouds))
   },
   ready(app) {
     const world = app.world

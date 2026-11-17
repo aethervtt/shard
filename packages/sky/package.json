@@ -16,13 +16,17 @@
   "dependencies": {
     "@aethervtt/shard-core": "workspace:*",
     "@aethervtt/shard-gpu": "workspace:*",
+    "@aethervtt/shard-net": "workspace:*",
     "@aethervtt/shard-render": "workspace:*",
     "@aethervtt/shard-runtime": "workspace:*",
     "@aethervtt/shard-transform": "workspace:*",
     "@aethervtt/shard-wind": "workspace:*"
   },
   "devDependencies": {
+    "@aethervtt/shard-mesh": "workspace:*",
+    "@aethervtt/shard-scene": "workspace:*",
     "@types/node": "^26.6.2",
-    "@webgpu/types": "^0.1.74"
+    "@webgpu/types": "^0.1.74",
+    "webgpu": "0.6.1"
   }
 }

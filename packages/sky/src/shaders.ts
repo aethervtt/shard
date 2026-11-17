@@ -1,5 +1,7 @@
 // WGSL for the sky (0130) and clouds (0131).
 
+import { SKY_OCCLUSION_BINDING } from '@aethervtt/shard-render'
+
 /** vec4 slots `shard::sky_occlusion` reads from shard::globals: the shadow map, the layer, the cloud map. */
 export const OCCLUSION_SLOTS = 3
 
@@ -863,7 +865,7 @@ import shard::sky::common::cloud_map;
 
 const SKY_OCCLUSION_BLOCK: u32 = ${slot}u;
 
-@group(0) @binding(19) var sky_occlusion_map: texture_2d<f32>;
+@group(0) @binding(${SKY_OCCLUSION_BINDING}) var sky_occlusion_map: texture_2d<f32>;
 
 /**
  * How much of a directional light toward l reaches world point p through the clouds: the shadow

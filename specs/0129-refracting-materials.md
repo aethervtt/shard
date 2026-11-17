@@ -68,7 +68,7 @@ reads it, so it only runs in those views too.
 | `refraction/depth` | copy + 6 | baseline with MSAA | `depth`, the single-sample prepass later passes read |
 
 `refraction` is the forward pass's opaque fragment with two differences: group 0 binds the copy
-(bindings 19 and 20) in place of SSAO's texture (15), and the fragment writes alpha 1 and depth,
+(bindings 20 and 21) in place of SSAO's texture (15), and the fragment writes alpha 1 and depth,
 testing `greater`. Everything else in group 0 is as in the forward pass, `shard::shader_data`
 (0127, binding 18) included, so a refracting material reads the same per-frame data in every
 pass it draws in. The deferred variant's `fs_gbuffer` also packs the surface's normal into
@@ -134,6 +134,11 @@ The `refraction` option is in the material type's definition; `render.describe` 
 `refractionPlugin` when a refracting draw finds it absent (its draws are skipped).
 
 ## Decisions
+
+- **Group 0's numbers come from one table.** `VIEW_BINDINGS` (`view-bindings.ts`) lists every
+  binding of the view group, and building a view layout throws `render/view-binding-collision` on a
+  duplicate. The copy first took 19 and 20, and 0131's cloud shadows took 19 too, so with the sky
+  installed every refracting draw failed its layout.
 
 - **The surface writes depth and covers its pixel; the material mixes in what's behind.** Ink,
   SSAO and fog all key on depth, and only an opaque surface's depth makes ink outline it and hide

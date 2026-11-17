@@ -24,7 +24,10 @@
     "@aethervtt/shard-wind": "workspace:*"
   },
   "devDependencies": {
+    "@aethervtt/shard-net": "workspace:*",
+    "@aethervtt/shard-scene": "workspace:*",
     "@types/node": "^26.6.2",
-    "@webgpu/types": "^0.1.74"
+    "@webgpu/types": "^0.1.74",
+    "webgpu": "0.6.1"
   }
 }

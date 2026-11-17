@@ -1,12 +1,22 @@
 import { affine, defineSystem, type Entity, type World } from '@aethervtt/shard-core'
 import { Camera3d, DefaultEnvironment, Fog } from '@aethervtt/shard-render'
-import { FixedTime, Time } from '@aethervtt/shard-runtime'
-import { Clouds, Sky, SkyFrame, TimeOfDay } from '@aethervtt/shard-sky'
+import { FixedTime } from '@aethervtt/shard-runtime'
+import {
+  CloudMotion,
+  Clouds,
+  clockHoursAt,
+  Sky,
+  SkyFrame,
+  secondsBetween,
+  skyTick,
+  TimeOfDay,
+} from '@aethervtt/shard-sky'
 import { GlobalTransform } from '@aethervtt/shard-transform'
 import { Wind } from '@aethervtt/shard-wind'
 import {
   CH,
   Climates,
+  MAX_CHANNELS,
   Weather,
   WeatherChanged,
   WeatherMaskBrush,
@@ -24,10 +34,8 @@ import {
   seasonWeights,
 } from './seasons'
 
-function tick(world: World): number {
-  const f = world.tryResource(FixedTime)
-  return f ? f.tick + f.alpha : 0
-}
+/** The sky's tick: the server's on a multiplayer client, so every player has the same weather. */
+const tick = skyTick
 
 function step(world: World): number {
   return world.tryResource(FixedTime)?.step ?? 1 / 60
@@ -110,6 +118,17 @@ function gameHours(world: World): number {
   return c ? c.day * 24 + c.hours : (tick(world) * step(world)) / 3600
 }
 
+/** Game hours since day 0 at a tick, past or future. */
+function hoursAtTick(world: World, at: number): number {
+  return world.tryResource(TimeOfDay) ? clockHoursAt(world, at) : (at * step(world)) / 3600
+}
+
+/** Real seconds (at clock speed 1) from one game time to a later one. */
+function secondsSince(world: World, from: number, to: number): number {
+  const c = world.tryResource(TimeOfDay)
+  return c ? secondsBetween(c, from, to) : Math.max(0, to - from) * 3600
+}
+
 function latitude(world: World): number {
   for (const table of world.query({ with: [Sky] }).tables) {
     if (table.count > 0) return table.column(Sky, 'latitude')[0]!
@@ -166,6 +185,99 @@ function presetAt(
 
 function readWeather(world: World, e: Entity) {
   return world.get(e, Weather)
+}
+
+/**
+ * A schedule's or a random climate's base weather at a game time (0133): the preset in force, the
+ * one before it, and how far the change between them has come (`over` real seconds from the entry
+ * or window's start, on the clock). A function of the clock alone, so a player who joins mid-change
+ * sees what everyone else does. Fills `from` and `to` with the two presets' channels.
+ */
+function scheduledAt(
+  world: World,
+  w: ReturnType<typeof readWeather>,
+  hours: number,
+  from: Float32Array,
+  to: Float32Array,
+) {
+  const now = presetAt(world, w, hours, 0)
+  let start = Number.NEGATIVE_INFINITY
+  let before = now.preset
+  if (w.source === 'random') {
+    start = now.key * w.changeEvery
+    // The middle of the window before: clear of its edges.
+    before = presetAt(world, w, start - w.changeEvery / 2, start - w.changeEvery / 2 - hours).preset
+  } else if (now.key >= 0) {
+    start = w.schedule[now.key]!.at
+    before = now.key > 0 ? w.schedule[now.key - 1]!.preset : w.preset
+  }
+  const since = Number.isFinite(start) ? secondsSince(world, start, hours) : 0
+  const f = now.over > 0 && Number.isFinite(start) ? Math.min(1, since / now.over) : 1
+  return {
+    preset: now.preset,
+    key: now.key,
+    since,
+    over: now.over,
+    k: f * f * (3 - 2 * f),
+    fromTemperature: presetValues(before, from),
+    toTemperature: presetValues(now.preset, to),
+  }
+}
+
+const fromScratch = new Float32Array(MAX_CHANNELS)
+const toScratch = new Float32Array(MAX_CHANNELS)
+
+/**
+ * The base wind channel at a tick, past or future: the preset change in progress, or the schedule's
+ * or climate's. Zones aren't included.
+ */
+function baseWindAt(
+  world: World,
+  w: ReturnType<typeof readWeather>,
+  s: WeatherStateValue,
+  at: number,
+): number {
+  if (w.source === 'preset') {
+    const span = s.endTick - s.startTick
+    const f = span > 0 ? Math.min(1, Math.max(0, (at - s.startTick) / span)) : 1
+    const k = f * f * (3 - 2 * f)
+    return s.from[CH.wind]! + (s.to[CH.wind]! - s.from[CH.wind]!) * k
+  }
+  const b = scheduledAt(world, w, hoursAtTick(world, at), fromScratch, toScratch)
+  return fromScratch[CH.wind]! + (toScratch[CH.wind]! - fromScratch[CH.wind]!) * b.k
+}
+
+/** The wind's direction (yaw about up) at a tick: the Weather's, drifting by its variance. */
+function windYaw(world: World, w: ReturnType<typeof readWeather>, at: number): number {
+  const t = at * step(world)
+  return (
+    Math.atan2(w.windDirection[2], w.windDirection[0]) +
+    ((w.windVariance * Math.PI) / 180) * Math.sin(t * 0.013 + w.seed) * Math.cos(t * 0.007)
+  )
+}
+
+/** Wind m/s at wind channel 1. */
+const WIND_SPEED = 14
+
+/**
+ * The wind the weather gives at a tick, for the clouds (CloudMotion.windAt): direction x, z and
+ * speed. Its history is known on every machine, so clouds agree for players who joined late.
+ */
+export function weatherWindAt(world: World, at: number, out: Float64Array): void {
+  const e = weatherEntity(world)
+  const s = world.resource(WeatherState)
+  const w = e === undefined ? undefined : world.get(e, Weather)
+  if (!w?.drivesWind || s.preset === '') {
+    const wind = world.tryResource(Wind)
+    out[0] = wind?.direction[0] ?? 1
+    out[1] = wind?.direction[2] ?? 0
+    out[2] = wind?.speed ?? 0
+    return
+  }
+  const yaw = windYaw(world, w, at)
+  out[0] = Math.cos(yaw)
+  out[1] = Math.sin(yaw)
+  out[2] = baseWindAt(world, w, s, at) * WIND_SPEED
 }
 
 /**
@@ -266,7 +378,11 @@ export const updateWeather = defineSystem({
   setup: (world) => ({ cameras: world.query({ with: [Camera3d, GlobalTransform] }) }),
   run: ({ cameras }, world) => {
     const e = weatherEntity(world)
-    if (e === undefined) return
+    const motion = world.tryResource(CloudMotion)
+    if (e === undefined) {
+      if (motion?.windAt === weatherWindAt) motion.windAt = undefined
+      return
+    }
     const w = world.get(e, Weather)
     const s = world.resource(WeatherState)
     for (const table of cameras.tables) {
@@ -282,21 +398,30 @@ export const updateWeather = defineSystem({
     const hours = gameHours(world)
     seasonsAt(world, w, 0, s.seasons)
     s.season = dominantSeason(s.seasons)
+    let k: number
     if (w.source === 'preset') {
       // First frame, or the component's preset was written directly.
       if (w.preset !== s.preset) begin(world, s, w.preset, s.preset === '' ? 0 : 30)
+      // The base: from → to over the change, smoothed.
+      const span = s.endTick - s.startTick
+      const f = span > 0 ? Math.min(1, Math.max(0, (now - s.startTick) / span)) : 1
+      k = f * f * (3 - 2 * f)
     } else {
-      const next = presetAt(world, w, hours, 0)
-      if (next.key !== s.window || s.preset === '') {
-        const first = s.preset === ''
-        s.window = next.key
-        if (next.preset !== s.preset) begin(world, s, next.preset, first ? 0 : next.over)
+      // A schedule or a climate: from the clock alone.
+      const b = scheduledAt(world, w, hours, s.from, s.to)
+      k = b.k
+      s.window = b.key
+      s.fromTemperature = b.fromTemperature
+      s.toTemperature = b.toTemperature
+      s.startTick = now - b.since / dt
+      s.endTick = s.startTick + b.over / dt
+      if (b.preset !== s.preset) {
+        const before = s.preset
+        s.preset = b.preset
+        s.displayName = WeatherPresets.get(b.preset)?.displayName ?? b.preset
+        world.send(WeatherChanged, { from: before, to: b.preset, displayName: s.displayName })
       }
     }
-    // The base: from → to over the change, smoothed.
-    const span = s.endTick - s.startTick
-    const f = span > 0 ? Math.min(1, Math.max(0, (now - s.startTick) / span)) : 1
-    const k = f * f * (3 - 2 * f)
     for (const c of weatherChannels()) {
       s.channels[c.index] = s.from[c.index]! + (s.to[c.index]! - s.from[c.index]!) * k
     }
@@ -308,9 +433,16 @@ export const updateWeather = defineSystem({
         s.seasons[j]! * SEASON_TEMPERATURE[(['spring', 'summer', 'autumn', 'winter'] as const)[j]!]
     }
     const sun = world.tryResource(SkyFrame)?.celestial.sunElevation ?? 30
-    s.temperature += 4 * Math.max(-0.5, Math.min(1, sun / 50))
+    if (Number.isFinite(sun)) s.temperature += 4 * Math.max(-0.5, Math.min(1, sun / 50))
     applyZones(world, s)
+    if (!Number.isFinite(s.temperature))
+      s.temperature = Number.isFinite(s.baseTemperature) ? s.baseTemperature : 15
     s.outdoors = exposureAt(world, s.listener)
+    // The clouds follow the wind the weather drives, whose history every machine knows (0131).
+    if (motion) {
+      if (w.drivesWind) motion.windAt = weatherWindAt
+      else if (motion.windAt === weatherWindAt) motion.windAt = undefined
+    }
 
     // Surfaces: wet in rain and drying after, snow that settles below 1 °C and melts above it,
     // dust that settles in dust and washes off in rain.
@@ -319,10 +451,13 @@ export const updateWeather = defineSystem({
     const snow = ch[CH.snow]!
     const dust = ch[CH.dust]!
     const wind = ch[CH.wind]!
-    if (w.materialState === 'direct') {
+    // Direct, or simulate's start: what the weather now would give. A player who joins in the
+    // rain finds the ground wet.
+    if (w.materialState === 'direct' || !s.surfacesStarted) {
       s.wetness = Math.min(1, rain * 1.4)
       s.snowCover = s.temperature < 1 ? Math.min(1, snow * 1.3) : 0
       s.dustCover = dust
+      s.surfacesStarted = w.materialState !== 'direct'
       return
     }
     const clamp = (v: number) => Math.min(1, Math.max(0, v))
@@ -336,6 +471,8 @@ export const updateWeather = defineSystem({
       s.snowCover + (s.temperature < 1 ? (snow * dt) / 40 : (-dt / 150) * (1 + s.temperature / 10)),
     )
     s.dustCover = clamp(s.dustCover + (dust * dt) / 25 - (rain * dt) / 15 - dt / 900)
+    // Integrated from the last value, a non-number would never recover: start again.
+    if (!Number.isFinite(s.wetness + s.snowCover + s.dustCover)) s.surfacesStarted = false
   },
 })
 
@@ -387,12 +524,9 @@ export const driveWeather = defineSystem({
     if (w.drivesWind) {
       const windRes = world.tryResource(Wind)
       if (windRes) {
-        const t = world.tryResource(Time)?.elapsed ?? 0
-        const yaw =
-          Math.atan2(w.windDirection[2], w.windDirection[0]) +
-          ((w.windVariance * Math.PI) / 180) * Math.sin(t * 0.013 + w.seed) * Math.cos(t * 0.007)
+        const yaw = windYaw(world, w, tick(world))
         windRes.direction = [Math.cos(yaw), 0, Math.sin(yaw)]
-        windRes.speed = wind * 14
+        windRes.speed = wind * WIND_SPEED
         windRes.gustiness = 0.25 + 0.5 * wind
       }
     }
