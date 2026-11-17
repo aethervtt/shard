@@ -3,6 +3,7 @@ import { budget } from '@aethervtt/shard-core/test-env'
 import { App } from '@aethervtt/shard-runtime'
 import { Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { describe, expect, it } from 'vitest'
+import { moveAndSlide } from './character'
 import {
   CharacterController,
   CharacterGroundEvent,
@@ -287,6 +288,47 @@ describe('character controller 3d', () => {
     expect(state(w, c).groundEntity).toBe(platform)
   })
 
+  it('keeps its place on a kinematic platform that speeds up to 5 m/s while bobbing', async () => {
+    const a = await app()
+    const w = a.world
+    // A raft 1 m up, sailing along +x: 1.2 m/s² up to 5 m/s, bobbing ±0.5 m every 4 s.
+    const raft = w.spawn(
+      [RigidBody, { kind: 'kinematic-position' }],
+      [Collider, { shape: 'cuboid', halfExtents: [20, 0.25, 4] }],
+      [Transform, { translation: [0, 1, 0] }],
+    )
+    // Two castaways, one just behind the other: each is carried without bumping the other's capsule.
+    const c = character(w, [1, 1.25 + HALF + 0.05, 0.5])
+    const behind = character(w, [0.28, 1.25 + HALF + 0.05, 0.5])
+    frames(a, 30)
+    expect(state(w, c).groundEntity).toBe(raft)
+    expect(state(w, behind).groundEntity).toBe(raft)
+    const [x0, y0, z0] = pos(w, c)
+    const [bx0, by0, bz0] = pos(w, behind)
+    expect(x0 - bx0).toBeLessThan(0.75)
+    let x = 0
+    let v = 0
+    let worst = 0
+    for (let i = 1; i <= 600; i++) {
+      const acc = v < 5 ? 1.2 : 0
+      x += v * DT + 0.5 * acc * DT * DT
+      v = Math.min(5, v + acc * DT)
+      const y = 1 + 0.5 * Math.sin((i * DT * 2 * Math.PI) / 4)
+      w.set(raft, Transform, { translation: [x, y, 0] })
+      a.update(DT)
+      const [cx, cy, cz] = pos(w, c)
+      const [bx, by, bz] = pos(w, behind)
+      worst = Math.max(
+        worst,
+        Math.hypot(cx - x - x0, cy - (y - 1) - y0, cz - z0),
+        Math.hypot(bx - x - bx0, by - (y - 1) - by0, bz - bz0),
+      )
+    }
+    expect(v).toBe(5)
+    expect(worst).toBeLessThan(0.02)
+    expect(state(w, c).groundEntity).toBe(raft)
+  })
+
   it('pushes a 10 kg box it walks into', async () => {
     const a = await app()
     const w = a.world
@@ -357,6 +399,72 @@ describe('character controller 3d', () => {
     const [x, y] = pos(w, c)
     expect(y).toBeCloseTo(HALF, 1)
     expect(x).toBeGreaterThan(5)
+  })
+
+  it('moveAndSlide: a suspended capsule stops at a box and slides along it, fixed or kinematic', async () => {
+    for (const kind of ['fixed', 'kinematic-position'] as const) {
+      const a = await app()
+      const w = a.world
+      // A wall 2 m thick along z, its -x face at x = -1.
+      const box = w.spawn(
+        [RigidBody, { kind }],
+        [Collider, { shape: 'cuboid', halfExtents: [1, 2, 10] }],
+        [Transform, { translation: [0, 3, 0] }],
+      )
+      // Facing 30° off the wall: the swept capsule's normals come back in its own frame.
+      const turn = Math.PI / 12
+      const c = w.spawn(
+        [CharacterController, {}],
+        [CharacterSuspended, {}],
+        [Transform, { translation: [-3, 3, 0], rotation: [0, Math.sin(turn), 0, Math.cos(turn)] }],
+      )
+      frames(a, 2)
+      // Toward the wall and along it, 0.2 m and 0.1 m a step.
+      let touched = false
+      for (let i = 0; i < 30; i++) {
+        const r = moveAndSlide(w, c, [0.2, 0, 0.1])
+        for (const h of r.hits) {
+          if (h.entity !== box) continue
+          touched = true
+          expect(h.body).toBe(box)
+          expect(h.normal[0]).toBeCloseTo(-1, 3)
+        }
+        expect([...r.position]).toEqual(pos(w, c))
+        a.update(DT)
+      }
+      expect(touched).toBe(true)
+      const [x, y, z] = pos(w, c)
+      // Against the face (radius 0.35 and Rapier's 1 cm gap), the whole slide along it.
+      expect(x).toBeCloseTo(-1.36, 3)
+      expect(y).toBeCloseTo(3, 3)
+      expect(z).toBeCloseTo(3, 3)
+      // The capsule is there too: a ray down from above the character finds it.
+      const hit = {
+        entity: -1,
+        body: -1,
+        distance: 0,
+        point: new Float32Array(3),
+        normal: new Float32Array(3),
+      }
+      expect(w.resource(Physics).raycast([x, 6, z], [0, -1, 0], {}, hit as never)).toBe(true)
+      expect(hit.entity).toBe(c)
+    }
+  })
+
+  it('moveAndSlide: through open space, it ends exactly at position + delta', async () => {
+    const a = await app()
+    const w = a.world
+    ground(w)
+    const c = character(w, [2, 5, -1])
+    w.add(c, CharacterSuspended)
+    frames(a, 2)
+    const r = moveAndSlide(w, c, [1.5, -0.75, 2.25])
+    expect(r.hits).toEqual([])
+    expect([...r.position]).toEqual([3.5, 4.25, 1.25])
+    expect(pos(w, c)).toEqual([3.5, 4.25, 1.25])
+    frames(a, 5)
+    // Suspended: no gravity, nothing else moves it.
+    expect(pos(w, c)).toEqual([3.5, 4.25, 1.25])
   })
 
   it('steps 100 controllers within 1.5 ms', async () => {

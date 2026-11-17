@@ -304,6 +304,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `physics/both-dimensions` | @aethervtt/shard-physics | Enable one physics plugin per app: physics3d for 3D games, physics2d for 2D. |
 | `physics/character-has-body` | @aethervtt/shard-physics | The controller makes its own kinematic body and capsule. Remove RigidBody and Collider, or put extra colliders on a child. |
 | `physics/invalid-shape` | @aethervtt/shard-physics | Check radius, halfExtents, halfHeight, points, or the mesh. |
+| `physics/not-a-character` | @aethervtt/shard-physics | moveAndSlide moves CharacterController capsules. Add one, and CharacterSuspended to move it only this way. |
 | `physics/not-ready` | @aethervtt/shard-physics | Add the physics3d or physics2d plugin and await app.init() before querying. |
 | `physics/track-body` | @aethervtt/shard-physics |  |
 | `physics/track-cancelled` | @aethervtt/shard-physics | Its signal was aborted or its client disposed: nothing to fix, record again when needed. |
@@ -430,6 +431,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `render/unknown-variant-source` | @aethervtt/shard-render |  |
 | `render/variant-entry` | @aethervtt/shard-render |  |
 | `render/variant-material` | @aethervtt/shard-render |  |
+| `render/view-binding-collision` | @aethervtt/shard-render | Take a binding of the view group from VIEW_BINDINGS (view-bindings.ts), and add new ones there. |
 | `render/which-atmosphere` | @aethervtt/shard-render | Pass entity: an entity with render/Atmosphere. |
 | `retarget/unmapped-root` | @aethervtt/shard-animation | Add it to the joint map (*.jointmap.json): { "joints": { "<source>": "<target>" } }. |
 | `runtime/disposed` | @aethervtt/shard-runtime | Create a new App; a disposed one has released its GPU objects and listeners. |
@@ -508,6 +510,7 @@ Every engine error is a `ShardError` with one of these codes.
 | `shader/unknown-hook` | @aethervtt/shard-shader | Only functions marked @hook can be overridden. |
 | `shader/unsupported-field` | @aethervtt/shard-shader | GPU structs take numbers, bools, enums, vectors, colors, matrices, and structs with a `wgsl` option. f64 fields are not allowed; other object fields are skipped. |
 | `shader/watch-unsupported` | @aethervtt/shard-shader |  |
+| `sky/bad-time` | @aethervtt/shard-sky | Use "18:30", "6pm", "6:15am", "0630", or a number of hours. |
 | `sprite/atlas-too-large` | @aethervtt/shard-sprite | Raise maxSize, or split the images into several atlases. |
 | `sprite/bad-chunk` | @aethervtt/shard-sprite |  |
 | `sprite/bad-flag` | @aethervtt/shard-sprite | Flags are fx, fy and r90, joined by +. |

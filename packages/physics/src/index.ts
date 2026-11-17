@@ -1,4 +1,10 @@
-export { characterSystem } from './character'
+export {
+  characterSystem,
+  createSlideResult,
+  moveAndSlide,
+  type SlideHit,
+  type SlideResult,
+} from './character'
 export {
   BODY_KINDS,
   type BodyKind,

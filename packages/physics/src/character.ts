@@ -1,4 +1,10 @@
-import { defineSystem, type Entity, type Table, type World } from '@aethervtt/shard-core'
+import {
+  defineSystem,
+  type Entity,
+  ShardError,
+  type Table,
+  type World,
+} from '@aethervtt/shard-core'
 import { FixedTime } from '@aethervtt/shard-runtime'
 import { GlobalTransform, GridFramesResource, Transform } from '@aethervtt/shard-transform'
 import type RAPIER from '@dimforge/rapier3d-compat'
@@ -34,6 +40,34 @@ interface RawController {
     groups: number,
     predicate: undefined,
   ): void
+}
+
+/** Rapier's raw world query structures, for calls made without the wrapper. */
+interface RawWorld {
+  broadPhase: { raw: RawBroadPhase }
+  narrowPhase: { raw: unknown }
+  bodies: { raw: unknown }
+  colliders: { raw: { coShape(collider: number): { free(): void } } }
+}
+
+interface RawBroadPhase {
+  castShape(
+    narrowPhase: unknown,
+    bodies: unknown,
+    colliders: unknown,
+    position: unknown,
+    rotation: unknown,
+    direction: unknown,
+    shape: unknown,
+    targetDistance: number,
+    maxToi: number,
+    stopAtPenetration: boolean,
+    flags: number,
+    groups: number,
+    excludeCollider: number,
+    excludeBody: number,
+    predicate: ((collider: number) => boolean) | undefined,
+  ): { colliderHandle(): number; getComponents(out: Float32Array): void; free(): void } | undefined
 }
 
 type Vec = { x: number; y: number; z: number }
@@ -110,6 +144,11 @@ export const characterSystem = defineSystem({
     arc: new Float64Array(4),
     pos: new Float64Array(3),
     carry: new Float64Array(3),
+    world,
+    physics: undefined as PhysicsWorld | undefined,
+    /** The body a carried character stands on: it, and others on it, are left out of the carry. */
+    platform: -1,
+    notPlatform: undefined as ((collider: number) => boolean) | undefined,
     ray: undefined as InstanceType<PhysicsWorld['R']['Ray']> | undefined,
     hit: undefined as InstanceType<PhysicsWorld['R']['CharacterCollision']> | undefined,
     t1: vec(),
@@ -136,6 +175,8 @@ export const characterSystem = defineSystem({
     p.raw.timestep = dt
     gatherGravitySources(s.sources, s.gravity)
     s.hit ??= new p.R.CharacterCollision()
+    s.physics = p
+    s.notPlatform ??= (collider) => notPlatform(s, collider)
     s.rootIdentity = world.tryResource(GridFramesResource)?.rootIdentity !== false
     for (let t = 0; t < s.query.tables.length; t++) {
       const table = s.query.tables[t]!
@@ -330,9 +371,9 @@ function stepCharacter(
   // ground there's no push into it: snapping holds the character down, and a push would make
   // Rapier drag it along moving ground by friction, a step late, on top of the carry.
   const half = wasGrounded && !jumped ? 0 : 0.5 * dt * dt
-  const dx = vx * dt + ax * half + carry[0]!
-  const dy = vy * dt + ay * half + carry[1]!
-  const dz = vz * dt + az * half + carry[2]!
+  const dx = vx * dt + ax * half
+  const dy = vy * dt + ay * half
+  const dz = vz * dt + az * half
   const rising = jumped || (!wasGrounded && vx * ux + vy * uy + vz * uz > 0)
   if (record.snapDistance > 0 && record.snapping === rising) {
     record.snapping = !rising
@@ -374,11 +415,21 @@ function stepCharacter(
   const mvz = dim === 3 ? mv.z : 0
   const grounded = record.kcc.computedGrounded()
   const pos = s.pos
-  pos[0] = Math.fround(px + mvx)
-  pos[1] = Math.fround(py + mvy)
-  pos[2] = Math.fround(pz + mvz)
+  pos[0] = px + mvx
+  pos[1] = py + mvy
+  pos[2] = pz + mvz
   const groups =
     ((c.layers[row]! & 0xffff) << 16) | (c.mask[row]! & ~p.config.characterIgnores & 0xffff)
+  // The walk is swept against the platform where it is now, then the carry on its own, the
+  // platform and its riders left out. One sweep of both met the platform where it was, short of
+  // where the step puts it, and lost ground every step it moved down.
+  if (carry[0] !== 0 || carry[1] !== 0 || carry[2] !== 0) {
+    s.platform = c.groundEntity[row]!
+    sweep(p, record, q, groups, s.notPlatform, carry, pos, undefined)
+  }
+  pos[0] = Math.fround(pos[0]!)
+  pos[1] = Math.fround(pos[1]!)
+  pos[2] = Math.fround(pos[2]!)
 
   // 4. State: the walkable ground touched, and what the move ran into.
   let groundDot = -2
@@ -477,6 +528,262 @@ function stepCharacter(
   c.stateUp[o3 + 2] = uz
   c.airTime[row] = grounded ? 0 : c.airTime[row]! + dt
   if (grounded !== wasGrounded) world.send(CharacterGroundEvent, { entity, grounded })
+}
+
+/**
+ * Whether a carry sweep hits a collider (by handle): not the platform's own, nor another character
+ * standing on it, which the platform carries this step too.
+ */
+function notPlatform(s: State, collider: number): boolean {
+  const p = s.physics!
+  const e = p.colliderEntity.get(collider)
+  if (e === undefined) return true
+  const owner = p.colliderOwner.get(e) ?? e
+  if (owner === s.platform) return false
+  if (!p.characters.has(owner)) return true
+  const table = s.world.entityTable(owner)
+  return table.column(CharacterState, 'groundEntity')[s.world.entityRow(owner)] !== s.platform
+}
+
+/** What a `moveAndSlide` ran into. */
+export interface SlideHit {
+  /** The collider's entity. */
+  entity: Entity
+  /** The body it belongs to, or -1 for a fixed collider without a body. */
+  body: Entity
+  /** The surface's normal where it was hit, pointing toward the character. */
+  normal: Float32Array
+}
+
+export interface SlideResult {
+  /** Where the character ended up, in the world (the root frame under grids). */
+  position: Float64Array
+  /** Each collider it touched on the way, in order. */
+  hits: SlideHit[]
+  /** Hit records kept for the next call, so reusing a result allocates nothing. */
+  spare: SlideHit[]
+}
+
+export const createSlideResult = (): SlideResult => ({
+  position: new Float64Array(3),
+  hits: [],
+  spare: [],
+})
+
+/** Most sweeps one move makes: a hit, then a slide along it, into a corner, and along that. */
+const SWEEPS = 4
+const castOut = new Float32Array(16)
+const normal = new Float64Array(3)
+const slidePose = createPose()
+const slideRot = new Float64Array(4)
+const slideDelta = new Float64Array(3)
+
+/**
+ * Sweeps a character's capsule, turned by q, from `pos` along `delta`, sliding along what it
+ * hits, and leaves where it stops in `pos`. Casts touch (no target distance), then step back out
+ * along the normal by the controller's gap: a cast starting on its target-distance shell gets a
+ * skewed normal from Rapier (and its controller sticks to kinematic bodies there).
+ */
+function sweep(
+  p: PhysicsWorld,
+  record: CharacterRecord,
+  q: ArrayLike<number>,
+  groups: number,
+  predicate: ((collider: number) => boolean) | undefined,
+  delta: ArrayLike<number>,
+  pos: Float64Array,
+  result: SlideResult | undefined,
+): void {
+  const dim = p.dim
+  const raw = p.raw as unknown as RawWorld
+  const ops = (p.R as unknown as { RotationOps: { intoRaw(r: unknown): { free(): void } } })
+    .RotationOps
+  const shape = raw.colliders.raw.coShape(record.collider.handle)
+  const rotation = ops.intoRaw(p.rotation(q, 0))
+  const at = p.rawVec as Vec
+  const dir = p.rawVec2 as Vec
+  const own = record.collider.handle
+  const body = record.body.body.handle
+  // Offset of the normal on the swept shape: time of impact, then two witnesses and a normal.
+  const n2 = 1 + 3 * dim
+  let rx = delta[0]!
+  let ry = delta[1]!
+  let rz = dim === 3 ? delta[2]! : 0
+  for (let i = 0; i < SWEEPS; i++) {
+    const len = Math.sqrt(rx * rx + ry * ry + rz * rz)
+    if (len < 1e-9) break
+    const ux = rx / len
+    const uy = ry / len
+    const uz = rz / len
+    at.x = pos[0]!
+    at.y = pos[1]!
+    dir.x = ux
+    dir.y = uy
+    if (dim === 3) {
+      at.z = pos[2]!
+      dir.z = uz
+    }
+    const hit = raw.broadPhase.raw.castShape(
+      raw.narrowPhase.raw,
+      raw.bodies.raw,
+      raw.colliders.raw,
+      at,
+      rotation,
+      dir,
+      shape,
+      0,
+      len,
+      false,
+      p.R.QueryFilterFlags.EXCLUDE_SENSORS,
+      groups,
+      own,
+      body,
+      predicate,
+    )
+    if (!hit) {
+      pos[0] = pos[0]! + rx
+      pos[1] = pos[1]! + ry
+      pos[2] = pos[2]! + rz
+      break
+    }
+    const handle = hit.colliderHandle()
+    hit.getComponents(castOut)
+    hit.free()
+    const toi = castOut[0]!
+    // The swept shape's own normal is in its local space; the surface's points the other way.
+    rotate(normal, 0, q, 0, -castOut[n2]!, -castOut[n2 + 1]!, dim === 3 ? -castOut[n2 + 2]! : 0)
+    const nx = normal[0]!
+    const ny = normal[1]!
+    const nz = dim === 3 ? normal[2]! : 0
+    pos[0] = pos[0]! + ux * toi + nx * CHARACTER_OFFSET
+    pos[1] = pos[1]! + uy * toi + ny * CHARACTER_OFFSET
+    pos[2] = pos[2]! + uz * toi + nz * CHARACTER_OFFSET
+    // What's left, without the part going into the surface.
+    const left = len - toi
+    rx = ux * left
+    ry = uy * left
+    rz = uz * left
+    const d = rx * nx + ry * ny + rz * nz
+    if (d < 0) {
+      rx -= nx * d
+      ry -= ny * d
+      rz -= nz * d
+    }
+    if (result) addHit(p, result, handle, nx, ny, nz)
+  }
+  shape.free()
+  rotation.free()
+}
+
+function addHit(
+  p: PhysicsWorld,
+  result: SlideResult,
+  collider: number,
+  nx: number,
+  ny: number,
+  nz: number,
+): void {
+  const entity = p.colliderEntity.get(collider)
+  if (entity === undefined) return
+  const hits = result.hits
+  for (let i = 0; i < hits.length; i++) if (hits[i]!.entity === entity) return
+  const h = result.spare.pop() ?? { entity, body: entity, normal: new Float32Array(3) }
+  h.entity = entity
+  h.body = p.colliderOwner.get(entity) ?? (-1 as Entity)
+  h.normal[0] = nx
+  h.normal[1] = ny
+  h.normal[2] = nz
+  hits.push(h)
+}
+
+/**
+ * Moves a character's capsule by `delta` (world, m), sliding along what it hits, and puts the
+ * character there: its Transform, and its capsule's target for the coming step. No gravity,
+ * snapping, steps, or slopes: for movement the game owns, such as a CharacterSuspended swimmer.
+ * It collides as the controller does, by its layers and mask, with colliders where the last step
+ * left them. Call it in FixedUpdate before PhysicsSystems; pass `out` to reuse a result.
+ */
+export function moveAndSlide(
+  world: World,
+  entity: Entity,
+  delta: ArrayLike<number>,
+  out: SlideResult = createSlideResult(),
+): SlideResult {
+  const p = world.resource(Physics)
+  let record = p.characters.get(entity)
+  if (!record && world.has(entity, CharacterController)) {
+    p.createCharacter(world, entity)
+    record = p.characters.get(entity)
+  }
+  if (!record) {
+    throw new ShardError(
+      'physics/not-a-character',
+      `Entity ${entity} has no character controller`,
+      {
+        hint: 'moveAndSlide moves CharacterController capsules. Add one, and CharacterSuspended to move it only this way.',
+      },
+    )
+  }
+  const dim = p.dim
+  const hits = out.hits
+  while (hits.length > 0) out.spare.push(hits.pop()!)
+  const pose = poseOf(world, entity, slidePose)
+  const q = slideRot
+  q[0] = pose[3]!
+  q[1] = pose[4]!
+  q[2] = pose[5]!
+  q[3] = pose[6]!
+  const pos = out.position
+  pos[0] = pose[0]!
+  pos[1] = pose[1]!
+  pos[2] = dim === 3 ? pose[2]! : 0
+  const d = slideDelta
+  d[0] = delta[0]!
+  d[1] = delta[1]!
+  d[2] = dim === 3 ? (delta[2] ?? 0) : 0
+  const table = world.entityTable(entity)
+  const row = world.entityRow(entity)
+  if (record.body.parked) {
+    // Out of the simulation: nothing to hit.
+    pos[0] = pos[0]! + d[0]
+    pos[1] = pos[1]! + d[1]
+    pos[2] = pos[2]! + d[2]
+  } else {
+    const groups =
+      ((table.column(CharacterController, 'layers')[row]! & 0xffff) << 16) |
+      (table.column(CharacterController, 'mask')[row]! & ~p.config.characterIgnores & 0xffff)
+    sweep(p, record, q, groups, undefined, d, pos, out)
+  }
+  pos[0] = Math.fround(pos[0]!)
+  pos[1] = Math.fround(pos[1]!)
+  pos[2] = Math.fround(pos[2]!)
+  if (!record.body.parked) {
+    const body = record.body.body
+    body.setNextKinematicTranslation(p.vec(pos[0]!, pos[1]!, pos[2]!))
+    body.setNextKinematicRotation(p.rotation(q, 0))
+  }
+  const tr = table.column(Transform, 'translation')
+  const o3 = row * 3
+  const parent = parentOf(world, entity)
+  if (parent === undefined && world.tryResource(GridFramesResource)?.rootIdentity !== false) {
+    tr[o3] = pos[0]!
+    tr[o3 + 1] = pos[1]!
+    if (dim === 3) tr[o3 + 2] = pos[2]!
+  } else {
+    worldToLocal(
+      world,
+      parent,
+      entity,
+      pos,
+      q,
+      tr,
+      o3,
+      table.column(Transform, 'rotation'),
+      row * 4,
+    )
+  }
+  table.markChanged(Transform, row)
+  return out
 }
 
 /** Turns q (in place) by the shortest arc taking its +Y to (ux, uy, uz). */

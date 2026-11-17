@@ -90,8 +90,21 @@ In `FixedUpdate`, after `physics/sync-in` and before `physics/step`:
    `CharacterGroundEvent { entity, grounded }`.
 5. **Pushing and platforms.** Contacts with dynamic bodies apply up to `pushForce · dt` of impulse
    along the move, never pushing a body faster than the character walks. When the ground entity is
-   a kinematic body, the motion of the character's position over the step is added to the move:
-   from the body's next pose for `kinematic-position`, from its velocities for `kinematic-velocity`.
+   a kinematic body, the motion of the character's position over the step is carried: from the
+   body's next pose for `kinematic-position`, from its velocities for `kinematic-velocity`. The
+   walk is swept against the platform where it is now; the carry is swept after it, sliding, with
+   the platform's own colliders left out, so walls and other bodies still stop it.
+
+### Moves the game owns
+
+`moveAndSlide(world, entity, delta, out?) → { position, hits }` sweeps a character's capsule by a
+world displacement, slides along what it hits, and puts the character there: its Transform and its
+capsule's kinematic target. No gravity, snapping, steps, or slopes: the game owns the rules (a
+swimmer moving in 3D). It collides by the controller's `layers` and `mask`, against colliders where
+the last step left them, so a game calls it in `FixedUpdate` before `PhysicsSystems`. It works on a
+`CharacterSuspended` character, whose capsule otherwise only follows the Transform. `hits` lists
+each collider touched once, with its body and the surface normal toward the character; passing
+`out` back reuses it without allocating.
 
 ### Agent surface
 
@@ -115,6 +128,16 @@ In `FixedUpdate`, after `physics/sync-in` and before `physics/step`:
 - **Our own platform carry, not Rapier's.** Rapier's controller only carries by contact friction:
   a step late, sometimes stalling for a step, and only while pushing into the ground. Computing
   the carry from the platform's next pose is exact.
+- **The carry is swept on its own.** Rapier's queries see a kinematic body where it is, not at its
+  target. Swept with the walk, a carry down or around met the platform's old surface and Rapier
+  returned an erratic slide: a character on a bobbing raft slipped about 0.4 m toward the stern
+  while it sped up.
+- **Our own sweep for the carry and `moveAndSlide`, not Rapier's controller.** Starting exactly on
+  its 1 cm gap from a kinematic body, Rapier's controller spends all its iterations at distance 0
+  and barely moves, so a swimmer stuck to a raft's hull instead of sliding along it. Its shape casts
+  also return skewed normals when they start on their target distance. The sweep casts to contact
+  with Rapier's raw `castShape`, steps back out 1 cm along the normal, and slides what's left, up to
+  4 casts.
 - **Up comes from gravity sources.** The same `GravitySource` that pulls rocks toward a planet
   orients the player, so walking around a planet needs no special code.
 
@@ -127,6 +150,10 @@ In `FixedUpdate`, after `physics/sync-in` and before `physics/step`:
 - [x] On a sphere with a `GravitySource`, walking forward for long enough circles the planet and
       returns within 1 m of the start, grounded the whole way, with +Y pointing away from the center.
 - [x] Standing on a moving kinematic platform carries the character with it.
+- [x] A character standing on a `kinematic-position` body that speeds up to 5 m/s at 1.2 m/s²
+      while bobbing ±0.5 m keeps its place in the body's space within 2 cm.
+- [x] `moveAndSlide` on a `CharacterSuspended` capsule stops at a fixed or kinematic box's face and
+      slides along it; through open space it ends exactly at position + delta.
 - [x] Walking into a 10 kg dynamic box pushes it.
 - [x] A 2D character walks, jumps between platforms, and stands on a polyline collider.
 - [x] 100 controllers step in under 1.5 ms per step (bench): 1.0 ms for the controller system, 1.06 ms

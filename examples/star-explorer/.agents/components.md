@@ -927,7 +927,7 @@ What the character controller did at the last step. Read-only.
 
 ## `physics/CharacterSuspended`
 
-A CharacterController that skips its move; the capsule follows the Transform.
+A CharacterController that skips its move; the capsule follows the Transform. moveAndSlide moves it and collides.
 
 Tag (no fields).
 
@@ -1407,6 +1407,27 @@ Brings along: `render/Camera3d`.
 | `sunScattering` | number | `0.5` | ≥ 0, ≤ 1 | Glow toward the sun (forward scattering). |
 | `mode` | `"default"` \| `"add"` | `"default"` |  | default: fog for flat scenes, ignored inside a planet's Atmosphere (render/fog-with-atmosphere); add: extra ground fog on top of the atmosphere's haze. |
 
+## `render/FogVolume`
+
+Local fog (0132): a box or sphere of fog with its own density, color, glow and drifting noise, for VolumetricFog cameras.
+
+Brings along: `core/GlobalTransform`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `shape` | `"box"` \| `"sphere"` | `"box"` |  | A unit cube or sphere (diameter 1), sized by the entity's Transform. |
+| `density` | number | `0.05` | ≥ 0, 1/m | Extinction inside. |
+| `albedo` | string or number[4] | `[0.9,0.9,0.9,1]` |  |  |
+| `emission` | string or number[4] | `"#000000"` |  | Light the fog gives off itself, cd/m² per unit density (glowing gas). |
+| `edge` | number | `0.25` | ≥ 0.001, ≤ 1 | Fraction of the shape that fades to nothing at its boundary. |
+| `heightFalloff` | number | `0` | ≥ 0, 1/m | Thins with height above the shape's bottom: mist that hugs the ground. |
+| `noise` | number | `0.5` | ≥ 0, ≤ 1 | How much noise breaks it up. |
+| `noiseScale` | number | `0.2` | ≥ 0, 1/m |  |
+| `noiseSpeed` | number[3] | `[0.3,0,0.1]` | m/s | Drift of the noise. |
+| `blend` | `"add"` \| `"max"` | `"add"` |  | add to the fog around it, or the denser wins. |
+| `anisotropy` | number | `-1` | ≥ -1, ≤ 0.95 | Henyey-Greenstein g of this volume; -1 uses the camera's. |
+| `ambient` | number | `1` | ≥ 0, ≤ 1 | How much sky light reaches the fog inside: 0 in a closed room, so only lights and sunbeams through openings show in it. |
+
 ## `render/GroundLayer`
 
 Draws a mesh in the ground phase: coplanar layers in a fixed order, hidden by walls and props, never z-fighting.
@@ -1428,7 +1449,7 @@ Brings along: `render/Camera3d`.
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `width` | number | `1.5` | ≥ 0.5, ≤ 8, px | Line width in CSS pixels (texels on a PixelPerfect camera). |
-| `color` | string or number[4] | `[0.02,0.02,0.03,1]` |  | Line color (linear), with alpha. Mixed in before tonemapping, so it is graded with the scene; black stays black. |
+| `color` | string or number[4] | `[0.02,0.02,0.03,1]` |  | Line color (linear), with alpha. Mixed in before tonemapping, so it is graded with the scene; black stays black. A line never shows brighter than what it covers (per channel), so in the dark it fades into the dark. |
 | `depthThreshold` | number | `0.1` | ≥ 0, m | How far a surface must fall back behind the plane of its neighbours, beyond the step its own slope makes over a pixel, to draw a line (silhouettes, an arm across a body). Planes never draw one, and nor do smooth surfaces inside their silhouette, at any slant. |
 | `normalThreshold` | number | `35` | ≥ 0, ≤ 180, ° | How sharply surface direction must turn between neighbouring pixels to draw a line (creases, a box edge facing the camera). |
 | `fade` | number[2] | `[60,250]` | m | Distances (along the view) between which lines inside silhouettes fade out: creases and folds, such as a distant hillside's. Silhouettes keep their line. Perspective cameras only; a far distance of 0 keeps every line at every distance. |
@@ -1850,6 +1871,22 @@ Brings along: `render/Mesh3d`.
 | `start` | number | `0` | ≥ 0, m | Hidden when the camera is closer than this. |
 | `end` | number | `100` | ≥ 0, m | Hidden at this distance from the camera and beyond (shadows too). |
 
+## `render/VolumetricFog`
+
+Volumetric fog (0132) on a camera: the camera's Fog and every FogVolume as a froxel volume lit by shadowed sun, moon, point and spot lights. Beyond distance, the Fog continues analytically.
+
+Brings along: `render/Camera3d`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `distance` | number | `96` | ≥ 1, m | Metres the froxel volume covers; the camera's Fog continues analytically beyond. |
+| `quality` | `"low"` \| `"medium"` \| `"high"` | `"medium"` |  | Froxel size and slices: low 16 px × 32, medium 8 px × 64, high 4 px × 128. |
+| `depthCurve` | number | `2` | ≥ 1, ≤ 4 | Slice distribution: 1 uniform, higher packs slices near the camera. |
+| `anisotropy` | number | `0.3` | ≥ -0.95, ≤ 0.95 | Henyey-Greenstein g: 0 scatters evenly, toward 1 glows around lights you look at. |
+| `temporal` | number | `0.9` | ≥ 0, ≤ 0.98 | Weight of last frame's lit volume: smooths the per-frame jitter. |
+| `lights` | boolean | `true` |  | Point and spot lights scatter in the fog. |
+| `ambient` | number | `1` | ≥ 0 | Scale of the sky light the fog scatters. |
+
 ## `save/NoSave`
 
 Leaves the entity out of saved games: loading keeps it as it is (debug helpers, the session's camera rig).
@@ -1955,6 +1992,57 @@ _Computed by the engine; never written in scene files._
 |---|---|---|---|---|
 | `scene` | string | `""` |  | Id of the scene this entity was loaded from. |
 | `path` | string | `""` |  | Path within the scene, e.g. "ship/camera". |
+
+## `sky/Clouds`
+
+The cloud field (0131) every sky mode draws: a layer between bottom and bottom + thickness, its coverage, type and density, moved by the wind.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `bottom` | number | `1500` | ≥ 0, m | Cloud base above the ground. |
+| `thickness` | number | `3000` | ≥ 1, m |  |
+| `coverage` | number | `0.45` | ≥ 0, ≤ 1 | 0 clear … 1 overcast. |
+| `type` | number | `0.5` | ≥ 0, ≤ 1 | 0 stratus, 0.5 cumulus, 1 cumulonimbus: how tall clouds grow. |
+| `density` | number | `0.04` | ≥ 0, 1/m | Extinction at full density. |
+| `shapeScale` | number | `0.00011111111` | ≥ 0, 1/m | Frequency of the cloud shapes: smaller is bigger clouds. |
+| `detailScale` | number | `0.00083333333` | ≥ 0, 1/m | Erosion detail. |
+| `mapScale` | number | `0.000045454545` | ≥ 0, 1/m | Frequency of the coverage pattern (where clouds gather). |
+| `windInfluence` | number | `1` | ≥ 0 | How much wind/Wind moves the clouds (× its speed); 0 uses speed and direction. |
+| `speed` | number | `10` | ≥ 0, m/s | Used when windInfluence is 0. |
+| `direction` | number[3] | `[1,0,0.35]` |  |  |
+| `windScale` | number | `3` | ≥ 0 | Wind aloft is faster than at the ground: multiplies the wind speed for clouds. |
+| `evolution` | number | `0.02` | ≥ 0 | How fast shapes change, per second. |
+| `phase` | number | `0` |  | Added to the advection, metres: scrub or loop. |
+| `albedo` | number | `0.95` | ≥ 0, ≤ 1 |  |
+| `shadows` | boolean | `true` |  | Cloud shadows on sun- and moonlit surfaces. |
+| `shadowStrength` | number | `0.85` | ≥ 0, ≤ 1 |  |
+| `bands` | integer | `0` | ≥ 0, ≤ 4294967295 | Toon bands for cloud light (0: smooth). |
+| `quality` | `"low"` \| `"medium"` \| `"high"` | `"medium"` |  |  |
+
+## `sky/Sky`
+
+A drop-in outdoor sky (0130): a clock (TimeOfDay), sun and moon lights with shadows handed over at twilight, stars, the moon and aurora, and a sky mode that draws the clouds (0131).
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `mode` | string | `"volumetric"` |  | A registered sky mode: none, 2d (panning layers), volumetric (raymarched). |
+| `sun` | null or integer or string | `null` |  | The sun DirectionalLight; spawned when unset. |
+| `moon` | null or integer or string | `null` |  | The moon DirectionalLight; spawned when unset. |
+| `sunIlluminance` | number | `100000` | ≥ 0, lux | The sun at the top of the atmosphere (the atmosphere dims and reddens it). |
+| `moonIlluminance` | number | `0.3` | ≥ 0, lux | Full-moon light, scaled by the illuminated fraction. |
+| `nightBrightness` | number | `12` | ≥ 0 | Multiplies moonlight and the night sky (stars, Milky Way, aurora). 1 is physical; 10–30 is a playable game night. |
+| `moonDisk` | number | `1` | ≥ 0 | Brightness of the moon disk drawn in the sky, against its default. |
+| `moonSize` | number | `2.5` | ≥ 0.1 | Moon disk size as a multiple of the real 0.52°. |
+| `path` | `"simple"` \| `"real"` | `"simple"` |  | simple: the sun rises at dawn on azimuth yaw and peaks at 90 − tilt; real: positions from latitude, longitude and date. |
+| `yaw` | number | `0` | deg | Simple path: turns the whole sky about up. |
+| `tilt` | number | `35` | ≥ 0, ≤ 89, deg | Simple path: the arc's tilt from overhead, toward the south (+Z). |
+| `latitude` | number | `45` | ≥ -90, ≤ 90, deg |  |
+| `longitude` | number | `0` | ≥ -180, ≤ 180, deg |  |
+| `timeZone` | number | `0` | ≥ -12, ≤ 14, h | Real path: UTC offset. |
+| `stars` | number | `1` | ≥ 0 | Star brightness. |
+| `twinkle` | number | `1` | ≥ 0 | Scintillation, strongest near the horizon. |
+| `milkyWay` | number | `1` | ≥ 0 |  |
+| `aurora` | number | `0` | ≥ 0 | Aurora curtains toward the pole, at night. |
 
 ## `sprite/Lighting2d`
 
@@ -3075,6 +3163,48 @@ The outline of a water body (0097): a lake, the shore that bounds an ocean so it
 |---|---|---|---|---|
 | `points` | object[] | `[]` |  | Points a uniform Catmull-Rom spline passes through, in the entity’s frame: a lake’s or a bounded ocean’s shore (at least 3, closed), or a river’s course from source to mouth (at least 2, open). |
 | `closed` | boolean | `true` |  | Lakes and bounded oceans are closed: the outline wraps back to its first point. Rivers are open. |
+
+## `weather/Weather`
+
+The weather (0133): its source, wind and how surfaces respond. It drives the clouds, the fog, the wind, rain, snow, lightning and surface weather.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `source` | `"preset"` \| `"random"` \| `"schedule"` | `"preset"` |  | preset: the preset field (changeWeather moves between them); random: a climate; schedule: the schedule list, by game time. |
+| `preset` | string | `"partly-cloudy"` |  | A preset in WeatherPresets. |
+| `climate` | string | `"temperate"` |  | random: a climate in Climates. |
+| `changeEvery` | number | `3` | ≥ 0.05, h | random: game hours between changes (so a forecast follows the clock). |
+| `transition` | number | `45` | ≥ 0, s | random: how long each change takes. |
+| `seed` | integer | `1` | ≥ 0, ≤ 4294967295 |  |
+| `schedule` | object[] | `[]` |  | schedule: changes at game times, in order. |
+| `season` | `"auto"` \| `"spring"` \| `"summer"` \| `"autumn"` \| `"winter"` | `"auto"` |  | auto: from the sky's date and the hemisphere of its latitude. |
+| `windDirection` | number[3] | `[1,0,0.35]` |  | Where the wind blows toward. |
+| `windVariance` | number | `25` | ≥ 0, deg | Slow drift of the wind. |
+| `materialState` | `"simulate"` \| `"direct"` | `"simulate"` |  | simulate: surfaces get wet, snowed on and dry over time; direct: they follow the weather now. |
+| `drivesWind` | boolean | `true` |  |  |
+
+## `weather/WeatherMaskBrush`
+
+A box the sky does not reach (0133): no rain or snow falls in it and surfaces in it stay dry. For roofed places geometry alone does not mark.
+
+Brings along: `core/GlobalTransform`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `edge` | number | `0.05` | ≥ 0, ≤ 0.5 | Fraction of the box that fades. |
+
+## `weather/WeatherZone`
+
+Regional weather (0133): inside, the weather blends to the zone's preset.
+
+Brings along: `core/GlobalTransform`.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `shape` | `"box"` \| `"sphere"` | `"box"` |  | A unit cube or sphere sized by the Transform. |
+| `preset` | string | `"rain"` |  |  |
+| `edge` | number | `0.3` | ≥ 0.001, ≤ 1 | Fraction of the shape the weather blends in over. |
+| `priority` | integer | `0` | ≥ -2147483648, ≤ 2147483647 |  |
 
 ## `wind/WindState`
 

@@ -219,7 +219,8 @@ NavBudget += { crowd: 128, joins: 8, steerHz: 10, coarseHz: 2, flowMs: 1 }
   `stoppingDistance` of `legEnd`, it calls 0114's `navAgentAt`.
 - Below crowd, the drive is the transform. A `CharacterController` gets physics'
   `CharacterSuspended` tag: it skips the move query and its capsule follows the Transform
-  kinematically. So walk filters, not colliders, keep these agents out of shut doors.
+  kinematically. So walk filters, not colliders, keep these agents out of shut doors. A game that
+  wants a suspended capsule to collide moves it with `moveAndSlide` (0029).
 - **Flow fields:** a Dijkstra over navmesh polygons from the goal, out to `range`, priced with the
   agent filter's **plan filter** (0114). Edge costs are distances times area costs, shut breach
   gates included at their breach cost; `exclude` states are skipped. Each polygon stores its next

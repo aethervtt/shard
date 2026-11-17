@@ -406,7 +406,8 @@ export const CharacterController = defineComponent(
  * move by the Transform, and remove it when the agent joins the crowd again.
  */
 export const CharacterSuspended = defineTag('physics/CharacterSuspended', {
-  description: 'A CharacterController that skips its move; the capsule follows the Transform.',
+  description:
+    'A CharacterController that skips its move; the capsule follows the Transform. moveAndSlide moves it and collides.',
 })
 
 export interface CharacterGroundEventData {
