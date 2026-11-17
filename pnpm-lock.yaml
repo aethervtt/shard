@@ -330,6 +330,9 @@ importers:
       '@aethervtt/shard-water':
         specifier: workspace:*
         version: link:../../packages/water
+      '@aethervtt/shard-weather':
+        specifier: workspace:*
+        version: link:../../packages/weather
       '@aethervtt/shard-wind':
         specifier: workspace:*
         version: link:../../packages/wind
@@ -2838,6 +2841,37 @@ importers:
       webgpu:
         specifier: 0.6.1
         version: 0.6.1
+
+  packages/weather:
+    dependencies:
+      '@aethervtt/shard-core':
+        specifier: workspace:*
+        version: link:../core
+      '@aethervtt/shard-gpu':
+        specifier: workspace:*
+        version: link:../gpu
+      '@aethervtt/shard-render':
+        specifier: workspace:*
+        version: link:../render
+      '@aethervtt/shard-runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@aethervtt/shard-sky':
+        specifier: workspace:*
+        version: link:../sky
+      '@aethervtt/shard-transform':
+        specifier: workspace:*
+        version: link:../transform
+      '@aethervtt/shard-wind':
+        specifier: workspace:*
+        version: link:../wind
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+      '@webgpu/types':
+        specifier: ^0.1.74
+        version: 0.1.74
 
   packages/wind:
     dependencies:

@@ -13,7 +13,7 @@ import { TransformSystems } from '@aethervtt/shard-transform'
 import { SkyFrame, updateSky } from './celestial'
 import { Clock, updateClock } from './clock'
 import { Clouds, Sky, TimeOfDay } from './components'
-import { advectClouds, CloudMotion, uploadOcclusion } from './motion'
+import { advectClouds, CloudMotion, SkyFlash, uploadOcclusion } from './motion'
 import {
   bindActivity,
   celestialNode,
@@ -38,6 +38,7 @@ export const skyPlugin = definePlugin({
     world.initResource(Clock)
     world.initResource(SkyFrame)
     world.initResource(CloudMotion)
+    world.initResource(SkyFlash)
     world.initResource(SkyGpuResource)
     app.addSystems(PreUpdate, updateClock)
     app.addSystems(FixedUpdate, advectClouds)

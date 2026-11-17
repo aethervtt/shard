@@ -19,7 +19,15 @@ import {
 import { definePlugin } from '@aethervtt/shard-runtime'
 import { CloudMotion, Clouds, Sky, SkyFrame, setTimeOfDay, TimeOfDay } from '@aethervtt/shard-sky'
 import { Transform, TransformSystems } from '@aethervtt/shard-transform'
-import { Wind } from '@aethervtt/shard-wind'
+import {
+  CH,
+  changeWeather,
+  strikeLightning,
+  Weather,
+  WeatherMaskBrush,
+  WeatherPresets,
+  WeatherState,
+} from '@aethervtt/shard-weather'
 import { orbitFrom } from './camera'
 import { hudExtras } from './hud'
 
@@ -39,6 +47,8 @@ const num = (key: string, fallback: number) => {
 type Vec3 = [number, number, number]
 let skyEntity: Entity | undefined
 let cameraEntity: Entity | undefined
+/** Seconds a weather change from the panel takes. */
+let changeOver = num('over', 20)
 let flashlight: Entity | undefined
 const lamps: Entity[] = []
 /** The wall lamp over the door: a spot light, so its cone shows from the side in fog. */
@@ -235,8 +245,8 @@ function scene(world: World): void {
   slab(2, 10, 4, 4.15, -17, -11)
   const tilt = Math.sin(Math.PI / 8)
   const tc = Math.cos(Math.PI / 8)
-  spawnMesh(world, unit, roof, [6, 4.9, -15.6], [8.6, 0.25, 3.8], [tilt, 0, 0, tc])
-  spawnMesh(world, unit, roof, [6, 4.9, -12.4], [8.6, 0.25, 3.8], [-tilt, 0, 0, tc])
+  spawnMesh(world, unit, roof, [6, 4.9, -15.6], [8.6, 0.25, 3.8], [-tilt, 0, 0, tc])
+  spawnMesh(world, unit, roof, [6, 4.9, -12.4], [8.6, 0.25, 3.8], [tilt, 0, 0, tc])
   // A street lamp's pole.
   const pole = material(world, [0.12, 0.12, 0.13], 0.4, 1)
   spawnMesh(world, meshes.add(cylinder({ radius: 0.07, height: 4.6 })), pole, [-3, 2.3, -8])
@@ -321,7 +331,6 @@ function addControls(world: World): void {
     row(label, el)
   }
   const sky = () => world.get(skyEntity!, Sky)
-  const clouds = () => world.get(skyEntity!, Clouds)
   const time = slider(
     'time',
     0,
@@ -361,41 +370,35 @@ function addControls(world: World): void {
     () => sky().path,
     (v) => world.set(skyEntity!, Sky, { path: v } as never),
   )
+  const weather = () => world.get(skyEntity!, Weather)
+  select(
+    'weather',
+    [...WeatherPresets.keys()],
+    () => weather().preset,
+    (v) => changeWeather(world, v, { over: changeOver }),
+  )
   slider(
-    'coverage',
+    'change over',
     0,
+    120,
     1,
-    0.01,
-    () => clouds().coverage,
-    (v) => world.set(skyEntity!, Clouds, { coverage: v } as never),
-  )
-  slider(
-    'type',
-    0,
-    1,
-    0.01,
-    () => clouds().type,
-    (v) => world.set(skyEntity!, Clouds, { type: v } as never),
-  )
-  slider(
-    'density',
-    0.002,
-    0.08,
-    0.001,
-    () => clouds().density,
-    (v) => world.set(skyEntity!, Clouds, { density: v } as never),
-    (v) => v.toFixed(3),
-  )
-  slider(
-    'wind',
-    0,
-    30,
-    0.5,
-    () => world.resource(Wind).speed,
+    () => changeOver,
     (v) => {
-      world.resource(Wind).speed = v
+      changeOver = v
     },
-    (v) => `${v.toFixed(1)} m/s`,
+    (v) => `${v.toFixed(0)} s`,
+  )
+  select(
+    'source',
+    ['preset', 'random'],
+    () => weather().source,
+    (v) => world.set(skyEntity!, Weather, { source: v } as never),
+  )
+  select(
+    'surfaces',
+    ['simulate', 'direct'],
+    () => weather().materialState,
+    (v) => world.set(skyEntity!, Weather, { materialState: v } as never),
   )
   slider(
     'night',
@@ -431,17 +434,6 @@ function addControls(world: World): void {
   fog.checked = query.get('fog') !== '0'
   fog.addEventListener('change', () => setFog(world, fog.checked))
   row('volumetric fog', fog)
-  slider(
-    'fog density',
-    0,
-    0.08,
-    0.001,
-    () => world.tryGet(cameraEntity!, Fog)?.density ?? 0,
-    (v) => {
-      if (world.has(cameraEntity!, Fog)) world.set(cameraEntity!, Fog, { density: v } as never)
-    },
-    (v) => v.toFixed(3),
-  )
   select(
     'lamps',
     ['auto', 'on', 'off'],
@@ -457,6 +449,13 @@ function addControls(world: World): void {
     world.set(flashlight!, SpotLight, { intensity: torch.checked ? 1500 : 0 } as never),
   )
   row('flashlight', torch)
+}
+
+function weatherLine(world: World): string {
+  const s = world.resource(WeatherState)
+  const c = s.channels
+  const pct = (v: number) => `${Math.round(v * 100)}%`
+  return `weather   ${s.displayName}  ${s.temperature.toFixed(0)}°C  rain ${pct(c[CH.rain]!)} snow ${pct(c[CH.snow]!)}  wet ${pct(s.wetness)} snow cover ${pct(s.snowCover)}`
 }
 
 function speedLabel(world: World): string {
@@ -479,8 +478,6 @@ export const weatherDemoPlugin = definePlugin({
     clock.speed = speed && !clock.paused ? Number(speed) : 1
     clock.dayLength = 1200
     clock.nightLength = 600
-    const wind = world.resource(Wind)
-    wind.speed = num('wind', 6)
     skyEntity = world.spawn(
       [
         Sky,
@@ -500,6 +497,14 @@ export const weatherDemoPlugin = definePlugin({
           quality: (query.get('quality') as 'low' | 'medium' | 'high') ?? 'medium',
         },
       ],
+      [
+        Weather,
+        {
+          preset: query.get('weather') ?? 'partly-cloudy',
+          source: (query.get('source') as 'preset' | 'random') ?? 'preset',
+          materialState: query.has('instant') ? 'direct' : 'simulate',
+        },
+      ],
     )
     setTimeOfDay(world, query.get('time') ?? '10:00')
     // A low camera looking a little up, so most of the frame is sky.
@@ -514,10 +519,31 @@ export const weatherDemoPlugin = definePlugin({
     )
     scene(world)
     fogVolumes(world)
+    // The house keeps its rain and snow out: the sky doesn't reach in.
+    world.spawn(WeatherMaskBrush, [
+      Transform,
+      { translation: [6, 2.1, -14], scale: [8.1, 4.4, 6.1] },
+    ])
     lights(world)
     lampsWanted = (query.get('lamps') as typeof lampsWanted) ?? 'auto'
     if (query.get('fog') !== '0') setFog(world, true)
     if (query.get('toon') === '1') setToon(world, true)
+    // ?bolt=1: a strike in front of the camera every few seconds, to look at.
+    if (query.get('bolt') === '1') {
+      setInterval(() => {
+        const t = world.get(cameraEntity!, Transform)
+        const r = t.rotation
+        const fx = -2 * (r[0]! * r[2]! + r[3]! * r[1]!)
+        const fz = -(1 - 2 * (r[0]! * r[0]! + r[1]! * r[1]!))
+        const len = Math.hypot(fx, fz) || 1
+        const d = 900 + Math.random() * 900
+        strikeLightning(world, [
+          t.translation[0]! + (fx / len) * d + (Math.random() - 0.5) * 600,
+          0,
+          t.translation[2]! + (fz / len) * d,
+        ])
+      }, 2500)
+    }
     if (!query.has('nopanel')) addControls(world)
     else document.getElementById('panel')?.remove()
     hudExtras.push((w) => {
@@ -528,6 +554,7 @@ export const weatherDemoPlugin = definePlugin({
       return [
         `time      day ${c.day} ${String(Math.floor(h)).padStart(2, '0')}:${String(Math.floor((h % 1) * 60)).padStart(2, '0')}  sun ${f.celestial.sunElevation.toFixed(1)}°  moon ${f.celestial.moonElevation.toFixed(1)}° (${Math.round(f.celestial.illuminated * 100)}%)`,
         `shadows   ${f.shadows}   clouds offset ${(m.offset[0]! / 1000).toFixed(1)}, ${(m.offset[1]! / 1000).toFixed(1)} km`,
+        weatherLine(w),
       ]
     })
   },

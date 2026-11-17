@@ -1,6 +1,6 @@
 # 0133 — Weather
 
-- **Status:** draft
+- **Status:** draft (visual pass built; tests to come)
 - **Packages:** `@aethervtt/shard-weather` (new), `@aethervtt/shard-particles`,
   `@aethervtt/shard-sky`, `@aethervtt/shard-wind`
 - **Depends on:** 0026, 0069, 0077, 0087, 0096, 0116, 0118, 0128, 0130, 0131, 0132
@@ -307,6 +307,24 @@ the rain), and 0134 can read it per entity. It updates in round-robin, 64 entiti
       64 exposed entities) and allocates nothing in `pnpm bench`. Heavy rain at 1440p stays within
       `gpu:precipitation` (proposed: 0.3 ms, like 0026's particles demo at its count). The mask
       stays within `gpu:weather-mask` (proposed: 0.1 ms on a refresh frame, 0 otherwise).
+
+## As built (visual pass)
+
+What the first pass built differs from the design above in these ways; tests and the rest follow
+once the look is approved.
+
+- **Precipitation is drawn, not simulated.** Rain and snow are instanced streaks and flakes whose
+  positions are a function of time, wrapped in a box around the camera (`shard::weather::precip`).
+  They're lit by `apply_lighting`, so lamps, the flashlight and shadows light them. 0026 effects
+  for splashes and debris are still to come.
+- **The weather mask is WeatherMaskBrush boxes only.** The GPU top-down depth mask, 0069's sky
+  visibility and the CPU shelter sources are still to come.
+- **Random climates change on real-second windows** (`changeEvery`, `transition`), not game hours
+  and seasons. Temperature comes from presets alone.
+- **Zones are in; storms, schedules, forecast, audio parameters, RoadConditions and the agent
+  surface are not.**
+- **`strikeLightning(world, position)`** places a strike for scripted moments. Bolts glow for half a
+  second after their strokes; a DirectionalLight flashes the land and SkyFlash lights the clouds.
 
 ## Open questions
 

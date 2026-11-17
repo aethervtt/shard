@@ -56,6 +56,7 @@ import { vehicleEffectsPlugin } from '@aethervtt/shard-vehicle/effects'
 import { metricsPlugin } from '@aethervtt/shard-verify/metrics'
 import { installCapturePage } from '@aethervtt/shard-verify/page'
 import { oceanWavesPlugin, waterPlugin } from '@aethervtt/shard-water'
+import { weatherPlugin } from '@aethervtt/shard-weather'
 import { windPlugin } from '@aethervtt/shard-wind'
 import { animationDemoPlugin } from './animation'
 import { animgraphDemoPlugin } from './animgraph'
@@ -419,6 +420,7 @@ if (demo === 'galaxy') {
     forwardPlugin(),
     windPlugin,
     skyFeaturePlugin,
+    weatherPlugin,
     ...controls(),
     hudPlugin,
     weatherDemoPlugin,

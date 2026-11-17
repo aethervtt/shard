@@ -1,6 +1,6 @@
 # 0134 — Surface weather
 
-- **Status:** draft
+- **Status:** draft (visual pass built; tests to come)
 - **Packages:** `@aethervtt/shard-render`, `@aethervtt/shard-weather`, `@aethervtt/shard-terrain`,
   `@aethervtt/shard-scatter`, `@aethervtt/shard-nature`, `@aethervtt/shard-water`
 - **Depends on:** 0020, 0064, 0068, 0071, 0096, 0097, 0101, 0127, 0133
@@ -213,6 +213,17 @@ glass, or ash that settles.
 - [ ] A fullscreen wet ground at 1440p adds at most `gpu:surface-weather` over dry (proposed:
       0.15 ms, a few ALU and two texture reads per pixel), measured as a delta of the forward pass.
 - [ ] 0097's lake ripples under rain and is still without it (golden pair).
+
+## As built (visual pass)
+
+- **Every standard surface gets weather; there's no per-material field yet.** The forward fragment
+  passes its surface through `surface_weather` when the weather plugin sets `SkyOcclusion.surface`
+  (one variant with cloud shadows, so no new pipeline keys). Puddles form on flat, non-metal
+  surfaces. The `weather` profile field, terrain layers, foliage and the deferred G-buffer pass are
+  still to come.
+- **Data lives in shard::shader_data** (68 slots: state, and 16 mask brushes), not globals, which
+  wind and the sky nearly fill.
+- **Covered surfaces come from WeatherMaskBrush boxes only**, as in 0133's visual pass.
 
 ## Open questions
 

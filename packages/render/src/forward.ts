@@ -253,6 +253,8 @@ export interface ForwardState {
   interiorMode: number
   /** Whether lit pipelines link `SKY_OCCLUSION` this frame (0131's cloud shadows). */
   skyOcclusion: boolean
+  /** Whether lit pipelines link `SURFACE_WEATHER` (0134). */
+  skySurface: boolean
   /** Whether the view layouts hold the sky occlusion map (SKY_OCCLUSION_BINDING). */
   layoutSky: boolean
 }
@@ -1054,8 +1056,8 @@ function materialPipeline(
   const mode = gbuffer || prepass || pick ? 0 : state.interiorMode
   // Nor toon shading (0108), which a view's camera turns on.
   const toon = !gbuffer && !prepass && !pick && cam.toon.tones > 0
-  // Nor sky occlusion (0131): cloud shadows on directional lights.
-  const occluded = !gbuffer && !prepass && !pick && state.skyOcclusion
+  // Nor sky hooks: cloud shadows on directional lights (0131), surface weather (0134).
+  const occluded = !gbuffer && !prepass && !pick && (state.skyOcclusion || state.skySurface)
   // Cutaway variants (0070) key above every other pass's pipelines (shadows' included).
   const key =
     ((pass * 1024 + typeOrdinal(type)) * 16 + variant) * 8 +
@@ -1115,7 +1117,8 @@ function materialPipeline(
                 : 0
               : (premultiply ? 1 : 0) | (mask ? 2 : 0) | (opaque ? 4 : 0)
         ],
-        occluded,
+        occluded && state.skyOcclusion,
+        occluded && state.skySurface,
       ),
     )
     if (!module) {
@@ -1202,7 +1205,7 @@ function warmPipelines(
     (cut ? CUT_KEY : 0) +
     state.interiorMode * INTERIOR_KEY +
     (cam.toon.tones > 0 ? TOON_KEY : 0) +
-    (state.skyOcclusion ? SKY_OCCLUSION_KEY : 0)
+    (state.skyOcclusion || state.skySurface ? SKY_OCCLUSION_KEY : 0)
   if (state.pipelines.warmed(slot, store.structureVersion, ctx.gpu.generation)) return
   const ground = pass === PASS_GROUND || pass === PASS_PICK_GROUND
   const batches = store.batches
@@ -2119,18 +2122,25 @@ function refractViewLayout(gpu: GpuContext, state: ForwardState): GPUBindGroupLa
   return layout
 }
 
-/** A define set with `SKY_OCCLUSION` (0131) linked in, made once per set. */
-const skyOcclusionDefines = new WeakMap<object, Readonly<Record<string, boolean>>>()
+/** A define set with the sky hooks linked in: SKY_OCCLUSION (0131), SURFACE_WEATHER (0134). */
+const skyHookDefines = new WeakMap<object, (Readonly<Record<string, boolean>> | undefined)[]>()
 function withSkyOcclusion(
   defines: Readonly<Record<string, boolean>> | undefined,
-  on: boolean,
+  occlusion: boolean,
+  surface: boolean,
 ): Readonly<Record<string, boolean>> | undefined {
-  if (!on) return defines
+  if (!occlusion && !surface) return defines
   const base = defines ?? NO_DEFINES
-  let d = skyOcclusionDefines.get(base)
+  let sets = skyHookDefines.get(base)
+  if (!sets) {
+    sets = []
+    skyHookDefines.set(base, sets)
+  }
+  const k = (occlusion ? 1 : 0) + (surface ? 2 : 0)
+  let d = sets[k]
   if (!d) {
-    d = { ...base, SKY_OCCLUSION: true }
-    skyOcclusionDefines.set(base, d)
+    d = { ...base, SKY_OCCLUSION: occlusion, SURFACE_WEATHER: surface }
+    sets[k] = d
   }
   return d
 }
@@ -2138,7 +2148,9 @@ const NO_DEFINES: Readonly<Record<string, boolean>> = {}
 
 /** Picks this frame's interior mode (0069) and the view layout that goes with it. */
 function chooseInterior(gpu: GpuContext, world: World, state: ForwardState): void {
-  state.skyOcclusion = world.tryResource(SkyOcclusion)?.enabled === true
+  const hooks = world.tryResource(SkyOcclusion)
+  state.skyOcclusion = hooks?.enabled === true
+  state.skySurface = hooks?.surface === true
   const mode = world.tryResource(InteriorPath)?.mode ?? 0
   state.interiorMode = mode
   state.layouts.view = mode !== 0 ? interiorViewLayout(gpu, state) : state.layouts.viewBase
@@ -2399,6 +2411,7 @@ export function forwardCorePlugin(options: ForwardPluginOptions = {}): Plugin {
           cullerActive: false,
           interiorMode: 0,
           skyOcclusion: false,
+          skySurface: false,
           layoutSky: false,
           gbufferTargets: [
             { format: 'rgba8unorm-srgb' },

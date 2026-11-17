@@ -1199,6 +1199,7 @@ import shard::pbr::material::{ pbr_input, fragment_output };
 import shard::pbr::standard::material;
 import shard::pbr::lighting::apply_lighting;
 @if(CUTAWAY) import shard::cutaway::cutaway_clip;
+@if(SURFACE_WEATHER) import shard::surface_weather::surface_weather;
 
 @vertex fn vs(
   @builtin(instance_index) instance_index: u32,
@@ -1216,7 +1217,9 @@ import shard::pbr::lighting::apply_lighting;
 
 @fragment fn fs(in: VertexOutput) -> @location(0) vec4f {
   @if(CUTAWAY) cutaway_clip(in.world_position, in.clip.xy, in.flags);
-  let p = pbr_input(in);
+  @if(!SURFACE_WEATHER) let p = pbr_input(in);
+  // Surface weather (0134): wet, puddled, snowed or dusty, by the weather plugin.
+  @if(SURFACE_WEATHER) let p = surface_weather(pbr_input(in), in);
   if (material.alphaMode == 1u && p.alpha < material.alphaCutoff) { discard; }
   let color = (apply_lighting(p, in.world_position, in.clip, in.flags) + p.emissive) * view.exposure;
   // Premultiplied blending expects color × alpha; additive and alpha blend multiply in hardware.

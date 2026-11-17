@@ -58,6 +58,7 @@
     "@aethervtt/shard-vehicle": "workspace:*",
     "@aethervtt/shard-verify": "workspace:*",
     "@aethervtt/shard-water": "workspace:*",
+    "@aethervtt/shard-weather": "workspace:*",
     "@aethervtt/shard-wind": "workspace:*"
   },
   "devDependencies": {

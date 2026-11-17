@@ -19,6 +19,6 @@ export {
   type TimeOfDayValue,
 } from './components'
 export { type CelestialState, computeCelestial, createCelestial, SYNODIC_MONTH } from './ephemeris'
-export { CloudMotion, type CloudMotionState } from './motion'
+export { CloudMotion, type CloudMotionState, SkyFlash, type SkyFlashValue } from './motion'
 export { skyPlugin } from './plugin'
 export { SkyGpu, SkyGpuResource } from './render'

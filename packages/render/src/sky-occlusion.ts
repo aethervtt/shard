@@ -9,6 +9,12 @@ import { defineResource } from '@aethervtt/shard-core'
 export interface SkyOcclusionValue {
   enabled: boolean
   /**
+   * Surface weather (0134): while set, lit pipelines link `SURFACE_WEATHER`, and forward fragments
+   * pass their surface through `surface_weather(p, in)` from `shard::surface_weather`, which the
+   * plugin that sets this registers. Set before the first frame; it doesn't change at runtime.
+   */
+  surface: boolean
+  /**
    * A map the module may sample at `SKY_OCCLUSION_BINDING` of the view group (full tier only; a
    * white texture until set). Swap the view to rebind it.
    */
@@ -21,5 +27,5 @@ export const SKY_OCCLUSION_BINDING = 19
 export const SkyOcclusion = defineResource<SkyOcclusionValue>('render/SkyOcclusion', {
   description:
     'Cloud shadows on directional lights (0131): set enabled when shard::sky_occlusion is registered.',
-  init: () => ({ enabled: false, map: undefined }),
+  init: () => ({ enabled: false, surface: false, map: undefined }),
 })

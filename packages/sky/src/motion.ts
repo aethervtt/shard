@@ -29,6 +29,20 @@ export const CloudMotion = defineResource<CloudMotionState>('sky/CloudMotion', {
   }),
 })
 
+/**
+ * A flash inside the clouds this frame (0133's lightning): world position (m) and strength (the
+ * cloud radiance it adds near that point, cd/m²; 0 for none). Weather writes it; the clouds read it.
+ */
+export interface SkyFlashValue {
+  position: Float64Array
+  strength: number
+}
+
+export const SkyFlash = defineResource<SkyFlashValue>('sky/Flash', {
+  description: 'A lightning flash lighting the clouds from inside this frame (0131, 0133).',
+  init: () => ({ position: new Float64Array(3), strength: 0 }),
+})
+
 /** Carries the clouds along the wind (wind/Wind × windScale, or the Clouds' own speed). */
 export const advectClouds = defineSystem({
   name: 'sky/advect-clouds',

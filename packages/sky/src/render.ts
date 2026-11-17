@@ -15,7 +15,7 @@ import {
 } from '@aethervtt/shard-render'
 import { SkyFrame } from './celestial'
 import { Clouds } from './components'
-import { CloudMotion } from './motion'
+import { CloudMotion, SkyFlash } from './motion'
 import { DETAIL_SIZE, SHADOW_EXTENT, SHADOW_SIZE, SHAPE_SIZE } from './shaders'
 
 /** Per camera: the half-resolution march, its history, and uniforms. */
@@ -204,7 +204,7 @@ export const SkyGpuResource = defineResource<SkyGpu>('sky/Gpu', {
   init: () => new SkyGpu(),
 })
 
-const PARAM_FLOATS = 40
+const PARAM_FLOATS = 44
 const RESOLVE_FLOATS = 40
 const CELESTIAL_FLOATS = 28
 const params = new Float32Array(PARAM_FLOATS)
@@ -442,6 +442,11 @@ export function cloudsMarchNode(): NodeDescriptor {
       // Toon (0108): the Clouds' own bands, or the camera's.
       params[36] = clouds.bands > 0 ? clouds.bands : cam.toon.tones
       params[37] = cam.toon.softness
+      const flash = world.resource(SkyFlash)
+      params[40] = flash.position[0]! - cam.position[0]!
+      params[41] = flash.position[1]! - cam.position[1]!
+      params[42] = flash.position[2]! - cam.position[2]!
+      params[43] = flash.strength
       c.params.write(params)
       if (
         !c.marchGroup ||

@@ -193,6 +193,8 @@ struct CloudParams {
   shadow_light: vec4f,
   /** toon bands (0: smooth), softness */
   toon: vec4f,
+  /** a lightning flash inside the clouds: camera-relative position (m), strength (0: none) */
+  flash: vec4f,
 }
 
 /**
@@ -494,7 +496,12 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         S += E * ms * mix(1.0, powder * 2.0, 0.4);
         S_ref += E * ms_ref;
       }
-      let amb = mix(amb_bottom, amb_top, h) * mix(0.55, 1.0, h);
+      var amb = mix(amb_bottom, amb_top, h) * mix(0.55, 1.0, h);
+      // Lightning lights the cloud around it from inside (0133).
+      if (cp.flash.w > 0.0) {
+        let fd = length(q - cp.flash.xyz);
+        amb += vec3f(0.75, 0.82, 1.0) * cp.flash.w * exp(-fd / 1800.0);
+      }
       let e = exp(-sigma * dt);
       // ∫ over the step of scattering × transmittance, for a unit source: (1 − e) × albedo.
       let w = T * (1.0 - e) * albedo;

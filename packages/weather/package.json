@@ -1,0 +1,29 @@
+{
+  "name": "@aethervtt/shard-weather",
+  "version": "0.0.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "description": "Weather (spec 0133) and surface weather (spec 0134): channels and presets, timed changes and random climates, zones, rain and snow, lightning, and wet, puddled, snowed and dusty surfaces.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@aethervtt/shard-core": "workspace:*",
+    "@aethervtt/shard-gpu": "workspace:*",
+    "@aethervtt/shard-render": "workspace:*",
+    "@aethervtt/shard-runtime": "workspace:*",
+    "@aethervtt/shard-sky": "workspace:*",
+    "@aethervtt/shard-transform": "workspace:*",
+    "@aethervtt/shard-wind": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "@webgpu/types": "^0.1.74"
+  }
+}
