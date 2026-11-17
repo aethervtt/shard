@@ -2,7 +2,7 @@ import type { Entity } from '@aethervtt/shard-core'
 import { timeout } from '@aethervtt/shard-core/test-env'
 import type { GpuContext } from '@aethervtt/shard-gpu'
 import { createNodeGpuContext } from '@aethervtt/shard-gpu/node'
-import { box, loadMeshSimplifier, type Mesh, plane, sphere } from '@aethervtt/shard-mesh'
+import { box, loadMeshSimplifier, Mesh, plane, sphere } from '@aethervtt/shard-mesh'
 import { App } from '@aethervtt/shard-runtime'
 import { lookAt, Transform, TransformPlugin } from '@aethervtt/shard-transform'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -307,6 +307,53 @@ function inkCount(image: CapturedImage): number {
   return n
 }
 
+/** The swell's size and its cells (m). */
+const SWELL = 40
+const SWELL_CELL = 0.5
+
+/**
+ * A gently rolling sea, SWELL m square round the origin, faceted in SWELL_CELL cells with smooth
+ * normals. Its slopes (under 0.062) stay below every view ray's descent across it from 3 m up, so
+ * nothing on it hides anything else: every line inside it is spurious.
+ */
+function swell(): Mesh {
+  const waves = [
+    [0.1, 24, 1, 0.2],
+    [0.03, 9, 0.6, 0.8],
+    [0.01, 4.5, -0.4, 0.9],
+  ] as const
+  const n = SWELL / SWELL_CELL
+  const positions = new Float32Array((n + 1) * (n + 1) * 3)
+  const normals = new Float32Array(positions.length)
+  for (let j = 0, v = 0; j <= n; j++) {
+    for (let i = 0; i <= n; i++, v += 3) {
+      const x = (i - n / 2) * SWELL_CELL
+      const z = (j - n / 2) * SWELL_CELL
+      let y = 0
+      let dx = 0
+      let dz = 0
+      for (const [a, length, ux, uz] of waves) {
+        const k = (2 * Math.PI) / length / Math.sqrt(ux * ux + uz * uz)
+        const phase = k * (ux * x + uz * z)
+        y += a * Math.sin(phase)
+        dx += a * k * ux * Math.cos(phase)
+        dz += a * k * uz * Math.cos(phase)
+      }
+      const l = Math.sqrt(dx * dx + 1 + dz * dz)
+      positions.set([x, y, z], v)
+      normals.set([-dx / l, 1 / l, -dz / l], v)
+    }
+  }
+  const indices = new Uint32Array(n * n * 6)
+  for (let j = 0, o = 0; j < n; j++) {
+    for (let i = 0; i < n; i++, o += 6) {
+      const a = j * (n + 1) + i
+      indices.set([a, a + n + 1, a + n + 2, a, a + n + 2, a + 1], o)
+    }
+  }
+  return Mesh.create({ positions, normals, indices })
+}
+
 describe('ink', () => {
   it('draws silhouettes, creases and edges facing the camera, and nothing on planes', {
     timeout: timeout(120_000),
@@ -392,6 +439,50 @@ describe('ink', () => {
       for (let i = 0; i < all.data.length; i++) if (faded.data[i] !== all.data[i]) differ++
       expect(differ, projection).toBe(0)
     }
+    await app.dispose()
+  })
+
+  it('draws no line inside a smooth surface at a grazing angle; a box on it keeps its outline', {
+    timeout: timeout(120_000),
+  }, async () => {
+    const { app, world, meshes, materials, camera } = await scene(128)
+    world.resource(AmbientLight).brightness = 1.5
+    const green = materials.add(new MaterialAsset({ baseColor: [0.15, 0.6, 0.15, 1] }))
+    const gray = materials.add(new MaterialAsset({ baseColor: [0.6, 0.6, 0.6, 1] }))
+    world.spawn(
+      [Mesh3d, { mesh: meshes.add(swell()) }],
+      [MeshMaterial, { material: green }],
+      [Transform, { translation: [0, 0, -SWELL / 2] }],
+    )
+    world.spawn(
+      [Mesh3d, { mesh: meshes.add(box({ x: 1, y: 2, z: 1 })) }],
+      [MeshMaterial, { material: gray }],
+      [Transform, { translation: [1, 0.5, -16] }],
+    )
+    // Stranded's sea and ink: 3 m up, looking out over the swell at a grazing angle.
+    const eye: Vec3 = [0, 3, 0]
+    const at: Vec3 = [0, 0.6, -30]
+    const inked = camera(eye, at, { projection: 'perspective', fovY: 50 })
+    const plain = camera(eye, at, { projection: 'perspective', fovY: 50 })
+    world.add(inked, Ink, {
+      width: 2,
+      color: [0, 0, 0, 1],
+      depthThreshold: 0.3,
+      normalThreshold: 40,
+      fade: [40, 220],
+      silhouette: 0.1,
+    })
+    const image = await renderView(app, `camera:${inked}`)
+    const base = await renderView(app, `camera:${plain}`)
+    let sea = 0
+    for (let i = 0; i < base.width * base.height; i++)
+      if (isGround(pixel(base, i % base.width, Math.floor(i / base.width)))) sea++
+    expect(sea).toBeGreaterThan(base.width * base.height * 0.3)
+    expect(groundInk(image, base)).toBe(0)
+    // The box's top edge against the sea behind, and its sides.
+    expect(inkNear(world, inked, image, [1, 1.5, -16.5])).toBe(true)
+    expect(inkNear(world, inked, image, [0.5, 0.8, -15.5])).toBe(true)
+    expect(inkNear(world, inked, image, [1.5, 0.8, -15.5])).toBe(true)
     await app.dispose()
   })
 

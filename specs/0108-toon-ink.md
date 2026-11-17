@@ -94,11 +94,15 @@ Three fragment passes over the view's depth and normals (the prepass in forward 
 turns on; the G-buffer in deferred ones):
 
 1. **Edges.** A pixel is on a line if it's geometry and either (a) a neighbour lies farther than
-   the plane through this pixel and its opposite neighbour by more than `depthThreshold` (linear
-   depth; a silhouette against the sky always counts), or (b) the right or lower neighbour's
-   normal turns by more than `normalThreshold` and no depth jump separates them. Device depth is
-   affine across a plane in screen space for both projections, so planes, at any slant, never
-   draw lines and don't shimmer as the camera moves. Depth lines sit on the nearer surface only.
+   the plane through this pixel and its opposite neighbour by more than `depthThreshold` plus
+   the neighbour's own step (linear depth; a silhouette against the sky always counts), or (b)
+   the right or lower neighbour's normal turns by more than `normalThreshold` and no depth jump
+   separates them. Device depth is affine across a plane in screen space for both projections,
+   so planes, at any slant, never draw lines and don't shimmer as the camera moves. The
+   neighbour's step is how far its tangent plane (from the normal buffer, in view space) moves in
+   depth over the one pixel back to this one: a surface seen at a grazing angle steps far back
+   from pixel to pixel, so smooth and faceted curved surfaces draw no lines inside their
+   silhouette at any angle. Depth lines sit on the nearer surface only.
    Each edge has a strength. Within `fade[0]` (and always on orthographic cameras, or with
    `fade[1]` 0) it is 1, so near ink is exactly as before. Past it, a depth edge whose gap is at
    least `silhouette × distance` stays 1 (the sky's always is); everything else takes the fade, 1
@@ -151,6 +155,20 @@ effects with its GPU time. Without `toonPlugin`, `Toon` and `Ink` log `render/fe
 - **Ink before the HDR chain.** TAA resolves jittered lines into stable antialiased ones, and fog
   hazes distant lines; colored ink is graded and tonemapped like the scene (black stays black).
 - **Planarity from device depth.** No grazing-angle lines, at any slant or projection.
+- **Curved surfaces: less the far surface's step, from its normal.** The plane test alone inked a
+  rolling sea in dashes. Each facet kink (or bend between pixels) leaves a residual of about
+  footprint × kink angle / sin² of the grazing angle, which passes any fixed threshold. A tangent
+  plane at the grazing angle steps footprint / sin of it per pixel, and a convex kink can't turn
+  by more than the grazing angle without hiding what lies past it, so the residual never exceeds
+  the step. An occluder against a grazing surface leaves a gap of its height in pixels times that
+  step, so anything over about a pixel tall keeps its line. The step comes from the farther
+  neighbour: at a crest's silhouette, the near pixel is edge-on and its own step is unbounded.
+  Rejected: a threshold scaled by this pixel's step (it erases exactly those silhouettes); a
+  plane through the far side's two pixels (depth only, but it misses bends within a pixel: half
+  the dashes stayed); a per-material opt-out (a bit in the prepass and G-buffer, and it drops a
+  crest's real line over the water behind it). The normal buffer holds shading normals: where a
+  material's normals disagree with its geometry (detail normals the mesh doesn't carry), some
+  lines can stay.
 - **Far ink: a fade by distance and a silhouette gap relative to it.** A fold's fall-back grows
   with the pixel's footprint (proportional to distance) and with 1/sin² of the grazing angle, so
   a threshold scaled by footprint alone still inks hills near the horizon. Real occlusions fall
@@ -175,6 +193,9 @@ effects with its GPU time. Without `toonPlugin`, `Toon` and `Ink` log `render/fe
   edge facing the camera draw lines; the ground plane draws none at any angle; moving the camera
   moves the lines with the boxes and adds none.
 - [x] A skinned mesh's ink and outline follow its pose, LOD levels and several styles included.
+- [x] A smooth, faceted, gently rolling surface seen from 3 m up out to 40 m draws no ink inside
+  its silhouette (it drew 109 pixels of dashes with the plane test alone), and a box standing on
+  it keeps its outline.
 - [x] Heightfield terrain seen at a grazing angle out to 2.7 km: the far half of the frame has
   under 40% of the ink it had without the fade, and under 30% of its ground inked; a 10 m box
   300 m away keeps its silhouette. Within the fade's near distance (perspective) and on an

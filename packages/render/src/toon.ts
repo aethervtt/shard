@@ -69,7 +69,7 @@ export const Ink = defineComponent(
       min: 0,
       unit: 'm',
       description:
-        'How far a surface must fall back behind the plane of its neighbours to draw a line (silhouettes, an arm across a body). Planes never draw one, at any slant.',
+        'How far a surface must fall back behind the plane of its neighbours, beyond the step its own slope makes over a pixel, to draw a line (silhouettes, an arm across a body). Planes never draw one, and nor do smooth surfaces inside their silhouette, at any slant.',
     }),
     normalThreshold: t.f32({
       default: 35,

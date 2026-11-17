@@ -80,6 +80,12 @@ struct InkParams {
   projection: vec4f,
   /** Fade near and far (m; far 0: none), the silhouette fraction of the distance. */
   fade: vec4f,
+  /** World to view rotation, by rows. */
+  view_x: vec4f,
+  view_y: vec4f,
+  view_z: vec4f,
+  /** One over the projection's x and y scales. */
+  lens: vec4f,
 }
 
 @group(0) @binding(0) var<uniform> ink: InkParams;
@@ -117,6 +123,39 @@ fn fall_back(a: f32, c: f32, b: f32) -> f32 {
   return linear_depth(b) - linear_depth(clamp(2.0 * c - a, 1e-9, 1.0));
 }
 
+/**
+ * How far the depth of q's tangent plane changes (m) between q, at depth zq, and the pixel p next
+ * to it: a surface seen edge-on steps far back from one pixel to the next.
+ */
+fn plane_step(q: vec2i, zq: f32, p: vec2i) -> f32 {
+  let n = normal_at(q);
+  let v = vec3f(dot(ink.view_x.xyz, n), dot(ink.view_y.xyz, n), dot(ink.view_z.xyz, n));
+  let size = vec2f(textureDimensions(depth_texture));
+  let flip = vec2f(2.0, -2.0) / size;
+  // The ray through p, and q's offset from it, at unit depth (perspective) or in meters.
+  let offset = vec2f(q - p) * flip * ink.lens.xy;
+  var ray = vec3f(0.0, 0.0, -1.0);
+  var scale = 1.0;
+  if (ink.projection.z < 0.5) {
+    ray = vec3f(((vec2f(p) + 0.5) * flip + vec2f(-1.0, 1.0)) * ink.lens.xy, -1.0);
+    scale = zq;
+  }
+  return scale * abs(dot(v.xy, offset)) / max(abs(dot(v, ray)), 1e-6);
+}
+
+/**
+ * How far the surface at q (depth b) falls back behind the plane through a and c (c at p, a
+ * opposite q), in meters, less the step q's own tangent plane makes toward p. A curved surface
+ * seen at a grazing angle falls back by up to that step at each pixel or facet: a convex bend
+ * turning by more than the grazing angle would hide what lies past it. An occlusion falls back
+ * farther, by the occluder's height in pixels times the step.
+ */
+fn gap_toward(a: f32, c: f32, b: f32, p: vec2i, q: vec2i) -> f32 {
+  let gap = fall_back(a, c, b);
+  if (gap <= ink.params.x || b <= 0.0) { return gap; }
+  return gap - plane_step(q, linear_depth(b), p);
+}
+
 /** How strongly lines inside silhouettes draw at a distance: 1, fading to 0 over the fade. */
 fn fade_at(z: f32) -> f32 {
   if (ink.projection.z > 0.5 || ink.fade.y <= 0.0) { return 1.0; }
@@ -130,21 +169,28 @@ fn turns(n: vec3f, q: vec2i, dq: f32, zc: f32) -> bool {
 }
 
 /**
- * An edge's strength (0: none): a neighbour falls back behind this pixel's plane (the line sits on
- * the nearer surface), or the right or lower neighbour's surface turns (creases, edges facing the
- * camera). 1 within the fade's near distance; past it, a depth edge stays 1 where the surface
- * behind lies the silhouette fraction of the distance back (half that: none of its own), and
- * everything else takes the fade.
+ * An edge's strength (0: none): a neighbour falls back behind this pixel's plane by more than its
+ * own surface's step (the line sits on the nearer surface), or the right or lower neighbour's
+ * surface turns (creases, edges facing the camera). 1 within the fade's near distance; past it, a
+ * depth edge stays 1 where the surface behind lies the silhouette fraction of the distance back
+ * (half that: none of its own), and everything else takes the fade.
  */
 @fragment fn edges(@builtin(position) frag: vec4f) -> @location(0) vec4f {
   let p = vec2i(frag.xy);
   let c = device_at(p);
   if (c <= 0.0) { return vec4f(0.0); }
-  let l = device_at(p + vec2i(-1, 0));
-  let r = device_at(p + vec2i(1, 0));
-  let u = device_at(p + vec2i(0, -1));
-  let d = device_at(p + vec2i(0, 1));
-  let gap = max(max(fall_back(l, c, r), fall_back(r, c, l)), max(fall_back(u, c, d), fall_back(d, c, u)));
+  let pl = p + vec2i(-1, 0);
+  let pr = p + vec2i(1, 0);
+  let pu = p + vec2i(0, -1);
+  let pd = p + vec2i(0, 1);
+  let l = device_at(pl);
+  let r = device_at(pr);
+  let u = device_at(pu);
+  let d = device_at(pd);
+  let gap = max(
+    max(gap_toward(l, c, r, p, pr), gap_toward(r, c, l, p, pl)),
+    max(gap_toward(u, c, d, p, pd), gap_toward(d, c, u, p, pu)),
+  );
   let zc = linear_depth(c);
   let w = fade_at(zc);
   if (gap > ink.params.x) {
@@ -154,7 +200,7 @@ fn turns(n: vec3f, q: vec2i, dq: f32, zc: f32) -> bool {
   }
   if (w <= 0.0) { return vec4f(0.0); }
   let n = normal_at(p);
-  if (turns(n, p + vec2i(1, 0), r, zc) || turns(n, p + vec2i(0, 1), d, zc)) { return vec4f(w); }
+  if (turns(n, pr, r, zc) || turns(n, pd, d, zc)) { return vec4f(w); }
   return vec4f(0.0);
 }
 
@@ -213,7 +259,7 @@ const EDGE_FORMAT: GPUTextureFormat = 'r8unorm'
 const EDGE_TARGETS: GPUColorTargetState[] = [{ format: EDGE_FORMAT }]
 const ROW_FORMAT: GPUTextureFormat = 'rgba8unorm'
 const ROW_TARGETS: GPUColorTargetState[] = [{ format: ROW_FORMAT }]
-const INK_FLOATS = 16
+const INK_FLOATS = 32
 
 /** post/ink: edges, rows, then the composite into the chain's next texture. */
 function inkNode(): NodeDescriptor {
@@ -285,6 +331,14 @@ function inkNode(): NodeDescriptor {
       data[13] = ink.fade[1]!
       data[14] = ink.silhouette
       data[15] = 0
+      // The view's rotation by rows (column-major), and the lens.
+      for (let row = 0; row < 3; row++) {
+        for (let col = 0; col < 3; col++) data[16 + row * 4 + col] = cam.view[col * 4 + row]!
+        data[19 + row * 4] = 0
+      }
+      data[28] = 1 / cam.proj[0]!
+      data[29] = 1 / cam.proj[5]!
+      data[30] = data[31] = 0
       const params = cache.buffer(gpu, `${ctx.view.name}/ink`, INK_FLOATS * 4)
       params.write(data)
       const input = ctx.texture('ink-in')

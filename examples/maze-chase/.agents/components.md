@@ -1225,7 +1225,7 @@ Brings along: `render/Camera3d`.
 |---|---|---|---|---|
 | `width` | number | `1.5` | ≥ 0.5, ≤ 8, px | Line width in CSS pixels (texels on a PixelPerfect camera). |
 | `color` | string or number[4] | `[0.02,0.02,0.03,1]` |  | Line color (linear), with alpha. Mixed in before tonemapping, so it is graded with the scene; black stays black. |
-| `depthThreshold` | number | `0.1` | ≥ 0, m | How far a surface must fall back behind the plane of its neighbours to draw a line (silhouettes, an arm across a body). Planes never draw one, at any slant. |
+| `depthThreshold` | number | `0.1` | ≥ 0, m | How far a surface must fall back behind the plane of its neighbours, beyond the step its own slope makes over a pixel, to draw a line (silhouettes, an arm across a body). Planes never draw one, and nor do smooth surfaces inside their silhouette, at any slant. |
 | `normalThreshold` | number | `35` | ≥ 0, ≤ 180, ° | How sharply surface direction must turn between neighbouring pixels to draw a line (creases, a box edge facing the camera). |
 
 ## `render/InstanceData`
