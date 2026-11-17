@@ -163,6 +163,11 @@ export const uploadWeather = defineSystem({
       }
     }
     v[o + 7] = n
+    // Spring, summer, autumn, winter: weather_season() for materials that change with the year.
+    v[o + 12] = s.seasons[0]!
+    v[o + 13] = s.seasons[1]!
+    v[o + 14] = s.seasons[2]!
+    v[o + 15] = s.seasons[3]!
   },
 })
 

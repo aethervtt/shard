@@ -14,6 +14,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@aethervtt/shard-audio": "workspace:*",
     "@aethervtt/shard-core": "workspace:*",
     "@aethervtt/shard-gpu": "workspace:*",
     "@aethervtt/shard-render": "workspace:*",

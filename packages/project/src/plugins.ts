@@ -49,7 +49,7 @@ import { vehiclePlugin } from '@aethervtt/shard-vehicle'
 import { vehicleAudioPlugin } from '@aethervtt/shard-vehicle/audio'
 import { vehicleEffectsPlugin } from '@aethervtt/shard-vehicle/effects'
 import { oceanWavesPlugin, waterPlugin } from '@aethervtt/shard-water'
-import { weatherPlugin } from '@aethervtt/shard-weather'
+import { weatherAudioPlugin, weatherPlugin } from '@aethervtt/shard-weather'
 import { windPlugin } from '@aethervtt/shard-wind'
 import type { ManifestValue } from './manifest'
 
@@ -283,7 +283,11 @@ export const engineSky: EnginePlugin = {
 export const engineWeather: EnginePlugin = {
   name: 'weather',
   namespaces: ['weather'],
-  add: (app) => app.addPlugin(weatherPlugin),
+  add(app, _ctx, names) {
+    app.addPlugin(weatherPlugin)
+    // Weather into declared global audio parameters, with the audio events (0077).
+    if (names.has('audio/events')) app.addPlugin(weatherAudioPlugin)
+  },
 }
 // noise.sample and noise.stats, whatever the manifest says: graphs are data every project can use.
 export const engineNoise: EnginePlugin = {

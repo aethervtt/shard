@@ -1,7 +1,7 @@
 import { affine, defineSystem, type Entity, type World } from '@aethervtt/shard-core'
 import { Camera3d, DefaultEnvironment, Fog } from '@aethervtt/shard-render'
 import { FixedTime, Time } from '@aethervtt/shard-runtime'
-import { Clouds } from '@aethervtt/shard-sky'
+import { Clouds, Sky, SkyFrame, TimeOfDay } from '@aethervtt/shard-sky'
 import { GlobalTransform } from '@aethervtt/shard-transform'
 import { Wind } from '@aethervtt/shard-wind'
 import {
@@ -9,12 +9,20 @@ import {
   Climates,
   Weather,
   WeatherChanged,
+  WeatherMaskBrush,
   WeatherPresets,
   WeatherState,
   type WeatherStateValue,
   WeatherZone,
   weatherChannels,
 } from './components'
+import {
+  dayOfYear,
+  dominantSeason,
+  SEASON_TEMPERATURE,
+  type Season,
+  seasonWeights,
+} from './seasons'
 
 function tick(world: World): number {
   const f = world.tryResource(FixedTime)
@@ -43,14 +51,14 @@ const scratch = new Float32Array(32)
 
 function begin(world: World, s: WeatherStateValue, preset: string, seconds: number): void {
   s.from.set(s.channels)
-  s.fromTemperature = s.temperature
+  s.fromTemperature = s.baseTemperature
   s.toTemperature = presetValues(preset, s.to)
   const now = tick(world)
   s.startTick = now
   s.endTick = now + Math.max(0, seconds) / step(world)
   if (seconds <= 0) {
     s.channels.set(s.to)
-    s.temperature = s.toTemperature
+    s.baseTemperature = s.toTemperature
   }
   const before = s.preset
   s.preset = preset
@@ -78,9 +86,10 @@ export function changeWeather(world: World, preset: string, options: { over?: nu
   begin(world, s, preset, options.over ?? 30)
 }
 
-/** Picks the random climate's preset for a window: weighted, from the seed. */
-function climatePick(climate: string, seed: number, window: number): string {
-  const weights = Climates.get(climate) ?? Climates.get('temperate')!
+/** Picks the random climate's preset for a window: weighted for the season, from the seed. */
+function climatePick(climate: string, season: Season, seed: number, window: number): string {
+  const c = Climates.get(climate) ?? Climates.get('temperate')!
+  const weights = c.seasons?.[season] ?? c.weights
   let total = 0
   for (const k in weights) total += weights[k]!
   let r = hash(seed, window) * total
@@ -93,6 +102,122 @@ function climatePick(climate: string, seed: number, window: number): string {
 
 const inverse = new Float32Array(12)
 const matrix = new Float32Array(12)
+const seasonScratch = new Float32Array(4)
+
+/** Game hours since day 0 on the sky's clock. */
+function gameHours(world: World): number {
+  const c = world.tryResource(TimeOfDay)
+  return c ? c.day * 24 + c.hours : (tick(world) * step(world)) / 3600
+}
+
+function latitude(world: World): number {
+  for (const table of world.query({ with: [Sky] }).tables) {
+    if (table.count > 0) return table.column(Sky, 'latitude')[0]!
+  }
+  return 45
+}
+
+/** Season weights at a number of game hours from now (the Weather's fixed season, or the date's). */
+function seasonsAt(
+  world: World,
+  w: { season: string },
+  aheadHours: number,
+  out: Float32Array,
+): Float32Array {
+  if (w.season !== 'auto') {
+    out.fill(0)
+    out[['spring', 'summer', 'autumn', 'winter'].indexOf(w.season)] = 1
+    return out
+  }
+  const clock = world.tryResource(TimeOfDay)
+  if (!clock) {
+    out.fill(0)
+    out[1] = 1
+    return out
+  }
+  return seasonWeights(dayOfYear(clock, aheadHours / 24), latitude(world), out)
+}
+
+/** The preset the base source names at a game time: a schedule's entry, or a climate's window. */
+function presetAt(
+  world: World,
+  w: ReturnType<typeof readWeather>,
+  hours: number,
+  aheadHours: number,
+): { preset: string; key: number; over: number } {
+  if (w.source === 'schedule') {
+    let entry = -1
+    for (let i = 0; i < w.schedule.length; i++) if (w.schedule[i]!.at <= hours) entry = i
+    if (entry < 0) return { preset: w.preset, key: -1, over: 0 }
+    const e = w.schedule[entry]!
+    return { preset: e.preset, key: entry, over: e.over }
+  }
+  if (w.source === 'random') {
+    const window = Math.floor(hours / w.changeEvery)
+    const season = dominantSeason(seasonsAt(world, w, aheadHours, seasonScratch))
+    return {
+      preset: climatePick(w.climate, season, w.seed, window),
+      key: window,
+      over: w.transition,
+    }
+  }
+  return { preset: w.preset, key: -2, over: 30 }
+}
+
+function readWeather(world: World, e: Entity) {
+  return world.get(e, Weather)
+}
+
+/**
+ * The weather the base source will give, every \`step\` game hours for \`hours\` (0133): a schedule's
+ * entries and a climate's windows are known ahead, so a forecast is exact. Zones aren't included.
+ */
+export function forecastWeather(
+  world: World,
+  options: { hours?: number; step?: number } = {},
+): { in: number; at: number; preset: string; displayName: string }[] {
+  const e = weatherEntity(world)
+  if (e === undefined) return []
+  const w = readWeather(world, e)
+  const now = gameHours(world)
+  const hours = options.hours ?? 24
+  const stride = options.step ?? 1
+  const out: { in: number; at: number; preset: string; displayName: string }[] = []
+  for (let h = 0; h <= hours + 1e-9; h += stride) {
+    const { preset } = presetAt(world, w, now + h, h)
+    out.push({
+      in: h,
+      at: now + h,
+      preset,
+      displayName: WeatherPresets.get(preset)?.displayName ?? preset,
+    })
+  }
+  return out
+}
+
+/** How open a point is to the sky through the mask brushes (1 outside them all), on the CPU. */
+export function exposureAt(world: World, position: ArrayLike<number>): number {
+  let open = 1
+  for (const table of world.query({ with: [WeatherMaskBrush, GlobalTransform] }).tables) {
+    const g = table.column(GlobalTransform, 'matrix')
+    const edge = table.column(WeatherMaskBrush, 'edge')
+    for (let i = 0; i < table.count; i++) {
+      for (let k = 0; k < 12; k++) matrix[k] = g[i * 12 + k]!
+      if (!affine.invert(inverse, matrix)) continue
+      const x = position[0]!
+      const y = position[1]!
+      const z = position[2]!
+      const lx = inverse[0]! * x + inverse[1]! * y + inverse[2]! * z + inverse[3]!
+      const ly = inverse[4]! * x + inverse[5]! * y + inverse[6]! * z + inverse[7]!
+      const lz = inverse[8]! * x + inverse[9]! * y + inverse[10]! * z + inverse[11]!
+      const m = Math.max(Math.abs(lx), Math.abs(ly), Math.abs(lz)) * 2
+      const e = Math.max(edge[i]!, 0.001)
+      const t = Math.min(1, Math.max(0, (m - (1 - e)) / e))
+      open = Math.min(open, t * t * (3 - 2 * t))
+    }
+  }
+  return open
+}
 
 /** Zone weights at the listener, applied over the base channels in priority order. */
 function applyZones(world: World, s: WeatherStateValue): void {
@@ -154,16 +279,19 @@ export const updateWeather = defineSystem({
     }
     const now = tick(world)
     const dt = step(world)
-    if (w.source === 'random') {
-      const window = Math.floor((now * dt) / w.changeEvery)
-      if (window !== s.window) {
-        const first = s.window < 0
-        s.window = window
-        begin(world, s, climatePick(w.climate, w.seed, window), first ? 0 : w.transition)
-      }
-    } else if (w.preset !== s.preset) {
+    const hours = gameHours(world)
+    seasonsAt(world, w, 0, s.seasons)
+    s.season = dominantSeason(s.seasons)
+    if (w.source === 'preset') {
       // First frame, or the component's preset was written directly.
-      begin(world, s, w.preset, s.preset === '' ? 0 : 30)
+      if (w.preset !== s.preset) begin(world, s, w.preset, s.preset === '' ? 0 : 30)
+    } else {
+      const next = presetAt(world, w, hours, 0)
+      if (next.key !== s.window || s.preset === '') {
+        const first = s.preset === ''
+        s.window = next.key
+        if (next.preset !== s.preset) begin(world, s, next.preset, first ? 0 : next.over)
+      }
     }
     // The base: from → to over the change, smoothed.
     const span = s.endTick - s.startTick
@@ -172,8 +300,17 @@ export const updateWeather = defineSystem({
     for (const c of weatherChannels()) {
       s.channels[c.index] = s.from[c.index]! + (s.to[c.index]! - s.from[c.index]!) * k
     }
-    s.temperature = s.fromTemperature + (s.toTemperature - s.fromTemperature) * k
+    s.baseTemperature = s.fromTemperature + (s.toTemperature - s.fromTemperature) * k
+    s.temperature = s.baseTemperature
+    // The season shifts it, and the day warms it: up to 4 °C with the sun high.
+    for (let j = 0; j < 4; j++) {
+      s.temperature +=
+        s.seasons[j]! * SEASON_TEMPERATURE[(['spring', 'summer', 'autumn', 'winter'] as const)[j]!]
+    }
+    const sun = world.tryResource(SkyFrame)?.celestial.sunElevation ?? 30
+    s.temperature += 4 * Math.max(-0.5, Math.min(1, sun / 50))
     applyZones(world, s)
+    s.outdoors = exposureAt(world, s.listener)
 
     // Surfaces: wet in rain and drying after, snow that settles below 1 °C and melts above it,
     // dust that settles in dust and washes off in rain.

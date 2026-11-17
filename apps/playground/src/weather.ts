@@ -22,6 +22,7 @@ import { Transform, TransformSystems } from '@aethervtt/shard-transform'
 import {
   CH,
   changeWeather,
+  forecastWeather,
   strikeLightning,
   Weather,
   WeatherMaskBrush,
@@ -390,9 +391,33 @@ function addControls(world: World): void {
   )
   select(
     'source',
-    ['preset', 'random'],
+    ['preset', 'random', 'schedule'],
     () => weather().source,
-    (v) => world.set(skyEntity!, Weather, { source: v } as never),
+    (v) => {
+      // schedule: a sample day from now, in game hours.
+      if (v === 'schedule') {
+        const c = world.resource(TimeOfDay)
+        const now = c.day * 24 + c.hours
+        const at = (h: number, preset: string, over = 40) => ({ at: now + h, preset, over })
+        world.set(skyEntity!, Weather, {
+          source: v,
+          schedule: [
+            at(0, 'partly-cloudy', 0),
+            at(1, 'cloudy'),
+            at(2, 'rain'),
+            at(3.5, 'thunderstorm'),
+            at(5, 'light-rain'),
+            at(6.5, 'clear'),
+          ],
+        } as never)
+      } else world.set(skyEntity!, Weather, { source: v } as never)
+    },
+  )
+  select(
+    'season',
+    ['auto', 'spring', 'summer', 'autumn', 'winter'],
+    () => weather().season,
+    (v) => world.set(skyEntity!, Weather, { season: v } as never),
   )
   select(
     'surfaces',
@@ -455,7 +480,9 @@ function weatherLine(world: World): string {
   const s = world.resource(WeatherState)
   const c = s.channels
   const pct = (v: number) => `${Math.round(v * 100)}%`
-  return `weather   ${s.displayName}  ${s.temperature.toFixed(0)}°C  rain ${pct(c[CH.rain]!)} snow ${pct(c[CH.snow]!)}  wet ${pct(s.wetness)} snow cover ${pct(s.snowCover)}`
+  const next = forecastWeather(world, { hours: 12, step: 0.25 }).find((f) => f.preset !== s.preset)
+  const ahead = next ? `  next ${next.displayName} in ${next.in.toFixed(2)} h` : ''
+  return `weather   ${s.displayName}  ${s.temperature.toFixed(0)}°C  ${s.season}  rain ${pct(c[CH.rain]!)} snow ${pct(c[CH.snow]!)}  wet ${pct(s.wetness)} snow cover ${pct(s.snowCover)}  outdoors ${pct(s.outdoors)}${ahead}`
 }
 
 function speedLabel(world: World): string {

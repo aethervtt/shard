@@ -319,9 +319,18 @@ once the look is approved.
   for splashes and debris are still to come.
 - **The weather mask is WeatherMaskBrush boxes only.** The GPU top-down depth mask, 0069's sky
   visibility and the CPU shelter sources are still to come.
-- **Random climates change on real-second windows** (`changeEvery`, `transition`), not game hours
-  and seasons. Temperature comes from presets alone.
-- **Zones are in; storms, schedules, forecast, audio parameters, RoadConditions and the agent
+- **Seasons** come from the sky's date and the hemisphere of its latitude (or are fixed with
+  `Weather.season`): four weights blended over 15 days, which pick each climate's seasonal table and
+  shift the temperature (summer +7 °C, winter −9 °C; up to +4 °C with the sun high).
+  `weather_season()` gives them to shaders. Climates are `{ weights, seasons? }`.
+- **Random climates change on game-hour windows** (`changeEvery`, default 3 h), so
+  `forecastWeather(world, { hours, step })` reads the future exactly; schedules
+  (`Weather.schedule`, entries of game hours, preset and seconds) are evaluated the same way.
+- **Audio:** `weatherAudioPlugin` (added by projects with `audio/events`) writes `weather.rain`,
+  `.snow`, `.wind`, `.thunder`, `.dust`, `.outdoors`, `.lightning`, `time.hour` and `time.daylight`
+  into every global parameter bank that declares them. `exposureAt` is the CPU shelter test (mask
+  brushes); `WeatherState.outdoors` is it at the listener.
+- **Zones, seasons, schedules, forecasts and audio are in; storms, RoadConditions and the agent
   surface are not.**
 - **`strikeLightning(world, position)`** places a strike for scripted moments. Bolts glow for half a
   second after their strokes; a DirectionalLight flashes the land and SkyFlash lights the clouds.

@@ -2850,6 +2850,9 @@ importers:
 
   packages/weather:
     dependencies:
+      '@aethervtt/shard-audio':
+        specifier: workspace:*
+        version: link:../audio
       '@aethervtt/shard-core':
         specifier: workspace:*
         version: link:../core

@@ -10,7 +10,7 @@ export const WEATHER_SLOTS = 4 + MAX_BRUSHES * 4
  * [0] wetness, snow cover, dust cover, rain
  * [1] time (s), snow, wind, brush count
  * [2] dust color rgb, puddles
- * [3] free
+ * [3] season weights: spring, summer, autumn, winter
  * [4 + 4i] brush i: world → local rows ×3, then edge
  */
 export function weatherShaders(slot: number): Record<string, string> {
@@ -33,6 +33,11 @@ fn weather_open(p: vec3f) -> f32 {
     open = min(open, smoothstep(1.0 - e, 1.0, m));
   }
   return open;
+}
+
+/** Spring, summer, autumn and winter weights, summing to 1 (0133): tint foliage by the year. */
+fn weather_season() -> vec4f {
+  return shader_data[WEATHER_BLOCK + 3u];
 }
 
 fn weather_hash(c: vec2i) -> f32 {

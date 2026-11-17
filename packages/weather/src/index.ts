@@ -1,5 +1,7 @@
+export { WEATHER_AUDIO_PARAMETERS, weatherAudio, weatherAudioPlugin } from './audio'
 export {
   CH,
+  type Climate,
   Climates,
   defineWeatherChannel,
   LightningStrike,
@@ -20,4 +22,12 @@ export {
 export { LightningState, type LightningStateValue, strikeLightning } from './lightning'
 export { weatherPlugin } from './plugin'
 export { WeatherGpu, WeatherGpuResource } from './render'
-export { changeWeather, presetValues } from './state'
+export {
+  dayOfYear,
+  dominantSeason,
+  SEASON_TEMPERATURE,
+  SEASONS,
+  type Season,
+  seasonWeights,
+} from './seasons'
+export { changeWeather, exposureAt, forecastWeather, presetValues } from './state'

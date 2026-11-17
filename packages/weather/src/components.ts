@@ -149,22 +149,59 @@ export const WeatherPresets = new Map<string, WeatherPreset>(
   }),
 )
 
-/** Weighted presets a random climate picks from (0133). */
-export const Climates = new Map<string, Record<string, number>>(
-  Object.entries<Record<string, number>>({
+/**
+ * A random climate (0133): weighted presets, per season where it says so (a season it leaves out
+ * uses `weights`).
+ */
+export interface Climate {
+  weights: Record<string, number>
+  seasons?: Partial<Record<'spring' | 'summer' | 'autumn' | 'winter', Record<string, number>>>
+}
+
+export const Climates = new Map<string, Climate>(
+  Object.entries<Climate>({
     temperate: {
-      clear: 3,
-      'partly-cloudy': 3,
-      cloudy: 2,
-      overcast: 1.5,
-      foggy: 1,
-      'light-rain': 1.5,
-      rain: 1,
-      thunderstorm: 0.6,
+      weights: {
+        clear: 3,
+        'partly-cloudy': 3,
+        cloudy: 2,
+        overcast: 1.5,
+        foggy: 1,
+        'light-rain': 1.5,
+        rain: 1,
+        thunderstorm: 0.6,
+      },
+      seasons: {
+        summer: { clear: 4, 'partly-cloudy': 3, cloudy: 1.5, 'light-rain': 1, thunderstorm: 1.2 },
+        autumn: { cloudy: 2.5, overcast: 2.5, foggy: 2, 'light-rain': 2, rain: 2, clear: 1 },
+        winter: {
+          overcast: 3,
+          cloudy: 2,
+          foggy: 1.5,
+          'light-snow': 2.5,
+          snow: 1.5,
+          clear: 1.5,
+          rain: 0.5,
+        },
+      },
     },
-    arctic: { clear: 1, cloudy: 2, overcast: 2, 'light-snow': 3, snow: 2, blizzard: 1, foggy: 1 },
-    desert: { clear: 6, 'partly-cloudy': 2, 'dust-storm': 1.5 },
-    tropical: { 'partly-cloudy': 3, cloudy: 2, rain: 2, thunderstorm: 1.5, clear: 1 },
+    arctic: {
+      weights: {
+        clear: 1,
+        cloudy: 2,
+        overcast: 2,
+        'light-snow': 3,
+        snow: 2,
+        blizzard: 1,
+        foggy: 1,
+      },
+      seasons: { summer: { clear: 3, 'partly-cloudy': 3, cloudy: 2, foggy: 1, 'light-rain': 1 } },
+    },
+    desert: { weights: { clear: 6, 'partly-cloudy': 2, 'dust-storm': 1.5 } },
+    tropical: {
+      weights: { 'partly-cloudy': 3, cloudy: 2, rain: 2, thunderstorm: 1.5, clear: 1 },
+      seasons: { summer: { rain: 3, thunderstorm: 3, cloudy: 2, 'partly-cloudy': 1 } },
+    },
   }),
 )
 
@@ -173,17 +210,17 @@ export const Climates = new Map<string, Record<string, number>>(
 export const Weather = defineComponent(
   'weather/Weather',
   {
-    source: t.enum(['preset', 'random'], {
+    source: t.enum(['preset', 'random', 'schedule'], {
       description:
-        'preset: the preset field (changeWeather moves between them); random: a climate.',
+        'preset: the preset field (changeWeather moves between them); random: a climate; schedule: the schedule list, by game time.',
     }),
     preset: t.string({ default: 'partly-cloudy', description: 'A preset in WeatherPresets.' }),
     climate: t.string({ default: 'temperate', description: 'random: a climate in Climates.' }),
     changeEvery: t.f32({
-      default: 240,
-      min: 1,
-      unit: 's',
-      description: 'random: real seconds between changes.',
+      default: 3,
+      min: 0.05,
+      unit: 'h',
+      description: 'random: game hours between changes (so a forecast follows the clock).',
     }),
     transition: t.f32({
       default: 45,
@@ -192,6 +229,22 @@ export const Weather = defineComponent(
       description: 'random: how long each change takes.',
     }),
     seed: t.u32({ default: 1 }),
+    schedule: t.list(
+      t.struct({
+        at: t.f64({ unit: 'h', description: 'Game hours since day 0 (day × 24 + hour).' }),
+        preset: t.string({ default: 'rain' }),
+        over: t.f32({
+          default: 60,
+          min: 0,
+          unit: 's',
+          description: 'Real seconds the change takes.',
+        }),
+      }),
+      { description: 'schedule: changes at game times, in order.' },
+    ),
+    season: t.enum(['auto', 'spring', 'summer', 'autumn', 'winter'], {
+      description: "auto: from the sky's date and the hemisphere of its latitude.",
+    }),
     windDirection: t.vec3({ default: [1, 0, 0.35], description: 'Where the wind blows toward.' }),
     windVariance: t.f32({
       default: 25,
@@ -262,7 +315,10 @@ export interface WeatherStateValue {
   endTick: number
   preset: string
   displayName: string
+  /** °C at the listener: the presets' base temperature, then the season, the day and zones. */
   temperature: number
+  /** The presets' temperature alone, blended over a change. */
+  baseTemperature: number
   fromTemperature: number
   toTemperature: number
   /** Accumulated surface state, 0..1. */
@@ -271,8 +327,13 @@ export interface WeatherStateValue {
   dustCover: number
   /** Where the listener is (the camera). */
   listener: Float64Array
-  /** Random climate: the window being shown. */
+  /** Random climate: the window being shown; schedule: the entry in force. */
   window: number
+  /** Spring, summer, autumn, winter weights (they sum to 1). */
+  seasons: Float32Array
+  season: string
+  /** How open the listener is to the sky (mask brushes), 0..1. */
+  outdoors: number
 }
 
 export const WeatherState = defineResource<WeatherStateValue>('weather/State', {
@@ -287,6 +348,7 @@ export const WeatherState = defineResource<WeatherStateValue>('weather/State', {
     preset: '',
     displayName: '',
     temperature: 15,
+    baseTemperature: 15,
     fromTemperature: 15,
     toTemperature: 15,
     wetness: 0,
@@ -294,6 +356,9 @@ export const WeatherState = defineResource<WeatherStateValue>('weather/State', {
     dustCover: 0,
     listener: new Float64Array(3),
     window: -1,
+    seasons: new Float32Array([0, 1, 0, 0]),
+    season: 'summer',
+    outdoors: 1,
   }),
 })
 
