@@ -1863,6 +1863,9 @@ importers:
       '@aethervtt/shard-scene':
         specifier: workspace:*
         version: link:../scene
+      '@aethervtt/shard-sky':
+        specifier: workspace:*
+        version: link:../sky
       '@aethervtt/shard-sprite':
         specifier: workspace:*
         version: link:../sprite
@@ -1890,6 +1893,9 @@ importers:
       '@aethervtt/shard-water':
         specifier: workspace:*
         version: link:../water
+      '@aethervtt/shard-weather':
+        specifier: workspace:*
+        version: link:../weather
       '@aethervtt/shard-wind':
         specifier: workspace:*
         version: link:../wind

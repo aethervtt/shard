@@ -19,7 +19,7 @@ struct FogFrame {
   albedo: vec4f,
   /** volumes, lights on, slice jitter, near plane (m) */
   misc: vec4f,
-  /** time (s), 0, 0, 0 */
+  /** time (s); the projection's depth terms A, B: ndc depth = B / view depth − A (any far plane) */
   misc2: vec4f,
 }
 
@@ -35,7 +35,7 @@ fn depth_slice(f: FogFrame, vd: f32) -> f32 {
 
 /** World position at a screen uv (0,0 top-left) and view depth, reversed-Z infinite projection. */
 fn froxel_world(f: FogFrame, uv: vec2f, vd: f32) -> vec3f {
-  let ndc = vec3f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, f.misc.w / max(vd, f.misc.w));
+  let ndc = vec3f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, f.misc2.z / max(vd, f.misc.w) - f.misc2.y);
   let p = view.invViewProj * vec4f(ndc, 1.0);
   return p.xyz / p.w;
 }
@@ -278,7 +278,7 @@ struct Out {
 
 @fragment fn fs(in: Out) -> @location(0) vec4f {
   let depth = textureLoad(scene_depth, vec2i(in.clip.xy), 0);
-  let vd = select(1e9, fp.misc.w / max(depth, 1e-9), depth > 0.0);
+  let vd = select(1e9, fp.misc2.z / max(depth + fp.misc2.y, 1e-9), depth > 0.0);
   let slices = fp.grid.z;
   let s = depth_slice(fp, min(vd, fp.grid.w));
   var v = textureSampleLevel(volume, lin, vec3f(in.uv, max(s - 0.5, 0.5) / slices), 0.0);

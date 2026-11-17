@@ -283,6 +283,9 @@ export function volumetricFogLightNode(): NodeDescriptor {
       frameData[18] = (s.frames * 0.618034) % 1
       frameData[19] = cam.near
       frameData[20] = volumes.time
+      // Depth from view depth for this projection (reversed-Z; A is 0 with an infinite far plane).
+      frameData[21] = cam.proj[10]!
+      frameData[22] = cam.proj[14]!
       c.frame.write(frameData)
 
       const out = c.index

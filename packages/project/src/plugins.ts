@@ -34,6 +34,7 @@ import type { App } from '@aethervtt/shard-runtime'
 import { savePlugin } from '@aethervtt/shard-save'
 import { scatterPlugin } from '@aethervtt/shard-scatter'
 import { ScenePlugin } from '@aethervtt/shard-scene'
+import { skyPlugin } from '@aethervtt/shard-sky'
 import { spritePlugin } from '@aethervtt/shard-sprite'
 import { structureModelPlugin, structurePlugin } from '@aethervtt/shard-structure'
 import { structureNavPlugin } from '@aethervtt/shard-structure/nav'
@@ -48,6 +49,7 @@ import { vehiclePlugin } from '@aethervtt/shard-vehicle'
 import { vehicleAudioPlugin } from '@aethervtt/shard-vehicle/audio'
 import { vehicleEffectsPlugin } from '@aethervtt/shard-vehicle/effects'
 import { oceanWavesPlugin, waterPlugin } from '@aethervtt/shard-water'
+import { weatherPlugin } from '@aethervtt/shard-weather'
 import { windPlugin } from '@aethervtt/shard-wind'
 import type { ManifestValue } from './manifest'
 
@@ -273,6 +275,16 @@ export const engineWaterWaves: EnginePlugin = {
   name: 'water/waves',
   add: (app) => app.addPlugin(oceanWavesPlugin()),
 }
+export const engineSky: EnginePlugin = {
+  name: 'sky',
+  namespaces: ['sky'],
+  add: (app) => app.addPlugin(skyPlugin),
+}
+export const engineWeather: EnginePlugin = {
+  name: 'weather',
+  namespaces: ['weather'],
+  add: (app) => app.addPlugin(weatherPlugin),
+}
 // noise.sample and noise.stats, whatever the manifest says: graphs are data every project can use.
 export const engineNoise: EnginePlugin = {
   name: 'noise',
@@ -350,6 +362,8 @@ export const enginePlugins: readonly EnginePlugin[] = [
   engineWind,
   engineWater,
   engineWaterWaves,
+  engineSky,
+  engineWeather,
   engineNoise,
   engineScene,
   engineEffects,
@@ -387,6 +401,8 @@ const DISPLAY_PLUGINS = [
   'effects',
   'vehicle/audio',
   'vehicle/effects',
+  'sky',
+  'weather',
 ]
 
 /**
@@ -421,6 +437,14 @@ export function resolvePlugins(
   if (names.has('audio/events')) names.add('audio')
   if (names.has('gestures')) names.add('input')
   if (names.has('render/forward')) {
+    names.add('render')
+    names.add('core/transform')
+  }
+  // Weather drives the sky's clouds; the sky reads the wind and draws with the forward renderer.
+  if (names.has('weather')) names.add('sky')
+  if (names.has('sky')) {
+    names.add('wind')
+    names.add('render/forward')
     names.add('render')
     names.add('core/transform')
   }
