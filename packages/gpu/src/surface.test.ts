@@ -80,6 +80,37 @@ describe('surfaces (0052)', () => {
       g.ResizeObserver = saved
     }
   })
+
+  it('renders at devicePixelRatio when the measured box says 1:1 (an emulated ratio)', async () => {
+    const gpu = await device()
+    const observed: ((entries: unknown[]) => void)[] = []
+    const g = globalThis as Record<string, unknown>
+    const saved = { ResizeObserver: g.ResizeObserver, devicePixelRatio: g.devicePixelRatio }
+    g.ResizeObserver = class {
+      constructor(fn: (entries: unknown[]) => void) {
+        observed.push(fn)
+      }
+      observe() {}
+      disconnect() {}
+    }
+    g.devicePixelRatio = 2
+    try {
+      const canvas = Object.assign(headlessCanvas(1, 1), { clientWidth: 640, clientHeight: 400 })
+      const surface = gpu.addSurface(canvas)
+      const box = [{ inlineSize: 640, blockSize: 400 }]
+      observed[0]!([{ contentBoxSize: box, devicePixelContentBoxSize: box }])
+      expect([canvas.width, canvas.height, surface.pixelRatio]).toEqual([1280, 800, 2])
+      // Where the two agree (a real 2x display), the exact measurement stands.
+      observed[0]!([
+        { contentBoxSize: box, devicePixelContentBoxSize: [{ inlineSize: 1281, blockSize: 801 }] },
+      ])
+      expect([canvas.width, canvas.height]).toEqual([1281, 801])
+      surface.remove()
+    } finally {
+      g.ResizeObserver = saved.ResizeObserver
+      g.devicePixelRatio = saved.devicePixelRatio
+    }
+  })
 })
 
 describe('GPU accounting (0052)', () => {

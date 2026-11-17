@@ -126,10 +126,18 @@ export class Surface {
     const w = box ? box.inlineSize : entry.contentRect?.width
     const h = box ? box.blockSize : entry.contentRect?.height
     const exact = entry.devicePixelContentBoxSize?.[0]
-    // The ratio the backing store really has: devicePixelRatio can disagree with the measured
-    // device pixels (embedded browsers), and CSS ↔ pixel conversions (0057, 0060) need the real one.
-    if (exact) this.resize(exact.inlineSize, exact.blockSize, w ? exact.inlineSize / w : dpr)
-    else this.resize((w ?? 0) * dpr, (h ?? 0) * dpr, dpr)
+    if (!exact) {
+      this.resize((w ?? 0) * dpr, (h ?? 0) * dpr, dpr)
+      return
+    }
+    // The measured device pixels are exact where browsers agree. Where they don't, the larger
+    // wins: a browser that emulates devicePixelRatio (an embedded one, a DevTools device) measures
+    // the box at 1:1 while compositing at the ratio, and a 1:1 backing store is then drawn
+    // upscaled and blurred. The ratio follows the backing store it settles on, so CSS ↔ pixel
+    // conversions (0057, 0060) stay true.
+    const scaled = w && h ? { inlineSize: w * dpr, blockSize: h * dpr } : undefined
+    const size = scaled && scaled.inlineSize > exact.inlineSize + 1 ? scaled : exact
+    this.resize(size.inlineSize, size.blockSize, w ? size.inlineSize / w : dpr)
   }
 
   private resize(w: number, h: number, dpr: number): void {
