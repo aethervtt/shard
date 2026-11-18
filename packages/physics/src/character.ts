@@ -18,7 +18,13 @@ import {
 } from './components'
 import { createGravitySources, gatherGravitySources, sampleGravity } from './gravity'
 import { createPose, parentOf, poseOf, rotate, worldToLocal } from './pose'
-import { CHARACTER_OFFSET, type CharacterRecord, Physics, type PhysicsWorld } from './world'
+import {
+  type BodyRecord,
+  CHARACTER_OFFSET,
+  type CharacterRecord,
+  Physics,
+  type PhysicsWorld,
+} from './world'
 
 const KIND_KINEMATIC_POSITION = 2
 const KIND_KINEMATIC_VELOCITY = 3
@@ -155,6 +161,9 @@ export const characterSystem = defineSystem({
     t2: vec(),
     r1: rot(),
     r2: rot(),
+    /** A velocity-based platform's velocities, kept while it's held fixed for a walk. */
+    lin: vec(),
+    ang: vec(),
     moved: vec(),
     rootIdentity: true,
   }),
@@ -395,6 +404,13 @@ function stepCharacter(
     bodies: { raw: unknown }
     colliders: { raw: unknown }
   }
+  // Rapier's controller moves a character touching a kinematic body with it ("kinematic
+  // friction"): after each hit, the part of what's left along the contact normal becomes the
+  // body's velocity times dt. That drops the nudge off the surface its slide adds, so a walk
+  // sliding up a tilted deck, even a still one, runs along it on the offset shell, meets it at
+  // time zero on every cast, and stops. The carry moves riders here: the walk sees the ground fixed.
+  const platform = wasGrounded ? kinematicGround(p, c.groundEntity[row]!) : undefined
+  if (platform) holdFixed(s, p, platform)
   kcc.raw.computeColliderMovement(
     dt,
     raw.broadPhase.raw,
@@ -409,6 +425,7 @@ function stepCharacter(
     ((c.layers[row]! & 0xffff) << 16) | (c.mask[row]! & ~p.config.characterIgnores & 0xffff),
     undefined,
   )
+  if (platform) release(s, p, platform)
   const mv = record.kcc.computedMovement(s.moved as RAPIER.Vector)
   const mvx = mv.x
   const mvy = mv.y
@@ -889,6 +906,44 @@ function probeGround(
   const e = p.colliderEntity.get(hit.collider.handle)
   out[3] = e === undefined ? -1 : (p.colliderOwner.get(e) ?? e)
   return true
+}
+
+/** The kinematic body a character stands on, if it does: not another character. */
+function kinematicGround(p: PhysicsWorld, ground: number): BodyRecord | undefined {
+  if (ground < 0) return undefined
+  const record = p.bodies.get(ground as Entity)
+  if (!record || p.characters.has(record.entity)) return undefined
+  return record.kind === KIND_KINEMATIC_POSITION || record.kind === KIND_KINEMATIC_VELOCITY
+    ? record
+    : undefined
+}
+
+/**
+ * Makes a kinematic body fixed for a walk. Fixed zeroes its velocities: a position-based body's
+ * come from its target at the step, and a velocity-based body's are kept for `release`.
+ */
+function holdFixed(s: State, p: PhysicsWorld, record: BodyRecord): void {
+  const body = record.body
+  if (record.kind === KIND_KINEMATIC_VELOCITY) {
+    body.linvel(s.lin as RAPIER.Vector)
+    if (p.dim === 3) body.angvel(s.ang as unknown as RAPIER.Vector)
+    else s.ang.z = body.angvel() as unknown as number
+  }
+  body.setBodyType(p.R.RigidBodyType.Fixed, false)
+}
+
+/** Makes a body `holdFixed` held kinematic again, with its velocities. */
+function release(s: State, p: PhysicsWorld, record: BodyRecord): void {
+  const body = record.body
+  const T = p.R.RigidBodyType
+  if (record.kind === KIND_KINEMATIC_POSITION) {
+    body.setBodyType(T.KinematicPositionBased, false)
+    return
+  }
+  body.setBodyType(T.KinematicVelocityBased, false)
+  body.setLinvel(s.lin as RAPIER.Vector, false)
+  if (p.dim === 3) body.setAngvel(s.ang as unknown as RAPIER.Vector, false)
+  else (body.setAngvel as unknown as (w: number, wake: boolean) => void)(s.ang.z, false)
 }
 
 /** How far a kinematic ground body moves the point (px, py, pz) over this step, into out. */

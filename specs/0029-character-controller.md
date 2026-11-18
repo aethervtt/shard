@@ -92,8 +92,9 @@ In `FixedUpdate`, after `physics/sync-in` and before `physics/step`:
    along the move, never pushing a body faster than the character walks. When the ground entity is
    a kinematic body, the motion of the character's position over the step is carried: from the
    body's next pose for `kinematic-position`, from its velocities for `kinematic-velocity`. The
-   walk is swept against the platform where it is now; the carry is swept after it, sliding, with
-   the platform's own colliders left out, so walls and other bodies still stop it.
+   walk is swept against the platform where it is now, with the platform held `fixed` for the
+   sweep; the carry is swept after it, sliding, with the platform's own colliders left out, so
+   walls and other bodies still stop it.
 
 ### Moves the game owns
 
@@ -132,6 +133,14 @@ each collider touched once, with its body and the surface normal toward the char
   target. Swept with the walk, a carry down or around met the platform's old surface and Rapier
   returned an erratic slide: a character on a bobbing raft slipped about 0.4 m toward the stern
   while it sped up.
+- **The walk sees its platform fixed.** Rapier's controller carries a character touching a
+  kinematic body by "kinematic friction": after each hit, the part of the move left along the
+  contact normal becomes the body's velocity times dt. That also removes the small nudge off the
+  surface its slide adds, so a walk sliding up a tilted deck, even a still one, runs along it on
+  its 1 cm gap, meets it at distance 0 on every cast, and stops: on a heaving, rolling raft, a
+  castaway stood still at full walking speed for 25+ steps. Rapier has no switch for it, so the
+  ground body's type is `fixed` around the walk's sweep and restored after (a velocity-based
+  body's velocities with it). Our carry moves the rider.
 - **Our own sweep for the carry and `moveAndSlide`, not Rapier's controller.** Starting exactly on
   its 1 cm gap from a kinematic body, Rapier's controller spends all its iterations at distance 0
   and barely moves, so a swimmer stuck to a raft's hull instead of sliding along it. Its shape casts
@@ -152,6 +161,8 @@ each collider touched once, with its body and the surface normal toward the char
 - [x] Standing on a moving kinematic platform carries the character with it.
 - [x] A character standing on a `kinematic-position` body that speeds up to 5 m/s at 1.2 m/s²
       while bobbing ±0.5 m keeps its place in the body's space within 2 cm.
+- [x] A character walking legs across a `kinematic-position` body that heaves ±0.5 m and rolls ±4°
+      keeps its walking speed in the body's space within 10% every step.
 - [x] `moveAndSlide` on a `CharacterSuspended` capsule stops at a fixed or kinematic box's face and
       slides along it; through open space it ends exactly at position + delta.
 - [x] Walking into a 10 kg dynamic box pushes it.

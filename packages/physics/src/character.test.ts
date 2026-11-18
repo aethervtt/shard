@@ -329,6 +329,78 @@ describe('character controller 3d', () => {
     expect(state(w, c).groundEntity).toBe(raft)
   })
 
+  it('walks at its speed across a kinematic platform that heaves and rolls', async () => {
+    const a = await app()
+    const w = a.world
+    // A raft 1 m up, heaving ±0.5 m every 4 s and rolling ±4° every 3 s. Walking up its tilt, even
+    // a still one, Rapier's controller stopped dead (its kinematic friction, see stepCharacter).
+    const raft = w.spawn(
+      [RigidBody, { kind: 'kinematic-position' }],
+      [Collider, { shape: 'cuboid', halfExtents: [4, 0.25, 4] }],
+      [Transform, { translation: [0, 1, 0] }],
+    )
+    const c = character(w, [0, 1.25 + HALF + 0.05, 0])
+    frames(a, 30)
+    expect(state(w, c).groundEntity).toBe(raft)
+    const speed = 3
+    const rotation: [number, number, number, number] = [0, 0, 0, 1]
+    // The character's place on the deck, in the raft's space: conj(q) · (p - t), x and z.
+    const onDeck = (out: number[]) => {
+      const r = w.get(raft, Transform)
+      const [px, py, pz] = pos(w, c)
+      const x = px - r.translation[0]!
+      const y = py - r.translation[1]!
+      const z = pz - r.translation[2]!
+      const [qx, qy, qz, qw] = r.rotation
+      const tx = 2 * (-qy! * z + qz! * y)
+      const ty = 2 * (-qz! * x + qx! * z)
+      const tz = 2 * (-qx! * y + qy! * x)
+      out[0] = x + qw! * tx - qy! * tz + qz! * ty
+      out[1] = z + qw! * tz - qx! * ty + qy! * tx
+    }
+    const before = [0, 0]
+    const after = [0, 0]
+    let tick = 0
+    let worst = 0
+    let where = ''
+    // Two rounds of 1 s legs along ±x and ±z, from the middle.
+    for (const [dx, dz] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ] as const) {
+      walk(w, c, [dx * speed, 0, dz * speed])
+      for (let i = 0; i < 60; i++) {
+        const t = ++tick * DT
+        const roll = ((4 * Math.PI) / 180) * Math.sin((t * 2 * Math.PI) / 3)
+        rotation[2] = Math.sin(roll / 2)
+        rotation[3] = Math.cos(roll / 2)
+        onDeck(before)
+        w.set(raft, Transform, {
+          translation: [0, 1 + 0.5 * Math.sin((t * 2 * Math.PI) / 4), 0],
+          rotation,
+        })
+        a.update(DT)
+        onDeck(after)
+        // The first step turns round.
+        if (i === 0) continue
+        const along = ((after[0]! - before[0]!) * dx + (after[1]! - before[1]!) * dz) / (speed * DT)
+        if (Math.abs(along - 1) > worst) {
+          worst = Math.abs(along - 1)
+          where = `leg (${dx}, ${dz}), step ${i}: ${along.toFixed(3)} of its speed`
+        }
+      }
+    }
+    expect(worst, where).toBeLessThan(0.1)
+    expect(state(w, c).grounded).toBe(true)
+    expect(state(w, c).groundEntity).toBe(raft)
+  })
+
   it('pushes a 10 kg box it walks into', async () => {
     const a = await app()
     const w = a.world
